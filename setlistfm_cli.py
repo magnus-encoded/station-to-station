@@ -5,6 +5,7 @@ import sys
 import click
 import requests
 import time
+from datetime import datetime # Import the datetime module
 
 # --- Configuration ---
 def get_api_key(api_key_param):
@@ -59,10 +60,9 @@ def make_api_request(api_key, accept_header, endpoint, params=None):
     else:
         params = {}
     
-    # --- NEW: Retry Logic ---
     max_retries = 3
-    backoff_factor = 2 # The delay will double with each retry (1s, 2s, 4s)
-    delay = 1 # Initial delay in seconds
+    backoff_factor = 2
+    delay = 1
 
     for attempt in range(max_retries):
         try:
@@ -70,7 +70,6 @@ def make_api_request(api_key, accept_header, endpoint, params=None):
             response.raise_for_status()
             return response.json()
         except requests.exceptions.HTTPError as err:
-            # Only retry on "Too Many Requests" or server errors (5xx)
             if err.response.status_code == 429 or err.response.status_code >= 500:
                 if attempt < max_retries - 1:
                     click.echo(f"Warning: Received status {err.response.status_code}. Retrying in {delay}s...", err=True)
@@ -79,15 +78,14 @@ def make_api_request(api_key, accept_header, endpoint, params=None):
                 else:
                     click.echo(f"Error: Received status {err.response.status_code} after {max_retries} attempts.", err=True)
                     click.echo(err.response.text, err=True)
-                    return None # Give up after last retry
+                    return None
             else:
-                # For other client errors (400, 401, 404), fail immediately
                 click.echo(f"Error: {err.response.status_code} {err.response.reason}", err=True)
                 click.echo(err.response.text, err=True)
                 return None
         except requests.exceptions.RequestException as e:
             click.echo(f"A network error occurred: {e}", err=True)
-            return None # Don't retry on network errors for this script
+            return None
     return None
 
 # --- HTML Generation ---
@@ -123,7 +121,19 @@ def generate_html_report(setlists, user_id, limit_reached, max_requests):
     if not setlists:
         html += "<p>No attended concerts found.</p>"
     else:
-        for setlist in sorted(setlists, key=lambda x: x['eventDate'], reverse=True):
+        # --- THE FIX ---
+        # Helper function to parse date string into a real date object for sorting.
+        # This handles potential errors if a date is missing or malformed.
+        def sort_key(setlist):
+            try:
+                # The API format is DD-MM-YYYY
+                return datetime.strptime(setlist.get('eventDate'), '%d-%m-%Y')
+            except (ValueError, TypeError):
+                # If date is invalid, treat it as the oldest possible date for sorting.
+                return datetime.min
+
+        # Sort using the new key function for correct chronological order.
+        for setlist in sorted(setlists, key=sort_key, reverse=True):
             artist = setlist.get('artist', {}).get('name', 'N/A')
             venue = setlist.get('venue', {}).get('name', 'N/A')
             city = setlist.get('venue', {}).get('city', {}).get('name', 'N/A')
@@ -190,7 +200,7 @@ def artist(ctx, mbid):
 
 @cli.command(name='user-attended')
 @click.argument('user_id')
-@click.option('--rate-limit', type=float, default=1.0, help='Requests per second limit.', show_default=True) # CHANGED DEFAULT
+@click.option('--rate-limit', type=float, default=1.0, help='Requests per second limit.', show_default=True)
 @click.option('--max-requests', type=int, default=1440, help='Maximum requests per run to avoid hitting daily API limits.', show_default=True)
 @click.pass_context
 def user_attended(ctx, user_id, rate_limit, max_requests):
@@ -199,7 +209,6 @@ def user_attended(ctx, user_id, rate_limit, max_requests):
     page = 1
     limit_hit = False
     
-    # Calculate sleep duration based on the rate limit. Ensure it's not negative.
     sleep_duration = 1.0 / rate_limit if rate_limit > 0 else 0
     
     click.echo(f"Fetching attended concerts for {user_id}...", err=True)
