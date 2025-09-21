@@ -2,6 +2,7 @@ import unittest
 import json
 from unittest.mock import patch, Mock
 from click.testing import CliRunner
+import requests  # <-- FIX 1: Import the requests library
 
 # Import the cli function from your script
 import setlistfm_cli
@@ -47,10 +48,11 @@ class SetlistFMCliTests(unittest.TestCase):
         self.assertEqual(json.loads(result.output), expected_json)
 
         # Verify requests.get was called correctly
+        # <-- FIX 2: Update params to match the filtered dictionary from the script
         mock_get.assert_called_once_with(
             'https://api.setlist.fm/rest/1.0/search/artists',
             headers={'x-api-key': 'fakekey', 'Accept': 'application/json'},
-            params={'artistName': 'Metallica', 'artistMbid': None, 'p': None}
+            params={'artistName': 'Metallica'}
         )
 
     @patch('setlistfm_cli.requests.get')
