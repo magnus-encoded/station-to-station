@@ -105,7 +105,9 @@ def generate_html_report(setlists, user_id, limit_reached, max_requests):
             .concert {{ border-bottom: 1px solid #eee; padding: 15px 0; }}
             .concert:last-child {{ border-bottom: none; }}
             .date {{ font-weight: bold; color: #555; }}
-            .artist {{ font-size: 1.2em; font-weight: bold; color: #1DB954; }}
+            .artist {{ font-size: 1.2em; font-weight: bold; }}
+            .artist a {{ color: #1DB954; text-decoration: none; }}
+            .artist a:hover {{ text-decoration: underline; }}
             .venue {{ font-style: italic; color: #777; }}
             .warning {{ background-color: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 10px; border-radius: 5px; margin-top: 20px; }}
         </style>
@@ -121,29 +123,26 @@ def generate_html_report(setlists, user_id, limit_reached, max_requests):
     if not setlists:
         html += "<p>No attended concerts found.</p>"
     else:
-        # --- THE FIX ---
-        # Helper function to parse date string into a real date object for sorting.
-        # This handles potential errors if a date is missing or malformed.
         def sort_key(setlist):
             try:
-                # The API format is DD-MM-YYYY
                 return datetime.strptime(setlist.get('eventDate'), '%d-%m-%Y')
             except (ValueError, TypeError):
-                # If date is invalid, treat it as the oldest possible date for sorting.
                 return datetime.min
 
-        # Sort using the new key function for correct chronological order.
         for setlist in sorted(setlists, key=sort_key, reverse=True):
             artist = setlist.get('artist', {}).get('name', 'N/A')
             venue = setlist.get('venue', {}).get('name', 'N/A')
             city = setlist.get('venue', {}).get('city', {}).get('name', 'N/A')
             country = setlist.get('venue', {}).get('city', {}).get('country', {}).get('name', 'N/A')
             event_date = setlist.get('eventDate', 'N/A')
+            url = setlist.get('url', '#') # Get the URL for the setlist
 
+            # --- THE FIX ---
+            # The artist name is now a clickable link
             html += f"""
             <div class="concert">
                 <div class="date">{event_date}</div>
-                <div class="artist">{artist}</div>
+                <div class="artist"><a href="{url}" target="_blank" rel="noopener noreferrer">{artist}</a></div>
                 <div class="venue">{venue} in {city}, {country}</div>
             </div>
             """
