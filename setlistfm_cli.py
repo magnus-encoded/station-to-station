@@ -4,6 +4,7 @@ import json
 import sys
 import click
 import requests
+import time
 
 # --- Configuration ---
 def get_api_key(api_key_param):
@@ -53,7 +54,6 @@ def make_api_request(api_key, accept_header, endpoint, params=None):
         'Accept': accept_header
     }
     
-    # Filter out None values from params
     if params:
         params = {k: v for k, v in params.items() if v is not None}
     else:
@@ -61,17 +61,20 @@ def make_api_request(api_key, accept_header, endpoint, params=None):
 
     try:
         response = requests.get(f"{base_url}/{endpoint}", headers=headers, params=params)
-        response.raise_for_status()  # Raises an HTTPError for bad responses (4xx or 5xx)
+        response.raise_for_status()
         return response.json()
     except requests.exceptions.HTTPError as err:
-        click.echo(f"Error: {err.response.status_code} {err.response.reason}", err=True)
-        click.echo(err.response.text, err=True)
+        if err.response.status_code == 429:
+             click.echo("Error: 429 Too Many Requests. The API rate limit was exceeded.", err=True)
+        else:
+            click.echo(f"Error: {err.response.status_code} {err.response.reason}", err=True)
+            click.echo(err.response.text, err=True)
     except requests.exceptions.RequestException as e:
         click.echo(f"A network error occurred: {e}", err=True)
     return None
 
 # --- HTML Generation ---
-def generate_html_report(setlists, user_id):
+def generate_html_report(setlists, user_id, limit_reached, max_requests):
     """Generates an HTML report from a list of setlists."""
     html = f"""
     <!DOCTYPE html>
@@ -89,12 +92,16 @@ def generate_html_report(setlists, user_id):
             .date {{ font-weight: bold; color: #555; }}
             .artist {{ font-size: 1.2em; font-weight: bold; color: #1DB954; }}
             .venue {{ font-style: italic; color: #777; }}
+            .warning {{ background-color: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 10px; border-radius: 5px; margin-top: 20px; }}
         </style>
     </head>
     <body>
         <div class="container">
             <h1>Concert History for {user_id}</h1>
     """
+
+    if limit_reached:
+        html += f"<p class='warning'><b>Note:</b> This report may be incomplete because the run was configured to stop after a maximum of {max_requests} requests.</p>"
 
     if not setlists:
         html += "<p>No attended concerts found.</p>"
@@ -166,18 +173,33 @@ def artist(ctx, mbid):
 
 @cli.command(name='user-attended')
 @click.argument('user_id')
+@click.option('--rate-limit', type=float, default=2.0, help='Requests per second limit.', show_default=True)
+@click.option('--max-requests', type=int, default=1440, help='Maximum requests per run to avoid hitting daily API limits.', show_default=True)
 @click.pass_context
-def user_attended(ctx, user_id):
+def user_attended(ctx, user_id, rate_limit, max_requests):
     """Get a user's attended concerts and generate an HTML report."""
     all_setlists = []
     page = 1
+    limit_hit = False
     
-    while True:
+    # Calculate sleep duration based on the rate limit. Ensure it's not negative.
+    sleep_duration = 1.0 / rate_limit if rate_limit > 0 else 0
+    
+    click.echo(f"Fetching attended concerts for {user_id}...", err=True)
+    click.echo(f"Rate limit: {rate_limit}/sec, Max requests: {max_requests}", err=True)
+
+    while page <= max_requests:
         endpoint = f'user/{user_id}/attended'
         params = {'p': page}
+        
+        click.echo(f" - Fetching page {page} of max {max_requests}...", err=True)
         data = make_api_request(ctx.obj['API_KEY'], ctx.obj['ACCEPT_HEADER'], endpoint, params)
         
-        if not data or 'setlist' not in data or not data['setlist']:
+        if not data:
+            click.echo("Stopping due to API error.", err=True)
+            break
+            
+        if 'setlist' not in data or not data['setlist']:
             break
             
         all_setlists.extend(data['setlist'])
@@ -189,8 +211,16 @@ def user_attended(ctx, user_id):
             break
         
         page += 1
+        
+        if page > max_requests:
+            limit_hit = True
+            click.echo(f"Stopping: Reached max requests limit of {max_requests}.", err=True)
+            break
+        
+        time.sleep(sleep_duration)
 
-    html_output = generate_html_report(all_setlists, user_id)
+    click.echo(f"Finished fetching. Found {len(all_setlists)} concerts.", err=True)
+    html_output = generate_html_report(all_setlists, user_id, limit_hit, max_requests)
     click.echo(html_output)
 
 if __name__ == '__main__':
