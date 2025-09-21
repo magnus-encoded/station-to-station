@@ -1,15 +1,10 @@
 # This workflow is named "Generate Concerts Report"
 name: Generate Concerts Report
 
-# This allows the workflow to be triggered manually from the Actions tab
+# This allows the workflow to be triggered manually from the Actions tab.
+# No inputs are needed as it will use repository secrets.
 on:
   workflow_dispatch:
-    # Define inputs that the user will provide when running the workflow
-    inputs:
-      userId:
-        description: 'Your setlist.fm User ID'
-        required: true
-        type: string
 
 jobs:
   # A single job to generate the report
@@ -34,14 +29,13 @@ jobs:
           pip install -r requirements.txt
 
       # Step 4: Run the CLI to generate the report
-      # It uses the provided userId and the repository secret for the API key.
+      # It now uses repository secrets for both the API key and the user ID.
       # The output is redirected to a file named 'concerts.html'.
       - name: Generate HTML report
         run: |
-          python setlistfm_cli.py --api-key ${{ secrets.SETLISTFM_API_KEY }} user-attended ${{ github.event.inputs.userId }} > concerts.html
+          python setlistfm_cli.py --api-key ${{ secrets.SETLISTFM_API_KEY }} user-attended ${{ secrets.SETLISTFM_USER_ID }} > concerts.html
 
       # Step 5: Upload the generated HTML file as a build artifact
-      # This makes the file downloadable from the workflow run page.
       - name: Upload concert report artifact
         uses: actions/upload-artifact@v4
         with:
