@@ -47,7 +47,7 @@ def get_accept_header(accept_header_param):
 
 # --- API Request Logic ---
 def make_api_request(api_key, accept_header, endpoint, params=None):
-    """Makes a request to the setlist.fm API and handles errors."""
+    """Makes a request to the setlist.fm API and handles errors with retries."""
     base_url = "https://api.setlist.fm/rest/1.0"
     headers = {
         'x-api-key': api_key,
@@ -58,19 +58,36 @@ def make_api_request(api_key, accept_header, endpoint, params=None):
         params = {k: v for k, v in params.items() if v is not None}
     else:
         params = {}
+    
+    # --- NEW: Retry Logic ---
+    max_retries = 3
+    backoff_factor = 2 # The delay will double with each retry (1s, 2s, 4s)
+    delay = 1 # Initial delay in seconds
 
-    try:
-        response = requests.get(f"{base_url}/{endpoint}", headers=headers, params=params)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.HTTPError as err:
-        if err.response.status_code == 429:
-             click.echo("Error: 429 Too Many Requests. The API rate limit was exceeded.", err=True)
-        else:
-            click.echo(f"Error: {err.response.status_code} {err.response.reason}", err=True)
-            click.echo(err.response.text, err=True)
-    except requests.exceptions.RequestException as e:
-        click.echo(f"A network error occurred: {e}", err=True)
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(f"{base_url}/{endpoint}", headers=headers, params=params)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.HTTPError as err:
+            # Only retry on "Too Many Requests" or server errors (5xx)
+            if err.response.status_code == 429 or err.response.status_code >= 500:
+                if attempt < max_retries - 1:
+                    click.echo(f"Warning: Received status {err.response.status_code}. Retrying in {delay}s...", err=True)
+                    time.sleep(delay)
+                    delay *= backoff_factor
+                else:
+                    click.echo(f"Error: Received status {err.response.status_code} after {max_retries} attempts.", err=True)
+                    click.echo(err.response.text, err=True)
+                    return None # Give up after last retry
+            else:
+                # For other client errors (400, 401, 404), fail immediately
+                click.echo(f"Error: {err.response.status_code} {err.response.reason}", err=True)
+                click.echo(err.response.text, err=True)
+                return None
+        except requests.exceptions.RequestException as e:
+            click.echo(f"A network error occurred: {e}", err=True)
+            return None # Don't retry on network errors for this script
     return None
 
 # --- HTML Generation ---
@@ -173,7 +190,7 @@ def artist(ctx, mbid):
 
 @cli.command(name='user-attended')
 @click.argument('user_id')
-@click.option('--rate-limit', type=float, default=2.0, help='Requests per second limit.', show_default=True)
+@click.option('--rate-limit', type=float, default=1.0, help='Requests per second limit.', show_default=True) # CHANGED DEFAULT
 @click.option('--max-requests', type=int, default=1440, help='Maximum requests per run to avoid hitting daily API limits.', show_default=True)
 @click.pass_context
 def user_attended(ctx, user_id, rate_limit, max_requests):
@@ -192,7 +209,7 @@ def user_attended(ctx, user_id, rate_limit, max_requests):
         endpoint = f'user/{user_id}/attended'
         params = {'p': page}
         
-        click.echo(f" - Fetching page {page} of max {max_requests}...", err=True)
+        click.echo(f" - Fetching page {page}...", err=True)
         data = make_api_request(ctx.obj['API_KEY'], ctx.obj['ACCEPT_HEADER'], endpoint, params)
         
         if not data:
