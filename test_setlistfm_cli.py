@@ -2,7 +2,7 @@ import unittest
 import json
 from unittest.mock import patch, Mock
 from click.testing import CliRunner
-import requests  # <-- FIX 1: Import the requests library
+import requests
 
 # Import the cli function from your script
 import setlistfm_cli
@@ -10,8 +10,9 @@ import setlistfm_cli
 class SetlistFMCliTests(unittest.TestCase):
 
     def setUp(self):
-        """Set up the test runner."""
-        self.runner = CliRunner()
+        """Set up the test runner to capture stderr separately."""
+        # FIX 1: Initialize CliRunner with mix_stderr=False
+        self.runner = CliRunner(mix_stderr=False)
 
     @patch('setlistfm_cli.requests.get')
     def test_search_artists_success(self, mock_get):
@@ -48,7 +49,6 @@ class SetlistFMCliTests(unittest.TestCase):
         self.assertEqual(json.loads(result.output), expected_json)
 
         # Verify requests.get was called correctly
-        # <-- FIX 2: Update params to match the filtered dictionary from the script
         mock_get.assert_called_once_with(
             'https://api.setlist.fm/rest/1.0/search/artists',
             headers={'x-api-key': 'fakekey', 'Accept': 'application/json'},
@@ -96,7 +96,8 @@ class SetlistFMCliTests(unittest.TestCase):
         
         # Assert that the command failed
         self.assertNotEqual(result.exit_code, 0)
-        self.assertIn("API key not found", result.output)
+        # FIX 2: Check result.stderr instead of result.output for the error message
+        self.assertIn("API key not found", result.stderr)
 
     @patch('setlistfm_cli.requests.get')
     def test_api_http_error(self, mock_get):
