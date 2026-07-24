@@ -9,11 +9,15 @@ plugins {
 // have to enter a setlist.fm API key. Supplied via gradle property, env var
 // (CI secrets), or left blank — the app then falls back to manual entry in
 // Settings. PKCE needs no client secret, so shipping the client ID is safe.
-val spotifyClientId =
-    (project.findProperty("SPOTIFY_CLIENT_ID") as String?) ?: System.getenv("SPOTIFY_CLIENT_ID")
-        ?: "bab4fc1ae9e94f3b936fbda65be76bc7"
-val setlistFmApiKey =
-    (project.findProperty("SETLISTFM_API_KEY") as String?) ?: System.getenv("SETLISTFM_API_KEY") ?: ""
+// CI sets these env vars even when the backing secret is missing, so blank
+// values must count as absent or they mask the built-in default.
+fun credential(name: String, default: String = ""): String =
+    (project.findProperty(name) as String?)?.takeUnless { it.isBlank() }
+        ?: System.getenv(name)?.takeUnless { it.isBlank() }
+        ?: default
+
+val spotifyClientId = credential("SPOTIFY_CLIENT_ID", default = "bab4fc1ae9e94f3b936fbda65be76bc7")
+val setlistFmApiKey = credential("SETLISTFM_API_KEY")
 
 android {
     namespace = "io.github.magnusencoded.setlist2spotify"
@@ -24,7 +28,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 1
-        versionName = "1.0"
+        versionName = "1.1" + (System.getenv("GITHUB_RUN_NUMBER")?.let { ".$it" } ?: "")
         buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")
         buildConfigField("String", "SETLISTFM_API_KEY", "\"$setlistFmApiKey\"")
     }
