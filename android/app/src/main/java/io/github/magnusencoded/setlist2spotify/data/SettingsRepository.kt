@@ -1,0 +1,77 @@
+package io.github.magnusencoded.setlist2spotify.data
+
+import android.content.Context
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+
+private val Context.dataStore by preferencesDataStore(name = "settings")
+
+class SettingsRepository(private val context: Context) {
+
+    private object Keys {
+        val SETLISTFM_API_KEY = stringPreferencesKey("setlistfm_api_key")
+        val SPOTIFY_CLIENT_ID = stringPreferencesKey("spotify_client_id")
+        val SPOTIFY_ACCESS_TOKEN = stringPreferencesKey("spotify_access_token")
+        val SPOTIFY_REFRESH_TOKEN = stringPreferencesKey("spotify_refresh_token")
+        val SPOTIFY_TOKEN_EXPIRY = longPreferencesKey("spotify_token_expiry")
+        val PKCE_VERIFIER = stringPreferencesKey("pkce_verifier")
+    }
+
+    val setlistFmApiKey: Flow<String?> =
+        context.dataStore.data.map { it[Keys.SETLISTFM_API_KEY]?.ifBlank { null } }
+    val spotifyClientId: Flow<String?> =
+        context.dataStore.data.map { it[Keys.SPOTIFY_CLIENT_ID]?.ifBlank { null } }
+    val spotifyRefreshToken: Flow<String?> =
+        context.dataStore.data.map { it[Keys.SPOTIFY_REFRESH_TOKEN]?.ifBlank { null } }
+
+    suspend fun setlistFmApiKeyValue(): String? = setlistFmApiKey.first()
+    suspend fun spotifyClientIdValue(): String? = spotifyClientId.first()
+
+    suspend fun saveSetlistFmApiKey(value: String) {
+        context.dataStore.edit { it[Keys.SETLISTFM_API_KEY] = value.trim() }
+    }
+
+    suspend fun saveSpotifyClientId(value: String) {
+        context.dataStore.edit { it[Keys.SPOTIFY_CLIENT_ID] = value.trim() }
+    }
+
+    suspend fun savePkceVerifier(value: String) {
+        context.dataStore.edit { it[Keys.PKCE_VERIFIER] = value }
+    }
+
+    suspend fun pkceVerifier(): String? =
+        context.dataStore.data.map { it[Keys.PKCE_VERIFIER] }.first()
+
+    suspend fun saveTokens(accessToken: String, refreshToken: String?, expiresInSeconds: Long) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.SPOTIFY_ACCESS_TOKEN] = accessToken
+            // Refresh one minute early to avoid using a token that expires mid-request.
+            prefs[Keys.SPOTIFY_TOKEN_EXPIRY] =
+                System.currentTimeMillis() + (expiresInSeconds - 60) * 1000
+            if (refreshToken != null) prefs[Keys.SPOTIFY_REFRESH_TOKEN] = refreshToken
+        }
+    }
+
+    suspend fun validAccessToken(): String? {
+        val prefs = context.dataStore.data.first()
+        val token = prefs[Keys.SPOTIFY_ACCESS_TOKEN] ?: return null
+        val expiry = prefs[Keys.SPOTIFY_TOKEN_EXPIRY] ?: 0L
+        return if (System.currentTimeMillis() < expiry) token else null
+    }
+
+    suspend fun refreshTokenValue(): String? = spotifyRefreshToken.first()
+
+    suspend fun clearSpotifyAuth() {
+        context.dataStore.edit { prefs ->
+            prefs.remove(Keys.SPOTIFY_ACCESS_TOKEN)
+            prefs.remove(Keys.SPOTIFY_REFRESH_TOKEN)
+            prefs.remove(Keys.SPOTIFY_TOKEN_EXPIRY)
+            prefs.remove(Keys.PKCE_VERIFIER)
+        }
+    }
+}
