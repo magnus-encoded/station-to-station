@@ -10,7 +10,8 @@ plugins {
 // (CI secrets), or left blank — the app then falls back to manual entry in
 // Settings. PKCE needs no client secret, so shipping the client ID is safe.
 val spotifyClientId =
-    (project.findProperty("SPOTIFY_CLIENT_ID") as String?) ?: System.getenv("SPOTIFY_CLIENT_ID") ?: ""
+    (project.findProperty("SPOTIFY_CLIENT_ID") as String?) ?: System.getenv("SPOTIFY_CLIENT_ID")
+        ?: "bab4fc1ae9e94f3b936fbda65be76bc7"
 val setlistFmApiKey =
     (project.findProperty("SETLISTFM_API_KEY") as String?) ?: System.getenv("SETLISTFM_API_KEY") ?: ""
 
