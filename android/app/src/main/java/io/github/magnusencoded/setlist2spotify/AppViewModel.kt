@@ -46,6 +46,8 @@ data class UiState(
     val setlistFmReady: Boolean = false,
     val bundledSpotifyClientId: Boolean = false,
     val bundledSetlistFmKey: Boolean = false,
+    /** Scopes granted at the last Spotify login; null when unknown. */
+    val grantedScope: String? = null,
     // Search
     val artistQuery: String = "",
     val userQuery: String = "",
@@ -94,6 +96,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     setlistFmReady = settings.setlistFmApiKeyValue() != null,
                     bundledSpotifyClientId = settings.hasBundledSpotifyClientId(),
                     bundledSetlistFmKey = settings.hasBundledSetlistFmKey(),
+                    grantedScope = settings.grantedScope(),
                 )
             }
         }
@@ -139,7 +142,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 when {
                     code != null -> {
                         spotify.exchangeCodeForTokens(code)
-                        _state.update { it.copy(spotifyConnected = true) }
+                        _state.update {
+                            it.copy(spotifyConnected = true, grantedScope = settings.grantedScope())
+                        }
                     }
                     authError != null ->
                         _state.update { it.copy(error = "Spotify login failed: $authError") }
@@ -153,7 +158,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun disconnectSpotify() {
         viewModelScope.launch {
             settings.clearSpotifyAuth()
-            _state.update { it.copy(spotifyConnected = false) }
+            _state.update { it.copy(spotifyConnected = false, grantedScope = null) }
         }
     }
 
@@ -362,11 +367,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(creatingPlaylist = true) }
         viewModelScope.launch {
             try {
-                if (spotify.hasPlaylistScopes() == false) {
+                // Unknown scope means the login predates scope tracking — the
+                // remedy is the same as a missing scope: a fresh login.
+                if (spotify.hasPlaylistScopes() != true) {
                     throw IllegalStateException(
                         "Your Spotify login is missing playlist permissions. " +
                             "Log out in Settings, then log in again and approve " +
-                            "the playlist access on the consent screen."
+                            "the playlist access on the Spotify page that opens."
                     )
                 }
                 val description = buildString {
