@@ -1,6 +1,5 @@
 package io.github.magnusencoded.setlist2spotify.ui
 
-import android.content.Intent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -80,69 +79,80 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
         ) {
-            Text("setlist.fm", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Request a free API key at api.setlist.fm.",
-                style = MaterialTheme.typography.bodySmall,
-            )
+            Text("Spotify", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = apiKey,
-                onValueChange = { apiKey = it },
-                label = { Text("setlist.fm API key") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            if (state.spotifyConnected) {
+                Text("✓ Logged in with Spotify", color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { viewModel.disconnectSpotify() },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Log out") }
+            } else {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            viewModel.saveSettingsNow(apiKey, clientId)
+                            startSpotifyLogin(context, viewModel)?.let {
+                                snackbarHostState.showSnackbar(it)
+                            }
+                        }
+                    },
+                    enabled = state.bundledSpotifyClientId || clientId.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Log in with Spotify") }
+            }
+            if (!state.bundledSpotifyClientId) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "This build has no bundled Spotify app. Create one at " +
+                        "developer.spotify.com/dashboard with redirect URI " +
+                        "$SPOTIFY_REDIRECT_URI and paste its Client ID:",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = clientId,
+                    onValueChange = { clientId = it },
+                    label = { Text("Spotify Client ID") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
 
             Spacer(Modifier.height(24.dp))
             HorizontalDivider()
             Spacer(Modifier.height(24.dp))
 
-            Text("Spotify", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Create an app at developer.spotify.com/dashboard and add this redirect URI:\n$SPOTIFY_REDIRECT_URI",
-                style = MaterialTheme.typography.bodySmall,
-            )
+            Text("setlist.fm", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = clientId,
-                onValueChange = { clientId = it },
-                label = { Text("Spotify Client ID") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            if (state.bundledSetlistFmKey) {
+                Text(
+                    "Using the bundled setlist.fm API key. The setlist.fm API has no " +
+                        "user login — to load your attended concerts, just enter your " +
+                        "setlist.fm username on the My concerts tab.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            } else {
+                Text(
+                    "Request a free API key at api.setlist.fm.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = apiKey,
+                    onValueChange = { apiKey = it },
+                    label = { Text("setlist.fm API key") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
 
             Spacer(Modifier.height(16.dp))
             Button(
                 onClick = { viewModel.saveSettings(apiKey, clientId) },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Save") }
-
-            Spacer(Modifier.height(16.dp))
-            if (state.spotifyConnected) {
-                Text("✓ Connected to Spotify", color = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = { viewModel.disconnectSpotify() },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Disconnect Spotify") }
-            } else {
-                Button(
-                    onClick = {
-                        viewModel.saveSettings(apiKey, clientId)
-                        scope.launch {
-                            try {
-                                val uri = viewModel.buildSpotifyAuthUri()
-                                context.startActivity(Intent(Intent.ACTION_VIEW, uri))
-                            } catch (e: Exception) {
-                                snackbarHostState.showSnackbar(e.message ?: "Could not start login")
-                            }
-                        }
-                    },
-                    enabled = clientId.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Connect Spotify") }
-            }
         }
     }
 }

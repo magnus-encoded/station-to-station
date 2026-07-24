@@ -39,8 +39,15 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import android.content.Intent
+import android.net.Uri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.magnusencoded.setlist2spotify.AppViewModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,6 +67,9 @@ fun SearchScreen(
         }
     }
 
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -74,7 +84,7 @@ fun SearchScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            if (state.setlistFmApiKey.isBlank()) {
+            if (!state.setlistFmReady) {
                 Text(
                     "Add your setlist.fm API key in Settings to get started.",
                     color = MaterialTheme.colorScheme.error,
@@ -84,6 +94,22 @@ fun SearchScreen(
                         .clickable(onClick = onOpenSettings)
                         .padding(16.dp),
                 )
+            }
+            if (!state.spotifyConnected) {
+                Button(
+                    onClick = {
+                        if (state.spotifyLoginReady) {
+                            scope.launch {
+                                startSpotifyLogin(context, viewModel)?.let {
+                                    snackbarHostState.showSnackbar(it)
+                                }
+                            }
+                        } else {
+                            onOpenSettings()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                ) { Text("Log in with Spotify") }
             }
             TabRow(selectedTabIndex = tab) {
                 Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Search artist") })
@@ -142,9 +168,12 @@ private fun ArtistTab(viewModel: AppViewModel, onOpenSetlists: () -> Unit) {
 @Composable
 private fun UserTab(viewModel: AppViewModel, onOpenSetlists: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text(
-            "Load the concerts you marked as attended on setlist.fm.",
+            "Load the concerts you marked as attended on setlist.fm. " +
+                "Enter your setlist.fm username — the setlist.fm API has no app login, " +
+                "so no password is needed here.",
             style = MaterialTheme.typography.bodyMedium,
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -166,6 +195,13 @@ private fun UserTab(viewModel: AppViewModel, onOpenSetlists: () -> Unit) {
             }) {
                 Icon(Icons.Default.Search, contentDescription = "Load")
             }
+        }
+        TextButton(onClick = {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse("https://www.setlist.fm/signin"))
+            )
+        }) {
+            Text("Forgot your username? Sign in on setlist.fm (Google login supported)")
         }
     }
 }

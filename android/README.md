@@ -13,21 +13,20 @@ An Android companion app for the setlist.fm CLI in this repository. It lets you:
 4. **Create the playlist** in your Spotify account (created as private) and
    open it directly in Spotify.
 
-## Setup
+## Logins
 
-### setlist.fm API key
-
-Request a free key at <https://api.setlist.fm/docs/1.0/index.html> and enter it
-in the app under **Settings**.
-
-### Spotify
-
-The app uses the Authorization Code flow with PKCE, so no client secret is
-needed — but you need your own Spotify application:
-
-1. Create an app at <https://developer.spotify.com/dashboard>.
-2. Add this redirect URI to the app: `setlist2spotify://callback`
-3. Copy the **Client ID** into the app's Settings and tap **Connect Spotify**.
+- **Spotify** — one-tap "Log in with Spotify" (Authorization Code + PKCE, no
+  client secret). The Spotify Client ID is baked in at build time via the
+  `SPOTIFY_CLIENT_ID` Gradle property / environment variable (set the
+  `SPOTIFY_CLIENT_ID` repo secret for CI builds). Register the app at
+  <https://developer.spotify.com/dashboard> with redirect URI
+  `setlist2spotify://callback`. If a build has no bundled ID, the Settings
+  screen falls back to manual Client ID entry.
+- **setlist.fm** — the setlist.fm API has **no user login** (no OAuth, no
+  Google): it uses an API key plus public usernames. The key is baked in the
+  same way via `SETLISTFM_API_KEY` (or entered in Settings). To find your
+  username, the "My concerts" tab links to setlist.fm's own sign-in page,
+  which supports Google login.
 
 ## Building
 

@@ -27,6 +27,11 @@ jobs:
 
       - name: Build debug APK
         working-directory: android
+        env:
+          # Optional repo secrets; when set, the APK ships with one-tap
+          # "Log in with Spotify" and a bundled setlist.fm API key.
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+          SETLISTFM_API_KEY: ${{ secrets.SETLISTFM_API_KEY }}
         run: ./gradlew --no-daemon assembleDebug
 
       - name: Upload APK artifact

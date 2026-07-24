@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import io.github.magnusencoded.setlist2spotify.BuildConfig
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -29,8 +30,16 @@ class SettingsRepository(private val context: Context) {
     val spotifyRefreshToken: Flow<String?> =
         context.dataStore.data.map { it[Keys.SPOTIFY_REFRESH_TOKEN]?.ifBlank { null } }
 
-    suspend fun setlistFmApiKeyValue(): String? = setlistFmApiKey.first()
-    suspend fun spotifyClientIdValue(): String? = spotifyClientId.first()
+    // User-entered values take precedence; otherwise fall back to credentials
+    // bundled at build time (see app/build.gradle.kts).
+    suspend fun setlistFmApiKeyValue(): String? =
+        setlistFmApiKey.first() ?: BuildConfig.SETLISTFM_API_KEY.ifBlank { null }
+
+    suspend fun spotifyClientIdValue(): String? =
+        spotifyClientId.first() ?: BuildConfig.SPOTIFY_CLIENT_ID.ifBlank { null }
+
+    fun hasBundledSetlistFmKey(): Boolean = BuildConfig.SETLISTFM_API_KEY.isNotBlank()
+    fun hasBundledSpotifyClientId(): Boolean = BuildConfig.SPOTIFY_CLIENT_ID.isNotBlank()
 
     suspend fun saveSetlistFmApiKey(value: String) {
         context.dataStore.edit { it[Keys.SETLISTFM_API_KEY] = value.trim() }

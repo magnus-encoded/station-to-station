@@ -45,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -57,6 +58,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.magnusencoded.setlist2spotify.AppViewModel
 import io.github.magnusencoded.setlist2spotify.SongMatch
 import io.github.magnusencoded.setlist2spotify.data.spotify.SpotifyTrack
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,6 +69,7 @@ fun ConfirmScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var expandedIndex by rememberSaveable { mutableIntStateOf(-1) }
 
@@ -95,9 +98,20 @@ fun ConfirmScreen(
         bottomBar = {
             Column(Modifier.padding(16.dp)) {
                 if (!state.spotifyConnected) {
-                    Button(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
-                        Text("Connect Spotify in Settings")
-                    }
+                    Button(
+                        onClick = {
+                            if (state.spotifyLoginReady) {
+                                scope.launch {
+                                    startSpotifyLogin(context, viewModel)?.let {
+                                        snackbarHostState.showSnackbar(it)
+                                    }
+                                }
+                            } else {
+                                onOpenSettings()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Log in with Spotify") }
                 } else {
                     Button(
                         onClick = { viewModel.createPlaylist() },

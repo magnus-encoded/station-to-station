@@ -6,6 +6,7 @@ import io.github.magnusencoded.setlist2spotify.data.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
@@ -107,7 +108,16 @@ class SpotifyClient(private val settings: SettingsRepository) {
                     if (resp.code == 401) {
                         throw IOException("Spotify session expired. Reconnect in Settings.")
                     }
-                    throw IOException("Spotify API error ${resp.code}: $text")
+                    if (resp.code == 403) {
+                        throw IOException(
+                            "Spotify refused ${req.url.encodedPath} (403). " +
+                                "If you logged in with a different Spotify account than the one " +
+                                "owning the developer app, add it under User Management in the " +
+                                "Spotify dashboard. Otherwise log out and back in to re-grant " +
+                                "playlist permissions. ($text)"
+                        )
+                    }
+                    throw IOException("Spotify API error ${resp.code} on ${req.url.encodedPath}: $text")
                 }
                 text
             }
@@ -124,17 +134,16 @@ class SpotifyClient(private val settings: SettingsRepository) {
         return json.decodeFromString<TrackSearchResponse>(text).tracks?.items.orEmpty()
     }
 
-    suspend fun currentUser(): SpotifyUser =
-        json.decodeFromString(call(Request.Builder().url("https://api.spotify.com/v1/me")))
-
-    suspend fun createPlaylist(userId: String, name: String, description: String): PlaylistResponse {
+    suspend fun createPlaylist(name: String, description: String): PlaylistResponse {
         val payload = buildJsonObject {
             put("name", name)
             put("description", description)
             put("public", false)
         }
+        // /me/playlists avoids the user-id round trip and the 403s the
+        // /users/{id}/playlists endpoint gives on any id mismatch.
         val request = Request.Builder()
-            .url("https://api.spotify.com/v1/users/$userId/playlists")
+            .url("https://api.spotify.com/v1/me/playlists")
             .post(payload.toString().toRequestBody(jsonMediaType))
         return json.decodeFromString(call(request))
     }
@@ -142,7 +151,7 @@ class SpotifyClient(private val settings: SettingsRepository) {
     suspend fun addTracks(playlistId: String, uris: List<String>) {
         for (chunk in uris.chunked(100)) {
             val payload = buildJsonObject {
-                putJsonArray("uris") { chunk.forEach(::add) }
+                putJsonArray("uris") { chunk.forEach { add(it) } }
             }
             val request = Request.Builder()
                 .url("https://api.spotify.com/v1/playlists/$playlistId/tracks")
