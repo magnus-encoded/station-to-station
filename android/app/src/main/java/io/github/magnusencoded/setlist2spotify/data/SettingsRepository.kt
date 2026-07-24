@@ -20,6 +20,7 @@ class SettingsRepository(private val context: Context) {
         val SPOTIFY_ACCESS_TOKEN = stringPreferencesKey("spotify_access_token")
         val SPOTIFY_REFRESH_TOKEN = stringPreferencesKey("spotify_refresh_token")
         val SPOTIFY_TOKEN_EXPIRY = longPreferencesKey("spotify_token_expiry")
+        val SPOTIFY_SCOPE = stringPreferencesKey("spotify_scope")
         val PKCE_VERIFIER = stringPreferencesKey("pkce_verifier")
     }
 
@@ -56,15 +57,24 @@ class SettingsRepository(private val context: Context) {
     suspend fun pkceVerifier(): String? =
         context.dataStore.data.map { it[Keys.PKCE_VERIFIER] }.first()
 
-    suspend fun saveTokens(accessToken: String, refreshToken: String?, expiresInSeconds: Long) {
+    suspend fun saveTokens(
+        accessToken: String,
+        refreshToken: String?,
+        expiresInSeconds: Long,
+        scope: String? = null,
+    ) {
         context.dataStore.edit { prefs ->
             prefs[Keys.SPOTIFY_ACCESS_TOKEN] = accessToken
             // Refresh one minute early to avoid using a token that expires mid-request.
             prefs[Keys.SPOTIFY_TOKEN_EXPIRY] =
                 System.currentTimeMillis() + (expiresInSeconds - 60) * 1000
             if (refreshToken != null) prefs[Keys.SPOTIFY_REFRESH_TOKEN] = refreshToken
+            if (!scope.isNullOrBlank()) prefs[Keys.SPOTIFY_SCOPE] = scope
         }
     }
+
+    suspend fun grantedScope(): String? =
+        context.dataStore.data.map { it[Keys.SPOTIFY_SCOPE]?.ifBlank { null } }.first()
 
     suspend fun validAccessToken(): String? {
         val prefs = context.dataStore.data.first()
@@ -80,6 +90,7 @@ class SettingsRepository(private val context: Context) {
             prefs.remove(Keys.SPOTIFY_ACCESS_TOKEN)
             prefs.remove(Keys.SPOTIFY_REFRESH_TOKEN)
             prefs.remove(Keys.SPOTIFY_TOKEN_EXPIRY)
+            prefs.remove(Keys.SPOTIFY_SCOPE)
             prefs.remove(Keys.PKCE_VERIFIER)
         }
     }
