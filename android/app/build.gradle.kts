@@ -5,6 +5,15 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+// Bundled credentials so users get one-tap "Log in with Spotify" and never
+// have to enter a setlist.fm API key. Supplied via gradle property, env var
+// (CI secrets), or left blank — the app then falls back to manual entry in
+// Settings. PKCE needs no client secret, so shipping the client ID is safe.
+val spotifyClientId =
+    (project.findProperty("SPOTIFY_CLIENT_ID") as String?) ?: System.getenv("SPOTIFY_CLIENT_ID") ?: ""
+val setlistFmApiKey =
+    (project.findProperty("SETLISTFM_API_KEY") as String?) ?: System.getenv("SETLISTFM_API_KEY") ?: ""
+
 android {
     namespace = "io.github.magnusencoded.setlist2spotify"
     compileSdk = 35
@@ -15,6 +24,8 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+        buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")
+        buildConfigField("String", "SETLISTFM_API_KEY", "\"$setlistFmApiKey\"")
     }
 
     buildTypes {
@@ -34,6 +45,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

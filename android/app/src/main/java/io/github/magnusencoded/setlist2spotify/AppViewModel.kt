@@ -16,6 +16,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -39,6 +40,12 @@ data class UiState(
     val setlistFmApiKey: String = "",
     val spotifyClientId: String = "",
     val spotifyConnected: Boolean = false,
+    /** A Spotify client ID is available (bundled at build time or user-entered). */
+    val spotifyLoginReady: Boolean = false,
+    /** A setlist.fm API key is available (bundled at build time or user-entered). */
+    val setlistFmReady: Boolean = false,
+    val bundledSpotifyClientId: Boolean = false,
+    val bundledSetlistFmKey: Boolean = false,
     // Search
     val artistQuery: String = "",
     val userQuery: String = "",
@@ -80,9 +87,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _state.update {
                 it.copy(
-                    setlistFmApiKey = settings.setlistFmApiKeyValue() ?: "",
-                    spotifyClientId = settings.spotifyClientIdValue() ?: "",
+                    setlistFmApiKey = settings.setlistFmApiKey.first() ?: "",
+                    spotifyClientId = settings.spotifyClientId.first() ?: "",
                     spotifyConnected = spotify.isConnected(),
+                    spotifyLoginReady = settings.spotifyClientIdValue() != null,
+                    setlistFmReady = settings.setlistFmApiKeyValue() != null,
+                    bundledSpotifyClientId = settings.hasBundledSpotifyClientId(),
+                    bundledSetlistFmKey = settings.hasBundledSetlistFmKey(),
                 )
             }
         }
@@ -102,10 +113,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     // --- Settings ---
 
     fun saveSettings(apiKey: String, clientId: String) {
-        viewModelScope.launch {
-            settings.saveSetlistFmApiKey(apiKey)
-            settings.saveSpotifyClientId(clientId)
-            _state.update { it.copy(setlistFmApiKey = apiKey.trim(), spotifyClientId = clientId.trim()) }
+        viewModelScope.launch { saveSettingsNow(apiKey, clientId) }
+    }
+
+    suspend fun saveSettingsNow(apiKey: String, clientId: String) {
+        settings.saveSetlistFmApiKey(apiKey)
+        settings.saveSpotifyClientId(clientId)
+        _state.update {
+            it.copy(
+                setlistFmApiKey = apiKey.trim(),
+                spotifyClientId = clientId.trim(),
+                spotifyLoginReady = settings.spotifyClientIdValue() != null,
+                setlistFmReady = settings.setlistFmApiKeyValue() != null,
+            )
         }
     }
 

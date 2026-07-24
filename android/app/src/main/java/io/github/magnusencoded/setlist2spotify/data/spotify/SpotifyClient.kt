@@ -142,7 +142,7 @@ class SpotifyClient(private val settings: SettingsRepository) {
     suspend fun addTracks(playlistId: String, uris: List<String>) {
         for (chunk in uris.chunked(100)) {
             val payload = buildJsonObject {
-                putJsonArray("uris") { chunk.forEach(::add) }
+                putJsonArray("uris") { chunk.forEach { add(it) } }
             }
             val request = Request.Builder()
                 .url("https://api.spotify.com/v1/playlists/$playlistId/tracks")
