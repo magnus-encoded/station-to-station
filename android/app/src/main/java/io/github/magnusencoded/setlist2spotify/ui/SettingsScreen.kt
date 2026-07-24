@@ -83,6 +83,18 @@ fun SettingsScreen(
             Spacer(Modifier.height(8.dp))
             if (state.spotifyConnected) {
                 Text("✓ Logged in with Spotify", color = MaterialTheme.colorScheme.primary)
+                val scope = state.grantedScope
+                Text(
+                    when {
+                        scope == null ->
+                            "Granted permissions unknown — log out and log in again."
+                        "playlist-modify" in scope ->
+                            "Playlist permissions granted ($scope)"
+                        else ->
+                            "⚠ Playlist permissions MISSING ($scope) — log out and log in again."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(
                     onClick = { viewModel.disconnectSpotify() },
