@@ -362,6 +362,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(creatingPlaylist = true) }
         viewModelScope.launch {
             try {
+                if (spotify.hasPlaylistScopes() == false) {
+                    throw IllegalStateException(
+                        "Your Spotify login is missing playlist permissions. " +
+                            "Log out in Settings, then log in again and approve " +
+                            "the playlist access on the consent screen."
+                    )
+                }
                 val description = buildString {
                     append("Setlist")
                     s.selectedSetlist?.venueLine()?.let { append(" at ").append(it) }

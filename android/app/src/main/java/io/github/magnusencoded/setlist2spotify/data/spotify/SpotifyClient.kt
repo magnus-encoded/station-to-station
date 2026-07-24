@@ -43,6 +43,9 @@ class SpotifyClient(private val settings: SettingsRepository) {
             .appendQueryParameter("code_challenge_method", "S256")
             .appendQueryParameter("code_challenge", codeChallenge(verifier))
             .appendQueryParameter("scope", SPOTIFY_SCOPES)
+            // Always show the consent screen so a stale earlier grant without
+            // playlist scopes can't be silently reused.
+            .appendQueryParameter("show_dialog", "true")
             .build()
     }
 
@@ -59,7 +62,7 @@ class SpotifyClient(private val settings: SettingsRepository) {
             .add("code_verifier", verifier)
             .build()
         val token = requestToken(body)
-        settings.saveTokens(token.accessToken, token.refreshToken, token.expiresIn)
+        settings.saveTokens(token.accessToken, token.refreshToken, token.expiresIn, token.scope)
     }
 
     private suspend fun refreshAccessToken(): String {
@@ -73,9 +76,13 @@ class SpotifyClient(private val settings: SettingsRepository) {
             .add("client_id", clientId)
             .build()
         val token = requestToken(body)
-        settings.saveTokens(token.accessToken, token.refreshToken, token.expiresIn)
+        settings.saveTokens(token.accessToken, token.refreshToken, token.expiresIn, token.scope)
         return token.accessToken
     }
+
+    /** Null when unknown (logins predating scope persistence). */
+    suspend fun hasPlaylistScopes(): Boolean? =
+        settings.grantedScope()?.contains("playlist-modify")
 
     private suspend fun requestToken(body: FormBody): TokenResponse = withContext(Dispatchers.IO) {
         val request = Request.Builder()
