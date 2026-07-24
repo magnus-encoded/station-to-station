@@ -362,7 +362,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(creatingPlaylist = true) }
         viewModelScope.launch {
             try {
-                val user = spotify.currentUser()
                 val description = buildString {
                     append("Setlist")
                     s.selectedSetlist?.venueLine()?.let { append(" at ").append(it) }
@@ -370,7 +369,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     append(". Created from setlist.fm")
                     s.selectedSetlist?.url?.let { append(": ").append(it) }
                 }
-                val playlist = spotify.createPlaylist(user.id, name, description)
+                val playlist = spotify.createPlaylist(name, description)
                 spotify.addTracks(playlist.id, tracks.map { it.uri })
                 _state.update {
                     it.copy(
