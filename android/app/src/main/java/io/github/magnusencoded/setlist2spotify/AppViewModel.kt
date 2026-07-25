@@ -91,7 +91,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.update {
                 it.copy(
                     setlistFmApiKey = settings.setlistFmApiKey.first() ?: "",
-                    spotifyClientId = settings.spotifyClientId.first() ?: "",
+                    // Effective value, so Settings shows the bundled ID and lets
+                    // it be swapped for another app's without a rebuild.
+                    spotifyClientId = settings.spotifyClientIdValue() ?: "",
                     spotifyConnected = spotify.isConnected(),
                     spotifyLoginReady = settings.spotifyClientIdValue() != null,
                     setlistFmReady = settings.setlistFmApiKeyValue() != null,
