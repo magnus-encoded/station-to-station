@@ -21,7 +21,8 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 
 const val SPOTIFY_REDIRECT_URI = "setlist2spotify://callback"
-private const val SPOTIFY_SCOPES = "playlist-modify-public playlist-modify-private"
+private const val SPOTIFY_SCOPES =
+    "playlist-modify-public playlist-modify-private user-read-private"
 
 class SpotifyClient(private val settings: SettingsRepository) {
 
@@ -172,14 +173,20 @@ class SpotifyClient(private val settings: SettingsRepository) {
         call(Request.Builder().url("https://api.spotify.com/v1/playlists/$playlistId").put(body))
     }
 
-    /** Facts that identify why Spotify refuses to modify a playlist we just made. */
-    private suspend fun diagnostics(playlistId: String): String = try {
+    /**
+     * Facts that identify why Spotify refuses to modify a playlist we just made.
+     * [detailsWrite] records whether a non-item write to the same playlist was
+     * accepted, which separates "this app cannot add items" from "this app
+     * cannot write playlists at all".
+     */
+    private suspend fun diagnostics(playlistId: String, detailsWrite: String): String = try {
         val me = currentUser()
         val playlist = call(
             Request.Builder()
                 .url("https://api.spotify.com/v1/playlists/$playlistId?fields=owner(id),public,collaborative")
         )
-        "me=${me.id} product=${me.product} playlist=$playlist scopes=${settings.grantedScope()}"
+        "me=${me.id} product=${me.product} playlist=$playlist " +
+            "detailsWrite=$detailsWrite scopes=${settings.grantedScope()}"
     } catch (e: Exception) {
         "diagnostics unavailable: ${e.message}"
     }
@@ -227,11 +234,15 @@ class SpotifyClient(private val settings: SettingsRepository) {
         }?.let { return it }
 
         // 4. A grant may cover public playlists only, so try again as public.
+        var detailsWrite = "ok"
         try {
             makePlaylistPublic(playlistId)
-            attempt { Request.Builder().url(url).post(urisBody(clean)) }?.let { return it }
         } catch (e: SpotifyForbiddenException) {
+            detailsWrite = "refused"
             lastError = e
+        }
+        if (detailsWrite == "ok") {
+            attempt { Request.Builder().url(url).post(urisBody(clean)) }?.let { return it }
         }
 
         // 5. One at a time, so a single refused track cannot cost the rest.
@@ -248,7 +259,9 @@ class SpotifyClient(private val settings: SettingsRepository) {
         }
         if (added > 0) return AddTracksResult(added, refused)
 
-        throw SpotifyForbiddenException("${lastError?.message} | ${diagnostics(playlistId)}")
+        throw SpotifyForbiddenException(
+            "${lastError?.message} | ${diagnostics(playlistId, detailsWrite)}"
+        )
     }
 }
 

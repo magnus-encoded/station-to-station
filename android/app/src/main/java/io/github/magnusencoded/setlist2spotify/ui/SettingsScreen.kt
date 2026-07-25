@@ -114,23 +114,22 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Log in with Spotify") }
             }
-            if (!state.bundledSpotifyClientId) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "This build has no bundled Spotify app. Create one at " +
-                        "developer.spotify.com/dashboard with redirect URI " +
-                        "$SPOTIFY_REDIRECT_URI and paste its Client ID:",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = clientId,
-                    onValueChange = { clientId = it },
-                    label = { Text("Spotify Client ID") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+            Spacer(Modifier.height(16.dp))
+            Text(
+                "To use a different Spotify app, create one at " +
+                    "developer.spotify.com/dashboard with Web API enabled and " +
+                    "redirect URI $SPOTIFY_REDIRECT_URI, paste its Client ID " +
+                    "below, Save, then log out and back in.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = clientId,
+                onValueChange = { clientId = it },
+                label = { Text("Spotify Client ID") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
 
             Spacer(Modifier.height(24.dp))
             HorizontalDivider()
