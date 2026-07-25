@@ -44,7 +44,7 @@ data class SongMatch(
 enum class SetlistSource { ARTIST, USER }
 
 /** A gallery photo from the night of the show, offered as the playlist cover. */
-data class CoverCandidate(val uri: Uri, val thumbnail: Bitmap?)
+data class CoverCandidate(val uri: Uri, val preview: Bitmap?)
 
 data class UiState(
     // Settings
@@ -534,16 +534,27 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _state.update { it.copy(coverLoading = true) }
             val found = photos.photosFrom(date)
-            val candidates = found.map { CoverCandidate(it.uri, photos.thumbnail(it.uri)) }
+            val candidates = found.map { CoverCandidate(it.uri, photos.preview(it.uri)) }
             _state.update {
-                it.copy(coverCandidates = candidates, coverLoading = false, coverSearched = true)
+                it.copy(
+                    coverCandidates = candidates,
+                    coverLoading = false,
+                    coverSearched = true,
+                    // The first photo is the suggestion, so it is the cover
+                    // until the picker is swiped somewhere else.
+                    selectedCoverUri = candidates.firstOrNull()?.uri,
+                )
             }
         }
     }
 
-    /** Tapping the chosen photo again clears it, leaving Spotify's own collage. */
-    fun selectCover(uri: Uri) = _state.update {
-        it.copy(selectedCoverUri = if (it.selectedCoverUri == uri) null else uri)
+    /**
+     * The cover the picker has landed on, or null for Spotify's own collage.
+     * Called on every settled swipe, so an unchanged value is left alone rather
+     * than published as new state.
+     */
+    fun setCover(uri: Uri?) = _state.update {
+        if (it.selectedCoverUri == uri) it else it.copy(selectedCoverUri = uri)
     }
 
     /** Manual re-search for one song with a user-provided query. */

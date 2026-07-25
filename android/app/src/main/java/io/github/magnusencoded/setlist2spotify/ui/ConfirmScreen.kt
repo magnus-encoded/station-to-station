@@ -5,7 +5,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,15 +13,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -52,6 +54,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -187,7 +190,6 @@ fun ConfirmScreen(
             if (datedSetlist != null) {
                 CoverPicker(
                     candidates = state.coverCandidates,
-                    selectedUri = state.selectedCoverUri,
                     loading = state.coverLoading,
                     searched = state.coverSearched,
                     permissionGranted = state.coverPermissionGranted,
@@ -195,7 +197,7 @@ fun ConfirmScreen(
                     onRequestPermission = {
                         photoPermissionLauncher.launch(PhotoRepository.requiredPermissions())
                     },
-                    onSelect = viewModel::selectCover,
+                    onCoverChange = viewModel::setCover,
                 )
                 Spacer(Modifier.height(8.dp))
             }
@@ -276,18 +278,20 @@ fun ConfirmScreen(
 @Composable
 private fun CoverPicker(
     candidates: List<CoverCandidate>,
-    selectedUri: Uri?,
     loading: Boolean,
     searched: Boolean,
     permissionGranted: Boolean,
     showDate: String?,
     onRequestPermission: () -> Unit,
-    onSelect: (Uri) -> Unit,
+    onCoverChange: (Uri?) -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-        Text("Playlist cover", style = MaterialTheme.typography.titleSmall)
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
         when {
             !permissionGranted -> {
+                Text("Playlist cover", style = MaterialTheme.typography.titleSmall)
                 Text(
                     "Use one of your own photos from the show.",
                     style = MaterialTheme.typography.bodySmall,
@@ -302,41 +306,44 @@ private fun CoverPicker(
                 Spacer(Modifier.size(8.dp))
                 Text("Looking through your gallery…", style = MaterialTheme.typography.bodySmall)
             }
-            candidates.isEmpty() && searched -> Text(
-                "No photos from ${showDate ?: "that night"} in your gallery. " +
-                    "Spotify will build a cover from the album art.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            else -> {
+            candidates.isEmpty() -> if (searched) {
                 Text(
-                    if (selectedUri == null) {
-                        "Tap a photo to use it as the cover."
-                    } else {
-                        "Tap it again for Spotify's album-art collage instead."
-                    },
+                    "No photos from ${showDate ?: "that night"} in your gallery — " +
+                        "Spotify will build the cover from the album art.",
                     style = MaterialTheme.typography.bodySmall,
                 )
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(vertical = 8.dp),
-                ) {
-                    items(candidates, key = { it.uri.toString() }) { candidate ->
-                        val selected = candidate.uri == selectedUri
-                        val shape = RoundedCornerShape(8.dp)
-                        Box(
-                            Modifier
-                                .size(72.dp)
-                                .clip(shape)
-                                .then(
-                                    if (selected) {
-                                        Modifier.border(3.dp, MaterialTheme.colorScheme.primary, shape)
-                                    } else {
-                                        Modifier
-                                    }
-                                )
-                                .clickable { onSelect(candidate.uri) },
-                        ) {
-                            candidate.thumbnail?.let {
+            }
+            // A new show means a new set of photos, so the pager starts over.
+            else -> key(candidates) {
+                // Page 0 is Spotify's collage and page 1 the suggested photo, so
+                // the collage is always one swipe right of the suggestion however
+                // many photos follow it to the left.
+                val pagerState = rememberPagerState(initialPage = 1) { candidates.size + 1 }
+                LaunchedEffect(pagerState.currentPage) {
+                    onCoverChange(candidates.getOrNull(pagerState.currentPage - 1)?.uri)
+                }
+                HorizontalPager(
+                    state = pagerState,
+                    contentPadding = PaddingValues(horizontal = 72.dp),
+                    pageSpacing = 12.dp,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { page ->
+                    Box(
+                        Modifier
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (page == 0) {
+                            Icon(
+                                Icons.Default.GridView,
+                                contentDescription = "Spotify's album-art collage",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(48.dp),
+                            )
+                        } else {
+                            candidates[page - 1].preview?.let {
                                 Image(
                                     bitmap = it.asImageBitmap(),
                                     contentDescription = "Photo from the show",
@@ -344,17 +351,28 @@ private fun CoverPicker(
                                     modifier = Modifier.fillMaxSize(),
                                 )
                             }
-                            if (selected) {
-                                Icon(
-                                    Icons.Default.Check,
-                                    contentDescription = "Selected as cover",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.align(Alignment.TopEnd).padding(2.dp),
-                                )
-                            }
                         }
                     }
                 }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    if (pagerState.currentPage == 0) {
+                        "Spotify builds the cover from the album art"
+                    } else {
+                        "Your photo ${pagerState.currentPage} of ${candidates.size}" +
+                            (showDate?.let { ", $it" } ?: "")
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    if (pagerState.currentPage == 0) {
+                        "Swipe left for your photos"
+                    } else {
+                        "Swipe for another photo, or right for Spotify's collage"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

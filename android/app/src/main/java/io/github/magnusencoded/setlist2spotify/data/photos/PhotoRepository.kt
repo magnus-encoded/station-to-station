@@ -6,10 +6,12 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import androidx.core.content.ContextCompat
+import androidx.exifinterface.media.ExifInterface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -34,7 +36,7 @@ class PhotoRepository(private val context: Context) {
      * at 23:00 is photographed on the following calendar day, and setlist.fm
      * dates the show by when it started.
      */
-    suspend fun photosFrom(date: LocalDate, limit: Int = 30): List<GalleryPhoto> =
+    suspend fun photosFrom(date: LocalDate, limit: Int = 20): List<GalleryPhoto> =
         withContext(Dispatchers.IO) {
             if (!hasPermission()) return@withContext emptyList()
             val zone = ZoneId.systemDefault()
@@ -87,8 +89,17 @@ class PhotoRepository(private val context: Context) {
             photos
         }
 
-    suspend fun thumbnail(uri: Uri, sizePx: Int = THUMBNAIL_PX): Bitmap? =
-        withContext(Dispatchers.IO) { runCatching { decodeScaled(uri, sizePx) }.getOrNull() }
+    /**
+     * A preview big enough to fill the cover-sized pager. Held in RGB_565: at
+     * twenty photos the difference against ARGB_8888 is tens of megabytes, and
+     * the uploaded cover is re-decoded from the original at full depth anyway.
+     */
+    suspend fun preview(uri: Uri, sizePx: Int = PREVIEW_PX): Bitmap? =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                decodeScaled(uri, sizePx, Bitmap.Config.RGB_565)?.let { upright(uri, it) }
+            }.getOrNull()
+        }
 
     /**
      * The photo as Spotify wants a cover: a square JPEG small enough that its
@@ -97,8 +108,8 @@ class PhotoRepository(private val context: Context) {
      */
     suspend fun coverJpeg(uri: Uri): ByteArray? = withContext(Dispatchers.IO) {
         runCatching {
-            val bitmap = decodeScaled(uri, COVER_PX) ?: return@runCatching null
-            val square = centerCrop(bitmap, COVER_PX)
+            val decoded = decodeScaled(uri, COVER_PX) ?: return@runCatching null
+            val square = centerCrop(upright(uri, decoded), COVER_PX)
             var quality = 90
             var bytes = square.toJpeg(quality)
             while (bytes.size > MAX_JPEG_BYTES && quality > 40) {
@@ -109,7 +120,7 @@ class PhotoRepository(private val context: Context) {
         }.getOrNull()
     }
 
-    private fun decodeScaled(uri: Uri, target: Int): Bitmap? {
+    private fun decodeScaled(uri: Uri, target: Int, config: Bitmap.Config? = null): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         context.contentResolver.openInputStream(uri)?.use {
             BitmapFactory.decodeStream(it, null, bounds)
@@ -117,10 +128,46 @@ class PhotoRepository(private val context: Context) {
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
         val options = BitmapFactory.Options().apply {
             inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, target)
+            config?.let { inPreferredConfig = it }
         }
         return context.contentResolver.openInputStream(uri)?.use {
             BitmapFactory.decodeStream(it, null, options)
         }
+    }
+
+    /**
+     * Cameras leave the pixels as the sensor read them and record the turn of
+     * the phone in EXIF, so a portrait photo decodes on its side unless the
+     * recorded rotation is applied.
+     */
+    private fun upright(uri: Uri, bitmap: Bitmap): Bitmap {
+        val orientation = runCatching {
+            context.contentResolver.openInputStream(uri)?.use {
+                ExifInterface(it).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL,
+                )
+            }
+        }.getOrNull() ?: ExifInterface.ORIENTATION_NORMAL
+
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                matrix.postRotate(90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                matrix.postRotate(270f)
+                matrix.postScale(-1f, 1f)
+            }
+            else -> return bitmap
+        }
+        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
 
     /** Largest power-of-two shrink that still leaves the short edge at [target]. */
@@ -143,7 +190,7 @@ class PhotoRepository(private val context: Context) {
     }
 
     companion object {
-        private const val THUMBNAIL_PX = 256
+        private const val PREVIEW_PX = 512
         private const val COVER_PX = 640
         private const val MAX_JPEG_BYTES = 180_000
 

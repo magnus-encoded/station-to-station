@@ -79,6 +79,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
+    // Phone cameras record orientation in EXIF rather than rotating the pixels,
+    // so gallery photos need it applied before they are shown or uploaded.
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
