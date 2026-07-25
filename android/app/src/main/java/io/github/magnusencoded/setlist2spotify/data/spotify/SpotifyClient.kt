@@ -22,7 +22,7 @@ import java.security.SecureRandom
 
 const val SPOTIFY_REDIRECT_URI = "setlist2spotify://callback"
 private const val SPOTIFY_SCOPES =
-    "playlist-modify-public playlist-modify-private user-read-private"
+    "playlist-modify-public playlist-modify-private user-read-private ugc-image-upload"
 
 class SpotifyClient(private val settings: SettingsRepository) {
 
@@ -84,6 +84,13 @@ class SpotifyClient(private val settings: SettingsRepository) {
     /** Null when unknown (logins predating scope persistence). */
     suspend fun hasPlaylistScopes(): Boolean? =
         settings.grantedScope()?.contains("playlist-modify")
+
+    /**
+     * Cover upload needs a scope the app did not always ask for, so a login
+     * made before covers existed can create playlists but not illustrate them.
+     */
+    suspend fun hasImageUploadScope(): Boolean =
+        settings.grantedScope()?.contains("ugc-image-upload") == true
 
     private suspend fun requestToken(body: FormBody): TokenResponse = withContext(Dispatchers.IO) {
         val request = Request.Builder()
@@ -175,6 +182,21 @@ class SpotifyClient(private val settings: SettingsRepository) {
         buildJsonObject { putJsonArray("uris") { uris.forEach { add(it) } } }
             .toString()
             .toRequestBody(jsonMediaType)
+
+    /**
+     * Sets the playlist cover. Spotify takes the JPEG base64-encoded as the raw
+     * body under an image/jpeg content type — not multipart, and not wrapped in
+     * JSON — and answers 202 with nothing in the body.
+     */
+    suspend fun uploadCover(playlistId: String, jpeg: ByteArray) {
+        val body = Base64.encodeToString(jpeg, Base64.NO_WRAP)
+            .toRequestBody("image/jpeg".toMediaType())
+        call(
+            Request.Builder()
+                .url("https://api.spotify.com/v1/playlists/$playlistId/images")
+                .put(body)
+        )
+    }
 
     /** Facts that explain a residual 403 while modifying a playlist we just made. */
     private suspend fun diagnostics(playlistId: String): String = try {

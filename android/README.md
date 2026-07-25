@@ -10,13 +10,24 @@ An Android companion app for the setlist.fm CLI in this repository. It lets you:
    candidate list, or re-search Spotify manually for a song before anything is
    created. Covers are searched under the original artist, and tape
    (intro/outro) tracks are excluded by default.
-4. **Create the playlist** in your Spotify account (created as private) and
+4. **Pick a cover** — the app looks in your gallery for photos taken on the
+   night of the show and offers them as the playlist cover. Gallery access is
+   only requested when you tap to look, and skipping it leaves Spotify's own
+   album-art collage.
+5. **Create the playlist** in your Spotify account (created as private) and
    open it directly in Spotify.
+
+Playlists are named `year – artist – venue` (for example
+`2026 – Trivium – Ekebergsletta`), so an alphabetical playlist library falls
+into chronological order. The full date, city, tour and a link back to the
+setlist live in the playlist description.
 
 ## Logins
 
 - **Spotify** — one-tap "Log in with Spotify" (Authorization Code + PKCE, no
-  client secret). The Spotify Client ID is baked in at build time via the
+  client secret). Uploading a photo cover needs the `ugc-image-upload` scope, so
+  a login made before covers existed must be renewed once: log out in Settings
+  and log back in. Settings says so when that applies. The Spotify Client ID is baked in at build time via the
   `SPOTIFY_CLIENT_ID` Gradle property / environment variable (set the
   `SPOTIFY_CLIENT_ID` repo secret for CI builds). Register the app at
   <https://developer.spotify.com/dashboard> with redirect URI

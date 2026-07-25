@@ -1,6 +1,10 @@
 package io.github.magnusencoded.setlist2spotify.data.setlistfm
 
 import kotlinx.serialization.Serializable
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
+import java.util.Locale
 
 @Serializable
 data class ArtistSearchResponse(
@@ -43,6 +47,27 @@ data class FmSetlist(
         val country = venue?.city?.country?.name
         return listOfNotNull(v, city, country).joinToString(", ")
     }
+
+    /** setlist.fm sends the event date as dd-MM-yyyy. */
+    fun localDate(): LocalDate? = eventDate?.let {
+        try {
+            LocalDate.parse(it, DateTimeFormatter.ofPattern("dd-MM-yyyy", Locale.ENGLISH))
+        } catch (e: DateTimeParseException) {
+            null
+        }
+    }
+
+    /** Leads the playlist name, so a library of setlists sorts by year. */
+    fun year(): String? =
+        localDate()?.year?.toString() ?: eventDate?.substringAfterLast('-')?.takeIf { it.length == 4 }
+
+    /**
+     * "24 June 2026" — the playlist name carries only the year, so the day and
+     * month have to survive in the description. Fixed to English so a playlist
+     * does not read differently depending on the phone's locale.
+     */
+    fun readableDate(): String? =
+        localDate()?.format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.ENGLISH)) ?: eventDate
 }
 
 @Serializable

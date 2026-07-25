@@ -2,9 +2,15 @@ package io.github.magnusencoded.setlist2spotify.ui
 
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,7 +19,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -51,13 +60,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.magnusencoded.setlist2spotify.AppViewModel
+import io.github.magnusencoded.setlist2spotify.CoverCandidate
 import io.github.magnusencoded.setlist2spotify.SongMatch
+import io.github.magnusencoded.setlist2spotify.data.photos.PhotoRepository
 import io.github.magnusencoded.setlist2spotify.data.spotify.SpotifyTrack
 import kotlinx.coroutines.launch
 
@@ -73,6 +87,11 @@ fun ConfirmScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var expandedIndex by rememberSaveable { mutableIntStateOf(-1) }
+    // Granting gallery access is what makes the photo suggestions appear, so the
+    // result feeds straight back into the search.
+    val photoPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { viewModel.loadCoverCandidates() }
 
     LaunchedEffect(state.error) {
         state.error?.let {
@@ -133,7 +152,7 @@ fun ConfirmScreen(
             if (setlist != null) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Text(
-                        "${setlist.artist?.name ?: ""} · ${setlist.eventDate ?: ""}",
+                        "${setlist.artist?.name ?: ""} · ${setlist.readableDate() ?: ""}",
                         style = MaterialTheme.typography.titleMedium,
                     )
                     Text(setlist.venueLine(), style = MaterialTheme.typography.bodySmall)
@@ -163,6 +182,23 @@ fun ConfirmScreen(
                 Switch(checked = state.playlistPublic, onCheckedChange = viewModel::setPlaylistPublic)
             }
             Spacer(Modifier.height(8.dp))
+            // Without a date there is no window to search the gallery for.
+            val datedSetlist = setlist?.takeIf { it.localDate() != null }
+            if (datedSetlist != null) {
+                CoverPicker(
+                    candidates = state.coverCandidates,
+                    selectedUri = state.selectedCoverUri,
+                    loading = state.coverLoading,
+                    searched = state.coverSearched,
+                    permissionGranted = state.coverPermissionGranted,
+                    showDate = datedSetlist.readableDate(),
+                    onRequestPermission = {
+                        photoPermissionLauncher.launch(PhotoRepository.requiredPermissions())
+                    },
+                    onSelect = viewModel::selectCover,
+                )
+                Spacer(Modifier.height(8.dp))
+            }
             if (state.matching) {
                 val done = state.matches.count { !it.loading }
                 LinearProgressIndicator(
@@ -201,11 +237,14 @@ fun ConfirmScreen(
             title = { Text("Playlist created") },
             text = {
                 Text(
-                    "\"${state.createdPlaylistName}\" was created with " +
-                        "${state.createdTrackCount} songs." +
+                    buildString {
+                        append("\"${state.createdPlaylistName}\" was created with ")
+                        append("${state.createdTrackCount} songs.")
                         if (state.createdRefusedCount > 0) {
-                            " ${state.createdRefusedCount} were refused by Spotify."
-                        } else ""
+                            append(" ${state.createdRefusedCount} were refused by Spotify.")
+                        }
+                        state.coverUploadError?.let { append(" ").append(it) }
+                    }
                 )
             },
             confirmButton = {
@@ -226,6 +265,98 @@ fun ConfirmScreen(
                 }
             },
         )
+    }
+}
+
+/**
+ * Offers the photos the phone took on the night of the show as the playlist
+ * cover. Gallery access is only ever asked for after a tap here, so opening a
+ * setlist never triggers a permission prompt on its own.
+ */
+@Composable
+private fun CoverPicker(
+    candidates: List<CoverCandidate>,
+    selectedUri: Uri?,
+    loading: Boolean,
+    searched: Boolean,
+    permissionGranted: Boolean,
+    showDate: String?,
+    onRequestPermission: () -> Unit,
+    onSelect: (Uri) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        Text("Playlist cover", style = MaterialTheme.typography.titleSmall)
+        when {
+            !permissionGranted -> {
+                Text(
+                    "Use one of your own photos from the show.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                TextButton(
+                    onClick = onRequestPermission,
+                    contentPadding = PaddingValues(vertical = 4.dp),
+                ) { Text("Find photos from that night") }
+            }
+            loading -> Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(16.dp))
+                Spacer(Modifier.size(8.dp))
+                Text("Looking through your gallery…", style = MaterialTheme.typography.bodySmall)
+            }
+            candidates.isEmpty() && searched -> Text(
+                "No photos from ${showDate ?: "that night"} in your gallery. " +
+                    "Spotify will build a cover from the album art.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            else -> {
+                Text(
+                    if (selectedUri == null) {
+                        "Tap a photo to use it as the cover."
+                    } else {
+                        "Tap it again for Spotify's album-art collage instead."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(vertical = 8.dp),
+                ) {
+                    items(candidates, key = { it.uri.toString() }) { candidate ->
+                        val selected = candidate.uri == selectedUri
+                        val shape = RoundedCornerShape(8.dp)
+                        Box(
+                            Modifier
+                                .size(72.dp)
+                                .clip(shape)
+                                .then(
+                                    if (selected) {
+                                        Modifier.border(3.dp, MaterialTheme.colorScheme.primary, shape)
+                                    } else {
+                                        Modifier
+                                    }
+                                )
+                                .clickable { onSelect(candidate.uri) },
+                        ) {
+                            candidate.thumbnail?.let {
+                                Image(
+                                    bitmap = it.asImageBitmap(),
+                                    contentDescription = "Photo from the show",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                            if (selected) {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = "Selected as cover",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(2.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

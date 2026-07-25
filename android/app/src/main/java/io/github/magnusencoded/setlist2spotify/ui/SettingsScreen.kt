@@ -88,10 +88,14 @@ fun SettingsScreen(
                     when {
                         scope == null ->
                             "Granted permissions unknown — log out and log in again."
-                        "playlist-modify" in scope ->
-                            "Playlist permissions granted ($scope)"
-                        else ->
+                        "playlist-modify" !in scope ->
                             "⚠ Playlist permissions MISSING ($scope) — log out and log in again."
+                        // Logins made before photo covers existed carry every
+                        // playlist permission but not the one covers need.
+                        "ugc-image-upload" !in scope ->
+                            "Playlist permissions granted. Photo covers need one more " +
+                                "permission — log out and log in again to enable them."
+                        else -> "Playlist and cover permissions granted ($scope)"
                     },
                     style = MaterialTheme.typography.bodySmall,
                 )
