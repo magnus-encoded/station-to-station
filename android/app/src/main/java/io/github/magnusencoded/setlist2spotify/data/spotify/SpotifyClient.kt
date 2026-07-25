@@ -116,15 +116,13 @@ class SpotifyClient(private val settings: SettingsRepository) {
                         throw IOException("Spotify session expired. Reconnect in Settings.")
                     }
                     if (resp.code == 403) {
-                        throw IOException(
-                            "Spotify refused ${req.url.encodedPath} (403). " +
-                                "If you logged in with a different Spotify account than the one " +
-                                "owning the developer app, add it under User Management in the " +
-                                "Spotify dashboard. Otherwise log out and back in to re-grant " +
-                                "playlist permissions. ($text)"
+                        throw SpotifyForbiddenException(
+                            "Spotify refused ${req.method} ${req.url.encodedPath} (403). $text"
                         )
                     }
-                    throw IOException("Spotify API error ${resp.code} on ${req.url.encodedPath}: $text")
+                    throw IOException(
+                        "Spotify API error ${resp.code} on ${req.method} ${req.url.encodedPath}: $text"
+                    )
                 }
                 text
             }
@@ -155,18 +153,34 @@ class SpotifyClient(private val settings: SettingsRepository) {
         return json.decodeFromString(call(request))
     }
 
+    /**
+     * Fills a freshly created playlist. Duplicate and non-track URIs are dropped
+     * first; POST is tried per chunk, and if the first chunk is refused (403) the
+     * same items go through PUT, which sets the contents of an empty playlist and
+     * is accepted in cases where POST is not.
+     */
     suspend fun addTracks(playlistId: String, uris: List<String>) {
-        for (chunk in uris.chunked(100)) {
-            val payload = buildJsonObject {
+        val clean = uris.filter { it.startsWith("spotify:track:") }.distinct()
+        if (clean.isEmpty()) throw IOException("No valid Spotify track URIs to add.")
+        val url = "https://api.spotify.com/v1/playlists/$playlistId/tracks"
+
+        clean.chunked(100).forEachIndexed { index, chunk ->
+            val body = buildJsonObject {
                 putJsonArray("uris") { chunk.forEach { add(it) } }
+            }.toString().toRequestBody(jsonMediaType)
+            try {
+                call(Request.Builder().url(url).post(body))
+            } catch (e: SpotifyForbiddenException) {
+                // PUT replaces the item list, so it is only safe while the
+                // playlist is still empty — i.e. for the first chunk.
+                if (index != 0) throw e
+                call(Request.Builder().url(url).put(body))
             }
-            val request = Request.Builder()
-                .url("https://api.spotify.com/v1/playlists/$playlistId/tracks")
-                .post(payload.toString().toRequestBody(jsonMediaType))
-            call(request)
         }
     }
 }
+
+class SpotifyForbiddenException(message: String) : IOException(message)
 
 private fun generateCodeVerifier(): String {
     val bytes = ByteArray(64)

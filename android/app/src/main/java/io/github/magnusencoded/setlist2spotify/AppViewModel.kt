@@ -384,7 +384,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     s.selectedSetlist?.url?.let { append(": ").append(it) }
                 }
                 val playlist = spotify.createPlaylist(name, description)
-                spotify.addTracks(playlist.id, tracks.map { it.uri })
+                try {
+                    spotify.addTracks(playlist.id, tracks.map { it.uri })
+                } catch (e: Exception) {
+                    // The playlist exists at this point, so say so rather than
+                    // leaving the user with a bare failure and a stray playlist.
+                    throw IllegalStateException(
+                        "Playlist \"$name\" was created but the songs could not be added. " +
+                            "${e.message}",
+                        e,
+                    )
+                }
                 _state.update {
                     it.copy(
                         creatingPlaylist = false,
