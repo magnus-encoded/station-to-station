@@ -70,6 +70,7 @@ data class UiState(
     val createdPlaylistUrl: String? = null,
     val createdPlaylistName: String = "",
     val createdTrackCount: Int = 0,
+    val createdRefusedCount: Int = 0,
     // Transient error surfaced as a snackbar
     val error: String? = null,
 )
@@ -384,7 +385,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     s.selectedSetlist?.url?.let { append(": ").append(it) }
                 }
                 val playlist = spotify.createPlaylist(name, description)
-                try {
+                val result = try {
                     spotify.addTracks(playlist.id, tracks.map { it.uri })
                 } catch (e: Exception) {
                     // The playlist exists at this point, so say so rather than
@@ -400,7 +401,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         creatingPlaylist = false,
                         createdPlaylistUrl = playlist.externalUrls["spotify"],
                         createdPlaylistName = name,
-                        createdTrackCount = tracks.size,
+                        createdTrackCount = result.added,
+                        createdRefusedCount = result.refused.size,
                     )
                 }
             } catch (e: Exception) {

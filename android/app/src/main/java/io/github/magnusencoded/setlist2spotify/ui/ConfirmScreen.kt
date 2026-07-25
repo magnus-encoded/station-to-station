@@ -183,7 +183,13 @@ fun ConfirmScreen(
             onDismissRequest = onBack,
             title = { Text("Playlist created") },
             text = {
-                Text("\"${state.createdPlaylistName}\" was created with ${state.createdTrackCount} songs.")
+                Text(
+                    "\"${state.createdPlaylistName}\" was created with " +
+                        "${state.createdTrackCount} songs." +
+                        if (state.createdRefusedCount > 0) {
+                            " ${state.createdRefusedCount} were refused by Spotify."
+                        } else ""
+                )
             },
             confirmButton = {
                 Button(onClick = {

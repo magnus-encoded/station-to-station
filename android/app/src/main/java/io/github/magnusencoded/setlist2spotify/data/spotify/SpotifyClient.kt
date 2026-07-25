@@ -116,8 +116,14 @@ class SpotifyClient(private val settings: SettingsRepository) {
                         throw IOException("Spotify session expired. Reconnect in Settings.")
                     }
                     if (resp.code == 403) {
+                        // Spotify's bare "Forbidden" body says nothing; the headers
+                        // distinguish a scope refusal from an edge/CDN block.
+                        val detail = listOf("www-authenticate", "server", "x-robots-tag")
+                            .mapNotNull { name -> resp.header(name)?.let { "$name: $it" } }
+                            .joinToString("; ")
                         throw SpotifyForbiddenException(
-                            "Spotify refused ${req.method} ${req.url.encodedPath} (403). $text"
+                            "Spotify refused ${req.method} ${req.url.encodedPath} (403). " +
+                                "$text${if (detail.isNotEmpty()) " [$detail]" else ""}"
                         )
                     }
                     throw IOException(
@@ -153,32 +159,53 @@ class SpotifyClient(private val settings: SettingsRepository) {
         return json.decodeFromString(call(request))
     }
 
+    private fun urisBody(uris: List<String>) =
+        buildJsonObject { putJsonArray("uris") { uris.forEach { add(it) } } }
+            .toString()
+            .toRequestBody(jsonMediaType)
+
     /**
-     * Fills a freshly created playlist. Duplicate and non-track URIs are dropped
-     * first; POST is tried per chunk, and if the first chunk is refused (403) the
-     * same items go through PUT, which sets the contents of an empty playlist and
-     * is accepted in cases where POST is not.
+     * Fills a freshly created playlist, degrading through three strategies so a
+     * refusal of one request style — or of one individual track — cannot cost
+     * the whole playlist: batched POST, then PUT (which sets the contents of a
+     * still-empty playlist), then one track at a time naming what was refused.
      */
-    suspend fun addTracks(playlistId: String, uris: List<String>) {
+    suspend fun addTracks(playlistId: String, uris: List<String>): AddTracksResult {
         val clean = uris.filter { it.startsWith("spotify:track:") }.distinct()
         if (clean.isEmpty()) throw IOException("No valid Spotify track URIs to add.")
         val url = "https://api.spotify.com/v1/playlists/$playlistId/tracks"
+        val batches = clean.chunked(100)
 
-        clean.chunked(100).forEachIndexed { index, chunk ->
-            val body = buildJsonObject {
-                putJsonArray("uris") { chunk.forEach { add(it) } }
-            }.toString().toRequestBody(jsonMediaType)
-            try {
-                call(Request.Builder().url(url).post(body))
-            } catch (e: SpotifyForbiddenException) {
-                // PUT replaces the item list, so it is only safe while the
-                // playlist is still empty — i.e. for the first chunk.
-                if (index != 0) throw e
-                call(Request.Builder().url(url).put(body))
+        try {
+            batches.forEach { call(Request.Builder().url(url).post(urisBody(it))) }
+            return AddTracksResult(clean.size, emptyList())
+        } catch (batchError: SpotifyForbiddenException) {
+            // Anything already accepted would be wiped by PUT, so only take this
+            // route while the playlist is still empty.
+            if (batches.size > 1) throw batchError
+        }
+
+        try {
+            call(Request.Builder().url(url).put(urisBody(clean)))
+            return AddTracksResult(clean.size, emptyList())
+        } catch (putError: SpotifyForbiddenException) {
+            var added = 0
+            val refused = mutableListOf<String>()
+            for (uri in clean) {
+                try {
+                    call(Request.Builder().url(url).post(urisBody(listOf(uri))))
+                    added++
+                } catch (e: SpotifyForbiddenException) {
+                    refused += uri
+                }
             }
+            if (added == 0) throw putError
+            return AddTracksResult(added, refused)
         }
     }
 }
+
+data class AddTracksResult(val added: Int, val refused: List<String>)
 
 class SpotifyForbiddenException(message: String) : IOException(message)
 
