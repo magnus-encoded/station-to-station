@@ -15,6 +15,7 @@ data class TokenResponse(
 data class SpotifyUser(
     val id: String,
     @SerialName("display_name") val displayName: String? = null,
+    val product: String? = null,
 )
 
 @Serializable
