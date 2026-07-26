@@ -54,19 +54,32 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             ${{ steps.creds.outputs.args }}
 
-      - name: Build app (simulator, unsigned)
+      - name: Build device app (unsigned)
         working-directory: ios
         run: |
+          # Build for real iPhone hardware (arm64), unsigned — a sideload tool
+          # re-signs it with the user's Apple ID at install time.
           xcodebuild build \
             -project SetlistToSpotify.xcodeproj \
             -scheme SetlistToSpotify \
-            -sdk iphonesimulator \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
             -configuration Debug \
             -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             ${{ steps.creds.outputs.args }}
 
-      - name: Upload app artifact
+      - name: Package .ipa
+        working-directory: ios
+        run: |
+          app=build/Build/Products/Debug-iphoneos/SetlistToSpotify.app
+          rm -rf Payload SetlistToSpotify.ipa
+          mkdir Payload
+          cp -R "$app" Payload/
+          zip -qr SetlistToSpotify.ipa Payload
+
+      - name: Upload .ipa artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SetlistToSpotify-sim
-          path: ios/build/Build/Products/Debug-iphonesimulator/SetlistToSpotify.app
+          name: SetlistToSpotify-ipa
+          path: ios/SetlistToSpotify.ipa
