@@ -176,100 +176,33 @@ class SpotifyClient(private val settings: SettingsRepository) {
             .toString()
             .toRequestBody(jsonMediaType)
 
-    private suspend fun makePlaylistPublic(playlistId: String) {
-        val body = buildJsonObject { put("public", true) }.toString().toRequestBody(jsonMediaType)
-        call(Request.Builder().url("https://api.spotify.com/v1/playlists/$playlistId").put(body))
-    }
-
-    /**
-     * Facts that identify why Spotify refuses to modify a playlist we just made.
-     * [detailsWrite] records whether a non-item write to the same playlist was
-     * accepted, which separates "this app cannot add items" from "this app
-     * cannot write playlists at all".
-     */
-    private suspend fun diagnostics(playlistId: String, detailsWrite: String): String = try {
+    /** Facts that explain a residual 403 while modifying a playlist we just made. */
+    private suspend fun diagnostics(playlistId: String): String = try {
         val me = currentUser()
         val playlist = call(
             Request.Builder()
                 .url("https://api.spotify.com/v1/playlists/$playlistId?fields=owner(id),public,collaborative")
         )
-        "me=${me.id} product=${me.product} playlist=$playlist " +
-            "detailsWrite=$detailsWrite scopes=${settings.grantedScope()}"
+        "me=${me.id} product=${me.product} playlist=$playlist scopes=${settings.grantedScope()}"
     } catch (e: Exception) {
         "diagnostics unavailable: ${e.message}"
     }
 
     /**
-     * Fills a freshly created playlist. Spotify has been refusing the documented
-     * call with a bare 403 that carries no www-authenticate header, so every
-     * accepted way of expressing "add these tracks" is tried before giving up,
-     * and the final failure carries the facts needed to explain it.
+     * Fills a freshly created playlist via POST /playlists/{id}/items. The old
+     * /tracks path was renamed in Spotify's Feb 2026 API migration and now 403s
+     * from the edge (envoy, no www-authenticate); /items takes the same body.
      */
     suspend fun addTracks(playlistId: String, uris: List<String>): AddTracksResult {
         val clean = uris.filter { it.startsWith("spotify:track:") }.distinct()
         if (clean.isEmpty()) throw IOException("No valid Spotify track URIs to add.")
-        val url = "https://api.spotify.com/v1/playlists/$playlistId/tracks"
-
-        // Over 100 items only the batched form is safe: the alternatives below
-        // either replace the contents or would leave a half-filled playlist.
-        if (clean.size > 100) {
-            clean.chunked(100).forEach { call(Request.Builder().url(url).post(urisBody(it))) }
-            return AddTracksResult(clean.size, emptyList())
-        }
-
-        var lastError: SpotifyForbiddenException? = null
-
-        suspend fun attempt(build: () -> Request.Builder): AddTracksResult? = try {
-            call(build())
-            AddTracksResult(clean.size, emptyList())
-        } catch (e: SpotifyForbiddenException) {
-            lastError = e
-            null
-        }
-
-        // 1. The documented form: uris in the JSON body.
-        attempt { Request.Builder().url(url).post(urisBody(clean)) }?.let { return it }
-
-        // 2. PUT sets the contents of a playlist that is still empty.
-        attempt { Request.Builder().url(url).put(urisBody(clean)) }?.let { return it }
-
-        // 3. The other documented form: uris as a query parameter.
-        val queryUrl = url.toHttpUrl().newBuilder()
-            .addQueryParameter("uris", clean.joinToString(","))
-            .build()
-        attempt {
-            Request.Builder().url(queryUrl).post("".toRequestBody(jsonMediaType))
-        }?.let { return it }
-
-        // 4. A grant may cover public playlists only, so try again as public.
-        var detailsWrite = "ok"
+        val url = "https://api.spotify.com/v1/playlists/$playlistId/items"
         try {
-            makePlaylistPublic(playlistId)
+            clean.chunked(100).forEach { call(Request.Builder().url(url).post(urisBody(it))) }
         } catch (e: SpotifyForbiddenException) {
-            detailsWrite = "refused"
-            lastError = e
+            throw SpotifyForbiddenException("${e.message} | ${diagnostics(playlistId)}")
         }
-        if (detailsWrite == "ok") {
-            attempt { Request.Builder().url(url).post(urisBody(clean)) }?.let { return it }
-        }
-
-        // 5. One at a time, so a single refused track cannot cost the rest.
-        var added = 0
-        val refused = mutableListOf<String>()
-        for (uri in clean) {
-            try {
-                call(Request.Builder().url(url).post(urisBody(listOf(uri))))
-                added++
-            } catch (e: SpotifyForbiddenException) {
-                refused += uri
-                lastError = e
-            }
-        }
-        if (added > 0) return AddTracksResult(added, refused)
-
-        throw SpotifyForbiddenException(
-            "${lastError?.message} | ${diagnostics(playlistId, detailsWrite)}"
-        )
+        return AddTracksResult(clean.size, emptyList())
     }
 }
 
