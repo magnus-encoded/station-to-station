@@ -37,13 +37,21 @@ jobs:
           [ -n "$SETLISTFM_API_KEY" ] && args="$args SETLISTFM_API_KEY=$SETLISTFM_API_KEY"
           echo "args=$args" >> "$GITHUB_OUTPUT"
 
+      - name: Select an available iOS Simulator
+        id: sim
+        run: |
+          # Runner images change which iPhone models ship; pick the first available.
+          udid=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $2; exit}')
+          echo "Using simulator $udid"
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+
       - name: Run unit tests
         working-directory: ios
         run: |
           xcodebuild test \
             -project SetlistToSpotify.xcodeproj \
             -scheme SetlistToSpotify \
-            -destination 'platform=iOS Simulator,name=iPhone 15' \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
             ${{ steps.creds.outputs.args }}
 
       - name: Build app (simulator, unsigned)
