@@ -327,6 +327,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun openUserAttended() {
         val userId = _state.value.userQuery.trim()
         if (userId.isEmpty()) return
+        // "My concerts" is your own username; adopt it as the identity used to stamp
+        // playlists and find shared concerts — but never clobber an explicit choice.
+        if (_state.value.mySetlistFmUser.isBlank()) saveMySetlistFmUser(userId)
         _state.update {
             it.copy(
                 source = SetlistSource.USER,
