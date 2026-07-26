@@ -41,17 +41,17 @@ final class SetlistFmClient {
     }
 
     func searchArtists(_ name: String, page: Int = 1) async throws -> ArtistSearchResponse {
-        try decoder.decode(ArtistSearchResponse.self, from:
+        try await decoder.decode(ArtistSearchResponse.self, from:
             get("search/artists", params: ["artistName": name, "p": "\(page)", "sort": "relevance"]))
     }
 
     func artistSetlists(_ mbid: String, page: Int = 1) async throws -> SetlistsResponse {
-        try decoder.decode(SetlistsResponse.self, from:
+        try await decoder.decode(SetlistsResponse.self, from:
             get("artist/\(mbid)/setlists", params: ["p": "\(page)"]))
     }
 
     func userAttended(_ userId: String, page: Int = 1) async throws -> SetlistsResponse {
-        try decoder.decode(SetlistsResponse.self, from:
+        try await decoder.decode(SetlistsResponse.self, from:
             get("user/\(userId)/attended", params: ["p": "\(page)"]))
     }
 }

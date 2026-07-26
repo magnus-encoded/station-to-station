@@ -38,7 +38,7 @@ struct SearchView: View {
         .navigationTitle("Setlist to Spotify")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
                 Button { nav.push(.friends) } label: { Image(systemName: "person.2") }
                 Button { nav.push(.settings) } label: { Image(systemName: "gearshape") }
             }
