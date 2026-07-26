@@ -48,6 +48,10 @@ targets:
     platform: iOS
     sources:
       - SetlistToSpotifyTests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: "YES"
+        CODE_SIGNING_ALLOWED: "NO"
     dependencies:
       - target: SetlistToSpotify
 
