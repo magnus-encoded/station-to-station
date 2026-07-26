@@ -26,6 +26,15 @@
                     android:scheme="setlist2spotify"
                     android:host="callback" />
             </intent-filter>
+            <!-- Friend card exchange: setlist2spotify://friend?u=...&sid=...&name=... -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="setlist2spotify"
+                    android:host="friend" />
+            </intent-filter>
         </activity>
     </application>
 

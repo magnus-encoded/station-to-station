@@ -146,11 +146,11 @@ class SpotifyClient(private val settings: SettingsRepository) {
         return json.decodeFromString<TrackSearchResponse>(text).tracks?.items.orEmpty()
     }
 
-    suspend fun createPlaylist(name: String, description: String): PlaylistResponse {
+    suspend fun createPlaylist(name: String, description: String, isPublic: Boolean): PlaylistResponse {
         val payload = buildJsonObject {
             put("name", name)
             put("description", description)
-            put("public", false)
+            put("public", isPublic)
         }
         // /me/playlists avoids the user-id round trip and the 403s the
         // /users/{id}/playlists endpoint gives on any id mismatch.
@@ -162,6 +162,14 @@ class SpotifyClient(private val settings: SettingsRepository) {
 
     suspend fun currentUser(): SpotifyUser =
         json.decodeFromString(call(Request.Builder().url("https://api.spotify.com/v1/me")))
+
+    /** Reads a playlist by id — used to harvest the creator's setlist.fm stamp from a shared link. */
+    suspend fun getPlaylist(playlistId: String): SimplePlaylist {
+        val url = "https://api.spotify.com/v1/playlists/$playlistId".toHttpUrl().newBuilder()
+            .addQueryParameter("fields", "id,name,description,owner(id,display_name)")
+            .build()
+        return json.decodeFromString(call(Request.Builder().url(url)))
+    }
 
     private fun urisBody(uris: List<String>) =
         buildJsonObject { putJsonArray("uris") { uris.forEach { add(it) } } }

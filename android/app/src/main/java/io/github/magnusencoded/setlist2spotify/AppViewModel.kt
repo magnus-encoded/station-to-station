@@ -4,7 +4,13 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.magnusencoded.setlist2spotify.data.Friend
 import io.github.magnusencoded.setlist2spotify.data.SettingsRepository
+import io.github.magnusencoded.setlist2spotify.data.friendFromUri
+import io.github.magnusencoded.setlist2spotify.data.sfmStamp
+import io.github.magnusencoded.setlist2spotify.data.sfmUserFromDescription
+import io.github.magnusencoded.setlist2spotify.data.spotifyPlaylistId
+import io.github.magnusencoded.setlist2spotify.data.toShareUri
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmArtist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSong
@@ -65,14 +71,22 @@ data class UiState(
     val matches: List<SongMatch> = emptyList(),
     val matching: Boolean = false,
     val playlistName: String = "",
+    /** Public playlists can be discovered by a friend's app; private ones can't. */
+    val playlistPublic: Boolean = false,
     // Playlist creation
     val creatingPlaylist: Boolean = false,
     val createdPlaylistUrl: String? = null,
     val createdPlaylistName: String = "",
     val createdTrackCount: Int = 0,
     val createdRefusedCount: Int = 0,
+    // Friends (peer-to-peer, on-device)
+    val mySetlistFmUser: String = "",
+    val friends: List<Friend> = emptyList(),
+    val sharedWith: Friend? = null,
     // Transient error surfaced as a snackbar
     val error: String? = null,
+    // Transient non-error notice (e.g. "Added a friend from that playlist")
+    val notice: String? = null,
 )
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
@@ -100,12 +114,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     bundledSpotifyClientId = settings.hasBundledSpotifyClientId(),
                     bundledSetlistFmKey = settings.hasBundledSetlistFmKey(),
                     grantedScope = settings.grantedScope(),
+                    mySetlistFmUser = settings.mySetlistFmUser.first() ?: "",
+                    friends = settings.friends.first(),
                 )
             }
         }
     }
 
     fun consumeError() = _state.update { it.copy(error = null) }
+    fun consumeNotice() = _state.update { it.copy(notice = null) }
 
     private fun fail(e: Exception) = _state.update {
         it.copy(
@@ -162,6 +179,105 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             settings.clearSpotifyAuth()
             _state.update { it.copy(spotifyConnected = false, grantedScope = null) }
+        }
+    }
+
+    // --- Friends (peer-to-peer) ---
+
+    fun saveMySetlistFmUser(username: String) {
+        val trimmed = username.trim()
+        viewModelScope.launch {
+            settings.saveMySetlistFmUser(trimmed)
+            _state.update { it.copy(mySetlistFmUser = trimmed) }
+        }
+    }
+
+    /** My shareable identity card, or null until I've set my setlist.fm username. */
+    suspend fun myCardUri(): Uri? {
+        val me = _state.value.mySetlistFmUser.trim()
+        if (me.isEmpty()) return null
+        val user = runCatching { spotify.currentUser() }.getOrNull()
+        return Friend(
+            setlistfm = me,
+            name = user?.displayName?.ifBlank { null } ?: me,
+            spotifyId = user?.id,
+        ).toShareUri()
+    }
+
+    fun addFriend(friend: Friend) {
+        viewModelScope.launch {
+            val current = _state.value.friends
+            // De-dupe on setlist.fm username; a re-share updates the display name.
+            val next = current.filterNot { it.setlistfm.equals(friend.setlistfm, ignoreCase = true) } + friend
+            settings.saveFriends(next)
+            _state.update { it.copy(friends = next) }
+        }
+    }
+
+    fun addFriendByUsername(username: String) {
+        val u = username.trim()
+        if (u.isNotEmpty()) addFriend(Friend(setlistfm = u))
+    }
+
+    fun handleFriendLink(uri: Uri) {
+        friendFromUri(uri)?.let { addFriend(it) }
+    }
+
+    fun removeFriend(friend: Friend) {
+        viewModelScope.launch {
+            val next = _state.value.friends.filterNot { it.setlistfm == friend.setlistfm }
+            settings.saveFriends(next)
+            _state.update { it.copy(friends = next) }
+        }
+    }
+
+    /** Fetches attended concerts for one user across up to [maxPages] pages. */
+    private suspend fun attendedConcerts(userId: String, maxPages: Int): List<FmSetlist> {
+        val all = mutableListOf<FmSetlist>()
+        for (page in 1..maxPages) {
+            val resp = setlistFm.userAttended(userId, page)
+            all += resp.setlist
+            if (all.size >= resp.total || resp.setlist.isEmpty()) break
+        }
+        return all
+    }
+
+    /**
+     * Loads the concerts both [friend] and I attended into [UiState.setlists], so
+     * the existing SetlistsScreen renders them and tapping one flows into the
+     * normal confirm → create-playlist path.
+     */
+    fun openSharedConcerts(friend: Friend) {
+        val me = _state.value.mySetlistFmUser.trim()
+        if (me.isEmpty()) {
+            _state.update { it.copy(error = "Set your setlist.fm username first (Friends screen).") }
+            return
+        }
+        _state.update {
+            it.copy(
+                sharedWith = friend,
+                source = SetlistSource.USER, // shared list mixes artists; show "date · artist"
+                setlistsTitle = "You & ${friend.name}",
+                setlists = emptyList(),
+                setlistsPage = 1,
+                setlistsTotal = 0,
+                setlistsLoading = true,
+            )
+        }
+        viewModelScope.launch {
+            try {
+                // ponytail: caps at 60 concerts each. Bump maxPages or cache per
+                // user if power users miss older overlaps.
+                val mine = attendedConcerts(me, maxPages = 3)
+                val theirs = attendedConcerts(friend.setlistfm, maxPages = 3).map { it.id }.toSet()
+                val shared = mine.filter { it.id in theirs }
+                _state.update {
+                    // total == size so loadMoreSetlists() won't try to paginate this list.
+                    it.copy(setlists = shared, setlistsTotal = shared.size, setlistsLoading = false)
+                }
+            } catch (e: Exception) {
+                fail(e)
+            }
         }
     }
 
@@ -335,6 +451,47 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         updateMatch(index) { it.copy(selected = track, included = true) }
 
     fun setPlaylistName(name: String) = _state.update { it.copy(playlistName = name) }
+    fun setPlaylistPublic(public: Boolean) = _state.update { it.copy(playlistPublic = public) }
+
+    /**
+     * Discovers a friend from a Spotify playlist link they shared: reads the playlist's
+     * description, and if it carries a setlist.fm stamp, adds the owner as a friend.
+     */
+    fun discoverFriendFromPlaylist(link: String) {
+        val id = spotifyPlaylistId(link)
+        if (id == null) {
+            _state.update { it.copy(error = "That doesn't look like a Spotify playlist link.") }
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val playlist = spotify.getPlaylist(id)
+                val username = sfmUserFromDescription(playlist.description)
+                val ownerId = playlist.owner?.id
+                val me = runCatching { spotify.currentUser().id }.getOrNull()
+                when {
+                    username == null -> _state.update {
+                        it.copy(error = "That playlist wasn't made with this app, so there's no setlist.fm user to add.")
+                    }
+                    ownerId != null && ownerId == me -> _state.update {
+                        it.copy(notice = "That's your own playlist.")
+                    }
+                    else -> {
+                        addFriend(
+                            Friend(
+                                setlistfm = username,
+                                name = playlist.owner?.displayName?.ifBlank { null } ?: username,
+                                spotifyId = ownerId,
+                            )
+                        )
+                        _state.update { it.copy(notice = "Added @$username as a friend.") }
+                    }
+                }
+            } catch (e: Exception) {
+                fail(e)
+            }
+        }
+    }
 
     /** Manual re-search for one song with a user-provided query. */
     fun researchSong(index: Int, query: String) {
@@ -385,8 +542,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     s.selectedSetlist?.eventDate?.let { append(" on ").append(it) }
                     append(". Created from setlist.fm")
                     s.selectedSetlist?.url?.let { append(": ").append(it) }
+                    // Stamp the creator so a friend's app can discover the mapping from a shared link.
+                    s.mySetlistFmUser.trim().takeIf { it.isNotEmpty() }?.let { append(" ").append(sfmStamp(it)) }
                 }
-                val playlist = spotify.createPlaylist(name, description)
+                val playlist = spotify.createPlaylist(name, description, s.playlistPublic)
                 val result = try {
                     spotify.addTracks(playlist.id, tracks.map { it.uri })
                 } catch (e: Exception) {

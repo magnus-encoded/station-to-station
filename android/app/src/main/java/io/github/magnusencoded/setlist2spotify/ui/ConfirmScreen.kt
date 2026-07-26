@@ -36,6 +36,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -145,6 +146,22 @@ fun ConfirmScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             )
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Public playlist", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        if (state.playlistPublic)
+                            "Friends can discover it from the shared link, and it shows on your Spotify profile."
+                        else
+                            "Kept private — only people you send the link to can open it, and friends' apps can't auto-add you from it.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(checked = state.playlistPublic, onCheckedChange = viewModel::setPlaylistPublic)
+            }
             Spacer(Modifier.height(8.dp))
             if (state.matching) {
                 val done = state.matches.count { !it.loading }
@@ -193,10 +210,21 @@ fun ConfirmScreen(
             },
             confirmButton = {
                 Button(onClick = {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                }) { Text("Open in Spotify") }
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, url)
+                    }
+                    context.startActivity(Intent.createChooser(send, "Send playlist to a friend"))
+                }) { Text("Send to a friend") }
             },
-            dismissButton = { TextButton(onClick = onBack) { Text("Done") } },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                    }) { Text("Open") }
+                    TextButton(onClick = onBack) { Text("Done") }
+                }
+            },
         )
     }
 }
