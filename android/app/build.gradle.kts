@@ -33,6 +33,18 @@ android {
         buildConfigField("String", "SETLISTFM_API_KEY", "\"$setlistFmApiKey\"")
     }
 
+    signingConfigs {
+        // Committed debug key so every machine and CI build signs identically,
+        // letting `adb install -r` update a device without wiping app data.
+        // Debug keystores are not secret (the password is the well-known "android").
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
