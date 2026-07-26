@@ -1,0 +1,64 @@
+name: iOS CI
+
+on:
+  push:
+    branches: [ "main" ]
+    paths: [ "ios/**", ".github/workflows/ios.yml" ]
+  pull_request:
+    branches: [ "main" ]
+    paths: [ "ios/**", ".github/workflows/ios.yml" ]
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Build credential overrides
+        id: creds
+        env:
+          # Optional repo secrets; when set, the app ships with one-tap
+          # "Log in with Spotify" and a bundled setlist.fm API key. Left unset,
+          # the built-in default client ID (from project.yml) still applies.
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+          SETLISTFM_API_KEY: ${{ secrets.SETLISTFM_API_KEY }}
+        run: |
+          args=""
+          [ -n "$SPOTIFY_CLIENT_ID" ] && args="$args SPOTIFY_CLIENT_ID=$SPOTIFY_CLIENT_ID"
+          [ -n "$SETLISTFM_API_KEY" ] && args="$args SETLISTFM_API_KEY=$SETLISTFM_API_KEY"
+          echo "args=$args" >> "$GITHUB_OUTPUT"
+
+      - name: Run unit tests
+        working-directory: ios
+        run: |
+          xcodebuild test \
+            -project SetlistToSpotify.xcodeproj \
+            -scheme SetlistToSpotify \
+            -destination 'platform=iOS Simulator,name=iPhone 15' \
+            ${{ steps.creds.outputs.args }}
+
+      - name: Build app (simulator, unsigned)
+        working-directory: ios
+        run: |
+          xcodebuild build \
+            -project SetlistToSpotify.xcodeproj \
+            -scheme SetlistToSpotify \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            -derivedDataPath build \
+            ${{ steps.creds.outputs.args }}
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SetlistToSpotify-sim
+          path: ios/build/Build/Products/Debug-iphonesimulator/SetlistToSpotify.app
