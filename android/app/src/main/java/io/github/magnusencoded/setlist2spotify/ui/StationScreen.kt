@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -42,6 +43,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -186,6 +188,20 @@ fun StationTimelineScreen(
 
                 else -> {
                     val earliest = state.setlists.mapNotNull { it.year()?.toIntOrNull() }.minOrNull()
+                    val listState = rememberLazyListState()
+                    // Descending toward the past pulls the next page in before you hit
+                    // the bottom, so history keeps flowing without a button.
+                    val nearPast by remember {
+                        derivedStateOf {
+                            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                            last >= state.setlists.size - 3
+                        }
+                    }
+                    LaunchedEffect(nearPast, state.setlistsLoading, state.setlists.size) {
+                        if (nearPast && !state.setlistsLoading && state.setlists.size < state.setlistsTotal) {
+                            viewModel.loadMoreSetlists()
+                        }
+                    }
                     Column(Modifier.fillMaxSize()) {
                         Text(
                             buildString {
@@ -196,7 +212,7 @@ fun StationTimelineScreen(
                             fontSize = 12.sp,
                             modifier = Modifier.padding(start = 20.dp, top = 2.dp, bottom = 14.dp),
                         )
-                        LazyColumn(Modifier.fillMaxSize()) {
+                        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                             // The future edge: scroll up toward what's ahead.
                             item { FuturePrompt() }
                             items(state.setlists, key = { it.id }) { setlist ->
@@ -209,13 +225,13 @@ fun StationTimelineScreen(
                                     },
                                 )
                             }
-                            // The past edge: reaching the bottom pulls more history in.
-                            if (state.setlists.size < state.setlistsTotal) {
+                            // The past edge: a quiet spinner while the next page flows in.
+                            if (state.setlistsLoading && state.setlists.isNotEmpty()) {
                                 item {
-                                    PastPrompt(
-                                        loading = state.setlistsLoading,
-                                        onLoadMore = { viewModel.loadMoreSetlists() },
-                                    )
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(16.dp),
+                                        horizontalArrangement = Arrangement.Center,
+                                    ) { CircularProgressIndicator(color = Amber, modifier = Modifier.size(22.dp)) }
                                 }
                             }
                         }
@@ -233,23 +249,6 @@ private fun FuturePrompt() {
         Text("↑  THE FUTURE", color = Slate, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp)
         Spacer(Modifier.height(4.dp))
         Text("Connect Bandsintown to see the shows ahead — coming soon.", color = Faint, fontSize = 12.sp)
-    }
-}
-
-/** Bottom of the timeline — the past. Reaching it pulls older shows from setlist.fm. */
-@Composable
-private fun PastPrompt(loading: Boolean, onLoadMore: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().padding(16.dp),
-        horizontalArrangement = Arrangement.Center,
-    ) {
-        if (loading) {
-            CircularProgressIndicator(color = Amber, modifier = Modifier.size(22.dp))
-        } else {
-            TextButton(onClick = onLoadMore) {
-                Text("↓  Load older shows", color = Muted, fontWeight = FontWeight.SemiBold)
-            }
-        }
     }
 }
 
