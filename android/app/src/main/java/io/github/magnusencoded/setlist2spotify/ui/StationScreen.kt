@@ -330,6 +330,7 @@ fun StationTimelineScreen(
                                         highlight = isFirst && row.mine,
                                         mine = row.mine,
                                         laneWidth = laneWidth,
+                                        inside = row.depth > 0,
                                         rails = rails,
                                         onClick = {
                                             viewModel.openShow(node.setlist)
@@ -526,6 +527,7 @@ internal fun TimelineItem(
     onClick: () -> Unit,
     mine: Boolean = true,
     laneWidth: Dp = 0.dp,
+    inside: Boolean = false,
     rails: @Composable () -> Unit = {},
 ) {
     val songCount = setlist.songs().size
@@ -540,15 +542,18 @@ internal fun TimelineItem(
             if (mine) {
                 Box(
                     Modifier
-                        .padding(start = SpineX - 6.dp, top = 6.dp)
-                        .size(14.dp)
+                        // A gig listed inside an open festival hangs off the spine as a
+                        // smaller node, so it reads as contained rather than a stop of
+                        // its own.
+                        .padding(start = if (inside) SpineX - 2.dp else SpineX - 6.dp, top = 6.dp)
+                        .size(if (inside) 8.dp else 14.dp)
                         .clip(CircleShape)
                         .background(if (highlight) AmberSoft else Raised)
                         .border(2.dp, if (highlight) Amber else LineLit, CircleShape),
                 )
             }
         }
-        Column(Modifier.padding(end = 18.dp, bottom = 22.dp)) {
+        Column(Modifier.padding(start = if (inside) 14.dp else 0.dp, end = 18.dp, bottom = 22.dp)) {
             Text(
                 setlist.readableDate() ?: "Unknown date",
                 color = Faint,
