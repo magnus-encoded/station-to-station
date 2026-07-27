@@ -99,6 +99,14 @@ data class UiState(
     val viewingFriend: Friend? = null,
     val friendTimeline: List<FmSetlist> = emptyList(),
     val friendTimelineLoading: Boolean = false,
+    // Nearby discovery (mocked) → the two-timeline comparison, the resolution one
+    // level out from a single timeline. sharedShowIds are the concerts both attended.
+    val discovering: Boolean = false,
+    val nearbyPeers: List<Friend> = emptyList(),
+    val comparisonFriend: Friend? = null,
+    val comparisonTimeline: List<FmSetlist> = emptyList(),
+    val comparisonLoading: Boolean = false,
+    val sharedShowIds: Set<String> = emptySet(),
     // The concerts inside a festival node, when one is opened.
     val festivalTitle: String = "",
     val festivalShows: List<FmSetlist> = emptyList(),
@@ -113,6 +121,12 @@ data class UiState(
 )
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
+
+    companion object {
+        /** ponytail: a mocked nearby peer so the two-timeline view is testable before
+         *  real Nearby Connections lands. Trummispojken was at the same The Warning gig. */
+        val TRUMMISPOJKEN = Friend(setlistfm = "Trummispojken", name = "Trummispojken")
+    }
 
     val settings = SettingsRepository(application)
     private val setlistFm = SetlistFmClient { settings.setlistFmApiKeyValue() }
@@ -333,6 +347,60 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (e: Exception) {
                 fail(e)
+            }
+        }
+    }
+
+    // --- Nearby discovery + two-timeline comparison ---
+
+    /**
+     * Begins looking for people to swap timelines with. ponytail: mocked — real
+     * Nearby Connections / BLE would fill [UiState.nearbyPeers] as devices appear.
+     * Today one known peer surfaces after a beat so the exchange is testable.
+     */
+    fun startNearbyDiscovery() {
+        _state.update { it.copy(discovering = true, nearbyPeers = emptyList()) }
+        viewModelScope.launch {
+            delay(1600)
+            _state.update { it.copy(discovering = false, nearbyPeers = listOf(TRUMMISPOJKEN)) }
+        }
+    }
+
+    /**
+     * The card swap: each phone hands over its setlist.fm ↔ Spotify identity, so we
+     * add them as a friend and immediately load the comparison — both timelines woven
+     * onto one spine, co-attended shows marked as intersections.
+     */
+    fun connectWithPeer(peer: Friend) {
+        addFriend(peer)
+        compareTimelinesWith(peer)
+    }
+
+    fun compareTimelinesWith(friend: Friend) {
+        _state.update {
+            it.copy(
+                comparisonFriend = friend,
+                comparisonTimeline = emptyList(),
+                comparisonLoading = true,
+                sharedShowIds = emptySet(),
+            )
+        }
+        viewModelScope.launch {
+            try {
+                // ponytail: caps at 60 shows (3 pages), like the other timeline loads.
+                val theirs = attendedConcerts(friend.setlistfm, maxPages = 3)
+                val mineIds = _state.value.setlists.map { it.id }.toSet()
+                val shared = theirs.mapNotNull { it.id.takeIf { id -> id in mineIds } }.toSet()
+                _state.update {
+                    it.copy(comparisonTimeline = theirs, comparisonLoading = false, sharedShowIds = shared)
+                }
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        comparisonLoading = false,
+                        error = e.message ?: "Could not load ${friend.name}'s timeline",
+                    )
+                }
             }
         }
     }

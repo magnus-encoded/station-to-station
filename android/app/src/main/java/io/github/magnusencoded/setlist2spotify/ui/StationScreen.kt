@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -150,6 +151,8 @@ fun StationTimelineScreen(
     onOpenFestival: () -> Unit,
     onOpenImport: () -> Unit,
     onOpenConnect: () -> Unit,
+    onOpenNearby: () -> Unit,
+    onZoomOut: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -220,16 +223,25 @@ fun StationTimelineScreen(
                             state = listState,
                             modifier = Modifier
                                 .fillMaxSize()
-                                // Swipe the timeline left to reach people — the same
-                                // "act on this level" gesture the setlist uses to convert.
+                                // Swipe the timeline left to start connecting with someone
+                                // nearby — the "act on this level" gesture, people axis.
                                 .pointerInput(Unit) {
                                     val threshold = 90.dp.toPx()
                                     var dragX = 0f
                                     detectHorizontalDragGestures(
                                         onDragStart = { dragX = 0f },
-                                        onDragEnd = { if (dragX <= -threshold) onOpenConnect() },
+                                        onDragEnd = { if (dragX <= -threshold) onOpenNearby() },
                                         onHorizontalDrag = { _, delta -> dragX += delta },
                                     )
+                                }
+                                // Pinch to zoom out one resolution: your single timeline →
+                                // the many-timelines view where friends' lines cross yours.
+                                .pointerInput(Unit) {
+                                    var zoom = 1f
+                                    detectTransformGestures { _, _, z, _ ->
+                                        zoom *= z
+                                        if (zoom < 0.8f) { zoom = 1f; onZoomOut() }
+                                    }
                                 },
                         ) {
                             // The future edge: scroll up toward what's ahead.

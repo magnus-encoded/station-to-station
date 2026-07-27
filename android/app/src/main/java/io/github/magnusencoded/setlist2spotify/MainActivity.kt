@@ -23,6 +23,8 @@ import io.github.magnusencoded.setlist2spotify.ui.ConnectScreen
 import io.github.magnusencoded.setlist2spotify.ui.FestivalScreen
 import io.github.magnusencoded.setlist2spotify.ui.FriendTimelineScreen
 import io.github.magnusencoded.setlist2spotify.ui.ImportScreen
+import io.github.magnusencoded.setlist2spotify.ui.MultipleTimelinesScreen
+import io.github.magnusencoded.setlist2spotify.ui.NearbyScreen
 import io.github.magnusencoded.setlist2spotify.ui.SettingsScreen
 import io.github.magnusencoded.setlist2spotify.ui.SplashScreen
 import io.github.magnusencoded.setlist2spotify.ui.StationEventScreen
@@ -90,7 +92,30 @@ fun AppNavigation(viewModel: AppViewModel) {
                 onOpenFestival = { navController.navigate("festival") },
                 onOpenImport = { navController.navigate("import") },
                 onOpenConnect = { navController.navigate("connect") },
+                onOpenNearby = { navController.navigate("nearby") },
+                onZoomOut = { navController.navigate("timelines") },
                 onOpenSettings = { navController.navigate("settings") },
+            )
+        }
+        composable("nearby") {
+            NearbyScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onConnected = {
+                    // Land on the woven two-timeline view, replacing the nearby screen.
+                    navController.navigate("timelines") {
+                        popUpTo("nearby") { inclusive = true }
+                    }
+                },
+            )
+        }
+        composable("timelines") {
+            MultipleTimelinesScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onOpenEvent = { navController.navigate("event") },
+                onFindNearby = { navController.navigate("nearby") },
+                onZoomIn = { navController.popBackStack() },
             )
         }
         composable("festival") {
