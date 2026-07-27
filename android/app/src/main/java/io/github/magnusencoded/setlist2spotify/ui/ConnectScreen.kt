@@ -225,10 +225,10 @@ fun FriendTimelineScreen(
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             when {
-                state.friendTimelineLoading ->
+                state.viewedFriendLoading ->
                     CircularProgressIndicator(color = Amber, modifier = Modifier.align(Alignment.Center))
 
-                state.friendTimeline.isEmpty() ->
+                state.viewedFriendShows.isEmpty() ->
                     Text(
                         "No public shows on setlist.fm for @${friend?.setlistfm}.",
                         color = Muted,
@@ -238,16 +238,16 @@ fun FriendTimelineScreen(
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     item {
                         Text(
-                            "${state.friendTimeline.size} shows",
+                            "${state.viewedFriendShows.size} shows",
                             color = Faint,
                             fontSize = 12.sp,
                             modifier = Modifier.padding(start = 20.dp, top = 6.dp, bottom = 14.dp),
                         )
                     }
-                    items(state.friendTimeline, key = { it.id }) { setlist ->
+                    items(state.viewedFriendShows, key = { it.id }) { setlist ->
                         TimelineItem(
                             setlist = setlist,
-                            highlight = setlist.id == state.friendTimeline.first().id,
+                            highlight = setlist.id == state.viewedFriendShows.first().id,
                             onClick = {
                                 viewModel.openShow(setlist)
                                 onOpenEvent()

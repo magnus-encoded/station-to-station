@@ -124,14 +124,19 @@ data class WovenRow(
     val mine: Boolean,
     val others: List<Friend>,
     val depth: Int = 0,
-    /** Their shows that landed on this node — a festival can hold many of them. */
-    val theirShows: List<FmSetlist> = emptyList(),
+    /**
+     * The shows on this node that friends attended — a union across all of them,
+     * deduped by id, and some of them are mine too. Not a partition: this was
+     * called `theirShows`, which is exactly why concatenating two friends' lists
+     * looked fine and double-counted every gig they both went to.
+     */
+    val showsHereByFriends: List<FmSetlist> = emptyList(),
 ) {
-    /** Shows we were both at: the thing this whole resolution exists to surface. */
+    /** Shows I was at with company: the thing this whole resolution exists to surface. */
     val sharedCount: Int
         get() {
-            val theirIds = theirShows.map { it.id }.toSet()
-            return shows.count { it.id in theirIds }
+            val alsoTheirs = showsHereByFriends.map { it.id }.toSet()
+            return shows.count { it.id in alsoTheirs }
         }
 
     val key: String get() = when (val n = node) {
@@ -168,37 +173,37 @@ fun weaveTimelines(
     expanded: Set<String> = emptySet(),
 ): List<WovenRow> {
     val myNodes = groupIntoFestivals(mine, festivalNames)
-    val rows = mutableListOf<WovenRow>()
-    val takenByMine = mutableMapOf<TimelineNode, MutableList<Friend>>()
-    val takenShows = mutableMapOf<TimelineNode, MutableList<FmSetlist>>()
+    // Every node on the spine, mine first so a night I was at always hosts the meeting.
+    // A cluster of theirs that no existing host takes becomes a host itself, which is
+    // what lets two friends at a gig I missed land on one node instead of one each.
+    val hosts = myNodes.toMutableList()
+    val friendsAt = mutableMapOf<TimelineNode, MutableList<Friend>>()
+    // Keyed by show id: two friends at the same gig contribute it once, or every
+    // count taken off this node double-counts as soon as there are two of them.
+    val showsAt = mutableMapOf<TimelineNode, LinkedHashMap<String, FmSetlist>>()
 
-    // Their clusters, minus anything that belongs to a node of mine.
-    val leftovers = mutableListOf<Pair<Friend, TimelineNode>>()
     for (friend in friends) {
         val shows = theirs[friend.setlistfm].orEmpty()
         if (shows.isEmpty()) continue
         for (node in groupIntoFestivals(shows, festivalNames)) {
-            val host = myNodes.firstOrNull { it.absorbs(node) }
-            if (host != null) {
-                takenByMine.getOrPut(host) { mutableListOf() }.add(friend)
-                takenShows.getOrPut(host) { mutableListOf() }.addAll(node.shows())
-            } else {
-                leftovers.add(friend to node)
-            }
+            val host = hosts.firstOrNull { it.hosts(node) } ?: node.also { hosts.add(it) }
+            friendsAt.getOrPut(host) { mutableListOf() }
+                .let { if (it.none { f -> f.setlistfm == friend.setlistfm }) it.add(friend) }
+            val here = showsAt.getOrPut(host) { LinkedHashMap() }
+            node.shows().forEach { here.putIfAbsent(it.id, it) }
         }
     }
 
-    myNodes.forEach {
+    hosts.forEachIndexed { i, node ->
         rows.add(
             WovenRow(
-                it,
-                mine = true,
-                others = takenByMine[it].orEmpty(),
-                theirShows = takenShows[it].orEmpty(),
+                node,
+                mine = i < myNodes.size,
+                others = friendsAt[node].orEmpty(),
+                showsHereByFriends = showsAt[node]?.values?.toList().orEmpty(),
             ),
         )
     }
-    leftovers.forEach { (friend, node) -> rows.add(WovenRow(node, mine = false, others = listOf(friend))) }
     rows.sortByDescending { it.date }
 
     if (expanded.isEmpty()) return rows
@@ -206,13 +211,10 @@ fun weaveTimelines(
     return rows.flatMap { row ->
         val node = row.node
         if (node !is TimelineNode.Festival || row.key !in expanded) return@flatMap listOf(row)
-        val alsoHere = row.others.flatMap { f ->
-            theirs[f.setlistfm].orEmpty().filter { node.absorbsShow(it) }
-        }
         // Whose a gig is comes from my own timeline, never from the node holding it —
         // reading it off node.shows made every gig inside a friend's festival look mine.
         val myIds = mine.map { it.id }.toSet()
-        val inner = (node.shows + alsoHere)
+        val inner = (node.shows + row.showsHereByFriends)
             .distinctBy { it.id }
             .sortedByDescending { it.localDate() }
             .map { show ->
@@ -232,18 +234,24 @@ private fun TimelineNode.shows(): List<FmSetlist> = when (this) {
     is TimelineNode.Festival -> shows
 }
 
+/**
+ * Whether [other]'s cluster belongs on this node rather than beside it: my festival
+ * absorbing their run at the same venue, or — the case a lone concert used to miss —
+ * simply the same gig on both lists. Anything looser (same venue, different nights,
+ * neither of us clustering it) would mark unshared nights as shared.
+ */
+private fun TimelineNode.hosts(other: TimelineNode): Boolean =
+    absorbs(other) || shows().any { a -> other.shows().any { b -> a.id == b.id } }
+
 /** Same venue, overlapping few days — near enough to be the same festival. */
 private fun TimelineNode.absorbs(other: TimelineNode): Boolean {
     val mineShows = (this as? TimelineNode.Festival)?.shows ?: return false
-    val theirShows = when (other) {
+    val otherShows = when (other) {
         is TimelineNode.Festival -> other.shows
         is TimelineNode.Concert -> listOf(other.setlist)
     }
-    return theirShows.any { show -> mineShows.any { sameFestival(it, show) } }
+    return otherShows.any { show -> mineShows.any { sameFestival(it, show) } }
 }
-
-private fun TimelineNode.absorbsShow(show: FmSetlist): Boolean =
-    (this as? TimelineNode.Festival)?.shows?.any { sameFestival(it, show) } == true
 
 /** Two adjacent shows belong together when they share a venue and fall within the window. */
 private fun sameFestival(a: FmSetlist, b: FmSetlist): Boolean {

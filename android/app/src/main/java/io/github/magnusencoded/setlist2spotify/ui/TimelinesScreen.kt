@@ -224,7 +224,21 @@ private fun PeerRow(peer: Friend, onExchange: () -> Unit) {
 
 // --- Rail colours, shared with the timeline's zoomed-out lanes ---
 
-/** Each rail gets its own light: mine is amber, the rest cycle through cooler ones. */
-private val RailColors = listOf(Slate, Color(0xFF8A6DA0), Color(0xFF5F8E8A), Color(0xFFA07E6D))
+/**
+ * Each lane gets its own light: mine is amber, the rest cycle through cooler ones.
+ * Eight of them, because that is roughly where lanes get too close together to tell
+ * apart by position anyway — past it the cycle repeats and colour stops carrying
+ * identity, which is what the key above the timeline is for.
+ */
+private val RailColors = listOf(
+    Slate,
+    Color(0xFF8A6DA0),
+    Color(0xFF5F8E8A),
+    Color(0xFFA07E6D),
+    Color(0xFF7B8FC4),
+    Color(0xFFA8748C),
+    Color(0xFF6E9B77),
+    Color(0xFF9A8F5F),
+)
 
 internal fun railColor(index: Int) = RailColors[index % RailColors.size]

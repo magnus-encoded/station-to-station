@@ -22,6 +22,7 @@ class WeaveTimelinesTest {
     )
 
     private val trummis = Friend(setlistfm = "Trummispojken", name = "Trummispojken")
+    private val carlitos = Friend(setlistfm = "Carlitos2", name = "Carlitos2")
 
     @Test
     fun `with nobody connected the rows are just my own`() {
@@ -98,5 +99,87 @@ class WeaveTimelinesTest {
         val inner = rows.drop(1)
         assertTrue(inner.all { it.depth == 1 })
         assertEquals(listOf(false, true, true), inner.map { it.mine }) // 26th theirs, 25th + 24th mine
+    }
+
+    // --- Three lines. Everything above holds with one friend and hides the rest. ---
+
+    @Test
+    fun `a night all three of us were at is one node carrying both of them`() {
+        val tons = show("w1", "25-06-2026", "Ekebergsletta")
+        val rows = weaveTimelines(
+            mine = listOf(tons, show("a2", "24-06-2026", "Ekebergsletta")),
+            festivalNames = emptyMap(),
+            friends = listOf(carlitos, trummis),
+            theirs = mapOf(
+                "Trummispojken" to listOf(tons, show("b2", "26-06-2026", "Ekebergsletta")),
+                "Carlitos2" to listOf(tons),
+            ),
+        )
+        assertEquals(1, rows.size)
+        assertEquals(setOf(carlitos, trummis), rows[0].others.toSet())
+        assertTrue(rows[0].shared)
+    }
+
+    @Test
+    fun `a gig two friends both went to is counted once, not once each`() {
+        val tons = show("w1", "25-06-2026", "Ekebergsletta")
+        val rows = weaveTimelines(
+            mine = listOf(tons, show("a2", "24-06-2026", "Ekebergsletta")),
+            festivalNames = emptyMap(),
+            friends = listOf(carlitos, trummis),
+            theirs = mapOf(
+                "Trummispojken" to listOf(tons),
+                "Carlitos2" to listOf(tons),
+            ),
+        )
+        // Both were at the same one gig: one show here, and it is the one we shared.
+        assertEquals(1, rows[0].showsHereByFriends.size)
+        assertEquals(1, rows[0].sharedCount)
+    }
+
+    @Test
+    fun `a night I missed that two friends shared is one row, not one each`() {
+        val theirs = show("b1", "12-06-2025", "3Arena")
+        val rows = weaveTimelines(
+            mine = listOf(show("a1", "21-11-2025", "Blå")),
+            festivalNames = emptyMap(),
+            friends = listOf(carlitos, trummis),
+            theirs = mapOf("Trummispojken" to listOf(theirs), "Carlitos2" to listOf(theirs)),
+        )
+        assertEquals(2, rows.size) // my night, and the one they shared without me
+        val without = rows.first { !it.mine }
+        assertEquals(setOf(carlitos, trummis), without.others.toSet())
+    }
+
+    @Test
+    fun `a night with one of them says so - the other is not on that node`() {
+        val withCarlitos = show("a1", "21-11-2025", "Blå")
+        val rows = weaveTimelines(
+            mine = listOf(withCarlitos),
+            festivalNames = emptyMap(),
+            friends = listOf(carlitos, trummis),
+            theirs = mapOf(
+                "Carlitos2" to listOf(withCarlitos),
+                "Trummispojken" to listOf(show("b9", "01-01-2020", "Somewhere else")),
+            ),
+        )
+        val mine = rows.first { it.mine }
+        assertEquals(listOf(carlitos), mine.others)
+        assertEquals(1, mine.sharedCount)
+    }
+
+    @Test
+    fun `the same single gig on both lists is one node, not a row each`() {
+        val night = show("x1", "21-11-2025", "Blå")
+        val rows = weaveTimelines(
+            mine = listOf(night),
+            festivalNames = emptyMap(),
+            friends = listOf(trummis),
+            theirs = mapOf("Trummispojken" to listOf(night)),
+        )
+        // A lone concert used to fail to absorb, so a shared night drew two rows.
+        assertEquals(1, rows.size)
+        assertTrue(rows[0].shared)
+        assertEquals(1, rows[0].sharedCount)
     }
 }

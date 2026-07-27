@@ -9,6 +9,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -228,7 +230,7 @@ fun StationTimelineScreen(
                     // Springy rather than timed: the other lines settle into place like
                     // something physical arriving, instead of a panel sliding.
                     val laneWidth by animateDpAsState(
-                        if (zoomedOut) LaneStep * lanes.size else 0.dp,
+                        if (zoomedOut) stripWidth(lanes.size) else 0.dp,
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioLowBouncy,
                             stiffness = Spring.StiffnessLow,
@@ -289,9 +291,13 @@ fun StationTimelineScreen(
                             modifier = Modifier.padding(start = 20.dp, top = 2.dp, bottom = 14.dp),
                         )
                         // Whose line is whose, only while more than one is showing.
+                        // Scrolls sideways: the key is the one thing that grows without
+                        // limit as friends are added, and it must not push the line off.
                         if (laneWidth > 0.dp) {
                             Row(
-                                Modifier.padding(start = 20.dp, bottom = 12.dp),
+                                Modifier
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 LaneKey(Amber, "You")
@@ -305,13 +311,13 @@ fun StationTimelineScreen(
                         LaunchedEffect(state.setlists) { viewModel.resolveFestivalNames() }
                         LaunchedEffect(zoomedOut) { if (zoomedOut) viewModel.loadFriendTimelines() }
                         val rows = remember(
-                            state.setlists, state.festivalNames, lanes, state.friendTimelines, zoomedOut, expanded,
+                            state.setlists, state.festivalNames, lanes, state.showsByFriend, zoomedOut, expanded,
                         ) {
                             weaveTimelines(
                                 mine = state.setlists,
                                 festivalNames = state.festivalNames,
                                 friends = if (zoomedOut) lanes else emptyList(),
-                                theirs = if (zoomedOut) state.friendTimelines else emptyMap(),
+                                theirs = if (zoomedOut) state.showsByFriend else emptyMap(),
                                 expanded = expanded,
                             )
                         }
@@ -373,12 +379,11 @@ fun StationTimelineScreen(
                                         laneWidth = laneWidth,
                                         nodeX = nodeX,
                                         sharedCount = row.sharedCount,
-                                        theirCount = row.theirShows.size,
-                                        theirColor = railColor(
-                                            lanes.indexOfFirst { f ->
-                                                row.others.any { it.setlistfm == f.setlistfm }
-                                            }.coerceAtLeast(0),
-                                        ),
+                                        theirCount = row.showsHereByFriends.size,
+                                        // Company has a colour of its own — a night two
+                                        // friends shared is nobody's lane colour either.
+                                        theirColor = if (row.others.size > 1) Crossed
+                                        else railColor(nodeHost(row, lanes).coerceAtLeast(0)),
                                         rails = rails,
                                         onClick = {
                                             expanded =
@@ -655,30 +660,68 @@ private fun LaneKey(color: Color, label: String) {
  */
 internal val LaneStep = 20.dp
 
-private fun laneX(index: Int) = SpineX + LaneStep * (index + 1)
+/**
+ * How wide the strip may grow. Past this the lanes tighten instead of pushing the
+ * text off the phone, so the view survives more friends than fit at full spacing.
+ */
+private val MaxStripWidth = 132.dp
+
+/** Lane spacing for [count] friends: full step until the strip is full, then tighter. */
+internal fun laneStep(count: Int): Dp =
+    if (count <= 0) LaneStep else minOf(LaneStep, MaxStripWidth / count)
+
+/** The strip's width at [count] friends — never more than [MaxStripWidth]. */
+internal fun stripWidth(count: Int): Dp = laneStep(count) * count
+
+/** My own line. Not a lane: it is the fixed thing every lane is measured against. */
+internal const val Spine = -1
+
+private fun laneX(index: Int, step: Dp) = SpineX + step * (index + 1)
+
+/**
+ * Which line a row's node sits on. Lines that share a node become one line, so a
+ * night has exactly one node — mine when I was there (my line never moves to meet
+ * anyone), otherwise the innermost lane among the friends who were, which the
+ * others come to. Returns [Spine] or a lane index.
+ */
+internal fun nodeHost(row: WovenRow, lanes: List<Friend>): Int {
+    if (row.mine) return Spine
+    return lanes.indices.firstOrNull { i ->
+        row.others.any { it.setlistfm == lanes[i].setlistfm }
+    } ?: Spine
+}
+
+/**
+ * Which line [friend] is drawn on at [row]: the node's host if they were there,
+ * otherwise their own lane. This is the whole merge rule — asking it per friend is
+ * what makes A parting on the row B joins two independent answers instead of one
+ * shared boolean. Replaces `merged()`, whose Boolean could only ever mean "with me".
+ */
+internal fun hostLane(row: WovenRow?, friend: Friend, lanes: List<Friend>): Int {
+    val own = lanes.indexOfFirst { it.setlistfm == friend.setlistfm }
+    if (row == null || row.others.none { it.setlistfm == friend.setlistfm }) return own
+    return nodeHost(row, lanes)
+}
+
+/** Is this friend's line one line with someone else's here — mine, or another friend's? */
+internal fun joinedAt(row: WovenRow?, friend: Friend): Boolean {
+    if (row == null || row.others.none { it.setlistfm == friend.setlistfm }) return false
+    return row.mine || row.others.size > 1
+}
 
 /**
  * Where a row's node sits. My line never moves — a night we shared happens *on* my
  * line, and theirs comes to meet it. Putting the node between the two made both
  * timelines leave their own path to attend it.
  */
-internal fun crossingX(row: WovenRow, friends: List<Friend>, laneWidth: Dp): Dp {
-    if (laneWidth <= 0.dp || row.mine) return SpineX
-    val here = friends.indexOfFirst { f -> row.others.any { it.setlistfm == f.setlistfm } }
-    if (here < 0) return SpineX
+internal fun crossingX(row: WovenRow, lanes: List<Friend>, laneWidth: Dp): Dp {
+    val host = nodeHost(row, lanes)
+    if (laneWidth <= 0.dp || host == Spine) return SpineX
+    val step = laneStep(lanes.size)
     // Their lane is still sliding out while the strip opens; keep the node with it.
-    val open = (laneWidth / (LaneStep * friends.size.coerceAtLeast(1))).coerceIn(0f, 1f)
-    return SpineX + (laneX(here) - SpineX) * open
+    val open = (laneWidth / stripWidth(lanes.size)).coerceIn(0f, 1f)
+    return SpineX + (laneX(host, step) - SpineX) * open
 }
-
-/**
- * The other timelines, drawn in the strip that opens beside mine. Each friend keeps a
- * lane of their own at the same scale as my line; where they were at the same show as
- * me their lane bends in to my spine and back out, so the merge reads as one node.
- */
-/** Were this row's night one we both were at — the state that makes lines one line. */
-private fun merged(row: WovenRow?, friend: Friend): Boolean =
-    row != null && row.mine && row.others.any { it.setlistfm == friend.setlistfm }
 
 @Composable
 internal fun PeopleRails(
@@ -690,8 +733,8 @@ internal fun PeopleRails(
     if (laneWidth <= 0.dp || friends.isEmpty()) return
     Canvas(Modifier.fillMaxSize()) {
         val spineX = SpineX.toPx() + 1.dp.toPx()
-        val step = LaneStep.toPx()
-        val open = (laneWidth / LaneStep).coerceAtMost(friends.size.toFloat())
+        val step = laneStep(friends.size)
+        val open = (laneWidth / stripWidth(friends.size)).coerceIn(0f, 1f) * friends.size
         val nodeY = if (row.node is TimelineNode.Festival) 15.dp.toPx() else 13.dp.toPx()
         val h = size.height
         val stroke = Stroke(width = 2.dp.toPx())
@@ -705,51 +748,39 @@ internal fun PeopleRails(
             strokeWidth = 2.dp.toPx(),
         )
 
+        val host = nodeHost(row, friends)
         friends.forEachIndexed { i, friend ->
-            // Lanes slide out from under my spine as the strip opens.
-            val target = laneX(i).toPx()
-            val x = spineX + (target - spineX) * (open - i).coerceIn(0f, 1f)
-            if (x <= spineX + 1f) return@forEachIndexed
+            // Lanes slide out from under my spine as the strip opens; a line still
+            // tucked underneath has nothing to draw yet.
+            val slide = (open - i).coerceIn(0f, 1f)
+            if (slide <= 0f) return@forEachIndexed
+            fun xOf(lane: Int): Float =
+                if (lane == Spine) spineX
+                else spineX + (laneX(lane, step).toPx() - spineX) * slide
+
+            // Where this line is now and where it was on the row above. Two lines that
+            // share a node share a host, so they arrive at the same x and are one line
+            // from there — the merge needs no case of its own.
+            val x = xOf(hostLane(row, friend, friends))
+            val fromX = xOf(hostLane(prev, friend, friends))
             val here = row.others.any { it.setlistfm == friend.setlistfm }
-            val joins = merged(row, friend)
-            val cameJoined = merged(prev, friend)
-            val color = if (here) railColor(i) else LineCol
+            val joined = joinedAt(row, friend)
+            val color = if (joined) Crossed else if (here) railColor(i) else LineCol
+
             val path = Path()
-            when {
-                // Their line comes to mine and stays on it until a night I wasn't at.
-                joins -> {
-                    if (cameJoined) {
-                        path.moveTo(spineX, 0f)
-                    } else {
-                        path.moveTo(x, 0f)
-                        path.cubicTo(x, nodeY * 0.35f, spineX, nodeY * 0.55f, spineX, nodeY)
-                    }
-                    path.lineTo(spineX, h)
-                    drawPath(path, Crossed, style = stroke)
-                }
+            path.moveTo(fromX, 0f)
+            // Joining, parting and staying put are the same stroke: come from where you
+            // were, be at the node, carry on. Only the endpoints differ.
+            if (fromX != x) path.cubicTo(fromX, nodeY * 0.35f, x, nodeY * 0.55f, x, nodeY)
+            path.lineTo(x, h)
+            drawPath(path, color, style = stroke)
 
-                cameJoined -> {
-                    // Parting after a shared night: their line finds its lane again.
-                    path.moveTo(spineX, 0f)
-                    path.cubicTo(spineX, nodeY * 0.35f, x, nodeY * 0.55f, x, nodeY)
-                    path.lineTo(x, h)
-                    drawPath(path, color, style = stroke)
-                    if (here) {
-                        drawCircle(Raised, 6.dp.toPx(), Offset(x, nodeY))
-                        drawCircle(railColor(i), 6.dp.toPx(), Offset(x, nodeY), style = stroke)
-                    }
-                }
-
-                else -> {
-                    path.moveTo(x, 0f)
-                    path.lineTo(x, h)
-                    drawPath(path, color, style = stroke)
-                    // Theirs alone: their own node, on their own line.
-                    if (here) {
-                        drawCircle(Raised, 6.dp.toPx(), Offset(x, nodeY))
-                        drawCircle(railColor(i), 6.dp.toPx(), Offset(x, nodeY), style = stroke)
-                    }
-                }
+            // One node per night, drawn by the line hosting it. My own rows draw their
+            // node themselves; without the host check every line at a meeting would
+            // stack its own circle on the same point.
+            if (here && !row.mine && i == host) {
+                drawCircle(Raised, 6.dp.toPx(), Offset(x, nodeY))
+                drawCircle(if (joined) Crossed else railColor(i), 6.dp.toPx(), Offset(x, nodeY), style = stroke)
             }
         }
     }

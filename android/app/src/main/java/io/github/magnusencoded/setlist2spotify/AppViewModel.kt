@@ -99,13 +99,17 @@ data class UiState(
     val sharedWith: Friend? = null,
     // A friend's collection timeline, opened from the Connect screen.
     val viewingFriend: Friend? = null,
-    val friendTimeline: List<FmSetlist> = emptyList(),
-    val friendTimelineLoading: Boolean = false,
+    // One friend's shows, for the friend screen. Named apart from [showsByFriend]
+    // on purpose: they were friendTimeline/friendTimelines, one character and two
+    // very different meanings apart.
+    val viewedFriendShows: List<FmSetlist> = emptyList(),
+    val viewedFriendLoading: Boolean = false,
     // Nearby discovery (mocked) → the woven view, the resolution one level out from a
     // single timeline: my line braided with every known friend's, keyed by username.
     val discovering: Boolean = false,
     val nearbyPeers: List<Friend> = emptyList(),
-    val friendTimelines: Map<String, List<FmSetlist>> = emptyMap(),
+    /** Every lane's shows, keyed by setlist.fm username. Feeds the zoomed-out weave. */
+    val showsByFriend: Map<String, List<FmSetlist>> = emptyMap(),
     val timelinesLoading: Boolean = false,
     /** Festival name by the first show id of its cluster; see resolveFestivalNames(). */
     val festivalNames: Map<String, String> = emptyMap(),
@@ -124,9 +128,12 @@ data class UiState(
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
-        /** ponytail: a mocked nearby peer so the two-timeline view is testable before
-         *  real Nearby Connections lands. Trummispojken was at the same The Warning gig. */
+        /** ponytail: mocked nearby peers so the woven view is testable before real
+         *  Nearby Connections lands. Both were at The Warning, Tons of Rock, 25 Jun
+         *  2026 — the node where all three lines are one. */
         val TRUMMISPOJKEN = Friend(setlistfm = "Trummispojken", name = "Trummispojken")
+        val CARLITOS2 = Friend(setlistfm = "Carlitos2", name = "Carlitos2")
+        val MOCK_PEERS = listOf(TRUMMISPOJKEN, CARLITOS2)
     }
 
     val settings = SettingsRepository(application)
@@ -284,17 +291,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     /** Loads a friend's whole attended-concert timeline for the Connect screen. */
     fun viewFriendTimeline(friend: Friend) {
         _state.update {
-            it.copy(viewingFriend = friend, friendTimeline = emptyList(), friendTimelineLoading = true)
+            it.copy(viewingFriend = friend, viewedFriendShows = emptyList(), viewedFriendLoading = true)
         }
         viewModelScope.launch {
             try {
                 // ponytail: caps at 60 shows (3 pages). Bump if power users miss older ones.
                 val shows = attendedConcerts(friend.setlistfm, maxPages = 3)
-                _state.update { it.copy(friendTimeline = shows, friendTimelineLoading = false) }
+                _state.update { it.copy(viewedFriendShows = shows, viewedFriendLoading = false) }
             } catch (e: Exception) {
                 _state.update {
                     it.copy(
-                        friendTimelineLoading = false,
+                        viewedFriendLoading = false,
                         error = e.message ?: "Could not load ${friend.name}'s shows",
                     )
                 }
@@ -363,7 +370,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(discovering = true, nearbyPeers = emptyList()) }
         viewModelScope.launch {
             delay(1600)
-            _state.update { it.copy(discovering = false, nearbyPeers = listOf(TRUMMISPOJKEN)) }
+            // Anyone already added drops off the radar, so a second exchange finds
+            // the person you haven't got yet rather than offering the same card twice.
+            val known = _state.value.friends.map { it.setlistfm.lowercase() }.toSet()
+            _state.update {
+                it.copy(
+                    discovering = false,
+                    nearbyPeers = MOCK_PEERS.filterNot { p -> p.setlistfm.lowercase() in known },
+                )
+            }
         }
     }
 
@@ -415,7 +430,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 friend.setlistfm to runCatching { attendedConcerts(friend.setlistfm, maxPages = 3) }
                     .getOrDefault(emptyList())
             }
-            _state.update { it.copy(friendTimelines = loaded, timelinesLoading = false) }
+            _state.update { it.copy(showsByFriend = loaded, timelinesLoading = false) }
         }
     }
 
