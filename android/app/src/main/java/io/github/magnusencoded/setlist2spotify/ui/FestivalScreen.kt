@@ -60,11 +60,15 @@ sealed interface TimelineNode {
     data class Festival(val name: String, val shows: List<FmSetlist>) : TimelineNode
 }
 
-/** The festival's name from setlist.fm's `info`, falling back to the venue. */
+/**
+ * A festival is labelled by its venue. setlist.fm has no festival field, and its
+ * free-text `info` turned out to be arbitrary notes (e.g. "First show in Norway",
+ * a paragraph about a Chappell Roan set) — not the festival name — so venue is the
+ * only reliable label. ponytail: if a real festival name is ever wanted, it needs
+ * a different source than the setlist API (the website's festival entity).
+ */
 private fun festivalName(shows: List<FmSetlist>): String =
-    shows.firstNotNullOfOrNull { it.info?.trim()?.ifBlank { null } }
-        ?: shows.first().venue?.name
-        ?: "Festival"
+    shows.first().venue?.name ?: "Festival"
 
 private const val FESTIVAL_WINDOW_DAYS = 4L
 

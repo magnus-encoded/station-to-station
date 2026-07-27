@@ -20,27 +20,17 @@ class FestivalGroupingTest {
     )
 
     @Test
-    fun festivalIsNamedByInfoWhenPresent() {
+    fun festivalIsNamedByVenueNotFreeTextInfo() {
+        // setlist.fm `info` is arbitrary notes, not the festival name, so it must
+        // never leak into the label.
         val nodes = groupIntoFestivals(
             listOf(
-                show("1", "08-08-2025", "Tøyenparken", info = "Øyafestivalen 2025"),
-                show("2", "07-08-2025", "Tøyenparken", info = "Øyafestivalen 2025"),
+                show("1", "08-08-2025", "Tøyenparken", info = "a long editorial note"),
+                show("2", "07-08-2025", "Tøyenparken", info = "First show in Norway"),
             ),
         )
         val festival = nodes.single() as TimelineNode.Festival
-        assertEquals("Øyafestivalen 2025", festival.name)
-    }
-
-    @Test
-    fun festivalFallsBackToVenueWithoutInfo() {
-        val nodes = groupIntoFestivals(
-            listOf(
-                show("1", "25-06-2026", "Ekebergsletta"),
-                show("2", "24-06-2026", "Ekebergsletta"),
-            ),
-        )
-        val festival = nodes.single() as TimelineNode.Festival
-        assertEquals("Ekebergsletta", festival.name)
+        assertEquals("Tøyenparken", festival.name)
     }
 
     @Test
