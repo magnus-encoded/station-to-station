@@ -582,7 +582,17 @@ internal fun TimelineItem(
                         .size(size)
                         .clip(CircleShape)
                         .background(if (highlight || shared) AmberSoft else Raised)
-                        .border(2.dp, if (highlight || shared) Amber else LineLit, CircleShape),
+                        .border(
+                            2.dp,
+                            // Zoomed out my nodes stay amber too, or my own line reads as
+                            // the dim one among the visitors'.
+                            when {
+                                highlight || shared -> Amber
+                                zoomedOut -> Amber.copy(alpha = 0.65f)
+                                else -> LineLit
+                            },
+                            CircleShape,
+                        ),
                 )
             }
         }
@@ -663,22 +673,24 @@ internal fun PeopleRails(row: WovenRow, friends: List<Friend>, laneWidth: Dp) {
         val crossX = crossing.toPx() + 1.dp.toPx()
         val crossed = row.mine && row.others.isNotEmpty()
 
-        /** A line that runs the row, veering to the crossing if its owner was there. */
-        fun line(x: Float, color: Color, meets: Boolean) {
-            if (!meets || kotlin.math.abs(x - crossX) < 1f) {
-                drawLine(color, Offset(x, 0f), Offset(x, h), strokeWidth = 2.dp.toPx())
-                return
-            }
-            val pull = nodeY * 0.75f
-            val path = Path()
-            path.moveTo(x, 0f)
-            path.cubicTo(x, pull, crossX, nodeY - pull, crossX, nodeY)
-            path.cubicTo(crossX, nodeY + pull, x, h - pull, x, h)
-            drawPath(path, color, style = Stroke(width = 2.dp.toPx()))
+        // Every line runs dead straight the whole height. Veering them into the shared
+        // node and back out again made consecutive shared nights wobble like a chain of
+        // pinches; a line is a life, and it doesn't detour to meet someone.
+        fun line(x: Float, color: Color) =
+            drawLine(color, Offset(x, 0f), Offset(x, h), strokeWidth = 2.dp.toPx())
+
+        /** The short reach from a line to the node our paths met at. */
+        fun tie(from: Float, color: Color) {
+            val gap = 7.dp.toPx()
+            val a = if (from < crossX) from + 1.dp.toPx() else from - 1.dp.toPx()
+            val b = if (from < crossX) crossX - gap else crossX + gap
+            if (kotlin.math.abs(b - a) < 2f) return
+            drawLine(color, Offset(a, nodeY), Offset(b, nodeY), strokeWidth = 1.5.dp.toPx())
         }
 
         // My line, still mine — amber even where the night was someone else's.
-        line(spineX, Amber.copy(alpha = if (row.mine) 0.85f else 0.4f), crossed)
+        line(spineX, Amber.copy(alpha = if (row.mine) 0.85f else 0.4f))
+        if (crossed) tie(spineX, Amber.copy(alpha = 0.8f))
 
         friends.forEachIndexed { i, friend ->
             // Lanes slide out from under my spine as the strip opens.
@@ -688,10 +700,12 @@ internal fun PeopleRails(row: WovenRow, friends: List<Friend>, laneWidth: Dp) {
             val here = row.others.any { it.setlistfm == friend.setlistfm }
             // Their line runs the whole height of every row, so it reads as a timeline
             // of its own rather than dots appearing where they happened to be.
-            line(x, if (here) railColor(i) else LineCol, here && crossed)
-            // Their own node, only where the night is theirs alone; a shared one is the
-            // single crossing node drawn by the row itself.
-            if (here && !row.mine) {
+            line(x, if (here) railColor(i) else LineCol)
+            if (!here) return@forEachIndexed
+            if (crossed) {
+                tie(x, railColor(i))
+            } else {
+                // Theirs alone: their own node, on their own line.
                 drawCircle(Raised, 6.dp.toPx(), Offset(x, nodeY))
                 drawCircle(railColor(i), 6.dp.toPx(), Offset(x, nodeY), style = Stroke(width = 2.dp.toPx()))
             }
