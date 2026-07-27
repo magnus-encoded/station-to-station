@@ -265,6 +265,7 @@ fun FestivalItem(
     highlight: Boolean,
     onClick: () -> Unit,
     open: Boolean = false,
+    mine: Boolean = true,
     laneWidth: Dp = 0.dp,
     nodeX: Dp = SpineX,
     sharedCount: Int = 0,
@@ -272,7 +273,13 @@ fun FestivalItem(
     rails: @Composable () -> Unit = {},
 ) {
     val amber = Color(0xFFE7B24C)
-    val accent = if (highlight || sharedCount > 0) amber else Slate
+    val zoomedOut = laneWidth > 0.dp
+    val accent = when {
+        highlight || sharedCount > 0 -> amber
+        // Among other people's lanes, my festivals have to look like mine too.
+        zoomedOut && mine -> amber.copy(alpha = 0.65f)
+        else -> Slate
+    }
     Row(
         Modifier.fillMaxWidth().height(IntrinsicSize.Min).clickable(onClick = onClick),
     ) {
@@ -310,7 +317,7 @@ fun FestivalItem(
                 buildString {
                     // Comparing collections: what we each saw, and what we saw together.
                     if (sharedCount > 0) append("$sharedCount together · ")
-                    append("${festival.shows.size} yours")
+                    append("${festival.shows.size} ${if (mine) "yours" else "theirs"}")
                     if (theirCount > 0) append(" · $theirCount theirs")
                     if (open) append(" · tap to close")
                 },

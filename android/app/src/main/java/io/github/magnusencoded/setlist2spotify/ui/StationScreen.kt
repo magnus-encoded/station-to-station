@@ -368,6 +368,7 @@ fun StationTimelineScreen(
                                         festival = node,
                                         highlight = isFirst,
                                         open = row.key in expanded,
+                                        mine = row.mine,
                                         laneWidth = laneWidth,
                                         nodeX = nodeX,
                                         sharedCount = row.sharedCount,
