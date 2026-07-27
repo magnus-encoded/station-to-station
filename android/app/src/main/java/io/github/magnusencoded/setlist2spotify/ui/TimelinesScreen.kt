@@ -8,6 +8,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -255,7 +256,7 @@ fun MultipleTimelinesScreen(
                 // Pinch back in (zoom) to drop into your own single timeline.
                 .pointerInput(Unit) {
                     var zoom = 1f
-                    androidx.compose.foundation.gestures.detectTransformGestures { _, _, z, _ ->
+                    detectTransformGestures { _, _, z, _ ->
                         zoom *= z
                         if (zoom > 1.25f) { zoom = 1f; onZoomIn() }
                     }
