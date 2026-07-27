@@ -23,7 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -341,10 +341,10 @@ fun StationTimelineScreen(
                         ) {
                             // The future edge: scroll up toward what's ahead.
                             item { FuturePrompt() }
-                            items(rows, key = { it.key }) { row ->
-                                val isFirst = row == rows.first()
+                            itemsIndexed(rows, key = { _, row -> row.key }) { index, row ->
+                                val isFirst = index == 0
                                 val rails: @Composable () -> Unit =
-                                    { PeopleRails(row, lanes, laneWidth) }
+                                    { PeopleRails(row, rows.getOrNull(index - 1), lanes, laneWidth) }
                                 val nodeX = crossingX(row, lanes, laneWidth)
                                 when (val node = row.node) {
                                     is TimelineNode.Concert -> TimelineItem(
@@ -590,12 +590,22 @@ internal fun TimelineItem(
                         .padding(start = nodeX - size / 2 + 1.dp, top = 6.dp)
                         .size(size)
                         .clip(CircleShape)
-                        .background(if (highlight || shared) AmberSoft else Raised)
+                        .background(
+                            when {
+                                shared -> CrossedSoft
+                                highlight -> AmberSoft
+                                else -> Raised
+                            },
+                        )
                         .border(
                             2.dp,
-                            // Amber is what "mine" looks like, whichever resolution this
-                            // is; the bright one is the latest night, or a shared one.
-                            if (highlight || shared) Amber else Amber.copy(alpha = 0.6f),
+                            // Amber is what "mine" looks like at every resolution; the
+                            // night our lines became one gets a colour of its own.
+                            when {
+                                shared -> Crossed
+                                highlight -> Amber
+                                else -> Amber.copy(alpha = 0.6f)
+                            },
                             CircleShape,
                         ),
                 )
@@ -665,8 +675,17 @@ internal fun crossingX(row: WovenRow, friends: List<Friend>, laneWidth: Dp): Dp 
  * lane of their own at the same scale as my line; where they were at the same show as
  * me their lane bends in to my spine and back out, so the merge reads as one node.
  */
+/** Were this row's night one we both were at — the state that makes lines one line. */
+private fun merged(row: WovenRow?, friend: Friend): Boolean =
+    row != null && row.mine && row.others.any { it.setlistfm == friend.setlistfm }
+
 @Composable
-internal fun PeopleRails(row: WovenRow, friends: List<Friend>, laneWidth: Dp) {
+internal fun PeopleRails(
+    row: WovenRow,
+    prev: WovenRow?,
+    friends: List<Friend>,
+    laneWidth: Dp,
+) {
     if (laneWidth <= 0.dp || friends.isEmpty()) return
     val crossing = crossingX(row, friends, laneWidth)
     Canvas(Modifier.fillMaxSize()) {
@@ -676,26 +695,47 @@ internal fun PeopleRails(row: WovenRow, friends: List<Friend>, laneWidth: Dp) {
         val nodeY = if (row.node is TimelineNode.Festival) 15.dp.toPx() else 13.dp.toPx()
         val h = size.height
         val crossX = crossing.toPx() + 1.dp.toPx()
-        val crossed = row.mine && row.others.isNotEmpty()
+        val stroke = Stroke(width = 2.dp.toPx())
 
-        // Every line runs dead straight the whole height. Veering them into the shared
-        // node and back out again made consecutive shared nights wobble like a chain of
-        // pinches; a line is a life, and it doesn't detour to meet someone.
-        fun line(x: Float, color: Color) =
-            drawLine(color, Offset(x, 0f), Offset(x, h), strokeWidth = 2.dp.toPx())
+        /**
+         * One line's path through this row. Two lines that met stay one line until a
+         * night only one of them was at, so a run of shared gigs is a single strand
+         * rather than a ladder of little branches.
+         */
+        fun strand(lane: Float, color: Color, here: Boolean, cameMerged: Boolean) {
+            val path = Path()
+            when {
+                here -> {
+                    // In to the node, then straight down still joined; whoever leaves
+                    // next draws their own way out.
+                    path.moveTo(if (cameMerged) crossX else lane, 0f)
+                    if (cameMerged) {
+                        path.lineTo(crossX, nodeY)
+                    } else {
+                        path.cubicTo(lane, nodeY * 0.55f, crossX, nodeY * 0.45f, crossX, nodeY)
+                    }
+                    path.lineTo(crossX, h)
+                }
 
-        /** The short reach from a line to the node our paths met at. */
-        fun tie(from: Float, color: Color) {
-            val gap = 7.dp.toPx()
-            val a = if (from < crossX) from + 1.dp.toPx() else from - 1.dp.toPx()
-            val b = if (from < crossX) crossX - gap else crossX + gap
-            if (kotlin.math.abs(b - a) < 2f) return
-            drawLine(color, Offset(a, nodeY), Offset(b, nodeY), strokeWidth = 1.5.dp.toPx())
+                cameMerged -> {
+                    // Parting from a night we shared: back out to my own line.
+                    path.moveTo(crossX, 0f)
+                    path.cubicTo(crossX, nodeY * 0.55f, lane, nodeY * 0.45f, lane, nodeY)
+                    path.lineTo(lane, h)
+                }
+
+                else -> {
+                    path.moveTo(lane, 0f)
+                    path.lineTo(lane, h)
+                }
+            }
+            drawPath(path, color, style = stroke)
         }
 
+        val hereMine = row.mine && row.others.isNotEmpty()
+        val prevMine = prev != null && prev.mine && prev.others.isNotEmpty()
         // My line, still mine — amber even where the night was someone else's.
-        line(spineX, Amber.copy(alpha = if (row.mine) 0.85f else 0.4f))
-        if (crossed) tie(spineX, Amber.copy(alpha = 0.8f))
+        strand(spineX, Amber.copy(alpha = if (row.mine) 0.85f else 0.4f), hereMine, prevMine)
 
         friends.forEachIndexed { i, friend ->
             // Lanes slide out from under my spine as the strip opens.
@@ -703,16 +743,16 @@ internal fun PeopleRails(row: WovenRow, friends: List<Friend>, laneWidth: Dp) {
             val x = spineX + (target - spineX) * (open - i).coerceIn(0f, 1f)
             if (x <= spineX + 1f) return@forEachIndexed
             val here = row.others.any { it.setlistfm == friend.setlistfm }
-            // Their line runs the whole height of every row, so it reads as a timeline
-            // of its own rather than dots appearing where they happened to be.
-            line(x, if (here) railColor(i) else LineCol)
-            if (!here) return@forEachIndexed
-            if (crossed) {
-                tie(x, railColor(i))
-            } else {
-                // Theirs alone: their own node, on their own line.
+            strand(
+                x,
+                if (here) railColor(i) else LineCol,
+                merged(row, friend),
+                merged(prev, friend),
+            )
+            // Theirs alone: their own node, on their own line.
+            if (here && !row.mine) {
                 drawCircle(Raised, 6.dp.toPx(), Offset(x, nodeY))
-                drawCircle(railColor(i), 6.dp.toPx(), Offset(x, nodeY), style = Stroke(width = 2.dp.toPx()))
+                drawCircle(railColor(i), 6.dp.toPx(), Offset(x, nodeY), style = stroke)
             }
         }
     }

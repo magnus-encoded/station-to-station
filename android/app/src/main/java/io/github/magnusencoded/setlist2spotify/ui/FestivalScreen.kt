@@ -51,6 +51,13 @@ import java.util.Locale
 import kotlin.math.abs
 import java.time.temporal.ChronoUnit
 
+/**
+ * The night two lines became one. Neither mine (amber) nor anyone's lane colour —
+ * a meeting is its own thing.
+ */
+internal val Crossed = Color(0xFF6FBF9C)
+internal val CrossedSoft = Color(0x336FBF9C)
+
 /** The spine's geometry, shared by every row so nothing moves between resolutions. */
 internal val SpineWidth = 52.dp
 internal val SpineX = 25.dp
@@ -281,7 +288,8 @@ fun FestivalItem(
     val amber = Color(0xFFE7B24C)
     // Amber means mine, at every resolution; brightness means most recent or shared.
     val accent = when {
-        highlight || sharedCount > 0 -> amber
+        sharedCount > 0 -> Crossed
+        highlight -> amber
         mine -> amber.copy(alpha = 0.6f)
         else -> theirColor
     }
@@ -301,7 +309,7 @@ fun FestivalItem(
                     .padding(start = nodeX - 10.dp, top = 4.dp)
                     .size(22.dp)
                     .clip(CircleShape)
-                    .background(Raised)
+                    .background(if (sharedCount > 0) CrossedSoft else Raised)
                     .border(2.dp, accent, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
@@ -328,7 +336,7 @@ fun FestivalItem(
                         append("${festival.shows.size} gigs")
                     } else {
                         if (sharedCount > 0) {
-                            withStyle(SpanStyle(color = amber, fontWeight = FontWeight.SemiBold)) {
+                            withStyle(SpanStyle(color = Crossed, fontWeight = FontWeight.SemiBold)) {
                                 append("$sharedCount together")
                             }
                             append(" · ")
