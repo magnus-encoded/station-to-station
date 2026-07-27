@@ -203,11 +203,15 @@ fun StationTimelineScreen(
                     val earliest = state.setlists.mapNotNull { it.year()?.toIntOrNull() }.minOrNull()
                     val listState = rememberLazyListState()
                     // Descending toward the past pulls the next page in before you hit
-                    // the bottom, so history keeps flowing without a button.
+                    // the bottom, so history keeps flowing without a button. Measured
+                    // against the rows actually laid out, not the raw show count: a
+                    // festival collapses many shows into one row, so 20 shows can be 3
+                    // rows that never scroll — and the old check never fired.
                     val nearPast by remember {
                         derivedStateOf {
-                            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-                            last >= state.setlists.size - 3
+                            val info = listState.layoutInfo
+                            val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+                            last >= info.totalItemsCount - 3
                         }
                     }
                     LaunchedEffect(nearPast, state.setlistsLoading, state.setlists.size) {
