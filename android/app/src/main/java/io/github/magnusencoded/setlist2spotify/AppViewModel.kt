@@ -99,6 +99,9 @@ data class UiState(
     val viewingFriend: Friend? = null,
     val friendTimeline: List<FmSetlist> = emptyList(),
     val friendTimelineLoading: Boolean = false,
+    // The concerts inside a festival node, when one is opened.
+    val festivalTitle: String = "",
+    val festivalShows: List<FmSetlist> = emptyList(),
     /** Set when the playlist was made but its cover could not be uploaded. */
     val coverUploadError: String? = null,
     // Transient error surfaced as a snackbar
@@ -258,6 +261,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(friends = next) }
         }
     }
+
+    /** Opens a festival node — its individual concerts, in the same timeline UI. */
+    fun openFestival(title: String, shows: List<FmSetlist>) =
+        _state.update { it.copy(festivalTitle = title, festivalShows = shows) }
 
     /** Loads a friend's whole attended-concert timeline for the Connect screen. */
     fun viewFriendTimeline(friend: Friend) {

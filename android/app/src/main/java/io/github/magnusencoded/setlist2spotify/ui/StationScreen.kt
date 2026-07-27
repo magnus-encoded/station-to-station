@@ -145,6 +145,7 @@ fun SplashScreen(viewModel: AppViewModel, onProceed: () -> Unit) {
 fun StationTimelineScreen(
     viewModel: AppViewModel,
     onOpenEvent: () -> Unit,
+    onOpenFestival: () -> Unit,
     onOpenImport: () -> Unit,
     onOpenConnect: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -212,18 +213,39 @@ fun StationTimelineScreen(
                             fontSize = 12.sp,
                             modifier = Modifier.padding(start = 20.dp, top = 2.dp, bottom = 14.dp),
                         )
+                        val nodes = remember(state.setlists) { groupIntoFestivals(state.setlists) }
                         LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                             // The future edge: scroll up toward what's ahead.
                             item { FuturePrompt() }
-                            items(state.setlists, key = { it.id }) { setlist ->
-                                TimelineItem(
-                                    setlist = setlist,
-                                    highlight = setlist.id == state.setlists.first().id,
-                                    onClick = {
-                                        viewModel.openShow(setlist)
-                                        onOpenEvent()
-                                    },
-                                )
+                            items(
+                                nodes,
+                                key = {
+                                    when (it) {
+                                        is TimelineNode.Concert -> it.setlist.id
+                                        is TimelineNode.Festival -> "fest-${it.shows.first().id}"
+                                    }
+                                },
+                            ) { node ->
+                                val isFirst = node == nodes.first()
+                                when (node) {
+                                    is TimelineNode.Concert -> TimelineItem(
+                                        setlist = node.setlist,
+                                        highlight = isFirst,
+                                        onClick = {
+                                            viewModel.openShow(node.setlist)
+                                            onOpenEvent()
+                                        },
+                                    )
+
+                                    is TimelineNode.Festival -> FestivalItem(
+                                        festival = node,
+                                        highlight = isFirst,
+                                        onClick = {
+                                            viewModel.openFestival(node.venue, node.shows)
+                                            onOpenFestival()
+                                        },
+                                    )
+                                }
                             }
                             // The past edge: a quiet spinner while the next page flows in.
                             if (state.setlistsLoading && state.setlists.isNotEmpty()) {

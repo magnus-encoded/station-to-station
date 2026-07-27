@@ -20,6 +20,7 @@ import io.github.magnusencoded.setlist2spotify.ui.FriendsScreen
 import io.github.magnusencoded.setlist2spotify.ui.SearchScreen
 import io.github.magnusencoded.setlist2spotify.ui.SetlistsScreen
 import io.github.magnusencoded.setlist2spotify.ui.ConnectScreen
+import io.github.magnusencoded.setlist2spotify.ui.FestivalScreen
 import io.github.magnusencoded.setlist2spotify.ui.FriendTimelineScreen
 import io.github.magnusencoded.setlist2spotify.ui.ImportScreen
 import io.github.magnusencoded.setlist2spotify.ui.SettingsScreen
@@ -86,9 +87,17 @@ fun AppNavigation(viewModel: AppViewModel) {
             StationTimelineScreen(
                 viewModel = viewModel,
                 onOpenEvent = { navController.navigate("event") },
+                onOpenFestival = { navController.navigate("festival") },
                 onOpenImport = { navController.navigate("import") },
                 onOpenConnect = { navController.navigate("connect") },
                 onOpenSettings = { navController.navigate("settings") },
+            )
+        }
+        composable("festival") {
+            FestivalScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onOpenEvent = { navController.navigate("event") },
             )
         }
         composable("connect") {
