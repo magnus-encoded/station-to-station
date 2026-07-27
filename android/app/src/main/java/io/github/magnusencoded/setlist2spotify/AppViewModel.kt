@@ -1,10 +1,18 @@
 package io.github.magnusencoded.setlist2spotify
 
 import android.app.Application
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.magnusencoded.setlist2spotify.data.Friend
 import io.github.magnusencoded.setlist2spotify.data.SettingsRepository
+import io.github.magnusencoded.setlist2spotify.data.friendFromUri
+import io.github.magnusencoded.setlist2spotify.data.photos.PhotoRepository
+import io.github.magnusencoded.setlist2spotify.data.sfmStamp
+import io.github.magnusencoded.setlist2spotify.data.sfmUserFromDescription
+import io.github.magnusencoded.setlist2spotify.data.spotifyPlaylistId
+import io.github.magnusencoded.setlist2spotify.data.toShareUri
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmArtist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSong
@@ -34,6 +42,9 @@ data class SongMatch(
 }
 
 enum class SetlistSource { ARTIST, USER }
+
+/** A gallery photo from the night of the show, offered as the playlist cover. */
+data class CoverCandidate(val uri: Uri, val preview: Bitmap?)
 
 data class UiState(
     // Settings
@@ -65,14 +76,31 @@ data class UiState(
     val matches: List<SongMatch> = emptyList(),
     val matching: Boolean = false,
     val playlistName: String = "",
+    /** Public playlists can be discovered by a friend's app; private ones can't. */
+    val playlistPublic: Boolean = false,
+    // Cover art taken from the phone's gallery on the night of the show
+    val coverCandidates: List<CoverCandidate> = emptyList(),
+    val coverLoading: Boolean = false,
+    val selectedCoverUri: Uri? = null,
+    /** True once the gallery has been searched, so "nothing found" can be said. */
+    val coverSearched: Boolean = false,
+    val coverPermissionGranted: Boolean = false,
     // Playlist creation
     val creatingPlaylist: Boolean = false,
     val createdPlaylistUrl: String? = null,
     val createdPlaylistName: String = "",
     val createdTrackCount: Int = 0,
     val createdRefusedCount: Int = 0,
+    // Friends (peer-to-peer, on-device)
+    val mySetlistFmUser: String = "",
+    val friends: List<Friend> = emptyList(),
+    val sharedWith: Friend? = null,
+    /** Set when the playlist was made but its cover could not be uploaded. */
+    val coverUploadError: String? = null,
     // Transient error surfaced as a snackbar
     val error: String? = null,
+    // Transient non-error notice (e.g. "Added a friend from that playlist")
+    val notice: String? = null,
 )
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
@@ -80,6 +108,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val settings = SettingsRepository(application)
     private val setlistFm = SetlistFmClient { settings.setlistFmApiKeyValue() }
     val spotify = SpotifyClient(settings)
+    private val photos = PhotoRepository(application)
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -100,12 +129,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     bundledSpotifyClientId = settings.hasBundledSpotifyClientId(),
                     bundledSetlistFmKey = settings.hasBundledSetlistFmKey(),
                     grantedScope = settings.grantedScope(),
+                    mySetlistFmUser = settings.mySetlistFmUser.first() ?: "",
+                    friends = settings.friends.first(),
                 )
             }
         }
     }
 
     fun consumeError() = _state.update { it.copy(error = null) }
+    fun consumeNotice() = _state.update { it.copy(notice = null) }
 
     private fun fail(e: Exception) = _state.update {
         it.copy(
@@ -165,6 +197,105 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // --- Friends (peer-to-peer) ---
+
+    fun saveMySetlistFmUser(username: String) {
+        val trimmed = username.trim()
+        viewModelScope.launch {
+            settings.saveMySetlistFmUser(trimmed)
+            _state.update { it.copy(mySetlistFmUser = trimmed) }
+        }
+    }
+
+    /** My shareable identity card, or null until I've set my setlist.fm username. */
+    suspend fun myCardUri(): Uri? {
+        val me = _state.value.mySetlistFmUser.trim()
+        if (me.isEmpty()) return null
+        val user = runCatching { spotify.currentUser() }.getOrNull()
+        return Friend(
+            setlistfm = me,
+            name = user?.displayName?.ifBlank { null } ?: me,
+            spotifyId = user?.id,
+        ).toShareUri()
+    }
+
+    fun addFriend(friend: Friend) {
+        viewModelScope.launch {
+            val current = _state.value.friends
+            // De-dupe on setlist.fm username; a re-share updates the display name.
+            val next = current.filterNot { it.setlistfm.equals(friend.setlistfm, ignoreCase = true) } + friend
+            settings.saveFriends(next)
+            _state.update { it.copy(friends = next) }
+        }
+    }
+
+    fun addFriendByUsername(username: String) {
+        val u = username.trim()
+        if (u.isNotEmpty()) addFriend(Friend(setlistfm = u))
+    }
+
+    fun handleFriendLink(uri: Uri) {
+        friendFromUri(uri)?.let { addFriend(it) }
+    }
+
+    fun removeFriend(friend: Friend) {
+        viewModelScope.launch {
+            val next = _state.value.friends.filterNot { it.setlistfm == friend.setlistfm }
+            settings.saveFriends(next)
+            _state.update { it.copy(friends = next) }
+        }
+    }
+
+    /** Fetches attended concerts for one user across up to [maxPages] pages. */
+    private suspend fun attendedConcerts(userId: String, maxPages: Int): List<FmSetlist> {
+        val all = mutableListOf<FmSetlist>()
+        for (page in 1..maxPages) {
+            val resp = setlistFm.userAttended(userId, page)
+            all += resp.setlist
+            if (all.size >= resp.total || resp.setlist.isEmpty()) break
+        }
+        return all
+    }
+
+    /**
+     * Loads the concerts both [friend] and I attended into [UiState.setlists], so
+     * the existing SetlistsScreen renders them and tapping one flows into the
+     * normal confirm → create-playlist path.
+     */
+    fun openSharedConcerts(friend: Friend) {
+        val me = _state.value.mySetlistFmUser.trim()
+        if (me.isEmpty()) {
+            _state.update { it.copy(error = "Set your setlist.fm username first (Friends screen).") }
+            return
+        }
+        _state.update {
+            it.copy(
+                sharedWith = friend,
+                source = SetlistSource.USER, // shared list mixes artists; show "date · artist"
+                setlistsTitle = "You & ${friend.name}",
+                setlists = emptyList(),
+                setlistsPage = 1,
+                setlistsTotal = 0,
+                setlistsLoading = true,
+            )
+        }
+        viewModelScope.launch {
+            try {
+                // ponytail: caps at 60 concerts each. Bump maxPages or cache per
+                // user if power users miss older overlaps.
+                val mine = attendedConcerts(me, maxPages = 3)
+                val theirs = attendedConcerts(friend.setlistfm, maxPages = 3).map { it.id }.toSet()
+                val shared = mine.filter { it.id in theirs }
+                _state.update {
+                    // total == size so loadMoreSetlists() won't try to paginate this list.
+                    it.copy(setlists = shared, setlistsTotal = shared.size, setlistsLoading = false)
+                }
+            } catch (e: Exception) {
+                fail(e)
+            }
+        }
+    }
+
     // --- Search ---
 
     fun setArtistQuery(q: String) = _state.update { it.copy(artistQuery = q) }
@@ -211,6 +342,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun openUserAttended() {
         val userId = _state.value.userQuery.trim()
         if (userId.isEmpty()) return
+        // "My concerts" is your own username; adopt it as the identity used to stamp
+        // playlists and find shared concerts — but never clobber an explicit choice.
+        if (_state.value.mySetlistFmUser.isBlank()) saveMySetlistFmUser(userId)
         _state.update {
             it.copy(
                 source = SetlistSource.USER,
@@ -277,11 +411,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     included = !song.tape,
                 )
             }
-        val defaultName = buildString {
-            append(artistName.ifBlank { "Setlist" })
-            setlist.venue?.name?.let { append(" – ").append(it) }
-            setlist.eventDate?.let { append(" – ").append(it) }
-        }
+        // Year first: an alphabetical playlist library then falls into
+        // chronological order, and the show reads as "when, who, where".
+        val defaultName = listOfNotNull(
+            setlist.year(),
+            artistName.ifBlank { null },
+            setlist.venue?.name,
+        ).joinToString(" – ").ifBlank { "Setlist" }
         _state.update {
             it.copy(
                 selectedSetlist = setlist,
@@ -289,8 +425,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 matching = true,
                 playlistName = defaultName,
                 createdPlaylistUrl = null,
+                // A different show means different photos.
+                coverCandidates = emptyList(),
+                selectedCoverUri = null,
+                coverSearched = false,
+                coverUploadError = null,
             )
         }
+        loadCoverCandidates()
         matchJob = viewModelScope.launch {
             matches.forEachIndexed { index, match ->
                 val (candidates, error) = findCandidates(match.song.name, match.searchArtist)
@@ -335,6 +477,85 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         updateMatch(index) { it.copy(selected = track, included = true) }
 
     fun setPlaylistName(name: String) = _state.update { it.copy(playlistName = name) }
+    fun setPlaylistPublic(public: Boolean) = _state.update { it.copy(playlistPublic = public) }
+
+    /**
+     * Discovers a friend from a Spotify playlist link they shared: reads the playlist's
+     * description, and if it carries a setlist.fm stamp, adds the owner as a friend.
+     */
+    fun discoverFriendFromPlaylist(link: String) {
+        val id = spotifyPlaylistId(link)
+        if (id == null) {
+            _state.update { it.copy(error = "That doesn't look like a Spotify playlist link.") }
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val playlist = spotify.getPlaylist(id)
+                val username = sfmUserFromDescription(playlist.description)
+                val ownerId = playlist.owner?.id
+                val me = runCatching { spotify.currentUser().id }.getOrNull()
+                when {
+                    username == null -> _state.update {
+                        it.copy(error = "That playlist wasn't made with this app, so there's no setlist.fm user to add.")
+                    }
+                    ownerId != null && ownerId == me -> _state.update {
+                        it.copy(notice = "That's your own playlist.")
+                    }
+                    else -> {
+                        addFriend(
+                            Friend(
+                                setlistfm = username,
+                                name = playlist.owner?.displayName?.ifBlank { null } ?: username,
+                                spotifyId = ownerId,
+                            )
+                        )
+                        _state.update { it.copy(notice = "Added @$username as a friend.") }
+                    }
+                }
+            } catch (e: Exception) {
+                fail(e)
+            }
+        }
+    }
+
+    // --- Cover art ---
+
+    /**
+     * Offers the photos taken on the night of the selected show. Silent when the
+     * gallery permission is missing: the confirm screen asks for it instead, so
+     * a permission prompt only ever follows a tap.
+     */
+    fun loadCoverCandidates() {
+        val date = _state.value.selectedSetlist?.localDate() ?: return
+        val granted = photos.hasPermission()
+        _state.update { it.copy(coverPermissionGranted = granted) }
+        if (!granted) return
+        viewModelScope.launch {
+            _state.update { it.copy(coverLoading = true) }
+            val found = photos.photosFrom(date)
+            val candidates = found.map { CoverCandidate(it.uri, photos.preview(it.uri)) }
+            _state.update {
+                it.copy(
+                    coverCandidates = candidates,
+                    coverLoading = false,
+                    coverSearched = true,
+                    // The first photo is the suggestion, so it is the cover
+                    // until the picker is swiped somewhere else.
+                    selectedCoverUri = candidates.firstOrNull()?.uri,
+                )
+            }
+        }
+    }
+
+    /**
+     * The cover the picker has landed on, or null for Spotify's own collage.
+     * Called on every settled swipe, so an unchanged value is left alone rather
+     * than published as new state.
+     */
+    fun setCover(uri: Uri?) = _state.update {
+        if (it.selectedCoverUri == uri) it else it.copy(selectedCoverUri = uri)
+    }
 
     /** Manual re-search for one song with a user-provided query. */
     fun researchSong(index: Int, query: String) {
@@ -379,14 +600,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             "the playlist access on the Spotify page that opens."
                     )
                 }
+                val setlist = s.selectedSetlist
+                // Stamp the creator so a friend's app can discover the mapping from a shared
+                // link. Appended after the 300-char clamp so truncation can't cut it off.
+                val stamp = s.mySetlistFmUser.trim().takeIf { it.isNotEmpty() }
+                    ?.let { " " + sfmStamp(it) } ?: ""
                 val description = buildString {
-                    append("Setlist")
-                    s.selectedSetlist?.venueLine()?.let { append(" at ").append(it) }
-                    s.selectedSetlist?.eventDate?.let { append(" on ").append(it) }
-                    append(". Created from setlist.fm")
-                    s.selectedSetlist?.url?.let { append(": ").append(it) }
-                }
-                val playlist = spotify.createPlaylist(name, description)
+                    append("Live at ").append(setlist?.venueLine() ?: "an unknown venue")
+                    // The name carries only the year, so the full date lives here.
+                    setlist?.readableDate()?.let { append(", ").append(it) }
+                    append(".")
+                    setlist?.tour?.name?.let { append(" ").append(it).append(".") }
+                    append(" From setlist.fm")
+                    setlist?.url?.let { append(": ").append(it) }
+                }.take(300 - stamp.length) + stamp
+                val playlist = spotify.createPlaylist(name, description, s.playlistPublic)
                 val result = try {
                     spotify.addTracks(playlist.id, tracks.map { it.uri })
                 } catch (e: Exception) {
@@ -398,6 +626,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         e,
                     )
                 }
+                // The songs are the point, so a cover that will not upload is
+                // reported next to the success rather than thrown over it.
+                val coverError = s.selectedCoverUri?.let { uploadCover(playlist.id, it) }
                 _state.update {
                     it.copy(
                         creatingPlaylist = false,
@@ -405,11 +636,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         createdPlaylistName = name,
                         createdTrackCount = result.added,
                         createdRefusedCount = result.refused.size,
+                        coverUploadError = coverError,
                     )
                 }
             } catch (e: Exception) {
                 fail(e)
             }
+        }
+    }
+
+    /** Returns null on success, or the reason the cover did not make it. */
+    private suspend fun uploadCover(playlistId: String, uri: Uri): String? {
+        if (!spotify.hasImageUploadScope()) {
+            return "The cover needs a permission your Spotify login predates. " +
+                "Log out in Settings and log in again to enable playlist covers."
+        }
+        val jpeg = photos.coverJpeg(uri)
+            ?: return "That photo could not be prepared as a cover."
+        return try {
+            spotify.uploadCover(playlistId, jpeg)
+            null
+        } catch (e: Exception) {
+            "The cover could not be uploaded. ${e.message}"
         }
     }
 }

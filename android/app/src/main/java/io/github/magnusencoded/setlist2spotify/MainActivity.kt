@@ -16,6 +16,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import io.github.magnusencoded.setlist2spotify.ui.ConfirmScreen
+import io.github.magnusencoded.setlist2spotify.ui.FriendsScreen
 import io.github.magnusencoded.setlist2spotify.ui.SearchScreen
 import io.github.magnusencoded.setlist2spotify.ui.SetlistsScreen
 import io.github.magnusencoded.setlist2spotify.ui.SettingsScreen
@@ -41,8 +42,10 @@ class MainActivity : ComponentActivity() {
 
     private fun handleAuthIntent(intent: Intent?) {
         val uri = intent?.data ?: return
-        if (uri.scheme == "setlist2spotify") {
-            viewModel.handleAuthRedirect(uri)
+        if (uri.scheme != "setlist2spotify") return
+        when (uri.authority) {
+            "friend" -> viewModel.handleFriendLink(uri)
+            else -> viewModel.handleAuthRedirect(uri)
         }
     }
 }
@@ -68,6 +71,14 @@ fun AppNavigation(viewModel: AppViewModel) {
                 viewModel = viewModel,
                 onOpenSetlists = { navController.navigate("setlists") },
                 onOpenSettings = { navController.navigate("settings") },
+                onOpenFriends = { navController.navigate("friends") },
+            )
+        }
+        composable("friends") {
+            FriendsScreen(
+                viewModel = viewModel,
+                onOpenShared = { navController.navigate("setlists") },
+                onBack = { navController.popBackStack() },
             )
         }
         composable("setlists") {

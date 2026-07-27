@@ -3,6 +3,15 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Reading gallery photos taken on the night of the show, to offer them as
+         the playlist cover. Android 13 split this out of storage; 14 added the
+         "selected photos only" grant. -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+
     <application
         android:allowBackup="true"
         android:label="@string/app_name"
@@ -25,6 +34,15 @@
                 <data
                     android:scheme="setlist2spotify"
                     android:host="callback" />
+            </intent-filter>
+            <!-- Friend card exchange: setlist2spotify://friend?u=...&sid=...&name=... -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="setlist2spotify"
+                    android:host="friend" />
             </intent-filter>
         </activity>
     </application>

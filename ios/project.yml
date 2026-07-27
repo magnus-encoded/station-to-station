@@ -1,0 +1,65 @@
+name: SetlistToSpotify
+options:
+  bundleIdPrefix: io.github.magnusencoded
+  deploymentTarget:
+    iOS: "16.0"
+
+# Bundled credentials, injected the same way as the Android build: a default
+# baked in here, overridable from CI secrets via `xcodebuild SPOTIFY_CLIENT_ID=…`.
+# Blank counts as absent (see Config.swift), so an unset secret can't mask the
+# built-in default. PKCE needs no client secret, so shipping the client ID is safe.
+settings:
+  base:
+    SPOTIFY_CLIENT_ID: bab4fc1ae9e94f3b936fbda65be76bc7
+    SETLISTFM_API_KEY: ""
+    MARKETING_VERSION: "1.1"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  SetlistToSpotify:
+    type: application
+    platform: iOS
+    sources:
+      - SetlistToSpotify
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.magnusencoded.setlist2spotify
+        TARGETED_DEVICE_FAMILY: "1,2"
+        # Simulator builds need no signing (mirrors Android's unsigned debug APK).
+        CODE_SIGNING_ALLOWED: "NO"
+    info:
+      path: SetlistToSpotify/Info.plist
+      properties:
+        CFBundleDisplayName: Setlist to Spotify
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        # Baked-in credentials, surfaced to Config via Info.plist.
+        SpotifyClientId: $(SPOTIFY_CLIENT_ID)
+        SetlistFmApiKey: $(SETLISTFM_API_KEY)
+        # Friend card exchange: setlist2spotify://friend?u=…&sid=…&name=…
+        # (Spotify's OAuth callback is handled by ASWebAuthenticationSession.)
+        CFBundleURLTypes:
+          - CFBundleURLName: io.github.magnusencoded.setlist2spotify
+            CFBundleURLSchemes: [setlist2spotify]
+
+  SetlistToSpotifyTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - SetlistToSpotifyTests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: "YES"
+        CODE_SIGNING_ALLOWED: "NO"
+    dependencies:
+      - target: SetlistToSpotify
+
+schemes:
+  SetlistToSpotify:
+    build:
+      targets:
+        SetlistToSpotify: all
+    test:
+      targets:
+        - SetlistToSpotifyTests

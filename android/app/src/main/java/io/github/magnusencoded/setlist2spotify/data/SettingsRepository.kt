@@ -22,6 +22,22 @@ class SettingsRepository(private val context: Context) {
         val SPOTIFY_TOKEN_EXPIRY = longPreferencesKey("spotify_token_expiry")
         val SPOTIFY_SCOPE = stringPreferencesKey("spotify_scope")
         val PKCE_VERIFIER = stringPreferencesKey("pkce_verifier")
+        val MY_SETLISTFM_USER = stringPreferencesKey("my_setlistfm_user")
+        val FRIENDS = stringPreferencesKey("friends")
+    }
+
+    val mySetlistFmUser: Flow<String?> =
+        context.dataStore.data.map { it[Keys.MY_SETLISTFM_USER]?.ifBlank { null } }
+
+    suspend fun saveMySetlistFmUser(value: String) {
+        context.dataStore.edit { it[Keys.MY_SETLISTFM_USER] = value.trim() }
+    }
+
+    val friends: Flow<List<Friend>> =
+        context.dataStore.data.map { decodeFriends(it[Keys.FRIENDS]) }
+
+    suspend fun saveFriends(friends: List<Friend>) {
+        context.dataStore.edit { it[Keys.FRIENDS] = encodeFriends(friends) }
     }
 
     val setlistFmApiKey: Flow<String?> =

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
@@ -55,6 +56,7 @@ fun SearchScreen(
     viewModel: AppViewModel,
     onOpenSetlists: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenFriends: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var tab by remember { mutableIntStateOf(0) }
@@ -75,6 +77,9 @@ fun SearchScreen(
             TopAppBar(
                 title = { Text("Setlist to Spotify") },
                 actions = {
+                    IconButton(onClick = onOpenFriends) {
+                        Icon(Icons.Default.Person, contentDescription = "Friends")
+                    }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }

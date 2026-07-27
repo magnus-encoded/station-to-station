@@ -33,6 +33,18 @@ android {
         buildConfigField("String", "SETLISTFM_API_KEY", "\"$setlistFmApiKey\"")
     }
 
+    signingConfigs {
+        // Committed debug key so every machine and CI build signs identically,
+        // letting `adb install -r` update a device without wiping app data.
+        // Debug keystores are not secret (the password is the well-known "android").
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -67,8 +79,13 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
+    // Phone cameras record orientation in EXIF rather than rotating the pixels,
+    // so gallery photos need it applied before they are shown or uploaded.
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    testImplementation("junit:junit:4.13.2")
 }

@@ -55,3 +55,12 @@ data class PlaylistResponse(
     val id: String,
     @SerialName("external_urls") val externalUrls: Map<String, String> = emptyMap(),
 )
+
+/** A playlist as returned by GET /playlists/{id}; carries who made it and its description. */
+@Serializable
+data class SimplePlaylist(
+    val id: String = "",
+    val name: String = "",
+    val description: String? = null,
+    val owner: SpotifyUser? = null,
+)
