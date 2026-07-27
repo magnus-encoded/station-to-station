@@ -68,6 +68,25 @@ class WeaveTimelinesTest {
     }
 
     @Test
+    fun `opening a festival I never attended keeps every gig theirs`() {
+        val theirs = mapOf(
+            "Trummispojken" to listOf(
+                show("b1", "16-05-2026", "Stora Scenen"),
+                show("b2", "15-05-2026", "Stora Scenen"),
+            ),
+        )
+        val mine = listOf(show("a1", "21-11-2025", "Blå"))
+        val collapsed = weaveTimelines(mine, emptyMap(), listOf(trummis), theirs)
+        val festival = collapsed.first { it.node is TimelineNode.Festival }
+        val rows = weaveTimelines(mine, emptyMap(), listOf(trummis), theirs, expanded = setOf(festival.key))
+
+        val inner = rows.filter { it.depth == 1 }
+        assertEquals(2, inner.size)
+        assertTrue(inner.none { it.mine })   // I was at neither
+        assertTrue(inner.none { it.shared }) // so neither can be a night we shared
+    }
+
+    @Test
     fun `opening a shared festival lists both sides' gigs underneath it`() {
         val mine = listOf(show("a1", "25-06-2026", "Ekebergsletta"), show("a2", "24-06-2026", "Ekebergsletta"))
         val theirs = mapOf("Trummispojken" to listOf(show("b1", "26-06-2026", "Ekebergsletta")))

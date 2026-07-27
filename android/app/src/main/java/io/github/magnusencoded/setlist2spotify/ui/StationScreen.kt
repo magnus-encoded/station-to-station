@@ -373,6 +373,11 @@ fun StationTimelineScreen(
                                         nodeX = nodeX,
                                         sharedCount = row.sharedCount,
                                         theirCount = row.theirShows.size,
+                                        theirColor = railColor(
+                                            lanes.indexOfFirst { f ->
+                                                row.others.any { it.setlistfm == f.setlistfm }
+                                            }.coerceAtLeast(0),
+                                        ),
                                         rails = rails,
                                         onClick = {
                                             expanded =
@@ -571,9 +576,12 @@ internal fun TimelineItem(
         // leaves it bare: the line runs on, the edge between my nodes just gets longer.
         Box(Modifier.width(SpineWidth + laneWidth).fillMaxHeight()) {
             rails()
-            // Zoomed out the lines are the canvas's job, since they have to veer.
+            // Zoomed out the lines are the canvas's job — it has friends' lanes to draw.
             if (!zoomedOut) {
-                Box(Modifier.padding(start = SpineX).width(2.dp).fillMaxHeight().background(LineCol))
+                Box(
+                    Modifier.padding(start = SpineX).width(2.dp).fillMaxHeight()
+                        .background(Amber.copy(alpha = 0.3f)),
+                )
             }
             if (mine) {
                 val size = if (inside) 10.dp else 14.dp
@@ -585,13 +593,9 @@ internal fun TimelineItem(
                         .background(if (highlight || shared) AmberSoft else Raised)
                         .border(
                             2.dp,
-                            // Zoomed out my nodes stay amber too, or my own line reads as
-                            // the dim one among the visitors'.
-                            when {
-                                highlight || shared -> Amber
-                                zoomedOut -> Amber.copy(alpha = 0.65f)
-                                else -> LineLit
-                            },
+                            // Amber is what "mine" looks like, whichever resolution this
+                            // is; the bright one is the latest night, or a shared one.
+                            if (highlight || shared) Amber else Amber.copy(alpha = 0.6f),
                             CircleShape,
                         ),
                 )

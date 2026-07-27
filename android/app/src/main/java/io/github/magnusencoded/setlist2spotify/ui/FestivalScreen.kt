@@ -199,7 +199,9 @@ fun weaveTimelines(
         val alsoHere = row.others.flatMap { f ->
             theirs[f.setlistfm].orEmpty().filter { node.absorbsShow(it) }
         }
-        val myIds = node.shows.map { it.id }.toSet()
+        // Whose a gig is comes from my own timeline, never from the node holding it —
+        // reading it off node.shows made every gig inside a friend's festival look mine.
+        val myIds = mine.map { it.id }.toSet()
         val inner = (node.shows + alsoHere)
             .distinctBy { it.id }
             .sortedByDescending { it.localDate() }
@@ -270,15 +272,15 @@ fun FestivalItem(
     nodeX: Dp = SpineX,
     sharedCount: Int = 0,
     theirCount: Int = 0,
+    theirColor: Color = Slate,
     rails: @Composable () -> Unit = {},
 ) {
     val amber = Color(0xFFE7B24C)
-    val zoomedOut = laneWidth > 0.dp
+    // Amber means mine, at every resolution; brightness means most recent or shared.
     val accent = when {
         highlight || sharedCount > 0 -> amber
-        // Among other people's lanes, my festivals have to look like mine too.
-        zoomedOut && mine -> amber.copy(alpha = 0.65f)
-        else -> Slate
+        mine -> amber.copy(alpha = 0.6f)
+        else -> theirColor
     }
     Row(
         Modifier.fillMaxWidth().height(IntrinsicSize.Min).clickable(onClick = onClick),
@@ -286,7 +288,10 @@ fun FestivalItem(
         Box(Modifier.width(SpineWidth + laneWidth).fillMaxHeight()) {
             rails()
             if (laneWidth <= 0.dp) {
-                Box(Modifier.padding(start = SpineX).width(2.dp).fillMaxHeight().background(LineCol))
+                Box(
+                    Modifier.padding(start = SpineX).width(2.dp).fillMaxHeight()
+                        .background(amber.copy(alpha = 0.3f)),
+                )
             }
             Box(
                 Modifier
@@ -314,14 +319,28 @@ fun FestivalItem(
             Text(festivalDateRange(festival.shows), color = Muted, fontSize = 13.sp)
             Spacer(Modifier.height(7.dp))
             Text(
-                buildString {
-                    // Comparing collections: what we each saw, and what we saw together.
-                    if (sharedCount > 0) append("$sharedCount together · ")
-                    append("${festival.shows.size} ${if (mine) "yours" else "theirs"}")
-                    if (theirCount > 0) append(" · $theirCount theirs")
+                buildAnnotatedString {
+                    // Whose is only worth saying when someone else is on screen.
+                    if (theirCount == 0 && sharedCount == 0) {
+                        append("${festival.shows.size} gigs")
+                    } else {
+                        if (sharedCount > 0) {
+                            withStyle(SpanStyle(color = amber, fontWeight = FontWeight.SemiBold)) {
+                                append("$sharedCount together")
+                            }
+                            append(" · ")
+                        }
+                        withStyle(SpanStyle(color = if (mine) amber.copy(alpha = 0.75f) else theirColor)) {
+                            append("${festival.shows.size} ${if (mine) "yours" else "theirs"}")
+                        }
+                        if (theirCount > 0) {
+                            append(" · ")
+                            withStyle(SpanStyle(color = theirColor)) { append("$theirCount theirs") }
+                        }
+                    }
                     if (open) append(" · tap to close")
                 },
-                color = if (sharedCount > 0) amber else Faint,
+                color = Faint,
                 fontSize = 12.sp,
             )
         }
