@@ -1,6 +1,9 @@
 package io.github.magnusencoded.setlist2spotify.ui
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -47,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -57,12 +61,15 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -72,6 +79,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.magnusencoded.setlist2spotify.AppViewModel
+import io.github.magnusencoded.setlist2spotify.data.Friend
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSong
 import kotlinx.coroutines.launch
@@ -155,11 +163,9 @@ fun SplashScreen(viewModel: AppViewModel, onProceed: () -> Unit) {
 fun StationTimelineScreen(
     viewModel: AppViewModel,
     onOpenEvent: () -> Unit,
-    onOpenFestival: () -> Unit,
     onOpenImport: () -> Unit,
     onOpenConnect: () -> Unit,
     onOpenNearby: () -> Unit,
-    onZoomOut: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -202,6 +208,24 @@ fun StationTimelineScreen(
                 else -> {
                     val earliest = state.setlists.mapNotNull { it.year()?.toIntOrNull() }.minOrNull()
                     val listState = rememberLazyListState()
+                    // Zooming out doesn't go anywhere: the strip beside my line opens and
+                    // the other timelines slide into it, at my scale, on my spine.
+                    // A card swap lands you here already zoomed out — you just went
+                    // looking for their line, so it should be on screen.
+                    var zoomedOut by remember { mutableStateOf(false) }
+                    LaunchedEffect(state.justConnected) {
+                        if (state.justConnected) {
+                            zoomedOut = true
+                            viewModel.consumeJustConnected()
+                        }
+                    }
+                    val expanded = remember { mutableStateListOf<String>() }
+                    val lanes = remember(state.friends) { state.friends.reversed() }
+                    val laneWidth by animateDpAsState(
+                        if (zoomedOut) LaneStep * lanes.size else 0.dp,
+                        animationSpec = tween(420),
+                        label = "lanes",
+                    )
                     // Descending toward the past pulls the next page in before you hit
                     // the bottom, so history keeps flowing without a button. Measured
                     // against the rows actually laid out, not the raw show count: a
@@ -257,8 +281,17 @@ fun StationTimelineScreen(
                         )
                         PlanningPull(progress = { pull.value / pullMax }, heightPx = { pull.value })
                         LaunchedEffect(state.setlists) { viewModel.resolveFestivalNames() }
-                        val nodes = remember(state.setlists, state.festivalNames) {
-                            groupIntoFestivals(state.setlists, state.festivalNames)
+                        LaunchedEffect(zoomedOut) { if (zoomedOut) viewModel.loadFriendTimelines() }
+                        val rows = remember(
+                            state.setlists, state.festivalNames, lanes, state.friendTimelines, zoomedOut, expanded,
+                        ) {
+                            weaveTimelines(
+                                mine = state.setlists,
+                                festivalNames = state.festivalNames,
+                                friends = if (zoomedOut) lanes else emptyList(),
+                                theirs = if (zoomedOut) state.friendTimelines else emptyMap(),
+                                expanded = expanded.toSet(),
+                            )
                         }
                         LazyColumn(
                             state = listState,
@@ -276,38 +309,44 @@ fun StationTimelineScreen(
                                         onHorizontalDrag = { _, delta -> dragX += delta },
                                     )
                                 }
-                                // Pinch to zoom out one resolution: your single timeline →
-                                // the many-timelines view where friends' lines cross yours.
-                                .pointerInput(Unit) { detectPinch(onZoomOut = onZoomOut) },
+                                // Pinch out to open the other timelines beside mine; pinch
+                                // back in to close them again. Nothing navigates.
+                                .pointerInput(state.friends) {
+                                    detectPinch(
+                                        onZoomOut = { if (state.friends.isNotEmpty()) zoomedOut = true },
+                                        onZoomIn = { zoomedOut = false },
+                                    )
+                                },
                         ) {
                             // The future edge: scroll up toward what's ahead.
                             item { FuturePrompt() }
-                            items(
-                                nodes,
-                                key = {
-                                    when (it) {
-                                        is TimelineNode.Concert -> it.setlist.id
-                                        is TimelineNode.Festival -> "fest-${it.shows.first().id}"
-                                    }
-                                },
-                            ) { node ->
-                                val isFirst = node == nodes.first()
-                                when (node) {
+                            items(rows, key = { it.key }) { row ->
+                                val isFirst = row == rows.first()
+                                val rails: @Composable () -> Unit =
+                                    { PeopleRails(row, lanes, laneWidth) }
+                                when (val node = row.node) {
                                     is TimelineNode.Concert -> TimelineItem(
                                         setlist = node.setlist,
-                                        highlight = isFirst,
+                                        highlight = isFirst && row.mine,
+                                        mine = row.mine,
+                                        laneWidth = laneWidth,
+                                        rails = rails,
                                         onClick = {
                                             viewModel.openShow(node.setlist)
                                             onOpenEvent()
                                         },
                                     )
 
+                                    // A festival opens where it stands rather than pushing
+                                    // you into a screen of its own.
                                     is TimelineNode.Festival -> FestivalItem(
                                         festival = node,
                                         highlight = isFirst,
+                                        open = row.key in expanded,
+                                        laneWidth = laneWidth,
+                                        rails = rails,
                                         onClick = {
-                                            viewModel.openFestival(node.name, node.shows)
-                                            onOpenFestival()
+                                            if (!expanded.remove(row.key)) expanded.add(row.key)
                                         },
                                     )
                                 }
@@ -481,22 +520,33 @@ private fun StationField(
 }
 
 @Composable
-internal fun TimelineItem(setlist: FmSetlist, highlight: Boolean, onClick: () -> Unit) {
+internal fun TimelineItem(
+    setlist: FmSetlist,
+    highlight: Boolean,
+    onClick: () -> Unit,
+    mine: Boolean = true,
+    laneWidth: Dp = 0.dp,
+    rails: @Composable () -> Unit = {},
+) {
     val songCount = setlist.songs().size
     Row(
         Modifier.fillMaxWidth().height(IntrinsicSize.Min).clickable(onClick = onClick),
     ) {
-        Box(Modifier.width(52.dp).fillMaxHeight()) {
-            Box(Modifier.align(Alignment.TopCenter).width(2.dp).fillMaxHeight().background(LineCol))
-            Box(
-                Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 6.dp)
-                    .size(14.dp)
-                    .clip(CircleShape)
-                    .background(if (highlight) AmberSoft else Raised)
-                    .border(2.dp, if (highlight) Amber else LineLit, CircleShape),
-            )
+        // My own spine, always at the same place. A show only someone else was at
+        // leaves it bare: the line runs on, the edge between my nodes just gets longer.
+        Box(Modifier.width(SpineWidth + laneWidth).fillMaxHeight()) {
+            rails()
+            Box(Modifier.padding(start = SpineX).width(2.dp).fillMaxHeight().background(LineCol))
+            if (mine) {
+                Box(
+                    Modifier
+                        .padding(start = SpineX - 6.dp, top = 6.dp)
+                        .size(14.dp)
+                        .clip(CircleShape)
+                        .background(if (highlight) AmberSoft else Raised)
+                        .border(2.dp, if (highlight) Amber else LineLit, CircleShape),
+                )
+            }
         }
         Column(Modifier.padding(end = 18.dp, bottom = 22.dp)) {
             Text(
@@ -507,7 +557,12 @@ internal fun TimelineItem(setlist: FmSetlist, highlight: Boolean, onClick: () ->
                 letterSpacing = 1.0.sp,
             )
             Spacer(Modifier.height(3.dp))
-            Text(setlist.artist?.name ?: "Unknown artist", fontFamily = Serif, fontSize = 17.sp, color = Ink)
+            Text(
+                setlist.artist?.name ?: "Unknown artist",
+                fontFamily = Serif,
+                fontSize = 17.sp,
+                color = if (mine) Ink else Muted,
+            )
             Spacer(Modifier.height(2.dp))
             Text(setlist.venueLine(), color = Muted, fontSize = 13.sp)
             Spacer(Modifier.height(7.dp))
@@ -516,6 +571,50 @@ internal fun TimelineItem(setlist: FmSetlist, highlight: Boolean, onClick: () ->
                 color = Faint,
                 fontSize = 12.sp,
             )
+        }
+    }
+}
+
+/** One lane per friend, opening out to the right of my spine as you zoom out. */
+internal val LaneStep = 22.dp
+
+/**
+ * The other timelines, drawn in the strip that opens beside mine. Each friend keeps a
+ * lane of their own at the same scale as my line; where they were at the same show as
+ * me their lane bends in to my spine and back out, so the merge reads as one node.
+ */
+@Composable
+internal fun PeopleRails(row: WovenRow, friends: List<Friend>, laneWidth: Dp) {
+    if (laneWidth <= 0.dp || friends.isEmpty()) return
+    Canvas(Modifier.fillMaxSize()) {
+        val spineX = SpineX.toPx() + 1.dp.toPx()
+        val step = LaneStep.toPx()
+        val open = (laneWidth / LaneStep).coerceAtMost(friends.size.toFloat())
+        val nodeY = if (row.node is TimelineNode.Festival) 15.dp.toPx() else 13.dp.toPx()
+        val h = size.height
+
+        friends.forEachIndexed { i, friend ->
+            // Lanes slide out from under my spine as the strip opens.
+            val target = SpineWidth.toPx() + step * i + step / 2f
+            val laneX = spineX + (target - spineX) * (open - i).coerceIn(0f, 1f)
+            if (laneX <= spineX + 1f) return@forEachIndexed
+            val here = row.others.any { it.setlistfm == friend.setlistfm }
+            val merging = here && row.mine
+            val path = Path()
+            path.moveTo(laneX, 0f)
+            if (merging) {
+                val pull = nodeY * 0.7f
+                path.cubicTo(laneX, pull, spineX, nodeY - pull, spineX, nodeY)
+                path.cubicTo(spineX, nodeY + pull, laneX, h - pull, laneX, h)
+            } else {
+                path.lineTo(laneX, h)
+            }
+            drawPath(path, if (here) railColor(i) else LineCol, style = Stroke(width = 2.dp.toPx()))
+            // Their own node, when the show is theirs alone — mine already has one.
+            if (here && !row.mine) {
+                drawCircle(Raised, 7.dp.toPx(), Offset(laneX, nodeY))
+                drawCircle(railColor(i), 7.dp.toPx(), Offset(laneX, nodeY), style = Stroke(width = 2.dp.toPx()))
+            }
         }
     }
 }

@@ -109,9 +109,8 @@ data class UiState(
     val timelinesLoading: Boolean = false,
     /** Festival name by the first show id of its cluster; see resolveFestivalNames(). */
     val festivalNames: Map<String, String> = emptyMap(),
-    // The concerts inside a festival node, when one is opened.
-    val festivalTitle: String = "",
-    val festivalShows: List<FmSetlist> = emptyList(),
+    /** Set by a card swap so the timeline opens with the other lines already showing. */
+    val justConnected: Boolean = false,
     /** Set when the playlist was made but its cover could not be uploaded. */
     val coverUploadError: String? = null,
     // Transient error surfaced as a snackbar
@@ -252,13 +251,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addFriend(friend: Friend) {
-        viewModelScope.launch {
-            val current = _state.value.friends
-            // De-dupe on setlist.fm username; a re-share updates the display name.
-            val next = current.filterNot { it.setlistfm.equals(friend.setlistfm, ignoreCase = true) } + friend
-            settings.saveFriends(next)
-            _state.update { it.copy(friends = next) }
-        }
+        viewModelScope.launch { addFriendNow(friend) }
+    }
+
+    private suspend fun addFriendNow(friend: Friend) {
+        val current = _state.value.friends
+        // De-dupe on setlist.fm username; a re-share updates the display name.
+        val next = current.filterNot { it.setlistfm.equals(friend.setlistfm, ignoreCase = true) } + friend
+        settings.saveFriends(next)
+        _state.update { it.copy(friends = next) }
     }
 
     fun addFriendByUsername(username: String) {
@@ -279,8 +280,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Opens a festival node — its individual concerts, in the same timeline UI. */
-    fun openFestival(title: String, shows: List<FmSetlist>) =
-        _state.update { it.copy(festivalTitle = title, festivalShows = shows) }
 
     /** Loads a friend's whole attended-concert timeline for the Connect screen. */
     fun viewFriendTimeline(friend: Friend) {
@@ -374,9 +373,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * against mine, co-attended shows marked as intersections.
      */
     fun connectWithPeer(peer: Friend) {
-        addFriend(peer)
-        loadFriendTimelines()
+        viewModelScope.launch {
+            // Persist the friend before loading, or the load runs against the old list.
+            addFriendNow(peer)
+            _state.update { it.copy(justConnected = true) }
+            loadFriendTimelines()
+        }
     }
+
+    fun consumeJustConnected() = _state.update { it.copy(justConnected = false) }
 
     /**
      * Fills in the real festival names for the clusters currently on the timeline —

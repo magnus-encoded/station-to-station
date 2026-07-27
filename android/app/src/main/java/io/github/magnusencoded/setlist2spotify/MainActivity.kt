@@ -20,10 +20,8 @@ import io.github.magnusencoded.setlist2spotify.ui.FriendsScreen
 import io.github.magnusencoded.setlist2spotify.ui.SearchScreen
 import io.github.magnusencoded.setlist2spotify.ui.SetlistsScreen
 import io.github.magnusencoded.setlist2spotify.ui.ConnectScreen
-import io.github.magnusencoded.setlist2spotify.ui.FestivalScreen
 import io.github.magnusencoded.setlist2spotify.ui.FriendTimelineScreen
 import io.github.magnusencoded.setlist2spotify.ui.ImportScreen
-import io.github.magnusencoded.setlist2spotify.ui.MultipleTimelinesScreen
 import io.github.magnusencoded.setlist2spotify.ui.NearbyScreen
 import io.github.magnusencoded.setlist2spotify.ui.SettingsScreen
 import io.github.magnusencoded.setlist2spotify.ui.SplashScreen
@@ -89,11 +87,9 @@ fun AppNavigation(viewModel: AppViewModel) {
             StationTimelineScreen(
                 viewModel = viewModel,
                 onOpenEvent = { navController.navigate("event") },
-                onOpenFestival = { navController.navigate("festival") },
                 onOpenImport = { navController.navigate("import") },
                 onOpenConnect = { navController.navigate("connect") },
                 onOpenNearby = { navController.navigate("nearby") },
-                onZoomOut = { navController.navigate("timelines") },
                 onOpenSettings = { navController.navigate("settings") },
             )
         }
@@ -102,27 +98,9 @@ fun AppNavigation(viewModel: AppViewModel) {
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
                 onConnected = {
-                    // Land on the woven two-timeline view, replacing the nearby screen.
-                    navController.navigate("timelines") {
-                        popUpTo("nearby") { inclusive = true }
-                    }
+                    // Back to the one timeline there is; it opens with their line showing.
+                    navController.popBackStack("timeline", inclusive = false)
                 },
-            )
-        }
-        composable("timelines") {
-            MultipleTimelinesScreen(
-                viewModel = viewModel,
-                onBack = { navController.popBackStack() },
-                onOpenEvent = { navController.navigate("event") },
-                onFindNearby = { navController.navigate("nearby") },
-                onZoomIn = { navController.popBackStack() },
-            )
-        }
-        composable("festival") {
-            FestivalScreen(
-                viewModel = viewModel,
-                onBack = { navController.popBackStack() },
-                onOpenEvent = { navController.navigate("event") },
             )
         }
         composable("connect") {
