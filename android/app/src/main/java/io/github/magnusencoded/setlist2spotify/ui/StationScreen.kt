@@ -648,27 +648,27 @@ private fun LaneKey(color: Color, label: String) {
     }
 }
 
-/** One lane per friend, opening out to the right of my spine as you zoom out. */
-internal val LaneStep = 22.dp
+/**
+ * One lane per friend, opening out to the right of my spine as you zoom out. Kept
+ * close to the spine: the further out they sit, the harder a line has to swerve to
+ * come and meet mine, and the swerve is what reads as an interruption.
+ */
+internal val LaneStep = 20.dp
 
-private fun laneX(index: Int) = SpineWidth + LaneStep * index + LaneStep / 2
+private fun laneX(index: Int) = SpineX + LaneStep * (index + 1)
 
 /**
- * Where the node for a row sits. On a night our paths crossed there is one node, and
- * it stands between the lines that met at it — not one node each, which said we were
- * at two concerts.
+ * Where a row's node sits. My line never moves — a night we shared happens *on* my
+ * line, and theirs comes to meet it. Putting the node between the two made both
+ * timelines leave their own path to attend it.
  */
 internal fun crossingX(row: WovenRow, friends: List<Friend>, laneWidth: Dp): Dp {
-    if (laneWidth <= 0.dp) return SpineX
-    val here = friends.mapIndexedNotNull { i, f ->
-        if (row.others.any { it.setlistfm == f.setlistfm }) laneX(i) else null
-    }
-    if (here.isEmpty()) return SpineX
-    val xs = if (row.mine) here + SpineX else here
-    val mid = xs.fold(0.dp) { acc, dp -> acc + dp } / xs.size
-    // Lanes are still sliding out while the strip opens; keep the node with them.
+    if (laneWidth <= 0.dp || row.mine) return SpineX
+    val here = friends.indexOfFirst { f -> row.others.any { it.setlistfm == f.setlistfm } }
+    if (here < 0) return SpineX
+    // Their lane is still sliding out while the strip opens; keep the node with it.
     val open = (laneWidth / (LaneStep * friends.size.coerceAtLeast(1))).coerceIn(0f, 1f)
-    return SpineX + (mid - SpineX) * open
+    return SpineX + (laneX(here) - SpineX) * open
 }
 
 /**
@@ -688,76 +688,68 @@ internal fun PeopleRails(
     laneWidth: Dp,
 ) {
     if (laneWidth <= 0.dp || friends.isEmpty()) return
-    val crossing = crossingX(row, friends, laneWidth)
     Canvas(Modifier.fillMaxSize()) {
         val spineX = SpineX.toPx() + 1.dp.toPx()
         val step = LaneStep.toPx()
         val open = (laneWidth / LaneStep).coerceAtMost(friends.size.toFloat())
         val nodeY = if (row.node is TimelineNode.Festival) 15.dp.toPx() else 13.dp.toPx()
         val h = size.height
-        val crossX = crossing.toPx() + 1.dp.toPx()
         val stroke = Stroke(width = 2.dp.toPx())
 
-        /**
-         * One line's path through this row. Two lines that met stay one line until a
-         * night only one of them was at, so a run of shared gigs is a single strand
-         * rather than a ladder of little branches.
-         */
-        fun strand(lane: Float, color: Color, here: Boolean, cameMerged: Boolean) {
-            val path = Path()
-            when {
-                here -> {
-                    // In to the node, then straight down still joined; whoever leaves
-                    // next draws their own way out.
-                    path.moveTo(if (cameMerged) crossX else lane, 0f)
-                    if (cameMerged) {
-                        path.lineTo(crossX, nodeY)
-                    } else {
-                        path.cubicTo(lane, nodeY * 0.55f, crossX, nodeY * 0.45f, crossX, nodeY)
-                    }
-                    // Below the node we are one line, so it takes the meeting's colour
-                    // rather than one of us overdrawing the other.
-                    drawLine(Crossed, Offset(crossX, nodeY), Offset(crossX, h), strokeWidth = 2.dp.toPx())
-                }
-
-                cameMerged -> {
-                    // Parting from a night we shared: back out to my own line.
-                    path.moveTo(crossX, 0f)
-                    path.cubicTo(crossX, nodeY * 0.55f, lane, nodeY * 0.45f, lane, nodeY)
-                    path.lineTo(lane, h)
-                    drawPath(path, color, style = stroke)
-                    return
-                }
-
-                else -> {
-                    path.moveTo(lane, 0f)
-                    path.lineTo(lane, h)
-                }
-            }
-            drawPath(path, color, style = stroke)
-        }
-
-        val hereMine = row.mine && row.others.isNotEmpty()
-        val prevMine = prev != null && prev.mine && prev.others.isNotEmpty()
-        // My line, still mine — amber even where the night was someone else's.
-        strand(spineX, Amber.copy(alpha = if (row.mine) 0.85f else 0.4f), hereMine, prevMine)
+        // My line runs the whole way down, dead straight, never displaced. Whatever a
+        // night was, it happens on my line — I don't step aside to attend it.
+        drawLine(
+            Amber.copy(alpha = if (row.mine) 0.85f else 0.4f),
+            Offset(spineX, 0f),
+            Offset(spineX, h),
+            strokeWidth = 2.dp.toPx(),
+        )
 
         friends.forEachIndexed { i, friend ->
             // Lanes slide out from under my spine as the strip opens.
-            val target = SpineWidth.toPx() + step * i + step / 2f
+            val target = laneX(i).toPx()
             val x = spineX + (target - spineX) * (open - i).coerceIn(0f, 1f)
             if (x <= spineX + 1f) return@forEachIndexed
             val here = row.others.any { it.setlistfm == friend.setlistfm }
-            strand(
-                x,
-                if (here) railColor(i) else LineCol,
-                merged(row, friend),
-                merged(prev, friend),
-            )
-            // Theirs alone: their own node, on their own line.
-            if (here && !row.mine) {
-                drawCircle(Raised, 6.dp.toPx(), Offset(x, nodeY))
-                drawCircle(railColor(i), 6.dp.toPx(), Offset(x, nodeY), style = stroke)
+            val joins = merged(row, friend)
+            val cameJoined = merged(prev, friend)
+            val color = if (here) railColor(i) else LineCol
+            val path = Path()
+            when {
+                // Their line comes to mine and stays on it until a night I wasn't at.
+                joins -> {
+                    if (cameJoined) {
+                        path.moveTo(spineX, 0f)
+                    } else {
+                        path.moveTo(x, 0f)
+                        path.cubicTo(x, nodeY * 0.35f, spineX, nodeY * 0.55f, spineX, nodeY)
+                    }
+                    path.lineTo(spineX, h)
+                    drawPath(path, Crossed, style = stroke)
+                }
+
+                cameJoined -> {
+                    // Parting after a shared night: their line finds its lane again.
+                    path.moveTo(spineX, 0f)
+                    path.cubicTo(spineX, nodeY * 0.35f, x, nodeY * 0.55f, x, nodeY)
+                    path.lineTo(x, h)
+                    drawPath(path, color, style = stroke)
+                    if (here) {
+                        drawCircle(Raised, 6.dp.toPx(), Offset(x, nodeY))
+                        drawCircle(railColor(i), 6.dp.toPx(), Offset(x, nodeY), style = stroke)
+                    }
+                }
+
+                else -> {
+                    path.moveTo(x, 0f)
+                    path.lineTo(x, h)
+                    drawPath(path, color, style = stroke)
+                    // Theirs alone: their own node, on their own line.
+                    if (here) {
+                        drawCircle(Raised, 6.dp.toPx(), Offset(x, nodeY))
+                        drawCircle(railColor(i), 6.dp.toPx(), Offset(x, nodeY), style = stroke)
+                    }
+                }
             }
         }
     }
