@@ -265,8 +265,11 @@ fun MultipleTimelinesScreen(
     // Every known timeline is loaded fresh when the view opens — this is "me and
     // everyone I know", not a comparison with one chosen person.
     androidx.compose.runtime.LaunchedEffect(state.friends) { viewModel.loadFriendTimelines() }
-    val rows = androidx.compose.runtime.remember(state.setlists, state.friends, state.friendTimelines) {
-        weave(state.setlists, state.friends, state.friendTimelines)
+    // Newest friend gets the lane closest to mine — you've just added them, so their
+    // line is the one you're looking for.
+    val lanes = androidx.compose.runtime.remember(state.friends) { state.friends.reversed() }
+    val rows = androidx.compose.runtime.remember(state.setlists, lanes, state.friendTimelines) {
+        weave(state.setlists, lanes, state.friendTimelines)
     }
     val sharedCount = rows.count { it.shared }
 
@@ -312,11 +315,11 @@ fun MultipleTimelinesScreen(
                 }
 
                 else -> LazyColumn(Modifier.fillMaxSize()) {
-                    item { ComparisonHeader(state.friends, sharedCount) }
+                    item { ComparisonHeader(lanes, sharedCount) }
                     items(rows, key = { it.setlist.id }) { row ->
                         CompRowItem(
                             row = row,
-                            friends = state.friends,
+                            friends = lanes,
                             onClick = {
                                 viewModel.openShow(row.setlist)
                                 onOpenEvent()

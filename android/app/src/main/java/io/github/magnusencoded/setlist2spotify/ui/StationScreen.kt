@@ -1,5 +1,6 @@
 package io.github.magnusencoded.setlist2spotify.ui
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -52,10 +53,17 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -207,6 +215,32 @@ fun StationTimelineScreen(
                             viewModel.loadMoreSetlists()
                         }
                     }
+                    // Pulling down at the top of the line opens a gap toward the future:
+                    // the space where planning will live. It springs shut on release.
+                    val scope = rememberCoroutineScope()
+                    val pull = remember { Animatable(0f) }
+                    val pullMax = with(LocalDensity.current) { 96.dp.toPx() }
+                    val pullNest = remember {
+                        object : NestedScrollConnection {
+                            override fun onPostScroll(
+                                consumed: Offset,
+                                available: Offset,
+                                source: NestedScrollSource,
+                            ): Offset {
+                                if (available.y <= 0f || source != NestedScrollSource.UserInput) return Offset.Zero
+                                scope.launch {
+                                    pull.snapTo((pull.value + available.y * 0.4f).coerceAtMost(pullMax))
+                                }
+                                return Offset(0f, available.y)
+                            }
+
+                            override suspend fun onPreFling(available: Velocity): Velocity {
+                                pull.animateTo(0f)
+                                return Velocity.Zero
+                            }
+                        }
+                    }
+
                     Column(Modifier.fillMaxSize()) {
                         Text(
                             buildString {
@@ -217,11 +251,13 @@ fun StationTimelineScreen(
                             fontSize = 12.sp,
                             modifier = Modifier.padding(start = 20.dp, top = 2.dp, bottom = 14.dp),
                         )
+                        PlanningPull(progress = { pull.value / pullMax }, heightPx = { pull.value })
                         val nodes = remember(state.setlists) { groupIntoFestivals(state.setlists) }
                         LazyColumn(
                             state = listState,
                             modifier = Modifier
                                 .fillMaxSize()
+                                .nestedScroll(pullNest)
                                 // Swipe the timeline left to start connecting with someone
                                 // nearby — the "act on this level" gesture, people axis.
                                 .pointerInput(Unit) {
@@ -283,6 +319,28 @@ fun StationTimelineScreen(
                 }
             }
         }
+    }
+}
+
+/**
+ * The gap that opens when you pull down past the top of your line: the line keeps
+ * going up, into the shows you haven't been to yet. ponytail: a signpost, not a
+ * destination — releasing springs it shut until planning is somewhere to go.
+ */
+@Composable
+private fun PlanningPull(progress: () -> Float, heightPx: () -> Float) {
+    val density = LocalDensity.current
+    val h = with(density) { heightPx().toDp() }
+    if (h <= 0.dp) return
+    Column(
+        Modifier.fillMaxWidth().height(h).alpha((progress() * 1.4f).coerceIn(0f, 1f)),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Box(Modifier.width(2.dp).height(h * 0.4f).background(LineCol))
+        Spacer(Modifier.height(6.dp))
+        Text("↑  PLANNING", color = Slate, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp)
+        Text("the shows ahead", color = Faint, fontSize = 11.sp)
     }
 }
 
