@@ -715,7 +715,9 @@ internal fun PeopleRails(
                     } else {
                         path.cubicTo(lane, nodeY * 0.55f, crossX, nodeY * 0.45f, crossX, nodeY)
                     }
-                    path.lineTo(crossX, h)
+                    // Below the node we are one line, so it takes the meeting's colour
+                    // rather than one of us overdrawing the other.
+                    drawLine(Crossed, Offset(crossX, nodeY), Offset(crossX, h), strokeWidth = 2.dp.toPx())
                 }
 
                 cameMerged -> {
@@ -723,6 +725,8 @@ internal fun PeopleRails(
                     path.moveTo(crossX, 0f)
                     path.cubicTo(crossX, nodeY * 0.55f, lane, nodeY * 0.45f, lane, nodeY)
                     path.lineTo(lane, h)
+                    drawPath(path, color, style = stroke)
+                    return
                 }
 
                 else -> {
