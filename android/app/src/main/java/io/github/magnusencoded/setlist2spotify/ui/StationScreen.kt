@@ -216,7 +216,22 @@ fun StationTimelineScreen(
                             modifier = Modifier.padding(start = 20.dp, top = 2.dp, bottom = 14.dp),
                         )
                         val nodes = remember(state.setlists) { groupIntoFestivals(state.setlists) }
-                        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                // Swipe the timeline left to reach people — the same
+                                // "act on this level" gesture the setlist uses to convert.
+                                .pointerInput(Unit) {
+                                    val threshold = 90.dp.toPx()
+                                    var dragX = 0f
+                                    detectHorizontalDragGestures(
+                                        onDragStart = { dragX = 0f },
+                                        onDragEnd = { if (dragX <= -threshold) onOpenConnect() },
+                                        onHorizontalDrag = { _, delta -> dragX += delta },
+                                    )
+                                },
+                        ) {
                             // The future edge: scroll up toward what's ahead.
                             item { FuturePrompt() }
                             items(

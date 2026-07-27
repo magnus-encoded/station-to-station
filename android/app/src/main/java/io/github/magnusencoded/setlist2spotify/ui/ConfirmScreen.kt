@@ -38,6 +38,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -64,9 +65,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -78,9 +81,36 @@ import io.github.magnusencoded.setlist2spotify.data.photos.PhotoRepository
 import io.github.magnusencoded.setlist2spotify.data.spotify.SpotifyTrack
 import kotlinx.coroutines.launch
 
+// The same nocturnal ground as the Station screens, but with Spotify green as the
+// accent — this is the one pure-Spotify function, so it earns the green while still
+// looking like the rest of the app rather than a different UI. Every
+// MaterialTheme.colorScheme.* reference below resolves through this.
+private val NocturnalGreen = darkColorScheme(
+    primary = Color(0xFF1DB954),
+    onPrimary = Color(0xFF08210F),
+    background = Color(0xFF0E0B14),
+    onBackground = Color(0xFFEDE9F2),
+    surface = Color(0xFF17121F),
+    onSurface = Color(0xFFEDE9F2),
+    surfaceVariant = Color(0xFF1D1728),
+    onSurfaceVariant = Color(0xFF8B8299),
+    outline = Color(0xFF4A3F63),
+    error = Color(0xFFE08A8A),
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConfirmScreen(
+    viewModel: AppViewModel,
+    onBack: () -> Unit,
+    onOpenSettings: () -> Unit,
+) = MaterialTheme(colorScheme = NocturnalGreen) {
+    ConfirmScreenContent(viewModel, onBack, onOpenSettings)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ConfirmScreenContent(
     viewModel: AppViewModel,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -109,7 +139,7 @@ fun ConfirmScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Confirm songs") },
+                title = { Text("Open as a Spotify playlist", fontFamily = FontFamily.Serif) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
