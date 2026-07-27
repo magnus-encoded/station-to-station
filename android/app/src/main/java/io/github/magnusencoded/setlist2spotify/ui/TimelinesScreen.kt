@@ -8,7 +8,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -67,6 +70,35 @@ private val Amber = Color(0xFFE7B24C)
 private val AmberSoft = Color(0x29E7B24C)
 private val Slate = Color(0xFF6D7E9B) // the other person's line, a cooler light
 private val Serif = FontFamily.Serif
+
+/**
+ * A pinch detector that only reacts to a genuine two-finger pinch, so single-finger
+ * scrolling and horizontal swipes pass straight through to the list underneath.
+ * (detectTransformGestures also fires on one-finger pan, which swallows those.)
+ * Pinch together → [onZoomOut] (see more, a coarser resolution); spread apart →
+ * [onZoomIn] (drop into a finer one).
+ */
+internal suspend fun PointerInputScope.detectPinch(
+    onZoomOut: () -> Unit = {},
+    onZoomIn: () -> Unit = {},
+) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = false)
+        var zoom = 1f
+        var fired = false
+        do {
+            val event = awaitPointerEvent()
+            if (event.changes.count { it.pressed } < 2) continue
+            val change = event.calculateZoom()
+            if (change != 1f) {
+                zoom *= change
+                event.changes.forEach { it.consume() }
+                if (zoom < 0.75f) { fired = true; onZoomOut() }
+                else if (zoom > 1.3f) { fired = true; onZoomIn() }
+            }
+        } while (!fired && event.changes.any { it.pressed })
+    }
+}
 
 // --- Swipe left from the timeline: look for someone to swap timelines with ---
 
@@ -253,14 +285,8 @@ fun MultipleTimelinesScreen(
             Modifier
                 .padding(padding)
                 .fillMaxSize()
-                // Pinch back in (zoom) to drop into your own single timeline.
-                .pointerInput(Unit) {
-                    var zoom = 1f
-                    detectTransformGestures { _, _, z, _ ->
-                        zoom *= z
-                        if (zoom > 1.25f) { zoom = 1f; onZoomIn() }
-                    }
-                },
+                // Pinch back in (spread) to drop into your own single timeline.
+                .pointerInput(Unit) { detectPinch(onZoomIn = onZoomIn) },
         ) {
             when {
                 friend == null -> NoComparisonYet(onFindNearby)

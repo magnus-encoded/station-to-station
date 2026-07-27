@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -236,13 +235,7 @@ fun StationTimelineScreen(
                                 }
                                 // Pinch to zoom out one resolution: your single timeline →
                                 // the many-timelines view where friends' lines cross yours.
-                                .pointerInput(Unit) {
-                                    var zoom = 1f
-                                    detectTransformGestures { _, _, z, _ ->
-                                        zoom *= z
-                                        if (zoom < 0.8f) { zoom = 1f; onZoomOut() }
-                                    }
-                                },
+                                .pointerInput(Unit) { detectPinch(onZoomOut = onZoomOut) },
                         ) {
                             // The future edge: scroll up toward what's ahead.
                             item { FuturePrompt() }
