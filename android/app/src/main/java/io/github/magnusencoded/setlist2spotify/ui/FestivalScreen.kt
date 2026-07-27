@@ -194,17 +194,14 @@ fun weaveTimelines(
         }
     }
 
-    hosts.forEachIndexed { i, node ->
-        rows.add(
-            WovenRow(
-                node,
-                mine = i < myNodes.size,
-                others = friendsAt[node].orEmpty(),
-                showsHereByFriends = showsAt[node]?.values?.toList().orEmpty(),
-            ),
+    val rows = hosts.mapIndexed { i, node ->
+        WovenRow(
+            node,
+            mine = i < myNodes.size,
+            others = friendsAt[node].orEmpty(),
+            showsHereByFriends = showsAt[node]?.values?.toList().orEmpty(),
         )
-    }
-    rows.sortByDescending { it.date }
+    }.sortedByDescending { it.date }
 
     if (expanded.isEmpty()) return rows
     // Open festivals list their gigs underneath, each tagged with who was at that one.
