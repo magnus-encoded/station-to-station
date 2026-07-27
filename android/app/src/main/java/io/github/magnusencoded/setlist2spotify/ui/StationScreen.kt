@@ -256,7 +256,10 @@ fun StationTimelineScreen(
                             modifier = Modifier.padding(start = 20.dp, top = 2.dp, bottom = 14.dp),
                         )
                         PlanningPull(progress = { pull.value / pullMax }, heightPx = { pull.value })
-                        val nodes = remember(state.setlists) { groupIntoFestivals(state.setlists) }
+                        LaunchedEffect(state.setlists) { viewModel.resolveFestivalNames() }
+                        val nodes = remember(state.setlists, state.festivalNames) {
+                            groupIntoFestivals(state.setlists, state.festivalNames)
+                        }
                         LazyColumn(
                             state = listState,
                             modifier = Modifier

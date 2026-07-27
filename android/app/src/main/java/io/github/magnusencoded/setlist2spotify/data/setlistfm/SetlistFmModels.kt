@@ -39,7 +39,7 @@ data class FmSetlist(
     val tour: FmTour? = null,
     val sets: FmSets? = null,
     val url: String? = null,
-    /** Free-text note; for festival shows setlist.fm puts the festival name here. */
+    /** Free-text note. Arbitrary — "First show in Norway", not the festival name. */
     val info: String? = null,
 ) {
     fun songs(): List<FmSong> = sets?.set.orEmpty().flatMap { it.song }

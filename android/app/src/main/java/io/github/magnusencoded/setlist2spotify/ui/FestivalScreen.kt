@@ -61,23 +61,22 @@ sealed interface TimelineNode {
 }
 
 /**
- * A festival is labelled by its venue. setlist.fm has no festival field, and its
- * free-text `info` turned out to be arbitrary notes (e.g. "First show in Norway",
- * a paragraph about a Chappell Roan set) — not the festival name — so venue is the
- * only reliable label. ponytail: if a real festival name is ever wanted, it needs
- * a different source than the setlist API (the website's festival entity).
+ * The festival's real name — "Øyafestivalen 2025", not "Tøyenparken" — resolved from
+ * setlist.fm's festival entity and passed in by [AppViewModel.resolveFestivalNames],
+ * keyed by the cluster's first show. Until it lands (or if it never does) the venue
+ * stands in, which is what the timeline showed before.
  */
-private fun festivalName(shows: List<FmSetlist>): String =
-    shows.first().venue?.name ?: "Festival"
+private fun festivalName(shows: List<FmSetlist>, names: Map<String, String>): String =
+    names[shows.first().id] ?: shows.first().venue?.name ?: "Festival"
 
 private const val FESTIVAL_WINDOW_DAYS = 4L
 
 /**
  * Groups a date-ordered list of shows into festivals — two or more shows at the
  * same venue within a few days of each other — leaving lone shows as concerts.
- * setlist.fm carries no festival name, so a festival is labelled by its venue.
+ * [names] maps a cluster's first show id to the festival's real name.
  */
-fun groupIntoFestivals(setlists: List<FmSetlist>): List<TimelineNode> {
+fun groupIntoFestivals(setlists: List<FmSetlist>, names: Map<String, String> = emptyMap()): List<TimelineNode> {
     val nodes = mutableListOf<TimelineNode>()
     var i = 0
     while (i < setlists.size) {
@@ -88,7 +87,7 @@ fun groupIntoFestivals(setlists: List<FmSetlist>): List<TimelineNode> {
             j++
         }
         if (cluster.size >= 2) {
-            nodes.add(TimelineNode.Festival(festivalName(cluster), cluster))
+            nodes.add(TimelineNode.Festival(festivalName(cluster, names), cluster))
         } else {
             nodes.add(TimelineNode.Concert(cluster.first()))
         }

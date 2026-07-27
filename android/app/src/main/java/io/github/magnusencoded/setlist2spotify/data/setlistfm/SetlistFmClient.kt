@@ -61,4 +61,32 @@ class SetlistFmClient(private val apiKeyProvider: suspend () -> String?) {
 
     suspend fun userAttended(userId: String, page: Int = 1): SetlistsResponse =
         json.decodeFromString(get("user/$userId/attended", mapOf("p" to page.toString())))
+
+    /**
+     * The festival a setlist belongs to, e.g. "Øyafestivalen 2025" for a show whose
+     * venue is only "Tøyenparken".
+     *
+     * setlist.fm models festivals as a first-class entity but does not expose them in
+     * the REST API — the name lives only on the setlist's own web page, which links to
+     * `/festival/<year>/<slug>.html`. MusicBrainz has festival events too, and needs no
+     * key, but its coverage is patchy (Tons of Rock 2026 is there, Øyafestivalen 2025
+     * is not), so it can't be the primary source.
+     *
+     * Returns null on anything unexpected — the caller falls back to the venue name.
+     */
+    suspend fun festivalName(setlistUrl: String): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val request = Request.Builder().url(setlistUrl).header("Accept", "text/html").build()
+            http.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return@use null
+                parseFestivalName(resp.body?.string().orEmpty())
+            }
+        }.getOrNull()
+    }
 }
+
+/** The "played at a festival" link on a setlist page: title="View &lt;name&gt; details". */
+private val FESTIVAL_LINK = Regex("""href="[^"]*?/festival/\d{4}/[^"]+"\s+title="View (.+?) detail""")
+
+internal fun parseFestivalName(html: String): String? =
+    FESTIVAL_LINK.find(html)?.groupValues?.get(1)?.trim()?.takeUnless { it.isEmpty() }

@@ -13,6 +13,8 @@ import io.github.magnusencoded.setlist2spotify.data.sfmStamp
 import io.github.magnusencoded.setlist2spotify.data.sfmUserFromDescription
 import io.github.magnusencoded.setlist2spotify.data.spotifyPlaylistId
 import io.github.magnusencoded.setlist2spotify.data.toShareUri
+import io.github.magnusencoded.setlist2spotify.ui.TimelineNode
+import io.github.magnusencoded.setlist2spotify.ui.groupIntoFestivals
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmArtist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSong
@@ -105,6 +107,8 @@ data class UiState(
     val nearbyPeers: List<Friend> = emptyList(),
     val friendTimelines: Map<String, List<FmSetlist>> = emptyMap(),
     val timelinesLoading: Boolean = false,
+    /** Festival name by the first show id of its cluster; see resolveFestivalNames(). */
+    val festivalNames: Map<String, String> = emptyMap(),
     // The concerts inside a festival node, when one is opened.
     val festivalTitle: String = "",
     val festivalShows: List<FmSetlist> = emptyList(),
@@ -372,6 +376,27 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun connectWithPeer(peer: Friend) {
         addFriend(peer)
         loadFriendTimelines()
+    }
+
+    /**
+     * Fills in the real festival names for the clusters currently on the timeline —
+     * one page fetch per festival, only for ones not already resolved. Failures are
+     * silent: the venue name stays as the label.
+     */
+    fun resolveFestivalNames() {
+        val firsts = groupIntoFestivals(_state.value.setlists)
+            .filterIsInstance<TimelineNode.Festival>()
+            .map { it.shows.first() }
+            .filter { it.id !in _state.value.festivalNames && !it.url.isNullOrBlank() }
+        if (firsts.isEmpty()) return
+        viewModelScope.launch {
+            val found = firsts.mapNotNull { show ->
+                setlistFm.festivalName(show.url!!)?.let { show.id to it }
+            }
+            if (found.isNotEmpty()) {
+                _state.update { it.copy(festivalNames = it.festivalNames + found) }
+            }
+        }
     }
 
     /** Loads every known friend's attended shows for the woven (zoomed-out) view. */
