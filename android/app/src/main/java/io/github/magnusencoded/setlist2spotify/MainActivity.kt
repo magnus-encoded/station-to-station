@@ -70,12 +70,17 @@ fun AppNavigation(viewModel: AppViewModel) {
     NavHost(navController = navController, startDestination = "timeline") {
         composable("timeline") {
             StationTimelineScreen(
+                viewModel = viewModel,
                 onOpenEvent = { navController.navigate("event") },
-                onOpenSearch = { navController.navigate("search") },
+                onOpenSettings = { navController.navigate("settings") },
             )
         }
         composable("event") {
-            StationEventScreen(onBack = { navController.popBackStack() })
+            StationEventScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onConvert = { navController.navigate("confirm") },
+            )
         }
         composable("search") {
             SearchScreen(

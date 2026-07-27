@@ -339,6 +339,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Timeline import: persists a just-entered API key first (so the fetch sees
+     * it — saveSettings alone is fire-and-forget and would race), then loads the
+     * user's attended concerts. [apiKey] is null when a key is already available.
+     */
+    fun importAttended(username: String, apiKey: String?) {
+        viewModelScope.launch {
+            consumeError()
+            if (!apiKey.isNullOrBlank()) saveSettingsNow(apiKey.trim(), _state.value.spotifyClientId)
+            setUserQuery(username)
+            openUserAttended()
+        }
+    }
+
     fun openUserAttended() {
         val userId = _state.value.userQuery.trim()
         if (userId.isEmpty()) return
@@ -397,6 +411,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // --- Matching ---
+
+    /** Opens a show for viewing (its real setlist) without the Spotify match/cover
+     *  machinery — that only starts when the user converts it to a playlist. */
+    fun openShow(setlist: FmSetlist) = _state.update { it.copy(selectedSetlist = setlist) }
 
     fun selectSetlist(setlist: FmSetlist) {
         matchJob?.cancel()
