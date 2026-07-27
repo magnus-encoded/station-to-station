@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.magnusencoded.setlist2spotify.data.Friend
 import io.github.magnusencoded.setlist2spotify.data.SettingsRepository
+import io.github.magnusencoded.setlist2spotify.data.TimelineStore
 import io.github.magnusencoded.setlist2spotify.data.friendFromUri
 import io.github.magnusencoded.setlist2spotify.data.photos.PhotoRepository
 import io.github.magnusencoded.setlist2spotify.data.sfmStamp
@@ -137,6 +138,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     val settings = SettingsRepository(application)
+    private val timelines = TimelineStore(application)
     private val setlistFm = SetlistFmClient { settings.setlistFmApiKeyValue() }
     val spotify = SpotifyClient(settings)
     private val photos = PhotoRepository(application)
@@ -165,6 +167,38 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     onboarded = settings.onboarded.first(),
                 )
             }
+            restoreTimelines()
+        }
+    }
+
+    /**
+     * Puts the last-stored timelines back on screen, so a launch opens on the spine
+     * instead of the empty state plus a full re-import.
+     *
+     * ponytail: no auto-refresh — the cache is shown and left alone until the user
+     * re-imports. Fetching on every launch is exactly the cost this removes, and
+     * attended history only changes when its owner edits setlist.fm. Add a
+     * pull-to-refresh (or a staleness check) when the staleness is actually felt.
+     */
+    private suspend fun restoreTimelines() {
+        val cached = timelines.load()
+        if (cached.shows.isEmpty() && cached.festivalNames.isEmpty()) return
+        val me = _state.value.mySetlistFmUser
+        val mine = cached.shows[me].orEmpty()
+        _state.update {
+            it.copy(
+                festivalNames = it.festivalNames + cached.festivalNames,
+                // Every lane but mine: the weave reads friends from here.
+                showsByFriend = cached.shows - me,
+                // Only adopt a cached spine if nothing has already loaded into it.
+                setlists = if (mine.isNotEmpty() && it.setlists.isEmpty()) mine else it.setlists,
+                source = if (mine.isNotEmpty() && it.setlists.isEmpty()) SetlistSource.USER else it.source,
+                setlistsTitle = if (mine.isNotEmpty() && it.setlistsTitle.isBlank()) "Attended by $me" else it.setlistsTitle,
+                userQuery = if (mine.isNotEmpty() && it.userQuery.isBlank()) me else it.userQuery,
+                // total == size, so loadMoreSetlists() doesn't try to paginate a cache
+                // whose real total we haven't fetched. A re-import restores the true one.
+                setlistsTotal = if (mine.isNotEmpty() && it.setlists.isEmpty()) mine.size else it.setlistsTotal,
+            )
         }
     }
 
@@ -415,6 +449,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
             if (found.isNotEmpty()) {
                 _state.update { it.copy(festivalNames = it.festivalNames + found) }
+                // A festival name costs a fetch each; store them so it's paid once.
+                timelines.save(festivalNames = found.toMap())
             }
         }
     }
@@ -423,6 +459,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun loadFriendTimelines() {
         val friends = _state.value.friends
         if (friends.isEmpty()) return
+        // Restored from cache already — this runs on every zoom-out, and refetching
+        // every lane each time is the call volume the store exists to remove.
+        if (friends.all { !_state.value.showsByFriend[it.setlistfm].isNullOrEmpty() }) return
         _state.update { it.copy(timelinesLoading = true) }
         viewModelScope.launch {
             // ponytail: caps at 60 shows (3 pages) each, like the other timeline loads.
@@ -431,6 +470,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     .getOrDefault(emptyList())
             }
             _state.update { it.copy(showsByFriend = loaded, timelinesLoading = false) }
+            // Merge, so a friend whose fetch just failed keeps their last good lane.
+            timelines.save(shows = loaded)
         }
     }
 
@@ -513,6 +554,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _state.update {
                     it.copy(setlists = result.setlist, setlistsTotal = result.total, setlistsLoading = false)
                 }
+                timelines.save(shows = mapOf(userId to result.setlist))
             } catch (e: Exception) {
                 fail(e)
             }
@@ -541,6 +583,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         setlistsTotal = result.total,
                         setlistsLoading = false,
                     )
+                }
+                // Store the accumulated spine, or scrolling back through history
+                // pays for those pages again on the next launch.
+                if (s.source == SetlistSource.USER) {
+                    timelines.save(shows = mapOf(s.userQuery.trim() to _state.value.setlists))
                 }
             } catch (e: Exception) {
                 fail(e)
