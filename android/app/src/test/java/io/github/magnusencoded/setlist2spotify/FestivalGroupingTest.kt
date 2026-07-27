@@ -11,12 +11,37 @@ import org.junit.Test
 
 class FestivalGroupingTest {
 
-    private fun show(id: String, date: String, venue: String) = FmSetlist(
+    private fun show(id: String, date: String, venue: String, info: String? = null) = FmSetlist(
         id = id,
         eventDate = date, // dd-MM-yyyy
         artist = FmArtist(name = "Artist $id"),
         venue = FmVenue(name = venue),
+        info = info,
     )
+
+    @Test
+    fun festivalIsNamedByInfoWhenPresent() {
+        val nodes = groupIntoFestivals(
+            listOf(
+                show("1", "08-08-2025", "Tøyenparken", info = "Øyafestivalen 2025"),
+                show("2", "07-08-2025", "Tøyenparken", info = "Øyafestivalen 2025"),
+            ),
+        )
+        val festival = nodes.single() as TimelineNode.Festival
+        assertEquals("Øyafestivalen 2025", festival.name)
+    }
+
+    @Test
+    fun festivalFallsBackToVenueWithoutInfo() {
+        val nodes = groupIntoFestivals(
+            listOf(
+                show("1", "25-06-2026", "Ekebergsletta"),
+                show("2", "24-06-2026", "Ekebergsletta"),
+            ),
+        )
+        val festival = nodes.single() as TimelineNode.Festival
+        assertEquals("Ekebergsletta", festival.name)
+    }
 
     @Test
     fun sameVenueAdjacentDatesBecomeOneFestival() {
@@ -30,7 +55,7 @@ class FestivalGroupingTest {
         assertEquals(1, nodes.size)
         val festival = nodes[0] as TimelineNode.Festival
         assertEquals(3, festival.shows.size)
-        assertEquals("Ekebergsletta", festival.venue)
+        assertEquals("Ekebergsletta", festival.name)
     }
 
     @Test

@@ -57,8 +57,14 @@ private val Serif = FontFamily.Serif
 /** A timeline is a mix of single concerts and festivals (a run of shows at one venue). */
 sealed interface TimelineNode {
     data class Concert(val setlist: FmSetlist) : TimelineNode
-    data class Festival(val venue: String, val shows: List<FmSetlist>) : TimelineNode
+    data class Festival(val name: String, val shows: List<FmSetlist>) : TimelineNode
 }
+
+/** The festival's name from setlist.fm's `info`, falling back to the venue. */
+private fun festivalName(shows: List<FmSetlist>): String =
+    shows.firstNotNullOfOrNull { it.info?.trim()?.ifBlank { null } }
+        ?: shows.first().venue?.name
+        ?: "Festival"
 
 private const val FESTIVAL_WINDOW_DAYS = 4L
 
@@ -78,7 +84,7 @@ fun groupIntoFestivals(setlists: List<FmSetlist>): List<TimelineNode> {
             j++
         }
         if (cluster.size >= 2) {
-            nodes.add(TimelineNode.Festival(cluster.first().venue?.name ?: "Festival", cluster))
+            nodes.add(TimelineNode.Festival(festivalName(cluster), cluster))
         } else {
             nodes.add(TimelineNode.Concert(cluster.first()))
         }
@@ -130,7 +136,7 @@ fun FestivalItem(festival: TimelineNode.Festival, highlight: Boolean, onClick: (
         Column(Modifier.padding(end = 18.dp, bottom = 22.dp)) {
             Text("FESTIVAL", color = Slate, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp)
             Spacer(Modifier.height(3.dp))
-            Text(festival.venue, fontFamily = Serif, fontSize = 17.sp, color = Ink)
+            Text(festival.name, fontFamily = Serif, fontSize = 17.sp, color = Ink)
             Spacer(Modifier.height(2.dp))
             Text(festivalDateRange(festival.shows), color = Muted, fontSize = 13.sp)
             Spacer(Modifier.height(7.dp))

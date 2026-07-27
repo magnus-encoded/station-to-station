@@ -16,7 +16,9 @@ fun credential(name: String, default: String = ""): String =
         ?: System.getenv(name)?.takeUnless { it.isBlank() }
         ?: default
 
-val spotifyClientId = credential("SPOTIFY_CLIENT_ID", default = "bab4fc1ae9e94f3b936fbda65be76bc7")
+// The "Station to Station" app registration. Its redirect list still includes
+// setlist2spotify://callback, so the existing deep-link scheme keeps working.
+val spotifyClientId = credential("SPOTIFY_CLIENT_ID", default = "4d0ca5e417a54b599b07bfac99671644")
 val setlistFmApiKey = credential("SETLISTFM_API_KEY")
 
 android {

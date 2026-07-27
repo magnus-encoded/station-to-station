@@ -241,7 +241,7 @@ fun StationTimelineScreen(
                                         festival = node,
                                         highlight = isFirst,
                                         onClick = {
-                                            viewModel.openFestival(node.venue, node.shows)
+                                            viewModel.openFestival(node.name, node.shows)
                                             onOpenFestival()
                                         },
                                     )
