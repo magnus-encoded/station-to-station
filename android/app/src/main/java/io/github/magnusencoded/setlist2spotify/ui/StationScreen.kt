@@ -1,8 +1,9 @@
 package io.github.magnusencoded.setlist2spotify.ui
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -223,9 +224,14 @@ fun StationTimelineScreen(
                     // never see it change and the rows never rebuilt.
                     var expanded by remember { mutableStateOf(emptySet<String>()) }
                     val lanes = remember(state.friends) { state.friends.reversed() }
+                    // Springy rather than timed: the other lines settle into place like
+                    // something physical arriving, instead of a panel sliding.
                     val laneWidth by animateDpAsState(
                         if (zoomedOut) LaneStep * lanes.size else 0.dp,
-                        animationSpec = tween(420),
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioLowBouncy,
+                            stiffness = Spring.StiffnessLow,
+                        ),
                         label = "lanes",
                     )
                     // Descending toward the past pulls the next page in before you hit
