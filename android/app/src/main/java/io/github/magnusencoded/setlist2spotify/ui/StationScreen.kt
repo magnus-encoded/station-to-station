@@ -50,7 +50,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -219,7 +218,10 @@ fun StationTimelineScreen(
                             viewModel.consumeJustConnected()
                         }
                     }
-                    val expanded = remember { mutableStateListOf<String>() }
+                    // An immutable set, swapped out on each toggle: a mutable list here
+                    // is the same instance before and after, so remember() below could
+                    // never see it change and the rows never rebuilt.
+                    var expanded by remember { mutableStateOf(emptySet<String>()) }
                     val lanes = remember(state.friends) { state.friends.reversed() }
                     val laneWidth by animateDpAsState(
                         if (zoomedOut) LaneStep * lanes.size else 0.dp,
@@ -290,7 +292,7 @@ fun StationTimelineScreen(
                                 festivalNames = state.festivalNames,
                                 friends = if (zoomedOut) lanes else emptyList(),
                                 theirs = if (zoomedOut) state.friendTimelines else emptyMap(),
-                                expanded = expanded.toSet(),
+                                expanded = expanded,
                             )
                         }
                         LazyColumn(
@@ -347,7 +349,9 @@ fun StationTimelineScreen(
                                         laneWidth = laneWidth,
                                         rails = rails,
                                         onClick = {
-                                            if (!expanded.remove(row.key)) expanded.add(row.key)
+                                            expanded =
+                                                if (row.key in expanded) expanded - row.key
+                                                else expanded + row.key
                                         },
                                     )
                                 }
