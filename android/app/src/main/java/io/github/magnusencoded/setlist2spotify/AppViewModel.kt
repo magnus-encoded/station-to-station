@@ -99,14 +99,12 @@ data class UiState(
     val viewingFriend: Friend? = null,
     val friendTimeline: List<FmSetlist> = emptyList(),
     val friendTimelineLoading: Boolean = false,
-    // Nearby discovery (mocked) → the two-timeline comparison, the resolution one
-    // level out from a single timeline. sharedShowIds are the concerts both attended.
+    // Nearby discovery (mocked) → the woven view, the resolution one level out from a
+    // single timeline: my line braided with every known friend's, keyed by username.
     val discovering: Boolean = false,
     val nearbyPeers: List<Friend> = emptyList(),
-    val comparisonFriend: Friend? = null,
-    val comparisonTimeline: List<FmSetlist> = emptyList(),
-    val comparisonLoading: Boolean = false,
-    val sharedShowIds: Set<String> = emptySet(),
+    val friendTimelines: Map<String, List<FmSetlist>> = emptyMap(),
+    val timelinesLoading: Boolean = false,
     // The concerts inside a festival node, when one is opened.
     val festivalTitle: String = "",
     val festivalShows: List<FmSetlist> = emptyList(),
@@ -368,40 +366,26 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * The card swap: each phone hands over its setlist.fm ↔ Spotify identity, so we
-     * add them as a friend and immediately load the comparison — both timelines woven
-     * onto one spine, co-attended shows marked as intersections.
+     * add them as a friend and reload the woven view — every known timeline braided
+     * against mine, co-attended shows marked as intersections.
      */
     fun connectWithPeer(peer: Friend) {
         addFriend(peer)
-        compareTimelinesWith(peer)
+        loadFriendTimelines()
     }
 
-    fun compareTimelinesWith(friend: Friend) {
-        _state.update {
-            it.copy(
-                comparisonFriend = friend,
-                comparisonTimeline = emptyList(),
-                comparisonLoading = true,
-                sharedShowIds = emptySet(),
-            )
-        }
+    /** Loads every known friend's attended shows for the woven (zoomed-out) view. */
+    fun loadFriendTimelines() {
+        val friends = _state.value.friends
+        if (friends.isEmpty()) return
+        _state.update { it.copy(timelinesLoading = true) }
         viewModelScope.launch {
-            try {
-                // ponytail: caps at 60 shows (3 pages), like the other timeline loads.
-                val theirs = attendedConcerts(friend.setlistfm, maxPages = 3)
-                val mineIds = _state.value.setlists.map { it.id }.toSet()
-                val shared = theirs.mapNotNull { it.id.takeIf { id -> id in mineIds } }.toSet()
-                _state.update {
-                    it.copy(comparisonTimeline = theirs, comparisonLoading = false, sharedShowIds = shared)
-                }
-            } catch (e: Exception) {
-                _state.update {
-                    it.copy(
-                        comparisonLoading = false,
-                        error = e.message ?: "Could not load ${friend.name}'s timeline",
-                    )
-                }
+            // ponytail: caps at 60 shows (3 pages) each, like the other timeline loads.
+            val loaded = friends.associate { friend ->
+                friend.setlistfm to runCatching { attendedConcerts(friend.setlistfm, maxPages = 3) }
+                    .getOrDefault(emptyList())
             }
+            _state.update { it.copy(friendTimelines = loaded, timelinesLoading = false) }
         }
     }
 

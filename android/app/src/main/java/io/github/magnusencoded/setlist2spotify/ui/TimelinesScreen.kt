@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -46,7 +47,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
@@ -118,10 +122,6 @@ fun NearbyScreen(
 
     // Kick off discovery when the screen opens; the peer surfaces after a beat.
     androidx.compose.runtime.LaunchedEffect(Unit) { viewModel.startNearbyDiscovery() }
-    // The moment a comparison is loading/ready we've exchanged — go to the woven view.
-    androidx.compose.runtime.LaunchedEffect(state.comparisonFriend) {
-        if (state.comparisonFriend != null) onConnected()
-    }
 
     Scaffold(
         containerColor = Ground,
@@ -163,7 +163,7 @@ fun NearbyScreen(
                     modifier = Modifier.align(Alignment.Start).padding(bottom = 8.dp),
                 )
                 state.nearbyPeers.forEach { peer ->
-                    PeerRow(peer, onExchange = { viewModel.connectWithPeer(peer) })
+                    PeerRow(peer, onExchange = { viewModel.connectWithPeer(peer); onConnected() })
                 }
             }
         }
@@ -222,25 +222,34 @@ private fun PeerRow(peer: Friend, onExchange: () -> Unit) {
     }
 }
 
-// --- The zoomed-out resolution: two timelines woven onto one spine ---
+// --- The zoomed-out resolution: my line braided with everyone else's ---
 
-/** One row of the comparison: a show, and which of the two people were there. */
-private data class CompRow(val setlist: FmSetlist, val mine: Boolean, val theirs: Boolean) {
-    val shared: Boolean get() = mine && theirs
+/**
+ * One row of the woven view: a show, whether I was there, and which other known
+ * people were. ponytail: everyone-but-me shares the second rail — two lines, however
+ * many friends. Per-person rails if the braid ever needs to tell them apart.
+ */
+private data class CompRow(val setlist: FmSetlist, val mine: Boolean, val others: List<String>) {
+    val shared: Boolean get() = mine && others.isNotEmpty()
 }
 
 /**
- * Merges my timeline and the friend's into one date-ordered spine (most recent
- * first), tagging each show with who attended. Co-attended shows — the same
- * setlist.fm id on both sides — become intersections.
+ * Merges my timeline and every known friend's into one date-ordered spine (most
+ * recent first), tagging each show with who was there. A show the same setlist.fm id
+ * appears on for me and for someone else is where the two lines braid.
  */
-private fun weave(mine: List<FmSetlist>, theirs: List<FmSetlist>, shared: Set<String>): List<CompRow> {
-    val theirIds = theirs.map { it.id }.toSet()
+private fun weave(mine: List<FmSetlist>, friends: List<Friend>, theirs: Map<String, List<FmSetlist>>): List<CompRow> {
     val mineIds = mine.map { it.id }.toSet()
+    val nameOf = friends.associate { it.setlistfm to it.name }
     val byId = LinkedHashMap<String, FmSetlist>()
-    (mine + theirs).forEach { byId.putIfAbsent(it.id, it) }
+    mine.forEach { byId.putIfAbsent(it.id, it) }
+    theirs.values.forEach { list -> list.forEach { byId.putIfAbsent(it.id, it) } }
     return byId.values
-        .map { CompRow(it, mine = it.id in mineIds, theirs = it.id in theirIds || it.id in shared) }
+        .map { show ->
+            val others = theirs.filterValues { list -> list.any { it.id == show.id } }
+                .keys.map { nameOf[it] ?: it }
+            CompRow(show, mine = show.id in mineIds, others = others)
+        }
         .sortedByDescending { it.setlist.localDate() }
 }
 
@@ -254,11 +263,13 @@ fun MultipleTimelinesScreen(
     onZoomIn: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val friend = state.comparisonFriend
-    val rows = androidx.compose.runtime.remember(state.setlists, state.comparisonTimeline, state.sharedShowIds) {
-        weave(state.setlists, state.comparisonTimeline, state.sharedShowIds)
+    // Every known timeline is loaded fresh when the view opens — this is "me and
+    // everyone I know", not a comparison with one chosen person.
+    androidx.compose.runtime.LaunchedEffect(state.friends) { viewModel.loadFriendTimelines() }
+    val rows = androidx.compose.runtime.remember(state.setlists, state.friends, state.friendTimelines) {
+        weave(state.setlists, state.friends, state.friendTimelines)
     }
-    val sharedCount = state.sharedShowIds.size
+    val sharedCount = rows.count { it.shared }
 
     Scaffold(
         containerColor = Ground,
@@ -267,7 +278,7 @@ fun MultipleTimelinesScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Ground, titleContentColor = Ink),
                 title = {
                     Text(
-                        if (friend != null) "You & ${friend.name}" else "Timelines",
+                        "Timelines",
                         fontFamily = Serif,
                         fontSize = 18.sp,
                         color = Ink,
@@ -289,24 +300,23 @@ fun MultipleTimelinesScreen(
                 .pointerInput(Unit) { detectPinch(onZoomIn = onZoomIn) },
         ) {
             when {
-                friend == null -> NoComparisonYet(onFindNearby)
+                state.friends.isEmpty() -> NoComparisonYet(onFindNearby)
 
-                state.comparisonLoading -> Column(
+                state.timelinesLoading && state.friendTimelines.isEmpty() -> Column(
                     Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
                     CircularProgressIndicator(color = Amber, modifier = Modifier.size(26.dp))
                     Spacer(Modifier.height(14.dp))
-                    Text("Weaving ${friend.name}'s timeline into yours…", color = Faint, fontSize = 13.sp)
+                    Text("Weaving the other timelines into yours…", color = Faint, fontSize = 13.sp)
                 }
 
                 else -> LazyColumn(Modifier.fillMaxSize()) {
-                    item { ComparisonHeader(friend, sharedCount) }
+                    item { ComparisonHeader(state.friends, sharedCount) }
                     items(rows, key = { it.setlist.id }) { row ->
                         CompRowItem(
                             row = row,
-                            friendName = friend.name,
                             onClick = {
                                 viewModel.openShow(row.setlist)
                                 onOpenEvent()
@@ -329,12 +339,15 @@ fun MultipleTimelinesScreen(
 }
 
 @Composable
-private fun ComparisonHeader(friend: Friend, sharedCount: Int) {
+private fun ComparisonHeader(friends: List<Friend>, sharedCount: Int) {
     Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Legend(color = Amber, label = "You")
             Spacer(Modifier.width(16.dp))
-            Legend(color = Slate, label = friend.name)
+            Legend(
+                color = Slate,
+                label = if (friends.size == 1) friends[0].name else "${friends.size} others",
+            )
         }
         Spacer(Modifier.height(12.dp))
         Text(
@@ -358,25 +371,19 @@ private fun Legend(color: Color, label: String) {
     }
 }
 
-/** A show on the woven spine. Both-attended shows glow amber with a "both here" rung. */
+/**
+ * A show on the woven view: two rails run the whole length — mine on the left,
+ * everyone else's on the right — and on a show we all attended they braid together
+ * into one amber node before separating again.
+ */
 @Composable
-private fun CompRowItem(row: CompRow, friendName: String, onClick: () -> Unit) {
+private fun CompRowItem(row: CompRow, onClick: () -> Unit) {
     val setlist = row.setlist
     Row(
         Modifier.fillMaxWidth().height(IntrinsicSize.Min).clickable(onClick = onClick),
     ) {
-        // The spine, with a node whose fill says who was there.
-        Box(Modifier.width(52.dp).fillMaxHeight()) {
-            Box(Modifier.align(Alignment.TopCenter).width(2.dp).fillMaxHeight().background(LineCol))
-            Box(
-                Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 6.dp)
-                    .size(if (row.shared) 18.dp else 14.dp)
-                    .clip(CircleShape)
-                    .background(if (row.shared) AmberSoft else Raised)
-                    .border(2.dp, if (row.shared) Amber else LineLit, CircleShape),
-            )
+        Box(Modifier.width(64.dp).fillMaxHeight()) {
+            Braid(row)
         }
         Column(Modifier.padding(end = 18.dp, bottom = 22.dp)) {
             Text(
@@ -393,15 +400,59 @@ private fun CompRowItem(row: CompRow, friendName: String, onClick: () -> Unit) {
             Spacer(Modifier.height(7.dp))
             // Who was there — the point of the woven view.
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (row.shared) {
-                    Presence("You both were here", Amber)
-                } else if (row.mine) {
-                    Presence("You", Amber)
-                } else {
-                    Presence(friendName, Slate)
+                when {
+                    row.shared -> Presence("You and ${row.others.joinToString(", ")} were here", Amber)
+                    row.mine -> Presence("You", Amber)
+                    else -> Presence(row.others.joinToString(", "), Slate)
                 }
             }
         }
+    }
+}
+
+/**
+ * The two rails for one row. A rail bends to the middle only where its owner was at
+ * this show and so was the other side — that convergence is the braid.
+ */
+@Composable
+private fun Braid(row: CompRow) {
+    Canvas(Modifier.fillMaxSize()) {
+        val laneL = 20.dp.toPx()
+        val laneR = 44.dp.toPx()
+        val mid = size.width / 2f
+        val nodeY = 15.dp.toPx()
+        val h = size.height
+
+        fun rail(lane: Float, color: Color, bend: Boolean) {
+            val path = Path()
+            path.moveTo(lane, 0f)
+            if (bend) {
+                val pull = nodeY * 0.6f
+                path.cubicTo(lane, pull, mid, nodeY - pull, mid, nodeY)
+                path.cubicTo(mid, nodeY + pull, lane, h - pull, lane, h)
+            } else {
+                path.lineTo(lane, h)
+            }
+            drawPath(path, color, style = Stroke(width = 2.dp.toPx()))
+        }
+
+        rail(laneL, if (row.mine) Amber.copy(alpha = 0.7f) else LineCol, row.shared)
+        rail(laneR, if (row.others.isNotEmpty()) Slate.copy(alpha = 0.8f) else LineCol, row.shared)
+
+        // The node sits where the attendance is: braided in the middle, else on its rail.
+        val x = when {
+            row.shared -> mid
+            row.mine -> laneL
+            else -> laneR
+        }
+        val r = if (row.shared) 9.dp.toPx() else 7.dp.toPx()
+        val tint = when {
+            row.shared -> Amber
+            row.mine -> Amber
+            else -> Slate
+        }
+        drawCircle(if (row.shared) AmberSoft else Raised, r, Offset(x, nodeY))
+        drawCircle(tint, r, Offset(x, nodeY), style = Stroke(width = 2.dp.toPx()))
     }
 }
 
