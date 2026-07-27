@@ -83,6 +83,7 @@ private val Faint = Color(0xFF5A5368)
 private val Amber = Color(0xFFE7B24C)
 private val AmberSoft = Color(0x29E7B24C)
 private val SpotifyGreen = Color(0xFF1DB954)
+private val Slate = Color(0xFF6D7E9B) // the future / a connected-source, a cooler light
 private val Danger = Color(0xFFE08A8A)
 
 private val Serif = FontFamily.Serif
@@ -190,6 +191,8 @@ fun StationTimelineScreen(
                             modifier = Modifier.padding(start = 20.dp, top = 2.dp, bottom = 14.dp),
                         )
                         LazyColumn(Modifier.fillMaxSize()) {
+                            // The future edge: scroll up toward what's ahead.
+                            item { FuturePrompt() }
                             items(state.setlists, key = { it.id }) { setlist ->
                                 TimelineItem(
                                     setlist = setlist,
@@ -200,9 +203,45 @@ fun StationTimelineScreen(
                                     },
                                 )
                             }
+                            // The past edge: reaching the bottom pulls more history in.
+                            if (state.setlists.size < state.setlistsTotal) {
+                                item {
+                                    PastPrompt(
+                                        loading = state.setlistsLoading,
+                                        onLoadMore = { viewModel.loadMoreSetlists() },
+                                    )
+                                }
+                            }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/** Top of the timeline — the future. Bandsintown/planning lives here (not wired yet). */
+@Composable
+private fun FuturePrompt() {
+    Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 2.dp, bottom = 18.dp)) {
+        Text("↑  THE FUTURE", color = Slate, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp)
+        Spacer(Modifier.height(4.dp))
+        Text("Connect Bandsintown to see the shows ahead — coming soon.", color = Faint, fontSize = 12.sp)
+    }
+}
+
+/** Bottom of the timeline — the past. Reaching it pulls older shows from setlist.fm. */
+@Composable
+private fun PastPrompt(loading: Boolean, onLoadMore: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(16.dp),
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        if (loading) {
+            CircularProgressIndicator(color = Amber, modifier = Modifier.size(22.dp))
+        } else {
+            TextButton(onClick = onLoadMore) {
+                Text("↓  Load older shows", color = Muted, fontWeight = FontWeight.SemiBold)
             }
         }
     }
