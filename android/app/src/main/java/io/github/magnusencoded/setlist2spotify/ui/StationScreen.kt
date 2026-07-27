@@ -281,6 +281,19 @@ fun StationTimelineScreen(
                             fontSize = 12.sp,
                             modifier = Modifier.padding(start = 20.dp, top = 2.dp, bottom = 14.dp),
                         )
+                        // Whose line is whose, only while more than one is showing.
+                        if (laneWidth > 0.dp) {
+                            Row(
+                                Modifier.padding(start = 20.dp, bottom = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                LaneKey(Amber, "You")
+                                lanes.forEachIndexed { i, friend ->
+                                    Spacer(Modifier.width(14.dp))
+                                    LaneKey(railColor(i), friend.name)
+                                }
+                            }
+                        }
                         PlanningPull(progress = { pull.value / pullMax }, heightPx = { pull.value })
                         LaunchedEffect(state.setlists) { viewModel.resolveFestivalNames() }
                         LaunchedEffect(zoomedOut) { if (zoomedOut) viewModel.loadFriendTimelines() }
@@ -584,6 +597,15 @@ internal fun TimelineItem(
     }
 }
 
+@Composable
+private fun LaneKey(color: Color, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width(3.dp).height(12.dp).background(color))
+        Spacer(Modifier.width(5.dp))
+        Text(label, color = Muted, fontSize = 11.sp)
+    }
+}
+
 /** One lane per friend, opening out to the right of my spine as you zoom out. */
 internal val LaneStep = 22.dp
 
@@ -608,21 +630,28 @@ internal fun PeopleRails(row: WovenRow, friends: List<Friend>, laneWidth: Dp) {
             val laneX = spineX + (target - spineX) * (open - i).coerceIn(0f, 1f)
             if (laneX <= spineX + 1f) return@forEachIndexed
             val here = row.others.any { it.setlistfm == friend.setlistfm }
-            val merging = here && row.mine
-            val path = Path()
-            path.moveTo(laneX, 0f)
-            if (merging) {
-                val pull = nodeY * 0.7f
-                path.cubicTo(laneX, pull, spineX, nodeY - pull, spineX, nodeY)
-                path.cubicTo(spineX, nodeY + pull, laneX, h - pull, laneX, h)
-            } else {
-                path.lineTo(laneX, h)
-            }
-            drawPath(path, if (here) railColor(i) else LineCol, style = Stroke(width = 2.dp.toPx()))
-            // Their own node, when the show is theirs alone — mine already has one.
-            if (here && !row.mine) {
-                drawCircle(Raised, 7.dp.toPx(), Offset(laneX, nodeY))
-                drawCircle(railColor(i), 7.dp.toPx(), Offset(laneX, nodeY), style = Stroke(width = 2.dp.toPx()))
+            val r = 6.dp.toPx()
+
+            // Their line runs the whole height, every row, so it stays a timeline of
+            // its own rather than appearing only where they happened to be.
+            drawLine(
+                if (here) railColor(i) else LineCol,
+                Offset(laneX, 0f),
+                Offset(laneX, h),
+                strokeWidth = 2.dp.toPx(),
+            )
+            if (!here) return@forEachIndexed
+            drawCircle(Raised, r, Offset(laneX, nodeY))
+            drawCircle(railColor(i), r, Offset(laneX, nodeY), style = Stroke(width = 2.dp.toPx()))
+            // Same night as me: a rung between the two nodes. A curve wandering between
+            // lanes read as a stray hook here, because both nodes sit on the same row.
+            if (row.mine) {
+                drawLine(
+                    railColor(i).copy(alpha = 0.7f),
+                    Offset(spineX + 8.dp.toPx(), nodeY),
+                    Offset(laneX - r, nodeY),
+                    strokeWidth = 1.5.dp.toPx(),
+                )
             }
         }
     }
