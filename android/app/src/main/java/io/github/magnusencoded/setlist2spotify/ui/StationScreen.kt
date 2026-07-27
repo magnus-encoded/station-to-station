@@ -3,6 +3,7 @@ package io.github.magnusencoded.setlist2spotify.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -53,6 +54,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -476,14 +478,22 @@ fun StationEventScreen(
         },
         bottomBar = {
             if (setlist != null && setlist.songs().isNotEmpty()) {
-                Button(
-                    onClick = {
-                        viewModel.selectSetlist(setlist)
-                        onConvert()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Amber, contentColor = Color(0xFF241A06)),
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                ) { Text("♫  Open as a Spotify playlist", fontWeight = FontWeight.SemiBold) }
+                // A quiet, tappable hint rather than a big CTA — the same action the
+                // swipe fires, kept visible so it's discoverable and reachable without
+                // the gesture.
+                val convert = {
+                    viewModel.selectSetlist(setlist)
+                    onConvert()
+                }
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = convert)
+                        .padding(vertical = 16.dp),
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    Text("‹ swipe to open as a Spotify playlist", color = Amber, fontSize = 13.sp)
+                }
             }
         },
     ) { padding ->
@@ -494,7 +504,28 @@ fun StationEventScreen(
             return@Scaffold
         }
         val rows = setlist.eventRows()
-        LazyColumn(Modifier.padding(padding).fillMaxSize()) {
+        val canConvert = setlist.songs().isNotEmpty()
+        LazyColumn(
+            Modifier
+                .padding(padding)
+                .fillMaxSize()
+                // Swipe the setlist left to convert it — the "act on this level" gesture.
+                .pointerInput(setlist.id, canConvert) {
+                    if (!canConvert) return@pointerInput
+                    val threshold = 110.dp.toPx()
+                    var dragX = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { dragX = 0f },
+                        onDragEnd = {
+                            if (dragX <= -threshold) {
+                                viewModel.selectSetlist(setlist)
+                                onConvert()
+                            }
+                        },
+                        onHorizontalDrag = { _, delta -> dragX += delta },
+                    )
+                },
+        ) {
             item {
                 Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 14.dp)) {
                     Text(setlist.artist?.name ?: "Unknown artist", fontFamily = Serif, fontSize = 27.sp, color = Ink)
