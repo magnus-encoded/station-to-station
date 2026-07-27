@@ -351,7 +351,7 @@ fun StationTimelineScreen(
                             itemsIndexed(rows, key = { _, row -> row.key }) { index, row ->
                                 val isFirst = index == 0
                                 val rails: @Composable () -> Unit =
-                                    { PeopleRails(row, rows.getOrNull(index - 1), lanes, laneWidth) }
+                                    { PeopleRails(row, rows.getOrNull(index + 1), lanes, laneWidth) }
                                 val nodeX = crossingX(row, lanes, laneWidth)
                                 when (val node = row.node) {
                                     is TimelineNode.Concert -> TimelineItem(
@@ -723,10 +723,18 @@ internal fun crossingX(row: WovenRow, lanes: List<Friend>, laneWidth: Dp): Dp {
     return SpineX + (laneX(host, step) - SpineX) * open
 }
 
+/**
+ * How much of a row's tail is spent bending toward the next node. A junction belongs
+ * to the **edge** between two nodes, not to the sliver above the lower one: with the
+ * whole turn crammed into [nodeY], a line that steps out for one gig and comes back
+ * drew a rounded rectangle instead of parting and rejoining.
+ */
+private val EdgeBend = 56.dp
+
 @Composable
 internal fun PeopleRails(
     row: WovenRow,
-    prev: WovenRow?,
+    next: WovenRow?,
     friends: List<Friend>,
     laneWidth: Dp,
 ) {
@@ -758,21 +766,27 @@ internal fun PeopleRails(
                 if (lane == Spine) spineX
                 else spineX + (laneX(lane, step).toPx() - spineX) * slide
 
-            // Where this line is now and where it was on the row above. Two lines that
-            // share a node share a host, so they arrive at the same x and are one line
-            // from there — the merge needs no case of its own.
+            // Where this line is now, and where it has to be by the next node. Two
+            // lines that share a node share a host, so they arrive at the same x and
+            // are one line from there — the merge needs no case of its own.
             val x = xOf(hostLane(row, friend, friends))
-            val fromX = xOf(hostLane(prev, friend, friends))
+            val toX = if (next == null) x else xOf(hostLane(next, friend, friends))
             val here = row.others.any { it.setlistfm == friend.setlistfm }
             val joined = joinedAt(row, friend)
             val color = if (joined) Crossed else if (here) railColor(i) else LineCol
 
+            // The line arrives already on its own x — the row above spent its tail
+            // delivering it — so every row is: be at the node, then lean toward the
+            // next one. Joining, parting and staying put are the same stroke.
             val path = Path()
-            path.moveTo(fromX, 0f)
-            // Joining, parting and staying put are the same stroke: come from where you
-            // were, be at the node, carry on. Only the endpoints differ.
-            if (fromX != x) path.cubicTo(fromX, nodeY * 0.35f, x, nodeY * 0.55f, x, nodeY)
-            path.lineTo(x, h)
+            path.moveTo(x, 0f)
+            if (toX == x) {
+                path.lineTo(x, h)
+            } else {
+                val bend = minOf(h * 0.8f, EdgeBend.toPx())
+                path.lineTo(x, h - bend)
+                path.cubicTo(x, h - bend * 0.45f, toX, h - bend * 0.55f, toX, h)
+            }
             drawPath(path, color, style = stroke)
 
             // One node per night, drawn by the line hosting it. My own rows draw their
