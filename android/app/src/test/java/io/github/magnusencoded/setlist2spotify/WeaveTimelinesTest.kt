@@ -169,6 +169,24 @@ class WeaveTimelinesTest {
     }
 
     @Test
+    fun `a festival only they went to is never together`() {
+        val rows = weaveTimelines(
+            mine = listOf(show("a1", "21-11-2025", "Blå")),
+            festivalNames = emptyMap(),
+            friends = listOf(carlitos, trummis),
+            theirs = mapOf(
+                "Carlitos2" to listOf(
+                    show("b1", "16-05-2026", "Stora Scenen"),
+                    show("b2", "15-05-2026", "Stora Scenen"),
+                ),
+            ),
+        )
+        // Their node's own shows are theirs, so intersecting them with "what friends
+        // attended" used to match every one and light the node green.
+        assertEquals(0, rows.first { !it.mine }.sharedCount)
+    }
+
+    @Test
     fun `the same single gig on both lists is one node, not a row each`() {
         val night = show("x1", "21-11-2025", "Blå")
         val rows = weaveTimelines(

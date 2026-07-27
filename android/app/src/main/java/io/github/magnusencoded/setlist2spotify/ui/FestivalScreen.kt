@@ -132,9 +132,15 @@ data class WovenRow(
      */
     val showsHereByFriends: List<FmSetlist> = emptyList(),
 ) {
-    /** Shows I was at with company: the thing this whole resolution exists to surface. */
+    /**
+     * Shows I was at with company: the thing this whole resolution exists to surface.
+     * Zero on a node that isn't mine — there, [shows] are already a friend's, so
+     * intersecting them with what friends attended matched everything and called a
+     * festival I never went to "3 together".
+     */
     val sharedCount: Int
         get() {
+            if (!mine) return 0
             val alsoTheirs = showsHereByFriends.map { it.id }.toSet()
             return shows.count { it.id in alsoTheirs }
         }
@@ -339,6 +345,11 @@ fun FestivalItem(
                     // Whose is only worth saying when someone else is on screen.
                     if (theirCount == 0 && sharedCount == 0) {
                         append("${festival.shows.size} gigs")
+                    } else if (!mine) {
+                        // Not my node: one count, covering whoever of them was there.
+                        // Saying it twice — once off the node, once off the union —
+                        // is what produced "3 theirs · 3 theirs".
+                        withStyle(SpanStyle(color = theirColor)) { append("$theirCount theirs") }
                     } else {
                         if (sharedCount > 0) {
                             withStyle(SpanStyle(color = Crossed, fontWeight = FontWeight.SemiBold)) {
@@ -346,8 +357,8 @@ fun FestivalItem(
                             }
                             append(" · ")
                         }
-                        withStyle(SpanStyle(color = if (mine) amber.copy(alpha = 0.75f) else theirColor)) {
-                            append("${festival.shows.size} ${if (mine) "yours" else "theirs"}")
+                        withStyle(SpanStyle(color = amber.copy(alpha = 0.75f))) {
+                            append("${festival.shows.size} yours")
                         }
                         if (theirCount > 0) {
                             append(" · ")
