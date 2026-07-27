@@ -20,6 +20,8 @@ import io.github.magnusencoded.setlist2spotify.ui.FriendsScreen
 import io.github.magnusencoded.setlist2spotify.ui.SearchScreen
 import io.github.magnusencoded.setlist2spotify.ui.SetlistsScreen
 import io.github.magnusencoded.setlist2spotify.ui.SettingsScreen
+import io.github.magnusencoded.setlist2spotify.ui.StationEventScreen
+import io.github.magnusencoded.setlist2spotify.ui.StationTimelineScreen
 
 class MainActivity : ComponentActivity() {
 
@@ -65,7 +67,16 @@ fun AppTheme(content: @Composable () -> Unit) {
 @Composable
 fun AppNavigation(viewModel: AppViewModel) {
     val navController = rememberNavController()
-    NavHost(navController = navController, startDestination = "search") {
+    NavHost(navController = navController, startDestination = "timeline") {
+        composable("timeline") {
+            StationTimelineScreen(
+                onOpenEvent = { navController.navigate("event") },
+                onOpenSearch = { navController.navigate("search") },
+            )
+        }
+        composable("event") {
+            StationEventScreen(onBack = { navController.popBackStack() })
+        }
         composable("search") {
             SearchScreen(
                 viewModel = viewModel,
