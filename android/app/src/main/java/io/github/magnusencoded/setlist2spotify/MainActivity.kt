@@ -19,7 +19,9 @@ import io.github.magnusencoded.setlist2spotify.ui.ConfirmScreen
 import io.github.magnusencoded.setlist2spotify.ui.FriendsScreen
 import io.github.magnusencoded.setlist2spotify.ui.SearchScreen
 import io.github.magnusencoded.setlist2spotify.ui.SetlistsScreen
+import io.github.magnusencoded.setlist2spotify.ui.ImportScreen
 import io.github.magnusencoded.setlist2spotify.ui.SettingsScreen
+import io.github.magnusencoded.setlist2spotify.ui.SplashScreen
 import io.github.magnusencoded.setlist2spotify.ui.StationEventScreen
 import io.github.magnusencoded.setlist2spotify.ui.StationTimelineScreen
 
@@ -67,12 +69,30 @@ fun AppTheme(content: @Composable () -> Unit) {
 @Composable
 fun AppNavigation(viewModel: AppViewModel) {
     val navController = rememberNavController()
-    NavHost(navController = navController, startDestination = "timeline") {
+    NavHost(navController = navController, startDestination = "splash") {
+        composable("splash") {
+            SplashScreen(
+                viewModel = viewModel,
+                onProceed = {
+                    navController.navigate("timeline") {
+                        popUpTo("splash") { inclusive = true }
+                    }
+                },
+            )
+        }
         composable("timeline") {
             StationTimelineScreen(
                 viewModel = viewModel,
                 onOpenEvent = { navController.navigate("event") },
+                onOpenImport = { navController.navigate("import") },
                 onOpenSettings = { navController.navigate("settings") },
+            )
+        }
+        composable("import") {
+            ImportScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onDone = { navController.popBackStack() },
             )
         }
         composable("event") {

@@ -3,6 +3,7 @@ package io.github.magnusencoded.setlist2spotify.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -23,6 +24,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -34,34 +36,40 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.magnusencoded.setlist2spotify.AppViewModel
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSong
+import kotlinx.coroutines.launch
 
-// Station to Station — the timeline face of the app (working title), running on
-// real setlist.fm import. Enter your setlist.fm username, the app pulls your
-// attended shows onto the timeline; tap one to see its real setlist; convert it
-// to a Spotify playlist through the existing flow.
-// ponytail: photos-from-the-night on the nodes and an in-UI Spotify-connect are
-// the next pieces — the convert button still hands off to the existing confirm
-// screen for login + matching.
+// Station to Station — the timeline face of the app (working title).
+// Flow: splash (log in with Spotify, or skip to setlists-only) → the timeline
+// of your setlist.fm shows → a single night's real setlist → convert to a
+// Spotify playlist. Import lives behind the "+" node, not the front door.
+// ponytail: next enrichment pass is photos-from-the-night onto the concert
+// (not just the playlist cover), and bringing the convert/login flow into
+// this UI instead of the existing confirm screen.
 
 // --- Nocturnal palette. Amber only ever marks a live/lit moment. ---
 private val Ground = Color(0xFF0E0B14)
@@ -74,15 +82,66 @@ private val Muted = Color(0xFF8B8299)
 private val Faint = Color(0xFF5A5368)
 private val Amber = Color(0xFFE7B24C)
 private val AmberSoft = Color(0x29E7B24C)
+private val SpotifyGreen = Color(0xFF1DB954)
 private val Danger = Color(0xFFE08A8A)
 
 private val Serif = FontFamily.Serif
+
+@Composable
+fun SplashScreen(viewModel: AppViewModel, onProceed: () -> Unit) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var loginError by remember { mutableStateOf<String?>(null) }
+
+    // Passing the splash (either button, or already onboarded on a later launch)
+    // advances to the timeline.
+    LaunchedEffect(state.onboarded) { if (state.onboarded) onProceed() }
+
+    Box(Modifier.fillMaxSize().background(Ground).padding(32.dp), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("◦", color = Amber, fontSize = 20.sp)
+            Spacer(Modifier.height(10.dp))
+            Text("Station to Station", fontFamily = Serif, fontSize = 30.sp, color = Ink)
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Your concerts, kept. Connect Spotify to turn any night's setlist into a playlist — or skip and just browse the setlists.",
+                color = Muted,
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+            Spacer(Modifier.height(36.dp))
+            Button(
+                onClick = {
+                    // startActivity fires before we navigate away, so cancelling the
+                    // splash's scope can't stop the browser from opening.
+                    scope.launch {
+                        loginError = startSpotifyLogin(context, viewModel)
+                        viewModel.markOnboarded()
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = SpotifyGreen, contentColor = Color.White),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Log in with Spotify", fontWeight = FontWeight.SemiBold) }
+            Spacer(Modifier.height(4.dp))
+            TextButton(onClick = { viewModel.markOnboarded() }, modifier = Modifier.fillMaxWidth()) {
+                Text("Skip — just show me setlists", color = Muted)
+            }
+            loginError?.let {
+                Spacer(Modifier.height(10.dp))
+                Text(it, color = Danger, fontSize = 12.sp)
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StationTimelineScreen(
     viewModel: AppViewModel,
     onOpenEvent: () -> Unit,
+    onOpenImport: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -99,6 +158,11 @@ fun StationTimelineScreen(
                     }
                 },
                 actions = {
+                    if (state.setlists.isNotEmpty()) {
+                        IconButton(onClick = onOpenImport) {
+                            Icon(Icons.Filled.Add, contentDescription = "Add shows", tint = Faint)
+                        }
+                    }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = Faint)
                     }
@@ -109,13 +173,9 @@ fun StationTimelineScreen(
         Box(Modifier.padding(padding).fillMaxSize()) {
             when {
                 state.setlistsLoading && state.setlists.isEmpty() ->
-                    CircularProgressIndicator(
-                        color = Amber,
-                        modifier = Modifier.align(Alignment.Center),
-                    )
+                    CircularProgressIndicator(color = Amber, modifier = Modifier.align(Alignment.Center))
 
-                state.setlists.isEmpty() ->
-                    ImportPrompt(viewModel, state.mySetlistFmUser, state.setlistFmReady, state.error)
+                state.setlists.isEmpty() -> EmptyTimeline(onAdd = onOpenImport)
 
                 else -> {
                     val earliest = state.setlists.mapNotNull { it.year()?.toIntOrNull() }.minOrNull()
@@ -148,58 +208,94 @@ fun StationTimelineScreen(
     }
 }
 
+/** The empty spine: one lit node you tap to bring in your shows. */
 @Composable
-private fun ImportPrompt(
-    viewModel: AppViewModel,
-    initialUser: String,
-    setlistFmReady: Boolean,
-    error: String?,
-) {
-    var username by remember { mutableStateOf(initialUser) }
+private fun EmptyTimeline(onAdd: () -> Unit) {
+    Column(
+        Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Box(Modifier.width(2.dp).height(64.dp).background(LineCol))
+        Box(
+            Modifier
+                .size(64.dp)
+                .clip(CircleShape)
+                .background(AmberSoft)
+                .border(1.5.dp, Amber, CircleShape)
+                .clickable(onClick = onAdd),
+            contentAlignment = Alignment.Center,
+        ) { Text("+", color = Amber, fontSize = 28.sp) }
+        Box(Modifier.width(2.dp).height(30.dp).background(LineCol))
+        Spacer(Modifier.height(16.dp))
+        Text("Add your first show", fontFamily = Serif, fontSize = 18.sp, color = Ink)
+        Spacer(Modifier.height(4.dp))
+        Text("Pull your history from setlist.fm.", color = Muted, fontSize = 13.sp)
+    }
+}
+
+/** The setlist.fm import, reached from the "+" node. Pops itself once shows land. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ImportScreen(viewModel: AppViewModel, onBack: () -> Unit, onDone: () -> Unit) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val startCount = remember { viewModel.state.value.setlists.size }
+    var username by remember { mutableStateOf(state.mySetlistFmUser) }
     var apiKey by remember { mutableStateOf("") }
 
-    Column(
-        Modifier.fillMaxSize().padding(28.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
-    ) {
-        // The one lit node on an empty spine.
-        Box(
-            Modifier.size(60.dp).clip(CircleShape).background(Raised).border(1.5.dp, Amber, CircleShape),
-            contentAlignment = Alignment.Center,
-        ) { Text("+", color = Amber, fontSize = 26.sp) }
+    // Leave for the timeline the moment an import actually brings shows in.
+    LaunchedEffect(state.setlists.size) {
+        if (state.setlists.size != startCount && state.setlists.isNotEmpty()) onDone()
+    }
 
-        Spacer(Modifier.height(20.dp))
-        Text("Bring in your shows", fontFamily = Serif, fontSize = 20.sp, color = Ink)
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "Your concert history already lives on setlist.fm. Enter your username and your line fills itself in.",
-            color = Muted,
-            fontSize = 13.sp,
-            modifier = Modifier.padding(horizontal = 8.dp),
-        )
-        Spacer(Modifier.height(22.dp))
-
-        if (!setlistFmReady) {
-            StationField(apiKey, { apiKey = it }, "setlist.fm API key")
-            Spacer(Modifier.height(10.dp))
+    Scaffold(
+        containerColor = Ground,
+        topBar = {
+            TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Ground, titleContentColor = Ink),
+                title = { Text("Add your shows", fontFamily = Serif, fontSize = 18.sp, color = Ink) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Faint)
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        Column(Modifier.padding(padding).padding(28.dp).fillMaxWidth()) {
+            Text(
+                "Your concert history already lives on setlist.fm. Enter your username and your line fills itself in.",
+                color = Muted,
+                fontSize = 13.sp,
+            )
+            Spacer(Modifier.height(22.dp))
+            if (!state.setlistFmReady) {
+                StationField(apiKey, { apiKey = it }, "setlist.fm API key")
+                Spacer(Modifier.height(10.dp))
+            }
+            StationField(username, { username = it }, "setlist.fm username", imeDone = true)
+            state.error?.let {
+                Spacer(Modifier.height(12.dp))
+                Text(it, color = Danger, fontSize = 12.sp)
+            }
+            Spacer(Modifier.height(18.dp))
+            Button(
+                onClick = {
+                    viewModel.importAttended(username.trim(), if (!state.setlistFmReady) apiKey else null)
+                },
+                enabled = username.isNotBlank() &&
+                    (state.setlistFmReady || apiKey.isNotBlank()) &&
+                    !state.setlistsLoading,
+                colors = ButtonDefaults.buttonColors(containerColor = Amber, contentColor = Color(0xFF241A06)),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (state.setlistsLoading) {
+                    CircularProgressIndicator(color = Color(0xFF241A06), modifier = Modifier.size(18.dp))
+                } else {
+                    Text("Import from setlist.fm", fontWeight = FontWeight.SemiBold)
+                }
+            }
         }
-        StationField(username, { username = it }, "setlist.fm username", imeDone = true)
-
-        error?.let {
-            Spacer(Modifier.height(12.dp))
-            Text(it, color = Danger, fontSize = 12.sp)
-        }
-
-        Spacer(Modifier.height(18.dp))
-        Button(
-            onClick = {
-                viewModel.importAttended(username.trim(), if (!setlistFmReady) apiKey else null)
-            },
-            enabled = username.isNotBlank() && (setlistFmReady || apiKey.isNotBlank()),
-            colors = ButtonDefaults.buttonColors(containerColor = Amber, contentColor = Color(0xFF241A06)),
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Import from setlist.fm", fontWeight = FontWeight.SemiBold) }
     }
 }
 

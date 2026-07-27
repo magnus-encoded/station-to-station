@@ -101,6 +101,8 @@ data class UiState(
     val error: String? = null,
     // Transient non-error notice (e.g. "Added a friend from that playlist")
     val notice: String? = null,
+    // True once the splash has been passed (Spotify login or skip).
+    val onboarded: Boolean = false,
 )
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
@@ -131,9 +133,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     grantedScope = settings.grantedScope(),
                     mySetlistFmUser = settings.mySetlistFmUser.first() ?: "",
                     friends = settings.friends.first(),
+                    onboarded = settings.onboarded.first(),
                 )
             }
         }
+    }
+
+    /** Records that the splash was passed, so it never shows again. */
+    fun markOnboarded() {
+        _state.update { it.copy(onboarded = true) }
+        viewModelScope.launch { settings.setOnboarded() }
     }
 
     fun consumeError() = _state.update { it.copy(error = null) }
