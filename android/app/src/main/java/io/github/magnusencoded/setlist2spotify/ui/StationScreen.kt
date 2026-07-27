@@ -339,6 +339,7 @@ fun StationTimelineScreen(
                                 val isFirst = row == rows.first()
                                 val rails: @Composable () -> Unit =
                                     { PeopleRails(row, lanes, laneWidth) }
+                                val nodeX = crossingX(row, lanes, laneWidth)
                                 when (val node = row.node) {
                                     is TimelineNode.Concert -> TimelineItem(
                                         setlist = node.setlist,
@@ -346,6 +347,8 @@ fun StationTimelineScreen(
                                         mine = row.mine,
                                         laneWidth = laneWidth,
                                         inside = row.depth > 0,
+                                        nodeX = nodeX,
+                                        shared = row.shared,
                                         rails = rails,
                                         onClick = {
                                             viewModel.openShow(node.setlist)
@@ -360,6 +363,9 @@ fun StationTimelineScreen(
                                         highlight = isFirst,
                                         open = row.key in expanded,
                                         laneWidth = laneWidth,
+                                        nodeX = nodeX,
+                                        sharedCount = row.sharedCount,
+                                        theirCount = row.theirShows.size,
                                         rails = rails,
                                         onClick = {
                                             expanded =
@@ -545,9 +551,12 @@ internal fun TimelineItem(
     mine: Boolean = true,
     laneWidth: Dp = 0.dp,
     inside: Boolean = false,
+    nodeX: Dp = SpineX,
+    shared: Boolean = false,
     rails: @Composable () -> Unit = {},
 ) {
     val songCount = setlist.songs().size
+    val zoomedOut = laneWidth > 0.dp
     Row(
         Modifier.fillMaxWidth().height(IntrinsicSize.Min).clickable(onClick = onClick),
     ) {
@@ -555,18 +564,19 @@ internal fun TimelineItem(
         // leaves it bare: the line runs on, the edge between my nodes just gets longer.
         Box(Modifier.width(SpineWidth + laneWidth).fillMaxHeight()) {
             rails()
-            Box(Modifier.padding(start = SpineX).width(2.dp).fillMaxHeight().background(LineCol))
+            // Zoomed out the lines are the canvas's job, since they have to veer.
+            if (!zoomedOut) {
+                Box(Modifier.padding(start = SpineX).width(2.dp).fillMaxHeight().background(LineCol))
+            }
             if (mine) {
+                val size = if (inside) 10.dp else 14.dp
                 Box(
                     Modifier
-                        // A gig listed inside an open festival hangs off the spine as a
-                        // smaller node, so it reads as contained rather than a stop of
-                        // its own.
-                        .padding(start = if (inside) SpineX - 2.dp else SpineX - 6.dp, top = 6.dp)
-                        .size(if (inside) 8.dp else 14.dp)
+                        .padding(start = nodeX - size / 2 + 1.dp, top = 6.dp)
+                        .size(size)
                         .clip(CircleShape)
-                        .background(if (highlight) AmberSoft else Raised)
-                        .border(2.dp, if (highlight) Amber else LineLit, CircleShape),
+                        .background(if (highlight || shared) AmberSoft else Raised)
+                        .border(2.dp, if (highlight || shared) Amber else LineLit, CircleShape),
                 )
             }
         }
@@ -609,6 +619,26 @@ private fun LaneKey(color: Color, label: String) {
 /** One lane per friend, opening out to the right of my spine as you zoom out. */
 internal val LaneStep = 22.dp
 
+private fun laneX(index: Int) = SpineWidth + LaneStep * index + LaneStep / 2
+
+/**
+ * Where the node for a row sits. On a night our paths crossed there is one node, and
+ * it stands between the lines that met at it — not one node each, which said we were
+ * at two concerts.
+ */
+internal fun crossingX(row: WovenRow, friends: List<Friend>, laneWidth: Dp): Dp {
+    if (laneWidth <= 0.dp) return SpineX
+    val here = friends.mapIndexedNotNull { i, f ->
+        if (row.others.any { it.setlistfm == f.setlistfm }) laneX(i) else null
+    }
+    if (here.isEmpty()) return SpineX
+    val xs = if (row.mine) here + SpineX else here
+    val mid = xs.fold(0.dp) { acc, dp -> acc + dp } / xs.size
+    // Lanes are still sliding out while the strip opens; keep the node with them.
+    val open = (laneWidth / (LaneStep * friends.size.coerceAtLeast(1))).coerceIn(0f, 1f)
+    return SpineX + (mid - SpineX) * open
+}
+
 /**
  * The other timelines, drawn in the strip that opens beside mine. Each friend keeps a
  * lane of their own at the same scale as my line; where they were at the same show as
@@ -617,41 +647,47 @@ internal val LaneStep = 22.dp
 @Composable
 internal fun PeopleRails(row: WovenRow, friends: List<Friend>, laneWidth: Dp) {
     if (laneWidth <= 0.dp || friends.isEmpty()) return
+    val crossing = crossingX(row, friends, laneWidth)
     Canvas(Modifier.fillMaxSize()) {
         val spineX = SpineX.toPx() + 1.dp.toPx()
         val step = LaneStep.toPx()
         val open = (laneWidth / LaneStep).coerceAtMost(friends.size.toFloat())
         val nodeY = if (row.node is TimelineNode.Festival) 15.dp.toPx() else 13.dp.toPx()
         val h = size.height
+        val crossX = crossing.toPx() + 1.dp.toPx()
+        val crossed = row.mine && row.others.isNotEmpty()
+
+        /** A line that runs the row, veering to the crossing if its owner was there. */
+        fun line(x: Float, color: Color, meets: Boolean) {
+            if (!meets || kotlin.math.abs(x - crossX) < 1f) {
+                drawLine(color, Offset(x, 0f), Offset(x, h), strokeWidth = 2.dp.toPx())
+                return
+            }
+            val pull = nodeY * 0.75f
+            val path = Path()
+            path.moveTo(x, 0f)
+            path.cubicTo(x, pull, crossX, nodeY - pull, crossX, nodeY)
+            path.cubicTo(crossX, nodeY + pull, x, h - pull, x, h)
+            drawPath(path, color, style = Stroke(width = 2.dp.toPx()))
+        }
+
+        // My line, still mine — amber even where the night was someone else's.
+        line(spineX, Amber.copy(alpha = if (row.mine) 0.85f else 0.4f), crossed)
 
         friends.forEachIndexed { i, friend ->
             // Lanes slide out from under my spine as the strip opens.
             val target = SpineWidth.toPx() + step * i + step / 2f
-            val laneX = spineX + (target - spineX) * (open - i).coerceIn(0f, 1f)
-            if (laneX <= spineX + 1f) return@forEachIndexed
+            val x = spineX + (target - spineX) * (open - i).coerceIn(0f, 1f)
+            if (x <= spineX + 1f) return@forEachIndexed
             val here = row.others.any { it.setlistfm == friend.setlistfm }
-            val r = 6.dp.toPx()
-
-            // Their line runs the whole height, every row, so it stays a timeline of
-            // its own rather than appearing only where they happened to be.
-            drawLine(
-                if (here) railColor(i) else LineCol,
-                Offset(laneX, 0f),
-                Offset(laneX, h),
-                strokeWidth = 2.dp.toPx(),
-            )
-            if (!here) return@forEachIndexed
-            drawCircle(Raised, r, Offset(laneX, nodeY))
-            drawCircle(railColor(i), r, Offset(laneX, nodeY), style = Stroke(width = 2.dp.toPx()))
-            // Same night as me: a rung between the two nodes. A curve wandering between
-            // lanes read as a stray hook here, because both nodes sit on the same row.
-            if (row.mine) {
-                drawLine(
-                    railColor(i).copy(alpha = 0.7f),
-                    Offset(spineX + 8.dp.toPx(), nodeY),
-                    Offset(laneX - r, nodeY),
-                    strokeWidth = 1.5.dp.toPx(),
-                )
+            // Their line runs the whole height of every row, so it reads as a timeline
+            // of its own rather than dots appearing where they happened to be.
+            line(x, if (here) railColor(i) else LineCol, here && crossed)
+            // Their own node, only where the night is theirs alone; a shared one is the
+            // single crossing node drawn by the row itself.
+            if (here && !row.mine) {
+                drawCircle(Raised, 6.dp.toPx(), Offset(x, nodeY))
+                drawCircle(railColor(i), 6.dp.toPx(), Offset(x, nodeY), style = Stroke(width = 2.dp.toPx()))
             }
         }
     }

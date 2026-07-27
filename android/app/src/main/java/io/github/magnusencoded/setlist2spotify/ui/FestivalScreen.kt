@@ -114,7 +114,16 @@ data class WovenRow(
     val mine: Boolean,
     val others: List<Friend>,
     val depth: Int = 0,
+    /** Their shows that landed on this node — a festival can hold many of them. */
+    val theirShows: List<FmSetlist> = emptyList(),
 ) {
+    /** Shows we were both at: the thing this whole resolution exists to surface. */
+    val sharedCount: Int
+        get() {
+            val theirIds = theirShows.map { it.id }.toSet()
+            return shows.count { it.id in theirIds }
+        }
+
     val key: String get() = when (val n = node) {
         is TimelineNode.Concert -> "c-${n.setlist.id}-$depth"
         is TimelineNode.Festival -> "f-${n.shows.first().id}"
@@ -151,6 +160,7 @@ fun weaveTimelines(
     val myNodes = groupIntoFestivals(mine, festivalNames)
     val rows = mutableListOf<WovenRow>()
     val takenByMine = mutableMapOf<TimelineNode, MutableList<Friend>>()
+    val takenShows = mutableMapOf<TimelineNode, MutableList<FmSetlist>>()
 
     // Their clusters, minus anything that belongs to a node of mine.
     val leftovers = mutableListOf<Pair<Friend, TimelineNode>>()
@@ -159,12 +169,25 @@ fun weaveTimelines(
         if (shows.isEmpty()) continue
         for (node in groupIntoFestivals(shows, festivalNames)) {
             val host = myNodes.firstOrNull { it.absorbs(node) }
-            if (host != null) takenByMine.getOrPut(host) { mutableListOf() }.add(friend)
-            else leftovers.add(friend to node)
+            if (host != null) {
+                takenByMine.getOrPut(host) { mutableListOf() }.add(friend)
+                takenShows.getOrPut(host) { mutableListOf() }.addAll(node.shows())
+            } else {
+                leftovers.add(friend to node)
+            }
         }
     }
 
-    myNodes.forEach { rows.add(WovenRow(it, mine = true, others = takenByMine[it].orEmpty())) }
+    myNodes.forEach {
+        rows.add(
+            WovenRow(
+                it,
+                mine = true,
+                others = takenByMine[it].orEmpty(),
+                theirShows = takenShows[it].orEmpty(),
+            ),
+        )
+    }
     leftovers.forEach { (friend, node) -> rows.add(WovenRow(node, mine = false, others = listOf(friend))) }
     rows.sortByDescending { it.date }
 
@@ -190,6 +213,11 @@ fun weaveTimelines(
             }
         listOf(row) + inner
     }
+}
+
+private fun TimelineNode.shows(): List<FmSetlist> = when (this) {
+    is TimelineNode.Concert -> listOf(setlist)
+    is TimelineNode.Festival -> shows
 }
 
 /** Same venue, overlapping few days — near enough to be the same festival. */
@@ -238,24 +266,38 @@ fun FestivalItem(
     onClick: () -> Unit,
     open: Boolean = false,
     laneWidth: Dp = 0.dp,
+    nodeX: Dp = SpineX,
+    sharedCount: Int = 0,
+    theirCount: Int = 0,
     rails: @Composable () -> Unit = {},
 ) {
-    val accent = if (highlight) Color(0xFFE7B24C) else Slate
+    val amber = Color(0xFFE7B24C)
+    val accent = if (highlight || sharedCount > 0) amber else Slate
     Row(
         Modifier.fillMaxWidth().height(IntrinsicSize.Min).clickable(onClick = onClick),
     ) {
         Box(Modifier.width(SpineWidth + laneWidth).fillMaxHeight()) {
             rails()
-            Box(Modifier.padding(start = SpineX).width(2.dp).fillMaxHeight().background(LineCol))
+            if (laneWidth <= 0.dp) {
+                Box(Modifier.padding(start = SpineX).width(2.dp).fillMaxHeight().background(LineCol))
+            }
             Box(
                 Modifier
-                    .padding(start = SpineX - 10.dp, top = 4.dp)
+                    .padding(start = nodeX - 10.dp, top = 4.dp)
                     .size(22.dp)
                     .clip(CircleShape)
                     .background(Raised)
                     .border(2.dp, accent, CircleShape),
                 contentAlignment = Alignment.Center,
-            ) { Text("${festival.shows.size}", color = accent, fontSize = 10.sp, fontWeight = FontWeight.SemiBold) }
+            ) {
+                Text(
+                    // Zoomed out the shared count is the number that matters.
+                    if (sharedCount > 0) "$sharedCount" else "${festival.shows.size}",
+                    color = accent,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
         }
         Column(Modifier.padding(end = 18.dp, bottom = 22.dp)) {
             Text("FESTIVAL", color = Slate, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp)
@@ -265,8 +307,14 @@ fun FestivalItem(
             Text(festivalDateRange(festival.shows), color = Muted, fontSize = 13.sp)
             Spacer(Modifier.height(7.dp))
             Text(
-                if (open) "${festival.shows.size} shows · tap to close" else "${festival.shows.size} shows",
-                color = Faint,
+                buildString {
+                    // Comparing collections: what we each saw, and what we saw together.
+                    if (sharedCount > 0) append("$sharedCount together · ")
+                    append("${festival.shows.size} yours")
+                    if (theirCount > 0) append(" · $theirCount theirs")
+                    if (open) append(" · tap to close")
+                },
+                color = if (sharedCount > 0) amber else Faint,
                 fontSize = 12.sp,
             )
         }
