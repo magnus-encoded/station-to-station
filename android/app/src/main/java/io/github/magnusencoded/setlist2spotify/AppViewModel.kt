@@ -95,6 +95,10 @@ data class UiState(
     val mySetlistFmUser: String = "",
     val friends: List<Friend> = emptyList(),
     val sharedWith: Friend? = null,
+    // A friend's collection timeline, opened from the Connect screen.
+    val viewingFriend: Friend? = null,
+    val friendTimeline: List<FmSetlist> = emptyList(),
+    val friendTimelineLoading: Boolean = false,
     /** Set when the playlist was made but its cover could not be uploaded. */
     val coverUploadError: String? = null,
     // Transient error surfaced as a snackbar
@@ -252,6 +256,27 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val next = _state.value.friends.filterNot { it.setlistfm == friend.setlistfm }
             settings.saveFriends(next)
             _state.update { it.copy(friends = next) }
+        }
+    }
+
+    /** Loads a friend's whole attended-concert timeline for the Connect screen. */
+    fun viewFriendTimeline(friend: Friend) {
+        _state.update {
+            it.copy(viewingFriend = friend, friendTimeline = emptyList(), friendTimelineLoading = true)
+        }
+        viewModelScope.launch {
+            try {
+                // ponytail: caps at 60 shows (3 pages). Bump if power users miss older ones.
+                val shows = attendedConcerts(friend.setlistfm, maxPages = 3)
+                _state.update { it.copy(friendTimeline = shows, friendTimelineLoading = false) }
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        friendTimelineLoading = false,
+                        error = e.message ?: "Could not load ${friend.name}'s shows",
+                    )
+                }
+            }
         }
     }
 

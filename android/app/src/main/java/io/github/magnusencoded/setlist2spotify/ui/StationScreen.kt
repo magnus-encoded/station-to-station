@@ -25,6 +25,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -143,6 +144,7 @@ fun StationTimelineScreen(
     viewModel: AppViewModel,
     onOpenEvent: () -> Unit,
     onOpenImport: () -> Unit,
+    onOpenConnect: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -159,6 +161,10 @@ fun StationTimelineScreen(
                     }
                 },
                 actions = {
+                    // Left/right axis is people: the way to others starts here.
+                    IconButton(onClick = onOpenConnect) {
+                        Icon(Icons.Filled.Person, contentDescription = "Connect with people", tint = Faint)
+                    }
                     if (state.setlists.isNotEmpty()) {
                         IconButton(onClick = onOpenImport) {
                             Icon(Icons.Filled.Add, contentDescription = "Add shows", tint = Faint)
@@ -367,7 +373,7 @@ private fun StationField(
 }
 
 @Composable
-private fun TimelineItem(setlist: FmSetlist, highlight: Boolean, onClick: () -> Unit) {
+internal fun TimelineItem(setlist: FmSetlist, highlight: Boolean, onClick: () -> Unit) {
     val songCount = setlist.songs().size
     Row(
         Modifier.fillMaxWidth().height(IntrinsicSize.Min).clickable(onClick = onClick),

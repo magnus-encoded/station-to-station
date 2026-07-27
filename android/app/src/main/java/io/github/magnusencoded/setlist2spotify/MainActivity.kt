@@ -19,6 +19,8 @@ import io.github.magnusencoded.setlist2spotify.ui.ConfirmScreen
 import io.github.magnusencoded.setlist2spotify.ui.FriendsScreen
 import io.github.magnusencoded.setlist2spotify.ui.SearchScreen
 import io.github.magnusencoded.setlist2spotify.ui.SetlistsScreen
+import io.github.magnusencoded.setlist2spotify.ui.ConnectScreen
+import io.github.magnusencoded.setlist2spotify.ui.FriendTimelineScreen
 import io.github.magnusencoded.setlist2spotify.ui.ImportScreen
 import io.github.magnusencoded.setlist2spotify.ui.SettingsScreen
 import io.github.magnusencoded.setlist2spotify.ui.SplashScreen
@@ -85,7 +87,26 @@ fun AppNavigation(viewModel: AppViewModel) {
                 viewModel = viewModel,
                 onOpenEvent = { navController.navigate("event") },
                 onOpenImport = { navController.navigate("import") },
+                onOpenConnect = { navController.navigate("connect") },
                 onOpenSettings = { navController.navigate("settings") },
+            )
+        }
+        composable("connect") {
+            ConnectScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onViewFriend = { friend ->
+                    viewModel.viewFriendTimeline(friend)
+                    navController.navigate("friend")
+                },
+                onSetUsername = { navController.navigate("import") },
+            )
+        }
+        composable("friend") {
+            FriendTimelineScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onOpenEvent = { navController.navigate("event") },
             )
         }
         composable("import") {
