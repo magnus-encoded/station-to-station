@@ -224,30 +224,29 @@ private fun PeerRow(peer: Friend, onExchange: () -> Unit) {
 
 // --- The zoomed-out resolution: my line braided with everyone else's ---
 
-/**
- * One row of the woven view: a show, whether I was there, and which other known
- * people were. ponytail: everyone-but-me shares the second rail — two lines, however
- * many friends. Per-person rails if the braid ever needs to tell them apart.
- */
-private data class CompRow(val setlist: FmSetlist, val mine: Boolean, val others: List<String>) {
+/** One row of the woven view: a show, whether I was there, and which friends were. */
+private data class CompRow(val setlist: FmSetlist, val mine: Boolean, val others: List<Friend>) {
     val shared: Boolean get() = mine && others.isNotEmpty()
 }
 
+/** Each rail gets its own light: mine is amber, the rest cycle through cooler ones. */
+private val RailColors = listOf(Slate, Color(0xFF8A6DA0), Color(0xFF5F8E8A), Color(0xFFA07E6D))
+
+private fun railColor(index: Int) = RailColors[index % RailColors.size]
+
 /**
  * Merges my timeline and every known friend's into one date-ordered spine (most
- * recent first), tagging each show with who was there. A show the same setlist.fm id
- * appears on for me and for someone else is where the two lines braid.
+ * recent first), tagging each show with who was there. Shows several of us attended
+ * are where the rails merge.
  */
 private fun weave(mine: List<FmSetlist>, friends: List<Friend>, theirs: Map<String, List<FmSetlist>>): List<CompRow> {
     val mineIds = mine.map { it.id }.toSet()
-    val nameOf = friends.associate { it.setlistfm to it.name }
     val byId = LinkedHashMap<String, FmSetlist>()
     mine.forEach { byId.putIfAbsent(it.id, it) }
     theirs.values.forEach { list -> list.forEach { byId.putIfAbsent(it.id, it) } }
     return byId.values
         .map { show ->
-            val others = theirs.filterValues { list -> list.any { it.id == show.id } }
-                .keys.map { nameOf[it] ?: it }
+            val others = friends.filter { f -> theirs[f.setlistfm]?.any { it.id == show.id } == true }
             CompRow(show, mine = show.id in mineIds, others = others)
         }
         .sortedByDescending { it.setlist.localDate() }
@@ -317,6 +316,7 @@ fun MultipleTimelinesScreen(
                     items(rows, key = { it.setlist.id }) { row ->
                         CompRowItem(
                             row = row,
+                            friends = state.friends,
                             onClick = {
                                 viewModel.openShow(row.setlist)
                                 onOpenEvent()
@@ -341,13 +341,12 @@ fun MultipleTimelinesScreen(
 @Composable
 private fun ComparisonHeader(friends: List<Friend>, sharedCount: Int) {
     Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Column {
             Legend(color = Amber, label = "You")
-            Spacer(Modifier.width(16.dp))
-            Legend(
-                color = Slate,
-                label = if (friends.size == 1) friends[0].name else "${friends.size} others",
-            )
+            friends.forEachIndexed { i, friend ->
+                Spacer(Modifier.height(4.dp))
+                Legend(color = railColor(i), label = friend.name)
+            }
         }
         Spacer(Modifier.height(12.dp))
         Text(
@@ -372,18 +371,18 @@ private fun Legend(color: Color, label: String) {
 }
 
 /**
- * A show on the woven view: two rails run the whole length — mine on the left,
- * everyone else's on the right — and on a show we all attended they braid together
- * into one amber node before separating again.
+ * A show on the woven view. One rail per person runs the whole length — mine on the
+ * left, each friend to the right of it — and on a show several of us attended those
+ * rails merge into one node before separating again, like a branch graph.
  */
 @Composable
-private fun CompRowItem(row: CompRow, onClick: () -> Unit) {
+private fun CompRowItem(row: CompRow, friends: List<Friend>, onClick: () -> Unit) {
     val setlist = row.setlist
     Row(
         Modifier.fillMaxWidth().height(IntrinsicSize.Min).clickable(onClick = onClick),
     ) {
-        Box(Modifier.width(64.dp).fillMaxHeight()) {
-            Braid(row)
+        Box(Modifier.width(gutterWidth(friends.size)).fillMaxHeight()) {
+            Braid(row, friends)
         }
         Column(Modifier.padding(end = 18.dp, bottom = 22.dp)) {
             Text(
@@ -400,59 +399,70 @@ private fun CompRowItem(row: CompRow, onClick: () -> Unit) {
             Spacer(Modifier.height(7.dp))
             // Who was there — the point of the woven view.
             Row(verticalAlignment = Alignment.CenterVertically) {
+                val names = row.others.joinToString(", ") { it.name }
                 when {
-                    row.shared -> Presence("You and ${row.others.joinToString(", ")} were here", Amber)
+                    row.shared -> Presence("You and $names were here", Amber)
                     row.mine -> Presence("You", Amber)
-                    else -> Presence(row.others.joinToString(", "), Slate)
+                    else -> Presence(names, Slate)
                 }
             }
         }
     }
 }
 
+private val LaneStep = 20.dp
+private val LaneFirst = 18.dp
+
+/** Wide enough for my rail plus one per friend. */
+private fun gutterWidth(friendCount: Int) = LaneFirst + LaneStep * friendCount + 16.dp
+
 /**
- * The two rails for one row. A rail bends to the middle only where its owner was at
- * this show and so was the other side — that convergence is the braid.
+ * The rails for one row: lane 0 is me, lane 1..n each friend, in the order they were
+ * added. A rail bends into the node only if its owner was at this show and someone
+ * else was too — that merge is the whole point of the view. Everyone else's rail
+ * passes straight through, dimmed.
  */
 @Composable
-private fun Braid(row: CompRow) {
+private fun Braid(row: CompRow, friends: List<Friend>) {
     Canvas(Modifier.fillMaxSize()) {
-        val laneL = 20.dp.toPx()
-        val laneR = 44.dp.toPx()
-        val mid = size.width / 2f
         val nodeY = 15.dp.toPx()
         val h = size.height
+        val step = LaneStep.toPx()
+        val first = LaneFirst.toPx()
+        fun laneX(index: Int) = first + step * index
 
-        fun rail(lane: Float, color: Color, bend: Boolean) {
+        // The merge point: the leftmost attending rail, so shared shows pull right to left.
+        val attending = buildList {
+            if (row.mine) add(0)
+            row.others.forEach { f -> add(friends.indexOfFirst { it.setlistfm == f.setlistfm } + 1) }
+        }.filter { it >= 0 }.sorted()
+        val nodeX = laneX(attending.firstOrNull() ?: 0)
+        val merging = attending.size > 1
+
+        fun rail(index: Int, color: Color, here: Boolean) {
+            val lane = laneX(index)
             val path = Path()
             path.moveTo(lane, 0f)
-            if (bend) {
+            if (merging && here && lane != nodeX) {
                 val pull = nodeY * 0.6f
-                path.cubicTo(lane, pull, mid, nodeY - pull, mid, nodeY)
-                path.cubicTo(mid, nodeY + pull, lane, h - pull, lane, h)
+                path.cubicTo(lane, pull, nodeX, nodeY - pull, nodeX, nodeY)
+                path.cubicTo(nodeX, nodeY + pull, lane, h - pull, lane, h)
             } else {
                 path.lineTo(lane, h)
             }
             drawPath(path, color, style = Stroke(width = 2.dp.toPx()))
         }
 
-        rail(laneL, if (row.mine) Amber.copy(alpha = 0.7f) else LineCol, row.shared)
-        rail(laneR, if (row.others.isNotEmpty()) Slate.copy(alpha = 0.8f) else LineCol, row.shared)
+        rail(0, if (row.mine) Amber.copy(alpha = 0.75f) else LineCol, row.mine)
+        friends.forEachIndexed { i, friend ->
+            val here = row.others.any { it.setlistfm == friend.setlistfm }
+            rail(i + 1, if (here) railColor(i).copy(alpha = 0.85f) else LineCol, here)
+        }
 
-        // The node sits where the attendance is: braided in the middle, else on its rail.
-        val x = when {
-            row.shared -> mid
-            row.mine -> laneL
-            else -> laneR
-        }
-        val r = if (row.shared) 9.dp.toPx() else 7.dp.toPx()
-        val tint = when {
-            row.shared -> Amber
-            row.mine -> Amber
-            else -> Slate
-        }
-        drawCircle(if (row.shared) AmberSoft else Raised, r, Offset(x, nodeY))
-        drawCircle(tint, r, Offset(x, nodeY), style = Stroke(width = 2.dp.toPx()))
+        val r = if (merging) 9.dp.toPx() else 7.dp.toPx()
+        val tint = if (row.mine) Amber else railColor(attending.firstOrNull()?.minus(1) ?: 0)
+        drawCircle(if (merging) AmberSoft else Raised, r, Offset(nodeX, nodeY))
+        drawCircle(tint, r, Offset(nodeX, nodeY), style = Stroke(width = 2.dp.toPx()))
     }
 }
 
@@ -485,10 +495,10 @@ private fun NoComparisonYet(onFindNearby: () -> Unit) {
             Box(Modifier.width(2.dp).height(80.dp).background(LineCol).alpha(0.4f))
         }
         Spacer(Modifier.height(20.dp))
-        Text("Two timelines, side by side", fontFamily = Serif, fontSize = 20.sp, color = Ink)
+        Text("Your line, and everyone else's", fontFamily = Serif, fontSize = 20.sp, color = Ink)
         Spacer(Modifier.height(6.dp))
         Text(
-            "Swap cards with someone and their concerts weave into yours, so the shows you were both at light up.",
+            "Swap cards with someone and their line runs alongside yours — the nights you were at the same show merge into one.",
             color = Muted,
             fontSize = 13.sp,
             modifier = Modifier.padding(horizontal = 8.dp),
