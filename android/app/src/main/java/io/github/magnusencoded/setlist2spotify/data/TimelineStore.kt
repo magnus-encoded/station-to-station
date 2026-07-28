@@ -25,12 +25,26 @@ import java.nio.file.StandardCopyOption
  * ponytail: one file, not one per user — no filename escaping, one read at launch.
  * Split per user if a collection ever gets big enough for the write to stutter.
  */
+/**
+ * A playlist this app made from a night. Kept so the night can point at it later —
+ * Spotify has no way to ask "which playlist came from this setlist", and without
+ * this the act of converting leaves no trace anywhere the user can find it again.
+ */
+@Serializable
+data class StoredPlaylist(
+    val url: String,
+    val name: String = "",
+    val trackCount: Int = 0,
+)
+
 @Serializable
 data class TimelineCache(
     /** Attended shows by setlist.fm username — mine and every friend's alike. */
     val shows: Map<String, List<FmSetlist>> = emptyMap(),
     /** Festival name by its cluster's first show id; see AppViewModel.resolveFestivalNames. */
     val festivalNames: Map<String, String> = emptyMap(),
+    /** The playlist made from a night, by that night's setlist id. */
+    val playlists: Map<String, StoredPlaylist> = emptyMap(),
 )
 
 /** [file] rather than a Context only so the merge can be tested on the JVM. */
@@ -62,12 +76,14 @@ class TimelineStore(private val file: File) {
     suspend fun save(
         shows: Map<String, List<FmSetlist>> = emptyMap(),
         festivalNames: Map<String, String> = emptyMap(),
+        playlists: Map<String, StoredPlaylist> = emptyMap(),
     ): Unit = withContext(Dispatchers.IO) {
         writeLock.withLock {
             val merged = load().let {
                 it.copy(
                     shows = it.shows + shows.filterValues { list -> list.isNotEmpty() },
                     festivalNames = it.festivalNames + festivalNames,
+                    playlists = it.playlists + playlists,
                 )
             }
             // Write via a temp file: a crash mid-write leaves the old cache intact

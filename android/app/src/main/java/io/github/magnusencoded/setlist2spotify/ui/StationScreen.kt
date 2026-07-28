@@ -1,5 +1,7 @@
 package io.github.magnusencoded.setlist2spotify.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -573,7 +575,7 @@ internal fun TimelineItem(
     shared: Boolean = false,
     rails: @Composable () -> Unit = {},
 ) {
-    val songCount = setlist.songs().size
+    val songCount = setlist.performed().size
     val zoomedOut = laneWidth > 0.dp
     Row(
         Modifier.fillMaxWidth().height(IntrinsicSize.Min).clickable(onClick = onClick),
@@ -802,18 +804,25 @@ internal fun PeopleRails(
 
 // --- Event view: a single night, its real setlist as a spine ---
 
-private sealed interface EventRow {
+internal sealed interface EventRow {
     data object Encore : EventRow
-    data class SongItem(val number: Int, val song: FmSong) : EventRow
+
+    /**
+     * [number] is null for a tape track. It played in the room, so it stays on the
+     * line — but it is not one of the songs the band performed, and numbering it
+     * pushed every song after it out by one against the setlist on setlist.fm.
+     */
+    data class SongItem(val number: Int?, val song: FmSong) : EventRow
 }
 
-private fun FmSetlist.eventRows(): List<EventRow> = buildList {
+internal fun FmSetlist.eventRows(): List<EventRow> = buildList {
     var n = 0
     sets?.set.orEmpty().forEach { set ->
         if (set.encore != null) add(EventRow.Encore)
-        set.song.forEach { song ->
-            n++
-            add(EventRow.SongItem(n, song))
+        // A nameless entry is setlist.fm's placeholder for a song nobody could
+        // identify; it has nothing to show and must not take a number either.
+        set.song.filter { it.name.isNotBlank() }.forEach { song ->
+            add(EventRow.SongItem(if (song.tape) null else ++n, song))
         }
     }
 }
@@ -827,6 +836,9 @@ fun StationEventScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val setlist = state.selectedSetlist
+    val context = LocalContext.current
+    // What this night already became, if it became anything.
+    val made = setlist?.let { state.playlistsBySetlist[it.id] }
 
     Scaffold(
         containerColor = Ground,
@@ -842,7 +854,7 @@ fun StationEventScreen(
             )
         },
         bottomBar = {
-            if (setlist != null && setlist.songs().isNotEmpty()) {
+            if (setlist != null && setlist.performed().isNotEmpty()) {
                 // A quiet, tappable hint rather than a big CTA — the same action the
                 // swipe fires, kept visible so it's discoverable and reachable without
                 // the gesture.
@@ -850,14 +862,40 @@ fun StationEventScreen(
                     viewModel.selectSetlist(setlist)
                     onConvert()
                 }
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable(onClick = convert)
-                        .padding(vertical = 16.dp),
-                    horizontalArrangement = Arrangement.Center,
+                Column(
+                    Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text("‹ swipe to open as a Spotify playlist", color = Amber, fontSize = 13.sp)
+                    // Once a night has a playlist, opening it is the primary offer and
+                    // making another is the aside — converting twice is the rare case.
+                    if (made != null) {
+                        Row(
+                            Modifier
+                                .clickable {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(made.url)))
+                                }
+                                .padding(vertical = 6.dp, horizontal = 20.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(Modifier.size(7.dp).clip(CircleShape).background(SpotifyGreen))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Open the playlist ↗", color = SpotifyGreen, fontSize = 14.sp)
+                        }
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            "‹ swipe to make another",
+                            color = Faint,
+                            fontSize = 12.sp,
+                            modifier = Modifier.clickable(onClick = convert).padding(vertical = 4.dp),
+                        )
+                    } else {
+                        Text(
+                            "‹ swipe to open as a Spotify playlist",
+                            color = Amber,
+                            fontSize = 13.sp,
+                            modifier = Modifier.clickable(onClick = convert).padding(vertical = 6.dp),
+                        )
+                    }
                 }
             }
         },
@@ -869,22 +907,27 @@ fun StationEventScreen(
             return@Scaffold
         }
         val rows = setlist.eventRows()
-        val canConvert = setlist.songs().isNotEmpty()
+        val canConvert = setlist.performed().isNotEmpty()
         LazyColumn(
             Modifier
                 .padding(padding)
                 .fillMaxSize()
-                // Swipe the setlist left to convert it — the "act on this level" gesture.
+                // Left acts on this level — convert. Right is its mirror: back up one,
+                // to the timeline this night was opened from. Registered even when
+                // there is nothing to convert, or a show with no logged setlist would
+                // be the one screen you can't swipe out of.
                 .pointerInput(setlist.id, canConvert) {
-                    if (!canConvert) return@pointerInput
                     val threshold = 110.dp.toPx()
                     var dragX = 0f
                     detectHorizontalDragGestures(
                         onDragStart = { dragX = 0f },
                         onDragEnd = {
-                            if (dragX <= -threshold) {
-                                viewModel.selectSetlist(setlist)
-                                onConvert()
+                            when {
+                                dragX <= -threshold && canConvert -> {
+                                    viewModel.selectSetlist(setlist)
+                                    onConvert()
+                                }
+                                dragX >= threshold -> onBack()
                             }
                         },
                         onHorizontalDrag = { _, delta -> dragX += delta },
@@ -902,10 +945,14 @@ fun StationEventScreen(
                     )
                     Spacer(Modifier.height(11.dp))
                     Row {
-                        EventTag("${setlist.songs().size} songs")
+                        EventTag("${setlist.performed().size} songs")
                         setlist.tour?.name?.let {
                             Spacer(Modifier.width(6.dp))
                             EventTag(it)
+                        }
+                        if (made != null) {
+                            Spacer(Modifier.width(6.dp))
+                            EventTag("playlist", color = SpotifyGreen)
                         }
                         Spacer(Modifier.width(6.dp))
                         EventTag("self-logged", color = Faint)
@@ -934,7 +981,7 @@ fun StationEventScreen(
 }
 
 @Composable
-private fun SongRow(number: Int, song: FmSong) {
+private fun SongRow(number: Int?, song: FmSong) {
     val cover = song.cover?.name
     Row(
         Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(end = 20.dp),
@@ -942,22 +989,24 @@ private fun SongRow(number: Int, song: FmSong) {
     ) {
         Box(Modifier.width(50.dp).fillMaxHeight()) {
             Box(Modifier.align(Alignment.TopCenter).width(2.dp).fillMaxHeight().background(LineCol))
+            // A tape track sits on the line as a bare dot: it happened, it isn't
+            // numbered, and it doesn't pretend to be part of the set.
+            val size = if (number == null) 8.dp else 18.dp
             Box(
                 Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 2.dp)
-                    .size(18.dp)
+                    .padding(top = if (number == null) 7.dp else 2.dp)
+                    .size(size)
                     .clip(CircleShape)
                     .background(Raised)
                     .border(1.5.dp, LineLit, CircleShape),
                 contentAlignment = Alignment.Center,
-            ) { Text(number.toString(), color = Faint, fontSize = 10.sp) }
+            ) { if (number != null) Text(number.toString(), color = Faint, fontSize = 10.sp) }
         }
         Column(Modifier.weight(1f).padding(top = 1.dp, bottom = 15.dp)) {
-            Text(song.name, color = Ink, fontSize = 15.sp)
-            if (cover != null) {
-                Text("$cover cover", color = Faint, fontSize = 11.sp)
-            }
+            Text(song.name, color = if (number == null) Muted else Ink, fontSize = 15.sp)
+            val note = cover?.let { "$it cover" } ?: "tape".takeIf { song.tape }
+            if (note != null) Text(note, color = Faint, fontSize = 11.sp)
         }
     }
 }

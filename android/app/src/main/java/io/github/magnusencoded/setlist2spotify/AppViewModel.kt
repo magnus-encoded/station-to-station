@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.magnusencoded.setlist2spotify.data.Friend
 import io.github.magnusencoded.setlist2spotify.data.SettingsRepository
+import io.github.magnusencoded.setlist2spotify.data.StoredPlaylist
 import io.github.magnusencoded.setlist2spotify.data.TimelineStore
 import io.github.magnusencoded.setlist2spotify.data.friendFromUri
 import io.github.magnusencoded.setlist2spotify.data.photos.PhotoRepository
@@ -95,6 +96,8 @@ data class UiState(
     val createdPlaylistName: String = "",
     val createdTrackCount: Int = 0,
     val createdRefusedCount: Int = 0,
+    /** Every playlist this app has made, by the setlist id it was made from. */
+    val playlistsBySetlist: Map<String, StoredPlaylist> = emptyMap(),
     // Friends (peer-to-peer, on-device)
     val mySetlistFmUser: String = "",
     val friends: List<Friend> = emptyList(),
@@ -183,12 +186,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      */
     private suspend fun restoreTimelines() {
         val cached = timelines.load()
-        if (cached.shows.isEmpty() && cached.festivalNames.isEmpty()) return
+        if (cached.shows.isEmpty() && cached.festivalNames.isEmpty() && cached.playlists.isEmpty()) return
         val me = _state.value.mySetlistFmUser
         val mine = cached.shows[me].orEmpty()
         _state.update {
             it.copy(
                 festivalNames = it.festivalNames + cached.festivalNames,
+                playlistsBySetlist = it.playlistsBySetlist + cached.playlists,
                 // Every lane but mine: the weave reads friends from here.
                 showsByFriend = cached.shows - me,
                 // Only adopt a cached spine if nothing has already loaded into it.
@@ -879,16 +883,27 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 // The songs are the point, so a cover that will not upload is
                 // reported next to the success rather than thrown over it.
                 val coverError = s.selectedCoverUri?.let { uploadCover(playlist.id, it) }
+                // Fall back to the canonical URL rather than dropping the link:
+                // externalUrls is Spotify's to omit, the id is ours to keep.
+                val url = playlist.externalUrls["spotify"]
+                    ?: "https://open.spotify.com/playlist/${playlist.id}"
+                val made = StoredPlaylist(url = url, name = name, trackCount = result.added)
+                val night = setlist?.id?.takeIf { it.isNotBlank() }
                 _state.update {
                     it.copy(
                         creatingPlaylist = false,
-                        createdPlaylistUrl = playlist.externalUrls["spotify"],
+                        createdPlaylistUrl = url,
                         createdPlaylistName = name,
                         createdTrackCount = result.added,
                         createdRefusedCount = result.refused.size,
                         coverUploadError = coverError,
+                        playlistsBySetlist =
+                            if (night == null) it.playlistsBySetlist
+                            else it.playlistsBySetlist + (night to made),
                     )
                 }
+                // So the night still points at it on the next launch.
+                if (night != null) timelines.save(playlists = mapOf(night to made))
             } catch (e: Exception) {
                 fail(e)
             }

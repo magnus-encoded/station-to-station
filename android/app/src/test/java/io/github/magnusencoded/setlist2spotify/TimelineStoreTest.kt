@@ -1,5 +1,6 @@
 package io.github.magnusencoded.setlist2spotify
 
+import io.github.magnusencoded.setlist2spotify.data.StoredPlaylist
 import io.github.magnusencoded.setlist2spotify.data.TimelineStore
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmArtist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
@@ -54,6 +55,18 @@ class TimelineStoreTest {
         store.save(festivalNames = mapOf("a" to "Tons of Rock"))
         store.save(shows = mapOf("magnus" to listOf(show("a"))))
         assertEquals(mapOf("a" to "Tons of Rock"), store.load().festivalNames)
+    }
+
+    @Test
+    fun `a night remembers the playlist it became`() = runBlocking {
+        val store = store()
+        store.save(shows = mapOf("magnus" to listOf(show("a"))))
+        store.save(playlists = mapOf("a" to StoredPlaylist("https://open.spotify.com/playlist/p1", "2026 – The Warning", 19)))
+        // A later save of the shows must not drop it: the two write independently.
+        store.save(shows = mapOf("magnus" to listOf(show("a"), show("b"))))
+        val cached = store.load()
+        assertEquals(19, cached.playlists["a"]?.trackCount)
+        assertEquals(listOf("a", "b"), cached.shows["magnus"]?.map { it.id })
     }
 
     @Test

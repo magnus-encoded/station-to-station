@@ -5,6 +5,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -72,7 +77,18 @@ fun AppTheme(content: @Composable () -> Unit) {
 @Composable
 fun AppNavigation(viewModel: AppViewModel) {
     val navController = rememberNavController()
-    NavHost(navController = navController, startDestination = "splash") {
+    // Every move follows the gesture that caused it: going deeper comes in from the
+    // right while the screen behind it eases left, and coming back reverses exactly
+    // that. Without this the swipe-to-convert cut straight to the next screen, which
+    // reads as the app changing rather than as one place leading to another.
+    NavHost(
+        navController = navController,
+        startDestination = "splash",
+        enterTransition = { slideInHorizontally(tween(280)) { it } + fadeIn(tween(200)) },
+        exitTransition = { slideOutHorizontally(tween(280)) { -it / 5 } + fadeOut(tween(200)) },
+        popEnterTransition = { slideInHorizontally(tween(280)) { -it / 5 } + fadeIn(tween(200)) },
+        popExitTransition = { slideOutHorizontally(tween(280)) { it } + fadeOut(tween(200)) },
+    ) {
         composable("splash") {
             SplashScreen(
                 viewModel = viewModel,

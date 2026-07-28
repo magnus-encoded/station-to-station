@@ -6,23 +6,28 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -35,8 +40,6 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -52,6 +55,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -73,6 +77,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.magnusencoded.setlist2spotify.AppViewModel
 import io.github.magnusencoded.setlist2spotify.CoverCandidate
@@ -85,6 +90,21 @@ import kotlinx.coroutines.launch
 // accent — this is the one pure-Spotify function, so it earns the green while still
 // looking like the rest of the app rather than a different UI. Every
 // MaterialTheme.colorScheme.* reference below resolves through this.
+// ponytail: the palette is restated per screen file, as every other Station screen
+// already does. Lift it into one Palette.kt when a colour actually needs changing
+// in more than one place at once.
+private val Ground = Color(0xFF0E0B14)
+private val Raised = Color(0xFF17121F)
+private val LineCol = Color(0xFF2E2740)
+private val LineLit = Color(0xFF4A3F63)
+private val Ink = Color(0xFFEDE9F2)
+private val Muted = Color(0xFF8B8299)
+private val Faint = Color(0xFF5A5368)
+private val SpotifyGreen = Color(0xFF1DB954)
+private val OnGreen = Color(0xFF08210F)
+private val Danger = Color(0xFFE08A8A)
+private val Serif = FontFamily.Serif
+
 private val NocturnalGreen = darkColorScheme(
     primary = Color(0xFF1DB954),
     onPrimary = Color(0xFF08210F),
@@ -137,12 +157,21 @@ private fun ConfirmScreenContent(
     val selectedCount = state.matches.count { it.included && it.selected != null }
 
     Scaffold(
+        containerColor = Ground,
+        // The same bar the night wore one screen ago — converting is a thing you do
+        // to this show, not a different app you were handed.
         topBar = {
             TopAppBar(
-                title = { Text("Open as a Spotify playlist", fontFamily = FontFamily.Serif) },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Ground,
+                    titleContentColor = Faint,
+                ),
+                title = {
+                    Text(setlist?.year() ?: "", color = Faint, fontSize = 12.sp, letterSpacing = 1.5.sp)
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Faint)
                     }
                 },
             )
@@ -182,13 +211,22 @@ private fun ConfirmScreenContent(
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
+            // The same heading block as the event screen, so the night stays put
+            // on screen while the machinery changes underneath it.
             if (setlist != null) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 12.dp)) {
                     Text(
-                        "${setlist.artist?.name ?: ""} · ${setlist.readableDate() ?: ""}",
-                        style = MaterialTheme.typography.titleMedium,
+                        setlist.artist?.name ?: "Unknown artist",
+                        fontFamily = Serif,
+                        fontSize = 24.sp,
+                        color = Ink,
                     )
-                    Text(setlist.venueLine(), style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        listOfNotNull(setlist.venueLine(), setlist.readableDate()).joinToString(" · "),
+                        color = Muted,
+                        fontSize = 13.sp,
+                    )
                 }
             }
             OutlinedTextField(
@@ -245,9 +283,17 @@ private fun ConfirmScreenContent(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp)) {
+            // The same numbering the setlist screen showed: tape tracks are on the
+            // line but unnumbered, so a song's number means the same thing on both
+            // screens and matches the setlist on setlist.fm.
+            val numbers = remember(state.matches) {
+                var n = 0
+                state.matches.map { if (it.song.tape) null else ++n }
+            }
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
                 itemsIndexed(state.matches) { index, match ->
                     SongMatchRow(
+                        number = numbers.getOrNull(index),
                         match = match,
                         expanded = expandedIndex == index,
                         onToggleExpand = {
@@ -408,8 +454,15 @@ private fun CoverPicker(
     }
 }
 
+/**
+ * One song on the same spine it was read on a screen ago — no card, no checkbox.
+ * The node carries the whole state of the match: filled green means it is going in
+ * the playlist, hollow means it isn't, red means Spotify had nothing to offer.
+ * Tapping the node includes or drops the song; tapping the row opens the choices.
+ */
 @Composable
 private fun SongMatchRow(
+    number: Int?,
     match: SongMatch,
     expanded: Boolean,
     onToggleExpand: () -> Unit,
@@ -417,56 +470,82 @@ private fun SongMatchRow(
     onChooseCandidate: (SpotifyTrack) -> Unit,
     onResearch: (String) -> Unit,
 ) {
-    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-        Column(Modifier.padding(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(
-                    checked = match.included && match.selected != null,
-                    onCheckedChange = { onToggleIncluded() },
-                    enabled = match.selected != null,
+    val on = match.included && match.selected != null
+    val nodeColor = when {
+        match.loading -> LineLit
+        match.selected == null -> Danger
+        on -> SpotifyGreen
+        else -> LineLit
+    }
+    Column {
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(end = 12.dp)) {
+            Box(Modifier.width(50.dp).fillMaxHeight()) {
+                Box(
+                    Modifier.align(Alignment.TopCenter).width(2.dp).fillMaxHeight().background(LineCol),
                 )
-                Column(Modifier.weight(1f).clickable(onClick = onToggleExpand)) {
-                    val label = buildString {
-                        append(match.song.name)
-                        if (match.isCover) append(" (${match.searchArtist} cover)")
-                        if (match.song.tape) append(" [tape]")
+                val size = if (number == null) 8.dp else 18.dp
+                Box(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = if (number == null) 7.dp else 2.dp)
+                        .size(size)
+                        .clip(CircleShape)
+                        .background(if (on) SpotifyGreen else Raised)
+                        .border(1.5.dp, nodeColor, CircleShape)
+                        .clickable(enabled = match.selected != null, onClick = onToggleIncluded),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (number != null) {
+                        Text(
+                            number.toString(),
+                            color = if (on) OnGreen else Faint,
+                            fontSize = 10.sp,
+                        )
                     }
-                    Text(
-                        label,
-                        style = MaterialTheme.typography.bodyLarge,
+                }
+            }
+            Column(
+                Modifier
+                    .weight(1f)
+                    .clickable(onClick = onToggleExpand)
+                    .padding(top = 1.dp, bottom = 14.dp),
+            ) {
+                Text(
+                    match.song.name + if (match.isCover) " · ${match.searchArtist} cover" else "",
+                    color = if (on) Ink else Muted,
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(2.dp))
+                when {
+                    match.loading -> Text("searching…", color = Faint, fontSize = 11.sp)
+                    match.selected != null -> Text(
+                        "${match.selected.name} · ${match.selected.artistNames()}",
+                        color = if (on) SpotifyGreen else Faint,
+                        fontSize = 11.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    when {
-                        match.loading -> Text(
-                            "Searching…",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        match.selected != null -> Text(
-                            "${match.selected.name} · ${match.selected.artistNames()}" +
-                                (match.selected.album?.name?.let { " · $it" } ?: ""),
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        else -> Text(
-                            match.error ?: "No match found — tap to search manually",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                }
-                IconButton(onClick = onToggleExpand) {
-                    Icon(
-                        if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = if (expanded) "Collapse" else "Expand",
+                    else -> Text(
+                        match.error ?: "nothing on Spotify — tap to search",
+                        color = Danger,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
-            if (expanded) {
-                CandidatePicker(match, onChooseCandidate, onResearch)
+            IconButton(onClick = onToggleExpand) {
+                Icon(
+                    if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    tint = Faint,
+                )
             }
+        }
+        if (expanded) {
+            CandidatePicker(match, onChooseCandidate, onResearch)
         }
     }
 }
@@ -480,7 +559,8 @@ private fun CandidatePicker(
     var query by rememberSaveable(match.song.name) {
         mutableStateOf("${match.song.name} ${match.searchArtist}")
     }
-    Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp)) {
+    // Indented to the spine, so the alternatives hang off the song's own node.
+    Column(Modifier.padding(start = 50.dp, end = 16.dp, bottom = 10.dp)) {
         match.candidates.forEach { track ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,

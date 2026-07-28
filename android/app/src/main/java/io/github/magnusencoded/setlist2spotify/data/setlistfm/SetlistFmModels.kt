@@ -42,7 +42,16 @@ data class FmSetlist(
     /** Free-text note. Arbitrary — "First show in Norway", not the festival name. */
     val info: String? = null,
 ) {
+    /** The raw record, exactly as setlist.fm logged it. See [performed]. */
     fun songs(): List<FmSong> = sets?.set.orEmpty().flatMap { it.song }
+
+    /**
+     * The songs the band actually played. [songs] also carries tape tracks — walk-on
+     * and interval recordings that were in the room but nobody counts as part of the
+     * set — and the nameless placeholders setlist.fm emits for a song no one could
+     * identify. Every count and every number a user reads means this list, not [songs].
+     */
+    fun performed(): List<FmSong> = songs().filter { !it.tape && it.name.isNotBlank() }
     fun venueLine(): String {
         val v = venue?.name ?: "Unknown venue"
         val city = venue?.city?.name
