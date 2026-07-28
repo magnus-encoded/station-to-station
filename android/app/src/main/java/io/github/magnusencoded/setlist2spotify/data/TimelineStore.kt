@@ -43,8 +43,19 @@ data class TimelineCache(
     val shows: Map<String, List<FmSetlist>> = emptyMap(),
     /** Festival name by its cluster's first show id; see AppViewModel.resolveFestivalNames. */
     val festivalNames: Map<String, String> = emptyMap(),
-    /** The playlist made from a night, by that night's setlist id. */
-    val playlists: Map<String, StoredPlaylist> = emptyMap(),
+    /**
+     * The playlists made from a night, by that night's setlist id, oldest first.
+     *
+     * A list rather than one entry because a playlist url is not a local handle —
+     * it is the thing you send someone. Converting a night a second time must not
+     * overwrite the link a friend is already holding.
+     *
+     * Named apart from the `playlists` field it replaces so an existing cache still
+     * parses: the old key is simply unknown now and ignored, where a changed type
+     * under the same name would have failed to decode and dropped the timelines
+     * with it.
+     */
+    val playlistsMade: Map<String, List<StoredPlaylist>> = emptyMap(),
 )
 
 /** [file] rather than a Context only so the merge can be tested on the JVM. */
@@ -83,7 +94,12 @@ class TimelineStore(private val file: File) {
                 it.copy(
                     shows = it.shows + shows.filterValues { list -> list.isNotEmpty() },
                     festivalNames = it.festivalNames + festivalNames,
-                    playlists = it.playlists + playlists,
+                    // Appended, never replaced — see [TimelineCache.playlistsMade].
+                    // De-duped on url so re-recording the same playlist is a no-op.
+                    playlistsMade = it.playlistsMade + playlists.mapValues { (night, made) ->
+                        val had = it.playlistsMade[night].orEmpty()
+                        if (had.any { p -> p.url == made.url }) had else had + made
+                    },
                 )
             }
             // Write via a temp file: a crash mid-write leaves the old cache intact

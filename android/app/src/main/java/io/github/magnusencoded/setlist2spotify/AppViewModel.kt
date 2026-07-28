@@ -96,8 +96,8 @@ data class UiState(
     val createdPlaylistName: String = "",
     val createdTrackCount: Int = 0,
     val createdRefusedCount: Int = 0,
-    /** Every playlist this app has made, by the setlist id it was made from. */
-    val playlistsBySetlist: Map<String, StoredPlaylist> = emptyMap(),
+    /** Every playlist this app has made, by the setlist id it came from, oldest first. */
+    val playlistsBySetlist: Map<String, List<StoredPlaylist>> = emptyMap(),
     // Friends (peer-to-peer, on-device)
     val mySetlistFmUser: String = "",
     val friends: List<Friend> = emptyList(),
@@ -188,13 +188,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      */
     private suspend fun restoreTimelines() {
         val cached = timelines.load()
-        if (cached.shows.isEmpty() && cached.festivalNames.isEmpty() && cached.playlists.isEmpty()) return
+        if (cached.shows.isEmpty() && cached.festivalNames.isEmpty() && cached.playlistsMade.isEmpty()) return
         val me = _state.value.mySetlistFmUser
         val mine = cached.shows[me].orEmpty()
         _state.update {
             it.copy(
                 festivalNames = it.festivalNames + cached.festivalNames,
-                playlistsBySetlist = it.playlistsBySetlist + cached.playlists,
+                playlistsBySetlist = it.playlistsBySetlist + cached.playlistsMade,
                 // Every lane but mine: the weave reads friends from here.
                 showsByFriend = cached.shows - me,
                 // Only adopt a cached spine if nothing has already loaded into it.
@@ -899,9 +899,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         createdTrackCount = result.added,
                         createdRefusedCount = result.refused.size,
                         coverUploadError = coverError,
+                        // Appended: converting this night again must not orphan a
+                        // link already sent to someone.
                         playlistsBySetlist =
                             if (night == null) it.playlistsBySetlist
-                            else it.playlistsBySetlist + (night to made),
+                            else it.playlistsBySetlist +
+                                (night to (it.playlistsBySetlist[night].orEmpty() + made)),
                     )
                 }
                 // So the night still points at it on the next launch.

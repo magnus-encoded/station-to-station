@@ -57,16 +57,51 @@ class TimelineStoreTest {
         assertEquals(mapOf("a" to "Tons of Rock"), store.load().festivalNames)
     }
 
+    private fun playlist(id: String) =
+        StoredPlaylist("https://open.spotify.com/playlist/$id", "2026 – The Warning", 19)
+
     @Test
     fun `a night remembers the playlist it became`() = runBlocking {
         val store = store()
         store.save(shows = mapOf("magnus" to listOf(show("a"))))
-        store.save(playlists = mapOf("a" to StoredPlaylist("https://open.spotify.com/playlist/p1", "2026 – The Warning", 19)))
+        store.save(playlists = mapOf("a" to playlist("p1")))
         // A later save of the shows must not drop it: the two write independently.
         store.save(shows = mapOf("magnus" to listOf(show("a"), show("b"))))
         val cached = store.load()
-        assertEquals(19, cached.playlists["a"]?.trackCount)
+        assertEquals(19, cached.playlistsMade["a"]?.single()?.trackCount)
         assertEquals(listOf("a", "b"), cached.shows["magnus"]?.map { it.id })
+    }
+
+    @Test
+    fun `converting a night again keeps the link already sent to someone`() = runBlocking {
+        val store = store()
+        store.save(playlists = mapOf("a" to playlist("p1")))
+        store.save(playlists = mapOf("a" to playlist("p2")))
+        assertEquals(
+            listOf("https://open.spotify.com/playlist/p1", "https://open.spotify.com/playlist/p2"),
+            store.load().playlistsMade["a"]?.map { it.url },
+        )
+    }
+
+    @Test
+    fun `recording the same playlist twice does not duplicate it`() = runBlocking {
+        val store = store()
+        store.save(playlists = mapOf("a" to playlist("p1")))
+        store.save(playlists = mapOf("a" to playlist("p1")))
+        assertEquals(1, store.load().playlistsMade["a"]?.size)
+    }
+
+    @Test
+    fun `a cache written before playlists were a list still loads its timelines`() = runBlocking {
+        val file = File.createTempFile("timelines", ".json")
+        // The shape the previous build wrote: playlists as one entry per night.
+        file.writeText(
+            """{"shows":{"magnus":[{"id":"a","eventDate":"25-06-2026"}]},""" +
+                """"festivalNames":{},"playlists":{"a":{"url":"u","name":"n","trackCount":3}}}"""
+        )
+        val cached = TimelineStore(file).load()
+        assertEquals(listOf("a"), cached.shows["magnus"]?.map { it.id })
+        assertTrue(cached.playlistsMade.isEmpty())
     }
 
     @Test

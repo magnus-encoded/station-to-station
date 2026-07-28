@@ -837,8 +837,9 @@ fun StationEventScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val setlist = state.selectedSetlist
     val context = LocalContext.current
-    // What this night already became, if it became anything.
-    val made = setlist?.let { state.playlistsBySetlist[it.id] }
+    // What this night already became. Every one of them: each url may be in
+    // somebody's hands, so none of them stops being reachable from here.
+    val made = setlist?.let { state.playlistsBySetlist[it.id] }.orEmpty()
 
     Scaffold(
         containerColor = Ground,
@@ -868,18 +869,29 @@ fun StationEventScreen(
                 ) {
                     // Once a night has a playlist, opening it is the primary offer and
                     // making another is the aside — converting twice is the rare case.
-                    if (made != null) {
-                        Row(
-                            Modifier
-                                .clickable {
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(made.url)))
-                                }
-                                .padding(vertical = 6.dp, horizontal = 20.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Box(Modifier.size(7.dp).clip(CircleShape).background(SpotifyGreen))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Open the playlist ↗", color = SpotifyGreen, fontSize = 14.sp)
+                    if (made.isNotEmpty()) {
+                        made.forEach { playlist ->
+                            Row(
+                                Modifier
+                                    .clickable {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_VIEW, Uri.parse(playlist.url)),
+                                        )
+                                    }
+                                    .padding(vertical = 6.dp, horizontal = 20.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(Modifier.size(7.dp).clip(CircleShape).background(SpotifyGreen))
+                                Spacer(Modifier.width(8.dp))
+                                // One playlist needs no naming; several have to be told
+                                // apart, because the one you sent is a particular one.
+                                Text(
+                                    if (made.size == 1) "Open the playlist ↗"
+                                    else "${playlist.name.ifBlank { "Playlist" }} ↗",
+                                    color = SpotifyGreen,
+                                    fontSize = 14.sp,
+                                )
+                            }
                         }
                         Spacer(Modifier.height(2.dp))
                         Text(
@@ -950,9 +962,12 @@ fun StationEventScreen(
                             Spacer(Modifier.width(6.dp))
                             EventTag(it)
                         }
-                        if (made != null) {
+                        if (made.isNotEmpty()) {
                             Spacer(Modifier.width(6.dp))
-                            EventTag("playlist", color = SpotifyGreen)
+                            EventTag(
+                                if (made.size == 1) "playlist" else "${made.size} playlists",
+                                color = SpotifyGreen,
+                            )
                         }
                         Spacer(Modifier.width(6.dp))
                         EventTag("self-logged", color = Faint)
