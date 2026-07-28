@@ -44,6 +44,18 @@
                     android:scheme="setlist2spotify"
                     android:host="friend" />
             </intent-filter>
+            <!-- A place on the timeline, addressed by its setlist.fm gig id. The first
+                 segment is whose line you are looking at, which is also the resolution:
+                   station-to-station://<gig>          the setlist itself
+                   station-to-station://<user>/<gig>   that line, scrolled to the gig
+                   station-to-station://Friends/<gig>  the woven view, scrolled to it
+                 No host attribute, so any first segment matches. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="station-to-station" />
+            </intent-filter>
         </activity>
     </application>
 

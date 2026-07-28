@@ -49,6 +49,13 @@ data class SongMatch(
 
 enum class SetlistSource { ARTIST, USER }
 
+/**
+ * Where a `station-to-station://` link lands. The link's first segment names whose
+ * line you are looking at, and that is the same thing as the resolution: one gig on
+ * its own is the setlist, a line plus a gig is that line scrolled to it.
+ */
+enum class GigLink { SETLIST, MY_LINE, WOVEN }
+
 /** A gallery photo from the night of the show, offered as the playlist cover. */
 data class CoverCandidate(val uri: Uri, val preview: Bitmap?)
 
@@ -127,6 +134,14 @@ data class UiState(
      * something other than a two-finger pinch — see MainActivity's key handling.
      */
     val zoomedOut: Boolean = false,
+    /**
+     * A gig a `station-to-station://` link asked for, and how it wants to be shown.
+     * The timeline is the one place that can find a gig's row — a gig inside a
+     * collapsed festival has no row until the festival opens — so it does the
+     * revealing and clears this when done.
+     */
+    val linkedGig: String? = null,
+    val linkedGigAs: GigLink? = null,
     /** Set when the playlist was made but its cover could not be uploaded. */
     val coverUploadError: String? = null,
     // Transient error surfaced as a snackbar
@@ -497,6 +512,35 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun setZoomedOut(on: Boolean) = _state.update {
         if (on && it.friends.isEmpty()) it else it.copy(zoomedOut = on)
     }
+
+    /**
+     * A `station-to-station://` link. The first segment is whose line to show — a
+     * username, or `Friends` for the woven view — and the last is always the gig's
+     * setlist.fm id. A single segment is the gig on its own, so it opens the setlist.
+     *
+     * The link only records the intent; [UiState.linkedGig] is acted on by the
+     * timeline, which is the only place that knows which row a gig ended up in.
+     */
+    fun openGigLink(uri: Uri) {
+        val parts = (listOfNotNull(uri.host) + uri.pathSegments).filter { it.isNotBlank() }
+        val gig = parts.lastOrNull() ?: return
+        val where = when {
+            parts.size < 2 -> GigLink.SETLIST
+            parts[0].equals("friends", ignoreCase = true) -> GigLink.WOVEN
+            else -> GigLink.MY_LINE
+        }
+        if (where != GigLink.SETLIST) setZoomedOut(where == GigLink.WOVEN)
+        _state.update { it.copy(linkedGig = gig, linkedGigAs = where) }
+    }
+
+    fun consumeGigLink() = _state.update { it.copy(linkedGig = null, linkedGigAs = null) }
+
+    /** The gig behind a link, wherever it is already loaded — mine or any lane's. */
+    fun knownGig(id: String): FmSetlist? =
+        _state.value.setlists.firstOrNull { it.id == id }
+            ?: _state.value.showsByFriend.values.firstNotNullOfOrNull { shows ->
+                shows.firstOrNull { it.id == id }
+            }
 
     /**
      * Fills in the real festival names for the clusters currently on the timeline —

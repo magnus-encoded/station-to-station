@@ -84,6 +84,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.magnusencoded.setlist2spotify.AppViewModel
+import io.github.magnusencoded.setlist2spotify.GigLink
 import io.github.magnusencoded.setlist2spotify.data.Friend
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSong
@@ -323,6 +324,36 @@ fun StationTimelineScreen(
                                 expanded = expanded,
                             )
                         }
+
+                        // A station-to-station:// link names a gig, and only here can a
+                        // gig be turned into a place: one inside a collapsed festival
+                        // has no row of its own until the festival opens, so this may
+                        // take two passes — open it, let the rows rebuild, then scroll.
+                        LaunchedEffect(state.linkedGig, rows) {
+                            val gig = state.linkedGig ?: return@LaunchedEffect
+                            if (state.linkedGigAs == GigLink.SETLIST) {
+                                viewModel.knownGig(gig)?.let {
+                                    viewModel.openShow(it)
+                                    viewModel.consumeGigLink()
+                                    onOpenEvent()
+                                }
+                                return@LaunchedEffect
+                            }
+                            val at = rows.indexOfFirst { row -> row.shows.any { it.id == gig } }
+                            if (at < 0) return@LaunchedEffect
+                            val row = rows[at]
+                            val insideClosedFestival =
+                                row.node is TimelineNode.Festival && row.key !in expanded &&
+                                    row.shows.size > 1
+                            if (insideClosedFestival) {
+                                expanded = expanded + row.key
+                                return@LaunchedEffect
+                            }
+                            // +1 for the future prompt, which is item 0 of the list.
+                            listState.animateScrollToItem(at + 1)
+                            viewModel.consumeGigLink()
+                        }
+
                         LazyColumn(
                             state = listState,
                             modifier = Modifier

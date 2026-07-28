@@ -75,10 +75,13 @@ class MainActivity : ComponentActivity() {
 
     private fun handleAuthIntent(intent: Intent?) {
         val uri = intent?.data ?: return
-        if (uri.scheme != "setlist2spotify") return
-        when (uri.authority) {
-            "friend" -> viewModel.handleFriendLink(uri)
-            else -> viewModel.handleAuthRedirect(uri)
+        when (uri.scheme) {
+            // A place on the timeline; see AppViewModel.openGigLink.
+            "station-to-station" -> viewModel.openGigLink(uri)
+            "setlist2spotify" -> when (uri.authority) {
+                "friend" -> viewModel.handleFriendLink(uri)
+                else -> viewModel.handleAuthRedirect(uri)
+            }
         }
     }
 }
