@@ -98,7 +98,7 @@ class BleScanner(private val context: Context) {
     var onHit: ((PeerHit) -> Unit)? = null
     var onLog: ((String) -> Unit)? = null
     private val firstSeenAt = mutableMapOf<String, Long>()
-    private val scanStartedAt = System.currentTimeMillis()
+    private var scanStartedAt = 0L
 
     private val callback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
@@ -113,6 +113,8 @@ class BleScanner(private val context: Context) {
 
     @RequiresPermission(allOf = ["android.permission.BLUETOOTH_SCAN", "android.permission.BLUETOOTH_CONNECT"])
     fun start() {
+        scanStartedAt = System.currentTimeMillis()
+        firstSeenAt.clear()
         val filter = ScanFilter.Builder().setServiceUuid(ParcelUuid(SERVICE_UUID)).build()
         val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
         manager.adapter.bluetoothLeScanner?.startScan(listOf(filter), settings, callback)

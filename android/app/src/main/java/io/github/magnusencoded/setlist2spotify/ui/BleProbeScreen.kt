@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -122,7 +123,7 @@ fun BleProbeScreen(onBack: () -> Unit) {
                 Button(onClick = {
                     if (!hasPermissions) permissionLauncher.launch(RUNTIME_PERMISSIONS) else advertising = !advertising
                 }) { Text(if (advertising) "Stop advertising" else "Start advertising") }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.width(8.dp))
                 Button(onClick = {
                     if (!hasPermissions) permissionLauncher.launch(RUNTIME_PERMISSIONS) else scanning = !scanning
                 }) { Text(if (scanning) "Stop scanning" else "Start scanning") }
@@ -130,9 +131,8 @@ fun BleProbeScreen(onBack: () -> Unit) {
             Spacer(Modifier.height(16.dp))
             Text("Peers seen (${peers.size})", style = MaterialTheme.typography.titleMedium)
             peers.forEach { peer ->
-                Row(Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                     Text("${peer.address}  rssi=${peer.rssi}  discovered in ${peer.firstSeenLatencyMs}ms")
-                    Spacer(Modifier.height(4.dp))
                     Button(onClick = {
                         scanner.readPeer(peer.address) { payload, roundTripMs ->
                             appendLog("read \"$payload\" from ${peer.address} in ${roundTripMs}ms")
