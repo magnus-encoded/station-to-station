@@ -11,7 +11,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -291,16 +290,7 @@ fun StationTimelineScreen(
                             },
                             color = Faint,
                             fontSize = 12.sp,
-                            // ponytail: adb can't drive a two-finger pinch; long-press this
-                            // header stands in for it during device screenshot passes.
-                            // Revert before this branch ships.
-                            modifier = Modifier
-                                .padding(start = 20.dp, top = 2.dp, bottom = 14.dp)
-                                .pointerInput(state.friends) {
-                                    detectTapGestures(onLongPress = {
-                                        if (state.friends.isNotEmpty()) zoomedOut = !zoomedOut
-                                    })
-                                },
+                            modifier = Modifier.padding(start = 20.dp, top = 2.dp, bottom = 14.dp),
                         )
                         // Whose line is whose, only while more than one is showing.
                         // Scrolls sideways: the key is the one thing that grows without
