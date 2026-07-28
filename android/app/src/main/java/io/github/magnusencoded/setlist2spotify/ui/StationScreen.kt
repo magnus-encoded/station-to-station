@@ -805,7 +805,10 @@ internal fun PeopleRails(
         // leaving one to go somewhere alone, is the line's own colour, because
         // green marks the nights shared and not the journey to or from them.
         fun edgeColour(from: WovenRow?, to: WovenRow?, friend: Friend, i: Int): Color {
-            val together = (from == null || joinedAt(from, friend)) &&
+            // No row above means no edge above: the stub over the first node must not
+            // claim company it cannot have. Below the last row is different — the run
+            // carries on past the fold, so a missing `to` keeps whatever `from` had.
+            val together = from != null && joinedAt(from, friend) &&
                 (to == null || joinedAt(to, friend))
             if (together) return Crossed
             val anchor = from ?: to
