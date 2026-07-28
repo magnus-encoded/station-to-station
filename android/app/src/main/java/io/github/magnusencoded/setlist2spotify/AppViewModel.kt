@@ -121,6 +121,12 @@ data class UiState(
     val festivalNames: Map<String, String> = emptyMap(),
     /** Set by a card swap so the timeline opens with the other lines already showing. */
     val justConnected: Boolean = false,
+    /**
+     * Which resolution the timeline is at: my own line, or the woven view with every
+     * known lane beside it. Held here rather than in the screen so it can be driven by
+     * something other than a two-finger pinch — see MainActivity's key handling.
+     */
+    val zoomedOut: Boolean = false,
     /** Set when the playlist was made but its cover could not be uploaded. */
     val coverUploadError: String? = null,
     // Transient error surfaced as a snackbar
@@ -483,6 +489,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun consumeJustConnected() = _state.update { it.copy(justConnected = false) }
+
+    /**
+     * Open or close the woven view. The one place that decides it, so a pinch, a card
+     * swap and a key press cannot disagree about when there is anything to open onto.
+     */
+    fun setZoomedOut(on: Boolean) = _state.update {
+        if (on && it.friends.isEmpty()) it else it.copy(zoomedOut = on)
+    }
 
     /**
      * Fills in the real festival names for the clusters currently on the timeline —

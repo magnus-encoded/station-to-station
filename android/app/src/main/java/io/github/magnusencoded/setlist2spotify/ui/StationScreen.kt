@@ -217,10 +217,10 @@ fun StationTimelineScreen(
                     // the other timelines slide into it, at my scale, on my spine.
                     // A card swap lands you here already zoomed out — you just went
                     // looking for their line, so it should be on screen.
-                    var zoomedOut by remember { mutableStateOf(false) }
+                    val zoomedOut = state.zoomedOut
                     LaunchedEffect(state.justConnected) {
                         if (state.justConnected) {
-                            zoomedOut = true
+                            viewModel.setZoomedOut(true)
                             viewModel.consumeJustConnected()
                         }
                     }
@@ -343,8 +343,8 @@ fun StationTimelineScreen(
                                 // back in to close them again. Nothing navigates.
                                 .pointerInput(state.friends) {
                                     detectPinch(
-                                        onZoomOut = { if (state.friends.isNotEmpty()) zoomedOut = true },
-                                        onZoomIn = { zoomedOut = false },
+                                        onZoomOut = { viewModel.setZoomedOut(true) },
+                                        onZoomIn = { viewModel.setZoomedOut(false) },
                                     )
                                 },
                         ) {

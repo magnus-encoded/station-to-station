@@ -2,6 +2,7 @@ package io.github.magnusencoded.setlist2spotify
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -50,6 +51,26 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleAuthIntent(intent)
+    }
+
+    /**
+     * Zoom from a keyboard, because a pinch cannot be scripted. `adb shell input` sends
+     * one pointer, and writing multitouch straight to the touchscreen is permission
+     * denied on an unrooted phone — so the woven view was reachable only by a human's
+     * hand, and every look at it needed one.
+     *
+     *   adb shell input keyevent 169   # zoom out — open the other lines
+     *   adb shell input keyevent 168   # zoom in  — back to my own
+     *
+     * `-` and `+` do the same, so an attached keyboard works too.
+     */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        when (keyCode) {
+            KeyEvent.KEYCODE_ZOOM_OUT, KeyEvent.KEYCODE_MINUS -> viewModel.setZoomedOut(true)
+            KeyEvent.KEYCODE_ZOOM_IN, KeyEvent.KEYCODE_PLUS -> viewModel.setZoomedOut(false)
+            else -> return super.onKeyDown(keyCode, event)
+        }
+        return true
     }
 
     private fun handleAuthIntent(intent: Intent?) {
