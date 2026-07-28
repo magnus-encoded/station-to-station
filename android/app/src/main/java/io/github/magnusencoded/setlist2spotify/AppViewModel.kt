@@ -852,8 +852,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         updateMatch(index) { it.copy(loading = true, error = null) }
         viewModelScope.launch {
             try {
-                val results = spotify.searchTracks(query.trim(), limit = 10)
+                val found = spotify.searchTracks(query.trim(), limit = 10)
                 updateMatch(index) {
+                    // Ranked like the automatic search, or searching by hand would be
+                    // the one path that still hands you Spotify's karaoke rendition.
+                    // The query is the user's, but which recording we mean is still
+                    // this song by this artist.
+                    val results = rankCandidates(found, it.song.name, it.searchArtist)
                     it.copy(
                         loading = false,
                         candidates = results,
