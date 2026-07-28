@@ -894,7 +894,9 @@ internal fun PeopleRails(
             } else {
                 // The bend is where this line leaves the others behind, so it is
                 // painted by the company that travels it, not by the company it left.
-                val bendLen = minOf((h - nodeY) * 0.8f, EdgeBend.toPx())
+                // Never longer than the room below the node, or a short row would
+                // draw its straight stretch backwards before bending.
+                val bendLen = minOf((h - nodeY - gap) * 0.8f, EdgeBend.toPx()).coerceAtLeast(0f)
                 body.lineTo(x, h - bendLen)
                 drawPath(body, atX, style = atXStroke)
 
