@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -346,6 +347,14 @@ fun StationTimelineScreen(
                                         onZoomOut = { if (state.friends.isNotEmpty()) zoomedOut = true },
                                         onZoomIn = { zoomedOut = false },
                                     )
+                                }
+                                // ponytail: adb can't drive a two-finger pinch; long-press
+                                // stands in for it during device screenshot passes. Revert
+                                // before this branch ships.
+                                .pointerInput(state.friends) {
+                                    detectTapGestures(onLongPress = {
+                                        if (state.friends.isNotEmpty()) zoomedOut = !zoomedOut
+                                    })
                                 },
                         ) {
                             // The future edge: scroll up toward what's ahead.
