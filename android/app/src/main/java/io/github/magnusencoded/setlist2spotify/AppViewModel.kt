@@ -210,7 +210,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 // the cached size made the spine look complete at whatever page it had
                 // reached, so scrolling into your own history stopped there for good.
                 setlistsTotal = if (mine.isNotEmpty() && it.setlists.isEmpty()) {
-                    cached.attendedTotals[me] ?: mine.size
+                    // No stored total means a cache written before totals were kept.
+                    // Allow exactly one more page: it reports the real total and
+                    // stores it, so the gap heals itself on the first scroll back.
+                    cached.attendedTotals[me] ?: (mine.size + 1)
                 } else {
                     it.setlistsTotal
                 },
