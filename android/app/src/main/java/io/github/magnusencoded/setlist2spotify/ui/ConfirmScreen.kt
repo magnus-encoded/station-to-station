@@ -283,12 +283,15 @@ private fun ConfirmScreenContent(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
-            // The same numbering the setlist screen showed: tape tracks are on the
-            // line but unnumbered, so a song's number means the same thing on both
-            // screens and matches the setlist on setlist.fm.
+            // Track numbers in the playlist being built — not the setlist positions
+            // the event screen shows. Two different questions: that screen answers
+            // "what did they play", this one answers "what is going in, in what
+            // order". Deriving it from the setlist meant including a tape left it
+            // unnumbered and excluding a song left its number behind, so neither
+            // matched what was about to be created.
             val numbers = remember(state.matches) {
                 var n = 0
-                state.matches.map { if (it.song.tape) null else ++n }
+                state.matches.map { if (it.included && it.selected != null) ++n else null }
             }
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
                 itemsIndexed(state.matches) { index, match ->
@@ -456,9 +459,13 @@ private fun CoverPicker(
 
 /**
  * One song on the same spine it was read on a screen ago — no card, no checkbox.
- * The node carries the whole state of the match: filled green means it is going in
- * the playlist, hollow means it isn't, red means Spotify had nothing to offer.
- * Tapping the node includes or drops the song; tapping the row opens the choices.
+ * The node carries the whole state of the match: filled green and numbered means it
+ * is going into the playlist at that position, hollow means it isn't, red means
+ * Spotify had nothing to offer. Tapping the node includes or drops the song;
+ * tapping the row opens the choices.
+ *
+ * [number] is the track's place in the playlist, so it is null whenever the song
+ * isn't going in — and every remaining number closes up behind it.
  */
 @Composable
 private fun SongMatchRow(
@@ -483,12 +490,14 @@ private fun SongMatchRow(
                 Box(
                     Modifier.align(Alignment.TopCenter).width(2.dp).fillMaxHeight().background(LineCol),
                 )
-                val size = if (number == null) 8.dp else 18.dp
+                // Full size whether or not it carries a number: this node is the
+                // include/drop control, and a target that shrinks the moment you
+                // use it is a target you then have to hunt for to undo.
                 Box(
                     Modifier
                         .align(Alignment.TopCenter)
-                        .padding(top = if (number == null) 7.dp else 2.dp)
-                        .size(size)
+                        .padding(top = 2.dp)
+                        .size(18.dp)
                         .clip(CircleShape)
                         .background(if (on) SpotifyGreen else Raised)
                         .border(1.5.dp, nodeColor, CircleShape)
@@ -496,11 +505,7 @@ private fun SongMatchRow(
                     contentAlignment = Alignment.Center,
                 ) {
                     if (number != null) {
-                        Text(
-                            number.toString(),
-                            color = if (on) OnGreen else Faint,
-                            fontSize = 10.sp,
-                        )
+                        Text(number.toString(), color = OnGreen, fontSize = 10.sp)
                     }
                 }
             }
@@ -510,8 +515,14 @@ private fun SongMatchRow(
                     .clickable(onClick = onToggleExpand)
                     .padding(top = 1.dp, bottom = 14.dp),
             ) {
+                // Say "tape" here: it is the reason the row starts dropped, and
+                // without it an unnumbered node looks like something went wrong.
                 Text(
-                    match.song.name + if (match.isCover) " · ${match.searchArtist} cover" else "",
+                    match.song.name + when {
+                        match.isCover -> " · ${match.searchArtist} cover"
+                        match.song.tape -> " · tape"
+                        else -> ""
+                    },
                     color = if (on) Ink else Muted,
                     fontSize = 15.sp,
                     maxLines = 1,

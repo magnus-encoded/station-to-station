@@ -49,6 +49,28 @@ class SetlistNumberingTest {
         assertEquals(1, rows.count { it is EventRow.Encore })
     }
 
+    /**
+     * The confirm screen numbers the playlist being built, not the setlist. Same
+     * rule as [io.github.magnusencoded.setlist2spotify.ui.ConfirmScreen]'s `numbers`.
+     */
+    private fun playlistNumbers(vararg going: Boolean): List<Int?> {
+        var n = 0
+        return going.map { if (it) ++n else null }
+    }
+
+    @Test
+    fun `including a tape track gives it a place and pushes the rest down`() {
+        // Choke, Money, then a tape nobody wanted: 1, 2, unnumbered.
+        assertEquals(listOf(1, 2, null), playlistNumbers(true, true, false))
+        // Tap the tape in and it takes position 3.
+        assertEquals(listOf(1, 2, 3), playlistNumbers(true, true, true))
+    }
+
+    @Test
+    fun `dropping a song closes the numbering up behind it`() {
+        assertEquals(listOf(1, null, 2), playlistNumbers(true, false, true))
+    }
+
     @Test
     fun `the count shown is what the band played, not what was logged`() {
         val setlist = show(set(tape("Walk-on"), song("Choke"), song(""), song("Money")))
