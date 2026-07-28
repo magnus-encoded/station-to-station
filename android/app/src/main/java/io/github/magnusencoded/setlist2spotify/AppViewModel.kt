@@ -53,8 +53,32 @@ enum class SetlistSource { ARTIST, USER }
  * Where a `station-to-station://` link lands. The link's first segment names whose
  * line you are looking at, and that is the same thing as the resolution: one gig on
  * its own is the setlist, a line plus a gig is that line scrolled to it.
+ *
+ * ponytail: [SINGLE_LINE] is always *my* line. A friend's own line is a resolution
+ * the app doesn't have yet, so `station-to-station://Trummispojken/<gig>` lands on
+ * mine at that night. Give it its own case when zooming into a lane exists.
  */
-enum class GigLink { SETLIST, MY_LINE, WOVEN }
+enum class GigLink { SETLIST, SINGLE_LINE, WOVEN }
+
+/**
+ * Reads a `station-to-station://` link into the gig it names and the resolution it
+ * wants. Pure so the grammar can be checked without a device — the parsing is the
+ * part most likely to be wrong, and a mis-read id fails silently.
+ *
+ *   334c742d              -> the setlist itself
+ *   dizzi90/334c742d      -> a single line, scrolled to that gig
+ *   Friends/334c742d      -> the woven view, scrolled to that gig
+ */
+fun parseGigLink(segments: List<String>): Pair<String, GigLink>? {
+    val parts = segments.filter { it.isNotBlank() }
+    val gig = parts.lastOrNull() ?: return null
+    val where = when {
+        parts.size < 2 -> GigLink.SETLIST
+        parts[0].equals("friends", ignoreCase = true) -> GigLink.WOVEN
+        else -> GigLink.SINGLE_LINE
+    }
+    return gig to where
+}
 
 /** A gallery photo from the night of the show, offered as the playlist cover. */
 data class CoverCandidate(val uri: Uri, val preview: Bitmap?)
@@ -530,13 +554,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * timeline, which is the only place that knows which row a gig ended up in.
      */
     fun openGigLink(uri: Uri) {
-        val parts = (listOfNotNull(uri.host) + uri.pathSegments).filter { it.isNotBlank() }
-        val gig = parts.lastOrNull() ?: return
-        val where = when {
-            parts.size < 2 -> GigLink.SETLIST
-            parts[0].equals("friends", ignoreCase = true) -> GigLink.WOVEN
-            else -> GigLink.MY_LINE
-        }
+        val (gig, where) = parseGigLink(listOfNotNull(uri.host) + uri.pathSegments) ?: return
         if (where != GigLink.SETLIST) setZoomedOut(where == GigLink.WOVEN)
         _state.update { it.copy(linkedGig = gig, linkedGigAs = where) }
     }
