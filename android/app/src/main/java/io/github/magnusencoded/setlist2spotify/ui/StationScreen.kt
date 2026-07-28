@@ -972,26 +972,27 @@ internal fun PeopleRails(
                 drawPath(approach, atX, style = atXStroke)
             }
 
-            val body = Path()
-            body.moveTo(x, nodeY + gap)
-            if (toX == x) {
-                body.lineTo(x, h)
-                drawPath(body, atX, style = atXStroke)
-            } else {
-                // The bend is where this line leaves the others behind, so it is
-                // painted by the company that travels it, not by the company it left.
-                // Never longer than the room below the node, or a short row would
-                // draw its straight stretch backwards before bending.
-                val bendLen = minOf((h - nodeY - gap) * 0.8f, EdgeBend.toPx()).coerceAtLeast(0f)
-                body.lineTo(x, h - bendLen)
-                drawPath(body, atX, style = atXStroke)
+            // The last stretch of a row belongs to the edge ahead, and every line gets
+            // it — not only the ones that bend. Company peeling away leaves a line
+            // alone even when that line never moves, so my spine has to stop being
+            // green there too, or it claims a crossing after the others have gone.
+            // Never longer than the room below the node, or a short row would draw
+            // its straight stretch backwards before turning.
+            val bendLen = minOf((h - nodeY - gap) * 0.8f, EdgeBend.toPx()).coerceAtLeast(0f)
 
-                val (leaving, leavingStroke) = paint(peopleAlong(next, line), here, line)
-                val bend = Path()
-                bend.moveTo(x, h - bendLen)
-                bend.cubicTo(x, h - bendLen * 0.45f, toX, h - bendLen * 0.55f, toX, h)
-                drawPath(bend, leaving, style = leavingStroke)
+            val body = Path().apply {
+                moveTo(x, nodeY + gap)
+                lineTo(x, h - bendLen)
             }
+            drawPath(body, atX, style = atXStroke)
+
+            val (leaving, leavingStroke) = paint(peopleAlong(next, line), here, line)
+            val tail = Path().apply {
+                moveTo(x, h - bendLen)
+                if (toX == x) lineTo(x, h)
+                else cubicTo(x, h - bendLen * 0.45f, toX, h - bendLen * 0.55f, toX, h)
+            }
+            drawPath(tail, leaving, style = leavingStroke)
 
             // One node per night, drawn once by the innermost line that was there.
             // My own rows and festivals draw their own, so this only fills the gap
