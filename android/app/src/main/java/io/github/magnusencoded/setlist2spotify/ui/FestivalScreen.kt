@@ -56,14 +56,6 @@ import java.time.temporal.ChronoUnit
  * a meeting is its own thing.
  */
 internal val Crossed = Color(0xFF6FBF9C)
-internal val CrossedSoft = Color(0x336FBF9C)
-
-/**
- * [CrossedSoft] as it looks over the background, but opaque. A meeting node has to
- * stop the lines that arrive at it — through a translucent fill the line ran on
- * past, so the node read as a bead threaded on a string rather than a station.
- */
-internal val CrossedFill = Color(0xFF212F2F)
 
 /** The spine's geometry, shared by every row so nothing moves between resolutions. */
 internal val SpineWidth = 52.dp
@@ -327,7 +319,8 @@ fun FestivalItem(
                     .padding(start = nodeX - 10.dp, top = 4.dp)
                     .size(22.dp)
                     .clip(CircleShape)
-                    .background(if (sharedCount > 0) CrossedFill else Raised)
+                    // See-through: a node is a ring; nothing is drawn inside one.
+                    .background(Color.Transparent)
                     .border(2.dp, accent, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {

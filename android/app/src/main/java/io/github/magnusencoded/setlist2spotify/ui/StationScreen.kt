@@ -607,11 +607,12 @@ internal fun TimelineItem(
                         .size(size)
                         .clip(CircleShape)
                         .background(
+                            // See-through: a node is a ring, and the lines stop at
+                            // its rim rather than being hidden behind a fill.
                             when {
-                                // Opaque: the lines have to stop here, not run through.
-                                shared -> CrossedFill
+                                shared -> Color.Transparent
                                 highlight -> AmberSoft
-                                else -> Raised
+                                else -> Color.Transparent
                             },
                         )
                         .border(
@@ -763,14 +764,25 @@ internal fun PeopleRails(
         val h = size.height
         val stroke = Stroke(width = 2.dp.toPx())
 
+        // A node is a ring you see through, so no line may be drawn inside one:
+        // every line stops at the rim and picks up again on the far side. This is
+        // the outer radius of whichever node this row draws.
+        val nodeR = when {
+            row.node is TimelineNode.Festival -> 11.dp.toPx()
+            row.depth > 0 -> 5.dp.toPx()
+            else -> 7.dp.toPx()
+        }
+
         // My line runs the whole way down, dead straight, never displaced. Whatever a
-        // night was, it happens on my line — I don't step aside to attend it.
-        drawLine(
-            Amber.copy(alpha = if (row.mine) 0.85f else 0.4f),
-            Offset(spineX, 0f),
-            Offset(spineX, h),
-            strokeWidth = 2.dp.toPx(),
-        )
+        // night was, it happens on my line — I don't step aside to attend it. It only
+        // ever breaks for my own node, which sits on it.
+        val amber = Amber.copy(alpha = if (row.mine) 0.85f else 0.4f)
+        if (row.mine) {
+            drawLine(amber, Offset(spineX, 0f), Offset(spineX, nodeY - nodeR), strokeWidth = 2.dp.toPx())
+            drawLine(amber, Offset(spineX, nodeY + nodeR), Offset(spineX, h), strokeWidth = 2.dp.toPx())
+        } else {
+            drawLine(amber, Offset(spineX, 0f), Offset(spineX, h), strokeWidth = 2.dp.toPx())
+        }
 
         val host = nodeHost(row, friends)
 
@@ -826,20 +838,26 @@ internal fun PeopleRails(
                 return Stroke(width = LineWidth.toPx() + PerPerson.toPx() * (people - 1))
             }
 
+            // Where this line has a node, it stops at the rim and starts again on
+            // the far side — nothing is drawn inside a node. A line only meets a
+            // node it belongs to, so a friend who wasn't here just runs past.
+            val gap = if (here) nodeR else 0f
+
             // Above the node the line still belongs to the edge it came down, so it
-            // keeps that edge's colour and weight; the change happens under the
-            // node's own fill. The row above spent its tail delivering the line to
-            // this x, so the approach itself is straight.
-            val approach = Path().apply {
-                moveTo(x, 0f)
-                lineTo(x, nodeY)
+            // keeps that edge's colour and weight. The row above spent its tail
+            // delivering the line to this x, so the approach itself is straight.
+            if (nodeY - gap > 0f) {
+                val approach = Path().apply {
+                    moveTo(x, 0f)
+                    lineTo(x, nodeY - gap)
+                }
+                drawPath(approach, edgeColour(prev, row, friend, i), style = strokeFor(prev, row))
             }
-            drawPath(approach, edgeColour(prev, row, friend, i), style = strokeFor(prev, row))
 
             // From the node on: the edge to the next node, leaning toward it at the
             // end. Joining, parting and staying put are the same stroke.
             val path = Path()
-            path.moveTo(x, nodeY)
+            path.moveTo(x, nodeY + gap)
             if (toX == x) {
                 path.lineTo(x, h)
             } else {
@@ -849,11 +867,10 @@ internal fun PeopleRails(
             }
             drawPath(path, edgeColour(row, next, friend, i), style = strokeFor(row, next))
 
-            // One node per night, drawn by the line hosting it. My own rows draw their
-            // node themselves; without the host check every line at a meeting would
-            // stack its own circle on the same point.
-            if (here && !row.mine && i == host) {
-                drawCircle(if (joined) CrossedFill else Raised, 6.dp.toPx(), Offset(x, nodeY))
+            // One node per night, drawn by the line hosting it. My own rows draw
+            // their node themselves, and so does a festival at any lane — without
+            // both checks a node gets a second circle stacked inside it.
+            if (here && !row.mine && i == host && row.node !is TimelineNode.Festival) {
                 drawCircle(if (joined) Crossed else railColor(i), 6.dp.toPx(), Offset(x, nodeY), style = stroke)
             }
         }
