@@ -135,10 +135,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
         /** ponytail: mocked nearby peers so the woven view is testable before real
          *  Nearby Connections lands. Both were at The Warning, Tons of Rock, 25 Jun
-         *  2026 — the node where all three lines are one. */
+         *  2026 — the node where all three lines are one. Carlitos2 stood here first
+         *  and gigged ~200 times a month, which buried my line under his and made a
+         *  lane that no page limit could cover; a real history is the better test. */
         val TRUMMISPOJKEN = Friend(setlistfm = "Trummispojken", name = "Trummispojken")
-        val CARLITOS2 = Friend(setlistfm = "Carlitos2", name = "Carlitos2")
-        val MOCK_PEERS = listOf(TRUMMISPOJKEN, CARLITOS2)
+        val EGIL = Friend(setlistfm = "Egil", name = "Egil")
+        val MOCK_PEERS = listOf(TRUMMISPOJKEN, EGIL)
     }
 
     val settings = SettingsRepository(application)

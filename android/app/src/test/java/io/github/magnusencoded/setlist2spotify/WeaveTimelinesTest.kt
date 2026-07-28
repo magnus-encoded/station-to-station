@@ -22,7 +22,7 @@ class WeaveTimelinesTest {
     )
 
     private val trummis = Friend(setlistfm = "Trummispojken", name = "Trummispojken")
-    private val carlitos = Friend(setlistfm = "Carlitos2", name = "Carlitos2")
+    private val egil = Friend(setlistfm = "Egil", name = "Egil")
 
     @Test
     fun `with nobody connected the rows are just my own`() {
@@ -109,14 +109,14 @@ class WeaveTimelinesTest {
         val rows = weaveTimelines(
             mine = listOf(tons, show("a2", "24-06-2026", "Ekebergsletta")),
             festivalNames = emptyMap(),
-            friends = listOf(carlitos, trummis),
+            friends = listOf(egil, trummis),
             theirs = mapOf(
                 "Trummispojken" to listOf(tons, show("b2", "26-06-2026", "Ekebergsletta")),
-                "Carlitos2" to listOf(tons),
+                "Egil" to listOf(tons),
             ),
         )
         assertEquals(1, rows.size)
-        assertEquals(setOf(carlitos, trummis), rows[0].others.toSet())
+        assertEquals(setOf(egil, trummis), rows[0].others.toSet())
         assertTrue(rows[0].shared)
     }
 
@@ -126,10 +126,10 @@ class WeaveTimelinesTest {
         val rows = weaveTimelines(
             mine = listOf(tons, show("a2", "24-06-2026", "Ekebergsletta")),
             festivalNames = emptyMap(),
-            friends = listOf(carlitos, trummis),
+            friends = listOf(egil, trummis),
             theirs = mapOf(
                 "Trummispojken" to listOf(tons),
-                "Carlitos2" to listOf(tons),
+                "Egil" to listOf(tons),
             ),
         )
         // Both were at the same one gig: one show here, and it is the one we shared.
@@ -143,28 +143,28 @@ class WeaveTimelinesTest {
         val rows = weaveTimelines(
             mine = listOf(show("a1", "21-11-2025", "Blå")),
             festivalNames = emptyMap(),
-            friends = listOf(carlitos, trummis),
-            theirs = mapOf("Trummispojken" to listOf(theirs), "Carlitos2" to listOf(theirs)),
+            friends = listOf(egil, trummis),
+            theirs = mapOf("Trummispojken" to listOf(theirs), "Egil" to listOf(theirs)),
         )
         assertEquals(2, rows.size) // my night, and the one they shared without me
         val without = rows.first { !it.mine }
-        assertEquals(setOf(carlitos, trummis), without.others.toSet())
+        assertEquals(setOf(egil, trummis), without.others.toSet())
     }
 
     @Test
     fun `a night with one of them says so - the other is not on that node`() {
-        val withCarlitos = show("a1", "21-11-2025", "Blå")
+        val withEgil = show("a1", "21-11-2025", "Blå")
         val rows = weaveTimelines(
-            mine = listOf(withCarlitos),
+            mine = listOf(withEgil),
             festivalNames = emptyMap(),
-            friends = listOf(carlitos, trummis),
+            friends = listOf(egil, trummis),
             theirs = mapOf(
-                "Carlitos2" to listOf(withCarlitos),
+                "Egil" to listOf(withEgil),
                 "Trummispojken" to listOf(show("b9", "01-01-2020", "Somewhere else")),
             ),
         )
         val mine = rows.first { it.mine }
-        assertEquals(listOf(carlitos), mine.others)
+        assertEquals(listOf(egil), mine.others)
         assertEquals(1, mine.sharedCount)
     }
 
@@ -173,9 +173,9 @@ class WeaveTimelinesTest {
         val rows = weaveTimelines(
             mine = listOf(show("a1", "21-11-2025", "Blå")),
             festivalNames = emptyMap(),
-            friends = listOf(carlitos, trummis),
+            friends = listOf(egil, trummis),
             theirs = mapOf(
-                "Carlitos2" to listOf(
+                "Egil" to listOf(
                     show("b1", "16-05-2026", "Stora Scenen"),
                     show("b2", "15-05-2026", "Stora Scenen"),
                 ),

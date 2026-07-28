@@ -23,11 +23,11 @@ import org.junit.Test
  */
 class LaneGeometryTest {
 
-    private val carlitos = Friend(setlistfm = "Carlitos2", name = "Carlitos2")
+    private val egil = Friend(setlistfm = "Egil", name = "Egil")
     private val trummis = Friend(setlistfm = "Trummispojken", name = "Trummispojken")
 
     /** Lane 0 is nearest my spine and belongs to the most recently added friend. */
-    private val lanes = listOf(carlitos, trummis)
+    private val lanes = listOf(egil, trummis)
 
     private fun row(mine: Boolean, vararg present: Friend) = WovenRow(
         node = TimelineNode.Concert(FmSetlist(id = "n", artist = FmArtist(name = "A"))),
@@ -37,22 +37,22 @@ class LaneGeometryTest {
 
     @Test
     fun `a friend who wasn't there stays in their own lane`() {
-        assertEquals(0, hostLane(row(mine = true), carlitos, lanes))
+        assertEquals(0, hostLane(row(mine = true), egil, lanes))
         assertEquals(1, hostLane(row(mine = true), trummis, lanes))
     }
 
     @Test
     fun `a night I was at pulls their line onto my spine`() {
-        val night = row(mine = true, carlitos)
-        assertEquals(Spine, hostLane(night, carlitos, lanes))
+        val night = row(mine = true, egil)
+        assertEquals(Spine, hostLane(night, egil, lanes))
         assertEquals(1, hostLane(night, trummis, lanes)) // not there, own lane
     }
 
     @Test
     fun `two friends at a night I missed merge onto the lane nearest my spine`() {
-        val night = row(mine = false, carlitos, trummis)
+        val night = row(mine = false, egil, trummis)
         assertEquals(0, nodeHost(night, lanes))
-        assertEquals(0, hostLane(night, carlitos, lanes))
+        assertEquals(0, hostLane(night, egil, lanes))
         assertEquals(0, hostLane(night, trummis, lanes)) // came to meet the inner lane
     }
 
@@ -66,20 +66,20 @@ class LaneGeometryTest {
 
     @Test
     fun `company is green whoever it is with`() {
-        assertTrue(joinedAt(row(mine = true, carlitos), carlitos))
-        assertTrue(joinedAt(row(mine = false, carlitos, trummis), trummis))
-        assertFalse(joinedAt(row(mine = true), carlitos))
+        assertTrue(joinedAt(row(mine = true, egil), egil))
+        assertTrue(joinedAt(row(mine = false, egil, trummis), trummis))
+        assertFalse(joinedAt(row(mine = true), egil))
     }
 
     @Test
     fun `one parting on the row the other joins is two independent answers`() {
-        // Above: I was out with Trummispojken. Here: with Carlitos2 instead.
+        // Above: I was out with Trummispojken. Here: with Egil instead.
         val above = row(mine = true, trummis)
-        val here = row(mine = true, carlitos)
+        val here = row(mine = true, egil)
 
-        // Carlitos2 comes in from their lane to my spine.
-        assertEquals(0, hostLane(above, carlitos, lanes))
-        assertEquals(Spine, hostLane(here, carlitos, lanes))
+        // Egil comes in from their lane to my spine.
+        assertEquals(0, hostLane(above, egil, lanes))
+        assertEquals(Spine, hostLane(here, egil, lanes))
         // Trummispojken leaves my spine for theirs, on the same row. Neither
         // answer depends on the other, which is what the old shared Boolean got wrong.
         assertEquals(Spine, hostLane(above, trummis, lanes))
