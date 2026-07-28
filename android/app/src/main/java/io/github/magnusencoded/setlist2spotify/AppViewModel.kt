@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 /** One setlist song together with its Spotify match candidates and selection. */
 data class SongMatch(
@@ -355,6 +356,32 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * A friend's attended shows, paged back far enough to cover my own line rather
+     * than to a fixed page count. setlist.fm returns newest first, so a flat cap is
+     * a *window*, not a sample: Carlitos2's first 60 shows spanned ten days, and
+     * every night we actually shared was older than his last fetched page — the
+     * lines could never meet however correct the drawing was.
+     *
+     * ponytail: [maxPages] is a runaway guard, not a policy. Nothing older than my
+     * own first gig can overlap, so that is where paging stops.
+     */
+    private suspend fun attendedBackTo(
+        userId: String,
+        oldestOfMine: LocalDate?,
+        maxPages: Int = 25,
+    ): List<FmSetlist> {
+        val all = mutableListOf<FmSetlist>()
+        for (page in 1..maxPages) {
+            val resp = setlistFm.userAttended(userId, page)
+            all += resp.setlist
+            if (all.size >= resp.total || resp.setlist.isEmpty()) break
+            val pageOldest = resp.setlist.mapNotNull { it.localDate() }.minOrNull()
+            if (oldestOfMine != null && pageOldest != null && pageOldest < oldestOfMine) break
+        }
+        return all
+    }
+
+    /**
      * Loads the concerts both [friend] and I attended into [UiState.setlists], so
      * the existing SetlistsScreen renders them and tapping one flows into the
      * normal confirm → create-playlist path.
@@ -455,21 +482,41 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Whether a cached lane already goes back as far as my own line does.
+     *
+     * ponytail: a friend whose whole history is newer than my first gig looks short
+     * every time, so zooming out costs them one page fetch each — the fetch stops on
+     * the first page because it has their whole list. Store their reported total if
+     * that one call ever matters.
+     */
+    private fun reachesBack(shows: List<FmSetlist>, oldestOfMine: LocalDate?): Boolean {
+        if (oldestOfMine == null) return true
+        val theirOldest = shows.mapNotNull { it.localDate() }.minOrNull() ?: return false
+        return theirOldest <= oldestOfMine
+    }
+
     /** Loads every known friend's attended shows for the woven (zoomed-out) view. */
     fun loadFriendTimelines() {
         val friends = _state.value.friends
         if (friends.isEmpty()) return
-        // Restored from cache already — this runs on every zoom-out, and refetching
-        // every lane each time is the call volume the store exists to remove.
-        if (friends.all { !_state.value.showsByFriend[it.setlistfm].isNullOrEmpty() }) return
+        val myOldest = _state.value.setlists.mapNotNull { it.localDate() }.minOrNull()
+        // Reload a lane only if it is missing or stops short of my own first gig.
+        // Cached-and-complete is the common case, and refetching every lane on every
+        // zoom-out is the call volume the store exists to remove — but a lane cut off
+        // at 60 shows is not complete, however cached it is.
+        val stale = friends.filter { friend ->
+            val have = _state.value.showsByFriend[friend.setlistfm]
+            have.isNullOrEmpty() || !reachesBack(have, myOldest)
+        }
+        if (stale.isEmpty()) return
         _state.update { it.copy(timelinesLoading = true) }
         viewModelScope.launch {
-            // ponytail: caps at 60 shows (3 pages) each, like the other timeline loads.
-            val loaded = friends.associate { friend ->
-                friend.setlistfm to runCatching { attendedConcerts(friend.setlistfm, maxPages = 3) }
+            val loaded = stale.associate { friend ->
+                friend.setlistfm to runCatching { attendedBackTo(friend.setlistfm, myOldest) }
                     .getOrDefault(emptyList())
-            }
-            _state.update { it.copy(showsByFriend = loaded, timelinesLoading = false) }
+            }.filterValues { it.isNotEmpty() }
+            _state.update { it.copy(showsByFriend = it.showsByFriend + loaded, timelinesLoading = false) }
             // Merge, so a friend whose fetch just failed keeps their last good lane.
             timelines.save(shows = loaded)
         }
