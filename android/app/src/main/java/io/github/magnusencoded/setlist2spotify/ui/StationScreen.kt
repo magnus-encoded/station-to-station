@@ -339,12 +339,20 @@ fun StationTimelineScreen(
                                 }
                                 return@LaunchedEffect
                             }
-                            val at = rows.indexOfFirst { row -> row.shows.any { it.id == gig } }
+                            // A collapsed festival's own shows are only mine, so a night
+                            // of theirs absorbed into it would never be found and never
+                            // open the festival holding it.
+                            // Last, not first: an open festival lists the gig again as a
+                            // row of its own below its header, and that row is the place
+                            // the link actually means.
+                            val at = rows.indexOfLast { row ->
+                                row.shows.any { it.id == gig } ||
+                                    row.showsHereByFriends.any { it.id == gig }
+                            }
                             if (at < 0) return@LaunchedEffect
                             val row = rows[at]
                             val insideClosedFestival =
-                                row.node is TimelineNode.Festival && row.key !in expanded &&
-                                    row.shows.size > 1
+                                row.node is TimelineNode.Festival && row.key !in expanded
                             if (insideClosedFestival) {
                                 viewModel.openFestival(row.key)
                                 return@LaunchedEffect
