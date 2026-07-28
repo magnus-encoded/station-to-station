@@ -47,6 +47,7 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     viewModel: AppViewModel,
     onBack: () -> Unit,
+    onOpenBleProbe: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -205,6 +206,16 @@ fun SettingsScreen(
                     }
                 }
             }
+
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(24.dp))
+
+            // #18 field-test: dev-only screen, not part of the shipped feature set.
+            OutlinedButton(
+                onClick = onOpenBleProbe,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("BLE probe (#18 field test)") }
 
             Spacer(Modifier.height(24.dp))
             Text(
