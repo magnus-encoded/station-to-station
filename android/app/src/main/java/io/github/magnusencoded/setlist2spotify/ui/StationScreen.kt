@@ -2,6 +2,7 @@ package io.github.magnusencoded.setlist2spotify.ui
 
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -84,6 +85,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.magnusencoded.setlist2spotify.AppViewModel
+import io.github.magnusencoded.setlist2spotify.BuildConfig
 import io.github.magnusencoded.setlist2spotify.GigLink
 import io.github.magnusencoded.setlist2spotify.data.Friend
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
@@ -205,6 +207,14 @@ fun StationTimelineScreen(
         },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
+            // Which build is actually on the phone. It is installed over Wi-Fi from CI,
+            // and answering that by hashing APKs cost more than it should have.
+            Text(
+                "${BuildConfig.VERSION_NAME} · ${BuildConfig.GIT_SHA}",
+                color = Faint.copy(alpha = 0.5f),
+                fontSize = 9.sp,
+                modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 4.dp),
+            )
             when {
                 state.setlistsLoading && state.setlists.isEmpty() ->
                     CircularProgressIndicator(color = Amber, modifier = Modifier.align(Alignment.Center))
@@ -324,6 +334,7 @@ fun StationTimelineScreen(
                                 expanded = expanded,
                             )
                         }
+                        LaunchedEffect(rows, lanes) { logWovenRows(rows, lanes) }
 
                         // A station-to-station:// link names a gig, and only here can a
                         // gig be turned into a place: one inside a collapsed festival
@@ -775,6 +786,34 @@ private val EdgeBend = 56.dp
 /** One person walking alone, and what each extra one on the same line adds. */
 private val LineWidth = 2.dp
 private val PerPerson = 1.2.dp
+
+/**
+ * The woven spine as facts rather than pixels: `adb logcat -s Woven`.
+ *
+ * Every rule in this file is visual, and the only way to check one has been to read
+ * a screenshot — which is slow and, at least once, wrong: three lines converging was
+ * read off an image as a merge that the data said never happened. A row's model and
+ * the lane each person is drawn on are both computable here, so they can be asserted
+ * on instead of squinted at. Debug builds only.
+ */
+internal fun logWovenRows(rows: List<WovenRow>, lanes: List<Friend>) {
+    if (!BuildConfig.DEBUG) return
+    Log.d("Woven", "--- ${rows.size} rows, lanes=${lanes.map { it.setlistfm }} ---")
+    rows.forEach { row ->
+        val where = lanes.joinToString(" ") { f ->
+            val lane = hostLane(row, f, lanes)
+            "${f.setlistfm}@${if (lane == Spine) "spine" else "lane$lane"}"
+        }
+        Log.d(
+            "Woven",
+            "${row.date} d${row.depth} ${if (row.mine) "mine" else "theirs"} " +
+                "node=${if (row.node is TimelineNode.Festival) "festival" else "gig"} " +
+                "with=[${row.others.joinToString(",") { it.setlistfm }}] " +
+                "together=${row.sharedCount} theirs=${row.showsHereByFriends.size} " +
+                "host=${nodeHost(row, lanes)} $where key=${row.key}",
+        )
+    }
+}
 
 @Composable
 internal fun PeopleRails(

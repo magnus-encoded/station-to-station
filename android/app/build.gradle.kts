@@ -21,6 +21,14 @@ fun credential(name: String, default: String = ""): String =
 val spotifyClientId = credential("SPOTIFY_CLIENT_ID", default = "4d0ca5e417a54b599b07bfac99671644")
 val setlistFmApiKey = credential("SETLISTFM_API_KEY")
 
+// Which commit is on the phone. Builds are made in CI and installed over Wi-Fi, so
+// "is this the build I just pushed?" was being answered by hashing APKs — and once
+// by a truncated push that silently left the old one running.
+val gitSha: String = runCatching {
+    providers.exec { commandLine("git", "rev-parse", "--short", "HEAD") }
+        .standardOutput.asText.get().trim()
+}.getOrDefault("").ifBlank { "nogit" }
+
 android {
     namespace = "io.github.magnusencoded.setlist2spotify"
     compileSdk = 35
@@ -33,6 +41,7 @@ android {
         versionName = "1.1" + (System.getenv("GITHUB_RUN_NUMBER")?.let { ".$it" } ?: "")
         buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")
         buildConfigField("String", "SETLISTFM_API_KEY", "\"$setlistFmApiKey\"")
+        buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
     }
 
     signingConfigs {
