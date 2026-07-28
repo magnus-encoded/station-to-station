@@ -23,6 +23,7 @@ import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSong
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.SetlistFmClient
 import io.github.magnusencoded.setlist2spotify.data.spotify.SpotifyClient
 import io.github.magnusencoded.setlist2spotify.data.spotify.SpotifyTrack
+import io.github.magnusencoded.setlist2spotify.data.spotify.rankCandidates
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -734,11 +735,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun findCandidates(track: String, artist: String): Pair<List<SpotifyTrack>, String?> {
         return try {
-            var results = spotify.searchTracks("track:\"$track\" artist:\"$artist\"")
+            // Ten rather than the default five: ranking can only choose from what it
+            // is handed, and the studio cut often sits under a run of live versions.
+            // Same number of requests either way.
+            var results = spotify.searchTracks("track:\"$track\" artist:\"$artist\"", limit = 10)
             if (results.isEmpty()) {
-                results = spotify.searchTracks("$track $artist")
+                results = spotify.searchTracks("$track $artist", limit = 10)
             }
-            results to null
+            // Best-first rather than Spotify-first: the auto-selection above takes the
+            // head of this list, and the picker lists them in this order too.
+            rankCandidates(results, track, artist) to null
         } catch (e: Exception) {
             emptyList<SpotifyTrack>() to (e.message ?: "Search failed")
         }
