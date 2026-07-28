@@ -787,14 +787,18 @@ internal fun PeopleRails(
             return (mineHere + friendsHere).coerceAtLeast(1)
         }
 
-        // A line's colour belongs to the stretch *below* a node: you arrive as
-        // whoever you were, and the meeting's green begins at the node itself,
-        // never on the way in.
-        fun colourOf(r: WovenRow?, friend: Friend, i: Int): Color = when {
-            r == null -> LineCol
-            joinedAt(r, friend) -> Crossed
-            r.others.any { it.setlistfm == friend.setlistfm } -> railColor(i)
-            else -> LineCol
+        // Colour and weight belong to an **edge** — the stretch between two nodes —
+        // not to a row. An edge is green only when the line is in company at both
+        // ends: a run of nights spent together. Coming down to a crossing, or
+        // leaving one to go somewhere alone, is the line's own colour, because
+        // green marks the nights shared and not the journey to or from them.
+        fun edgeColour(from: WovenRow?, to: WovenRow?, friend: Friend, i: Int): Color {
+            val together = (from == null || joinedAt(from, friend)) &&
+                (to == null || joinedAt(to, friend))
+            if (together) return Crossed
+            val anchor = from ?: to
+            val present = anchor != null && anchor.others.any { it.setlistfm == friend.setlistfm }
+            return if (present) railColor(i) else LineCol
         }
 
         friends.forEachIndexed { i, friend ->
@@ -814,21 +818,26 @@ internal fun PeopleRails(
             val here = row.others.any { it.setlistfm == friend.setlistfm }
             val joined = joinedAt(row, friend)
 
-            fun strokeFor(r: WovenRow?) =
-                Stroke(width = LineWidth.toPx() + PerPerson.toPx() * (peopleOn(r, friend) - 1))
+            // An edge alone carries one person; only a joined run carries more, and
+            // then it is as heavy as the company on it.
+            fun strokeFor(from: WovenRow?, to: WovenRow?): Stroke {
+                val green = edgeColour(from, to, friend, i) == Crossed
+                val people = if (green) peopleOn(from ?: to, friend) else 1
+                return Stroke(width = LineWidth.toPx() + PerPerson.toPx() * (people - 1))
+            }
 
-            // Above the node the line still belongs to the stretch it came down, so
-            // it keeps that colour and weight; the change happens under the node's
-            // own fill. The row above spent its tail delivering the line to this x,
-            // so the approach is straight.
+            // Above the node the line still belongs to the edge it came down, so it
+            // keeps that edge's colour and weight; the change happens under the
+            // node's own fill. The row above spent its tail delivering the line to
+            // this x, so the approach itself is straight.
             val approach = Path().apply {
                 moveTo(x, 0f)
                 lineTo(x, nodeY)
             }
-            drawPath(approach, colourOf(prev, friend, i), style = strokeFor(prev))
+            drawPath(approach, edgeColour(prev, row, friend, i), style = strokeFor(prev, row))
 
-            // From the node on: this night's colour, then lean toward the next node.
-            // Joining, parting and staying put are the same stroke.
+            // From the node on: the edge to the next node, leaning toward it at the
+            // end. Joining, parting and staying put are the same stroke.
             val path = Path()
             path.moveTo(x, nodeY)
             if (toX == x) {
@@ -838,7 +847,7 @@ internal fun PeopleRails(
                 path.lineTo(x, h - bend)
                 path.cubicTo(x, h - bend * 0.45f, toX, h - bend * 0.55f, toX, h)
             }
-            drawPath(path, colourOf(row, friend, i), style = strokeFor(row))
+            drawPath(path, edgeColour(row, next, friend, i), style = strokeFor(row, next))
 
             // One node per night, drawn by the line hosting it. My own rows draw their
             // node themselves; without the host check every line at a meeting would
