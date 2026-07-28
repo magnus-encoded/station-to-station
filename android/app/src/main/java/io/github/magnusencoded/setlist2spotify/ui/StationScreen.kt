@@ -600,7 +600,8 @@ internal fun TimelineItem(
                         .clip(CircleShape)
                         .background(
                             when {
-                                shared -> CrossedSoft
+                                // Opaque: the lines have to stop here, not run through.
+                                shared -> CrossedFill
                                 highlight -> AmberSoft
                                 else -> Raised
                             },
@@ -733,6 +734,10 @@ internal fun crossingX(row: WovenRow, lanes: List<Friend>, laneWidth: Dp): Dp {
  */
 private val EdgeBend = 56.dp
 
+/** One person walking alone, and what each extra one on the same line adds. */
+private val LineWidth = 2.dp
+private val PerPerson = 1.2.dp
+
 @Composable
 internal fun PeopleRails(
     row: WovenRow,
@@ -759,6 +764,18 @@ internal fun PeopleRails(
         )
 
         val host = nodeHost(row, friends)
+
+        // How many people a line is carrying where it runs. Merged lines are one
+        // line by definition, so without this two of them draw the same path twice
+        // and look exactly like one — the weight is what says how many.
+        fun peopleOn(lane: Int): Int {
+            val mineHere = if (row.mine && lane == Spine) 1 else 0
+            val friendsHere = friends.count { f ->
+                row.others.any { it.setlistfm == f.setlistfm } && hostLane(row, f, friends) == lane
+            }
+            return (mineHere + friendsHere).coerceAtLeast(1)
+        }
+
         friends.forEachIndexed { i, friend ->
             // Lanes slide out from under my spine as the strip opens; a line still
             // tucked underneath has nothing to draw yet.
@@ -771,11 +788,13 @@ internal fun PeopleRails(
             // Where this line is now, and where it has to be by the next node. Two
             // lines that share a node share a host, so they arrive at the same x and
             // are one line from there — the merge needs no case of its own.
-            val x = xOf(hostLane(row, friend, friends))
+            val lane = hostLane(row, friend, friends)
+            val x = xOf(lane)
             val toX = if (next == null) x else xOf(hostLane(next, friend, friends))
             val here = row.others.any { it.setlistfm == friend.setlistfm }
             val joined = joinedAt(row, friend)
             val color = if (joined) Crossed else if (here) railColor(i) else LineCol
+            val carried = Stroke(width = LineWidth.toPx() + PerPerson.toPx() * (peopleOn(lane) - 1))
 
             // The line arrives already on its own x — the row above spent its tail
             // delivering it — so every row is: be at the node, then lean toward the
@@ -789,13 +808,13 @@ internal fun PeopleRails(
                 path.lineTo(x, h - bend)
                 path.cubicTo(x, h - bend * 0.45f, toX, h - bend * 0.55f, toX, h)
             }
-            drawPath(path, color, style = stroke)
+            drawPath(path, color, style = carried)
 
             // One node per night, drawn by the line hosting it. My own rows draw their
             // node themselves; without the host check every line at a meeting would
             // stack its own circle on the same point.
             if (here && !row.mine && i == host) {
-                drawCircle(Raised, 6.dp.toPx(), Offset(x, nodeY))
+                drawCircle(if (joined) CrossedFill else Raised, 6.dp.toPx(), Offset(x, nodeY))
                 drawCircle(if (joined) Crossed else railColor(i), 6.dp.toPx(), Offset(x, nodeY), style = stroke)
             }
         }
