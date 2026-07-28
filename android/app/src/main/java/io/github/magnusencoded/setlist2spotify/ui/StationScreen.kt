@@ -228,7 +228,7 @@ fun StationTimelineScreen(
                     // An immutable set, swapped out on each toggle: a mutable list here
                     // is the same instance before and after, so remember() below could
                     // never see it change and the rows never rebuilt.
-                    var expanded by remember { mutableStateOf(emptySet<String>()) }
+                    val expanded = state.openFestivals
                     val lanes = remember(state.friends) { state.friends.reversed() }
                     // Springy rather than timed: the other lines settle into place like
                     // something physical arriving, instead of a panel sliding.
@@ -346,7 +346,7 @@ fun StationTimelineScreen(
                                 row.node is TimelineNode.Festival && row.key !in expanded &&
                                     row.shows.size > 1
                             if (insideClosedFestival) {
-                                expanded = expanded + row.key
+                                viewModel.openFestival(row.key)
                                 return@LaunchedEffect
                             }
                             // +1 for the future prompt, which is item 0 of the list.
@@ -384,15 +384,7 @@ fun StationTimelineScreen(
                             itemsIndexed(rows, key = { _, row -> row.key }) { index, row ->
                                 val isFirst = index == 0
                                 val rails: @Composable () -> Unit =
-                                    {
-                                        PeopleRails(
-                                            row,
-                                            rows.getOrNull(index - 1),
-                                            rows.getOrNull(index + 1),
-                                            lanes,
-                                            laneWidth,
-                                        )
-                                    }
+                                    { PeopleRails(row, rows.getOrNull(index + 1), lanes, laneWidth) }
                                 val nodeX = crossingX(row, lanes, laneWidth)
                                 when (val node = row.node) {
                                     is TimelineNode.Concert -> TimelineItem(
@@ -427,9 +419,7 @@ fun StationTimelineScreen(
                                         else railColor(nodeHost(row, lanes).coerceAtLeast(0)),
                                         rails = rails,
                                         onClick = {
-                                            expanded =
-                                                if (row.key in expanded) expanded - row.key
-                                                else expanded + row.key
+                                            viewModel.toggleFestival(row.key)
                                         },
                                     )
                                 }
@@ -781,7 +771,6 @@ private val PerPerson = 1.2.dp
 @Composable
 internal fun PeopleRails(
     row: WovenRow,
-    prev: WovenRow?,
     next: WovenRow?,
     friends: List<Friend>,
     laneWidth: Dp,
@@ -830,21 +819,29 @@ internal fun PeopleRails(
             return (mineHere + friendsHere).coerceAtLeast(1)
         }
 
-        // Colour and weight belong to an **edge** — the stretch between two nodes —
-        // not to a row. An edge is green only when the line is in company at both
-        // ends: a run of nights spent together. Coming down to a crossing, or
-        // leaving one to go somewhere alone, is the line's own colour, because
-        // green marks the nights shared and not the journey to or from them.
-        fun edgeColour(from: WovenRow?, to: WovenRow?, friend: Friend, i: Int): Color {
-            // No row above means no edge above: the stub over the first node must not
-            // claim company it cannot have. Below the last row is different — the run
-            // carries on past the fold, so a missing `to` keeps whatever `from` had.
-            val together = from != null && joinedAt(from, friend) &&
-                (to == null || joinedAt(to, friend))
-            if (together) return Crossed
-            val anchor = from ?: to
-            val present = anchor != null && anchor.others.any { it.setlistfm == friend.setlistfm }
-            return if (present) railColor(i) else LineCol
+        // How many lines travel a bend together: they have to share *both* of its
+        // ends. My line never bends — it is at the spine on every row — so only
+        // friends can be on one, and a line peeling away is on it alone.
+        fun peopleAlong(to: WovenRow?, friend: Friend): Int {
+            if (to == null) return peopleOn(row, friend)
+            val from = hostLane(row, friend, friends)
+            val onward = hostLane(to, friend, friends)
+            return friends.count { f ->
+                hostLane(row, f, friends) == from && hostLane(to, f, friends) == onward
+            }.coerceAtLeast(1)
+        }
+
+        // Green means more than one line is on this stretch, and weight means how
+        // many. Colour follows the geometry rather than the endpoints: where lines
+        // lie on top of each other they *are* one line and have to read as one, and
+        // where one peels away it is alone again and takes its own colour back.
+        fun paint(people: Int, present: Boolean, i: Int): Pair<Color, Stroke> {
+            val colour = when {
+                people > 1 -> Crossed
+                present -> railColor(i)
+                else -> LineCol
+            }
+            return colour to Stroke(width = LineWidth.toPx() + PerPerson.toPx() * (people - 1))
         }
 
         friends.forEachIndexed { i, friend ->
@@ -864,42 +861,41 @@ internal fun PeopleRails(
             val here = row.others.any { it.setlistfm == friend.setlistfm }
             val joined = joinedAt(row, friend)
 
-            // An edge alone carries one person; only a joined run carries more, and
-            // then it is as heavy as the company on it.
-            fun strokeFor(from: WovenRow?, to: WovenRow?): Stroke {
-                val green = edgeColour(from, to, friend, i) == Crossed
-                val people = if (green) peopleOn(from ?: to, friend) else 1
-                return Stroke(width = LineWidth.toPx() + PerPerson.toPx() * (people - 1))
-            }
-
             // Where this line has a node, it stops at the rim and starts again on
             // the far side — nothing is drawn inside a node. A line only meets a
             // node it belongs to, so a friend who wasn't here just runs past.
             val gap = if (here) nodeR else 0f
 
-            // Above the node the line still belongs to the edge it came down, so it
-            // keeps that edge's colour and weight. The row above spent its tail
-            // delivering the line to this x, so the approach itself is straight.
+            // The straight stretches sit at this row's x, where every other line on
+            // the same x is lying on top of this one.
+            val (atX, atXStroke) = paint(peopleOn(row, friend), here, i)
+
             if (nodeY - gap > 0f) {
                 val approach = Path().apply {
                     moveTo(x, 0f)
                     lineTo(x, nodeY - gap)
                 }
-                drawPath(approach, edgeColour(prev, row, friend, i), style = strokeFor(prev, row))
+                drawPath(approach, atX, style = atXStroke)
             }
 
-            // From the node on: the edge to the next node, leaning toward it at the
-            // end. Joining, parting and staying put are the same stroke.
-            val path = Path()
-            path.moveTo(x, nodeY + gap)
+            val body = Path()
+            body.moveTo(x, nodeY + gap)
             if (toX == x) {
-                path.lineTo(x, h)
+                body.lineTo(x, h)
+                drawPath(body, atX, style = atXStroke)
             } else {
-                val bend = minOf((h - nodeY) * 0.8f, EdgeBend.toPx())
-                path.lineTo(x, h - bend)
-                path.cubicTo(x, h - bend * 0.45f, toX, h - bend * 0.55f, toX, h)
+                // The bend is where this line leaves the others behind, so it is
+                // painted by the company that travels it, not by the company it left.
+                val bendLen = minOf((h - nodeY) * 0.8f, EdgeBend.toPx())
+                body.lineTo(x, h - bendLen)
+                drawPath(body, atX, style = atXStroke)
+
+                val (leaving, leavingStroke) = paint(peopleAlong(next, friend), here, i)
+                val bend = Path()
+                bend.moveTo(x, h - bendLen)
+                bend.cubicTo(x, h - bendLen * 0.45f, toX, h - bendLen * 0.55f, toX, h)
+                drawPath(bend, leaving, style = leavingStroke)
             }
-            drawPath(path, edgeColour(row, next, friend, i), style = strokeFor(row, next))
 
             // One node per night, drawn by the line hosting it. My own rows draw
             // their node themselves, and so does a festival at any lane — without

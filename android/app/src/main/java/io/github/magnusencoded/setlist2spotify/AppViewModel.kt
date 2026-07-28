@@ -135,6 +135,14 @@ data class UiState(
      */
     val zoomedOut: Boolean = false,
     /**
+     * Which festivals stand open, by row key. Here rather than in the screen for the
+     * same reason as [zoomedOut]: opening a gig disposes the timeline, and anything
+     * remembered inside it comes back reset. A collapsed festival also changes how
+     * many rows precede it, so the restored scroll offset lands somewhere else — you
+     * went into a night from the woven view and came back to a different place.
+     */
+    val openFestivals: Set<String> = emptySet(),
+    /**
      * A gig a `station-to-station://` link asked for, and how it wants to be shown.
      * The timeline is the one place that can find a gig's row — a gig inside a
      * collapsed festival has no row until the festival opens — so it does the
@@ -534,6 +542,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun consumeGigLink() = _state.update { it.copy(linkedGig = null, linkedGigAs = null) }
+
+    /** Open or close a festival in place. A new set each time, so remember() sees it. */
+    fun toggleFestival(key: String) = _state.update {
+        it.copy(
+            openFestivals = if (key in it.openFestivals) it.openFestivals - key
+            else it.openFestivals + key,
+        )
+    }
+
+    fun openFestival(key: String) = _state.update {
+        it.copy(openFestivals = it.openFestivals + key)
+    }
 
     /** The gig behind a link, wherever it is already loaded — mine or any lane's. */
     fun knownGig(id: String): FmSetlist? =
