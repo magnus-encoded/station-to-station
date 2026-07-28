@@ -291,7 +291,16 @@ fun StationTimelineScreen(
                             },
                             color = Faint,
                             fontSize = 12.sp,
-                            modifier = Modifier.padding(start = 20.dp, top = 2.dp, bottom = 14.dp),
+                            // ponytail: adb can't drive a two-finger pinch; long-press this
+                            // header stands in for it during device screenshot passes.
+                            // Revert before this branch ships.
+                            modifier = Modifier
+                                .padding(start = 20.dp, top = 2.dp, bottom = 14.dp)
+                                .pointerInput(state.friends) {
+                                    detectTapGestures(onLongPress = {
+                                        if (state.friends.isNotEmpty()) zoomedOut = !zoomedOut
+                                    })
+                                },
                         )
                         // Whose line is whose, only while more than one is showing.
                         // Scrolls sideways: the key is the one thing that grows without
@@ -347,14 +356,6 @@ fun StationTimelineScreen(
                                         onZoomOut = { if (state.friends.isNotEmpty()) zoomedOut = true },
                                         onZoomIn = { zoomedOut = false },
                                     )
-                                }
-                                // ponytail: adb can't drive a two-finger pinch; long-press
-                                // stands in for it during device screenshot passes. Revert
-                                // before this branch ships.
-                                .pointerInput(state.friends) {
-                                    detectTapGestures(onLongPress = {
-                                        if (state.friends.isNotEmpty()) zoomedOut = !zoomedOut
-                                    })
                                 },
                         ) {
                             // The future edge: scroll up toward what's ahead.

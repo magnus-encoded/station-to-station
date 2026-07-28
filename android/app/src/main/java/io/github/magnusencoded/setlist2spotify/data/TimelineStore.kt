@@ -56,6 +56,13 @@ data class TimelineCache(
      * with it.
      */
     val playlistsMade: Map<String, List<StoredPlaylist>> = emptyMap(),
+    /**
+     * How many shows setlist.fm says a user has attended, by username — not how many
+     * we happen to hold. Without it a restored spine looks complete at whatever page
+     * it got to, and there is no way to tell "you have all of them" from "you have
+     * the first eighty", so paging back into your own history stops for good.
+     */
+    val attendedTotals: Map<String, Int> = emptyMap(),
 )
 
 /** [file] rather than a Context only so the merge can be tested on the JVM. */
