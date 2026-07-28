@@ -95,12 +95,14 @@ class TimelineStore(private val file: File) {
         shows: Map<String, List<FmSetlist>> = emptyMap(),
         festivalNames: Map<String, String> = emptyMap(),
         playlists: Map<String, StoredPlaylist> = emptyMap(),
+        attendedTotals: Map<String, Int> = emptyMap(),
     ): Unit = withContext(Dispatchers.IO) {
         writeLock.withLock {
             val merged = load().let {
                 it.copy(
                     shows = it.shows + shows.filterValues { list -> list.isNotEmpty() },
                     festivalNames = it.festivalNames + festivalNames,
+                    attendedTotals = it.attendedTotals + attendedTotals,
                     // Appended, never replaced — see [TimelineCache.playlistsMade].
                     // De-duped on url so re-recording the same playlist is a no-op.
                     playlistsMade = it.playlistsMade + playlists.mapValues { (night, made) ->

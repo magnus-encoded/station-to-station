@@ -110,4 +110,13 @@ class TimelineStoreTest {
         file.writeText("{ not json")
         assertTrue(TimelineStore(file).load().shows.isEmpty())
     }
+
+    @Test
+    fun `the reported total survives a reload, so paging can resume`() = runBlocking {
+        val store = store()
+        store.save(shows = mapOf("dizzi90" to listOf(show("a"))), attendedTotals = mapOf("dizzi90" to 169))
+        // A later save of more shows must not drop the total already learned.
+        store.save(shows = mapOf("dizzi90" to listOf(show("a"), show("b"))))
+        assertEquals(169, store.load().attendedTotals["dizzi90"])
+    }
 }

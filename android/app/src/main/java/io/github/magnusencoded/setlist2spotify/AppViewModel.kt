@@ -141,6 +141,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val TRUMMISPOJKEN = Friend(setlistfm = "Trummispojken", name = "Trummispojken")
         val EGIL = Friend(setlistfm = "Egil", name = "Egil")
         val MOCK_PEERS = listOf(TRUMMISPOJKEN, EGIL)
+
+        /** setlist.fm's page size for attended lists — used to resume a cached spine. */
+        private const val SETLISTS_PER_PAGE = 20
     }
 
     val settings = SettingsRepository(application)
@@ -202,9 +205,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 source = if (mine.isNotEmpty() && it.setlists.isEmpty()) SetlistSource.USER else it.source,
                 setlistsTitle = if (mine.isNotEmpty() && it.setlistsTitle.isBlank()) "Attended by $me" else it.setlistsTitle,
                 userQuery = if (mine.isNotEmpty() && it.userQuery.isBlank()) me else it.userQuery,
-                // total == size, so loadMoreSetlists() doesn't try to paginate a cache
-                // whose real total we haven't fetched. A re-import restores the true one.
-                setlistsTotal = if (mine.isNotEmpty() && it.setlists.isEmpty()) mine.size else it.setlistsTotal,
+                // The total setlist.fm reported, not how many we cached. Setting it to
+                // the cached size made the spine look complete at whatever page it had
+                // reached, so scrolling into your own history stopped there for good.
+                setlistsTotal = if (mine.isNotEmpty() && it.setlists.isEmpty()) {
+                    cached.attendedTotals[me] ?: mine.size
+                } else {
+                    it.setlistsTotal
+                },
+                // Resume where the cache left off. Floor, so a part-filled last page is
+                // fetched again rather than skipped — loadMoreSetlists de-dupes.
+                setlistsPage = if (mine.isNotEmpty() && it.setlists.isEmpty()) {
+                    (mine.size / SETLISTS_PER_PAGE).coerceAtLeast(1)
+                } else {
+                    it.setlistsPage
+                },
             )
         }
     }
@@ -607,7 +622,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _state.update {
                     it.copy(setlists = result.setlist, setlistsTotal = result.total, setlistsLoading = false)
                 }
-                timelines.save(shows = mapOf(userId to result.setlist))
+                timelines.save(
+                    shows = mapOf(userId to result.setlist),
+                    attendedTotals = mapOf(userId to result.total),
+                )
             } catch (e: Exception) {
                 fail(e)
             }
@@ -631,7 +649,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 _state.update {
                     it.copy(
-                        setlists = it.setlists + result.setlist,
+                        // By id: resuming a cached spine refetches its last, part-full
+                        // page, and a duplicate row would collide on the LazyColumn key.
+                        setlists = (it.setlists + result.setlist).distinctBy { s -> s.id },
                         setlistsPage = nextPage,
                         setlistsTotal = result.total,
                         setlistsLoading = false,
@@ -640,7 +660,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 // Store the accumulated spine, or scrolling back through history
                 // pays for those pages again on the next launch.
                 if (s.source == SetlistSource.USER) {
-                    timelines.save(shows = mapOf(s.userQuery.trim() to _state.value.setlists))
+                    val user = s.userQuery.trim()
+                    timelines.save(
+                        shows = mapOf(user to _state.value.setlists),
+                        attendedTotals = mapOf(user to result.total),
+                    )
                 }
             } catch (e: Exception) {
                 fail(e)
