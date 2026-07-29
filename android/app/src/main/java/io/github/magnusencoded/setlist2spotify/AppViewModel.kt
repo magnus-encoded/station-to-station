@@ -980,7 +980,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** A thumbnail-sized decode of a gig photo, for the event view and the timeline row. */
-    suspend fun photoPreview(uri: Uri): Bitmap? = photos.preview(uri, sizePx = 160)
+    suspend fun photoPreview(uri: Uri): Bitmap? = photos.preview(uri, sizePx = 320)
 
     /** Manual re-search for one song with a user-provided query. */
     fun researchSong(index: Int, query: String) {

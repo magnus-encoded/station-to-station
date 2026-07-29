@@ -1096,21 +1096,24 @@ private fun GigPhotos(
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
         photos.forEach { uri ->
             Box(Modifier.combinedClickable(onClick = {}, onLongClick = { onRemove(uri) })) {
-                PhotoThumb(uri, size = 52.dp, loadPreview = loadPreview)
+                PhotoThumb(uri, size = GigPhotoSize, loadPreview = loadPreview)
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(10.dp))
         }
         Box(
             Modifier
-                .size(52.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .size(GigPhotoSize)
+                .clip(RoundedCornerShape(10.dp))
                 .background(Raised2)
-                .border(1.dp, LineLit, RoundedCornerShape(8.dp))
+                .border(1.dp, LineLit, RoundedCornerShape(10.dp))
                 .clickable(onClick = onAdd),
             contentAlignment = Alignment.Center,
-        ) { Text("+", color = Muted, fontSize = 20.sp) }
+        ) { Text("+", color = Muted, fontSize = 26.sp) }
     }
 }
+
+/** Big enough to actually look like a keepsake, not a chip. */
+private val GigPhotoSize = 108.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
