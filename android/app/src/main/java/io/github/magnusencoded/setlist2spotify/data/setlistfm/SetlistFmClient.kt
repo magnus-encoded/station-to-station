@@ -59,8 +59,13 @@ class SetlistFmClient(private val apiKeyProvider: suspend () -> String?) {
     suspend fun artistSetlists(mbid: String, page: Int = 1): SetlistsResponse =
         json.decodeFromString(get("artist/$mbid/setlists", mapOf("p" to page.toString())))
 
-    suspend fun userAttended(userId: String, page: Int = 1): SetlistsResponse =
-        json.decodeFromString(get("user/$userId/attended", mapOf("p" to page.toString())))
+    suspend fun userAttended(userId: String, page: Int = 1): SetlistsResponse {
+        val raw = get("user/$userId/attended", mapOf("p" to page.toString()))
+        // ponytail: one-off check of whether setlist.fm's real response for this
+        // user's real venues carries coords beyond city-level. Revert after use.
+        android.util.Log.d("VenueCheck", "p=$page hasCoords=${raw.contains("\"coords\"")} sample=${raw.take(3000)}")
+        return json.decodeFromString(raw)
+    }
 
     /**
      * The festival a setlist belongs to, e.g. "Øyafestivalen 2025" for a show whose
