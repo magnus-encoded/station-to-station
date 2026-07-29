@@ -1,16 +1,23 @@
 package io.github.magnusencoded.setlist2spotify.ui
 
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -68,11 +75,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
@@ -415,6 +424,8 @@ fun StationTimelineScreen(
                                         nodeX = nodeX,
                                         shared = row.shared,
                                         rails = rails,
+                                        photos = state.photosBySetlist[node.setlist.id].orEmpty(),
+                                        loadPhotoPreview = viewModel::photoPreview,
                                         onClick = {
                                             viewModel.openShow(node.setlist)
                                             onOpenEvent()
@@ -622,6 +633,8 @@ internal fun TimelineItem(
     nodeX: Dp = SpineX,
     shared: Boolean = false,
     rails: @Composable () -> Unit = {},
+    photos: List<Uri> = emptyList(),
+    loadPhotoPreview: suspend (Uri) -> Bitmap? = { null },
 ) {
     val songCount = setlist.performed().size
     val zoomedOut = laneWidth > 0.dp
@@ -686,6 +699,17 @@ internal fun TimelineItem(
             )
             Spacer(Modifier.height(2.dp))
             Text(setlist.venueLine(), color = Muted, fontSize = 13.sp)
+            // The Reliver's own keepsakes of the night, small enough not to compete
+            // with the facts around them — under the artist, over the song count.
+            if (photos.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Row {
+                    photos.take(3).forEach { uri ->
+                        PhotoThumb(uri, size = 20.dp, loadPreview = loadPhotoPreview)
+                        Spacer(Modifier.width(4.dp))
+                    }
+                }
+            }
             Spacer(Modifier.height(7.dp))
             Text(
                 if (songCount > 0) "$songCount songs" else "setlist not logged",
@@ -1038,6 +1062,56 @@ internal fun FmSetlist.eventRows(): List<EventRow> = buildList {
     }
 }
 
+/** A gig photo, decoded lazily and cached by its own [uri] key. */
+@Composable
+private fun PhotoThumb(uri: Uri, size: Dp, loadPreview: suspend (Uri) -> Bitmap?, modifier: Modifier = Modifier) {
+    var bitmap by remember(uri) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(uri) { bitmap = loadPreview(uri) }
+    Box(modifier.size(size).clip(RoundedCornerShape(6.dp)).background(Raised2)) {
+        bitmap?.let {
+            Image(
+                it.asImageBitmap(),
+                contentDescription = "Your photo from this show",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+}
+
+/**
+ * The Reliver's own pictures on a gig, picked straight from the system photo
+ * picker — no gallery permission, and no attempt at matching the night by date;
+ * that's [CoverPicker]'s job for a playlist cover, this is just "my picture of
+ * this show." Long-press a photo to take it back off.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun GigPhotos(
+    photos: List<Uri>,
+    loadPreview: suspend (Uri) -> Bitmap?,
+    onAdd: () -> Unit,
+    onRemove: (Uri) -> Unit,
+) {
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+        photos.forEach { uri ->
+            Box(Modifier.combinedClickable(onClick = {}, onLongClick = { onRemove(uri) })) {
+                PhotoThumb(uri, size = 52.dp, loadPreview = loadPreview)
+            }
+            Spacer(Modifier.width(8.dp))
+        }
+        Box(
+            Modifier
+                .size(52.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Raised2)
+                .border(1.dp, LineLit, RoundedCornerShape(8.dp))
+                .clickable(onClick = onAdd),
+            contentAlignment = Alignment.Center,
+        ) { Text("+", color = Muted, fontSize = 20.sp) }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StationEventScreen(
@@ -1051,6 +1125,12 @@ fun StationEventScreen(
     // What this night already became. Every one of them: each url may be in
     // somebody's hands, so none of them stops being reachable from here.
     val made = setlist?.let { state.playlistsBySetlist[it.id] }.orEmpty()
+    val gigPhotos = setlist?.let { state.photosBySetlist[it.id] }.orEmpty()
+    // The Reliver picks straight from the system photo picker — no gallery
+    // permission needed, unlike the same-night search the playlist cover uses.
+    val photoPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia()
+    ) { uris -> if (uris.isNotEmpty()) setlist?.let { viewModel.addGigPhotos(it.id, uris) } }
 
     Scaffold(
         containerColor = Ground,
@@ -1066,7 +1146,25 @@ fun StationEventScreen(
             )
         },
         bottomBar = {
-            if (setlist != null && setlist.performed().isNotEmpty()) {
+            if (setlist != null && setlist.performed().isEmpty() && setlist.url != null) {
+                // The Historian's crumb: nothing to convert here, but a nudge toward
+                // fixing the gap at the source is better than nothing.
+                Column(
+                    Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        "‹ swipe to open this setlist on setlist.fm",
+                        color = Amber,
+                        fontSize = 13.sp,
+                        modifier = Modifier
+                            .clickable {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(setlist.url)))
+                            }
+                            .padding(vertical = 6.dp),
+                    )
+                }
+            } else if (setlist != null && setlist.performed().isNotEmpty()) {
                 // A quiet, tappable hint rather than a big CTA — the same action the
                 // swipe fires, kept visible so it's discoverable and reachable without
                 // the gesture.
@@ -1150,6 +1248,9 @@ fun StationEventScreen(
                                     viewModel.selectSetlist(setlist)
                                     onConvert()
                                 }
+                                dragX <= -threshold && !canConvert -> setlist.url?.let {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it)))
+                                }
                                 dragX >= threshold -> onBack()
                             }
                         },
@@ -1183,6 +1284,13 @@ fun StationEventScreen(
                         Spacer(Modifier.width(6.dp))
                         EventTag("self-logged", color = Faint)
                     }
+                    Spacer(Modifier.height(12.dp))
+                    GigPhotos(
+                        photos = gigPhotos,
+                        loadPreview = viewModel::photoPreview,
+                        onAdd = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                        onRemove = { uri -> viewModel.removeGigPhoto(setlist.id, uri) },
+                    )
                 }
             }
             if (rows.isEmpty()) {

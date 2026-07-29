@@ -63,6 +63,14 @@ data class TimelineCache(
      * the first eighty", so paging back into your own history stops for good.
      */
     val attendedTotals: Map<String, Int> = emptyMap(),
+    /**
+     * The Reliver's own photos on a gig's single-night view, by setlist id — content
+     * URIs from the system photo picker, stored as strings since Uri isn't
+     * @Serializable. Replaced wholesale per setlist on every edit (add or remove),
+     * unlike [playlistsMade]: there's no outside link to preserve, just the user's
+     * current choice of pictures.
+     */
+    val photosBySetlist: Map<String, List<String>> = emptyMap(),
 )
 
 /** [file] rather than a Context only so the merge can be tested on the JVM. */
@@ -96,28 +104,36 @@ class TimelineStore(private val file: File) {
         festivalNames: Map<String, String> = emptyMap(),
         playlists: Map<String, StoredPlaylist> = emptyMap(),
         attendedTotals: Map<String, Int> = emptyMap(),
-    ): Unit = withContext(Dispatchers.IO) {
-        writeLock.withLock {
-            val merged = load().let {
-                it.copy(
-                    shows = it.shows + shows.filterValues { list -> list.isNotEmpty() },
-                    festivalNames = it.festivalNames + festivalNames,
-                    attendedTotals = it.attendedTotals + attendedTotals,
-                    // Appended, never replaced — see [TimelineCache.playlistsMade].
-                    // De-duped on url so re-recording the same playlist is a no-op.
-                    playlistsMade = it.playlistsMade + playlists.mapValues { (night, made) ->
-                        val had = it.playlistsMade[night].orEmpty()
-                        if (had.any { p -> p.url == made.url }) had else had + made
-                    },
-                )
-            }
-            // Write via a temp file: a crash mid-write leaves the old cache intact
-            // rather than a truncated one that fails to parse. Files.move, not
-            // renameTo — renameTo won't overwrite an existing file on Windows, so
-            // the second save would silently no-op under the JVM tests.
-            val tmp = File(file.parentFile, "${file.name}.tmp")
-            tmp.writeText(json.encodeToString(merged))
-            Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
-        }
+    ): Unit = writeMerged {
+        it.copy(
+            shows = it.shows + shows.filterValues { list -> list.isNotEmpty() },
+            festivalNames = it.festivalNames + festivalNames,
+            attendedTotals = it.attendedTotals + attendedTotals,
+            // Appended, never replaced — see [TimelineCache.playlistsMade].
+            // De-duped on url so re-recording the same playlist is a no-op.
+            playlistsMade = it.playlistsMade + playlists.mapValues { (night, made) ->
+                val had = it.playlistsMade[night].orEmpty()
+                if (had.any { p -> p.url == made.url }) had else had + made
+            },
+        )
     }
+
+    /** The Reliver's current set of photos for one gig, replacing whatever was there. */
+    suspend fun savePhotos(setlistId: String, uris: List<String>): Unit = writeMerged {
+        it.copy(photosBySetlist = it.photosBySetlist + (setlistId to uris))
+    }
+
+    private suspend fun writeMerged(transform: (TimelineCache) -> TimelineCache): Unit =
+        withContext(Dispatchers.IO) {
+            writeLock.withLock {
+                val merged = transform(load())
+                // Write via a temp file: a crash mid-write leaves the old cache intact
+                // rather than a truncated one that fails to parse. Files.move, not
+                // renameTo — renameTo won't overwrite an existing file on Windows, so
+                // the second save would silently no-op under the JVM tests.
+                val tmp = File(file.parentFile, "${file.name}.tmp")
+                tmp.writeText(json.encodeToString(merged))
+                Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            }
+        }
 }

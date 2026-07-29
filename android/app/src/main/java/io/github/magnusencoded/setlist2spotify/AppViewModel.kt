@@ -123,6 +123,8 @@ data class UiState(
     /** True once the gallery has been searched, so "nothing found" can be said. */
     val coverSearched: Boolean = false,
     val coverPermissionGranted: Boolean = false,
+    /** The Reliver's own photos on a gig's single-night view, by setlist id. */
+    val photosBySetlist: Map<String, List<Uri>> = emptyMap(),
     // Playlist creation
     val creatingPlaylist: Boolean = false,
     val createdPlaylistUrl: String? = null,
@@ -259,6 +261,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             it.copy(
                 festivalNames = it.festivalNames + cached.festivalNames,
                 playlistsBySetlist = it.playlistsBySetlist + cached.playlistsMade,
+                photosBySetlist = it.photosBySetlist +
+                    cached.photosBySetlist.mapValues { (_, uris) -> uris.map(Uri::parse) },
                 // Every lane but mine: the weave reads friends from here.
                 showsByFriend = cached.shows - me,
                 // Only adopt a cached spine if nothing has already loaded into it.
@@ -954,6 +958,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun setCover(uri: Uri?) = _state.update {
         if (it.selectedCoverUri == uri) it else it.copy(selectedCoverUri = uri)
     }
+
+    /**
+     * The Reliver's own pictures pinned to a gig, chosen freely from the system photo
+     * picker rather than matched by date — this is "my picture of that night", not the
+     * same-night search [loadCoverCandidates] does for a playlist cover.
+     */
+    fun addGigPhotos(setlistId: String, uris: List<Uri>) = setGigPhotos(
+        setlistId,
+        (_state.value.photosBySetlist[setlistId].orEmpty() + uris).distinct(),
+    )
+
+    fun removeGigPhoto(setlistId: String, uri: Uri) = setGigPhotos(
+        setlistId,
+        _state.value.photosBySetlist[setlistId].orEmpty() - uri,
+    )
+
+    private fun setGigPhotos(setlistId: String, photos: List<Uri>) {
+        _state.update { it.copy(photosBySetlist = it.photosBySetlist + (setlistId to photos)) }
+        viewModelScope.launch { timelines.savePhotos(setlistId, photos.map(Uri::toString)) }
+    }
+
+    /** A thumbnail-sized decode of a gig photo, for the event view and the timeline row. */
+    suspend fun photoPreview(uri: Uri): Bitmap? = photos.preview(uri, sizePx = 160)
 
     /** Manual re-search for one song with a user-provided query. */
     fun researchSong(index: Int, query: String) {
