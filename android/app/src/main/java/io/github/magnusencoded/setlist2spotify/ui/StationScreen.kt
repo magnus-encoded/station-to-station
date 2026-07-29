@@ -1439,11 +1439,11 @@ fun StationEventScreen(
                         photos = gigPhotos,
                         loadPreview = viewModel::photoPreview,
                         onAdd = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
-                        onOpen = { uri ->
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
-                            )
-                        },
+                        // No FLAG_GRANT_READ_URI_PERMISSION: a photo-picker uri only grants
+                        // *us* read access, and asking to re-grant one we don't own the
+                        // authority for (e.g. Google Photos' cloud picker backend) throws a
+                        // SecurityException straight out of startActivity and crashes.
+                        onOpen = { uri -> context.startActivity(Intent(Intent.ACTION_VIEW, uri)) },
                         onRemove = { uri -> viewModel.removeGigPhoto(setlist.id, uri) },
                         onReorder = { newOrder -> viewModel.reorderGigPhotos(setlist.id, newOrder) },
                     )
