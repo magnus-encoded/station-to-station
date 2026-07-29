@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
@@ -89,6 +90,9 @@ class PhotoRepository(private val context: Context) {
             photos
         }
 
+    /** The gig-photo picker also takes video, so a preview may come from either. */
+    fun isVideo(uri: Uri): Boolean = context.contentResolver.getType(uri)?.startsWith("video/") == true
+
     /**
      * A preview big enough to fill the cover-sized pager. Held in RGB_565: at
      * twenty photos the difference against ARGB_8888 is tens of megabytes, and
@@ -97,9 +101,26 @@ class PhotoRepository(private val context: Context) {
     suspend fun preview(uri: Uri, sizePx: Int = PREVIEW_PX): Bitmap? =
         withContext(Dispatchers.IO) {
             runCatching {
-                decodeScaled(uri, sizePx, Bitmap.Config.RGB_565)?.let { upright(uri, it) }
+                if (isVideo(uri)) videoFrame(uri, sizePx)
+                else decodeScaled(uri, sizePx, Bitmap.Config.RGB_565)?.let { upright(uri, it) }
             }.getOrNull()
         }
+
+    /** A frame near the start of the clip, standing in for the video the same way
+     *  a decoded bitmap stands in for a photo. */
+    private fun videoFrame(uri: Uri, sizePx: Int): Bitmap? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(context, uri)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                retriever.getScaledFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, sizePx, sizePx)
+            } else {
+                retriever.frameAtTime
+            }
+        } finally {
+            retriever.release()
+        }
+    }
 
     /**
      * The photo as Spotify wants a cover: a square JPEG small enough that its

@@ -84,6 +84,9 @@ fun parseGigLink(segments: List<String>): Pair<String, GigLink>? {
 /** A gallery photo from the night of the show, offered as the playlist cover. */
 data class CoverCandidate(val uri: Uri, val preview: Bitmap?)
 
+/** A gig-keepsake thumbnail: the decoded frame, and whether it came from a video. */
+data class MediaThumb(val bitmap: Bitmap?, val isVideo: Boolean = false)
+
 data class UiState(
     // Settings
     val setlistFmApiKey: String = "",
@@ -125,6 +128,12 @@ data class UiState(
     val coverPermissionGranted: Boolean = false,
     /** The Reliver's own photos on a gig's single-night view, by setlist id. */
     val photosBySetlist: Map<String, List<Uri>> = emptyMap(),
+    // Gig-photo suggestions: the same same-night gallery search as the playlist
+    // cover picker, offered as one-tap adds instead of a single chosen cover.
+    val gigPhotoSuggestions: List<CoverCandidate> = emptyList(),
+    val gigPhotoSuggestionsLoading: Boolean = false,
+    val gigPhotoSuggestionsSearched: Boolean = false,
+    val gigPhotoSuggestionsPermissionGranted: Boolean = false,
     // Playlist creation
     val creatingPlaylist: Boolean = false,
     val createdPlaylistUrl: String? = null,
@@ -974,13 +983,42 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _state.value.photosBySetlist[setlistId].orEmpty() - uri,
     )
 
+    /** Dragged to a new place in the strip — same set, new order. */
+    fun reorderGigPhotos(setlistId: String, newOrder: List<Uri>) = setGigPhotos(setlistId, newOrder)
+
     private fun setGigPhotos(setlistId: String, photos: List<Uri>) {
         _state.update { it.copy(photosBySetlist = it.photosBySetlist + (setlistId to photos)) }
         viewModelScope.launch { timelines.savePhotos(setlistId, photos.map(Uri::toString)) }
     }
 
-    /** A thumbnail-sized decode of a gig photo, for the event view and the timeline row. */
-    suspend fun photoPreview(uri: Uri): Bitmap? = photos.preview(uri, sizePx = 320)
+    /**
+     * Same same-night gallery search [loadCoverCandidates] does for a playlist cover,
+     * offered here as one-tap adds to the gig's keepsakes instead of a single chosen
+     * cover. Silent when permission is missing, for the same reason: the prompt only
+     * ever follows a tap, never just opening the gig.
+     */
+    fun loadGigPhotoSuggestions() {
+        val date = _state.value.selectedSetlist?.localDate() ?: return
+        val granted = photos.hasPermission()
+        _state.update { it.copy(gigPhotoSuggestionsPermissionGranted = granted) }
+        if (!granted) return
+        viewModelScope.launch {
+            _state.update { it.copy(gigPhotoSuggestionsLoading = true) }
+            val found = photos.photosFrom(date)
+            val candidates = found.map { CoverCandidate(it.uri, photos.preview(it.uri)) }
+            _state.update {
+                it.copy(
+                    gigPhotoSuggestions = candidates,
+                    gigPhotoSuggestionsLoading = false,
+                    gigPhotoSuggestionsSearched = true,
+                )
+            }
+        }
+    }
+
+    /** A thumbnail-sized decode of a gig photo or video frame, for the event view and the timeline row. */
+    suspend fun photoPreview(uri: Uri): MediaThumb =
+        MediaThumb(photos.preview(uri, sizePx = 320), photos.isVideo(uri))
 
     /** Manual re-search for one song with a user-provided query. */
     fun researchSong(index: Int, query: String) {

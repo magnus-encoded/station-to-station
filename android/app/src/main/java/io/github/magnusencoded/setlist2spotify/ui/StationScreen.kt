@@ -1,7 +1,6 @@
 package io.github.magnusencoded.setlist2spotify.ui
 
 import android.content.Intent
-import android.graphics.Bitmap
 import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -18,19 +17,23 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -45,7 +48,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -68,6 +73,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -85,6 +91,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -95,11 +102,15 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.magnusencoded.setlist2spotify.AppViewModel
 import io.github.magnusencoded.setlist2spotify.BuildConfig
+import io.github.magnusencoded.setlist2spotify.CoverCandidate
 import io.github.magnusencoded.setlist2spotify.GigLink
+import io.github.magnusencoded.setlist2spotify.MediaThumb
 import io.github.magnusencoded.setlist2spotify.data.Friend
+import io.github.magnusencoded.setlist2spotify.data.photos.PhotoRepository
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSong
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 // Station to Station — the timeline face of the app (working title).
 // Flow: splash (log in with Spotify, or skip to setlists-only) → the timeline
@@ -634,7 +645,7 @@ internal fun TimelineItem(
     shared: Boolean = false,
     rails: @Composable () -> Unit = {},
     photos: List<Uri> = emptyList(),
-    loadPhotoPreview: suspend (Uri) -> Bitmap? = { null },
+    loadPhotoPreview: suspend (Uri) -> MediaThumb = { MediaThumb(null) },
 ) {
     val songCount = setlist.performed().size
     val zoomedOut = laneWidth > 0.dp
@@ -1062,13 +1073,13 @@ internal fun FmSetlist.eventRows(): List<EventRow> = buildList {
     }
 }
 
-/** A gig photo, decoded lazily and cached by its own [uri] key. */
+/** A gig photo or video frame, decoded lazily and cached by its own [uri] key. */
 @Composable
-private fun PhotoThumb(uri: Uri, size: Dp, loadPreview: suspend (Uri) -> Bitmap?, modifier: Modifier = Modifier) {
-    var bitmap by remember(uri) { mutableStateOf<Bitmap?>(null) }
-    LaunchedEffect(uri) { bitmap = loadPreview(uri) }
+private fun PhotoThumb(uri: Uri, size: Dp, loadPreview: suspend (Uri) -> MediaThumb, modifier: Modifier = Modifier) {
+    var thumb by remember(uri) { mutableStateOf(MediaThumb(null)) }
+    LaunchedEffect(uri) { thumb = loadPreview(uri) }
     Box(modifier.size(size).clip(RoundedCornerShape(6.dp)).background(Raised2)) {
-        bitmap?.let {
+        thumb.bitmap?.let {
             Image(
                 it.asImageBitmap(),
                 contentDescription = "Your photo from this show",
@@ -1076,44 +1087,172 @@ private fun PhotoThumb(uri: Uri, size: Dp, loadPreview: suspend (Uri) -> Bitmap?
                 modifier = Modifier.fillMaxSize(),
             )
         }
+        if (thumb.isVideo) {
+            Icon(
+                Icons.Filled.PlayArrow,
+                contentDescription = "Video",
+                tint = Color.White,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(size / 3)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.4f)),
+            )
+        }
     }
 }
 
 /**
- * The Reliver's own pictures on a gig, picked straight from the system photo
- * picker — no gallery permission, and no attempt at matching the night by date;
- * that's [CoverPicker]'s job for a playlist cover, this is just "my picture of
- * this show." Long-press a photo to take it back off.
+ * The Reliver's own pictures and clips on a gig, picked straight from the system
+ * photo picker — no gallery permission, and no attempt at matching the night by
+ * date; that's [GigPhotoSuggestions]' job. Tap opens one in whatever app the phone
+ * already uses for the format. Long-press any of them to enter arranging — every
+ * photo gets an [x], dragging one reorders the strip, and a tap anywhere that
+ * isn't an [x] leaves arranging again.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun GigPhotos(
     photos: List<Uri>,
-    loadPreview: suspend (Uri) -> Bitmap?,
+    loadPreview: suspend (Uri) -> MediaThumb,
     onAdd: () -> Unit,
+    onOpen: (Uri) -> Unit,
     onRemove: (Uri) -> Unit,
+    onReorder: (List<Uri>) -> Unit,
 ) {
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-        photos.forEach { uri ->
-            Box(Modifier.combinedClickable(onClick = {}, onLongClick = { onRemove(uri) })) {
+    var arranging by remember { mutableStateOf(false) }
+    // A working copy so a drag can preview the new order before it's committed —
+    // resynced whenever the real list changes under it (an add, a remove, or the
+    // commit at the end of a drag landing back through [photos]).
+    val order = remember(photos) { photos.toMutableStateList() }
+    val strideX = with(LocalDensity.current) { (GigPhotoSize + ItemGap).toPx() }
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            // Catches a tap on the blank space past the last photo — arranging
+            // has to be dismissible from anywhere, not only from a thumbnail.
+            .pointerInput(arranging) {
+                if (arranging) detectTapGestures(onTap = { arranging = false })
+            },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        order.forEach { uri ->
+            var dragX by remember(uri) { mutableStateOf(0f) }
+            Box(
+                Modifier
+                    .offset { IntOffset(dragX.roundToInt(), 0) }
+                    .then(
+                        if (arranging) {
+                            Modifier
+                                .pointerInput(uri, order.size) {
+                                    detectDragGestures(
+                                        onDrag = { change, amount -> change.consume(); dragX += amount.x },
+                                        onDragEnd = {
+                                            val moves = (dragX / strideX).roundToInt()
+                                            val from = order.indexOf(uri)
+                                            val to = (from + moves).coerceIn(0, order.lastIndex)
+                                            if (to != from) order.add(to, order.removeAt(from))
+                                            dragX = 0f
+                                            onReorder(order.toList())
+                                        },
+                                        onDragCancel = { dragX = 0f },
+                                    )
+                                }
+                                .pointerInput(uri) { detectTapGestures(onTap = { arranging = false }) }
+                        } else {
+                            Modifier.combinedClickable(
+                                onClick = { onOpen(uri) },
+                                onLongClick = { arranging = true },
+                            )
+                        },
+                    ),
+            ) {
                 PhotoThumb(uri, size = GigPhotoSize, loadPreview = loadPreview)
+                if (arranging) {
+                    Box(
+                        Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(3.dp)
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .background(Danger)
+                            .clickable { onRemove(uri) },
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(Icons.Filled.Close, contentDescription = "Remove", tint = Color.White, modifier = Modifier.size(13.dp)) }
+                }
             }
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(ItemGap))
         }
-        Box(
-            Modifier
-                .size(GigPhotoSize)
-                .clip(RoundedCornerShape(10.dp))
-                .background(Raised2)
-                .border(1.dp, LineLit, RoundedCornerShape(10.dp))
-                .clickable(onClick = onAdd),
-            contentAlignment = Alignment.Center,
-        ) { Text("+", color = Muted, fontSize = 26.sp) }
+        if (!arranging) {
+            Box(
+                Modifier
+                    .size(GigPhotoSize)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Raised2)
+                    .border(1.dp, LineLit, RoundedCornerShape(10.dp))
+                    .clickable(onClick = onAdd),
+                contentAlignment = Alignment.Center,
+            ) { Text("+", color = Muted, fontSize = 26.sp) }
+        }
     }
 }
 
 /** Big enough to actually look like a keepsake, not a chip. */
 private val GigPhotoSize = 108.dp
+private val ItemGap = 10.dp
+
+/**
+ * The same same-night gallery search [CoverPicker] does for a playlist cover,
+ * offered as one-tap adds to the gig's keepsakes instead of a single chosen cover.
+ */
+@Composable
+private fun GigPhotoSuggestions(
+    candidates: List<CoverCandidate>,
+    loading: Boolean,
+    searched: Boolean,
+    permissionGranted: Boolean,
+    already: List<Uri>,
+    onRequestPermission: () -> Unit,
+    onAdd: (Uri) -> Unit,
+) {
+    val offered = remember(candidates, already) { candidates.filter { it.uri !in already } }
+    when {
+        !permissionGranted -> TextButton(onClick = onRequestPermission, contentPadding = PaddingValues(vertical = 2.dp)) {
+            Text("Suggest photos from that night", color = Muted, fontSize = 12.sp)
+        }
+        loading -> Text("Looking through your gallery…", color = Faint, fontSize = 12.sp)
+        offered.isEmpty() -> if (searched) {
+            Text("No more photos from that night in your gallery.", color = Faint, fontSize = 12.sp)
+        }
+        else -> Column {
+            Text("From that night — tap to add", color = Faint, fontSize = 11.sp)
+            Spacer(Modifier.height(4.dp))
+            Row(Modifier.horizontalScroll(rememberScrollState())) {
+                offered.forEach { candidate ->
+                    Box(
+                        Modifier
+                            .size(56.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Raised2)
+                            .clickable { onAdd(candidate.uri) },
+                    ) {
+                        candidate.preview?.let {
+                            Image(
+                                it.asImageBitmap(),
+                                contentDescription = "Suggested photo from that night",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(6.dp))
+                }
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1129,11 +1268,19 @@ fun StationEventScreen(
     // somebody's hands, so none of them stops being reachable from here.
     val made = setlist?.let { state.playlistsBySetlist[it.id] }.orEmpty()
     val gigPhotos = setlist?.let { state.photosBySetlist[it.id] }.orEmpty()
-    // The Reliver picks straight from the system photo picker — no gallery
-    // permission needed, unlike the same-night search the playlist cover uses.
+    // The Reliver picks straight from the system photo (and video) picker — no
+    // gallery permission needed for that path, unlike the suggestions below.
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia()
     ) { uris -> if (uris.isNotEmpty()) setlist?.let { viewModel.addGigPhotos(it.id, uris) } }
+    // Gallery access is only ever asked for after the "suggest" tap, so opening
+    // a gig never triggers a permission prompt on its own.
+    val gigSuggestPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { viewModel.loadGigPhotoSuggestions() }
+    // Silent when permission isn't there yet — same guard as the prompt above,
+    // so a gig already granted access just re-searches without another tap.
+    LaunchedEffect(setlist?.id) { viewModel.loadGigPhotoSuggestions() }
 
     Scaffold(
         containerColor = Ground,
@@ -1291,8 +1438,26 @@ fun StationEventScreen(
                     GigPhotos(
                         photos = gigPhotos,
                         loadPreview = viewModel::photoPreview,
-                        onAdd = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                        onAdd = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
+                        onOpen = { uri ->
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                            )
+                        },
                         onRemove = { uri -> viewModel.removeGigPhoto(setlist.id, uri) },
+                        onReorder = { newOrder -> viewModel.reorderGigPhotos(setlist.id, newOrder) },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    GigPhotoSuggestions(
+                        candidates = state.gigPhotoSuggestions,
+                        loading = state.gigPhotoSuggestionsLoading,
+                        searched = state.gigPhotoSuggestionsSearched,
+                        permissionGranted = state.gigPhotoSuggestionsPermissionGranted,
+                        already = gigPhotos,
+                        onRequestPermission = {
+                            gigSuggestPermissionLauncher.launch(PhotoRepository.requiredPermissions())
+                        },
+                        onAdd = { uri -> viewModel.addGigPhotos(setlist.id, listOf(uri)) },
                     )
                 }
             }
