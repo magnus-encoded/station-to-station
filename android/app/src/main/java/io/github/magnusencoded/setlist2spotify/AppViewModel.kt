@@ -817,13 +817,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     included = !song.tape,
                 )
             }
+        // A festival cluster's "where" is a stage, not a place — the festival name
+        // reads better there, with the artist last since many acts share one festival.
+        val festival = groupIntoFestivals(_state.value.setlists, _state.value.festivalNames)
+            .filterIsInstance<TimelineNode.Festival>()
+            .find { node -> node.shows.any { it.id == setlist.id } }
         // Year first: an alphabetical playlist library then falls into
         // chronological order, and the show reads as "when, who, where".
-        val defaultName = listOfNotNull(
-            setlist.year(),
-            artistName.ifBlank { null },
-            setlist.venue?.name,
-        ).joinToString(" – ").ifBlank { "Setlist" }
+        val defaultName = if (festival != null) {
+            listOfNotNull(setlist.year(), festival.name, artistName.ifBlank { null })
+        } else {
+            listOfNotNull(setlist.year(), artistName.ifBlank { null }, setlist.venue?.name)
+        }.joinToString(" – ").ifBlank { "Setlist" }
         _state.update {
             it.copy(
                 selectedSetlist = setlist,
