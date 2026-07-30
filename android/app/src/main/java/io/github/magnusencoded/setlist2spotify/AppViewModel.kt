@@ -818,20 +818,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         // A festival cluster's "where" is a stage, not a place — the festival name
-        // reads better there, with the artist last since many acts share one festival.
+        // stands in for it, same slot as every other show's venue.
         val festival = groupIntoFestivals(_state.value.setlists, _state.value.festivalNames)
             .filterIsInstance<TimelineNode.Festival>()
             .find { node -> node.shows.any { it.id == setlist.id } }
+        // The year already leads the name, so strip it back out of the festival
+        // name ("Tons of Rock 2026" -> "Tons of Rock") rather than repeat it.
+        val where = festival?.name?.let { name ->
+            setlist.year()?.let { name.replace(it, "").trim().trim('-', '–').trim() } ?: name
+        } ?: setlist.venue?.name
         // Year first: an alphabetical playlist library then falls into
         // chronological order, and the show reads as "when, who, where".
-        val defaultName = if (festival != null) {
-            // Festival names carry their own year ("Tons of Rock 2026"), so a
-            // leading year would just repeat it.
-            val year = setlist.year()?.takeUnless { festival.name.contains(it) }
-            listOfNotNull(year, festival.name, artistName.ifBlank { null })
-        } else {
-            listOfNotNull(setlist.year(), artistName.ifBlank { null }, setlist.venue?.name)
-        }.joinToString(" – ").ifBlank { "Setlist" }
+        val defaultName = listOfNotNull(setlist.year(), artistName.ifBlank { null }, where)
+            .joinToString(" – ").ifBlank { "Setlist" }
         _state.update {
             it.copy(
                 selectedSetlist = setlist,
