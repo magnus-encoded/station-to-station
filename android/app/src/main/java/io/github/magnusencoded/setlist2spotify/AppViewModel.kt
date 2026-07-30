@@ -825,7 +825,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         // Year first: an alphabetical playlist library then falls into
         // chronological order, and the show reads as "when, who, where".
         val defaultName = if (festival != null) {
-            listOfNotNull(setlist.year(), festival.name, artistName.ifBlank { null })
+            // Festival names carry their own year ("Tons of Rock 2026"), so a
+            // leading year would just repeat it.
+            val year = setlist.year()?.takeUnless { festival.name.contains(it) }
+            listOfNotNull(year, festival.name, artistName.ifBlank { null })
         } else {
             listOfNotNull(setlist.year(), artistName.ifBlank { null }, setlist.venue?.name)
         }.joinToString(" – ").ifBlank { "Setlist" }
