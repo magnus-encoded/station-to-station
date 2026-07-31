@@ -57,11 +57,32 @@ these words exactly; if a new concept appears, name it here **before** building 
 
 ## People and exchange
 
+There are **two different relationships to a person**, and the single word "friend" for
+both is the ambiguity most likely to turn into a privacy bug. They differ in what they
+carry, how they are established, and what they permit.
+
 | Term | Definition | Aliases to avoid |
 | ---- | ---------- | ---------------- |
-| **Card** | The setlist.fm ↔ Spotify identity handed over in an exchange. | profile, contact, account |
-| **Exchange** | Two phones swapping **Cards**, after which each has the other's timeline. Discovery is currently mocked. | pairing, connect, friend request |
-| **Known timeline** | A friend whose **Card** I hold, and therefore a **Lane** when zoomed out. | friend (fine), contact |
+| **Followed line** | A person whose **Line** I pull and draw. One-sided, needs no consent and grants none: their attendance is public setlist.fm data, and following takes nothing from them. Addable remotely. | friend, contact, connection |
+| **Contact** | A person I have exchanged keys with **in person**, mutually. The only relationship bytes can flow along. Not addable remotely — ever. | friend, follower, buddy |
+| **Card** | What is handed over in an **Exchange**: a public key, a display name, and *optionally* a setlist.fm username. The key is the identity; setlist.fm is an attribute. | profile, account |
+| **Exchange** | Two people, standing together, each getting their phone out: discovery over Nearby, then **Cards** swapped. Physical presence is the authentication — that is the whole point, not an implementation detail. | pairing, friend request, connect |
+| **Mutual** | The stored bit saying an **Exchange** happened. Outlives the radio session that created it; a **Contact** is exactly a person this bit is set for. | connected, paired |
+
+A person can be a **Followed line**, a **Contact**, both, or neither. Following someone
+never makes them a **Contact**, and a **Contact** need not be on setlist.fm at all.
+
+## Media
+
+| Term | Definition | Aliases to avoid |
+| ---- | ---------- | ---------------- |
+| **Attach** | Putting media on a **Gig**. **Attach is share** — there is no second gesture and no recipient picker. Media generated at a gig is of shared interest by default. | upload, post, add |
+| **Personal** | Attached, but never sent: on my own **Gig resolution**, held back from everyone. One bit, default off, the only exception the model has. Excluding a *named person* is deliberately not representable — that is the share sheet's job. | private (fine), hidden, secret |
+| **My media** / **Received media** | Whose camera it came from. Always distinguishable — a crowd-sourced entry where you cannot tell what you shot is a worse record, not a richer one. Same instinct as **Amber**. | our photos, the gallery |
+| **Audience** | Who **Received media** reaches: **Contacts** who **Attended** the same **Gig**. Derived from data already held, never a list anyone maintains. Check-in is not the gate — it is one kind of evidence for **Attended**. | recipients, share list, circle, group |
+| **Reconcile** | The pairwise sync between two **Contacts**: intersect the gigs we both **Attended**, exchange what the other is missing. Idempotent, unordered, and **without a time bound** — which is why a **Contact** made years later enriches an old **Gig** with no backfill path to build. | push, sync (fine), publish |
+| **Pointer** | A link into the owner's own cloud (BYOS). What actually crosses the radio; the bytes ride the recipient's internet later. Cross-platform, this is the whole payload. | url (fine), reference |
+| **Thumbnail** | The small copy kept forever. The **durable floor** of a keepsake: full-res is best-effort and a **Pointer** can rot, but the grid of that night still renders in ten years. Exchanged in person on Android; fetched from the cloud on iOS, where the radio is too slow to carry it. | preview, cache |
 
 ## Relationships
 
@@ -70,6 +91,10 @@ these words exactly; if a new concept appears, name it here **before** building 
 - A **Gig** attended by two people produces exactly one **Crossing**, on the owner's **Spine**.
 - A **Festival** is a set of **Gigs**; it **Absorbs** a friend's cluster rather than duplicating it.
 - Zooming moves between **Resolutions**; it never pushes a screen.
+- A **Followed line** grants nothing; only a **Contact** can receive media.
+- **Attach** puts media on a **Gig** and sends it to the **Audience**, unless **Personal**.
+- **Reconcile** runs between **Contacts**, over **Attended** in common — not over what was
+  attached recently, and not over who was checked in at the time.
 
 ## Example dialogue
 
@@ -78,3 +103,9 @@ these words exactly; if a new concept appears, name it here **before** building 
 
 > **Dev:** "This **Festival** has three gigs of theirs inside it — is it **Together**?"
 > **Designer:** "Only if a **Gig** is on both lists. **Absorb** puts their cluster in my node; it doesn't make the nights shared."
+
+> **Dev:** "Alice wants the gig to show she was there with Bob and Charlie, but only Bob to get her photos."
+> **Designer:** "The first is a **Followed line** drawing public data — she couldn't withhold it if she wanted to. The second isn't in the model: her **Audience** is every **Contact** who **Attended**. If the photo is only Bob's business she marks it **Personal** and sends it to him in whatever chat app they already use."
+
+> **Dev:** "I added a **Contact** today and we were both at a gig in 2026. Do I need to re-share?"
+> **Designer:** "There is nothing to re-share. **Reconcile** has no time bound — the first sync just has a bigger diff."
