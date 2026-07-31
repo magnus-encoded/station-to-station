@@ -211,11 +211,11 @@ fun SettingsScreen(
             HorizontalDivider()
             Spacer(Modifier.height(24.dp))
 
-            // #18 field-test: dev-only screen, not part of the shipped feature set.
+            // #30 field-test: dev-only screen, not part of the shipped feature set.
             OutlinedButton(
                 onClick = onOpenBleProbe,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("BLE probe (#18 field test)") }
+            ) { Text("GATT card probe (#30 field test)") }
 
             Spacer(Modifier.height(24.dp))
             Text(
