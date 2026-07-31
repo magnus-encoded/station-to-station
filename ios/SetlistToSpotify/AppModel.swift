@@ -54,6 +54,13 @@ struct UiState {
     var mySetlistFmUser = ""
     var friends: [Friend] = []
     var sharedWith: Friend?
+    // My timeline (the Spine). Facts only — the shape is derived at render time.
+    var timelineShows: [FmSetlist] = []
+    var festivalNames: [String: String] = [:]
+    var timelineLoading = false
+    /// Row keys of the Festivals uncollapsed in place. Not a screen: a Festival
+    /// opens where it stands.
+    var expandedFestivals: Set<String> = []
     // Transient banners
     var error: String?
     var notice: String?
@@ -67,6 +74,7 @@ final class AppModel: ObservableObject {
     let settings = Settings()
     private lazy var setlistFm = SetlistFmClient { [settings] in settings.setlistFmApiKeyValue }
     private lazy var spotify = SpotifyClient(settings)
+    private let timelines = TimelineStore()
 
     private var matchTask: Task<Void, Never>?
 
@@ -87,6 +95,77 @@ final class AppModel: ObservableObject {
 
     func consumeError() { state.error = nil }
     func consumeNotice() { state.notice = nil }
+
+    // --- The timeline ---
+
+    /// The last spine we drew, straight off disk. Called at launch so the
+    /// timeline is there before any network is.
+    func loadTimeline() {
+        Task {
+            let cache = await timelines.load()
+            let me = state.mySetlistFmUser.trimmingCharacters(in: .whitespaces)
+            state.festivalNames = cache.festivalNames
+            state.timelineShows = cache.shows[me] ?? []
+        }
+    }
+
+    /// Pulls my Attended list from setlist.fm and stores it. The reported total
+    /// is stored with it: without it a restored spine looks complete at whatever
+    /// page it got to.
+    func refreshTimeline() {
+        let me = state.mySetlistFmUser.trimmingCharacters(in: .whitespaces)
+        if me.isEmpty {
+            state.error = "Set your setlist.fm username first (Friends screen)."
+            return
+        }
+        state.timelineLoading = true
+        Task {
+            do {
+                let (shows, total) = try await setlistFm.attendedShows(me)
+                state.timelineShows = shows
+                state.timelineLoading = false
+                await timelines.save(shows: [me: shows], attendedTotals: [me: total])
+                resolveFestivalNames()
+            } catch {
+                state.timelineLoading = false
+                fail(error)
+            }
+        }
+    }
+
+    /// Fills in the real Festival names for the clusters currently on the
+    /// timeline — one page fetch per festival, only for ones not already
+    /// resolved. Failures are silent: the venue name stays as the label.
+    func resolveFestivalNames() {
+        let firsts = groupIntoFestivals(state.timelineShows)
+            .compactMap { node -> FmSetlist? in
+                guard node.isFestival, let first = node.shows.first else { return nil }
+                return first
+            }
+            .filter { state.festivalNames[$0.id] == nil && $0.url?.nilIfBlank != nil }
+        if firsts.isEmpty { return }
+        Task {
+            var found: [String: String] = [:]
+            for show in firsts {
+                if let name = await setlistFm.festivalName(setlistURL: show.url!) {
+                    found[show.id] = name
+                }
+            }
+            if found.isEmpty { return }
+            state.festivalNames.merge(found) { _, new in new }
+            // A festival name costs a fetch each; store them so it's paid once.
+            await timelines.save(festivalNames: found)
+        }
+    }
+
+    /// A Festival uncollapses in place — it never pushes a screen.
+    func toggleFestival(_ key: String) {
+        if state.expandedFestivals.contains(key) {
+            state.expandedFestivals.remove(key)
+        } else {
+            state.expandedFestivals.insert(key)
+        }
+    }
 
     private func fail(_ error: Error) {
         state.error = userMessage(error)

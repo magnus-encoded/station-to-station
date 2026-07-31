@@ -4,7 +4,7 @@ import Foundation
 /// attended concerts) plus a display name and, when available, the Spotify id
 /// that username maps to. No server: friends are exchanged peer-to-peer as a
 /// shareable deep link (see `shareURL`) and stored on-device.
-struct Friend: Codable, Identifiable, Equatable {
+struct Friend: Codable, Identifiable, Hashable {
     let setlistfm: String
     var name: String
     var spotifyId: String?

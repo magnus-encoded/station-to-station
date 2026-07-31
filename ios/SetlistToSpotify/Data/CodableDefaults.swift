@@ -19,6 +19,17 @@ struct DefaultCodable<Provider: DefaultValueProvider>: Decodable {
     }
 }
 
+/// Encoding is symmetric and unconditional in shape: the wrapper writes its
+/// wrapped value, so `{"id":"a"}` round-trips. Conditional because a provider's
+/// value only needs to be Encodable for the types the store actually writes
+/// (the Spotify models are decode-only and stay that way).
+extension DefaultCodable: Encodable where Provider.Value: Encodable {
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(wrappedValue)
+    }
+}
+
 extension KeyedDecodingContainer {
     // The piece that makes a *missing* key use the default rather than throw.
     func decode<P>(_ type: DefaultCodable<P>.Type, forKey key: Key) throws -> DefaultCodable<P> {
