@@ -68,6 +68,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -1392,105 +1393,112 @@ fun StationEventScreen(
         }
         val rows = setlist.eventRows()
         val canConvert = setlist.performed().isNotEmpty()
-        LazyColumn(
-            Modifier
-                .padding(padding)
-                .fillMaxSize()
-                // Left acts on this level — convert. Right is its mirror: back up one,
-                // to the timeline this night was opened from. Registered even when
-                // there is nothing to convert, or a show with no logged setlist would
-                // be the one screen you can't swipe out of.
-                .pointerInput(setlist.id, canConvert) {
-                    val threshold = 110.dp.toPx()
-                    var dragX = 0f
-                    detectHorizontalDragGestures(
-                        onDragStart = { dragX = 0f },
-                        onDragEnd = {
-                            when {
-                                dragX <= -threshold && canConvert -> {
-                                    viewModel.selectSetlist(setlist)
-                                    onConvert()
-                                }
-                                dragX <= -threshold && !canConvert -> setlist.url?.let {
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it)))
-                                }
-                                dragX >= threshold -> onBack()
-                            }
-                        },
-                        onHorizontalDrag = { _, delta -> dragX += delta },
-                    )
-                },
+        // Pull down to re-fetch: you log the night here, go type the songs in on
+        // setlist.fm, and come back to a screen that still says there's no setlist.
+        PullToRefreshBox(
+            isRefreshing = state.setlistsLoading,
+            onRefresh = viewModel::refreshSelectedSetlist,
+            modifier = Modifier.padding(padding).fillMaxSize(),
         ) {
-            item {
-                Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 14.dp)) {
-                    Text(setlist.artist?.name ?: "Unknown artist", fontFamily = Serif, fontSize = 27.sp, color = Ink)
-                    Spacer(Modifier.height(5.dp))
-                    Text(
-                        listOfNotNull(setlist.venueLine(), setlist.readableDate()).joinToString(" · "),
-                        color = Muted,
-                        fontSize = 13.sp,
-                    )
-                    Spacer(Modifier.height(11.dp))
-                    Row {
-                        EventTag("${setlist.performed().size} songs")
-                        setlist.tour?.name?.let {
-                            Spacer(Modifier.width(6.dp))
-                            EventTag(it)
-                        }
-                        if (made.isNotEmpty()) {
-                            Spacer(Modifier.width(6.dp))
-                            EventTag(
-                                if (made.size == 1) "playlist" else "${made.size} playlists",
-                                color = SpotifyGreen,
-                            )
-                        }
-                        Spacer(Modifier.width(6.dp))
-                        EventTag("self-logged", color = Faint)
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    GigPhotos(
-                        photos = gigPhotos,
-                        loadPreview = viewModel::photoPreview,
-                        onAdd = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
-                        // Opens in the in-app viewer below rather than handing the uri to
-                        // whatever app the phone picks: an external app can fail to read
-                        // it (permission scoped to us, or the phone's own quirks) and
-                        // leave the user staring at a viewer with nothing in it.
-                        onOpen = { uri -> viewerUri = uri },
-                        onRemove = { uri -> viewModel.removeGigPhoto(setlist.id, uri) },
-                        onReorder = { newOrder -> viewModel.reorderGigPhotos(setlist.id, newOrder) },
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    GigPhotoSuggestions(
-                        candidates = state.gigPhotoSuggestions,
-                        loading = state.gigPhotoSuggestionsLoading,
-                        searched = state.gigPhotoSuggestionsSearched,
-                        permissionGranted = state.gigPhotoSuggestionsPermissionGranted,
-                        already = gigPhotos,
-                        onRequestPermission = {
-                            gigSuggestPermissionLauncher.launch(PhotoRepository.requiredPermissions())
-                        },
-                        onAdd = { uri -> viewModel.addGigPhotos(setlist.id, listOf(uri)) },
-                    )
-                }
-            }
-            if (rows.isEmpty()) {
+            LazyColumn(
+                Modifier
+                    .fillMaxSize()
+                    // Left acts on this level — convert. Right is its mirror: back up one,
+                    // to the timeline this night was opened from. Registered even when
+                    // there is nothing to convert, or a show with no logged setlist would
+                    // be the one screen you can't swipe out of.
+                    .pointerInput(setlist.id, canConvert) {
+                        val threshold = 110.dp.toPx()
+                        var dragX = 0f
+                        detectHorizontalDragGestures(
+                            onDragStart = { dragX = 0f },
+                            onDragEnd = {
+                                when {
+                                    dragX <= -threshold && canConvert -> {
+                                        viewModel.selectSetlist(setlist)
+                                        onConvert()
+                                    }
+                                    dragX <= -threshold && !canConvert -> setlist.url?.let {
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it)))
+                                    }
+                                    dragX >= threshold -> onBack()
+                                }
+                            },
+                            onHorizontalDrag = { _, delta -> dragX += delta },
+                        )
+                    },
+            ) {
                 item {
-                    Text(
-                        "This show has no setlist on setlist.fm yet.",
-                        color = Muted,
-                        fontSize = 14.sp,
-                        modifier = Modifier.padding(20.dp),
-                    )
+                    Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 14.dp)) {
+                        Text(setlist.artist?.name ?: "Unknown artist", fontFamily = Serif, fontSize = 27.sp, color = Ink)
+                        Spacer(Modifier.height(5.dp))
+                        Text(
+                            listOfNotNull(setlist.venueLine(), setlist.readableDate()).joinToString(" · "),
+                            color = Muted,
+                            fontSize = 13.sp,
+                        )
+                        Spacer(Modifier.height(11.dp))
+                        Row {
+                            EventTag("${setlist.performed().size} songs")
+                            setlist.tour?.name?.let {
+                                Spacer(Modifier.width(6.dp))
+                                EventTag(it)
+                            }
+                            if (made.isNotEmpty()) {
+                                Spacer(Modifier.width(6.dp))
+                                EventTag(
+                                    if (made.size == 1) "playlist" else "${made.size} playlists",
+                                    color = SpotifyGreen,
+                                )
+                            }
+                            Spacer(Modifier.width(6.dp))
+                            EventTag("self-logged", color = Faint)
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        GigPhotos(
+                            photos = gigPhotos,
+                            loadPreview = viewModel::photoPreview,
+                            onAdd = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
+                            // Opens in the in-app viewer below rather than handing the uri to
+                            // whatever app the phone picks: an external app can fail to read
+                            // it (permission scoped to us, or the phone's own quirks) and
+                            // leave the user staring at a viewer with nothing in it.
+                            onOpen = { uri -> viewerUri = uri },
+                            onRemove = { uri -> viewModel.removeGigPhoto(setlist.id, uri) },
+                            onReorder = { newOrder -> viewModel.reorderGigPhotos(setlist.id, newOrder) },
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        GigPhotoSuggestions(
+                            candidates = state.gigPhotoSuggestions,
+                            loading = state.gigPhotoSuggestionsLoading,
+                            searched = state.gigPhotoSuggestionsSearched,
+                            permissionGranted = state.gigPhotoSuggestionsPermissionGranted,
+                            already = gigPhotos,
+                            onRequestPermission = {
+                                gigSuggestPermissionLauncher.launch(PhotoRepository.requiredPermissions())
+                            },
+                            onAdd = { uri -> viewModel.addGigPhotos(setlist.id, listOf(uri)) },
+                        )
+                    }
                 }
-            }
-            items(rows) { row ->
-                when (row) {
-                    is EventRow.Encore -> EncoreLabel()
-                    is EventRow.SongItem -> SongRow(row.number, row.song)
+                if (rows.isEmpty()) {
+                    item {
+                        Text(
+                            "This show has no setlist on setlist.fm yet.",
+                            color = Muted,
+                            fontSize = 14.sp,
+                            modifier = Modifier.padding(20.dp),
+                        )
+                    }
                 }
+                items(rows) { row ->
+                    when (row) {
+                        is EventRow.Encore -> EncoreLabel()
+                        is EventRow.SongItem -> SongRow(row.number, row.song)
+                    }
+                }
+                item { Spacer(Modifier.height(16.dp)) }
             }
-            item { Spacer(Modifier.height(16.dp)) }
         }
     }
 

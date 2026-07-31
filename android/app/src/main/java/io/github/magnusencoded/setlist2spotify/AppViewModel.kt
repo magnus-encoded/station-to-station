@@ -760,6 +760,36 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Re-fetches the open show from setlist.fm. The one thing that changes under
+     * you here is the setlist itself — you log a night, go and type the songs in
+     * on the site, come back. Refreshes in place: the cached spine keeps its
+     * order and every other night untouched.
+     */
+    fun refreshSelectedSetlist() {
+        val open = _state.value.selectedSetlist ?: return
+        if (_state.value.setlistsLoading) return
+        _state.update { it.copy(setlistsLoading = true) }
+        viewModelScope.launch {
+            try {
+                val fresh = setlistFm.setlist(open.id)
+                val setlists = _state.value.setlists.map { if (it.id == fresh.id) fresh else it }
+                _state.update {
+                    it.copy(
+                        setlists = setlists,
+                        selectedSetlist = fresh,
+                        setlistsLoading = false,
+                    )
+                }
+                val user = _state.value.userQuery.trim()
+                if (user.isNotEmpty()) timelines.save(shows = mapOf(user to setlists))
+            } catch (e: Exception) {
+                _state.update { it.copy(setlistsLoading = false) }
+                fail(e)
+            }
+        }
+    }
+
     fun loadMoreSetlists() {
         val s = _state.value
         if (s.setlistsLoading || s.setlists.size >= s.setlistsTotal) return

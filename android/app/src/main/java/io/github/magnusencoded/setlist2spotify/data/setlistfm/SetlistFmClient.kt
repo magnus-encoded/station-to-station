@@ -59,6 +59,10 @@ class SetlistFmClient(private val apiKeyProvider: suspend () -> String?) {
     suspend fun artistSetlists(mbid: String, page: Int = 1): SetlistsResponse =
         json.decodeFromString(get("artist/$mbid/setlists", mapOf("p" to page.toString())))
 
+    /** One setlist, fresh — for when it was just edited on setlist.fm. */
+    suspend fun setlist(setlistId: String): FmSetlist =
+        json.decodeFromString(get("setlist/$setlistId", emptyMap()))
+
     suspend fun userAttended(userId: String, page: Int = 1): SetlistsResponse =
         json.decodeFromString(get("user/$userId/attended", mapOf("p" to page.toString())))
 
