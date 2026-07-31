@@ -369,31 +369,10 @@ private fun CoverPicker(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         when {
-            !permissionGranted -> {
-                Text("Playlist cover", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    "Use one of your own photos from the show.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                TextButton(
-                    onClick = onRequestPermission,
-                    contentPadding = PaddingValues(vertical = 4.dp),
-                ) { Text("Find photos from that night") }
-            }
-            loading -> Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(Modifier.size(16.dp))
-                Spacer(Modifier.size(8.dp))
-                Text("Looking through your gallery…", style = MaterialTheme.typography.bodySmall)
-            }
-            candidates.isEmpty() -> if (searched) {
-                Text(
-                    "No photos from ${showDate ?: "that night"} in your gallery — " +
-                        "Spotify will build the cover from the album art.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-            // A new show means a new set of photos, so the pager starts over.
-            else -> key(candidates) {
+            // Keepsakes already pinned to the gig need no gallery permission, so they
+            // take priority over the permission prompt below — a Reliver who added
+            // photos to the event already handed us the picture, no need to ask again.
+            candidates.isNotEmpty() -> key(candidates) {
                 // Page 0 is Spotify's collage and page 1 the suggested photo, so
                 // the collage is always one swipe right of the suggestion however
                 // many photos follow it to the left.
@@ -452,7 +431,34 @@ private fun CoverPicker(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (!permissionGranted) {
+                    TextButton(
+                        onClick = onRequestPermission,
+                        contentPadding = PaddingValues(vertical = 4.dp),
+                    ) { Text("Find more from your gallery") }
+                }
             }
+            !permissionGranted -> {
+                Text("Playlist cover", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "Use one of your own photos from the show.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                TextButton(
+                    onClick = onRequestPermission,
+                    contentPadding = PaddingValues(vertical = 4.dp),
+                ) { Text("Find photos from that night") }
+            }
+            loading -> Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(16.dp))
+                Spacer(Modifier.size(8.dp))
+                Text("Looking through your gallery…", style = MaterialTheme.typography.bodySmall)
+            }
+            searched -> Text(
+                "No photos from ${showDate ?: "that night"} in your gallery — " +
+                    "Spotify will build the cover from the album art.",
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 }

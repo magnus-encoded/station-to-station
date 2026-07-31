@@ -940,19 +940,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     // --- Cover art ---
 
     /**
-     * Offers the photos taken on the night of the selected show. Silent when the
-     * gallery permission is missing: the confirm screen asks for it instead, so
-     * a permission prompt only ever follows a tap.
+     * Offers the gig's own keepsakes first — already chosen for this night, so
+     * they need no permission and no re-asking — then the gallery's same-night
+     * match once that permission is granted. The gallery half is silent when
+     * missing: the confirm screen asks for it instead, so a prompt only ever
+     * follows a tap.
      */
     fun loadCoverCandidates() {
-        val date = _state.value.selectedSetlist?.localDate() ?: return
+        val setlist = _state.value.selectedSetlist ?: return
+        val date = setlist.localDate() ?: return
         val granted = photos.hasPermission()
         _state.update { it.copy(coverPermissionGranted = granted) }
-        if (!granted) return
         viewModelScope.launch {
             _state.update { it.copy(coverLoading = true) }
-            val found = photos.photosFrom(date)
-            val candidates = found.map { CoverCandidate(it.uri, photos.preview(it.uri)) }
+            val pinned = _state.value.photosBySetlist[setlist.id].orEmpty()
+            val gallery = if (granted) photos.photosFrom(date).map { it.uri } else emptyList()
+            val candidates = (pinned + gallery).distinct().map { CoverCandidate(it, photos.preview(it)) }
             _state.update {
                 it.copy(
                     coverCandidates = candidates,
