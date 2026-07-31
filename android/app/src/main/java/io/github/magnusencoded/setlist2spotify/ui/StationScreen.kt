@@ -1260,7 +1260,7 @@ private fun GigPhotoSuggestions(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun StationEventScreen(
     viewModel: AppViewModel,
