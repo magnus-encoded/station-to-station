@@ -1339,11 +1339,17 @@ fun StationEventScreen(
                         made.forEach { playlist ->
                             Row(
                                 Modifier
-                                    .clickable {
-                                        context.startActivity(
-                                            Intent(Intent.ACTION_VIEW, Uri.parse(playlist.url)),
-                                        )
-                                    }
+                                    // Long-press drops the link — for when the playlist
+                                    // itself was deleted on Spotify and this pointer is
+                                    // just dead weight left behind.
+                                    .combinedClickable(
+                                        onClick = {
+                                            context.startActivity(
+                                                Intent(Intent.ACTION_VIEW, Uri.parse(playlist.url)),
+                                            )
+                                        },
+                                        onLongClick = { viewModel.removePlaylist(setlist.id, playlist.url) },
+                                    )
                                     .padding(vertical = 6.dp, horizontal = 20.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {

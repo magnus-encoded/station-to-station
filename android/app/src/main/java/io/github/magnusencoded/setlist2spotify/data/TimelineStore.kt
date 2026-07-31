@@ -123,6 +123,17 @@ class TimelineStore(private val file: File) {
         it.copy(photosBySetlist = it.photosBySetlist + (setlistId to uris))
     }
 
+    /**
+     * Drops one playlist link from a night — the Spotify playlist itself was deleted
+     * outside the app, so the pointer to it is now just dead weight.
+     */
+    suspend fun removePlaylist(setlistId: String, url: String): Unit = writeMerged {
+        it.copy(
+            playlistsMade = it.playlistsMade +
+                (setlistId to it.playlistsMade[setlistId].orEmpty().filterNot { p -> p.url == url }),
+        )
+    }
+
     private suspend fun writeMerged(transform: (TimelineCache) -> TimelineCache): Unit =
         withContext(Dispatchers.IO) {
             writeLock.withLock {

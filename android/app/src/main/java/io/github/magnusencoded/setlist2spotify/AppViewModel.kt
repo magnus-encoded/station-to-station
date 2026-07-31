@@ -1005,6 +1005,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _state.value.photosBySetlist[setlistId].orEmpty() - uri,
     )
 
+    /** Drops a playlist link the app made — for when the playlist itself was deleted
+     *  on Spotify, so the pointer to it here is now just dead weight. */
+    fun removePlaylist(setlistId: String, url: String) {
+        _state.update {
+            it.copy(
+                playlistsBySetlist = it.playlistsBySetlist +
+                    (setlistId to it.playlistsBySetlist[setlistId].orEmpty().filterNot { p -> p.url == url }),
+            )
+        }
+        viewModelScope.launch { timelines.removePlaylist(setlistId, url) }
+    }
+
     /** Dragged to a new place in the strip — same set, new order. */
     fun reorderGigPhotos(setlistId: String, newOrder: List<Uri>) = setGigPhotos(setlistId, newOrder)
 
