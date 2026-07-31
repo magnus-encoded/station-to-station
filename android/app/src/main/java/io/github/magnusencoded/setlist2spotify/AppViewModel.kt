@@ -123,6 +123,8 @@ data class UiState(
     val coverCandidates: List<CoverCandidate> = emptyList(),
     val coverLoading: Boolean = false,
     val selectedCoverUri: Uri? = null,
+    /** Which frame of it, when the chosen cover is a video — scrubbed by the user. */
+    val selectedCoverFrameMs: Long = 0L,
     /** True once the gallery has been searched, so "nothing found" can be said. */
     val coverSearched: Boolean = false,
     val coverPermissionGranted: Boolean = false,
@@ -975,8 +977,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * than published as new state.
      */
     fun setCover(uri: Uri?) = _state.update {
-        if (it.selectedCoverUri == uri) it else it.copy(selectedCoverUri = uri)
+        // A different cover means the frame scrubbed out of the last one is moot.
+        if (it.selectedCoverUri == uri) it
+        else it.copy(selectedCoverUri = uri, selectedCoverFrameMs = 0L)
     }
+
+    /** Where the scrubber landed on the chosen clip — the frame that becomes the cover. */
+    fun setCoverFrame(atMs: Long) = _state.update {
+        if (it.selectedCoverFrameMs == atMs) it else it.copy(selectedCoverFrameMs = atMs)
+    }
+
+    fun isVideoCover(uri: Uri): Boolean = photos.isVideo(uri)
+
+    suspend fun videoDurationMs(uri: Uri): Long = photos.videoDurationMs(uri)
+
+    suspend fun videoFrameAt(uri: Uri, atMs: Long): Bitmap? = photos.videoFrameAt(uri, atMs)
 
     /**
      * The Reliver's own pictures pinned to a gig, chosen freely from the system photo
@@ -1138,7 +1153,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 // The songs are the point, so a cover that will not upload is
                 // reported next to the success rather than thrown over it.
-                val coverError = s.selectedCoverUri?.let { uploadCover(playlist.id, it) }
+                val coverError = s.selectedCoverUri?.let {
+                    uploadCover(playlist.id, it, s.selectedCoverFrameMs)
+                }
                 // Fall back to the canonical URL rather than dropping the link:
                 // externalUrls is Spotify's to omit, the id is ours to keep.
                 val url = playlist.externalUrls["spotify"]
@@ -1170,12 +1187,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Returns null on success, or the reason the cover did not make it. */
-    private suspend fun uploadCover(playlistId: String, uri: Uri): String? {
+    private suspend fun uploadCover(playlistId: String, uri: Uri, frameMs: Long = 0L): String? {
         if (!spotify.hasImageUploadScope()) {
             return "The cover needs a permission your Spotify login predates. " +
                 "Log out in Settings and log in again to enable playlist covers."
         }
-        val jpeg = photos.coverJpeg(uri)
+        val jpeg = photos.coverJpeg(uri, frameMs)
             ?: return "That photo could not be prepared as a cover."
         return try {
             spotify.uploadCover(playlistId, jpeg)

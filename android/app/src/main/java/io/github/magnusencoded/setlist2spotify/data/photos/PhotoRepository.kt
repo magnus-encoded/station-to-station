@@ -129,16 +129,39 @@ class PhotoRepository(private val context: Context) {
             }.getOrNull()
         }
 
-    /** A frame near the start of the clip, standing in for the video the same way
-     *  a decoded bitmap stands in for a photo. */
-    private fun videoFrame(uri: Uri, sizePx: Int): Bitmap? {
+    /** How long the clip runs, so a scrubber knows what it is scrubbing across. */
+    suspend fun videoDurationMs(uri: Uri): Long = withContext(Dispatchers.IO) {
+        runCatching {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(context, uri)
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLong() ?: 0L
+            } finally {
+                retriever.release()
+            }
+        }.getOrDefault(0L)
+    }
+
+    /** The frame at [atMs], for scrubbing a clip to the picture worth keeping. */
+    suspend fun videoFrameAt(uri: Uri, atMs: Long, sizePx: Int = PREVIEW_PX): Bitmap? =
+        withContext(Dispatchers.IO) { runCatching { videoFrame(uri, sizePx, atMs) }.getOrNull() }
+
+    /**
+     * A frame of the clip, standing in for the video the same way a decoded bitmap
+     * stands in for a photo. OPTION_CLOSEST rather than CLOSEST_SYNC once a time is
+     * asked for: sync frames can sit seconds apart, so snapping to them would make a
+     * scrubber feel stuck.
+     */
+    private fun videoFrame(uri: Uri, sizePx: Int, atMs: Long = 0L): Bitmap? {
         val retriever = MediaMetadataRetriever()
+        val option = if (atMs > 0L) MediaMetadataRetriever.OPTION_CLOSEST
+        else MediaMetadataRetriever.OPTION_CLOSEST_SYNC
         return try {
             retriever.setDataSource(context, uri)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                retriever.getScaledFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, sizePx, sizePx)
+                retriever.getScaledFrameAtTime(atMs * 1000, option, sizePx, sizePx)
             } else {
-                retriever.frameAtTime
+                retriever.getFrameAtTime(atMs * 1000, option)
             }
         } finally {
             retriever.release()
@@ -150,12 +173,12 @@ class PhotoRepository(private val context: Context) {
      * base64 form stays inside the 256 KB the upload endpoint accepts. Base64
      * costs a third on top, so the JPEG itself is held well under that.
      */
-    suspend fun coverJpeg(uri: Uri): ByteArray? = withContext(Dispatchers.IO) {
+    suspend fun coverJpeg(uri: Uri, frameMs: Long = 0L): ByteArray? = withContext(Dispatchers.IO) {
         runCatching {
             // A video has no image to decode, so the cover comes from a frame of it —
-            // the same one the thumbnail shows. It arrives already upright.
+            // whichever one the scrubber landed on. It arrives already upright.
             val decoded = if (isVideo(uri)) {
-                videoFrame(uri, COVER_PX) ?: return@runCatching null
+                videoFrame(uri, COVER_PX, frameMs) ?: return@runCatching null
             } else {
                 upright(uri, decodeScaled(uri, COVER_PX) ?: return@runCatching null)
             }
