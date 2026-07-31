@@ -250,27 +250,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
             restoreTimelines()
         }
-        // The radio's three outputs, mirrored into UiState. Collected for the whole
-        // ViewModel's life rather than while the screen is up: a swap the *other*
-        // phone starts arrives whenever it arrives.
+        // The radio's two outputs, mirrored into UiState.
         viewModelScope.launch {
             nearby.peers.collect { peers ->
-                // Anyone already added drops off the radar, so a second exchange finds
-                // the person you haven't got yet rather than offering the same card twice.
+                // Anyone already on my timeline drops off the radar — the list is
+                // "people I could add", not "people who are here".
                 val known = _state.value.friends.map { it.setlistfm.lowercase() }.toSet()
                 _state.update {
                     it.copy(
                         nearbyPeers = peers.filterNot { p -> p.setlistfm.lowercase() in known },
                         discovering = peers.isEmpty(),
                     )
-                }
-            }
-        }
-        viewModelScope.launch {
-            nearby.connected.collect { peer ->
-                if (peer != null) {
-                    adoptPeer(peer)
-                    nearby.consumeConnected()
                 }
             }
         }
@@ -595,18 +585,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun nearbyPermissions(): List<String> = nearby.requiredPermissions()
 
     /**
-     * The card swap: each phone hands over its setlist.fm ↔ Spotify identity. The
-     * friend is only added once the other phone has answered — see
-     * [NearbyPeers.connected], which fires on both sides — so a tap that reaches
-     * nobody leaves no half-made friend behind.
+     * Takes a card off the radar and onto my timeline. Purely local — the card
+     * arrived with the advertisement, so there is nobody to ask and nothing to
+     * send. If they want mine too, they tap on their own phone.
      */
     fun connectWithPeer(peer: Friend) {
-        val me = myCard() ?: return
-        nearby.exchangeWith(peer, me)
-    }
-
-    /** Both halves of a completed swap: persist the friend, then weave their lane in. */
-    private fun adoptPeer(peer: Friend) {
         viewModelScope.launch {
             // Persist the friend before loading, or the load runs against the old list.
             addFriendNow(peer)

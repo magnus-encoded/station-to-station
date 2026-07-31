@@ -198,7 +198,7 @@ fun NearbyScreen(
         ) {
             Spacer(Modifier.height(20.dp))
             Text(
-                "Hold your phones close. You'll swap setlist.fm ↔ Spotify cards, and each of you gets the other's timeline woven onto your own.",
+                "Everyone running this nearby shows up here. Add someone and their timeline is woven onto yours — if they want yours too, they add you back.",
                 color = Muted,
                 fontSize = 13.sp,
                 modifier = Modifier.padding(bottom = 8.dp),
@@ -218,9 +218,6 @@ fun NearbyScreen(
                     modifier = Modifier.align(Alignment.Start).padding(bottom = 8.dp),
                 )
                 state.nearbyPeers.forEach { peer ->
-                    // No navigation on tap: the swap is only real once the other
-                    // phone answers, and leaving early would show a woven view with
-                    // nothing new woven into it.
                     PeerRow(peer, onExchange = { viewModel.connectWithPeer(peer) })
                 }
             }
@@ -278,7 +275,7 @@ private fun PeerRow(peer: Friend, onExchange: () -> Unit) {
             Text(peer.name, color = Ink, fontFamily = Serif, fontSize = 16.sp)
             Text("@${peer.setlistfm}", color = Muted, fontSize = 12.sp)
         }
-        Text("Exchange ›", color = Amber, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text("Add ›", color = Amber, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
