@@ -150,6 +150,9 @@ private fun ConfirmScreenContent(
     val photoPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { viewModel.loadCoverCandidates() }
+    // Set when "create" is pressed with a clip as the cover: the frame picker stands
+    // between the press and the playlist.
+    var pickingFrameFor by remember { mutableStateOf<Uri?>(null) }
 
     LaunchedEffect(state.error) {
         state.error?.let {
@@ -201,7 +204,14 @@ private fun ConfirmScreenContent(
                     ) { Text("Log in with Spotify") }
                 } else {
                     Button(
-                        onClick = { viewModel.createPlaylist() },
+                        // A clip has no one obvious cover frame, so picking it is the
+                        // last step before creating — asked for once, here, rather than
+                        // sitting on the screen the whole time.
+                        onClick = {
+                            val cover = state.selectedCoverUri
+                            if (cover != null && viewModel.isVideoCover(cover)) pickingFrameFor = cover
+                            else viewModel.createPlaylist()
+                        },
                         enabled = selectedCount > 0 && !state.creatingPlaylist && !state.matching,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
@@ -272,17 +282,6 @@ private fun ConfirmScreenContent(
                     },
                     onCoverChange = viewModel::setCover,
                 )
-                // A clip has no one obvious cover frame, so the user picks it. Vertical,
-                // like the timeline the night was read on.
-                state.selectedCoverUri?.takeIf { viewModel.isVideoCover(it) }?.let { videoUri ->
-                    VideoFrameScrubber(
-                        uri = videoUri,
-                        frameMs = state.selectedCoverFrameMs,
-                        durationOf = viewModel::videoDurationMs,
-                        frameAt = viewModel::videoFrameAt,
-                        onFrameChange = viewModel::setCoverFrame,
-                    )
-                }
                 Spacer(Modifier.height(8.dp))
             }
             if (state.matching) {
@@ -325,6 +324,22 @@ private fun ConfirmScreenContent(
                 }
             }
         }
+    }
+
+    // Stands between "create" and the playlist when the cover is a clip.
+    pickingFrameFor?.let { videoUri ->
+        VideoFrameDialog(
+            uri = videoUri,
+            frameMs = state.selectedCoverFrameMs,
+            durationOf = viewModel::videoDurationMs,
+            frameAt = viewModel::videoFrameAt,
+            onFrameChange = viewModel::setCoverFrame,
+            onDismiss = { pickingFrameFor = null },
+            onConfirm = {
+                pickingFrameFor = null
+                viewModel.createPlaylist()
+            },
+        )
     }
 
     // Success dialog with a link to the created playlist.
@@ -480,17 +495,20 @@ private fun CoverPicker(
 }
 
 /**
- * Picks the one frame of a clip worth being the cover. Drag the track to scrub —
- * vertical, matching the timeline the night itself is read on: the start of the clip
- * at the top, the end at the bottom.
+ * Picks the one frame of a clip worth being the cover — the last step before the
+ * playlist is made, so it gets the whole screen rather than a slot on the confirm
+ * form. Scrubbed vertically, like the timeline the night itself is read on: the start
+ * of the clip at the top, the end at the bottom.
  */
 @Composable
-private fun VideoFrameScrubber(
+private fun VideoFrameDialog(
     uri: Uri,
     frameMs: Long,
     durationOf: suspend (Uri) -> Long,
     frameAt: suspend (Uri, Long) -> Bitmap?,
     onFrameChange: (Long) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
 ) {
     var duration by remember(uri) { mutableStateOf(0L) }
     var frame by remember(uri) { mutableStateOf<Bitmap?>(null) }
@@ -500,79 +518,76 @@ private fun VideoFrameScrubber(
     // finger moves, so this only ever chases the value the scrub has settled on.
     LaunchedEffect(uri, frameMs) { frame = frameAt(uri, frameMs) }
 
-    if (duration <= 0L) return
     val scrubTo: (Float) -> Unit = { y ->
-        onFrameChange(((y / trackHeight).coerceIn(0f, 1f) * duration).toLong())
+        if (duration > 0L) onFrameChange(((y / trackHeight).coerceIn(0f, 1f) * duration).toLong())
     }
 
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier
-                .size(ScrubPreviewSize)
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center,
-        ) {
-            frame?.let {
-                Image(
-                    bitmap = it.asImageBitmap(),
-                    contentDescription = "The frame this clip will use as the cover",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } ?: CircularProgressIndicator(Modifier.size(20.dp))
-        }
-        Spacer(Modifier.width(12.dp))
-        // The track: tall and thin, dragged with a thumb that marks where in the clip
-        // this frame sits.
-        Box(
-            Modifier
-                .width(28.dp)
-                .height(ScrubPreviewSize)
-                .onSizeChanged { trackHeight = it.height.coerceAtLeast(1) }
-                .pointerInput(uri, duration) {
-                    detectVerticalDragGestures { change, _ -> scrubTo(change.position.y) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Choose the cover frame") },
+        text = {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .height(ScrubHeight)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    frame?.let {
+                        Image(
+                            bitmap = it.asImageBitmap(),
+                            contentDescription = "The frame this clip will use as the cover",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } ?: CircularProgressIndicator(Modifier.size(20.dp))
                 }
-                .pointerInput(uri, duration) {
-                    detectTapGestures { offset -> scrubTo(offset.y) }
-                },
-            contentAlignment = Alignment.TopCenter,
-        ) {
-            Box(
-                Modifier
-                    .width(2.dp)
-                    .fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-            )
-            val fraction = (frameMs.toFloat() / duration).coerceIn(0f, 1f)
-            Box(
-                Modifier
-                    .padding(top = (ScrubPreviewSize - ScrubThumb) * fraction)
-                    .size(ScrubThumb)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary),
-            )
-        }
-        Spacer(Modifier.width(12.dp))
-        Column {
-            Text("Cover frame", style = MaterialTheme.typography.titleSmall)
-            Text(
-                "%d:%02d".format(frameMs / 60_000, (frameMs / 1000) % 60),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Text(
-                "Drag to find the moment.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
+                Spacer(Modifier.width(16.dp))
+                // The track: tall and thin, dragged with a thumb marking where in the
+                // clip this frame sits.
+                Box(
+                    Modifier
+                        .width(32.dp)
+                        .height(ScrubHeight)
+                        .onSizeChanged { trackHeight = it.height.coerceAtLeast(1) }
+                        .pointerInput(uri, duration) {
+                            detectVerticalDragGestures { change, _ -> scrubTo(change.position.y) }
+                        }
+                        .pointerInput(uri, duration) {
+                            detectTapGestures { offset -> scrubTo(offset.y) }
+                        },
+                    contentAlignment = Alignment.TopCenter,
+                ) {
+                    Box(
+                        Modifier
+                            .width(2.dp)
+                            .fillMaxHeight()
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                    )
+                    val fraction =
+                        if (duration <= 0L) 0f else (frameMs.toFloat() / duration).coerceIn(0f, 1f)
+                    Box(
+                        Modifier
+                            .padding(top = (ScrubHeight - ScrubThumb) * fraction)
+                            .size(ScrubThumb)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("Use this frame (%d:%02d)".format(frameMs / 60_000, (frameMs / 1000) % 60))
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
-private val ScrubPreviewSize = 140.dp
+private val ScrubHeight = 220.dp
 private val ScrubThumb = 14.dp
 
 /**
