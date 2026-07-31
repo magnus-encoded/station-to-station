@@ -1,8 +1,11 @@
 package io.github.magnusencoded.setlist2spotify.ui
 
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import android.util.Log
+import android.widget.MediaController
+import android.widget.VideoView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -93,6 +96,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -1281,6 +1287,7 @@ fun StationEventScreen(
     // Silent when permission isn't there yet — same guard as the prompt above,
     // so a gig already granted access just re-searches without another tap.
     LaunchedEffect(setlist?.id) { viewModel.loadGigPhotoSuggestions() }
+    var viewerUri by remember { mutableStateOf<Uri?>(null) }
 
     Scaffold(
         containerColor = Ground,
@@ -1439,17 +1446,11 @@ fun StationEventScreen(
                         photos = gigPhotos,
                         loadPreview = viewModel::photoPreview,
                         onAdd = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
-                        // Our own FileProvider copies need the grant flag for the viewer
-                        // app to read them; a bare picker/cloud-picker uri doesn't, and
-                        // re-granting one whose authority we don't own throws a
-                        // SecurityException straight out of startActivity and crashes.
-                        onOpen = { uri ->
-                            val intent = Intent(Intent.ACTION_VIEW, uri)
-                            if (uri.authority == "${context.packageName}.fileprovider") {
-                                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            context.startActivity(intent)
-                        },
+                        // Opens in the in-app viewer below rather than handing the uri to
+                        // whatever app the phone picks: an external app can fail to read
+                        // it (permission scoped to us, or the phone's own quirks) and
+                        // leave the user staring at a viewer with nothing in it.
+                        onOpen = { uri -> viewerUri = uri },
                         onRemove = { uri -> viewModel.removeGigPhoto(setlist.id, uri) },
                         onReorder = { newOrder -> viewModel.reorderGigPhotos(setlist.id, newOrder) },
                     )
@@ -1484,6 +1485,59 @@ fun StationEventScreen(
                 }
             }
             item { Spacer(Modifier.height(16.dp)) }
+        }
+    }
+
+    viewerUri?.let { uri ->
+        MediaViewerDialog(
+            uri = uri,
+            isVideo = viewModel.isVideo(uri),
+            loadPhoto = viewModel::fullPhoto,
+            onDismiss = { viewerUri = null },
+        )
+    }
+}
+
+/**
+ * A tap on a keepsake opens it here rather than in an external app — a photo enlarged,
+ * a video played back — since a picker/FileProvider uri handed to whatever app the phone
+ * chooses can fail to actually load it there.
+ */
+@Composable
+private fun MediaViewerDialog(
+    uri: Uri,
+    isVideo: Boolean,
+    loadPhoto: suspend (Uri) -> Bitmap?,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(Modifier.fillMaxSize().background(Color.Black)) {
+            if (isVideo) {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { ctx ->
+                        VideoView(ctx).apply {
+                            setMediaController(MediaController(ctx).also { it.setAnchorView(this) })
+                            setVideoURI(uri)
+                            setOnPreparedListener { it.start() }
+                        }
+                    },
+                )
+            } else {
+                var bitmap by remember(uri) { mutableStateOf<Bitmap?>(null) }
+                LaunchedEffect(uri) { bitmap = loadPhoto(uri) }
+                bitmap?.let {
+                    Image(
+                        it.asImageBitmap(),
+                        contentDescription = "Your photo from this show",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize().clickable(onClick = onDismiss),
+                    )
+                } ?: CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
+            }
+            IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)) {
+                Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
+            }
         }
     }
 }

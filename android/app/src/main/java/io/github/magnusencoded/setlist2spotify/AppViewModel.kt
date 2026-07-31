@@ -1039,6 +1039,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun photoPreview(uri: Uri): MediaThumb =
         MediaThumb(photos.preview(uri, sizePx = 320), photos.isVideo(uri))
 
+    /** Whether a gig keepsake is a video clip rather than a photo — cheap metadata
+     *  lookup, checked before opening the in-app viewer so it knows which to show. */
+    fun isVideo(uri: Uri): Boolean = photos.isVideo(uri)
+
+    /** A bigger decode of the same photo, for the in-app viewer rather than the
+     *  strip's thumbnail. */
+    suspend fun fullPhoto(uri: Uri): Bitmap? = photos.preview(uri, sizePx = 1600)
+
     /** Manual re-search for one song with a user-provided query. */
     fun researchSong(index: Int, query: String) {
         if (query.isBlank()) return
