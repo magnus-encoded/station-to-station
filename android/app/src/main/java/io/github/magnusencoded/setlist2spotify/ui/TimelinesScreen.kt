@@ -12,6 +12,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
@@ -43,8 +46,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -155,8 +163,37 @@ fun NearbyScreen(
             )
         },
     ) { padding ->
+        // The refresh completes the moment the radio restarts — there is no result to
+        // wait for — so the spinner is a beat of acknowledgement, not a progress bar.
+        var refreshing by remember { mutableStateOf(false) }
+        LaunchedEffect(refreshing) {
+            if (refreshing) {
+                kotlinx.coroutines.delay(900)
+                refreshing = false
+            }
+        }
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = { refreshing = true; viewModel.restartNearbyDiscovery() },
+            modifier = Modifier.padding(padding).fillMaxSize(),
+        ) {
         Column(
-            Modifier.padding(padding).fillMaxSize().padding(horizontal = 24.dp),
+            Modifier
+                .fillMaxSize()
+                // Right goes back, the same as everywhere else on the spine. Without
+                // it this is the one screen the swipe habit dies on.
+                .pointerInput(Unit) {
+                    var dragX = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { dragX = 0f },
+                        onDragEnd = { if (dragX >= 110.dp.toPx()) onBack() },
+                        onHorizontalDrag = { _, delta -> dragX += delta },
+                    )
+                }
+                // Landscape leaves no room for radar + copy + rows; without this the
+                // peer you came here to tap sits below the bottom edge, unreachable.
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(20.dp))
@@ -187,6 +224,8 @@ fun NearbyScreen(
                     PeerRow(peer, onExchange = { viewModel.connectWithPeer(peer) })
                 }
             }
+            Spacer(Modifier.height(24.dp))
+        }
         }
     }
 }

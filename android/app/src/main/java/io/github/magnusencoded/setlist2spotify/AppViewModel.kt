@@ -580,6 +580,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         nearby.start(me)
     }
 
+    /** Pulled down on the connect screen: drop everything and listen again. */
+    fun restartNearbyDiscovery() {
+        val me = myCard() ?: return
+        _state.update { it.copy(discovering = true, nearbyPeers = emptyList()) }
+        nearby.restart(me)
+    }
+
     fun stopNearbyDiscovery() {
         nearby.stop()
         _state.update { it.copy(discovering = false, nearbyPeers = emptyList()) }

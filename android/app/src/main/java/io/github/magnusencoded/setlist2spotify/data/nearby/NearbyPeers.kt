@@ -23,6 +23,11 @@ import com.google.android.gms.nearby.connection.Strategy
 import io.github.magnusencoded.setlist2spotify.data.Friend
 import io.github.magnusencoded.setlist2spotify.data.friendFromUri
 import io.github.magnusencoded.setlist2spotify.data.toShareUri
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -58,6 +63,9 @@ class NearbyPeers(private val context: Context) {
 
     /** endpointId -> the card that endpoint advertised. */
     private val cards = mutableMapOf<String, Friend>()
+    /** endpointId -> the pending "really gone" removal; cancelled if it comes back. */
+    private val forget = mutableMapOf<String, Job>()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var running = false
 
     fun consumeConnected() = _connected.update { null }
@@ -116,8 +124,16 @@ class NearbyPeers(private val context: Context) {
         connections.stopAdvertising()
         connections.stopDiscovery()
         connections.stopAllEndpoints()
+        forget.values.forEach { it.cancel() }
+        forget.clear()
         cards.clear()
         _peers.update { emptyList() }
+    }
+
+    /** Stop and start again — the "nothing is appearing, try harder" gesture. */
+    fun restart(me: Friend) {
+        stop()
+        start(me)
     }
 
     /** Asks [friend]'s phone to swap. Both sides land in [connected] once it takes. */
@@ -136,14 +152,36 @@ class NearbyPeers(private val context: Context) {
             // Anything that isn't one of our cards is some other app on the same
             // service id, or a truncated name; ignore rather than show a blank row.
             val friend = cardFrom(info.endpointName) ?: return
+            forget[endpointId]?.cancel()
+            forget.remove(endpointId)
             cards[endpointId] = friend
-            _peers.update { (it + friend).distinctBy { f -> f.setlistfm.lowercase() } }
+            publish()
         }
 
         override fun onEndpointLost(endpointId: String) {
-            val gone = cards.remove(endpointId) ?: return
-            _peers.update { list -> list.filterNot { it.setlistfm == gone.setlistfm } }
+            if (!cards.containsKey(endpointId) || forget.containsKey(endpointId)) return
+            // Not removed on the spot. A phone that misses one advertising window
+            // is reported lost and found again seconds later, and taking the row
+            // away each time makes the person you are standing next to blink in and
+            // out — worse than briefly listing someone who has actually walked off.
+            forget[endpointId] = scope.launch {
+                delay(GRACE_MS)
+                cards.remove(endpointId)
+                forget.remove(endpointId)
+                publish()
+            }
         }
+    }
+
+    /**
+     * The peer list, rebuilt from every live endpoint rather than edited in place.
+     *
+     * A phone that goes and comes back returns under a *new* endpoint id, so the old
+     * id's removal must not take the person with it — deriving the list from what is
+     * currently held makes that impossible to get wrong.
+     */
+    private fun publish() {
+        _peers.update { cards.values.distinctBy { it.setlistfm.lowercase() } }
     }
 
     private val lifecycle = object : ConnectionLifecycleCallback() {
@@ -172,7 +210,9 @@ class NearbyPeers(private val context: Context) {
         }
 
         override fun onDisconnected(endpointId: String) {
-            cards.remove(endpointId)
+            // Only the connection ended. The endpoint may still be advertising, and
+            // discovery will hand it back — so leave the card and let onEndpointLost
+            // be the thing that decides someone has gone.
         }
     }
 
@@ -196,5 +236,9 @@ class NearbyPeers(private val context: Context) {
         const val TAG = "NearbyPeers"
         // Namespaced to this app: two phones only see each other if both run it.
         const val SERVICE_ID = "io.github.magnusencoded.setlist2spotify.timelines"
+        // ponytail: how long a lost endpoint stays on the list before it is believed.
+        // Long enough to ride out a missed advertising window, short enough that
+        // someone who walks away is gone before you tap them.
+        const val GRACE_MS = 12_000L
     }
 }
