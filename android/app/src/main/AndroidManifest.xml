@@ -71,6 +71,19 @@
                 <data android:scheme="station-to-station" />
             </intent-filter>
         </activity>
+
+        <!-- Photo-picker uris only grant us read access for the current process — gone
+             on relaunch, which is why keepsakes went blank. Gig photos are copied into
+             gig_photos/ (see PhotoRepository.persistCopy) and re-exposed through this. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="io.github.magnusencoded.setlist2spotify.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

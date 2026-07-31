@@ -985,6 +985,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         (_state.value.photosBySetlist[setlistId].orEmpty() + uris).distinct(),
     )
 
+    /**
+     * Same as [addGigPhotos], but for uris fresh out of the system photo picker: those
+     * only grant read access for the running process, so they're copied into our own
+     * storage first — otherwise the keepsake goes blank the next time the app launches.
+     */
+    fun addPickedGigPhotos(setlistId: String, uris: List<Uri>) {
+        viewModelScope.launch {
+            val copied = uris.mapNotNull { photos.persistCopy(it) }
+            if (copied.isNotEmpty()) addGigPhotos(setlistId, copied)
+        }
+    }
+
     fun removeGigPhoto(setlistId: String, uri: Uri) = setGigPhotos(
         setlistId,
         _state.value.photosBySetlist[setlistId].orEmpty() - uri,

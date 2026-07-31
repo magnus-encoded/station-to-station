@@ -1272,7 +1272,7 @@ fun StationEventScreen(
     // gallery permission needed for that path, unlike the suggestions below.
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia()
-    ) { uris -> if (uris.isNotEmpty()) setlist?.let { viewModel.addGigPhotos(it.id, uris) } }
+    ) { uris -> if (uris.isNotEmpty()) setlist?.let { viewModel.addPickedGigPhotos(it.id, uris) } }
     // Gallery access is only ever asked for after the "suggest" tap, so opening
     // a gig never triggers a permission prompt on its own.
     val gigSuggestPermissionLauncher = rememberLauncherForActivityResult(
@@ -1439,11 +1439,17 @@ fun StationEventScreen(
                         photos = gigPhotos,
                         loadPreview = viewModel::photoPreview,
                         onAdd = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
-                        // No FLAG_GRANT_READ_URI_PERMISSION: a photo-picker uri only grants
-                        // *us* read access, and asking to re-grant one we don't own the
-                        // authority for (e.g. Google Photos' cloud picker backend) throws a
+                        // Our own FileProvider copies need the grant flag for the viewer
+                        // app to read them; a bare picker/cloud-picker uri doesn't, and
+                        // re-granting one whose authority we don't own throws a
                         // SecurityException straight out of startActivity and crashes.
-                        onOpen = { uri -> context.startActivity(Intent(Intent.ACTION_VIEW, uri)) },
+                        onOpen = { uri ->
+                            val intent = Intent(Intent.ACTION_VIEW, uri)
+                            if (uri.authority == "${context.packageName}.fileprovider") {
+                                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(intent)
+                        },
                         onRemove = { uri -> viewModel.removeGigPhoto(setlist.id, uri) },
                         onReorder = { newOrder -> viewModel.reorderGigPhotos(setlist.id, newOrder) },
                     )
