@@ -112,6 +112,7 @@ import io.github.magnusencoded.setlist2spotify.BuildConfig
 import io.github.magnusencoded.setlist2spotify.CoverCandidate
 import io.github.magnusencoded.setlist2spotify.GigLink
 import io.github.magnusencoded.setlist2spotify.MediaThumb
+import io.github.magnusencoded.setlist2spotify.NOT_STAMPED
 import io.github.magnusencoded.setlist2spotify.data.Friend
 import io.github.magnusencoded.setlist2spotify.data.photos.PhotoRepository
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
@@ -1289,6 +1290,12 @@ fun StationEventScreen(
     // so a gig already granted access just re-searches without another tap.
     LaunchedEffect(setlist?.id) { viewModel.loadGigPhotoSuggestions() }
     var viewerUri by remember { mutableStateOf<Uri?>(null) }
+    // Where the viewer should open — set when a stamped song on the spine is tapped,
+    // so the recording lands on that song instead of at the top of the night.
+    var viewerStartMs by remember { mutableStateOf(NOT_STAMPED) }
+    // The night's full recording: the first video among the keepsakes. Photos and
+    // one-song clips sit alongside it and are not treated as the recording.
+    val recording = gigPhotos.firstOrNull { viewModel.isVideo(it) }
 
     Scaffold(
         containerColor = Ground,
@@ -1393,6 +1400,15 @@ fun StationEventScreen(
         }
         val rows = setlist.eventRows()
         val canConvert = setlist.performed().isNotEmpty()
+        val offsets = viewModel.songOffsets(setlist.id, setlist.songs().size)
+        // Offsets are indexed over every song, tape included; row.number skips tape,
+        // so it can't be used to look one up. -1 for the rows that aren't songs.
+        val songIndexByRow = remember(rows) {
+            buildList {
+                var i = 0
+                rows.forEach { add(if (it is EventRow.SongItem) i++ else -1) }
+            }
+        }
         // Pull down to re-fetch: you log the night here, go type the songs in on
         // setlist.fm, and come back to a screen that still says there's no setlist.
         PullToRefreshBox(
@@ -1491,10 +1507,22 @@ fun StationEventScreen(
                         )
                     }
                 }
-                items(rows) { row ->
+                itemsIndexed(rows) { rowIndex, row ->
                     when (row) {
                         is EventRow.Encore -> EncoreLabel()
-                        is EventRow.SongItem -> SongRow(row.number, row.song)
+                        is EventRow.SongItem -> {
+                            val at = offsets.getOrElse(songIndexByRow[rowIndex]) { NOT_STAMPED }
+                            SongRow(
+                                number = row.number,
+                                song = row.song,
+                                offsetMs = at,
+                                // Only a stamped song knows where it is in the recording;
+                                // the rest are inert until someone marks them.
+                                onClick = if (at > NOT_STAMPED && recording != null) {
+                                    { viewerStartMs = at; viewerUri = recording }
+                                } else null,
+                            )
+                        }
                     }
                 }
                 item { Spacer(Modifier.height(16.dp)) }
@@ -1503,11 +1531,20 @@ fun StationEventScreen(
     }
 
     viewerUri?.let { uri ->
+        // Only the night's own recording carries the setlist — a short clip of one
+        // song is still just a keepsake, and a song list under it would be noise.
+        val songs = if (setlist != null && uri == recording) setlist.songs() else emptyList()
         MediaViewerDialog(
             uri = uri,
             isVideo = viewModel.isVideo(uri),
             loadPhoto = viewModel::fullPhoto,
-            onDismiss = { viewerUri = null },
+            onDismiss = { viewerUri = null; viewerStartMs = NOT_STAMPED },
+            songs = songs,
+            offsets = if (setlist != null) viewModel.songOffsets(setlist.id, songs.size) else emptyList(),
+            startAtMs = viewerStartMs,
+            onStamp = { index, atMs ->
+                setlist?.let { viewModel.stampSong(it.id, index, atMs, songs.size) }
+            },
         )
     }
 }
@@ -1516,6 +1553,11 @@ fun StationEventScreen(
  * A tap on a keepsake opens it here rather than in an external app — a photo enlarged,
  * a video played back — since a picker/FileProvider uri handed to whatever app the phone
  * chooses can fail to actually load it there.
+ *
+ * When the keepsake is a whole night's recording, the setlist rides along underneath it:
+ * play, and tap a song as it starts to record where it sits in the video. Nothing is
+ * inferred — one tap stamps one song — because the recording and the setlist do not
+ * always hold the same songs.
  */
 @Composable
 private fun MediaViewerDialog(
@@ -1523,10 +1565,57 @@ private fun MediaViewerDialog(
     isVideo: Boolean,
     loadPhoto: suspend (Uri) -> Bitmap?,
     onDismiss: () -> Unit,
+    songs: List<FmSong> = emptyList(),
+    offsets: List<Long> = emptyList(),
+    startAtMs: Long = NOT_STAMPED,
+    onStamp: (Int, Long) -> Unit = { _, _ -> },
 ) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
-            if (isVideo) {
+            if (isVideo && songs.isNotEmpty()) {
+                var player by remember(uri) { mutableStateOf<VideoView?>(null) }
+                Column(Modifier.fillMaxSize()) {
+                    AndroidView(
+                        modifier = Modifier.fillMaxWidth().weight(0.45f),
+                        factory = { ctx ->
+                            VideoView(ctx).apply {
+                                setMediaController(MediaController(ctx).also { it.setAnchorView(this) })
+                                setVideoURI(uri)
+                                setOnPreparedListener {
+                                    if (startAtMs > NOT_STAMPED) seekTo(startAtMs.toInt())
+                                    it.start()
+                                }
+                                player = this
+                            }
+                        },
+                    )
+                    Text(
+                        "Tap a song as it starts. Long-press to clear.",
+                        color = Faint,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(start = 20.dp, top = 10.dp, bottom = 6.dp),
+                    )
+                    LazyColumn(Modifier.weight(0.55f)) {
+                        itemsIndexed(songs) { index, song ->
+                            StampRow(
+                                number = index + 1,
+                                song = song,
+                                offsetMs = offsets.getOrElse(index) { NOT_STAMPED },
+                                // A stamped song is a place to jump to; an unstamped one
+                                // is a place to mark. Same row, told apart by whether it
+                                // already knows where it lives.
+                                onTap = {
+                                    val at = offsets.getOrElse(index) { NOT_STAMPED }
+                                    if (at > NOT_STAMPED) player?.seekTo(at.toInt())
+                                    else player?.let { onStamp(index, it.currentPosition.toLong()) }
+                                },
+                                onLongPress = { onStamp(index, NOT_STAMPED) },
+                            )
+                        }
+                        item { Spacer(Modifier.height(24.dp)) }
+                    }
+                }
+            } else if (isVideo) {
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { ctx ->
@@ -1556,11 +1645,61 @@ private fun MediaViewerDialog(
     }
 }
 
+/** mm:ss, or h:mm:ss once a recording runs past the hour — a full gig usually does. */
+internal fun formatOffset(ms: Long): String {
+    val total = ms / 1000
+    val h = total / 3600
+    return if (h > 0) "%d:%02d:%02d".format(h, (total % 3600) / 60, total % 60)
+    else "%d:%02d".format(total / 60, total % 60)
+}
+
+/** One song inside the recording viewer: tap to stamp or to jump, long-press to clear. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SongRow(number: Int?, song: FmSong) {
+private fun StampRow(
+    number: Int,
+    song: FmSong,
+    offsetMs: Long,
+    onTap: () -> Unit,
+    onLongPress: () -> Unit,
+) {
+    val stamped = offsetMs > NOT_STAMPED
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onTap, onLongClick = { if (stamped) onLongPress() })
+            .padding(horizontal = 20.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("$number", color = Faint, fontSize = 11.sp, modifier = Modifier.width(24.dp))
+        Text(
+            song.name,
+            color = if (stamped) Ink else Muted,
+            fontSize = 15.sp,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            if (stamped) formatOffset(offsetMs) else "–",
+            color = if (stamped) Amber else Faint,
+            fontSize = 13.sp,
+        )
+    }
+}
+
+@Composable
+private fun SongRow(
+    number: Int?,
+    song: FmSong,
+    offsetMs: Long = NOT_STAMPED,
+    onClick: (() -> Unit)? = null,
+) {
     val cover = song.cover?.name
     Row(
-        Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(end = 20.dp),
+        Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(end = 20.dp),
         verticalAlignment = Alignment.Top,
     ) {
         Box(Modifier.width(50.dp).fillMaxHeight()) {
@@ -1583,6 +1722,15 @@ private fun SongRow(number: Int?, song: FmSong) {
             Text(song.name, color = if (number == null) Muted else Ink, fontSize = 15.sp)
             val note = cover?.let { "$it cover" } ?: "tape".takeIf { song.tape }
             if (note != null) Text(note, color = Faint, fontSize = 11.sp)
+        }
+        // Where this song sits in the night's recording, once someone has marked it.
+        if (offsetMs > NOT_STAMPED) {
+            Text(
+                formatOffset(offsetMs),
+                color = Amber,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 2.dp),
+            )
         }
     }
 }

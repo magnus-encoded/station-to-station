@@ -35,6 +35,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
+/** A song with no place yet in the night's recording. 0L is a real time — the first song. */
+const val NOT_STAMPED = -1L
+
 /** One setlist song together with its Spotify match candidates and selection. */
 data class SongMatch(
     val song: FmSong,
@@ -130,6 +133,8 @@ data class UiState(
     val coverPermissionGranted: Boolean = false,
     /** The Reliver's own photos on a gig's single-night view, by setlist id. */
     val photosBySetlist: Map<String, List<Uri>> = emptyMap(),
+    /** Where each song starts in a night's recording; see TimelineCache.songOffsetsBySetlist. */
+    val songOffsetsBySetlist: Map<String, List<Long>> = emptyMap(),
     // Gig-photo suggestions: the same same-night gallery search as the playlist
     // cover picker, offered as one-tap adds instead of a single chosen cover.
     val gigPhotoSuggestions: List<CoverCandidate> = emptyList(),
@@ -274,6 +279,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 playlistsBySetlist = it.playlistsBySetlist + cached.playlistsMade,
                 photosBySetlist = it.photosBySetlist +
                     cached.photosBySetlist.mapValues { (_, uris) -> uris.map(Uri::parse) },
+                songOffsetsBySetlist = it.songOffsetsBySetlist + cached.songOffsetsBySetlist,
                 // Every lane but mine: the weave reads friends from here.
                 showsByFriend = cached.shows - me,
                 // Only adopt a cached spine if nothing has already loaded into it.
@@ -1060,6 +1066,33 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         viewModelScope.launch { timelines.removePlaylist(setlistId, url) }
+    }
+
+    /**
+     * Where each song of [setlistId] starts in its recording, padded/trimmed to
+     * [songCount]. Sized on read rather than trusted from disk: the setlist can be
+     * edited on setlist.fm after a night was stamped, and a stored list of the old
+     * length would otherwise shift every song's time by one.
+     */
+    fun songOffsets(setlistId: String, songCount: Int): List<Long> {
+        val stored = _state.value.songOffsetsBySetlist[setlistId].orEmpty()
+        return List(songCount) { stored.getOrElse(it) { NOT_STAMPED } }
+    }
+
+    /**
+     * Records that song [index] starts at [atMs] in the night's recording, or clears
+     * it with [NOT_STAMPED].
+     *
+     * Only this one song moves. The recording and the setlist need not hold the same
+     * songs — a clip setlist.fm left out sits in the gap between two stamps — so
+     * nothing may be inferred about its neighbours from one stamp.
+     */
+    fun stampSong(setlistId: String, index: Int, atMs: Long, songCount: Int) {
+        val offsets = songOffsets(setlistId, songCount).toMutableList()
+        if (index !in offsets.indices) return
+        offsets[index] = atMs
+        _state.update { it.copy(songOffsetsBySetlist = it.songOffsetsBySetlist + (setlistId to offsets)) }
+        viewModelScope.launch { timelines.saveSongOffsets(setlistId, offsets) }
     }
 
     /** Dragged to a new place in the strip — same set, new order. */

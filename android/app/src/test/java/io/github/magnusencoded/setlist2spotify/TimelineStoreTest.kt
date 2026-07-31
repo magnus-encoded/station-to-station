@@ -112,6 +112,22 @@ class TimelineStoreTest {
     }
 
     @Test
+    fun `song offsets survive a save of the shows around them`() = runBlocking {
+        val store = store()
+        store.saveSongOffsets("a", listOf(0L, 214_000L, -1L))
+        store.save(shows = mapOf("magnus" to listOf(show("a"))))
+        assertEquals(listOf(0L, 214_000L, -1L), store.load().songOffsetsBySetlist["a"])
+    }
+
+    @Test
+    fun `restamping a night replaces its offsets rather than appending`() = runBlocking {
+        val store = store()
+        store.saveSongOffsets("a", listOf(0L, 100L))
+        store.saveSongOffsets("a", listOf(0L, 250L))
+        assertEquals(listOf(0L, 250L), store.load().songOffsetsBySetlist["a"])
+    }
+
+    @Test
     fun `the reported total survives a reload, so paging can resume`() = runBlocking {
         val store = store()
         store.save(shows = mapOf("dizzi90" to listOf(show("a"))), attendedTotals = mapOf("dizzi90" to 169))

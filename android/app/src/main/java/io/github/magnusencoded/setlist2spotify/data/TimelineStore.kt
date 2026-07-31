@@ -71,6 +71,16 @@ data class TimelineCache(
      * current choice of pictures.
      */
     val photosBySetlist: Map<String, List<String>> = emptyMap(),
+    /**
+     * Where each song starts inside a night's full recording, in milliseconds, by
+     * setlist id — one entry per song in setlist order, -1 for "not stamped yet".
+     *
+     * A positional list rather than a map keyed by song name: a set can play the same
+     * song twice, and the running order is the only thing that tells the two apart.
+     * Goes stale if the setlist is edited on setlist.fm afterwards; the length check
+     * on read is what catches that.
+     */
+    val songOffsetsBySetlist: Map<String, List<Long>> = emptyMap(),
 )
 
 /** [file] rather than a Context only so the merge can be tested on the JVM. */
@@ -121,6 +131,11 @@ class TimelineStore(private val file: File) {
     /** The Reliver's current set of photos for one gig, replacing whatever was there. */
     suspend fun savePhotos(setlistId: String, uris: List<String>): Unit = writeMerged {
         it.copy(photosBySetlist = it.photosBySetlist + (setlistId to uris))
+    }
+
+    /** A night's song start times inside its recording, replacing whatever was there. */
+    suspend fun saveSongOffsets(setlistId: String, offsets: List<Long>): Unit = writeMerged {
+        it.copy(songOffsetsBySetlist = it.songOffsetsBySetlist + (setlistId to offsets))
     }
 
     /**
