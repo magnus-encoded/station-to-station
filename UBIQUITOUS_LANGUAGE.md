@@ -66,7 +66,7 @@ carry, how they are established, and what they permit.
 | **Followed line** | A person whose **Line** I pull and draw. One-sided, needs no consent and grants none: their attendance is public setlist.fm data, and following takes nothing from them. Addable remotely. | friend, contact, connection |
 | **Contact** | A person I have exchanged keys with **in person**, mutually. The only relationship bytes can flow along. Not addable remotely — ever. | friend, follower, buddy |
 | **Card** | What is handed over in an **Exchange**: a public key, a display name, and *optionally* a setlist.fm username. The key is the identity; setlist.fm is an attribute. | profile, account |
-| **Exchange** | Two people, standing together, each getting their phone out: discovery over Nearby, then **Cards** swapped. Physical presence is the authentication — that is the whole point, not an implementation detail. | pairing, friend request, connect |
+| **Exchange** | Two people, standing together, each getting their phone out: the other appears, you tap, *"Connecting with dizzi90"*, and you are contacts from then on. Physical presence is the authentication — the whole point, not an implementation detail. **The moment is one thing; the mechanism is three** (Nearby between Androids, BLE GATT everywhere else, QR when the radio sulks) and the user must never be shown which one ran. Budget: two seconds. | pairing, friend request, connect |
 | **Mutual** | The stored bit saying an **Exchange** happened. Outlives the radio session that created it; a **Contact** is exactly a person this bit is set for. | connected, paired |
 
 A person can be a **Followed line**, a **Contact**, both, or neither. Following someone
