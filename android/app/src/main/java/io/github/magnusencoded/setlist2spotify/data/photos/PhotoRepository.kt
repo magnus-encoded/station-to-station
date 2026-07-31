@@ -152,8 +152,14 @@ class PhotoRepository(private val context: Context) {
      */
     suspend fun coverJpeg(uri: Uri): ByteArray? = withContext(Dispatchers.IO) {
         runCatching {
-            val decoded = decodeScaled(uri, COVER_PX) ?: return@runCatching null
-            val square = centerCrop(upright(uri, decoded), COVER_PX)
+            // A video has no image to decode, so the cover comes from a frame of it —
+            // the same one the thumbnail shows. It arrives already upright.
+            val decoded = if (isVideo(uri)) {
+                videoFrame(uri, COVER_PX) ?: return@runCatching null
+            } else {
+                upright(uri, decodeScaled(uri, COVER_PX) ?: return@runCatching null)
+            }
+            val square = centerCrop(decoded, COVER_PX)
             var quality = 90
             var bytes = square.toJpeg(quality)
             while (bytes.size > MAX_JPEG_BYTES && quality > 40) {
