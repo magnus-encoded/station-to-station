@@ -7,18 +7,25 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.magnusencoded.setlist2spotify.data.Friend
 import io.github.magnusencoded.setlist2spotify.data.SettingsRepository
+import io.github.magnusencoded.setlist2spotify.data.StoredPlaylist
+import io.github.magnusencoded.setlist2spotify.data.TimelineStore
 import io.github.magnusencoded.setlist2spotify.data.friendFromUri
 import io.github.magnusencoded.setlist2spotify.data.photos.PhotoRepository
 import io.github.magnusencoded.setlist2spotify.data.sfmStamp
 import io.github.magnusencoded.setlist2spotify.data.sfmUserFromDescription
 import io.github.magnusencoded.setlist2spotify.data.spotifyPlaylistId
 import io.github.magnusencoded.setlist2spotify.data.toShareUri
+import io.github.magnusencoded.setlist2spotify.ui.NodePlace
+import io.github.magnusencoded.setlist2spotify.ui.TimelineNode
+import io.github.magnusencoded.setlist2spotify.ui.groupIntoFestivals
+import io.github.magnusencoded.setlist2spotify.data.nearby.NearbyPeers
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmArtist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSong
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.SetlistFmClient
 import io.github.magnusencoded.setlist2spotify.data.spotify.SpotifyClient
 import io.github.magnusencoded.setlist2spotify.data.spotify.SpotifyTrack
+import io.github.magnusencoded.setlist2spotify.data.spotify.rankCandidates
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +34,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+
+/** A song with no place yet in the night's recording. 0L is a real time — the first song. */
+const val NOT_STAMPED = -1L
 
 /** One setlist song together with its Spotify match candidates and selection. */
 data class SongMatch(
@@ -43,8 +54,42 @@ data class SongMatch(
 
 enum class SetlistSource { ARTIST, USER }
 
+/**
+ * Where a `station-to-station://` link lands. The link's first segment names whose
+ * line you are looking at, and that is the same thing as the resolution: one gig on
+ * its own is the setlist, a line plus a gig is that line scrolled to it.
+ *
+ * ponytail: [SINGLE_LINE] is always *my* line. A friend's own line is a resolution
+ * the app doesn't have yet, so `station-to-station://Trummispojken/<gig>` lands on
+ * mine at that night. Give it its own case when zooming into a lane exists.
+ */
+enum class GigLink { SETLIST, SINGLE_LINE, WOVEN }
+
+/**
+ * Reads a `station-to-station://` link into the gig it names and the resolution it
+ * wants. Pure so the grammar can be checked without a device — the parsing is the
+ * part most likely to be wrong, and a mis-read id fails silently.
+ *
+ *   334c742d              -> the setlist itself
+ *   dizzi90/334c742d      -> a single line, scrolled to that gig
+ *   Friends/334c742d      -> the woven view, scrolled to that gig
+ */
+fun parseGigLink(segments: List<String>): Pair<String, GigLink>? {
+    val parts = segments.filter { it.isNotBlank() }
+    val gig = parts.lastOrNull() ?: return null
+    val where = when {
+        parts.size < 2 -> GigLink.SETLIST
+        parts[0].equals("friends", ignoreCase = true) -> GigLink.WOVEN
+        else -> GigLink.SINGLE_LINE
+    }
+    return gig to where
+}
+
 /** A gallery photo from the night of the show, offered as the playlist cover. */
 data class CoverCandidate(val uri: Uri, val preview: Bitmap?)
+
+/** A gig-keepsake thumbnail: the decoded frame, and whether it came from a video. */
+data class MediaThumb(val bitmap: Bitmap?, val isVideo: Boolean = false)
 
 data class UiState(
     // Settings
@@ -82,33 +127,102 @@ data class UiState(
     val coverCandidates: List<CoverCandidate> = emptyList(),
     val coverLoading: Boolean = false,
     val selectedCoverUri: Uri? = null,
+    /** Which frame of it, when the chosen cover is a video — scrubbed by the user. */
+    val selectedCoverFrameMs: Long = 0L,
     /** True once the gallery has been searched, so "nothing found" can be said. */
     val coverSearched: Boolean = false,
     val coverPermissionGranted: Boolean = false,
+    /** The Reliver's own photos on a gig's single-night view, by setlist id. */
+    val photosBySetlist: Map<String, List<Uri>> = emptyMap(),
+    /** Where each song starts in a night's recording; see TimelineCache.songOffsetsBySetlist. */
+    val songOffsetsBySetlist: Map<String, List<Long>> = emptyMap(),
+    // Gig-photo suggestions: the same same-night gallery search as the playlist
+    // cover picker, offered as one-tap adds instead of a single chosen cover.
+    val gigPhotoSuggestions: List<CoverCandidate> = emptyList(),
+    val gigPhotoSuggestionsLoading: Boolean = false,
+    val gigPhotoSuggestionsSearched: Boolean = false,
+    val gigPhotoSuggestionsPermissionGranted: Boolean = false,
     // Playlist creation
     val creatingPlaylist: Boolean = false,
     val createdPlaylistUrl: String? = null,
     val createdPlaylistName: String = "",
     val createdTrackCount: Int = 0,
     val createdRefusedCount: Int = 0,
+    /** Every playlist this app has made, by the setlist id it came from, oldest first. */
+    val playlistsBySetlist: Map<String, List<StoredPlaylist>> = emptyMap(),
     // Friends (peer-to-peer, on-device)
     val mySetlistFmUser: String = "",
     val friends: List<Friend> = emptyList(),
     val sharedWith: Friend? = null,
+    // A friend's collection timeline, opened from the Connect screen.
+    val viewingFriend: Friend? = null,
+    // One friend's shows, for the friend screen. Named apart from [showsByFriend]
+    // on purpose: they were friendTimeline/friendTimelines, one character and two
+    // very different meanings apart.
+    val viewedFriendShows: List<FmSetlist> = emptyList(),
+    val viewedFriendLoading: Boolean = false,
+    // Nearby discovery (mocked) → the woven view, the resolution one level out from a
+    // single timeline: my line braided with every known friend's, keyed by username.
+    val discovering: Boolean = false,
+    val nearbyPeers: List<Friend> = emptyList(),
+    /** Every lane's shows, keyed by setlist.fm username. Feeds the zoomed-out weave. */
+    val showsByFriend: Map<String, List<FmSetlist>> = emptyMap(),
+    val timelinesLoading: Boolean = false,
+    /** Festival name by the first show id of its cluster; see resolveFestivalNames(). */
+    val festivalNames: Map<String, String> = emptyMap(),
+    /** Set by a card swap so the timeline opens with the other lines already showing. */
+    val justConnected: Boolean = false,
+    /**
+     * Which resolution the timeline is at: my own line, or the woven view with every
+     * known lane beside it. Held here rather than in the screen so it can be driven by
+     * something other than a two-finger pinch — see MainActivity's key handling.
+     */
+    val zoomedOut: Boolean = false,
+    /**
+     * Which festivals stand open, by row key. Here rather than in the screen for the
+     * same reason as [zoomedOut]: opening a gig disposes the timeline, and anything
+     * remembered inside it comes back reset. A collapsed festival also changes how
+     * many rows precede it, so the restored scroll offset lands somewhere else — you
+     * went into a night from the woven view and came back to a different place.
+     */
+    val openFestivals: Set<String> = emptySet(),
+    /**
+     * Where a crossing sits among the lines that meet there. Three candidates, none
+     * settled by argument — cycled with a key so all three can be looked at on the
+     * same night rather than compared across three builds.
+     */
+    val nodePlace: NodePlace = NodePlace.INNERMOST,
+    /**
+     * A gig a `station-to-station://` link asked for, and how it wants to be shown.
+     * The timeline is the one place that can find a gig's row — a gig inside a
+     * collapsed festival has no row until the festival opens — so it does the
+     * revealing and clears this when done.
+     */
+    val linkedGig: String? = null,
+    val linkedGigAs: GigLink? = null,
     /** Set when the playlist was made but its cover could not be uploaded. */
     val coverUploadError: String? = null,
     // Transient error surfaced as a snackbar
     val error: String? = null,
     // Transient non-error notice (e.g. "Added a friend from that playlist")
     val notice: String? = null,
+    // True once the splash has been passed (Spotify login or skip).
+    val onboarded: Boolean = false,
 )
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
+    companion object {
+        /** setlist.fm's page size for attended lists — used to resume a cached spine. */
+        private const val SETLISTS_PER_PAGE = 20
+    }
+
     val settings = SettingsRepository(application)
+    private val timelines = TimelineStore(application)
     private val setlistFm = SetlistFmClient { settings.setlistFmApiKeyValue() }
     val spotify = SpotifyClient(settings)
     private val photos = PhotoRepository(application)
+    private val nearby = NearbyPeers(application)
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -131,9 +245,94 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     grantedScope = settings.grantedScope(),
                     mySetlistFmUser = settings.mySetlistFmUser.first() ?: "",
                     friends = settings.friends.first(),
+                    onboarded = settings.onboarded.first(),
                 )
             }
+            restoreTimelines()
         }
+        // The radio's two outputs, mirrored into UiState.
+        viewModelScope.launch {
+            nearby.peers.collect { peers ->
+                // Anyone already on my timeline drops off the radar — the list is
+                // "people I could add", not "people who are here".
+                val known = _state.value.friends.map { it.setlistfm.lowercase() }.toSet()
+                _state.update {
+                    it.copy(
+                        nearbyPeers = peers.filterNot { p -> p.setlistfm.lowercase() in known },
+                        discovering = peers.isEmpty(),
+                    )
+                }
+            }
+        }
+        viewModelScope.launch {
+            nearby.failure.collect { message ->
+                if (message != null) {
+                    _state.update { it.copy(error = message, discovering = false) }
+                    nearby.consumeFailure()
+                }
+            }
+        }
+    }
+
+    override fun onCleared() {
+        nearby.stop()
+        super.onCleared()
+    }
+
+    /**
+     * Puts the last-stored timelines back on screen, so a launch opens on the spine
+     * instead of the empty state plus a full re-import.
+     *
+     * ponytail: no auto-refresh — the cache is shown and left alone until the user
+     * re-imports. Fetching on every launch is exactly the cost this removes, and
+     * attended history only changes when its owner edits setlist.fm. Add a
+     * pull-to-refresh (or a staleness check) when the staleness is actually felt.
+     */
+    private suspend fun restoreTimelines() {
+        val cached = timelines.load()
+        if (cached.shows.isEmpty() && cached.festivalNames.isEmpty() && cached.playlistsMade.isEmpty()) return
+        val me = _state.value.mySetlistFmUser
+        val mine = cached.shows[me].orEmpty()
+        _state.update {
+            it.copy(
+                festivalNames = it.festivalNames + cached.festivalNames,
+                playlistsBySetlist = it.playlistsBySetlist + cached.playlistsMade,
+                photosBySetlist = it.photosBySetlist +
+                    cached.photosBySetlist.mapValues { (_, uris) -> uris.map(Uri::parse) },
+                songOffsetsBySetlist = it.songOffsetsBySetlist + cached.songOffsetsBySetlist,
+                // Every lane but mine: the weave reads friends from here.
+                showsByFriend = cached.shows - me,
+                // Only adopt a cached spine if nothing has already loaded into it.
+                setlists = if (mine.isNotEmpty() && it.setlists.isEmpty()) mine else it.setlists,
+                source = if (mine.isNotEmpty() && it.setlists.isEmpty()) SetlistSource.USER else it.source,
+                setlistsTitle = if (mine.isNotEmpty() && it.setlistsTitle.isBlank()) "Attended by $me" else it.setlistsTitle,
+                userQuery = if (mine.isNotEmpty() && it.userQuery.isBlank()) me else it.userQuery,
+                // The total setlist.fm reported, not how many we cached. Setting it to
+                // the cached size made the spine look complete at whatever page it had
+                // reached, so scrolling into your own history stopped there for good.
+                setlistsTotal = if (mine.isNotEmpty() && it.setlists.isEmpty()) {
+                    // No stored total means a cache written before totals were kept.
+                    // Allow exactly one more page: it reports the real total and
+                    // stores it, so the gap heals itself on the first scroll back.
+                    cached.attendedTotals[me] ?: (mine.size + 1)
+                } else {
+                    it.setlistsTotal
+                },
+                // Resume where the cache left off. Floor, so a part-filled last page is
+                // fetched again rather than skipped — loadMoreSetlists de-dupes.
+                setlistsPage = if (mine.isNotEmpty() && it.setlists.isEmpty()) {
+                    (mine.size / SETLISTS_PER_PAGE).coerceAtLeast(1)
+                } else {
+                    it.setlistsPage
+                },
+            )
+        }
+    }
+
+    /** Records that the splash was passed, so it never shows again. */
+    fun markOnboarded() {
+        _state.update { it.copy(onboarded = true) }
+        viewModelScope.launch { settings.setOnboarded() }
     }
 
     fun consumeError() = _state.update { it.copy(error = null) }
@@ -220,13 +419,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addFriend(friend: Friend) {
-        viewModelScope.launch {
-            val current = _state.value.friends
-            // De-dupe on setlist.fm username; a re-share updates the display name.
-            val next = current.filterNot { it.setlistfm.equals(friend.setlistfm, ignoreCase = true) } + friend
-            settings.saveFriends(next)
-            _state.update { it.copy(friends = next) }
-        }
+        viewModelScope.launch { addFriendNow(friend) }
+    }
+
+    private suspend fun addFriendNow(friend: Friend) {
+        val current = _state.value.friends
+        // De-dupe on setlist.fm username; a re-share updates the display name.
+        val next = current.filterNot { it.setlistfm.equals(friend.setlistfm, ignoreCase = true) } + friend
+        settings.saveFriends(next)
+        _state.update { it.copy(friends = next) }
     }
 
     fun addFriendByUsername(username: String) {
@@ -246,6 +447,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Opens a festival node — its individual concerts, in the same timeline UI. */
+
+    /** Loads a friend's whole attended-concert timeline for the Connect screen. */
+    fun viewFriendTimeline(friend: Friend) {
+        _state.update {
+            it.copy(viewingFriend = friend, viewedFriendShows = emptyList(), viewedFriendLoading = true)
+        }
+        viewModelScope.launch {
+            try {
+                // ponytail: caps at 60 shows (3 pages). Bump if power users miss older ones.
+                val shows = attendedConcerts(friend.setlistfm, maxPages = 3)
+                _state.update { it.copy(viewedFriendShows = shows, viewedFriendLoading = false) }
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        viewedFriendLoading = false,
+                        error = e.message ?: "Could not load ${friend.name}'s shows",
+                    )
+                }
+            }
+        }
+    }
+
     /** Fetches attended concerts for one user across up to [maxPages] pages. */
     private suspend fun attendedConcerts(userId: String, maxPages: Int): List<FmSetlist> {
         val all = mutableListOf<FmSetlist>()
@@ -253,6 +477,32 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val resp = setlistFm.userAttended(userId, page)
             all += resp.setlist
             if (all.size >= resp.total || resp.setlist.isEmpty()) break
+        }
+        return all
+    }
+
+    /**
+     * A friend's attended shows, paged back far enough to cover my own line rather
+     * than to a fixed page count. setlist.fm returns newest first, so a flat cap is
+     * a *window*, not a sample: Carlitos2's first 60 shows spanned ten days, and
+     * every night we actually shared was older than his last fetched page — the
+     * lines could never meet however correct the drawing was.
+     *
+     * ponytail: [maxPages] is a runaway guard, not a policy. Nothing older than my
+     * own first gig can overlap, so that is where paging stops.
+     */
+    private suspend fun attendedBackTo(
+        userId: String,
+        oldestOfMine: LocalDate?,
+        maxPages: Int = 25,
+    ): List<FmSetlist> {
+        val all = mutableListOf<FmSetlist>()
+        for (page in 1..maxPages) {
+            val resp = setlistFm.userAttended(userId, page)
+            all += resp.setlist
+            if (all.size >= resp.total || resp.setlist.isEmpty()) break
+            val pageOldest = resp.setlist.mapNotNull { it.localDate() }.minOrNull()
+            if (oldestOfMine != null && pageOldest != null && pageOldest < oldestOfMine) break
         }
         return all
     }
@@ -293,6 +543,172 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 fail(e)
             }
+        }
+    }
+
+    // --- Nearby discovery + two-timeline comparison ---
+
+    /** My own card, as handed to another phone. Blank username means nothing to give. */
+    private fun myCard(): Friend? = _state.value.mySetlistFmUser.trim()
+        .ifBlank { null }
+        ?.let { Friend(setlistfm = it, name = it) }
+
+    /**
+     * Begins looking for people to swap timelines with, over Nearby Connections.
+     * Peers appear and vanish as they come in and out of range, so the list is a
+     * live view of the room rather than a one-shot scan result.
+     */
+    fun startNearbyDiscovery() {
+        val me = myCard()
+        if (me == null) {
+            _state.update {
+                it.copy(discovering = false, error = "Set your setlist.fm username first — it's the card you hand over.")
+            }
+            return
+        }
+        _state.update { it.copy(discovering = true, nearbyPeers = emptyList()) }
+        nearby.start(me)
+    }
+
+    /** Pulled down on the connect screen: drop everything and listen again. */
+    fun restartNearbyDiscovery() {
+        val me = myCard() ?: return
+        _state.update { it.copy(discovering = true, nearbyPeers = emptyList()) }
+        nearby.restart(me)
+    }
+
+    fun stopNearbyDiscovery() {
+        nearby.stop()
+        _state.update { it.copy(discovering = false, nearbyPeers = emptyList()) }
+    }
+
+    fun nearbyPermissions(): List<String> = nearby.requiredPermissions()
+
+    /**
+     * Takes a card off the radar and onto my timeline. Purely local — the card
+     * arrived with the advertisement, so there is nobody to ask and nothing to
+     * send. If they want mine too, they tap on their own phone.
+     */
+    fun connectWithPeer(peer: Friend) {
+        viewModelScope.launch {
+            // Persist the friend before loading, or the load runs against the old list.
+            addFriendNow(peer)
+            _state.update { it.copy(justConnected = true) }
+            loadFriendTimelines()
+        }
+    }
+
+    fun consumeJustConnected() = _state.update { it.copy(justConnected = false) }
+
+    /**
+     * Open or close the woven view. The one place that decides it, so a pinch, a card
+     * swap and a key press cannot disagree about when there is anything to open onto.
+     */
+    fun setZoomedOut(on: Boolean) = _state.update {
+        if (on && it.friends.isEmpty()) it else it.copy(zoomedOut = on)
+    }
+
+    /**
+     * A `station-to-station://` link. The first segment is whose line to show — a
+     * username, or `Friends` for the woven view — and the last is always the gig's
+     * setlist.fm id. A single segment is the gig on its own, so it opens the setlist.
+     *
+     * The link only records the intent; [UiState.linkedGig] is acted on by the
+     * timeline, which is the only place that knows which row a gig ended up in.
+     */
+    fun openGigLink(uri: Uri) {
+        val (gig, where) = parseGigLink(listOfNotNull(uri.host) + uri.pathSegments) ?: return
+        if (where != GigLink.SETLIST) setZoomedOut(where == GigLink.WOVEN)
+        _state.update { it.copy(linkedGig = gig, linkedGigAs = where) }
+    }
+
+    fun consumeGigLink() = _state.update { it.copy(linkedGig = null, linkedGigAs = null) }
+
+    /** Open or close a festival in place. A new set each time, so remember() sees it. */
+    fun toggleFestival(key: String) = _state.update {
+        it.copy(
+            openFestivals = if (key in it.openFestivals) it.openFestivals - key
+            else it.openFestivals + key,
+        )
+    }
+
+    fun openFestival(key: String) = _state.update {
+        it.copy(openFestivals = it.openFestivals + key)
+    }
+
+    /** Next candidate for where a crossing sits. See [NodePlace]. */
+    fun cycleNodePlace() = _state.update {
+        val all = NodePlace.entries
+        it.copy(nodePlace = all[(all.indexOf(it.nodePlace) + 1) % all.size])
+    }
+
+    /** The gig behind a link, wherever it is already loaded — mine or any lane's. */
+    fun knownGig(id: String): FmSetlist? =
+        _state.value.setlists.firstOrNull { it.id == id }
+            ?: _state.value.showsByFriend.values.firstNotNullOfOrNull { shows ->
+                shows.firstOrNull { it.id == id }
+            }
+
+    /**
+     * Fills in the real festival names for the clusters currently on the timeline —
+     * one page fetch per festival, only for ones not already resolved. Failures are
+     * silent: the venue name stays as the label.
+     */
+    fun resolveFestivalNames() {
+        val firsts = groupIntoFestivals(_state.value.setlists)
+            .filterIsInstance<TimelineNode.Festival>()
+            .map { it.shows.first() }
+            .filter { it.id !in _state.value.festivalNames && !it.url.isNullOrBlank() }
+        if (firsts.isEmpty()) return
+        viewModelScope.launch {
+            val found = firsts.mapNotNull { show ->
+                setlistFm.festivalName(show.url!!)?.let { show.id to it }
+            }
+            if (found.isNotEmpty()) {
+                _state.update { it.copy(festivalNames = it.festivalNames + found) }
+                // A festival name costs a fetch each; store them so it's paid once.
+                timelines.save(festivalNames = found.toMap())
+            }
+        }
+    }
+
+    /**
+     * Whether a cached lane already goes back as far as my own line does.
+     *
+     * ponytail: a friend whose whole history is newer than my first gig looks short
+     * every time, so zooming out costs them one page fetch each — the fetch stops on
+     * the first page because it has their whole list. Store their reported total if
+     * that one call ever matters.
+     */
+    private fun reachesBack(shows: List<FmSetlist>, oldestOfMine: LocalDate?): Boolean {
+        if (oldestOfMine == null) return true
+        val theirOldest = shows.mapNotNull { it.localDate() }.minOrNull() ?: return false
+        return theirOldest <= oldestOfMine
+    }
+
+    /** Loads every known friend's attended shows for the woven (zoomed-out) view. */
+    fun loadFriendTimelines() {
+        val friends = _state.value.friends
+        if (friends.isEmpty()) return
+        val myOldest = _state.value.setlists.mapNotNull { it.localDate() }.minOrNull()
+        // Reload a lane only if it is missing or stops short of my own first gig.
+        // Cached-and-complete is the common case, and refetching every lane on every
+        // zoom-out is the call volume the store exists to remove — but a lane cut off
+        // at 60 shows is not complete, however cached it is.
+        val stale = friends.filter { friend ->
+            val have = _state.value.showsByFriend[friend.setlistfm]
+            have.isNullOrEmpty() || !reachesBack(have, myOldest)
+        }
+        if (stale.isEmpty()) return
+        _state.update { it.copy(timelinesLoading = true) }
+        viewModelScope.launch {
+            val loaded = stale.associate { friend ->
+                friend.setlistfm to runCatching { attendedBackTo(friend.setlistfm, myOldest) }
+                    .getOrDefault(emptyList())
+            }.filterValues { it.isNotEmpty() }
+            _state.update { it.copy(showsByFriend = it.showsByFriend + loaded, timelinesLoading = false) }
+            // Merge, so a friend whose fetch just failed keeps their last good lane.
+            timelines.save(shows = loaded)
         }
     }
 
@@ -339,6 +755,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Timeline import: persists a just-entered API key first (so the fetch sees
+     * it — saveSettings alone is fire-and-forget and would race), then loads the
+     * user's attended concerts. [apiKey] is null when a key is already available.
+     */
+    fun importAttended(username: String, apiKey: String?) {
+        viewModelScope.launch {
+            consumeError()
+            if (!apiKey.isNullOrBlank()) saveSettingsNow(apiKey.trim(), _state.value.spotifyClientId)
+            setUserQuery(username)
+            openUserAttended()
+        }
+    }
+
     fun openUserAttended() {
         val userId = _state.value.userQuery.trim()
         if (userId.isEmpty()) return
@@ -361,7 +791,41 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _state.update {
                     it.copy(setlists = result.setlist, setlistsTotal = result.total, setlistsLoading = false)
                 }
+                timelines.save(
+                    shows = mapOf(userId to result.setlist),
+                    attendedTotals = mapOf(userId to result.total),
+                )
             } catch (e: Exception) {
+                fail(e)
+            }
+        }
+    }
+
+    /**
+     * Re-fetches the open show from setlist.fm. The one thing that changes under
+     * you here is the setlist itself — you log a night, go and type the songs in
+     * on the site, come back. Refreshes in place: the cached spine keeps its
+     * order and every other night untouched.
+     */
+    fun refreshSelectedSetlist() {
+        val open = _state.value.selectedSetlist ?: return
+        if (_state.value.setlistsLoading) return
+        _state.update { it.copy(setlistsLoading = true) }
+        viewModelScope.launch {
+            try {
+                val fresh = setlistFm.setlist(open.id)
+                val setlists = _state.value.setlists.map { if (it.id == fresh.id) fresh else it }
+                _state.update {
+                    it.copy(
+                        setlists = setlists,
+                        selectedSetlist = fresh,
+                        setlistsLoading = false,
+                    )
+                }
+                val user = _state.value.userQuery.trim()
+                if (user.isNotEmpty()) timelines.save(shows = mapOf(user to setlists))
+            } catch (e: Exception) {
+                _state.update { it.copy(setlistsLoading = false) }
                 fail(e)
             }
         }
@@ -384,10 +848,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 _state.update {
                     it.copy(
-                        setlists = it.setlists + result.setlist,
+                        // By id: resuming a cached spine refetches its last, part-full
+                        // page, and a duplicate row would collide on the LazyColumn key.
+                        setlists = (it.setlists + result.setlist).distinctBy { s -> s.id },
                         setlistsPage = nextPage,
                         setlistsTotal = result.total,
                         setlistsLoading = false,
+                    )
+                }
+                // Store the accumulated spine, or scrolling back through history
+                // pays for those pages again on the next launch.
+                if (s.source == SetlistSource.USER) {
+                    val user = s.userQuery.trim()
+                    timelines.save(
+                        shows = mapOf(user to _state.value.setlists),
+                        attendedTotals = mapOf(user to result.total),
                     )
                 }
             } catch (e: Exception) {
@@ -397,6 +872,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // --- Matching ---
+
+    /** Opens a show for viewing (its real setlist) without the Spotify match/cover
+     *  machinery — that only starts when the user converts it to a playlist. */
+    fun openShow(setlist: FmSetlist) = _state.update { it.copy(selectedSetlist = setlist) }
 
     fun selectSetlist(setlist: FmSetlist) {
         matchJob?.cancel()
@@ -411,13 +890,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     included = !song.tape,
                 )
             }
+        // A festival cluster's "where" is a stage, not a place — the festival name
+        // stands in for it, same slot as every other show's venue.
+        val festival = groupIntoFestivals(_state.value.setlists, _state.value.festivalNames)
+            .filterIsInstance<TimelineNode.Festival>()
+            .find { node -> node.shows.any { it.id == setlist.id } }
+        // The year already leads the name, so strip it back out of the festival
+        // name ("Tons of Rock 2026" -> "Tons of Rock") rather than repeat it.
+        val where = festival?.name?.let { name ->
+            setlist.year()?.let { name.replace(it, "").trim().trim('-', '–').trim() } ?: name
+        } ?: setlist.venue?.name
         // Year first: an alphabetical playlist library then falls into
         // chronological order, and the show reads as "when, who, where".
-        val defaultName = listOfNotNull(
-            setlist.year(),
-            artistName.ifBlank { null },
-            setlist.venue?.name,
-        ).joinToString(" – ").ifBlank { "Setlist" }
+        val defaultName = listOfNotNull(setlist.year(), artistName.ifBlank { null }, where)
+            .joinToString(" – ").ifBlank { "Setlist" }
         _state.update {
             it.copy(
                 selectedSetlist = setlist,
@@ -454,11 +940,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun findCandidates(track: String, artist: String): Pair<List<SpotifyTrack>, String?> {
         return try {
-            var results = spotify.searchTracks("track:\"$track\" artist:\"$artist\"")
+            // Ten rather than the default five: ranking can only choose from what it
+            // is handed, and the studio cut often sits under a run of live versions.
+            // Same number of requests either way.
+            var results = spotify.searchTracks("track:\"$track\" artist:\"$artist\"", limit = 10)
             if (results.isEmpty()) {
-                results = spotify.searchTracks("$track $artist")
+                results = spotify.searchTracks("$track $artist", limit = 10)
             }
-            results to null
+            // Best-first rather than Spotify-first: the auto-selection above takes the
+            // head of this list, and the picker lists them in this order too.
+            rankCandidates(results, track, artist) to null
         } catch (e: Exception) {
             emptyList<SpotifyTrack>() to (e.message ?: "Search failed")
         }
@@ -522,19 +1013,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     // --- Cover art ---
 
     /**
-     * Offers the photos taken on the night of the selected show. Silent when the
-     * gallery permission is missing: the confirm screen asks for it instead, so
-     * a permission prompt only ever follows a tap.
+     * Offers the gig's own keepsakes first — already chosen for this night, so
+     * they need no permission and no re-asking — then the gallery's same-night
+     * match once that permission is granted. The gallery half is silent when
+     * missing: the confirm screen asks for it instead, so a prompt only ever
+     * follows a tap.
      */
     fun loadCoverCandidates() {
-        val date = _state.value.selectedSetlist?.localDate() ?: return
+        val setlist = _state.value.selectedSetlist ?: return
+        val date = setlist.localDate() ?: return
         val granted = photos.hasPermission()
         _state.update { it.copy(coverPermissionGranted = granted) }
-        if (!granted) return
         viewModelScope.launch {
             _state.update { it.copy(coverLoading = true) }
-            val found = photos.photosFrom(date)
-            val candidates = found.map { CoverCandidate(it.uri, photos.preview(it.uri)) }
+            val pinned = _state.value.photosBySetlist[setlist.id].orEmpty()
+            val gallery = if (granted) photos.photosFrom(date).map { it.uri } else emptyList()
+            val candidates = (pinned + gallery).distinct().map { CoverCandidate(it, photos.preview(it)) }
             _state.update {
                 it.copy(
                     coverCandidates = candidates,
@@ -554,8 +1048,132 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * than published as new state.
      */
     fun setCover(uri: Uri?) = _state.update {
-        if (it.selectedCoverUri == uri) it else it.copy(selectedCoverUri = uri)
+        // A different cover means the frame scrubbed out of the last one is moot.
+        if (it.selectedCoverUri == uri) it
+        else it.copy(selectedCoverUri = uri, selectedCoverFrameMs = 0L)
     }
+
+    /** Where the scrubber landed on the chosen clip — the frame that becomes the cover. */
+    fun setCoverFrame(atMs: Long) = _state.update {
+        if (it.selectedCoverFrameMs == atMs) it else it.copy(selectedCoverFrameMs = atMs)
+    }
+
+    fun isVideoCover(uri: Uri): Boolean = photos.isVideo(uri)
+
+    suspend fun videoDurationMs(uri: Uri): Long = photos.videoDurationMs(uri)
+
+    suspend fun videoFrameAt(uri: Uri, atMs: Long): Bitmap? = photos.videoFrameAt(uri, atMs)
+
+    /**
+     * The Reliver's own pictures pinned to a gig, chosen freely from the system photo
+     * picker rather than matched by date — this is "my picture of that night", not the
+     * same-night search [loadCoverCandidates] does for a playlist cover.
+     */
+    fun addGigPhotos(setlistId: String, uris: List<Uri>) = setGigPhotos(
+        setlistId,
+        (_state.value.photosBySetlist[setlistId].orEmpty() + uris).distinct(),
+    )
+
+    /**
+     * Same as [addGigPhotos], but for uris fresh out of the system photo picker: those
+     * only grant read access for the running process, so they're copied into our own
+     * storage first — otherwise the keepsake goes blank the next time the app launches.
+     */
+    fun addPickedGigPhotos(setlistId: String, uris: List<Uri>) {
+        viewModelScope.launch {
+            val copied = uris.mapNotNull { photos.persistCopy(it) }
+            if (copied.isNotEmpty()) addGigPhotos(setlistId, copied)
+        }
+    }
+
+    fun removeGigPhoto(setlistId: String, uri: Uri) = setGigPhotos(
+        setlistId,
+        _state.value.photosBySetlist[setlistId].orEmpty() - uri,
+    )
+
+    /** Drops a playlist link the app made — for when the playlist itself was deleted
+     *  on Spotify, so the pointer to it here is now just dead weight. */
+    fun removePlaylist(setlistId: String, url: String) {
+        _state.update {
+            it.copy(
+                playlistsBySetlist = it.playlistsBySetlist +
+                    (setlistId to it.playlistsBySetlist[setlistId].orEmpty().filterNot { p -> p.url == url }),
+            )
+        }
+        viewModelScope.launch { timelines.removePlaylist(setlistId, url) }
+    }
+
+    /**
+     * Where each song of [setlistId] starts in its recording, padded/trimmed to
+     * [songCount]. Sized on read rather than trusted from disk: the setlist can be
+     * edited on setlist.fm after a night was stamped, and a stored list of the old
+     * length would otherwise shift every song's time by one.
+     */
+    fun songOffsets(setlistId: String, songCount: Int): List<Long> {
+        val stored = _state.value.songOffsetsBySetlist[setlistId].orEmpty()
+        return List(songCount) { stored.getOrElse(it) { NOT_STAMPED } }
+    }
+
+    /**
+     * Records that song [index] starts at [atMs] in the night's recording, or clears
+     * it with [NOT_STAMPED].
+     *
+     * Only this one song moves. The recording and the setlist need not hold the same
+     * songs — a clip setlist.fm left out sits in the gap between two stamps — so
+     * nothing may be inferred about its neighbours from one stamp.
+     */
+    fun stampSong(setlistId: String, index: Int, atMs: Long, songCount: Int) {
+        val offsets = songOffsets(setlistId, songCount).toMutableList()
+        if (index !in offsets.indices) return
+        offsets[index] = atMs
+        _state.update { it.copy(songOffsetsBySetlist = it.songOffsetsBySetlist + (setlistId to offsets)) }
+        viewModelScope.launch { timelines.saveSongOffsets(setlistId, offsets) }
+    }
+
+    /** Dragged to a new place in the strip — same set, new order. */
+    fun reorderGigPhotos(setlistId: String, newOrder: List<Uri>) = setGigPhotos(setlistId, newOrder)
+
+    private fun setGigPhotos(setlistId: String, photos: List<Uri>) {
+        _state.update { it.copy(photosBySetlist = it.photosBySetlist + (setlistId to photos)) }
+        viewModelScope.launch { timelines.savePhotos(setlistId, photos.map(Uri::toString)) }
+    }
+
+    /**
+     * Same same-night gallery search [loadCoverCandidates] does for a playlist cover,
+     * offered here as one-tap adds to the gig's keepsakes instead of a single chosen
+     * cover. Silent when permission is missing, for the same reason: the prompt only
+     * ever follows a tap, never just opening the gig.
+     */
+    fun loadGigPhotoSuggestions() {
+        val date = _state.value.selectedSetlist?.localDate() ?: return
+        val granted = photos.hasPermission()
+        _state.update { it.copy(gigPhotoSuggestionsPermissionGranted = granted) }
+        if (!granted) return
+        viewModelScope.launch {
+            _state.update { it.copy(gigPhotoSuggestionsLoading = true) }
+            val found = photos.photosFrom(date)
+            val candidates = found.map { CoverCandidate(it.uri, photos.preview(it.uri)) }
+            _state.update {
+                it.copy(
+                    gigPhotoSuggestions = candidates,
+                    gigPhotoSuggestionsLoading = false,
+                    gigPhotoSuggestionsSearched = true,
+                )
+            }
+        }
+    }
+
+    /** A thumbnail-sized decode of a gig photo or video frame, for the event view and the timeline row. */
+    suspend fun photoPreview(uri: Uri): MediaThumb =
+        MediaThumb(photos.preview(uri, sizePx = 320), photos.isVideo(uri))
+
+    /** Whether a gig keepsake is a video clip rather than a photo — cheap metadata
+     *  lookup, checked before opening the in-app viewer so it knows which to show. */
+    fun isVideo(uri: Uri): Boolean = photos.isVideo(uri)
+
+    /** A bigger decode of the same photo, for the in-app viewer rather than the
+     *  strip's thumbnail. */
+    suspend fun fullPhoto(uri: Uri): Bitmap? = photos.preview(uri, sizePx = 1600)
 
     /** Manual re-search for one song with a user-provided query. */
     fun researchSong(index: Int, query: String) {
@@ -563,8 +1181,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         updateMatch(index) { it.copy(loading = true, error = null) }
         viewModelScope.launch {
             try {
-                val results = spotify.searchTracks(query.trim(), limit = 10)
+                val found = spotify.searchTracks(query.trim(), limit = 10)
                 updateMatch(index) {
+                    // Ranked like the automatic search, or searching by hand would be
+                    // the one path that still hands you Spotify's karaoke rendition.
+                    // The query is the user's, but which recording we mean is still
+                    // this song by this artist.
+                    val results = rankCandidates(found, it.song.name, it.searchArtist)
                     it.copy(
                         loading = false,
                         candidates = results,
@@ -628,17 +1251,33 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 // The songs are the point, so a cover that will not upload is
                 // reported next to the success rather than thrown over it.
-                val coverError = s.selectedCoverUri?.let { uploadCover(playlist.id, it) }
+                val coverError = s.selectedCoverUri?.let {
+                    uploadCover(playlist.id, it, s.selectedCoverFrameMs)
+                }
+                // Fall back to the canonical URL rather than dropping the link:
+                // externalUrls is Spotify's to omit, the id is ours to keep.
+                val url = playlist.externalUrls["spotify"]
+                    ?: "https://open.spotify.com/playlist/${playlist.id}"
+                val made = StoredPlaylist(url = url, name = name, trackCount = result.added)
+                val night = setlist?.id?.takeIf { it.isNotBlank() }
                 _state.update {
                     it.copy(
                         creatingPlaylist = false,
-                        createdPlaylistUrl = playlist.externalUrls["spotify"],
+                        createdPlaylistUrl = url,
                         createdPlaylistName = name,
                         createdTrackCount = result.added,
                         createdRefusedCount = result.refused.size,
                         coverUploadError = coverError,
+                        // Appended: converting this night again must not orphan a
+                        // link already sent to someone.
+                        playlistsBySetlist =
+                            if (night == null) it.playlistsBySetlist
+                            else it.playlistsBySetlist +
+                                (night to (it.playlistsBySetlist[night].orEmpty() + made)),
                     )
                 }
+                // So the night still points at it on the next launch.
+                if (night != null) timelines.save(playlists = mapOf(night to made))
             } catch (e: Exception) {
                 fail(e)
             }
@@ -646,12 +1285,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Returns null on success, or the reason the cover did not make it. */
-    private suspend fun uploadCover(playlistId: String, uri: Uri): String? {
+    private suspend fun uploadCover(playlistId: String, uri: Uri, frameMs: Long = 0L): String? {
         if (!spotify.hasImageUploadScope()) {
             return "The cover needs a permission your Spotify login predates. " +
                 "Log out in Settings and log in again to enable playlist covers."
         }
-        val jpeg = photos.coverJpeg(uri)
+        val jpeg = photos.coverJpeg(uri, frameMs)
             ?: return "That photo could not be prepared as a cover."
         return try {
             spotify.uploadCover(playlistId, jpeg)

@@ -2,9 +2,15 @@ package io.github.magnusencoded.setlist2spotify
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -15,11 +21,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import io.github.magnusencoded.setlist2spotify.ui.BleProbeScreen
 import io.github.magnusencoded.setlist2spotify.ui.ConfirmScreen
 import io.github.magnusencoded.setlist2spotify.ui.FriendsScreen
 import io.github.magnusencoded.setlist2spotify.ui.SearchScreen
 import io.github.magnusencoded.setlist2spotify.ui.SetlistsScreen
+import io.github.magnusencoded.setlist2spotify.ui.ConnectScreen
+import io.github.magnusencoded.setlist2spotify.ui.FriendTimelineScreen
+import io.github.magnusencoded.setlist2spotify.ui.ImportScreen
+import io.github.magnusencoded.setlist2spotify.ui.NearbyScreen
 import io.github.magnusencoded.setlist2spotify.ui.SettingsScreen
+import io.github.magnusencoded.setlist2spotify.ui.SplashScreen
+import io.github.magnusencoded.setlist2spotify.ui.StationEventScreen
+import io.github.magnusencoded.setlist2spotify.ui.StationTimelineScreen
 
 class MainActivity : ComponentActivity() {
 
@@ -40,12 +54,37 @@ class MainActivity : ComponentActivity() {
         handleAuthIntent(intent)
     }
 
+    /**
+     * Zoom from a keyboard, because a pinch cannot be scripted. `adb shell input` sends
+     * one pointer, and writing multitouch straight to the touchscreen is permission
+     * denied on an unrooted phone — so the woven view was reachable only by a human's
+     * hand, and every look at it needed one.
+     *
+     *   adb shell input keyevent 169   # zoom out — open the other lines
+     *   adb shell input keyevent 168   # zoom in  — back to my own
+     *
+     * `-` and `+` do the same, so an attached keyboard works too.
+     */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        when (keyCode) {
+            KeyEvent.KEYCODE_ZOOM_OUT, KeyEvent.KEYCODE_MINUS -> viewModel.setZoomedOut(true)
+            KeyEvent.KEYCODE_ZOOM_IN, KeyEvent.KEYCODE_PLUS -> viewModel.setZoomedOut(false)
+            // `adb shell input keyevent 42` — cycles where a crossing sits.
+            KeyEvent.KEYCODE_N -> viewModel.cycleNodePlace()
+            else -> return super.onKeyDown(keyCode, event)
+        }
+        return true
+    }
+
     private fun handleAuthIntent(intent: Intent?) {
         val uri = intent?.data ?: return
-        if (uri.scheme != "setlist2spotify") return
-        when (uri.authority) {
-            "friend" -> viewModel.handleFriendLink(uri)
-            else -> viewModel.handleAuthRedirect(uri)
+        when (uri.scheme) {
+            // A place on the timeline; see AppViewModel.openGigLink.
+            "station-to-station" -> viewModel.openGigLink(uri)
+            "setlist2spotify" -> when (uri.authority) {
+                "friend" -> viewModel.handleFriendLink(uri)
+                else -> viewModel.handleAuthRedirect(uri)
+            }
         }
     }
 }
@@ -65,7 +104,80 @@ fun AppTheme(content: @Composable () -> Unit) {
 @Composable
 fun AppNavigation(viewModel: AppViewModel) {
     val navController = rememberNavController()
-    NavHost(navController = navController, startDestination = "search") {
+    // Every move follows the gesture that caused it: going deeper comes in from the
+    // right while the screen behind it eases left, and coming back reverses exactly
+    // that. Without this the swipe-to-convert cut straight to the next screen, which
+    // reads as the app changing rather than as one place leading to another.
+    NavHost(
+        navController = navController,
+        startDestination = "splash",
+        enterTransition = { slideInHorizontally(tween(280)) { it } + fadeIn(tween(200)) },
+        exitTransition = { slideOutHorizontally(tween(280)) { -it / 5 } + fadeOut(tween(200)) },
+        popEnterTransition = { slideInHorizontally(tween(280)) { -it / 5 } + fadeIn(tween(200)) },
+        popExitTransition = { slideOutHorizontally(tween(280)) { it } + fadeOut(tween(200)) },
+    ) {
+        composable("splash") {
+            SplashScreen(
+                viewModel = viewModel,
+                onProceed = {
+                    navController.navigate("timeline") {
+                        popUpTo("splash") { inclusive = true }
+                    }
+                },
+            )
+        }
+        composable("timeline") {
+            StationTimelineScreen(
+                viewModel = viewModel,
+                onOpenEvent = { navController.navigate("event") },
+                onOpenImport = { navController.navigate("import") },
+                onOpenConnect = { navController.navigate("connect") },
+                onOpenNearby = { navController.navigate("nearby") },
+                onOpenSettings = { navController.navigate("settings") },
+            )
+        }
+        composable("nearby") {
+            NearbyScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onConnected = {
+                    // Back to the one timeline there is; it opens with their line showing.
+                    navController.popBackStack("timeline", inclusive = false)
+                },
+            )
+        }
+        composable("connect") {
+            ConnectScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onViewFriend = { friend ->
+                    viewModel.viewFriendTimeline(friend)
+                    navController.navigate("friend")
+                },
+                onSetUsername = { navController.navigate("import") },
+            )
+        }
+        composable("friend") {
+            FriendTimelineScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onOpenEvent = { navController.navigate("event") },
+            )
+        }
+        composable("import") {
+            ImportScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onDone = { navController.popBackStack() },
+            )
+        }
+        composable("event") {
+            StationEventScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onConvert = { navController.navigate("confirm") },
+            )
+        }
         composable("search") {
             SearchScreen(
                 viewModel = viewModel,
@@ -99,7 +211,11 @@ fun AppNavigation(viewModel: AppViewModel) {
             SettingsScreen(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
+                onOpenBleProbe = { navController.navigate("bleprobe") },
             )
+        }
+        composable("bleprobe") {
+            BleProbeScreen(onBack = { navController.popBackStack() })
         }
     }
 }

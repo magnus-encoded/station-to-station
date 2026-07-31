@@ -16,8 +16,18 @@ fun credential(name: String, default: String = ""): String =
         ?: System.getenv(name)?.takeUnless { it.isBlank() }
         ?: default
 
-val spotifyClientId = credential("SPOTIFY_CLIENT_ID", default = "bab4fc1ae9e94f3b936fbda65be76bc7")
+// The "Station to Station" app registration. Its redirect list still includes
+// setlist2spotify://callback, so the existing deep-link scheme keeps working.
+val spotifyClientId = credential("SPOTIFY_CLIENT_ID", default = "4d0ca5e417a54b599b07bfac99671644")
 val setlistFmApiKey = credential("SETLISTFM_API_KEY")
+
+// Which commit is on the phone. Builds are made in CI and installed over Wi-Fi, so
+// "is this the build I just pushed?" was being answered by hashing APKs — and once
+// by a truncated push that silently left the old one running.
+val gitSha: String = runCatching {
+    providers.exec { commandLine("git", "rev-parse", "--short", "HEAD") }
+        .standardOutput.asText.get().trim()
+}.getOrDefault("").ifBlank { "nogit" }
 
 android {
     namespace = "io.github.magnusencoded.setlist2spotify"
@@ -31,6 +41,7 @@ android {
         versionName = "1.1" + (System.getenv("GITHUB_RUN_NUMBER")?.let { ".$it" } ?: "")
         buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")
         buildConfigField("String", "SETLISTFM_API_KEY", "\"$setlistFmApiKey\"")
+        buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
     }
 
     signingConfigs {
@@ -86,6 +97,13 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    // Encodes the friend card as a QR the other phone's camera can open — the
+    // deep link is already registered, so no in-app scanner is needed.
+    implementation("com.google.zxing:core:3.5.3")
+    // Android-to-Android discovery and the card swap. Raw GATT is still coming for
+    // iOS interop (#13/#18) — Nearby is the Android-only fast path, not a
+    // replacement for it.
+    implementation("com.google.android.gms:play-services-nearby:19.3.0")
 
     testImplementation("junit:junit:4.13.2")
 }

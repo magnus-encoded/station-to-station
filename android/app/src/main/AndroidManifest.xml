@@ -12,6 +12,28 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
 
+    <!-- #18 BLE probe: raw GATT is the only framework that bridges iOS<->Android
+         (see #13), so this is what the field-test data has to come from. -->
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <!-- Nearby Connections still needs location to scan on 32 and below; on 33+ the
+         neverForLocation flags on BLUETOOTH_SCAN and NEARBY_WIFI_DEVICES stand in
+         for it, so the location prompt never appears on a modern phone. -->
+    <uses-permission
+        android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission
+        android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation" />
+
     <application
         android:allowBackup="true"
         android:label="@string/app_name"
@@ -44,7 +66,32 @@
                     android:scheme="setlist2spotify"
                     android:host="friend" />
             </intent-filter>
+            <!-- A place on the timeline, addressed by its setlist.fm gig id. The first
+                 segment is whose line you are looking at, which is also the resolution:
+                   station-to-station://<gig>          the setlist itself
+                   station-to-station://<user>/<gig>   that line, scrolled to the gig
+                   station-to-station://Friends/<gig>  the woven view, scrolled to it
+                 No host attribute, so any first segment matches. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="station-to-station" />
+            </intent-filter>
         </activity>
+
+        <!-- Photo-picker uris only grant us read access for the current process — gone
+             on relaunch, which is why keepsakes went blank. Gig photos are copied into
+             gig_photos/ (see PhotoRepository.persistCopy) and re-exposed through this. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="io.github.magnusencoded.setlist2spotify.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

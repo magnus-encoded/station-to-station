@@ -1,6 +1,7 @@
 package io.github.magnusencoded.setlist2spotify.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -24,6 +25,15 @@ class SettingsRepository(private val context: Context) {
         val PKCE_VERIFIER = stringPreferencesKey("pkce_verifier")
         val MY_SETLISTFM_USER = stringPreferencesKey("my_setlistfm_user")
         val FRIENDS = stringPreferencesKey("friends")
+        val ONBOARDED = booleanPreferencesKey("onboarded")
+    }
+
+    /** True once the user has passed the splash (logged in with Spotify or skipped). */
+    val onboarded: Flow<Boolean> =
+        context.dataStore.data.map { it[Keys.ONBOARDED] ?: false }
+
+    suspend fun setOnboarded() {
+        context.dataStore.edit { it[Keys.ONBOARDED] = true }
     }
 
     val mySetlistFmUser: Flow<String?> =

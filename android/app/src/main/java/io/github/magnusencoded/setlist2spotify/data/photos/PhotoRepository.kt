@@ -7,16 +7,21 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.webkit.MimeTypeMap
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.exifinterface.media.ExifInterface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.UUID
 
 /** A gallery image taken around the time of a concert. */
 data class GalleryPhoto(val uri: Uri, val takenAtMillis: Long)
@@ -90,6 +95,28 @@ class PhotoRepository(private val context: Context) {
         }
 
     /**
+     * Copies a system photo-picker pick into the app's own storage. The picker only
+     * grants read access for the process that received it — gone the moment the app
+     * is killed and relaunched, which is what left keepsakes blank. A durable copy,
+     * re-exposed through our own FileProvider, survives that.
+     */
+    suspend fun persistCopy(uri: Uri): Uri? = withContext(Dispatchers.IO) {
+        runCatching {
+            val mime = context.contentResolver.getType(uri)
+            val ext = mime?.let { MimeTypeMap.getSingleton().getExtensionFromMimeType(it) } ?: "jpg"
+            val dir = File(context.filesDir, "gig_photos").apply { mkdirs() }
+            val file = File(dir, "${UUID.randomUUID()}.$ext")
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                file.outputStream().use { input.copyTo(it) }
+            } ?: return@runCatching null
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        }.getOrNull()
+    }
+
+    /** The gig-photo picker also takes video, so a preview may come from either. */
+    fun isVideo(uri: Uri): Boolean = context.contentResolver.getType(uri)?.startsWith("video/") == true
+
+    /**
      * A preview big enough to fill the cover-sized pager. Held in RGB_565: at
      * twenty photos the difference against ARGB_8888 is tens of megabytes, and
      * the uploaded cover is re-decoded from the original at full depth anyway.
@@ -97,19 +124,65 @@ class PhotoRepository(private val context: Context) {
     suspend fun preview(uri: Uri, sizePx: Int = PREVIEW_PX): Bitmap? =
         withContext(Dispatchers.IO) {
             runCatching {
-                decodeScaled(uri, sizePx, Bitmap.Config.RGB_565)?.let { upright(uri, it) }
+                if (isVideo(uri)) videoFrame(uri, sizePx)
+                else decodeScaled(uri, sizePx, Bitmap.Config.RGB_565)?.let { upright(uri, it) }
             }.getOrNull()
         }
+
+    /** How long the clip runs, so a scrubber knows what it is scrubbing across. */
+    suspend fun videoDurationMs(uri: Uri): Long = withContext(Dispatchers.IO) {
+        runCatching {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(context, uri)
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLong() ?: 0L
+            } finally {
+                retriever.release()
+            }
+        }.getOrDefault(0L)
+    }
+
+    /** The frame at [atMs], for scrubbing a clip to the picture worth keeping. */
+    suspend fun videoFrameAt(uri: Uri, atMs: Long, sizePx: Int = PREVIEW_PX): Bitmap? =
+        withContext(Dispatchers.IO) { runCatching { videoFrame(uri, sizePx, atMs) }.getOrNull() }
+
+    /**
+     * A frame of the clip, standing in for the video the same way a decoded bitmap
+     * stands in for a photo. OPTION_CLOSEST rather than CLOSEST_SYNC once a time is
+     * asked for: sync frames can sit seconds apart, so snapping to them would make a
+     * scrubber feel stuck.
+     */
+    private fun videoFrame(uri: Uri, sizePx: Int, atMs: Long = 0L): Bitmap? {
+        val retriever = MediaMetadataRetriever()
+        val option = if (atMs > 0L) MediaMetadataRetriever.OPTION_CLOSEST
+        else MediaMetadataRetriever.OPTION_CLOSEST_SYNC
+        return try {
+            retriever.setDataSource(context, uri)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                retriever.getScaledFrameAtTime(atMs * 1000, option, sizePx, sizePx)
+            } else {
+                retriever.getFrameAtTime(atMs * 1000, option)
+            }
+        } finally {
+            retriever.release()
+        }
+    }
 
     /**
      * The photo as Spotify wants a cover: a square JPEG small enough that its
      * base64 form stays inside the 256 KB the upload endpoint accepts. Base64
      * costs a third on top, so the JPEG itself is held well under that.
      */
-    suspend fun coverJpeg(uri: Uri): ByteArray? = withContext(Dispatchers.IO) {
+    suspend fun coverJpeg(uri: Uri, frameMs: Long = 0L): ByteArray? = withContext(Dispatchers.IO) {
         runCatching {
-            val decoded = decodeScaled(uri, COVER_PX) ?: return@runCatching null
-            val square = centerCrop(upright(uri, decoded), COVER_PX)
+            // A video has no image to decode, so the cover comes from a frame of it —
+            // whichever one the scrubber landed on. It arrives already upright.
+            val decoded = if (isVideo(uri)) {
+                videoFrame(uri, COVER_PX, frameMs) ?: return@runCatching null
+            } else {
+                upright(uri, decodeScaled(uri, COVER_PX) ?: return@runCatching null)
+            }
+            val square = centerCrop(decoded, COVER_PX)
             var quality = 90
             var bytes = square.toJpeg(quality)
             while (bytes.size > MAX_JPEG_BYTES && quality > 40) {

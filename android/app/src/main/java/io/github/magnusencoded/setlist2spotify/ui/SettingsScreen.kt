@@ -1,6 +1,7 @@
 package io.github.magnusencoded.setlist2spotify.ui
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,6 +23,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -30,11 +32,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.magnusencoded.setlist2spotify.AppViewModel
+import io.github.magnusencoded.setlist2spotify.BuildConfig
 import io.github.magnusencoded.setlist2spotify.data.spotify.SPOTIFY_REDIRECT_URI
 import kotlinx.coroutines.launch
 
@@ -43,6 +47,7 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     viewModel: AppViewModel,
     onBack: () -> Unit,
+    onOpenBleProbe: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -168,6 +173,55 @@ fun SettingsScreen(
                 onClick = { viewModel.saveSettings(apiKey, clientId) },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Save") }
+
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(24.dp))
+
+            // Cards are swapped peer to peer and never expire on their own, so
+            // without this the only way to drop a lane was to wipe the app.
+            Text("Known timelines", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            if (state.friends.isEmpty()) {
+                Text(
+                    "Nobody yet. Swipe left from your timeline to swap cards with " +
+                        "someone, and their line opens beside yours.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            } else {
+                state.friends.forEach { friend ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(friend.name)
+                            Text(
+                                "@${friend.setlistfm} · " +
+                                    "${state.showsByFriend[friend.setlistfm]?.size ?: 0} shows",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        TextButton(onClick = { viewModel.removeFriend(friend) }) { Text("Remove") }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(24.dp))
+
+            // #18 field-test: dev-only screen, not part of the shipped feature set.
+            OutlinedButton(
+                onClick = onOpenBleProbe,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("BLE probe (#18 field test)") }
+
+            Spacer(Modifier.height(24.dp))
+            Text(
+                "Build ${BuildConfig.VERSION_NAME} · ${BuildConfig.GIT_SHA}",
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 }

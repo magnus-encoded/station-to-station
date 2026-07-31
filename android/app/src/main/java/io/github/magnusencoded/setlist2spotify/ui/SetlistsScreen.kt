@@ -63,7 +63,7 @@ fun SetlistsScreen(
             }
             LazyColumn(Modifier.fillMaxSize()) {
                 items(state.setlists, key = { it.id }) { setlist ->
-                    val songCount = setlist.songs().size
+                    val songCount = setlist.performed().size
                     ListItem(
                         headlineContent = {
                             val title = if (state.source == SetlistSource.USER) {
