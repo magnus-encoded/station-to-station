@@ -1,0 +1,28 @@
+{
+  "me": "dizzi90",
+  "friends": [{ "setlistfm": "Trummispojken", "name": "Trummispojken" }],
+  "shows": {
+    "dizzi90": [],
+    "Trummispojken": [
+      {
+        "id": "d1",
+        "eventDate": "16-05-2026",
+        "artist": { "name": "Refused" },
+        "venue": { "name": "Stora Scenen" }
+      },
+      {
+        "id": "d2",
+        "eventDate": "15-05-2026",
+        "artist": { "name": "Viagra Boys" },
+        "venue": { "name": "Stora Scenen" }
+      },
+      {
+        "id": "c1",
+        "eventDate": "12-06-2025",
+        "artist": { "name": "Fontaines D.C." },
+        "venue": { "name": "3Arena" }
+      }
+    ]
+  },
+  "festivalNames": {}
+}
