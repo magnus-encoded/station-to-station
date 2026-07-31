@@ -1,5 +1,6 @@
 package io.github.magnusencoded.setlist2spotify
 
+import io.github.magnusencoded.setlist2spotify.data.StoredAttendance
 import io.github.magnusencoded.setlist2spotify.data.StoredPlaylist
 import io.github.magnusencoded.setlist2spotify.data.TimelineStore
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmArtist
@@ -134,5 +135,105 @@ class TimelineStoreTest {
         // A later save of more shows must not drop the total already learned.
         store.save(shows = mapOf("dizzi90" to listOf(show("a"), show("b"))))
         assertEquals(169, store.load().attendedTotals["dizzi90"])
+    }
+
+    @Test
+    fun `attendance round-trips`() = runBlocking {
+        val store = store()
+        store.saveAttendance("a", StoredAttendance(provenance = StoredAttendance.Provenance.PLANNED))
+        assertEquals(
+            StoredAttendance.Provenance.PLANNED,
+            store.load().attendanceByGig["a"]?.provenance,
+        )
+    }
+
+    @Test
+    fun `checking in moves provenance and stamps the time`() = runBlocking {
+        val store = store()
+        store.saveAttendance("a", StoredAttendance(provenance = StoredAttendance.Provenance.PLANNED))
+        store.saveAttendance(
+            "a",
+            StoredAttendance(provenance = StoredAttendance.Provenance.CHECKED_IN, checkedInAt = 1_700_000_000_000L),
+        )
+        val loaded = store.load().attendanceByGig["a"]
+        assertEquals(StoredAttendance.Provenance.CHECKED_IN, loaded?.provenance)
+        assertEquals(1_700_000_000_000L, loaded?.checkedInAt)
+    }
+
+    @Test
+    fun `a gig with no setlist id is a distinct attendance record from one with an id`() = runBlocking {
+        val store = store()
+        // "local-1" is what #34's local-id fallback looks like: no setlist.fm id yet.
+        store.saveAttendance("local-1", StoredAttendance(provenance = StoredAttendance.Provenance.PLANNED))
+        store.saveAttendance("a", StoredAttendance(provenance = StoredAttendance.Provenance.ATTENDED))
+        val attendance = store.load().attendanceByGig
+        assertEquals(2, attendance.size)
+        assertEquals(StoredAttendance.Provenance.PLANNED, attendance["local-1"]?.provenance)
+        assertEquals(StoredAttendance.Provenance.ATTENDED, attendance["a"]?.provenance)
+    }
+
+    @Test
+    fun `adopting a real setlist id carries the attendance record to the new key`() = runBlocking {
+        val store = store()
+        store.saveAttendance(
+            "local-1",
+            StoredAttendance(provenance = StoredAttendance.Provenance.CHECKED_IN, checkedInAt = 42L),
+        )
+        val stub = store.load().attendanceByGig.getValue("local-1")
+        // #34's job, not this store's: whoever notices the real id showed up re-saves
+        // under it. The store itself never rewrites a key on the caller's behalf.
+        store.saveAttendance("a", stub)
+        val attendance = store.load().attendanceByGig
+        assertEquals(StoredAttendance.Provenance.CHECKED_IN, attendance["a"]?.provenance)
+        assertEquals(42L, attendance["a"]?.checkedInAt)
+        // The old stub key is still there until whoever adopts it decides to drop it —
+        // this store doesn't delete entries, only [saveAttendance]/[save]-style upserts.
+        assertTrue(attendance.containsKey("local-1"))
+    }
+
+    @Test
+    fun `venue coordinates round-trip alongside provenance`() = runBlocking {
+        val store = store()
+        store.saveAttendance(
+            "a",
+            StoredAttendance(
+                provenance = StoredAttendance.Provenance.ATTENDED,
+                venueLat = 59.9139,
+                venueLon = 10.7522,
+            ),
+        )
+        val loaded = store.load().attendanceByGig["a"]
+        assertEquals(59.9139, loaded?.venueLat)
+        assertEquals(10.7522, loaded?.venueLon)
+    }
+
+    @Test
+    fun `attendance coexists with a full timeline of shows, photos, playlists and offsets`() = runBlocking {
+        val store = store()
+        store.save(shows = mapOf("magnus" to listOf(show("a"), show("b"))))
+        store.save(playlists = mapOf("a" to playlist("p1")))
+        store.savePhotos("a", listOf("content://photo1"))
+        store.saveSongOffsets("a", listOf(0L, 200_000L))
+        store.saveAttendance("a", StoredAttendance(provenance = StoredAttendance.Provenance.CHECKED_IN, checkedInAt = 99L))
+        store.saveAttendance("local-1", StoredAttendance(provenance = StoredAttendance.Provenance.PLANNED))
+
+        val cached = store.load()
+        assertEquals(listOf("a", "b"), cached.shows["magnus"]?.map { it.id })
+        assertEquals(1, cached.playlistsMade["a"]?.size)
+        assertEquals(listOf("content://photo1"), cached.photosBySetlist["a"])
+        assertEquals(listOf(0L, 200_000L), cached.songOffsetsBySetlist["a"])
+        assertEquals(StoredAttendance.Provenance.CHECKED_IN, cached.attendanceByGig["a"]?.provenance)
+        assertEquals(StoredAttendance.Provenance.PLANNED, cached.attendanceByGig["local-1"]?.provenance)
+    }
+
+    @Test
+    fun `an older cache with no attendance field still loads its timelines`() = runBlocking {
+        val file = File.createTempFile("timelines", ".json")
+        file.writeText(
+            """{"shows":{"magnus":[{"id":"a","eventDate":"25-06-2026"}]},"festivalNames":{}}"""
+        )
+        val cached = TimelineStore(file).load()
+        assertEquals(listOf("a"), cached.shows["magnus"]?.map { it.id })
+        assertTrue(cached.attendanceByGig.isEmpty())
     }
 }
