@@ -1,5 +1,7 @@
 package io.github.magnusencoded.setlist2spotify.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -107,9 +109,9 @@ internal suspend fun PointerInputScope.detectPinch(
 // --- Swipe left from the timeline: look for someone to swap timelines with ---
 
 /**
- * The live "someone's standing next to me" connect flow. ponytail: discovery is
- * mocked (see [AppViewModel.startNearbyDiscovery]); the QR card on the People
- * screen is the transport that actually works today.
+ * The live "someone's standing next to me" connect flow, over Nearby Connections.
+ * The QR card on the People screen remains the fallback for anyone the radio can't
+ * reach — an iPhone, or a phone with Bluetooth off.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -120,8 +122,24 @@ fun NearbyScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
-    // Kick off discovery when the screen opens; the peer surfaces after a beat.
-    androidx.compose.runtime.LaunchedEffect(Unit) { viewModel.startNearbyDiscovery() }
+    // Permission is asked for here and nowhere else: this is the only screen that
+    // needs the radio, and opening it is the user saying they want to be found.
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { viewModel.startNearbyDiscovery() }
+
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        permissionLauncher.launch(viewModel.nearbyPermissions().toTypedArray())
+    }
+    // Leaving the screen stops advertising — being discoverable is a thing you opt
+    // into by standing here, not a background state the app keeps for you.
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { viewModel.stopNearbyDiscovery() }
+    }
+    // Whoever tapped, both phones leave for the woven view once the swap lands.
+    androidx.compose.runtime.LaunchedEffect(state.justConnected) {
+        if (state.justConnected) onConnected()
+    }
 
     Scaffold(
         containerColor = Ground,
@@ -163,7 +181,10 @@ fun NearbyScreen(
                     modifier = Modifier.align(Alignment.Start).padding(bottom = 8.dp),
                 )
                 state.nearbyPeers.forEach { peer ->
-                    PeerRow(peer, onExchange = { viewModel.connectWithPeer(peer); onConnected() })
+                    // No navigation on tap: the swap is only real once the other
+                    // phone answers, and leaving early would show a woven view with
+                    // nothing new woven into it.
+                    PeerRow(peer, onExchange = { viewModel.connectWithPeer(peer) })
                 }
             }
         }

@@ -18,6 +18,7 @@ import io.github.magnusencoded.setlist2spotify.data.toShareUri
 import io.github.magnusencoded.setlist2spotify.ui.NodePlace
 import io.github.magnusencoded.setlist2spotify.ui.TimelineNode
 import io.github.magnusencoded.setlist2spotify.ui.groupIntoFestivals
+import io.github.magnusencoded.setlist2spotify.data.nearby.NearbyPeers
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmArtist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSong
@@ -212,15 +213,6 @@ data class UiState(
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
-        /** ponytail: mocked nearby peers so the woven view is testable before real
-         *  Nearby Connections lands. Both were at The Warning, Tons of Rock, 25 Jun
-         *  2026 — the node where all three lines are one. Carlitos2 stood here first
-         *  and gigged ~200 times a month, which buried my line under his and made a
-         *  lane that no page limit could cover; a real history is the better test. */
-        val TRUMMISPOJKEN = Friend(setlistfm = "Trummispojken", name = "Trummispojken")
-        val EGIL = Friend(setlistfm = "Egil", name = "Egil")
-        val MOCK_PEERS = listOf(TRUMMISPOJKEN, EGIL)
-
         /** setlist.fm's page size for attended lists — used to resume a cached spine. */
         private const val SETLISTS_PER_PAGE = 20
     }
@@ -230,6 +222,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val setlistFm = SetlistFmClient { settings.setlistFmApiKeyValue() }
     val spotify = SpotifyClient(settings)
     private val photos = PhotoRepository(application)
+    private val nearby = NearbyPeers(application)
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -257,6 +250,43 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
             restoreTimelines()
         }
+        // The radio's three outputs, mirrored into UiState. Collected for the whole
+        // ViewModel's life rather than while the screen is up: a swap the *other*
+        // phone starts arrives whenever it arrives.
+        viewModelScope.launch {
+            nearby.peers.collect { peers ->
+                // Anyone already added drops off the radar, so a second exchange finds
+                // the person you haven't got yet rather than offering the same card twice.
+                val known = _state.value.friends.map { it.setlistfm.lowercase() }.toSet()
+                _state.update {
+                    it.copy(
+                        nearbyPeers = peers.filterNot { p -> p.setlistfm.lowercase() in known },
+                        discovering = peers.isEmpty(),
+                    )
+                }
+            }
+        }
+        viewModelScope.launch {
+            nearby.connected.collect { peer ->
+                if (peer != null) {
+                    adoptPeer(peer)
+                    nearby.consumeConnected()
+                }
+            }
+        }
+        viewModelScope.launch {
+            nearby.failure.collect { message ->
+                if (message != null) {
+                    _state.update { it.copy(error = message, discovering = false) }
+                    nearby.consumeFailure()
+                }
+            }
+        }
+    }
+
+    override fun onCleared() {
+        nearby.stop()
+        super.onCleared()
     }
 
     /**
@@ -528,33 +558,48 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Nearby discovery + two-timeline comparison ---
 
-    /**
-     * Begins looking for people to swap timelines with. ponytail: mocked — real
-     * Nearby Connections / BLE would fill [UiState.nearbyPeers] as devices appear.
-     * Today one known peer surfaces after a beat so the exchange is testable.
-     */
-    fun startNearbyDiscovery() {
-        _state.update { it.copy(discovering = true, nearbyPeers = emptyList()) }
-        viewModelScope.launch {
-            delay(1600)
-            // Anyone already added drops off the radar, so a second exchange finds
-            // the person you haven't got yet rather than offering the same card twice.
-            val known = _state.value.friends.map { it.setlistfm.lowercase() }.toSet()
-            _state.update {
-                it.copy(
-                    discovering = false,
-                    nearbyPeers = MOCK_PEERS.filterNot { p -> p.setlistfm.lowercase() in known },
-                )
-            }
-        }
-    }
+    /** My own card, as handed to another phone. Blank username means nothing to give. */
+    private fun myCard(): Friend? = _state.value.mySetlistFmUser.trim()
+        .ifBlank { null }
+        ?.let { Friend(setlistfm = it, name = it) }
 
     /**
-     * The card swap: each phone hands over its setlist.fm ↔ Spotify identity, so we
-     * add them as a friend and reload the woven view — every known timeline braided
-     * against mine, co-attended shows marked as intersections.
+     * Begins looking for people to swap timelines with, over Nearby Connections.
+     * Peers appear and vanish as they come in and out of range, so the list is a
+     * live view of the room rather than a one-shot scan result.
+     */
+    fun startNearbyDiscovery() {
+        val me = myCard()
+        if (me == null) {
+            _state.update {
+                it.copy(discovering = false, error = "Set your setlist.fm username first — it's the card you hand over.")
+            }
+            return
+        }
+        _state.update { it.copy(discovering = true, nearbyPeers = emptyList()) }
+        nearby.start(me)
+    }
+
+    fun stopNearbyDiscovery() {
+        nearby.stop()
+        _state.update { it.copy(discovering = false, nearbyPeers = emptyList()) }
+    }
+
+    fun nearbyPermissions(): List<String> = nearby.requiredPermissions()
+
+    /**
+     * The card swap: each phone hands over its setlist.fm ↔ Spotify identity. The
+     * friend is only added once the other phone has answered — see
+     * [NearbyPeers.connected], which fires on both sides — so a tap that reaches
+     * nobody leaves no half-made friend behind.
      */
     fun connectWithPeer(peer: Friend) {
+        val me = myCard() ?: return
+        nearby.exchangeWith(peer, me)
+    }
+
+    /** Both halves of a completed swap: persist the friend, then weave their lane in. */
+    private fun adoptPeer(peer: Friend) {
         viewModelScope.launch {
             // Persist the friend before loading, or the load runs against the old list.
             addFriendNow(peer)

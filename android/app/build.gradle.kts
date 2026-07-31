@@ -100,6 +100,10 @@ dependencies {
     // Encodes the friend card as a QR the other phone's camera can open — the
     // deep link is already registered, so no in-app scanner is needed.
     implementation("com.google.zxing:core:3.5.3")
+    // Android-to-Android discovery and the card swap. Raw GATT is still coming for
+    // iOS interop (#13/#18) — Nearby is the Android-only fast path, not a
+    // replacement for it.
+    implementation("com.google.android.gms:play-services-nearby:19.3.0")
 
     testImplementation("junit:junit:4.13.2")
 }
