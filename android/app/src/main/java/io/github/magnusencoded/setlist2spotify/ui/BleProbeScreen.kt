@@ -67,6 +67,11 @@ fun BleProbeScreen(onBack: () -> Unit) {
 
     var advertising by remember { mutableStateOf(false) }
     var scanning by remember { mutableStateOf(false) }
+    // Default off: the #30 hardware run found connect+mtu at 92% of the exchange
+    // and the read itself at 64ms, so "does skipping the MTU bump still work" is
+    // the thing worth measuring first. Toggle to compare both paths on one pair
+    // of phones.
+    var negotiateMtu by remember { mutableStateOf(false) }
     val log = remember { mutableStateListOf<String>() }
     val peers = remember { mutableStateListOf<PeerHit>() }
     val runs = remember { mutableStateListOf<ExchangeTiming>() }
@@ -128,7 +133,8 @@ fun BleProbeScreen(onBack: () -> Unit) {
         ) {
             Text(
                 "Advert = service UUID. Scan response = name ($SCAN_RESPONSE_NAME_BUDGET bytes). " +
-                    "Card = characteristic read after an MTU bump. Budget: 2s ships, 6s fails; " +
+                    "Card = characteristic read, optionally after an MTU bump — toggle below to " +
+                    "compare both on the same two phones. Budget: 2s ships, 6s fails; " +
                     "gives up at ${EXCHANGE_TIMEOUT_MS}ms and that is where QR takes over.",
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -162,6 +168,19 @@ fun BleProbeScreen(onBack: () -> Unit) {
                     if (!hasPermissions) permissionLauncher.launch(requiredPermissions) else scanning = !scanning
                 }) { Text(if (scanning) "Stop scanning" else "Scan") }
             }
+            // A second tap silently turning the radio off (and a run reading as "nobody
+            // nearby") is the exact failure NearbyPeers warns about, reproduced here —
+            // so state gets its own line, not just a button label that flips.
+            Text(
+                (if (advertising) "● advertising" else "○ not advertising") +
+                    "   " + (if (scanning) "● scanning" else "○ not scanning"),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(16.dp))
+
+            OutlinedButton(onClick = { negotiateMtu = !negotiateMtu }) {
+                Text(if (negotiateMtu) "MTU: negotiate (517)" else "MTU: skip (default 23)")
+            }
             Spacer(Modifier.height(16.dp))
 
             Text("Nearby (${peers.size})", style = MaterialTheme.typography.titleMedium)
@@ -174,7 +193,7 @@ fun BleProbeScreen(onBack: () -> Unit) {
                     )
                     Button(onClick = {
                         appendLog("Connecting with ${peer.name ?: peer.address}…")
-                        central.readCard(peer) { timing ->
+                        central.readCard(peer, negotiateMtu = negotiateMtu) { timing ->
                             runs.add(0, timing)
                             appendLog("exchange: ${timing.verdict}")
                         }
@@ -189,9 +208,9 @@ fun BleProbeScreen(onBack: () -> Unit) {
             runs.forEach { run ->
                 Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                     Text(run.verdict, style = MaterialTheme.typography.titleSmall)
+                    val mtuLeg = if (run.mtuSkipped) "mtu skipped" else "mtu ${run.mtuMs ?: "-"}ms (${run.mtu ?: "-"})"
                     Text(
-                        "discovery ${run.discoveryMs}ms · connect ${run.connectMs ?: "-"}ms · " +
-                            "mtu ${run.mtuMs ?: "-"}ms (${run.mtu ?: "-"}) · " +
+                        "discovery ${run.discoveryMs}ms · connect ${run.connectMs ?: "-"}ms · $mtuLeg · " +
                             "services ${run.servicesMs ?: "-"}ms · read ${run.readMs ?: "-"}ms",
                         style = MaterialTheme.typography.bodySmall,
                     )

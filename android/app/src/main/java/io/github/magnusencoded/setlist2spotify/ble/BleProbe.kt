@@ -54,6 +54,17 @@ private const val TEST_COMPANY_ID = 0xFFFF
 private const val ATT_OVERHEAD = 3
 
 /**
+ * What the GATT server hands back for one read at [offset]. A payload longer than
+ * MTU-1 arrives as a rising-offset series of ATT_READ_BLOB requests; the platform
+ * assembles them back into one value on the reading side, so the server only has
+ * to answer each slice correctly. Pulled out of [BleCardPeripheral] so the #30
+ * "does a chunked read survive without the MTU bump" question is checkable in a
+ * plain JVM test rather than only on hardware.
+ */
+fun sliceForOffset(payload: ByteArray, offset: Int): ByteArray =
+    if (offset >= payload.size) ByteArray(0) else payload.copyOfRange(offset, payload.size)
+
+/**
  * Sized to the operation, per the project rule: a card exchange that is meant to
  * take 2s has failed by 7, and the flow is supposed to fall through to QR rather
  * than spin. Long enough not to trip a slow-but-working connect, short enough
@@ -74,6 +85,8 @@ data class ExchangeTiming(
     val discoveryMs: Long,
     val connectMs: Long? = null,
     val mtuMs: Long? = null,
+    /** True when the #30 probe's "skip MTU" toggle was on — [mtuMs] is null because there was no leg to time, not because it failed. */
+    val mtuSkipped: Boolean = false,
     val servicesMs: Long? = null,
     val readMs: Long? = null,
     val mtu: Int? = null,
@@ -83,8 +96,13 @@ data class ExchangeTiming(
 ) {
     /** Card on screen to card in hand — the number #30's budget is written against. */
     val screenToCardMs: Long?
-        get() = if (failedAt != null) null else
-            listOfNotNull(connectMs, mtuMs, servicesMs, readMs).takeIf { it.size == 4 }?.sum()
+        get() = if (failedAt != null) null else {
+            val required = listOfNotNull(connectMs, servicesMs, readMs)
+            // mtuMs is required too, unless the leg was deliberately skipped — then it
+            // contributes 0ms rather than blocking the total.
+            if (required.size != 3 || (mtuMs == null && !mtuSkipped)) null
+            else required.sum() + (mtuMs ?: 0)
+        }
 
     val verdict: String
         get() = when (val t = screenToCardMs) {
@@ -119,11 +137,10 @@ class BleCardPeripheral(private val context: Context, private var card: ProbeCar
             offset: Int,
             characteristic: BluetoothGattCharacteristic,
         ) {
-            val payload = card.bytes()
             // A card longer than MTU-1 arrives as a series of Read Blob requests
             // with a rising offset. Ignoring it (as the old #18 probe did) silently
             // truncates anything over ~22 bytes.
-            val slice = if (offset >= payload.size) ByteArray(0) else payload.copyOfRange(offset, payload.size)
+            val slice = sliceForOffset(card.bytes(), offset)
             gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, slice)
             onLog?.invoke("server: read from ${device.address} at offset $offset (${slice.size} bytes)")
         }
@@ -215,12 +232,17 @@ class BleCardCentral(private val context: Context) {
     }
 
     /**
-     * Connect, negotiate the MTU, discover services, read the card — reporting how
-     * long each leg took. Gives up at [EXCHANGE_TIMEOUT_MS] naming the leg it died
-     * on, which in the shipped flow is the cue to fall through to QR.
+     * Connect, optionally negotiate the MTU, discover services, read the card —
+     * reporting how long each leg took. Gives up at [EXCHANGE_TIMEOUT_MS] naming
+     * the leg it died on, which in the shipped flow is the cue to fall through to
+     * QR.
+     *
+     * [negotiateMtu] exists so the probe screen can run both paths on the same two
+     * phones and compare: at the default MTU (23) the card comes back as a series
+     * of ATT_READ_BLOB round trips instead of one bigger read. See #30.
      */
     @RequiresPermission("android.permission.BLUETOOTH_CONNECT")
-    fun readCard(peer: PeerHit, onResult: (ExchangeTiming) -> Unit) {
+    fun readCard(peer: PeerHit, negotiateMtu: Boolean = true, onResult: (ExchangeTiming) -> Unit) {
         val device = manager.adapter.getRemoteDevice(peer.address)
         var leg = System.currentTimeMillis()
         var phase = "connect"
@@ -247,6 +269,12 @@ class BleCardCentral(private val context: Context) {
             override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
                 if (newState == BluetoothProfile.STATE_CONNECTED) {
                     timing = timing.copy(connectMs = split())
+                    if (!negotiateMtu) {
+                        timing = timing.copy(mtuSkipped = true)
+                        phase = "services"
+                        if (!gatt.discoverServices()) finish(timing.copy(failedAt = "service discovery rejected"))
+                        return
+                    }
                     phase = "mtu"
                     // 517 is the ATT maximum; the stack settles on whatever both ends allow.
                     if (!gatt.requestMtu(517)) finish(timing.copy(failedAt = "mtu request rejected"))
