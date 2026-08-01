@@ -113,11 +113,14 @@ import io.github.magnusencoded.setlist2spotify.CoverCandidate
 import io.github.magnusencoded.setlist2spotify.GigLink
 import io.github.magnusencoded.setlist2spotify.MediaThumb
 import io.github.magnusencoded.setlist2spotify.NOT_STAMPED
+import io.github.magnusencoded.setlist2spotify.data.DeviceLocation
 import io.github.magnusencoded.setlist2spotify.data.Friend
+import io.github.magnusencoded.setlist2spotify.data.StoredAttendance
 import io.github.magnusencoded.setlist2spotify.data.photos.PhotoRepository
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSong
 import kotlinx.coroutines.launch
+import java.time.LocalDateTime
 import kotlin.math.roundToInt
 
 // Station to Station — the timeline face of the app (working title).
@@ -208,6 +211,30 @@ fun StationTimelineScreen(
     // Reachable from both the future edge and the empty spine: a collector with no
     // history at all still has a ticket for something.
     var adding by remember { mutableStateOf(false) }
+
+    // Check-in (#33): opening the timeline takes one fix and compares it against
+    // what's already known. Foreground, one-shot, nothing scheduled.
+    val locationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        // Refusing is not a dead end and not an error: the offer just never appears,
+        // and the gig's own screen still has a check-in you can press by hand.
+        viewModel.offerCheckIn()
+    }
+    LaunchedEffect(state.plannedGigs) {
+        // The permission is only ever asked for on a night there is something to
+        // check into — never merely for opening the app.
+        if (!viewModel.checkInDue()) return@LaunchedEffect
+        if (viewModel.hasLocationPermission()) viewModel.offerCheckIn()
+        else locationPermission.launch(DeviceLocation.requiredPermissions())
+    }
+    state.checkInOffer?.let { gig ->
+        CheckInDialog(
+            gig = gig,
+            onCheckIn = { viewModel.checkIn(gig.id) },
+            onDismiss = { viewModel.dismissCheckInOffer() },
+        )
+    }
 
     Scaffold(
         containerColor = Ground,
@@ -614,6 +641,42 @@ private fun AddPlannedGigDialog(onAdd: (String) -> Unit, onDismiss: () -> Unit) 
                     onClick = { onAdd(text) },
                     enabled = text.isNotBlank(),
                 ) { Text("Add", color = if (text.isBlank()) Faint else Amber) }
+            }
+        }
+    }
+}
+
+/**
+ * "Are you here?" — the one thing a check-in asks. Shown only when a fix already
+ * put the phone at the venue on the night, so it states what it thinks and offers
+ * the two honest answers.
+ */
+@Composable
+private fun CheckInDialog(gig: FmSetlist, onCheckIn: () -> Unit, onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(Raised)
+                .padding(20.dp),
+        ) {
+            Text("Are you here?", fontFamily = Serif, fontSize = 19.sp, color = Ink)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "${gig.artist?.name ?: "This show"} at ${gig.venue?.name ?: "the venue"}, tonight.",
+                color = Muted,
+                fontSize = 13.sp,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Checking in records that you were at it — on this phone, nowhere else.",
+                color = Faint,
+                fontSize = 11.sp,
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("Not now", color = Faint) }
+                TextButton(onClick = onCheckIn) { Text("Check in", color = Amber) }
             }
         }
     }
@@ -1395,6 +1458,10 @@ fun StationEventScreen(
     // A night I'm going to, not one I was at. Everything this screen says about a
     // setlist has to change: there is no setlist to be missing yet.
     val planned = setlist != null && state.plannedGigs.any { it.id == setlist.id }
+    // Read off state rather than asked of the view model, so checking in redraws
+    // this screen instead of leaving the button sitting there.
+    val checkedIn = setlist != null &&
+        state.attendanceByGig[setlist.id]?.provenance == StoredAttendance.Provenance.CHECKED_IN
     // What this night already became. Every one of them: each url may be in
     // somebody's hands, so none of them stops being reachable from here.
     val made = setlist?.let { state.playlistsBySetlist[it.id] }.orEmpty()
@@ -1441,6 +1508,23 @@ fun StationEventScreen(
                     Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    // The manual check-in, and the only one there is when location was
+                    // refused or the venue couldn't be geocoded. Same night window as
+                    // the ambient offer; no location involved at all.
+                    if (canCheckInManually(setlist, LocalDateTime.now())) {
+                        if (checkedIn) {
+                            Text("✓ checked in", color = Amber, fontSize = 13.sp, modifier = Modifier.padding(vertical = 6.dp))
+                        } else {
+                            Text(
+                                "I'm here — check in",
+                                color = Amber,
+                                fontSize = 13.sp,
+                                modifier = Modifier
+                                    .clickable { viewModel.checkIn(setlist.id) }
+                                    .padding(vertical = 6.dp),
+                            )
+                        }
+                    }
                     setlist.url?.let { url ->
                         Text(
                             "‹ swipe to open this show on setlist.fm",
@@ -1621,8 +1705,14 @@ fun StationEventScreen(
                                 )
                             }
                             Spacer(Modifier.width(6.dp))
-                            // "self-logged" is a claim about a night that happened.
-                            EventTag(if (planned) "planned" else "self-logged", color = if (planned) Slate else Faint)
+                            // How the app came to believe I was here. A check-in is
+                            // stronger evidence than setlist.fm's retroactive flag,
+                            // so it says so; "self-logged" is the weakest claim.
+                            when {
+                                checkedIn -> EventTag("checked in", color = Amber)
+                                planned -> EventTag("planned", color = Slate)
+                                else -> EventTag("self-logged", color = Faint)
+                            }
                         }
                         Spacer(Modifier.height(12.dp))
                         GigPhotos(

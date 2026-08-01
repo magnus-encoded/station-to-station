@@ -91,6 +91,19 @@ data class FmVenue(
 data class FmCity(
     val name: String? = null,
     val country: FmCountry? = null,
+    /** Present on every record the API returns — but of the *city*, not the venue. */
+    val coords: FmCoords? = null,
+)
+
+/**
+ * setlist.fm's city-centre coordinates. Free with every setlist, and too coarse to
+ * say you are at a venue — good enough only to say you are in the right city.
+ * `long`, not `lon`: that is the wire name.
+ */
+@Serializable
+data class FmCoords(
+    val lat: Double? = null,
+    val long: Double? = null,
 )
 
 @Serializable

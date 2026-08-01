@@ -22,12 +22,16 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
-    <!-- Nearby Connections still needs location to scan on 32 and below; on 33+ the
-         neverForLocation flags on BLUETOOTH_SCAN and NEARBY_WIFI_DEVICES stand in
-         for it, so the location prompt never appears on a modern phone. -->
-    <uses-permission
-        android:name="android.permission.ACCESS_FINE_LOCATION"
-        android:maxSdkVersion="32" />
+    <!-- Two users, one permission. Nearby Connections needs location to scan on 32
+         and below (on 33+ the neverForLocation flags on BLUETOOTH_SCAN and
+         NEARBY_WIFI_DEVICES stand in for it). #33's check-in needs it on every
+         version — one foreground fix when the timeline is opened, which is why the
+         maxSdkVersion that used to be here is gone.
+         Deliberately NOT declared: ACCESS_BACKGROUND_LOCATION. Nothing in this app
+         asks where the phone is while it is closed, and adding that permission is a
+         privacy commitment nobody has decided to make. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission

@@ -6,7 +6,9 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.magnusencoded.setlist2spotify.data.Friend
+import io.github.magnusencoded.setlist2spotify.data.DeviceLocation
 import io.github.magnusencoded.setlist2spotify.data.SettingsRepository
+import io.github.magnusencoded.setlist2spotify.data.StoredAttendance
 import io.github.magnusencoded.setlist2spotify.data.StoredPlaylist
 import io.github.magnusencoded.setlist2spotify.data.TimelineStore
 import io.github.magnusencoded.setlist2spotify.data.friendFromUri
@@ -17,7 +19,11 @@ import io.github.magnusencoded.setlist2spotify.data.spotifyPlaylistId
 import io.github.magnusencoded.setlist2spotify.data.toShareUri
 import io.github.magnusencoded.setlist2spotify.ui.NodePlace
 import io.github.magnusencoded.setlist2spotify.ui.TimelineNode
+import io.github.magnusencoded.setlist2spotify.ui.atVenue
+import io.github.magnusencoded.setlist2spotify.ui.canCheckInManually
+import io.github.magnusencoded.setlist2spotify.ui.checkInCandidate
 import io.github.magnusencoded.setlist2spotify.ui.groupIntoFestivals
+import io.github.magnusencoded.setlist2spotify.ui.venueMapsQuery
 import io.github.magnusencoded.setlist2spotify.data.nearby.NearbyPeers
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmArtist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
@@ -36,6 +42,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.LocalDateTime
 
 /** A song with no place yet in the night's recording. 0L is a real time — the first song. */
 const val NOT_STAMPED = -1L
@@ -177,6 +184,17 @@ data class UiState(
     val plannedGigs: List<FmSetlist> = emptyList(),
     /** A planned gig is being fetched from setlist.fm. */
     val planningLoading: Boolean = false,
+    /**
+     * My relationship to each gig, by gig id — planned, attended, checked in.
+     * Restored from disk on launch, which is what makes a check-in survive a cold
+     * start rather than being a thing the screen remembers until it doesn't.
+     */
+    val attendanceByGig: Map<String, StoredAttendance> = emptyMap(),
+    /**
+     * The gig the timeline is offering a check-in for, if the one location fix it
+     * took put me at one. Null the rest of the time, which is nearly always.
+     */
+    val checkInOffer: FmSetlist? = null,
     /** Festival name by the first show id of its cluster; see resolveFestivalNames(). */
     val festivalNames: Map<String, String> = emptyMap(),
     /** Set by a card swap so the timeline opens with the other lines already showing. */
@@ -232,6 +250,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val spotify = SpotifyClient(settings)
     private val photos = PhotoRepository(application)
     private val nearby = NearbyPeers(application)
+    private val where = DeviceLocation(application)
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -316,6 +335,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     cached.photosBySetlist.mapValues { (_, uris) -> uris.map(Uri::parse) },
                 songOffsetsBySetlist = it.songOffsetsBySetlist + cached.songOffsetsBySetlist,
                 plannedGigs = sortedPlanned(cached.plannedShows),
+                attendanceByGig = it.attendanceByGig + cached.attendanceByGig,
                 // Every lane but mine: the weave reads friends from here.
                 showsByFriend = cached.shows - me,
                 // Only adopt a cached spine if nothing has already loaded into it.
@@ -951,6 +971,94 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun removePlannedGig(gigId: String) {
         _state.update { it.copy(plannedGigs = it.plannedGigs.filterNot { g -> g.id == gigId }) }
         viewModelScope.launch { timelines.removePlanned(gigId) }
+    }
+
+    // --- Check in ---
+
+    /**
+     * True if any gig I know about could be checked into right now on the calendar
+     * alone. Cheap and pure — it is what decides whether asking for the location
+     * permission is warranted at all, so the prompt only ever appears on a night
+     * there is actually something to check into.
+     */
+    fun checkInDue(now: LocalDateTime = LocalDateTime.now()): Boolean =
+        _state.value.plannedGigs.any { gig ->
+            canCheckInManually(gig, now) && !isCheckedIn(gig.id)
+        }
+
+    fun hasLocationPermission(): Boolean = where.hasPermission()
+
+    fun isCheckedIn(gigId: String): Boolean =
+        _state.value.attendanceByGig[gigId]?.provenance == StoredAttendance.Provenance.CHECKED_IN
+
+    /**
+     * One fix, once, when the timeline is opened: if it puts me at a gig I'm going
+     * to tonight, offer to check in. Every failure along the way — permission
+     * refused, no fix, no coordinates for the venue, too far away — is silently no
+     * offer. Nothing here is retried, scheduled or run in the background.
+     *
+     * ponytail: linear over the planned gigs, geocoding only the one that passes
+     * the city gate. You have a ticket for a handful of nights, not thousands.
+     */
+    fun offerCheckIn() {
+        if (askedToCheckIn) return
+        askedToCheckIn = true
+        viewModelScope.launch {
+            val now = LocalDateTime.now()
+            val fix = where.currentFix() ?: return@launch
+            val candidates = _state.value.plannedGigs.filterNot { isCheckedIn(it.id) }
+            val gig = checkInCandidate(candidates, now, fix) ?: return@launch
+            val venue = venueCoords(gig) ?: return@launch
+            if (!atVenue(fix, venue)) return@launch
+            _state.update { it.copy(checkInOffer = gig) }
+        }
+    }
+
+    /** One-shot per launch: dismissing an offer must not make it reappear. */
+    private var askedToCheckIn = false
+
+    fun dismissCheckInOffer() = _state.update { it.copy(checkInOffer = null) }
+
+    /**
+     * The venue's coordinates, geocoded once and kept on the attendance record —
+     * the same cache #29 reserved the fields for. Null for a venue the geocoder
+     * can't place, which costs this gig its prompt and nothing else.
+     */
+    private suspend fun venueCoords(gig: FmSetlist): Pair<Double, Double>? {
+        _state.value.attendanceByGig[gig.id]?.let { stored ->
+            val lat = stored.venueLat
+            val lon = stored.venueLon
+            if (lat != null && lon != null) return lat to lon
+        }
+        val query = venueMapsQuery(gig.venue?.name, gig.venue?.city?.name) ?: return null
+        val found = where.geocodeVenue(
+            listOfNotNull(query, gig.venue?.city?.country?.name).joinToString(", "),
+        ) ?: return null
+        updateAttendance(gig.id) { it.copy(venueLat = found.first, venueLon = found.second) }
+        return found
+    }
+
+    /**
+     * I am here. Sets the provenance the whole issue exists for, with the moment it
+     * happened — evidence of a different strength than setlist.fm's retroactive
+     * flag, not a competing record. Not a gate on anything: the peer-attested badge
+     * (#30) decorates this entry later, it doesn't replace it.
+     */
+    fun checkIn(gigId: String) {
+        _state.update { it.copy(checkInOffer = null) }
+        updateAttendance(gigId) {
+            it.copy(
+                provenance = StoredAttendance.Provenance.CHECKED_IN,
+                checkedInAt = System.currentTimeMillis(),
+            )
+        }
+    }
+
+    /** Writes one gig's attendance to state and disk together, never one without the other. */
+    private fun updateAttendance(gigId: String, edit: (StoredAttendance) -> StoredAttendance) {
+        val updated = edit(_state.value.attendanceByGig[gigId] ?: StoredAttendance())
+        _state.update { it.copy(attendanceByGig = it.attendanceByGig + (gigId to updated)) }
+        viewModelScope.launch { timelines.saveAttendance(gigId, updated) }
     }
 
     fun selectSetlist(setlist: FmSetlist) {

@@ -66,9 +66,10 @@ fun plannedStatus(date: LocalDate?, now: LocalDate = LocalDate.now()): String {
 }
 
 /**
- * "Venue Name, City" for a maps text query. setlist.fm carries no coordinates —
- * not even city-level — so this is the whole query; the OS geocodes it.
- * Null if there's nothing worth searching for.
+ * "Venue Name, City" for a maps text query — and the same string the check-in's
+ * forward geocoder is given. setlist.fm carries coordinates for the *city* only
+ * (`venue.city.coords`), never for the venue, so the venue's own position has to
+ * come from geocoding this. Null if there's nothing worth searching for.
  */
 fun venueMapsQuery(venueName: String?, city: String?): String? {
     val parts = listOfNotNull(
