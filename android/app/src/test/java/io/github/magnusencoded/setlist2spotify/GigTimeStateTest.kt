@@ -4,6 +4,7 @@ import io.github.magnusencoded.setlist2spotify.ui.GigTimeState
 import io.github.magnusencoded.setlist2spotify.ui.formatCountdown
 import io.github.magnusencoded.setlist2spotify.ui.gigTimeState
 import io.github.magnusencoded.setlist2spotify.ui.plannedStatus
+import io.github.magnusencoded.setlist2spotify.ui.showsMediaBlock
 import io.github.magnusencoded.setlist2spotify.ui.venueMapsQuery
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -82,6 +83,17 @@ class GigTimeStateTest {
     @Test
     fun `a gig with an unparseable date still says something true`() {
         assertEquals("you're going", plannedStatus(null, today))
+    }
+
+    @Test
+    fun `the media block is absent on a night that hasn't happened yet`() {
+        assertEquals(false, showsMediaBlock(planned = true, checkedIn = false))
+        assertEquals(true, showsMediaBlock(planned = false, checkedIn = false))
+    }
+
+    @Test
+    fun `checking in earns the media block back even while still planned`() {
+        assertEquals(true, showsMediaBlock(planned = true, checkedIn = true))
     }
 
     @Test

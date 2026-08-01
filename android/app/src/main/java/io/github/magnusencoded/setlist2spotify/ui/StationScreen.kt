@@ -882,7 +882,7 @@ internal fun TimelineItem(
         }
         Column(Modifier.padding(start = if (inside) 14.dp else 0.dp, end = 18.dp, bottom = 22.dp)) {
             Text(
-                setlist.readableDate() ?: "Unknown date",
+                setlist.readableDateShort() ?: "Unknown date",
                 color = Faint,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -1704,41 +1704,50 @@ fun StationEventScreen(
                                     color = SpotifyGreen,
                                 )
                             }
-                            Spacer(Modifier.width(6.dp))
                             // How the app came to believe I was here. A check-in is
-                            // stronger evidence than setlist.fm's retroactive flag,
-                            // so it says so; "self-logged" is the weakest claim.
+                            // stronger evidence than setlist.fm's retroactive flag; the
+                            // redundant "planned" chip is gone — "you're going"/countdown
+                            // above already says all a planned-and-not-checked-in night can.
                             when {
-                                checkedIn -> EventTag("checked in", color = Amber)
-                                planned -> EventTag("planned", color = Slate)
-                                else -> EventTag("self-logged", color = Faint)
+                                checkedIn -> {
+                                    Spacer(Modifier.width(6.dp))
+                                    EventTag("checked in", color = Amber)
+                                }
+                                !planned -> {
+                                    Spacer(Modifier.width(6.dp))
+                                    EventTag("self-logged", color = Faint)
+                                }
                             }
                         }
-                        Spacer(Modifier.height(12.dp))
-                        GigPhotos(
-                            photos = gigPhotos,
-                            loadPreview = viewModel::photoPreview,
-                            onAdd = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
-                            // Opens in the in-app viewer below rather than handing the uri to
-                            // whatever app the phone picks: an external app can fail to read
-                            // it (permission scoped to us, or the phone's own quirks) and
-                            // leave the user staring at a viewer with nothing in it.
-                            onOpen = { uri -> viewerUri = uri },
-                            onRemove = { uri -> viewModel.removeGigPhoto(setlist.id, uri) },
-                            onReorder = { newOrder -> viewModel.reorderGigPhotos(setlist.id, newOrder) },
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        GigPhotoSuggestions(
-                            candidates = state.gigPhotoSuggestions,
-                            loading = state.gigPhotoSuggestionsLoading,
-                            searched = state.gigPhotoSuggestionsSearched,
-                            permissionGranted = state.gigPhotoSuggestionsPermissionGranted,
-                            already = gigPhotos,
-                            onRequestPermission = {
-                                gigSuggestPermissionLauncher.launch(PhotoRepository.requiredPermissions())
-                            },
-                            onAdd = { uri -> viewModel.addGigPhotos(setlist.id, listOf(uri)) },
-                        )
+                        // Nothing can be pinned to a night nobody has been to yet — the
+                        // slot comes back once the gig is checked into or no longer planned.
+                        if (showsMediaBlock(planned, checkedIn)) {
+                            Spacer(Modifier.height(12.dp))
+                            GigPhotos(
+                                photos = gigPhotos,
+                                loadPreview = viewModel::photoPreview,
+                                onAdd = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
+                                // Opens in the in-app viewer below rather than handing the uri to
+                                // whatever app the phone picks: an external app can fail to read
+                                // it (permission scoped to us, or the phone's own quirks) and
+                                // leave the user staring at a viewer with nothing in it.
+                                onOpen = { uri -> viewerUri = uri },
+                                onRemove = { uri -> viewModel.removeGigPhoto(setlist.id, uri) },
+                                onReorder = { newOrder -> viewModel.reorderGigPhotos(setlist.id, newOrder) },
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            GigPhotoSuggestions(
+                                candidates = state.gigPhotoSuggestions,
+                                loading = state.gigPhotoSuggestionsLoading,
+                                searched = state.gigPhotoSuggestionsSearched,
+                                permissionGranted = state.gigPhotoSuggestionsPermissionGranted,
+                                already = gigPhotos,
+                                onRequestPermission = {
+                                    gigSuggestPermissionLauncher.launch(PhotoRepository.requiredPermissions())
+                                },
+                                onAdd = { uri -> viewModel.addGigPhotos(setlist.id, listOf(uri)) },
+                            )
+                        }
                     }
                 }
                 if (rows.isEmpty()) {
