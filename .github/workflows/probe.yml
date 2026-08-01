@@ -11,55 +11,23 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe setlist.fm
+      - name: Bracket the search horizon
         env:
           KEY: ${{ secrets.SETLISTFM_API_KEY }}
         run: |
           MBID=172e1f1a-504d-4488-b053-6344ba63e6d0
-          fm() {
-            local p="$1"; shift
-            echo "--- GET $p $*"
-            curl -sS -w "\nHTTP %{http_code}\n" -G "https://api.setlist.fm/rest/1.0/$p" \
-              -H "x-api-key: $KEY" -H "Accept: application/json" "$@" > /tmp/out.json
+          # Nick Cave tour dates in August 2026, from the tour listing: probe each
+          # by date to find where search/setlists stops returning them, then
+          # confirm each is fetchable by id anyway.
+          for d in 01-08-2026 02-08-2026 05-08-2026 08-08-2026 13-08-2026 15-08-2026; do
+            code=$(curl -sS -o /tmp/o.json -w "%{http_code}" -G \
+              "https://api.setlist.fm/rest/1.0/search/setlists" \
+              -H "x-api-key: $KEY" -H "Accept: application/json" \
+              --data-urlencode "artistMbid=$MBID" --data-urlencode "date=$d")
+            echo "search date=$d -> HTTP $code $(head -c 120 /tmp/o.json | tr -d '\n')"
             sleep 2
-          }
-          dump() {
-            python3 - "$1" <<'PY'
-          import sys, json
-          raw = open('/tmp/out.json').read()
-          body = raw.rsplit('\nHTTP', 1)
-          print('HTTP', body[1].strip() if len(body) > 1 else '?')
-          try:
-              d = json.loads(body[0])
-          except Exception:
-              print('  raw:', body[0][:300]); raise SystemExit
-          if 'setlist' not in d:
-              print('  ', json.dumps(d)[:300]); raise SystemExit
-          print('  total', d.get('total'), 'page', d.get('page'))
-          for s in d.get('setlist', [])[:25]:
-              print('  ', s['id'], s.get('eventDate'),
-                    'sets=%d' % len(s.get('sets', {}).get('set', [])),
-                    (s.get('venue') or {}).get('name'))
-          PY
-          }
-
-          echo "=== A. artist/{mbid}/setlists page 1 — does the dedicated endpoint carry 13-08-2026?"
-          fm "artist/$MBID/setlists"; dump
-
-          echo "=== B. search/setlists artistMbid + year=2026 page 1"
-          fm search/setlists --data-urlencode "artistMbid=$MBID" --data-urlencode "year=2026"; dump
-
-          echo "=== C. search/setlists artistMbid + date=13-08-2026 (the Oya gig)"
-          fm search/setlists --data-urlencode "artistMbid=$MBID" --data-urlencode "date=13-08-2026"; dump
-
-          echo "=== D. search/setlists artistMbid + date=02-08-2026 (a future date search DID return)"
-          fm search/setlists --data-urlencode "artistMbid=$MBID" --data-urlencode "date=02-08-2026"; dump
-
-          echo "=== E. search/setlists venueId=63d41af7 (Toyenparken), year 2026"
-          fm search/setlists --data-urlencode "venueId=63d41af7" --data-urlencode "year=2026"; dump
-
-          echo "=== F. what does the 02-08-2026 record look like next to the 13-08 one?"
-          fm setlist/134ea925; cat /tmp/out.json | head -c 1200; echo
-
-          echo "=== G. is there an /upcoming or /events endpoint at all?"
-          fm "artist/$MBID/upcoming"; head -c 300 /tmp/out.json; echo
+          done
+          echo "--- direct fetch of the Oya id, again, to confirm it is not a fluke"
+          curl -sS -G "https://api.setlist.fm/rest/1.0/setlist/53414fd1" \
+            -H "x-api-key: $KEY" -H "Accept: application/json" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['id'], d['eventDate'], d['artist']['name'], d['venue']['name'], 'sets=', d['sets'])"
