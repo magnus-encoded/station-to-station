@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum Route: Hashable { case friends, setlists, confirm, settings, station }
+enum Route: Hashable { case friends, setlists, confirm, settings, station, search, gig }
 
 @MainActor
 final class Nav: ObservableObject {
@@ -20,7 +20,9 @@ struct SetlistToSpotifyApp: App {
     var body: some Scene {
         WindowGroup {
             NavigationStack(path: $nav.path) {
-                SearchView()
+                // The Timeline is home; the setlist-to-Spotify converter stays
+                // reachable behind search, exactly as on Android — nothing removed.
+                StationView()
                     .navigationDestination(for: Route.self) { route in
                         switch route {
                         case .friends: FriendsView()
@@ -28,12 +30,16 @@ struct SetlistToSpotifyApp: App {
                         case .confirm: ConfirmView()
                         case .settings: SettingsView()
                         case .station: StationView()
+                        case .search: SearchView()
+                        case .gig: GigView()
                         }
                     }
             }
             .environmentObject(model)
             .environmentObject(nav)
             .tint(spotifyGreen)
+            // Nocturnal single theme: the Timeline is dark whatever the phone is.
+            .preferredColorScheme(.dark)
             .appBanners(model)
             // Spotify's OAuth callback is handled by ASWebAuthenticationSession;
             // the app only needs to catch friend-card links here.
@@ -41,13 +47,28 @@ struct SetlistToSpotifyApp: App {
                 if url.scheme == "setlist2spotify", url.host == "friend" {
                     model.handleFriendLink(url)
                 }
-                // station-to-station://<line>/<gig> — a Resolution reached without
-                // a gesture, so CI and a URL bar can both get there. Only my own
-                // line ("me") resolves today; a friend's line and the gig segment
-                // are recognised and ignored rather than silently mis-routed.
+                // station-to-station://<host>/… — a Resolution reached without a
+                // gesture, so CI and a URL bar can both get to the Spine (pinch
+                // cannot be scripted). The Timeline is the root now, so routing
+                // means popping to it and setting its Resolution, not pushing.
+                //
+                //   me                         → My timeline (single Line)
+                //   fixture/<name>[/open]      → seed a bundled weave fixture; a
+                //                                fixture with Lanes lands zoomed
+                //                                out, /open uncollapses Festivals
                 if url.scheme == "station-to-station" {
                     nav.popToRoot()
-                    if url.host == nil || url.host == "me" { nav.push(.station) }
+                    let segments = url.pathComponents.filter { $0 != "/" }
+                    switch url.host {
+                    case "fixture":
+                        if let name = segments.first {
+                            model.loadFixture(name, open: segments.contains("open"))
+                        }
+                    default:
+                        // "me", nil, or a friend's line: my own Spine. Zoomed state
+                        // is left as it is so a friend link can land on the strip.
+                        if url.host == nil || url.host == "me" { model.setZoomedOut(false) }
+                    }
                 }
             }
         }

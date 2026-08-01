@@ -39,7 +39,8 @@ struct SearchView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
-                Button { nav.push(.station) } label: { Image(systemName: "calendar") }
+                // The Timeline is home now; this returns to it.
+                Button { nav.popToRoot() } label: { Image(systemName: "calendar") }
                 Button { nav.push(.friends) } label: { Image(systemName: "person.2") }
                 Button { nav.push(.settings) } label: { Image(systemName: "gearshape") }
             }
