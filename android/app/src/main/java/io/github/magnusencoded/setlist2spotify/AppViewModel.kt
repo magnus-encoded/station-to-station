@@ -24,7 +24,9 @@ import io.github.magnusencoded.setlist2spotify.ui.canCheckInManually
 import io.github.magnusencoded.setlist2spotify.ui.checkInCandidate
 import io.github.magnusencoded.setlist2spotify.ui.groupIntoFestivals
 import io.github.magnusencoded.setlist2spotify.ui.venueMapsQuery
-import io.github.magnusencoded.setlist2spotify.data.nearby.NearbyPeers
+import io.github.magnusencoded.setlist2spotify.ble.ProbeCard
+import io.github.magnusencoded.setlist2spotify.data.exchange.ExchangePeer
+import io.github.magnusencoded.setlist2spotify.data.exchange.ExchangeSession
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmArtist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSong
@@ -43,6 +45,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.util.Base64
+import kotlin.random.Random
 
 /** A song with no place yet in the night's recording. 0L is a real time — the first song. */
 const val NOT_STAMPED = -1L
@@ -169,10 +173,13 @@ data class UiState(
     // very different meanings apart.
     val viewedFriendShows: List<FmSetlist> = emptyList(),
     val viewedFriendLoading: Boolean = false,
-    // Nearby discovery (mocked) → the woven view, the resolution one level out from a
-    // single timeline: my line braided with every known friend's, keyed by username.
+    // The Exchange → the woven view, the resolution one level out from a single timeline:
+    // my line braided with every known friend's, keyed by username.
     val discovering: Boolean = false,
-    val nearbyPeers: List<Friend> = emptyList(),
+    /** Everyone the radios have surfaced, deduped into one list; see [ExchangePeer]. */
+    val exchangePeers: List<ExchangePeer> = emptyList(),
+    /** The display name we are mid-connect with, for "Connecting with dizzi90". Null otherwise. */
+    val connectingWith: String? = null,
     /** Every lane's shows, keyed by setlist.fm username. Feeds the zoomed-out weave. */
     val showsByFriend: Map<String, List<FmSetlist>> = emptyMap(),
     val timelinesLoading: Boolean = false,
@@ -249,8 +256,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val setlistFm = SetlistFmClient { settings.setlistFmApiKeyValue() }
     val spotify = SpotifyClient(settings)
     private val photos = PhotoRepository(application)
-    private val nearby = NearbyPeers(application)
+    private val exchange = ExchangeSession(application, viewModelScope)
     private val where = DeviceLocation(application)
+
+    // ponytail: a placeholder key so the BLE card is well-formed, regenerated each launch.
+    // The real Ed25519 keypair that #28 makes a contact's identity belongs to the
+    // relationship layer (#28/#29), not the meeting — the receiver drops it into a Friend
+    // (which has no key field) today. Swap for the keystore identity when contacts persist keys.
+    private val sessionKey = Base64.getEncoder().encodeToString(Random.nextBytes(32))
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -278,32 +291,33 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
             restoreTimelines()
         }
-        // The radio's two outputs, mirrored into UiState.
+        // The radios' outputs, mirrored into UiState.
         viewModelScope.launch {
-            nearby.peers.collect { peers ->
+            exchange.peers.collect { peers ->
                 // Anyone already on my timeline drops off the radar — the list is
-                // "people I could add", not "people who are here".
+                // "people I could add", not "people who are here". A BLE peer whose card
+                // hasn't arrived has no username to match on, so it stays until tapped.
                 val known = _state.value.friends.map { it.setlistfm.lowercase() }.toSet()
                 _state.update {
                     it.copy(
-                        nearbyPeers = peers.filterNot { p -> p.setlistfm.lowercase() in known },
+                        exchangePeers = peers.filterNot { p -> p.setlistfm?.lowercase() in known },
                         discovering = peers.isEmpty(),
                     )
                 }
             }
         }
         viewModelScope.launch {
-            nearby.failure.collect { message ->
+            exchange.failure.collect { message ->
                 if (message != null) {
                     _state.update { it.copy(error = message, discovering = false) }
-                    nearby.consumeFailure()
+                    exchange.consumeFailure()
                 }
             }
         }
     }
 
     override fun onCleared() {
-        nearby.stop()
+        exchange.stop()
         super.onCleared()
     }
 
@@ -582,55 +596,73 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // --- Nearby discovery + two-timeline comparison ---
+    // --- Exchange (meeting someone in person) + two-timeline comparison ---
 
-    /** My own card, as handed to another phone. Blank username means nothing to give. */
+    /** My own card as a followed line, for the Nearby fast path. Blank username = nothing to give. */
     private fun myCard(): Friend? = _state.value.mySetlistFmUser.trim()
         .ifBlank { null }
         ?.let { Friend(setlistfm = it, name = it) }
 
+    /** The same card as a BLE payload: adds the public key #28 makes the identity. */
+    private fun myProbeCard(): ProbeCard? = _state.value.mySetlistFmUser.trim()
+        .ifBlank { null }
+        ?.let { ProbeCard(name = it, publicKey = sessionKey, setlistfm = it) }
+
     /**
-     * Begins looking for people to swap timelines with, over Nearby Connections.
-     * Peers appear and vanish as they come in and out of range, so the list is a
-     * live view of the room rather than a one-shot scan result.
+     * Opens the Exchange: start every radio in parallel and collect whoever turns up.
+     * People appear as they come into range, so the list is a live view of the room.
      */
-    fun startNearbyDiscovery() {
+    fun startExchange() {
         val me = myCard()
-        if (me == null) {
+        val card = myProbeCard()
+        if (me == null || card == null) {
             _state.update {
                 it.copy(discovering = false, error = "Set your setlist.fm username first — it's the card you hand over.")
             }
             return
         }
-        _state.update { it.copy(discovering = true, nearbyPeers = emptyList()) }
-        nearby.start(me)
+        _state.update { it.copy(discovering = true, exchangePeers = emptyList(), connectingWith = null) }
+        exchange.start(me, card)
     }
 
-    /** Pulled down on the connect screen: drop everything and listen again. */
-    fun restartNearbyDiscovery() {
+    /** Pulled down on the exchange screen: drop everything and listen again. */
+    fun restartExchange() {
         val me = myCard() ?: return
-        _state.update { it.copy(discovering = true, nearbyPeers = emptyList()) }
-        nearby.restart(me)
+        val card = myProbeCard() ?: return
+        _state.update { it.copy(discovering = true, exchangePeers = emptyList()) }
+        exchange.restart(me, card)
     }
 
-    fun stopNearbyDiscovery() {
-        nearby.stop()
-        _state.update { it.copy(discovering = false, nearbyPeers = emptyList()) }
+    fun stopExchange() {
+        exchange.stop()
+        _state.update { it.copy(discovering = false, exchangePeers = emptyList(), connectingWith = null) }
     }
 
-    fun nearbyPermissions(): List<String> = nearby.requiredPermissions()
+    fun exchangePermissions(): List<String> = exchange.requiredPermissions()
 
     /**
-     * Takes a card off the radar and onto my timeline. Purely local — the card
-     * arrived with the advertisement, so there is nobody to ask and nothing to
-     * send. If they want mine too, they tap on their own phone.
+     * Bring a peer onto my timeline: the "row → Connecting with dizzi90 → connected"
+     * sequence. On the Nearby path the card is already in hand and the middle is
+     * zero-length; on BLE it connects and reads first. A BLE failure clears the
+     * connecting state and leaves the radios running, so the QR offer stays available
+     * rather than the tap landing on a dead end.
      */
-    fun connectWithPeer(peer: Friend) {
-        viewModelScope.launch {
-            // Persist the friend before loading, or the load runs against the old list.
-            addFriendNow(peer)
-            _state.update { it.copy(justConnected = true) }
-            loadFriendTimelines()
+    fun connectWith(peer: ExchangePeer) {
+        _state.update { it.copy(connectingWith = peer.name) }
+        exchange.connect(peer) { friend ->
+            if (friend == null) {
+                _state.update {
+                    it.copy(connectingWith = null, error = "Couldn't reach ${peer.name}. Try again, or use a code.")
+                }
+                return@connect
+            }
+            viewModelScope.launch {
+                // Persist the friend before loading, or the load runs against the old list.
+                addFriendNow(friend)
+                _state.update { it.copy(justConnected = true, connectingWith = null) }
+                loadFriendTimelines()
+                exchange.stop()
+            }
         }
     }
 
