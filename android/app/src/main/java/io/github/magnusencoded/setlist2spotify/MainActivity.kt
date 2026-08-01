@@ -26,10 +26,9 @@ import io.github.magnusencoded.setlist2spotify.ui.ConfirmScreen
 import io.github.magnusencoded.setlist2spotify.ui.FriendsScreen
 import io.github.magnusencoded.setlist2spotify.ui.SearchScreen
 import io.github.magnusencoded.setlist2spotify.ui.SetlistsScreen
-import io.github.magnusencoded.setlist2spotify.ui.ConnectScreen
+import io.github.magnusencoded.setlist2spotify.ui.ExchangeScreen
 import io.github.magnusencoded.setlist2spotify.ui.FriendTimelineScreen
 import io.github.magnusencoded.setlist2spotify.ui.ImportScreen
-import io.github.magnusencoded.setlist2spotify.ui.NearbyScreen
 import io.github.magnusencoded.setlist2spotify.ui.SettingsScreen
 import io.github.magnusencoded.setlist2spotify.ui.SplashScreen
 import io.github.magnusencoded.setlist2spotify.ui.StationEventScreen
@@ -131,25 +130,21 @@ fun AppNavigation(viewModel: AppViewModel) {
                 viewModel = viewModel,
                 onOpenEvent = { navController.navigate("event") },
                 onOpenImport = { navController.navigate("import") },
-                onOpenConnect = { navController.navigate("connect") },
-                onOpenNearby = { navController.navigate("nearby") },
+                // Both the people icon and the swipe-left gesture now lead to the one
+                // Exchange — there is a single way to meet someone.
+                onOpenConnect = { navController.navigate("exchange") },
+                onOpenNearby = { navController.navigate("exchange") },
                 onOpenSettings = { navController.navigate("settings") },
             )
         }
-        composable("nearby") {
-            NearbyScreen(
+        composable("exchange") {
+            ExchangeScreen(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
                 onConnected = {
                     // Back to the one timeline there is; it opens with their line showing.
                     navController.popBackStack("timeline", inclusive = false)
                 },
-            )
-        }
-        composable("connect") {
-            ConnectScreen(
-                viewModel = viewModel,
-                onBack = { navController.popBackStack() },
                 onViewFriend = { friend ->
                     viewModel.viewFriendTimeline(friend)
                     navController.navigate("friend")
