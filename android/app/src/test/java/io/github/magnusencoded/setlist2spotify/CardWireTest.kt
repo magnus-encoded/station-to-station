@@ -4,6 +4,7 @@ import io.github.magnusencoded.setlist2spotify.ble.NearbyNameLimitProbe
 import io.github.magnusencoded.setlist2spotify.ble.ProbeCard
 import io.github.magnusencoded.setlist2spotify.ble.SCAN_RESPONSE_NAME_BUDGET
 import io.github.magnusencoded.setlist2spotify.ble.parseProbeCard
+import io.github.magnusencoded.setlist2spotify.ble.sliceForOffset
 import io.github.magnusencoded.setlist2spotify.ble.truncateToBytes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -56,6 +57,39 @@ class CardWireTest {
         // …but only just. A long display name is enough to blow it.
         val chatty = card.copy(name = "Magnus Vikan (Station to Station)")
         assertTrue(chatty.bytes().size > NearbyNameLimitProbe.NEARBY_ENDPOINT_NAME_LIMIT)
+    }
+
+    /**
+     * #30: with the MTU bump skipped, the platform reads a card longer than one ATT
+     * PDU as a rising-offset series of ATT_READ_BLOB requests (20 payload bytes per
+     * read at the default 23-byte MTU) and reassembles them. This is the server side
+     * of that — reject it and a truncated card would look exactly like a success,
+     * which is the bug the old #18 probe had before it handled offset at all.
+     */
+    @Test fun aChunkedReadAtDefaultMtuStillReturnsTheWholeCard() {
+        val payload = card.bytes()
+        assertTrue("test card should need chunking to be a meaningful check", payload.size > 20)
+
+        val chunkSize = 20 // MTU 23 minus the 3-byte ATT_OVERHEAD
+        val reassembled = ByteArray(payload.size)
+        var offset = 0
+        var reads = 0
+        while (offset < payload.size) {
+            // sliceForOffset hands back everything from offset onward — the server's
+            // job is only to answer at the right offset. The radio (simulated here)
+            // is what actually caps one PDU to chunkSize bytes and drives the next
+            // read at the next offset.
+            val onWire = sliceForOffset(payload, offset).copyOfRange(0, chunkSize.coerceAtMost(payload.size - offset))
+            onWire.copyInto(reassembled, offset)
+            offset += onWire.size
+            reads++
+            assertTrue("should not spin forever", reads <= payload.size)
+        }
+        // One extra blob read past the end, as a real client issues once offset
+        // lands exactly on the payload boundary — must come back empty, not throw.
+        assertEquals(0, sliceForOffset(payload, payload.size).size)
+        assertTrue("$reads reads should need more than one round trip at MTU 23", reads > 1)
+        assertEquals(String(payload, Charsets.UTF_8), String(reassembled, Charsets.UTF_8))
     }
 
     @Test fun nameTruncationStaysInsideTheScanResponse() {
