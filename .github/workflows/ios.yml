@@ -54,6 +54,64 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             ${{ steps.creds.outputs.args }}
 
+      - name: Build simulator app
+        working-directory: ios
+        run: |
+          xcodebuild build \
+            -project SetlistToSpotify.xcodeproj \
+            -scheme SetlistToSpotify \
+            -sdk iphonesimulator \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -configuration Debug \
+            -derivedDataPath build-sim \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            ${{ steps.creds.outputs.args }}
+
+      - name: Boot simulator, launch app, and capture screenshot
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          udid="${{ steps.sim.outputs.udid }}"
+          bundle_id="io.github.magnusencoded.setlist2spotify"
+          app="build-sim/Build/Products/Debug-iphonesimulator/SetlistToSpotify.app"
+
+          xcrun simctl boot "$udid" || true
+          xcrun simctl bootstatus "$udid" -b
+          xcrun simctl install "$udid" "$app"
+
+          # `simctl launch` prints "bundle-id: <pid>" — capture the PID so we
+          # can confirm the process is still alive before trusting the screenshot.
+          launch_out=$(xcrun simctl launch "$udid" "$bundle_id")
+          echo "$launch_out"
+          pid="${launch_out##*: }"
+
+          # Give the UI a moment to finish rendering before photographing it.
+          sleep 3
+
+          if ! kill -0 "$pid" 2>/dev/null; then
+            echo "::error::$bundle_id (pid $pid) is not running after launch — it likely crashed on startup"
+            exit 1
+          fi
+
+          mkdir -p screenshots
+          xcrun simctl io "$udid" screenshot screenshots/search-screen.png
+
+          # A blank/mostly-empty screenshot compresses to just a few KB; a real
+          # rendered screen does not. Fail loudly rather than upload a blank pass.
+          min_bytes=10000
+          size=$(stat -f%z screenshots/search-screen.png 2>/dev/null || stat -c%s screenshots/search-screen.png)
+          echo "search-screen.png: $size bytes"
+          if [ "$size" -lt "$min_bytes" ]; then
+            echo "::error::screenshot is only $size bytes (minimum $min_bytes) — looks blank"
+            exit 1
+          fi
+
+      - name: Upload screenshots artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SetlistToSpotify-screenshots
+          path: ios/screenshots/*.png
+
       - name: Build device app (unsigned)
         working-directory: ios
         run: |
