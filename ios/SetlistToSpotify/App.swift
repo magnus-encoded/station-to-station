@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum Route: Hashable { case friends, setlists, confirm, settings }
+enum Route: Hashable { case friends, setlists, confirm, settings, station }
 
 @MainActor
 final class Nav: ObservableObject {
@@ -27,6 +27,7 @@ struct SetlistToSpotifyApp: App {
                         case .setlists: SetlistsView()
                         case .confirm: ConfirmView()
                         case .settings: SettingsView()
+                        case .station: StationView()
                         }
                     }
             }
@@ -39,6 +40,14 @@ struct SetlistToSpotifyApp: App {
             .onOpenURL { url in
                 if url.scheme == "setlist2spotify", url.host == "friend" {
                     model.handleFriendLink(url)
+                }
+                // station-to-station://<line>/<gig> — a Resolution reached without
+                // a gesture, so CI and a URL bar can both get there. Only my own
+                // line ("me") resolves today; a friend's line and the gig segment
+                // are recognised and ignored rather than silently mis-routed.
+                if url.scheme == "station-to-station" {
+                    nav.popToRoot()
+                    if url.host == nil || url.host == "me" { nav.push(.station) }
                 }
             }
         }

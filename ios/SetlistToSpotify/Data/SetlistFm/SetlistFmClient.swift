@@ -54,4 +54,66 @@ final class SetlistFmClient {
         try await decoder.decode(SetlistsResponse.self, from:
             get("user/\(userId)/attended", params: ["p": "\(page)"]))
     }
+
+    /// One setlist, fresh — for when it was just edited on setlist.fm.
+    func setlist(_ setlistId: String) async throws -> FmSetlist {
+        try await decoder.decode(FmSetlist.self, from: get("setlist/\(setlistId)", params: [:]))
+    }
+
+    /// Someone's Attended list, paged back through their history.
+    ///
+    /// setlist.fm returns newest first, so a flat page cap is a *window*, not a
+    /// sample: a friend's first 60 shows can span ten days, and every night we
+    /// actually shared would be older than the last fetched page — the lines
+    /// could never meet however correct the drawing was. `backTo` is normally my
+    /// own oldest gig, since nothing older than that can overlap.
+    ///
+    /// ponytail: `maxPages` is a runaway guard, not a policy.
+    func attendedShows(
+        _ userId: String,
+        backTo: Date? = nil,
+        maxPages: Int = 25
+    ) async throws -> (shows: [FmSetlist], total: Int) {
+        var all: [FmSetlist] = []
+        var total = 0
+        for page in 1...max(1, maxPages) {
+            let resp = try await userAttended(userId, page: page)
+            all += resp.setlist
+            total = resp.total
+            if all.count >= resp.total || resp.setlist.isEmpty { break }
+            if let backTo, let pageOldest = resp.setlist.compactMap({ $0.localDate() }).min(),
+               pageOldest < backTo { break }
+        }
+        return (all, total)
+    }
+
+    /// The Festival a setlist belongs to, e.g. "Øyafestivalen 2025" for a show
+    /// whose venue is only "Tøyenparken".
+    ///
+    /// setlist.fm models festivals as a first-class entity but does not expose
+    /// them in the REST API — the name lives only on the setlist's own web page,
+    /// which links to `/festival/<year>/<slug>.html`. MusicBrainz has festival
+    /// events too and needs no key, but its coverage is patchy, so it can't be
+    /// the primary source.
+    ///
+    /// Returns nil on anything unexpected — the caller falls back to the venue name.
+    func festivalName(setlistURL: String) async -> String? {
+        guard let url = URL(string: setlistURL) else { return nil }
+        var request = URLRequest(url: url)
+        request.setValue("text/html", forHTTPHeaderField: "Accept")
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (200...299).contains((response as? HTTPURLResponse)?.statusCode ?? 0),
+              let html = String(data: data, encoding: .utf8)
+        else { return nil }
+        return parseFestivalName(html)
+    }
+}
+
+/// The "played at a festival" link on a setlist page: title="View &lt;name&gt; details".
+private let festivalLink = try! Regex(#"href="[^"]*?/festival/\d{4}/[^"]+"\s+title="View (.+?) detail"#)
+
+func parseFestivalName(_ html: String) -> String? {
+    guard let m = html.firstMatch(of: festivalLink), let group = m.output[1].substring
+    else { return nil }
+    return String(group).trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
 }

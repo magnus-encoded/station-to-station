@@ -42,6 +42,12 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: io.github.magnusencoded.setlist2spotify
             CFBundleURLSchemes: [setlist2spotify]
+          # Reaching a Resolution without a gesture: station-to-station://<line>/<gig>,
+          # the same scheme Android answers. Pinch cannot be scripted on either
+          # platform, so this is how CI (and a human with a URL bar) gets to the
+          # spine at all. The first segment is whose line — "me" for my own.
+          - CFBundleURLName: io.github.magnusencoded.stationtostation
+            CFBundleURLSchemes: [station-to-station]
 
   SetlistToSpotifyTests:
     type: bundle.unit-test
