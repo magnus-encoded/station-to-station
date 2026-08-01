@@ -79,6 +79,10 @@ data class FmSetlist(
      */
     fun readableDate(): String? =
         localDate()?.format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.ENGLISH)) ?: eventDate
+
+    /** "24 Jun 2026" — the timeline row's date column, same format for every row on it. */
+    fun readableDateShort(): String? =
+        localDate()?.format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH)) ?: eventDate
 }
 
 @Serializable

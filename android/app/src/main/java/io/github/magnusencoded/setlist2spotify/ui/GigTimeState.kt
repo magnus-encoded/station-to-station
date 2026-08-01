@@ -66,6 +66,14 @@ fun plannedStatus(date: LocalDate?, now: LocalDate = LocalDate.now()): String {
 }
 
 /**
+ * Whether the keepsake/media block belongs on a gig's detail screen. Never on a
+ * planned gig nobody has checked into yet — nothing can be pinned to a night that
+ * hasn't happened. A check-in is real attendance even while the gig is still in
+ * `planned`, so it earns the block back on its own, ahead of setlist.fm's data.
+ */
+fun showsMediaBlock(planned: Boolean, checkedIn: Boolean): Boolean = !planned || checkedIn
+
+/**
  * "Venue Name, City" for a maps text query — and the same string the check-in's
  * forward geocoder is given. setlist.fm carries coordinates for the *city* only
  * (`venue.city.coords`), never for the venue, so the venue's own position has to
