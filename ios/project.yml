@@ -21,6 +21,14 @@ targets:
     platform: iOS
     sources:
       - SetlistToSpotify
+      # The shared weave fixtures, bundled as a folder reference (structure
+      # preserved, so the two timelines.json in different cases don't collide).
+      # This is how CI seeds a real Spine: `station-to-station://fixture/<name>`
+      # loads one, since a pinch can't be scripted and there is no live import in
+      # CI. Six tiny JSON docs; harmless to ship in a prototype.
+      - path: ../fixtures/weave
+        type: folder
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.magnusencoded.setlist2spotify

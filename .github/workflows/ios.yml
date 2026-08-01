@@ -67,7 +67,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             ${{ steps.creds.outputs.args }}
 
-      - name: Boot simulator, launch app, and capture screenshot
+      - name: Boot simulator, launch app, and capture the Timeline resolutions
         working-directory: ios
         run: |
           set -euo pipefail
@@ -94,17 +94,30 @@ jobs:
           fi
 
           mkdir -p screenshots
-          xcrun simctl io "$udid" screenshot screenshots/search-screen.png
-
-          # A blank/mostly-empty screenshot compresses to just a few KB; a real
-          # rendered screen does not. Fail loudly rather than upload a blank pass.
           min_bytes=10000
-          size=$(stat -f%z screenshots/search-screen.png 2>/dev/null || stat -c%s screenshots/search-screen.png)
-          echo "search-screen.png: $size bytes"
-          if [ "$size" -lt "$min_bytes" ]; then
-            echo "::error::screenshot is only $size bytes (minimum $min_bytes) — looks blank"
-            exit 1
-          fi
+
+          # A pinch cannot be scripted, so each Resolution is reached by opening a
+          # station-to-station:// deep link that seeds a bundled weave fixture. The
+          # four required views: my Timeline alone, a Festival open, a two-line
+          # Crossing, and the three-line case.
+          capture() {
+            local file="$1" link="$2"
+            xcrun simctl openurl "$udid" "$link"
+            sleep 2
+            xcrun simctl io "$udid" screenshot "screenshots/$file"
+            local size
+            size=$(stat -f%z "screenshots/$file" 2>/dev/null || stat -c%s "screenshots/$file")
+            echo "$file: $size bytes  ($link)"
+            if [ "$size" -lt "$min_bytes" ]; then
+              echo "::error::$file is only $size bytes (minimum $min_bytes) — looks blank"
+              exit 1
+            fi
+          }
+
+          capture my-timeline.png       "station-to-station://fixture/one-line-alone"
+          capture festival-open.png     "station-to-station://fixture/festival-absorbs-cluster/open"
+          capture two-lines-crossing.png "station-to-station://fixture/two-lines-crossing"
+          capture three-lines.png       "station-to-station://fixture/three-lines-tons-of-rock"
 
       - name: Upload screenshots artifact
         uses: actions/upload-artifact@v4

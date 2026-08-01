@@ -56,6 +56,13 @@ struct UiState {
     var sharedWith: Friend?
     // My timeline (the Spine). Facts only — the shape is derived at render time.
     var timelineShows: [FmSetlist] = []
+    /// Friends' attended shows by setlist.fm username, drawn as Lanes when zoomed
+    /// out. Kept apart from `timelineShows` (mine) so ownership is never read off
+    /// the node holding a gig.
+    var showsByFriend: [String: [FmSetlist]] = [:]
+    /// The Timelines resolution: the strip of friends' Lanes opened beside my
+    /// Spine, in place. Not a screen — pinch toggles it.
+    var zoomedOut = false
     var festivalNames: [String: String] = [:]
     var timelineLoading = false
     /// Row keys of the Festivals uncollapsed in place. Not a screen: a Festival
@@ -156,6 +163,42 @@ final class AppModel: ObservableObject {
             // A festival name costs a fetch each; store them so it's paid once.
             await timelines.save(festivalNames: found)
         }
+    }
+
+    /// Pinch out to open the friends' Lanes beside my Spine, pinch in to close
+    /// them. Nothing navigates — the same one Timeline, at a different Resolution.
+    func setZoomedOut(_ v: Bool) { state.zoomedOut = v }
+
+    /// Seeds the Timeline from a bundled weave fixture (`fixtures/weave/<name>`).
+    /// The only way CI and a URL bar can reach a populated Spine without a live
+    /// setlist.fm import and without a pinch — the fixture carries who is mine,
+    /// the Lanes in order, and every show. `open` uncollapses the Festivals so a
+    /// festival-open Resolution can be photographed too.
+    func loadFixture(_ name: String, open: Bool) {
+        guard let base = Bundle.main.url(forResource: "weave", withExtension: nil),
+              let data = try? Data(contentsOf: base.appendingPathComponent("\(name)/timelines.json")),
+              let doc = try? JSONDecoder().decode(FixtureDoc.self, from: data)
+        else {
+            state.error = "Fixture \"\(name)\" not bundled."
+            return
+        }
+        let friends = doc.friends ?? []
+        state.mySetlistFmUser = doc.me
+        state.friends = friends
+        state.timelineShows = doc.shows[doc.me] ?? []
+        state.showsByFriend = doc.shows.filter { $0.key != doc.me }
+        state.festivalNames = doc.festivalNames ?? [:]
+        // A fixture with Lanes is a Timelines-resolution scenario; one without is
+        // My-timeline. Either way the shape is derived, never stored.
+        state.zoomedOut = !friends.isEmpty
+        state.timelineLoading = false
+        let rows = weaveTimelines(
+            mine: state.timelineShows, festivalNames: state.festivalNames,
+            friends: friends, theirs: state.showsByFriend
+        )
+        state.expandedFestivals = open
+            ? Set(rows.filter { $0.node.isFestival }.map(\.key))
+            : []
     }
 
     /// A Festival uncollapses in place — it never pushes a screen.
@@ -546,4 +589,15 @@ final class AppModel: ObservableObject {
             }
         }
     }
+}
+
+/// A weave fixture as stored on disk (`fixtures/weave/<name>/timelines.json`): a
+/// plain TimelineCache plus the two keys the store itself ignores — which line is
+/// mine, and the friends in Lane order (nearest the Spine first). Decoded here to
+/// seed the Timeline for a screenshot.
+private struct FixtureDoc: Decodable {
+    var me: String
+    var friends: [Friend]?
+    var shows: [String: [FmSetlist]]
+    var festivalNames: [String: String]?
 }
