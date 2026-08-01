@@ -205,6 +205,9 @@ fun StationTimelineScreen(
     onOpenSettings: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // Reachable from both the future edge and the empty spine: a collector with no
+    // history at all still has a ticket for something.
+    var adding by remember { mutableStateOf(false) }
 
     Scaffold(
         containerColor = Ground,
@@ -243,11 +246,20 @@ fun StationTimelineScreen(
                 fontSize = 9.sp,
                 modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 4.dp),
             )
+            if (adding) {
+                AddPlannedGigDialog(
+                    onAdd = { link -> viewModel.addPlannedGig(link); adding = false },
+                    onDismiss = { adding = false },
+                )
+            }
             when {
                 state.setlistsLoading && state.setlists.isEmpty() ->
                     CircularProgressIndicator(color = Amber, modifier = Modifier.align(Alignment.Center))
 
-                state.setlists.isEmpty() -> EmptyTimeline(onAdd = onOpenImport)
+                // One gig I'm going to and nothing else is a timeline, not an empty
+                // spine — it is exactly the collector's cold start.
+                state.setlists.isEmpty() && state.plannedGigs.isEmpty() ->
+                    EmptyTimeline(onAdd = onOpenImport, onPlan = { adding = true })
 
                 else -> {
                     val earliest = state.setlists.mapNotNull { it.year()?.toIntOrNull() }.minOrNull()
@@ -396,8 +408,9 @@ fun StationTimelineScreen(
                                 viewModel.openFestival(row.key)
                                 return@LaunchedEffect
                             }
-                            // +1 for the future prompt, which is item 0 of the list.
-                            listState.animateScrollToItem(at + 1)
+                            // The rows don't start at item 0: the future prompt is, and
+                            // every gig I'm going to sits between it and them.
+                            listState.animateScrollToItem(at + 1 + state.plannedGigs.size)
                             viewModel.consumeGigLink()
                         }
 
@@ -427,7 +440,29 @@ fun StationTimelineScreen(
                                 },
                         ) {
                             // The future edge: scroll up toward what's ahead.
-                            item { FuturePrompt() }
+                            item {
+                                FuturePrompt(
+                                    planned = state.plannedGigs.size,
+                                    loading = state.planningLoading,
+                                    onAdd = { adding = true },
+                                )
+                            }
+                            // The gigs I'm going to, above today, furthest out first —
+                            // up is always later, and this is the same descending order
+                            // the attended rows below use. Never grouped into festivals:
+                            // a festival is a shape read off nights that happened.
+                            items(state.plannedGigs, key = { "planned-${it.id}" }) { gig ->
+                                TimelineItem(
+                                    setlist = gig,
+                                    highlight = false,
+                                    planned = true,
+                                    laneWidth = laneWidth,
+                                    onClick = {
+                                        viewModel.openShow(gig)
+                                        onOpenEvent()
+                                    },
+                                )
+                            }
                             itemsIndexed(rows, key = { _, row -> row.key }) { index, row ->
                                 val isFirst = index == 0
                                 val rails: @Composable () -> Unit =
@@ -512,19 +547,81 @@ private fun PlanningPull(progress: () -> Float, heightPx: () -> Float) {
     }
 }
 
-/** Top of the timeline — the future. Bandsintown/planning lives here (not wired yet). */
+/**
+ * Top of the timeline — the future. The line runs on above today, and the gigs I hold
+ * a ticket for hang off it, so this is a way in rather than the dead end it was.
+ */
 @Composable
-private fun FuturePrompt() {
-    Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 2.dp, bottom = 18.dp)) {
+private fun FuturePrompt(planned: Int, loading: Boolean, onAdd: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onAdd)
+            .padding(start = 20.dp, end = 20.dp, top = 2.dp, bottom = 18.dp),
+    ) {
         Text("↑  THE FUTURE", color = Slate, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp)
         Spacer(Modifier.height(4.dp))
-        Text("Connect Bandsintown to see the shows ahead — coming soon.", color = Faint, fontSize = 12.sp)
+        Text(
+            when {
+                loading -> "Looking it up on setlist.fm…"
+                planned > 0 -> "+  another gig you're going to"
+                else -> "+  add a gig you're going to"
+            },
+            color = if (loading) Faint else Slate,
+            fontSize = 12.sp,
+        )
+    }
+}
+
+/**
+ * Where a gig you're going to comes from: the setlist.fm page's link.
+ *
+ * Not a search box and not an artist/venue/date form. setlist.fm's API carries the
+ * gig — real id, real venue, empty set list — but its search index stops about a day
+ * out, so nothing weeks away can be found by artist, venue or date (#29). The id in
+ * the url of the page you were just on is the only handle there is, and typing the
+ * details in by hand would invent a second record for a gig setlist.fm already has.
+ */
+@Composable
+private fun AddPlannedGigDialog(onAdd: (String) -> Unit, onDismiss: () -> Unit) {
+    var text by remember { mutableStateOf("") }
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(Raised)
+                .padding(20.dp),
+        ) {
+            Text("A gig you're going to", fontFamily = Serif, fontSize = 19.sp, color = Ink)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Paste the setlist.fm link for the show. It can't be searched for this " +
+                    "far ahead — the link is the way in.",
+                color = Muted,
+                fontSize = 12.sp,
+            )
+            Spacer(Modifier.height(14.dp))
+            StationField(
+                value = text,
+                onValueChange = { text = it },
+                label = "setlist.fm link",
+                imeDone = true,
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("Cancel", color = Faint) }
+                TextButton(
+                    onClick = { onAdd(text) },
+                    enabled = text.isNotBlank(),
+                ) { Text("Add", color = if (text.isBlank()) Faint else Amber) }
+            }
+        }
     }
 }
 
 /** The empty spine: one lit node you tap to bring in your shows. */
 @Composable
-private fun EmptyTimeline(onAdd: () -> Unit) {
+private fun EmptyTimeline(onAdd: () -> Unit, onPlan: () -> Unit) {
     Column(
         Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -545,6 +642,15 @@ private fun EmptyTimeline(onAdd: () -> Unit) {
         Text("Add your first show", fontFamily = Serif, fontSize = 18.sp, color = Ink)
         Spacer(Modifier.height(4.dp))
         Text("Pull your history from setlist.fm.", color = Muted, fontSize = 13.sp)
+        Spacer(Modifier.height(18.dp))
+        // A line can start above today as easily as below it: someone with no history
+        // yet still has a ticket for something.
+        Text(
+            "↑  or add a gig you're going to",
+            color = Slate,
+            fontSize = 13.sp,
+            modifier = Modifier.clickable(onClick = onPlan).padding(8.dp),
+        )
     }
 }
 
@@ -651,6 +757,12 @@ internal fun TimelineItem(
     inside: Boolean = false,
     nodeX: Dp = SpineX,
     shared: Boolean = false,
+    /**
+     * A night I hold a ticket for, not one I was at. Amber means mine-and-happened,
+     * so a planned node is drawn in the future's colour instead — at every
+     * resolution, since "did I go to this" must never depend on the zoom.
+     */
+    planned: Boolean = false,
     rails: @Composable () -> Unit = {},
     photos: List<Uri> = emptyList(),
     loadPhotoPreview: suspend (Uri) -> MediaThumb = { MediaThumb(null) },
@@ -665,7 +777,9 @@ internal fun TimelineItem(
         Box(Modifier.width(SpineWidth + laneWidth).fillMaxHeight()) {
             rails()
             // Zoomed out the lines are the canvas's job — it has friends' lanes to draw.
-            if (!zoomedOut) {
+            // A planned node is the exception: nobody is woven into a night that hasn't
+            // happened, so there is no canvas above it and the spine would break.
+            if (!zoomedOut || planned) {
                 Box(
                     Modifier.padding(start = SpineX).width(2.dp).fillMaxHeight()
                         .background(Amber.copy(alpha = 0.3f)),
@@ -690,8 +804,10 @@ internal fun TimelineItem(
                         .border(
                             2.dp,
                             // Amber is what "mine" looks like at every resolution; the
-                            // night our lines became one gets a colour of its own.
+                            // night our lines became one gets a colour of its own; and
+                            // a night that hasn't happened has not earned either.
                             when {
+                                planned -> Slate
                                 shared -> Crossed
                                 highlight -> Amber
                                 else -> Amber.copy(alpha = 0.6f)
@@ -731,8 +847,12 @@ internal fun TimelineItem(
             }
             Spacer(Modifier.height(7.dp))
             Text(
-                if (songCount > 0) "$songCount songs" else "setlist not logged",
-                color = Faint,
+                when {
+                    planned -> plannedStatus(setlist.localDate())
+                    songCount > 0 -> "$songCount songs"
+                    else -> "setlist not logged"
+                },
+                color = if (planned) Slate else Faint,
                 fontSize = 12.sp,
             )
         }
@@ -1272,6 +1392,9 @@ fun StationEventScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val setlist = state.selectedSetlist
     val context = LocalContext.current
+    // A night I'm going to, not one I was at. Everything this screen says about a
+    // setlist has to change: there is no setlist to be missing yet.
+    val planned = setlist != null && state.plannedGigs.any { it.id == setlist.id }
     // What this night already became. Every one of them: each url may be in
     // somebody's hands, so none of them stops being reachable from here.
     val made = setlist?.let { state.playlistsBySetlist[it.id] }.orEmpty()
@@ -1311,7 +1434,33 @@ fun StationEventScreen(
             )
         },
         bottomBar = {
-            if (setlist != null && setlist.performed().isEmpty() && setlist.url != null) {
+            if (planned && setlist != null) {
+                // The only two things you can do with a night that hasn't happened:
+                // look it up where it lives, or decide you're not going.
+                Column(
+                    Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    setlist.url?.let { url ->
+                        Text(
+                            "‹ swipe to open this show on setlist.fm",
+                            color = Slate,
+                            fontSize = 13.sp,
+                            modifier = Modifier
+                                .clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                                .padding(vertical = 6.dp),
+                        )
+                    }
+                    Text(
+                        "I'm not going",
+                        color = Danger,
+                        fontSize = 13.sp,
+                        modifier = Modifier
+                            .clickable { viewModel.removePlannedGig(setlist.id); onBack() }
+                            .padding(vertical = 6.dp),
+                    )
+                }
+            } else if (setlist != null && setlist.performed().isEmpty() && setlist.url != null) {
                 // The Historian's crumb: nothing to convert here, but a nudge toward
                 // fixing the gap at the source is better than nothing.
                 Column(
@@ -1455,7 +1604,11 @@ fun StationEventScreen(
                         )
                         Spacer(Modifier.height(11.dp))
                         Row {
-                            EventTag("${setlist.performed().size} songs")
+                            if (planned) {
+                                EventTag(plannedStatus(setlist.localDate()), color = Slate)
+                            } else {
+                                EventTag("${setlist.performed().size} songs")
+                            }
                             setlist.tour?.name?.let {
                                 Spacer(Modifier.width(6.dp))
                                 EventTag(it)
@@ -1468,7 +1621,8 @@ fun StationEventScreen(
                                 )
                             }
                             Spacer(Modifier.width(6.dp))
-                            EventTag("self-logged", color = Faint)
+                            // "self-logged" is a claim about a night that happened.
+                            EventTag(if (planned) "planned" else "self-logged", color = if (planned) Slate else Faint)
                         }
                         Spacer(Modifier.height(12.dp))
                         GigPhotos(
@@ -1500,7 +1654,11 @@ fun StationEventScreen(
                 if (rows.isEmpty()) {
                     item {
                         Text(
-                            "This show has no setlist on setlist.fm yet.",
+                            // A night that hasn't happened has no setlist missing from
+                            // it — nothing has been played yet, and saying "not logged"
+                            // would blame setlist.fm for a gap that isn't one.
+                            if (planned) "This show hasn't happened yet."
+                            else "This show has no setlist on setlist.fm yet.",
                             color = Muted,
                             fontSize = 14.sp,
                             modifier = Modifier.padding(20.dp),

@@ -117,6 +117,17 @@ data class TimelineCache(
      * is the id to use here too; this store doesn't mint or resolve ids itself.
      */
     val attendanceByGig: Map<String, StoredAttendance> = emptyMap(),
+    /**
+     * The gigs I hold a ticket for — the facts of a night that hasn't happened,
+     * kept apart from [shows] on purpose. [shows] is what setlist.fm says a user
+     * attended and is replaced wholesale per username on every import, so a planned
+     * gig parked in there would be wiped by the next refresh; and it isn't attended,
+     * so it must not be counted among the nights that were.
+     *
+     * My relationship to it still lives in [attendanceByGig] under the same id, with
+     * provenance `planned` — this list is the record, that map is the claim.
+     */
+    val plannedShows: List<FmSetlist> = emptyList(),
 )
 
 /** [file] rather than a Context only so the merge can be tested on the JVM. */
@@ -182,6 +193,41 @@ class TimelineStore(private val file: File) {
      */
     suspend fun saveAttendance(gigId: String, attendance: StoredAttendance): Unit = writeMerged {
         it.copy(attendanceByGig = it.attendanceByGig + (gigId to attendance))
+    }
+
+    /**
+     * Adds a gig I'm going to, with the attendance claim that goes with it. One
+     * write, because the record and the claim are useless apart: a planned gig
+     * whose provenance didn't land would read as attended on the next launch.
+     * Re-adding the same gig replaces its record rather than duplicating it.
+     */
+    suspend fun savePlanned(setlist: FmSetlist): Unit = writeMerged {
+        it.copy(
+            plannedShows = it.plannedShows.filterNot { s -> s.id == setlist.id } + setlist,
+            // Never downgrades: re-storing the record when the night's setlist finally
+            // lands must not throw away a check-in that happened in between.
+            attendanceByGig = it.attendanceByGig + (
+                setlist.id to (
+                    it.attendanceByGig[setlist.id]
+                        ?: StoredAttendance(provenance = StoredAttendance.Provenance.PLANNED)
+                    )
+                ),
+        )
+    }
+
+    /**
+     * Forgets a gig I'm no longer going to. Drops the attendance claim with it —
+     * but only when it is still `planned`: a gig that has since been checked into
+     * or attended is a night that happened, and removing it from the plans must
+     * not quietly erase the evidence that I was there.
+     */
+    suspend fun removePlanned(gigId: String): Unit = writeMerged {
+        val stillPlanned =
+            it.attendanceByGig[gigId]?.provenance == StoredAttendance.Provenance.PLANNED
+        it.copy(
+            plannedShows = it.plannedShows.filterNot { s -> s.id == gigId },
+            attendanceByGig = if (stillPlanned) it.attendanceByGig - gigId else it.attendanceByGig,
+        )
     }
 
     /**

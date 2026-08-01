@@ -3,6 +3,7 @@ package io.github.magnusencoded.setlist2spotify
 import io.github.magnusencoded.setlist2spotify.ui.GigTimeState
 import io.github.magnusencoded.setlist2spotify.ui.formatCountdown
 import io.github.magnusencoded.setlist2spotify.ui.gigTimeState
+import io.github.magnusencoded.setlist2spotify.ui.plannedStatus
 import io.github.magnusencoded.setlist2spotify.ui.venueMapsQuery
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -60,6 +61,27 @@ class GigTimeStateTest {
     fun `countdown refuses day-of and past, that's a different state's job`() {
         assertThrows(IllegalArgumentException::class.java) { formatCountdown(0L) }
         assertThrows(IllegalArgumentException::class.java) { formatCountdown(-1L) }
+    }
+
+    @Test
+    fun `a planned node says how far off the night is`() {
+        assertEquals("you're going", plannedStatus(today.plusMonths(2), today))
+        assertEquals("in 6 days", plannedStatus(today.plusDays(6), today))
+        assertEquals("in 1 day", plannedStatus(today.plusDays(1), today))
+        assertEquals("tonight", plannedStatus(today, today))
+    }
+
+    @Test
+    fun `a planned gig whose night has passed never claims to be tonight`() {
+        // gigTimeState has no PAST — it answers DAY_OF for today and every day after,
+        // so this is the guard that keeps a 2008 gig from announcing itself.
+        assertEquals("no setlist yet", plannedStatus(today.minusDays(1), today))
+        assertEquals("no setlist yet", plannedStatus(today.minusYears(18), today))
+    }
+
+    @Test
+    fun `a gig with an unparseable date still says something true`() {
+        assertEquals("you're going", plannedStatus(null, today))
     }
 
     @Test
