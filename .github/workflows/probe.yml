@@ -1,0 +1,63 @@
+name: API probe (temporary)
+
+# Temporary instrument for #29/#31: does the setlist.fm API return future-dated
+# setlists? Deleted once the answer is on the issue.
+on:
+  push:
+    paths: [ ".github/workflows/probe.yml" ]
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe setlist.fm
+        env:
+          KEY: ${{ secrets.SETLISTFM_API_KEY }}
+        run: |
+          set -x
+          fm() {
+            curl -sS -w "\nHTTP %{http_code}\n" -G "https://api.setlist.fm/rest/1.0/$1" \
+              -H "x-api-key: $KEY" -H "Accept: application/json" "${@:2}"
+          }
+          echo "### 1. direct fetch of the known future setlist id"
+          fm setlist/53414fd1 | head -c 3000
+          echo
+          echo "### 2. search/setlists by artist + exact future date"
+          fm search/setlists --data-urlencode "artistName=Nick Cave and the Bad Seeds" \
+            --data-urlencode "date=13-08-2026" | head -c 3000
+          echo
+          echo "### 3. search/setlists by artist + year 2026, first page"
+          fm search/setlists --data-urlencode "artistName=Nick Cave and the Bad Seeds" \
+            --data-urlencode "year=2026" | python3 -c "
+          import sys,json
+          raw=sys.stdin.read()
+          try: d=json.loads(raw.split('HTTP')[0])
+          except Exception: print(raw[:2000]); raise SystemExit
+          print('total', d.get('total'))
+          for s in d.get('setlist',[]):
+              print(s['id'], s.get('eventDate'), len(s.get('sets',{}).get('set',[])), (s.get('venue') or {}).get('name'))
+          "
+          echo "### 4. search/setlists by venue city + future year (Oslo 2026)"
+          fm search/setlists --data-urlencode "cityName=Oslo" --data-urlencode "year=2026" | python3 -c "
+          import sys,json
+          raw=sys.stdin.read()
+          try: d=json.loads(raw.split('HTTP')[0])
+          except Exception: print(raw[:2000]); raise SystemExit
+          print('total', d.get('total'))
+          for s in d.get('setlist',[])[:15]:
+              print(s['id'], s.get('eventDate'), (s.get('artist') or {}).get('name'))
+          "
+          echo "### 5. artist setlists endpoint (Nick Cave mbid), first page dates"
+          fm search/artists --data-urlencode "artistName=Nick Cave and the Bad Seeds" \
+            --data-urlencode "sort=relevance" | head -c 800
+          echo
+          fm artist/172e1f1a-504d-4488-b053-6344c63d3ddb/setlists | python3 -c "
+          import sys,json
+          raw=sys.stdin.read()
+          try: d=json.loads(raw.split('HTTP')[0])
+          except Exception: print(raw[:2000]); raise SystemExit
+          print('total', d.get('total'))
+          for s in d.get('setlist',[])[:15]:
+              print(s['id'], s.get('eventDate'), len(s.get('sets',{}).get('set',[])))
+          "
