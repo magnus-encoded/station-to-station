@@ -36,6 +36,36 @@ struct StoredPlaylist: Codable, Equatable {
     }
 }
 
+/// My relationship to one gig: how sure the app is I was there, and — for a live
+/// check-in — when. Android-only so far (#29); carried so a save from here does
+/// not erase it.
+///
+/// `provenance` is a plain string, not an enum, for the same reason it is one in
+/// Kotlin: an unknown value written by a newer build should cost this one gig at
+/// worst, never the whole cache.
+struct StoredAttendance: Codable, Equatable {
+    var provenance: String = "planned"
+    var checkedInAt: Int64?
+    var venueLat: Double?
+    var venueLon: Double?
+
+    init(provenance: String = "planned", checkedInAt: Int64? = nil,
+         venueLat: Double? = nil, venueLon: Double? = nil) {
+        self.provenance = provenance
+        self.checkedInAt = checkedInAt
+        self.venueLat = venueLat
+        self.venueLon = venueLon
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        provenance = (try? c.decodeIfPresent(String.self, forKey: .provenance)) ?? nil ?? "planned"
+        checkedInAt = (try? c.decodeIfPresent(Int64.self, forKey: .checkedInAt)) ?? nil
+        venueLat = (try? c.decodeIfPresent(Double.self, forKey: .venueLat)) ?? nil
+        venueLon = (try? c.decodeIfPresent(Double.self, forKey: .venueLon)) ?? nil
+    }
+}
+
 /// The file's whole contents. Fields iOS does not use yet are still carried
 /// through a save: dropping Android's photos or song offsets on the first write
 /// from this side would be data loss, not scope.
@@ -57,6 +87,9 @@ struct TimelineCache: Codable {
     var photosBySetlist: [String: [String]] = [:]
     /// Song start times inside a night's recording. Android-only feature; carried.
     var songOffsetsBySetlist: [String: [Int64]] = [:]
+    /// How I came to be marked as at a gig, by setlist id. Android-only (#29);
+    /// carried.
+    var attendanceByGig: [String: StoredAttendance] = [:]
 
     init() {}
 
@@ -71,6 +104,7 @@ struct TimelineCache: Codable {
         attendedTotals = map(.attendedTotals, Int.self)
         photosBySetlist = map(.photosBySetlist, [String].self)
         songOffsetsBySetlist = map(.songOffsetsBySetlist, [Int64].self)
+        attendanceByGig = map(.attendanceByGig, StoredAttendance.self)
     }
 }
 

@@ -198,13 +198,20 @@ final class TimelineStoreTests: XCTestCase {
     func testAWriteFromHereKeepsTheFieldsOnlyAndroidUses() async {
         let file = tempFile(contents: """
         {"shows":{},"festivalNames":{},"playlistsMade":{},"attendedTotals":{},\
-        "photosBySetlist":{"a1":["content://x/1"]},"songOffsetsBySetlist":{"a1":[0,5000]}}
+        "photosBySetlist":{"a1":["content://x/1"]},"songOffsetsBySetlist":{"a1":[0,5000]},\
+        "attendanceByGig":{"a1":{"provenance":"checked_in","checkedInAt":1750000000000,\
+        "venueLat":59.9,"venueLon":10.7}}}
         """)
         let s = TimelineStore(file: file)
         await s.save(shows: ["dizzi90": [show("b1")]])
         let loaded = await s.load()
         XCTAssertEqual(["content://x/1"], loaded.photosBySetlist["a1"])
         XCTAssertEqual([0, 5000], loaded.songOffsetsBySetlist["a1"])
+        // #29's check-in is the newest Android-only field, and the one a Reliver
+        // would most notice losing: it is evidence they were there.
+        XCTAssertEqual("checked_in", loaded.attendanceByGig["a1"]?.provenance)
+        XCTAssertEqual(1_750_000_000_000, loaded.attendanceByGig["a1"]?.checkedInAt)
+        XCTAssertEqual(59.9, loaded.attendanceByGig["a1"]?.venueLat)
         XCTAssertEqual(["b1"], loaded.shows["dizzi90"]?.map(\.id))
     }
 
@@ -216,8 +223,8 @@ final class TimelineStoreTests: XCTestCase {
         await TimelineStore(file: file).save(shows: ["dizzi90": [show("a")]])
         let json = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
         XCTAssertEqual(
-            ["attendedTotals", "festivalNames", "photosBySetlist", "playlistsMade",
-             "shows", "songOffsetsBySetlist"],
+            ["attendanceByGig", "attendedTotals", "festivalNames", "photosBySetlist",
+             "playlistsMade", "shows", "songOffsetsBySetlist"],
             json?.keys.sorted()
         )
     }
