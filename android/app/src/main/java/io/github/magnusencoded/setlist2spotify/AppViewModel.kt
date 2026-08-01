@@ -651,9 +651,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(connectingWith = peer.name) }
         exchange.connect(peer) { friend ->
             if (friend == null) {
-                _state.update {
-                    it.copy(connectingWith = null, error = "Couldn't reach ${peer.name}. Try again, or use a code.")
-                }
+                // Back to the live list — the radios never stopped, and the QR offer is
+                // already on screen. A dangling snackbar (this screen has no host) would
+                // only resurface on the next one.
+                _state.update { it.copy(connectingWith = null) }
                 return@connect
             }
             viewModelScope.launch {
