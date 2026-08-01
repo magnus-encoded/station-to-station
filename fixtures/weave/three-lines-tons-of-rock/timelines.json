@@ -1,0 +1,58 @@
+{
+  "me": "dizzi90",
+  "friends": [
+    { "setlistfm": "Trummispojken", "name": "Trummispojken" },
+    { "setlistfm": "Egil", "name": "Egil" }
+  ],
+  "shows": {
+    "dizzi90": [
+      {
+        "id": "m0",
+        "eventDate": "15-08-2026",
+        "artist": { "name": "Ghost" },
+        "venue": { "name": "Sentrum Scene" }
+      },
+      {
+        "id": "w1",
+        "eventDate": "25-06-2026",
+        "artist": { "name": "The Warning" },
+        "venue": { "name": "Ekebergsletta" }
+      },
+      {
+        "id": "a2",
+        "eventDate": "24-06-2026",
+        "artist": { "name": "Gojira" },
+        "venue": { "name": "Ekebergsletta" }
+      }
+    ],
+    "Trummispojken": [
+      {
+        "id": "b2",
+        "eventDate": "26-06-2026",
+        "artist": { "name": "Slayer" },
+        "venue": { "name": "Ekebergsletta" }
+      },
+      {
+        "id": "w1",
+        "eventDate": "25-06-2026",
+        "artist": { "name": "The Warning" },
+        "venue": { "name": "Ekebergsletta" }
+      },
+      {
+        "id": "t0",
+        "eventDate": "02-05-2026",
+        "artist": { "name": "Kvelertak" },
+        "venue": { "name": "Blå" }
+      }
+    ],
+    "Egil": [
+      {
+        "id": "w1",
+        "eventDate": "25-06-2026",
+        "artist": { "name": "The Warning" },
+        "venue": { "name": "Ekebergsletta" }
+      }
+    ]
+  },
+  "festivalNames": { "w1": "Tons of Rock 2026" }
+}

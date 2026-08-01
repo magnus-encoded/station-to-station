@@ -1,0 +1,41 @@
+{
+  "me": "dizzi90",
+  "friends": [{ "setlistfm": "Egil", "name": "Egil" }],
+  "shows": {
+    "dizzi90": [
+      {
+        "id": "m1",
+        "eventDate": "14-03-2026",
+        "artist": { "name": "Ghost" },
+        "venue": { "name": "Sentrum Scene" }
+      },
+      {
+        "id": "m2",
+        "eventDate": "21-11-2025",
+        "artist": { "name": "Sløtface" },
+        "venue": { "name": "Blå" }
+      },
+      {
+        "id": "m3",
+        "eventDate": "12-06-2025",
+        "artist": { "name": "Kvelertak" },
+        "venue": { "name": "Rockefeller" }
+      }
+    ],
+    "Egil": [
+      {
+        "id": "m2",
+        "eventDate": "21-11-2025",
+        "artist": { "name": "Sløtface" },
+        "venue": { "name": "Blå" }
+      },
+      {
+        "id": "e1",
+        "eventDate": "09-08-2025",
+        "artist": { "name": "Turnstile" },
+        "venue": { "name": "Parkteatret" }
+      }
+    ]
+  },
+  "festivalNames": {}
+}

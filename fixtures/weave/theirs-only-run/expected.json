@@ -1,0 +1,16 @@
+{
+  "rows": [
+    {
+      "key": "f-d1", "date": "2026-05-16", "node": "festival", "title": "Stora Scenen",
+      "ownership": "theirs",
+      "with": ["Trummispojken"], "together": 0, "theirs": 2,
+      "hosts": { "Trummispojken": "lane1" }
+    },
+    {
+      "key": "c-c1-0", "date": "2025-06-12", "node": "gig", "title": "Fontaines D.C.",
+      "ownership": "theirs",
+      "with": ["Trummispojken"], "theirs": 1,
+      "hosts": { "Trummispojken": "lane1" }
+    }
+  ]
+}

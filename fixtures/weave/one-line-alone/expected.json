@@ -1,0 +1,7 @@
+{
+  "rows": [
+    { "key": "c-s1-0", "date": "2025-11-21", "node": "gig", "title": "Sløtface", "ownership": "mine" },
+    { "key": "c-s2-0", "date": "2025-06-12", "node": "gig", "title": "Kvelertak", "ownership": "mine" },
+    { "key": "c-s3-0", "date": "2025-02-03", "node": "gig", "title": "Motorpsycho", "ownership": "mine" }
+  ]
+}

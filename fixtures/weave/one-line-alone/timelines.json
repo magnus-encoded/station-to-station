@@ -1,0 +1,27 @@
+{
+  "me": "dizzi90",
+  "friends": [],
+  "shows": {
+    "dizzi90": [
+      {
+        "id": "s1",
+        "eventDate": "21-11-2025",
+        "artist": { "name": "Sløtface" },
+        "venue": { "name": "Blå" }
+      },
+      {
+        "id": "s2",
+        "eventDate": "12-06-2025",
+        "artist": { "name": "Kvelertak" },
+        "venue": { "name": "Rockefeller" }
+      },
+      {
+        "id": "s3",
+        "eventDate": "03-02-2025",
+        "artist": { "name": "Motorpsycho" },
+        "venue": { "name": "Blå" }
+      }
+    ]
+  },
+  "festivalNames": {}
+}
