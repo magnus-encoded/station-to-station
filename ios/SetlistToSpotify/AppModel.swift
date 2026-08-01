@@ -85,6 +85,9 @@ final class AppModel: ObservableObject {
 
     private var matchTask: Task<Void, Never>?
 
+    /// A fixture was seeded at launch (CI): the stored Spine must not overwrite it.
+    private var seeded = false
+
     init() {
         state.setlistFmApiKey = settings.setlistFmApiKey ?? ""
         // Effective value, so Settings shows the bundled ID and lets it be
@@ -98,6 +101,14 @@ final class AppModel: ObservableObject {
         state.grantedScope = settings.grantedScope
         state.mySetlistFmUser = settings.mySetlistFmUser ?? ""
         state.friends = settings.friends
+
+        // CI (and a URL bar) seed a Resolution here: `-seedFixture <name>` on the
+        // launch line. UserDefaults maps `-key value` argv automatically, so no
+        // `simctl openurl` — which pops a system "Open in app?" prompt that blocks
+        // the URL from ever reaching us — is needed.
+        if let fixture = UserDefaults.standard.string(forKey: "seedFixture")?.nilIfBlank {
+            loadFixture(fixture, open: UserDefaults.standard.bool(forKey: "seedOpen"))
+        }
     }
 
     func consumeError() { state.error = nil }
@@ -108,6 +119,9 @@ final class AppModel: ObservableObject {
     /// The last spine we drew, straight off disk. Called at launch so the
     /// timeline is there before any network is.
     func loadTimeline() {
+        // A launch-seeded fixture is the Spine for this run; don't let the (empty
+        // in CI) stored cache clobber it when the view appears.
+        if seeded { return }
         Task {
             let cache = await timelines.load()
             let me = state.mySetlistFmUser.trimmingCharacters(in: .whitespaces)
@@ -182,6 +196,7 @@ final class AppModel: ObservableObject {
             state.error = "Fixture \"\(name)\" not bundled."
             return
         }
+        seeded = true
         let friends = doc.friends ?? []
         state.mySetlistFmUser = doc.me
         state.friends = friends
