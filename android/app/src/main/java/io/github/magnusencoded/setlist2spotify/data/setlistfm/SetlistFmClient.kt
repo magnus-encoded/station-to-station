@@ -94,3 +94,27 @@ private val FESTIVAL_LINK = Regex("""href="[^"]*?/festival/\d{4}/[^"]+"\s+title=
 
 internal fun parseFestivalName(html: String): String? =
     FESTIVAL_LINK.find(html)?.groupValues?.get(1)?.trim()?.takeUnless { it.isEmpty() }
+
+/**
+ * The id at the end of a setlist page's url. Only `/setlist/` and `/upcoming/` count:
+ * an artist page (`/setlists/…-23d6a877.html`) and a venue page (`/venue/…-63d41af7.html`)
+ * end in exactly the same shape, and taking their id would fetch a gig that isn't the
+ * one in front of the user — a wrong show is worse than "that link isn't a gig".
+ */
+private val SETLIST_ID_IN_URL =
+    Regex("""setlist\.fm/(?:setlist|upcoming)/\S*?-([0-9a-f]{5,10})\.html""")
+
+private val BARE_ID = Regex("""[0-9a-f]{5,10}""")
+
+/**
+ * A gig id from whatever the user pasted — the setlist.fm page url, or the bare id.
+ *
+ * This is how a gig that hasn't happened gets into the app: the API's search index
+ * stops about a day out, so a show weeks away is only reachable by id, and the id is
+ * in the url of the page the user was just on. Null if there is no id in there.
+ */
+fun parseSetlistId(input: String): String? {
+    val s = input.trim()
+    SETLIST_ID_IN_URL.find(s)?.let { return it.groupValues[1] }
+    return s.takeIf { BARE_ID.matches(it) }
+}

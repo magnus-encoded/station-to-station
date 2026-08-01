@@ -227,6 +227,90 @@ class TimelineStoreTest {
     }
 
     @Test
+    fun `a gig I'm going to round-trips with provenance planned`() = runBlocking {
+        val store = store()
+        store.savePlanned(show("oya"))
+        val cached = store.load()
+        assertEquals(listOf("oya"), cached.plannedShows.map { it.id })
+        assertEquals(StoredAttendance.Provenance.PLANNED, cached.attendanceByGig["oya"]?.provenance)
+    }
+
+    @Test
+    fun `adding the same gig twice keeps one record`() = runBlocking {
+        val store = store()
+        store.savePlanned(show("oya"))
+        store.savePlanned(show("oya"))
+        assertEquals(1, store.load().plannedShows.size)
+    }
+
+    @Test
+    fun `deciding not to go drops both the record and the claim`() = runBlocking {
+        val store = store()
+        store.savePlanned(show("oya"))
+        store.removePlanned("oya")
+        val cached = store.load()
+        assertTrue(cached.plannedShows.isEmpty())
+        assertTrue(cached.attendanceByGig.isEmpty())
+    }
+
+    @Test
+    fun `removing a gig I checked into leaves the evidence that I was there`() = runBlocking {
+        val store = store()
+        store.savePlanned(show("oya"))
+        store.saveAttendance(
+            "oya",
+            StoredAttendance(provenance = StoredAttendance.Provenance.CHECKED_IN, checkedInAt = 99L),
+        )
+        store.removePlanned("oya")
+        val cached = store.load()
+        assertTrue(cached.plannedShows.isEmpty())
+        assertEquals(StoredAttendance.Provenance.CHECKED_IN, cached.attendanceByGig["oya"]?.provenance)
+    }
+
+    @Test
+    fun `re-storing a planned gig when its setlist lands never downgrades the claim`() = runBlocking {
+        val store = store()
+        store.savePlanned(show("oya"))
+        store.saveAttendance(
+            "oya",
+            StoredAttendance(provenance = StoredAttendance.Provenance.CHECKED_IN, checkedInAt = 99L),
+        )
+        // refreshSelectedSetlist writes the filled-in record back.
+        store.savePlanned(show("oya"))
+        assertEquals(StoredAttendance.Provenance.CHECKED_IN, store.load().attendanceByGig["oya"]?.provenance)
+    }
+
+    @Test
+    fun `a planned gig coexists with a full timeline and disturbs none of it`() = runBlocking {
+        val store = store()
+        store.save(shows = mapOf("magnus" to listOf(show("a"), show("b"))))
+        store.save(playlists = mapOf("a" to playlist("p1")))
+        store.savePhotos("a", listOf("content://photo1"))
+        store.saveSongOffsets("a", listOf(0L, 200_000L))
+        store.savePlanned(show("oya"))
+
+        val cached = store.load()
+        assertEquals(listOf("a", "b"), cached.shows["magnus"]?.map { it.id })
+        assertEquals(1, cached.playlistsMade["a"]?.size)
+        assertEquals(listOf("content://photo1"), cached.photosBySetlist["a"])
+        assertEquals(listOf(0L, 200_000L), cached.songOffsetsBySetlist["a"])
+        assertEquals(listOf("oya"), cached.plannedShows.map { it.id })
+        // The gig I'm going to is not among the nights I was at.
+        assertTrue(cached.shows["magnus"].orEmpty().none { it.id == "oya" })
+    }
+
+    @Test
+    fun `an older cache with no planned field still loads its timelines`() = runBlocking {
+        val file = File.createTempFile("timelines", ".json")
+        file.writeText(
+            """{"shows":{"magnus":[{"id":"a","eventDate":"25-06-2026"}]},"festivalNames":{}}"""
+        )
+        val cached = TimelineStore(file).load()
+        assertEquals(listOf("a"), cached.shows["magnus"]?.map { it.id })
+        assertTrue(cached.plannedShows.isEmpty())
+    }
+
+    @Test
     fun `an older cache with no attendance field still loads its timelines`() = runBlocking {
         val file = File.createTempFile("timelines", ".json")
         file.writeText(

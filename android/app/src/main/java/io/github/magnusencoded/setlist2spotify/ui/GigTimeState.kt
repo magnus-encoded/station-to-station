@@ -46,6 +46,26 @@ fun formatCountdown(daysUntil: Long): String {
 }
 
 /**
+ * What a node for a gig you're going to says under the venue — how far off it is.
+ *
+ * Guards the past itself rather than leaning on [gigTimeState], which has no PAST
+ * state: it answers [GigTimeState.DAY_OF] for today *and every day after*, so a gig
+ * whose night has been and gone would go on announcing itself as tonight. Once the
+ * date is behind us the only honest thing left to say is that setlist.fm hasn't
+ * filled the night in yet.
+ */
+fun plannedStatus(date: LocalDate?, now: LocalDate = LocalDate.now()): String {
+    if (date == null) return "you're going"
+    val daysUntil = ChronoUnit.DAYS.between(now, date)
+    if (daysUntil < 0) return "no setlist yet"
+    return when (gigTimeState(now, date)) {
+        GigTimeState.FUTURE -> "you're going"
+        GigTimeState.APPROACHING -> "in ${formatCountdown(daysUntil)}"
+        GigTimeState.DAY_OF -> "tonight"
+    }
+}
+
+/**
  * "Venue Name, City" for a maps text query. setlist.fm carries no coordinates —
  * not even city-level — so this is the whole query; the OS geocodes it.
  * Null if there's nothing worth searching for.

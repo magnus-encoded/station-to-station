@@ -23,6 +23,7 @@ import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmArtist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSong
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.SetlistFmClient
+import io.github.magnusencoded.setlist2spotify.data.setlistfm.parseSetlistId
 import io.github.magnusencoded.setlist2spotify.data.spotify.SpotifyClient
 import io.github.magnusencoded.setlist2spotify.data.spotify.SpotifyTrack
 import io.github.magnusencoded.setlist2spotify.data.spotify.rankCandidates
@@ -168,6 +169,14 @@ data class UiState(
     /** Every lane's shows, keyed by setlist.fm username. Feeds the zoomed-out weave. */
     val showsByFriend: Map<String, List<FmSetlist>> = emptyMap(),
     val timelinesLoading: Boolean = false,
+    /**
+     * The gigs I'm going to: nights that haven't happened, above today on the line.
+     * Kept out of [setlists] deliberately — that list is what I attended, it drives
+     * "13 shows" and the festival clustering, and neither is true of a ticket.
+     */
+    val plannedGigs: List<FmSetlist> = emptyList(),
+    /** A planned gig is being fetched from setlist.fm. */
+    val planningLoading: Boolean = false,
     /** Festival name by the first show id of its cluster; see resolveFestivalNames(). */
     val festivalNames: Map<String, String> = emptyMap(),
     /** Set by a card swap so the timeline opens with the other lines already showing. */
@@ -290,7 +299,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      */
     private suspend fun restoreTimelines() {
         val cached = timelines.load()
-        if (cached.shows.isEmpty() && cached.festivalNames.isEmpty() && cached.playlistsMade.isEmpty()) return
+        // plannedShows counts: a collector with no history but one ticket is a real
+        // cold start, and without it here that launch restored nothing at all.
+        if (cached.shows.isEmpty() && cached.festivalNames.isEmpty() &&
+            cached.playlistsMade.isEmpty() && cached.plannedShows.isEmpty()
+        ) {
+            return
+        }
         val me = _state.value.mySetlistFmUser
         val mine = cached.shows[me].orEmpty()
         _state.update {
@@ -300,6 +315,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 photosBySetlist = it.photosBySetlist +
                     cached.photosBySetlist.mapValues { (_, uris) -> uris.map(Uri::parse) },
                 songOffsetsBySetlist = it.songOffsetsBySetlist + cached.songOffsetsBySetlist,
+                plannedGigs = sortedPlanned(cached.plannedShows),
                 // Every lane but mine: the weave reads friends from here.
                 showsByFriend = cached.shows - me,
                 // Only adopt a cached spine if nothing has already loaded into it.
@@ -815,13 +831,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val fresh = setlistFm.setlist(open.id)
                 val setlists = _state.value.setlists.map { if (it.id == fresh.id) fresh else it }
+                // A gig I'm going to lives in its own list, so refreshing one has to
+                // write back there — otherwise the night's setlist appears on screen
+                // and is gone again on the next launch. Provenance is untouched:
+                // songs landing is setlist.fm filling a record in, not evidence I went.
+                val wasPlanned = _state.value.plannedGigs.any { it.id == fresh.id }
                 _state.update {
                     it.copy(
                         setlists = setlists,
+                        plannedGigs = if (wasPlanned) {
+                            it.plannedGigs.map { g -> if (g.id == fresh.id) fresh else g }
+                        } else {
+                            it.plannedGigs
+                        },
                         selectedSetlist = fresh,
                         setlistsLoading = false,
                     )
                 }
+                if (wasPlanned) timelines.savePlanned(fresh)
                 val user = _state.value.userQuery.trim()
                 if (user.isNotEmpty()) timelines.save(shows = mapOf(user to setlists))
             } catch (e: Exception) {
@@ -876,6 +903,55 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     /** Opens a show for viewing (its real setlist) without the Spotify match/cover
      *  machinery — that only starts when the user converts it to a playlist. */
     fun openShow(setlist: FmSetlist) = _state.update { it.copy(selectedSetlist = setlist) }
+
+    // --- Gigs I'm going to ---
+
+    /**
+     * Furthest-future first, which is the same order the attended rows below already
+     * use: up is always later, and a planned gig is not an exception to that.
+     */
+    private fun sortedPlanned(gigs: List<FmSetlist>): List<FmSetlist> =
+        gigs.sortedByDescending { it.localDate() }
+
+    /**
+     * Adds a gig I'm going to, from whatever was pasted off setlist.fm — the page
+     * url or the bare id.
+     *
+     * Fetched by id, never searched. setlist.fm's search index stops about a day
+     * out (see #29), so a show weeks away cannot be found by artist, venue or date;
+     * it can only be asked for by the id sitting in the url of the page the user
+     * was on when they pressed "I'll be there".
+     */
+    fun addPlannedGig(linkOrId: String) {
+        val id = parseSetlistId(linkOrId)
+        if (id == null) {
+            _state.update { it.copy(error = "That doesn't look like a setlist.fm gig link.") }
+            return
+        }
+        if (_state.value.plannedGigs.any { it.id == id }) return
+        _state.update { it.copy(planningLoading = true) }
+        viewModelScope.launch {
+            try {
+                val gig = setlistFm.setlist(id)
+                _state.update {
+                    it.copy(
+                        plannedGigs = sortedPlanned(it.plannedGigs.filterNot { g -> g.id == gig.id } + gig),
+                        planningLoading = false,
+                    )
+                }
+                timelines.savePlanned(gig)
+            } catch (e: Exception) {
+                _state.update { it.copy(planningLoading = false) }
+                fail(e)
+            }
+        }
+    }
+
+    /** Forgets a gig I'm not going to after all. */
+    fun removePlannedGig(gigId: String) {
+        _state.update { it.copy(plannedGigs = it.plannedGigs.filterNot { g -> g.id == gigId }) }
+        viewModelScope.launch { timelines.removePlanned(gigId) }
+    }
 
     fun selectSetlist(setlist: FmSetlist) {
         matchJob?.cancel()
