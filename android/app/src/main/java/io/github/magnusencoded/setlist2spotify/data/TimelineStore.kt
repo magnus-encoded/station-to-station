@@ -37,6 +37,34 @@ data class StoredPlaylist(
     val trackCount: Int = 0,
 )
 
+/**
+ * My relationship to one gig: how sure the app is I was there, and — for a live
+ * check-in — when. setlist.fm's own "I was there" is a flat, retroactive,
+ * self-reported flag; this is stronger evidence for the same claim, not a
+ * competing record.
+ *
+ * [provenance] is a plain string, not an enum: an unknown value (a future
+ * `attested` written by a newer version of the app) should leave this one gig
+ * un-decodable at worst, never fail the whole cache the way an unrecognised
+ * enum constant would.
+ */
+@Serializable
+data class StoredAttendance(
+    val provenance: String = Provenance.PLANNED,
+    /** Epoch millis of a live check-in. Null until #33 sets one. */
+    val checkedInAt: Long? = null,
+    /** Geocoded once by #33, reused for its proximity check. Null until resolved. */
+    val venueLat: Double? = null,
+    val venueLon: Double? = null,
+) {
+    /** Evidence strength, weakest first. Room for `attested` later; not built yet. */
+    object Provenance {
+        const val PLANNED = "planned"
+        const val ATTENDED = "attended"
+        const val CHECKED_IN = "checked_in"
+    }
+}
+
 @Serializable
 data class TimelineCache(
     /** Attended shows by setlist.fm username — mine and every friend's alike. */
@@ -81,6 +109,14 @@ data class TimelineCache(
      * on read is what catches that.
      */
     val songOffsetsBySetlist: Map<String, List<Long>> = emptyMap(),
+    /**
+     * My attendance, by gig id — a setlist.fm id where the gig has one, or a
+     * local id where it doesn't yet (#34): a gig sourced outside setlist.fm has
+     * no vendor id until someone creates one, and may never get one, so the key
+     * can't require it. Whatever id a gig is known by elsewhere on the timeline
+     * is the id to use here too; this store doesn't mint or resolve ids itself.
+     */
+    val attendanceByGig: Map<String, StoredAttendance> = emptyMap(),
 )
 
 /** [file] rather than a Context only so the merge can be tested on the JVM. */
@@ -136,6 +172,16 @@ class TimelineStore(private val file: File) {
     /** A night's song start times inside its recording, replacing whatever was there. */
     suspend fun saveSongOffsets(setlistId: String, offsets: List<Long>): Unit = writeMerged {
         it.copy(songOffsetsBySetlist = it.songOffsetsBySetlist + (setlistId to offsets))
+    }
+
+    /**
+     * My current attendance record for one gig, by [gigId] — a setlist.fm id where
+     * one exists, otherwise a local id (see [TimelineCache.attendanceByGig]).
+     * Replaces whatever was there for that gig, same as [savePhotos]: this is the
+     * current state of one relationship, not an append-only log.
+     */
+    suspend fun saveAttendance(gigId: String, attendance: StoredAttendance): Unit = writeMerged {
+        it.copy(attendanceByGig = it.attendanceByGig + (gigId to attendance))
     }
 
     /**
