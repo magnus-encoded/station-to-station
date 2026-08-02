@@ -129,13 +129,19 @@ data class TimelineCache(
      */
     val plannedShows: List<FmSetlist> = emptyList(),
     /**
-     * Gigs whose "add to calendar" button has been pressed, by gig id. A local UI
-     * fact — the calendar entry lives in the OS calendar, not here; this only
-     * remembers that the one-time button is spent so it stays gone across a cold
-     * start. Its own field, not a provenance value: adding a calendar entry says
-     * nothing about whether I was there (#29's attendanceByGig owns that claim).
+     * The calendar event made for a gig I'm going to, by gig id → its content URI
+     * (content://com.android.calendar/events/<id>). Presence is what "added" means;
+     * the URI is what the gig screen opens with ACTION_VIEW. The event itself lives
+     * in the OS calendar — this only holds the handle back to it, which the old
+     * ACTION_INSERT intent could never give us. Its own field, not a provenance
+     * value: adding a calendar entry says nothing about whether I was there (#29's
+     * attendanceByGig owns that claim).
+     *
+     * Replaces the earlier `calendarAddedGigs` set. An older cache that still carries
+     * that key just ignores it (ignoreUnknownKeys) and starts with this map empty —
+     * no migration, and no real users to migrate.
      */
-    val calendarAddedGigs: Set<String> = emptySet(),
+    val calendarEventByGig: Map<String, String> = emptyMap(),
 )
 
 /** [file] rather than a Context only so the merge can be tested on the JVM. */
@@ -238,9 +244,9 @@ class TimelineStore(private val file: File) {
         )
     }
 
-    /** Remembers that a gig's one-time "add to calendar" button has been used. */
-    suspend fun markCalendarAdded(gigId: String): Unit = writeMerged {
-        it.copy(calendarAddedGigs = it.calendarAddedGigs + gigId)
+    /** Remembers the calendar event made for a gig, by its content URI. */
+    suspend fun markCalendarAdded(gigId: String, eventUri: String): Unit = writeMerged {
+        it.copy(calendarEventByGig = it.calendarEventByGig + (gigId to eventUri))
     }
 
     /**
