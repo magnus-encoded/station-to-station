@@ -129,7 +129,8 @@ fun BleProbeScreen(onBack: () -> Unit) {
         },
     ) { padding ->
         Column(
-            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+            Modifier.padding(padding).fillMaxSize().swipeRightToBack(onBack = onBack)
+                .verticalScroll(rememberScrollState()).padding(16.dp),
         ) {
             Text(
                 "Advert = service UUID. Scan response = name ($SCAN_RESPONSE_NAME_BUDGET bytes). " +

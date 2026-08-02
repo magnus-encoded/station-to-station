@@ -81,6 +81,7 @@ fun SettingsScreen(
             Modifier
                 .padding(padding)
                 .fillMaxSize()
+                .swipeRightToBack(onBack = onBack)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
         ) {

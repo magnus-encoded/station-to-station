@@ -81,7 +81,7 @@ fun FriendsScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
+        Column(Modifier.padding(padding).fillMaxSize().swipeRightToBack(onBack = onBack)) {
             Column(Modifier.padding(16.dp)) {
                 Text("Your setlist.fm username", style = MaterialTheme.typography.titleSmall)
                 Text(
