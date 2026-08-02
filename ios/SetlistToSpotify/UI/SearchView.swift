@@ -35,7 +35,7 @@ struct SearchView: View {
 
             if tab == 0 { ArtistTab() } else { UserTab() }
         }
-        .navigationTitle("Setlist to Spotify")
+        .navigationTitle("Station to Station")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {

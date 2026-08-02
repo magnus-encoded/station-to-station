@@ -1,4 +1,4 @@
-# Setlist to Spotify (Android)
+# Station to Station (Android)
 
 An Android companion app for the setlist.fm CLI in this repository. It lets you:
 
@@ -31,7 +31,7 @@ setlist live in the playlist description.
   `SPOTIFY_CLIENT_ID` Gradle property / environment variable (set the
   `SPOTIFY_CLIENT_ID` repo secret for CI builds). Register the app at
   <https://developer.spotify.com/dashboard> with redirect URI
-  `setlist2spotify://callback`. If a build has no bundled ID, the Settings
+  `station-to-station://callback`. If a build has no bundled ID, the Settings
   screen falls back to manual Client ID entry.
 - **setlist.fm** — the setlist.fm API has **no user login** (no OAuth, no
   Google): it uses an API key plus public usernames. The key is baked in the

@@ -20,7 +20,7 @@ struct Friend: Codable, Identifiable, Hashable {
     /// The link a user shares so a friend's app can add them with one tap.
     var shareURL: URL {
         var c = URLComponents()
-        c.scheme = "setlist2spotify"
+        c.scheme = "station-to-station"
         c.host = "friend"
         c.queryItems = [URLQueryItem(name: "u", value: setlistfm),
                         URLQueryItem(name: "name", value: name)]
@@ -68,7 +68,7 @@ func spotifyPlaylistId(_ input: String) -> String? {
     return String(group)
 }
 
-/// Parses a `setlist2spotify://friend?...` link. Nil if it isn't one / has no username.
+/// Parses a `station-to-station://friend?...` link. Nil if it isn't one / has no username.
 func friendFromURL(_ url: URL) -> Friend? {
     guard let c = URLComponents(url: url, resolvingAgainstBaseURL: false), c.host == "friend"
     else { return nil }
