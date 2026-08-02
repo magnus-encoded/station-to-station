@@ -29,7 +29,7 @@ fun decodeFriends(stored: String?): List<Friend> =
 
 /** The link a user shares so a friend's app can add them with one tap. */
 fun Friend.toShareUri(): Uri = Uri.Builder()
-    .scheme("setlist2spotify")
+    .scheme("station-to-station")
     .authority("friend")
     .appendQueryParameter("u", setlistfm)
     .appendQueryParameter("name", name)
@@ -42,12 +42,12 @@ fun Friend.toShareUri(): Uri = Uri.Builder()
  * needs — it fetches the rest (see [friendFromUri] for the parsing counterpart).
  */
 fun gigInviteUri(setlistId: String): Uri = Uri.Builder()
-    .scheme("setlist2spotify")
+    .scheme("station-to-station")
     .authority("gig")
     .appendQueryParameter("id", setlistId)
     .build()
 
-/** The setlist.fm id out of a `setlist2spotify://gig?id=...` invite, or null. */
+/** The setlist.fm id out of a `station-to-station://gig?id=...` invite, or null. */
 fun gigIdFromInvite(uri: Uri): String? =
     if (uri.authority != "gig") null
     else uri.getQueryParameter("id")?.trim()?.ifBlank { null }
@@ -75,7 +75,7 @@ private val playlistIdRegex = Regex("""playlist[:/]([A-Za-z0-9]+)""")
 fun spotifyPlaylistId(input: String): String? =
     playlistIdRegex.find(input.trim())?.groupValues?.get(1)
 
-/** Parses a `setlist2spotify://friend?...` link. Null if it isn't one / has no username. */
+/** Parses a `station-to-station://friend?...` link. Null if it isn't one / has no username. */
 fun friendFromUri(uri: Uri): Friend? {
     if (uri.authority != "friend") return null
     val user = uri.getQueryParameter("u")?.trim().orEmpty()

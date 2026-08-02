@@ -3,7 +3,7 @@ import CryptoKit
 import AuthenticationServices
 import UIKit
 
-let spotifyRedirectURI = "setlist2spotify://callback"
+let spotifyRedirectURI = "station-to-station://callback"
 private let spotifyScopes = "playlist-modify-public playlist-modify-private user-read-private"
 
 struct AddTracksResult { let added: Int; let refused: [String] }
@@ -19,7 +19,7 @@ final class SpotifyClient {
 
     // --- OAuth (Authorization Code with PKCE) ---
     //
-    // Android launches a browser and catches the setlist2spotify://callback deep
+    // Android launches a browser and catches the station-to-station://callback deep
     // link. iOS has ASWebAuthenticationSession, which runs the whole round trip
     // and hands back the callback URL directly — no URL-scheme plumbing for the
     // redirect, and the sheet auto-dismisses.
@@ -58,7 +58,7 @@ final class SpotifyClient {
     private func authenticate(url: URL) async throws -> URL {
         try await withCheckedThrowingContinuation { continuation in
             let session = ASWebAuthenticationSession(
-                url: url, callbackURLScheme: "setlist2spotify"
+                url: url, callbackURLScheme: "station-to-station"
             ) { callbackURL, error in
                 if let callbackURL {
                     continuation.resume(returning: callbackURL)

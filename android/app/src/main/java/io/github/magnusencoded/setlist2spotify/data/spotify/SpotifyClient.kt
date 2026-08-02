@@ -20,7 +20,7 @@ import java.io.IOException
 import java.security.MessageDigest
 import java.security.SecureRandom
 
-const val SPOTIFY_REDIRECT_URI = "setlist2spotify://callback"
+const val SPOTIFY_REDIRECT_URI = "station-to-station://callback"
 private const val SPOTIFY_SCOPES =
     "playlist-modify-public playlist-modify-private user-read-private ugc-image-upload"
 

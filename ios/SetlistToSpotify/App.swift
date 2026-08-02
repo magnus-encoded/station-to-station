@@ -44,8 +44,16 @@ struct SetlistToSpotifyApp: App {
             // Spotify's OAuth callback is handled by ASWebAuthenticationSession;
             // the app only needs to catch friend-card links here.
             .onOpenURL { url in
-                if url.scheme == "setlist2spotify", url.host == "friend" {
+                // Everything rides one scheme now, station-to-station; the old
+                // setlist2spotify scheme is still accepted so a friend card shared
+                // before the rename still opens the app. The authority tells a friend
+                // card apart from a timeline place, whose host is a line name — a line
+                // literally named "friend" would collide, which is acceptable.
+                guard url.scheme == "station-to-station" || url.scheme == "setlist2spotify"
+                else { return }
+                if url.host == "friend" {
                     model.handleFriendLink(url)
+                    return
                 }
                 // station-to-station://<host>/… — a Resolution reached without a
                 // gesture, so CI and a URL bar can both get to the Spine (pinch
@@ -56,19 +64,17 @@ struct SetlistToSpotifyApp: App {
                 //   fixture/<name>[/open]      → seed a bundled weave fixture; a
                 //                                fixture with Lanes lands zoomed
                 //                                out, /open uncollapses Festivals
-                if url.scheme == "station-to-station" {
-                    nav.popToRoot()
-                    let segments = url.pathComponents.filter { $0 != "/" }
-                    switch url.host {
-                    case "fixture":
-                        if let name = segments.first {
-                            model.loadFixture(name, open: segments.contains("open"))
-                        }
-                    default:
-                        // "me", nil, or a friend's line: my own Spine. Zoomed state
-                        // is left as it is so a friend link can land on the strip.
-                        if url.host == nil || url.host == "me" { model.setZoomedOut(false) }
+                nav.popToRoot()
+                let segments = url.pathComponents.filter { $0 != "/" }
+                switch url.host {
+                case "fixture":
+                    if let name = segments.first {
+                        model.loadFixture(name, open: segments.contains("open"))
                     }
+                default:
+                    // "me", nil, or a friend's line: my own Spine. Zoomed state
+                    // is left as it is so a friend link can land on the strip.
+                    if url.host == nil || url.host == "me" { model.setZoomedOut(false) }
                 }
             }
         }

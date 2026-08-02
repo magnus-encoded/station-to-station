@@ -21,7 +21,7 @@ struct FriendsView: View {
                         .textFieldStyle(.roundedBorder)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
-                    ShareLink(item: cardURL ?? URL(string: "setlist2spotify://friend")!) {
+                    ShareLink(item: cardURL ?? URL(string: "station-to-station://friend")!) {
                         Image(systemName: "square.and.arrow.up")
                     }
                     .disabled(cardURL == nil)

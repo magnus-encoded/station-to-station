@@ -38,24 +38,27 @@ targets:
     info:
       path: SetlistToSpotify/Info.plist
       properties:
-        CFBundleDisplayName: Setlist to Spotify
+        CFBundleDisplayName: Station to Station
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         # Baked-in credentials, surfaced to Config via Info.plist.
         SpotifyClientId: $(SPOTIFY_CLIENT_ID)
         SetlistFmApiKey: $(SETLISTFM_API_KEY)
-        # Friend card exchange: setlist2spotify://friend?u=…&sid=…&name=…
-        # (Spotify's OAuth callback is handled by ASWebAuthenticationSession.)
+        # One scheme now: station-to-station carries the friend card
+        # (station-to-station://friend?u=…&sid=…&name=…) and reaching a Resolution
+        # without a gesture (station-to-station://<line>/<gig>) — the same scheme
+        # Android answers. Pinch cannot be scripted on either platform, so this is
+        # how CI (and a human with a URL bar) gets to the spine at all; the first
+        # segment is whose line — "me" for my own. (Spotify's OAuth callback is
+        # handled by ASWebAuthenticationSession, not through a URL scheme here.)
+        # The old setlist2spotify scheme is kept registered belt-and-suspenders so
+        # friend cards shared before the rename still open the app.
         CFBundleURLTypes:
-          - CFBundleURLName: io.github.magnusencoded.setlist2spotify
-            CFBundleURLSchemes: [setlist2spotify]
-          # Reaching a Resolution without a gesture: station-to-station://<line>/<gig>,
-          # the same scheme Android answers. Pinch cannot be scripted on either
-          # platform, so this is how CI (and a human with a URL bar) gets to the
-          # spine at all. The first segment is whose line — "me" for my own.
           - CFBundleURLName: io.github.magnusencoded.stationtostation
             CFBundleURLSchemes: [station-to-station]
+          - CFBundleURLName: io.github.magnusencoded.setlist2spotify
+            CFBundleURLSchemes: [setlist2spotify]
 
   SetlistToSpotifyTests:
     type: bundle.unit-test

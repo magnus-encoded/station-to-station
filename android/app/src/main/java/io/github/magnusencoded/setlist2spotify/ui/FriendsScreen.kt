@@ -109,7 +109,7 @@ fun FriendsScreen(
                                     type = "text/plain"
                                     putExtra(
                                         Intent.EXTRA_TEXT,
-                                        "Add me on Setlist to Spotify: $uri",
+                                        "Add me on Station to Station: $uri",
                                     )
                                 }
                                 context.startActivity(Intent.createChooser(send, "Share your friend card"))

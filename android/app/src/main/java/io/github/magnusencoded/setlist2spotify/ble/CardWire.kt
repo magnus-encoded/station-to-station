@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
  * The card as it goes over the wire in the #30 GATT probe.
  *
  * Same deep link the QR fallback and Nearby already carry
- * (`setlist2spotify://friend?u=…&name=…&sid=…`) with one addition: `k`, the
+ * (`station-to-station://friend?u=…&name=…&sid=…`) with one addition: `k`, the
  * Ed25519 public key that #28 made the identity. Unknown query parameters are
  * ignored by [io.github.magnusencoded.setlist2spotify.data.friendFromUri], so
  * an old build reading a new card still gets a usable friend.
@@ -24,7 +24,7 @@ data class ProbeCard(
     val spotifyId: String? = null,
 ) {
     fun encode(): String = buildString {
-        append("setlist2spotify://friend?name=").append(esc(name))
+        append("station-to-station://friend?name=").append(esc(name))
         append("&k=").append(esc(publicKey))
         setlistfm?.let { append("&u=").append(esc(it)) }
         spotifyId?.let { append("&sid=").append(esc(it)) }

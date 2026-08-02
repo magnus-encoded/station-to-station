@@ -59,7 +59,24 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Spotify OAuth redirect: setlist2spotify://callback -->
+            <!-- One scheme for everything now: station-to-station. No host attribute,
+                 so ANY authority under it matches — the router (MainActivity) tells the
+                 deep links apart by authority:
+                   station-to-station://callback         Spotify OAuth redirect
+                   station-to-station://friend?u=…&sid=…&name=…   friend card exchange
+                   station-to-station://gig?id=…         a gig invite from a contact
+                   station-to-station://<gig>            the setlist itself
+                   station-to-station://<user>/<gig>     that line, scrolled to the gig
+                   station-to-station://Friends/<gig>    the woven view, scrolled to it -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="station-to-station" />
+            </intent-filter>
+            <!-- Belt-and-suspenders: the old setlist2spotify scheme is still accepted so
+                 friend cards and OAuth redirects shared before the rename keep resolving.
+                 The app no longer emits these; it only still answers them. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -68,7 +85,6 @@
                     android:scheme="setlist2spotify"
                     android:host="callback" />
             </intent-filter>
-            <!-- Friend card exchange: setlist2spotify://friend?u=...&sid=...&name=... -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -76,18 +92,6 @@
                 <data
                     android:scheme="setlist2spotify"
                     android:host="friend" />
-            </intent-filter>
-            <!-- A place on the timeline, addressed by its setlist.fm gig id. The first
-                 segment is whose line you are looking at, which is also the resolution:
-                   station-to-station://<gig>          the setlist itself
-                   station-to-station://<user>/<gig>   that line, scrolled to the gig
-                   station-to-station://Friends/<gig>  the woven view, scrolled to it
-                 No host attribute, so any first segment matches. -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="station-to-station" />
             </intent-filter>
         </activity>
 

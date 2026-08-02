@@ -1,4 +1,4 @@
-# Setlist to Spotify (iOS)
+# Station to Station (iOS)
 
 A native SwiftUI port of the Android app in this repository — same features, same
 serverless friends model, so an iPhone user can be tested against (and use) the
@@ -14,7 +14,7 @@ same peer-to-peer flow. It lets you:
 4. **Create the playlist** in your Spotify account and open or share it.
 
 **Friends** (peer-to-peer, no server): set your setlist.fm username, share your
-friend card (`setlist2spotify://friend?…`), add a friend by username or from a
+friend card (`station-to-station://friend?…`), add a friend by username or from a
 shared Spotify playlist link, and tap a friend to see concerts you both attended.
 
 ## Logins
@@ -24,7 +24,7 @@ shared Spotify playlist link, and tap a friend to see concerts you both attended
   build time via the `SPOTIFY_CLIENT_ID` build setting (set the `SPOTIFY_CLIENT_ID`
   repo secret for CI). Register the app at
   <https://developer.spotify.com/dashboard> with redirect URI
-  `setlist2spotify://callback`. With no bundled ID, Settings falls back to manual
+  `station-to-station://callback`. With no bundled ID, Settings falls back to manual
   Client ID entry.
 - **setlist.fm** — no user login: an API key (baked in via `SETLISTFM_API_KEY`, or
   entered in Settings) plus public usernames.

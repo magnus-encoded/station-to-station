@@ -16,8 +16,9 @@ fun credential(name: String, default: String = ""): String =
         ?: System.getenv(name)?.takeUnless { it.isBlank() }
         ?: default
 
-// The "Station to Station" app registration. Its redirect list still includes
-// setlist2spotify://callback, so the existing deep-link scheme keeps working.
+// The "Station to Station" app registration. The app now redirects to
+// station-to-station://callback; the old setlist2spotify://callback is still on
+// the registration's redirect list, so links shared before the rename keep working.
 val spotifyClientId = credential("SPOTIFY_CLIENT_ID", default = "4d0ca5e417a54b599b07bfac99671644")
 val setlistFmApiKey = credential("SETLISTFM_API_KEY")
 

@@ -77,14 +77,17 @@ class MainActivity : ComponentActivity() {
 
     private fun handleAuthIntent(intent: Intent?) {
         val uri = intent?.data ?: return
-        when (uri.scheme) {
-            // A place on the timeline; see AppViewModel.openGigLink.
-            "station-to-station" -> viewModel.openGigLink(uri)
-            "setlist2spotify" -> when (uri.authority) {
-                "friend" -> viewModel.handleFriendLink(uri)
-                "gig" -> viewModel.handleGigInvite(uri)
-                else -> viewModel.handleAuthRedirect(uri)
-            }
+        // Everything now rides one scheme, station-to-station. The old setlist2spotify
+        // scheme is still accepted so links shared before the rename keep resolving.
+        // The authority tells the deep links apart from a timeline place, whose
+        // authority is a line name (see AppViewModel.openGigLink) — a line literally
+        // named friend/gig/callback would collide, which is acceptable.
+        if (uri.scheme != "station-to-station" && uri.scheme != "setlist2spotify") return
+        when (uri.authority) {
+            "friend" -> viewModel.handleFriendLink(uri)
+            "gig" -> viewModel.handleGigInvite(uri)
+            "callback" -> viewModel.handleAuthRedirect(uri)
+            else -> viewModel.openGigLink(uri)
         }
     }
 }
