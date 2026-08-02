@@ -225,7 +225,7 @@ private fun ConfirmScreenContent(
             }
         },
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
+        Column(Modifier.padding(padding).fillMaxSize().swipeRightToBack(onBack = onBack)) {
             // The same heading block as the event screen, so the night stays put
             // on screen while the machinery changes underneath it.
             if (setlist != null) {

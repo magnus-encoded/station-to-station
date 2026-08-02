@@ -13,7 +13,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -56,7 +55,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -165,15 +163,7 @@ fun ExchangeScreen(
             Column(
                 Modifier
                     .fillMaxSize()
-                    // Right goes back, the same as everywhere else on the spine.
-                    .pointerInput(Unit) {
-                        var dragX = 0f
-                        detectHorizontalDragGestures(
-                            onDragStart = { dragX = 0f },
-                            onDragEnd = { if (dragX >= 110.dp.toPx()) onBack() },
-                            onHorizontalDrag = { _, delta -> dragX += delta },
-                        )
-                    }
+                    .swipeRightToBack(onBack = onBack)
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -425,7 +415,7 @@ fun FriendTimelineScreen(
             )
         },
     ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
+        Box(Modifier.padding(padding).fillMaxSize().swipeRightToBack(onBack = onBack)) {
             when {
                 state.viewedFriendLoading ->
                     CircularProgressIndicator(color = Amber, modifier = Modifier.align(Alignment.Center))

@@ -53,7 +53,7 @@ fun SetlistsScreen(
             )
         },
     ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
+        Box(Modifier.padding(padding).fillMaxSize().swipeRightToBack(onBack = onBack)) {
             if (state.setlists.isEmpty() && !state.setlistsLoading) {
                 Text(
                     "No setlists found.",

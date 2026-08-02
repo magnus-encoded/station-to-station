@@ -752,7 +752,7 @@ fun ImportScreen(viewModel: AppViewModel, onBack: () -> Unit, onDone: () -> Unit
             )
         },
     ) { padding ->
-        Column(Modifier.padding(padding).padding(28.dp).fillMaxWidth()) {
+        Column(Modifier.padding(padding).padding(28.dp).fillMaxWidth().swipeRightToBack(onBack = onBack)) {
             Text(
                 "Your concert history already lives on setlist.fm. Enter your username and your line fills itself in.",
                 color = Muted,
