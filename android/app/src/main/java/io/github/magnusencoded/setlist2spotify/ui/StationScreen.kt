@@ -857,15 +857,10 @@ internal fun TimelineItem(
                         .padding(start = nodeX - size / 2 + 1.dp, top = 6.dp)
                         .size(size)
                         .clip(CircleShape)
-                        .background(
-                            // See-through: a node is a ring, and the lines stop at
-                            // its rim rather than being hidden behind a fill.
-                            when {
-                                shared -> Color.Transparent
-                                highlight -> AmberSoft
-                                else -> Color.Transparent
-                            },
-                        )
+                        // Opaque interior so the spine stops at the rim instead of
+                        // running through the node. A ring over a transparent centre
+                        // let the line show straight through the circle.
+                        .background(Ground)
                         .border(
                             2.dp,
                             // Amber is what "mine" looks like at every resolution; the
@@ -879,7 +874,13 @@ internal fun TimelineItem(
                             },
                             CircleShape,
                         ),
-                )
+                ) {
+                    // The most-recent node keeps its soft amber glow — over the opaque
+                    // fill now, so it tints the interior without the line behind it.
+                    if (highlight && !shared) {
+                        Box(Modifier.matchParentSize().background(AmberSoft))
+                    }
+                }
             }
         }
         Column(Modifier.padding(start = if (inside) 14.dp else 0.dp, end = 18.dp, bottom = 22.dp)) {
