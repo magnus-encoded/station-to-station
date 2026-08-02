@@ -198,8 +198,8 @@ data class UiState(
      * start rather than being a thing the screen remembers until it doesn't.
      */
     val attendanceByGig: Map<String, StoredAttendance> = emptyMap(),
-    /** Gigs whose one-time "add to calendar" button has been used; restored from disk. */
-    val calendarAddedGigs: Set<String> = emptySet(),
+    /** The calendar event made for a gig, by gig id → its content URI; restored from disk. */
+    val calendarEventByGig: Map<String, String> = emptyMap(),
     /**
      * The gig the timeline is offering a check-in for, if the one location fix it
      * took put me at one. Null the rest of the time, which is nearly always.
@@ -353,7 +353,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 songOffsetsBySetlist = it.songOffsetsBySetlist + cached.songOffsetsBySetlist,
                 plannedGigs = sortedPlanned(cached.plannedShows),
                 attendanceByGig = it.attendanceByGig + cached.attendanceByGig,
-                calendarAddedGigs = it.calendarAddedGigs + cached.calendarAddedGigs,
+                calendarEventByGig = it.calendarEventByGig + cached.calendarEventByGig,
                 // Every lane but mine: the weave reads friends from here.
                 showsByFriend = cached.shows - me,
                 // Only adopt a cached spine if nothing has already loaded into it.
@@ -1010,14 +1010,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * The one-time "add to calendar" button was pressed. Persist it so the button is
-     * gone for good — a calendar entry is idempotent, and making it twice is the
-     * mistake this bit exists to prevent.
+     * A calendar event was just created for a gig; remember its URI. Presence of the
+     * URI is what flips the swipe from "add to calendar" to "invite a friend" and
+     * makes the tappable link appear, so this is what graduates the leaf. Persisted
+     * so both survive a cold start.
      */
-    fun markCalendarAdded(gigId: String) {
-        if (gigId in _state.value.calendarAddedGigs) return
-        _state.update { it.copy(calendarAddedGigs = it.calendarAddedGigs + gigId) }
-        viewModelScope.launch { timelines.markCalendarAdded(gigId) }
+    fun markCalendarAdded(gigId: String, eventUri: String) {
+        _state.update { it.copy(calendarEventByGig = it.calendarEventByGig + (gigId to eventUri)) }
+        viewModelScope.launch { timelines.markCalendarAdded(gigId, eventUri) }
     }
 
     /** Forgets a gig I'm not going to after all. */

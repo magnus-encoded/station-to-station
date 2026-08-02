@@ -1,10 +1,10 @@
 package io.github.magnusencoded.setlist2spotify.ui
 
-import android.content.ActivityNotFoundException
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
-import android.provider.CalendarContract
 import android.util.Log
 import android.widget.MediaController
 import android.widget.Toast
@@ -82,6 +82,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -127,7 +130,6 @@ import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSong
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
-import java.time.ZoneId
 import kotlin.math.roundToInt
 
 // Station to Station — the timeline face of the app (working title).
@@ -1454,22 +1456,6 @@ private fun GigPhotoSuggestions(
     }
 }
 
-/**
- * An OS calendar draft for a gig you're going to: title, venue as location, a start
- * on the gig's date. Keyless and permissionless — ACTION_INSERT hands off to whatever
- * calendar app the phone has, which owns the entry from there. setlist.fm records no
- * start time, so the evening is a sensible default the user adjusts in that editor.
- */
-private fun calendarInsert(setlist: FmSetlist): Intent {
-    val intent = Intent(Intent.ACTION_INSERT)
-        .setData(CalendarContract.Events.CONTENT_URI)
-        .putExtra(CalendarContract.Events.TITLE, setlist.artist?.name ?: "Concert")
-        .putExtra(CalendarContract.Events.EVENT_LOCATION, setlist.venueLine())
-    setlist.localDate()?.atTime(19, 0)?.atZone(ZoneId.systemDefault())?.toInstant()?.toEpochMilli()
-        ?.let { intent.putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, it) }
-    return intent
-}
-
 /** A share-sheet intent carrying a gig-invite deep link a contact's app can open. */
 private fun gigInviteChooser(setlist: FmSetlist): Intent {
     val label = listOfNotNull(setlist.artist?.name, setlist.venue?.name, setlist.readableDate())
@@ -1522,6 +1508,50 @@ fun StationEventScreen(
     // The night's full recording: the first video among the keepsakes. Photos and
     // one-song clips sit alongside it and are not treated as the recording.
     val recording = gigPhotos.firstOrNull { viewModel.isVideo(it) }
+
+    // The planned-gig leaf, staged like the Spotify convert (#55): the swipe adds the
+    // gig to the calendar, then — once the event exists and its link is showing —
+    // graduates to inviting a friend, which repeats forever. The event's URI is both
+    // the "already added" flag and the thing the link opens.
+    val scope = rememberCoroutineScope()
+    val calendarEventUri = setlist?.let { state.calendarEventByGig[it.id] }
+    val added = calendarEventUri != null
+    // Only in the plan-ahead window does the swipe do the calendar/invite dance. PAST
+    // keeps the setlist.fm crumb, DAY_OF is the check-in — both left to the fall-through
+    // below, exactly as they behaved before, so the swipe never contradicts the hint.
+    val plannedTimeState = if (planned) setlist?.localDate()?.let { gigTimeState(LocalDateTime.now(), it) } else null
+    val planAhead = planned &&
+        plannedTimeState != GigTimeState.PAST && plannedTimeState != GigTimeState.DAY_OF
+    // The insert is a couple of binder calls, so it runs off the main thread; success
+    // persists the returned URI, and every failure (no writable calendar, provider
+    // refusal) degrades to a toast with no link and no stage advance.
+    val addToCalendar: () -> Unit = add@{
+        val s = setlist ?: return@add
+        scope.launch {
+            val uri = withContext(Dispatchers.IO) { insertCalendarEvent(context.contentResolver, s) }
+            if (uri != null) viewModel.markCalendarAdded(s.id, uri.toString())
+            else Toast.makeText(context, "Couldn't add this to your calendar.", Toast.LENGTH_SHORT).show()
+        }
+    }
+    val calendarPermission = arrayOf(Manifest.permission.WRITE_CALENDAR, Manifest.permission.READ_CALENDAR)
+    // A denied permission is the graceful-degrade path: a toast, and the swipe stays on
+    // "add to calendar" because no event was made.
+    val calendarPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (grants.values.all { it }) addToCalendar()
+        else Toast.makeText(context, "Calendar access is needed to add this show.", Toast.LENGTH_SHORT).show()
+    }
+    val onAddToCalendar: () -> Unit = {
+        if (calendarPermission.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
+            addToCalendar()
+        } else {
+            calendarPermissionLauncher.launch(calendarPermission)
+        }
+    }
+    // The invite is unchanged from the button it replaces: the gig-invite deep link out
+    // through the OS share sheet. Repeatable — an invite is per-person.
+    val onInvite: () -> Unit = { setlist?.let { context.startActivity(gigInviteChooser(it)) } }
 
     Scaffold(
         containerColor = Ground,
@@ -1580,39 +1610,43 @@ fun StationEventScreen(
                         // The night itself: maps and check-in (#33), handled above. No
                         // crumb, no plan-ahead buttons.
                         GigTimeState.DAY_OF -> {}
-                        // Still ahead (or an undated gig): the two plan-ahead actions.
+                        // Still ahead (or an undated gig): the swipe is the action, in two
+                        // stages. The hint names what the next swipe does — the same
+                        // grammar as the Spotify convert, where the made-playlist link
+                        // persists and the hint moves on to "make another".
                         else -> {
-                            // Add to calendar — a one-time button. Gone once used and
-                            // stays gone across a cold start; making a calendar entry
-                            // twice is the mistake. Degrades to a toast with no calendar app.
-                            if (setlist.id !in state.calendarAddedGigs) {
+                            if (calendarEventUri != null) {
+                                // The created event, as a persisted tappable link — the
+                                // mirror of a made-playlist row. Opens the event with
+                                // ACTION_VIEW on the URI the insert handed back.
+                                Row(
+                                    Modifier
+                                        .clickable {
+                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(calendarEventUri)))
+                                        }
+                                        .padding(vertical = 6.dp, horizontal = 20.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Box(Modifier.size(7.dp).clip(CircleShape).background(Slate))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Open the calendar event ↗", color = Slate, fontSize = 14.sp)
+                                }
+                                Spacer(Modifier.height(2.dp))
+                                // Graduated: the swipe now invites, and keeps inviting.
                                 Text(
-                                    "Add to calendar",
+                                    "‹ swipe to invite a friend",
                                     color = Slate,
                                     fontSize = 13.sp,
-                                    modifier = Modifier
-                                        .clickable {
-                                            try {
-                                                context.startActivity(calendarInsert(setlist))
-                                                viewModel.markCalendarAdded(setlist.id)
-                                            } catch (e: ActivityNotFoundException) {
-                                                Toast.makeText(context, "No calendar app to add this to.", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                        .padding(vertical = 6.dp),
+                                    modifier = Modifier.clickable(onClick = onInvite).padding(vertical = 6.dp),
+                                )
+                            } else {
+                                Text(
+                                    "‹ swipe to add to calendar",
+                                    color = Slate,
+                                    fontSize = 13.sp,
+                                    modifier = Modifier.clickable(onClick = onAddToCalendar).padding(vertical = 6.dp),
                                 )
                             }
-                            // Invite friends — repeatable: an invite is per-person, so
-                            // the button stays. Same deep-link + share-sheet as the
-                            // friend card, a gig-invite payload the recipient opens.
-                            Text(
-                                "Invite friends",
-                                color = Slate,
-                                fontSize = 13.sp,
-                                modifier = Modifier
-                                    .clickable { context.startActivity(gigInviteChooser(setlist)) }
-                                    .padding(vertical = 6.dp),
-                            )
                         }
                     }
                     Text(
@@ -1732,25 +1766,32 @@ fun StationEventScreen(
             LazyColumn(
                 Modifier
                     .fillMaxSize()
-                    // Left acts on this level — convert. Right is its mirror: back up one,
-                    // to the timeline this night was opened from. Registered even when
-                    // there is nothing to convert, or a show with no logged setlist would
-                    // be the one screen you can't swipe out of.
-                    .pointerInput(setlist.id, canConvert) {
+                    // Swipe-left is THE action gesture; swipe-right is always back, the
+                    // way out of any pushed screen. What left does depends on the gig:
+                    // a plan-ahead gig adds it to the calendar, then invites once added
+                    // (#55); a past night converts to a playlist, or opens on setlist.fm
+                    // when there's nothing to convert. PAST/DAY_OF planned gigs fall
+                    // through to that same open-on-setlist.fm, matching their crumb.
+                    // Registered even with nothing to convert, or a show with no logged
+                    // setlist would be the one screen you can't swipe out of.
+                    .pointerInput(setlist.id, canConvert, planAhead, added) {
                         val threshold = 110.dp.toPx()
                         var dragX = 0f
                         detectHorizontalDragGestures(
                             onDragStart = { dragX = 0f },
                             onDragEnd = {
                                 when {
-                                    dragX <= -threshold && canConvert -> {
+                                    dragX >= threshold -> onBack()
+                                    dragX > -threshold -> {}
+                                    planAhead && !added -> onAddToCalendar()
+                                    planAhead && added -> onInvite()
+                                    canConvert -> {
                                         viewModel.selectSetlist(setlist)
                                         onConvert()
                                     }
-                                    dragX <= -threshold && !canConvert -> setlist.url?.let {
+                                    else -> setlist.url?.let {
                                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it)))
                                     }
-                                    dragX >= threshold -> onBack()
                                 }
                             },
                             onHorizontalDrag = { _, delta -> dragX += delta },

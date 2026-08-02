@@ -311,13 +311,27 @@ class TimelineStoreTest {
     }
 
     @Test
-    fun `add-to-calendar is a spent button that survives a cold start`() = runBlocking {
+    fun `the calendar event's URI survives a cold start, keyed by gig`() = runBlocking {
         val store = store()
-        store.markCalendarAdded("oya")
-        // Its own field, not a provenance value — the attendance claim is untouched.
+        val uri = "content://com.android.calendar/events/42"
+        store.markCalendarAdded("oya", uri)
+        // The URI is both the "added" flag and what the link opens; its own field, not
+        // a provenance value — the attendance claim is untouched.
         val cached = store.load()
-        assertTrue(cached.calendarAddedGigs.contains("oya"))
+        assertEquals(uri, cached.calendarEventByGig["oya"])
         assertTrue(cached.attendanceByGig.isEmpty())
+    }
+
+    @Test
+    fun `an older cache with the removed calendarAddedGigs key still loads`() = runBlocking {
+        val file = File.createTempFile("timelines", ".json")
+        // The field is gone; a cache that still carries it must load, not throw.
+        file.writeText(
+            """{"shows":{"magnus":[{"id":"a","eventDate":"25-06-2026"}]},"calendarAddedGigs":["oya"]}"""
+        )
+        val cached = TimelineStore(file).load()
+        assertEquals(listOf("a"), cached.shows["magnus"]?.map { it.id })
+        assertTrue(cached.calendarEventByGig.isEmpty())
     }
 
     @Test

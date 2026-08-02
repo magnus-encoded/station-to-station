@@ -12,6 +12,13 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
 
+    <!-- Adding a planned gig to the calendar (#55). WRITE inserts the event; READ
+         finds a calendar to write it to. Requested at swipe time, not on launch —
+         a denial degrades to a toast, not a crash. Unlike ACTION_INSERT this returns
+         the event's id, so the gig screen can keep a tappable link to it. -->
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+
     <!-- #18 BLE probe: raw GATT is the only framework that bridges iOS<->Android
          (see #13), so this is what the field-test data has to come from. -->
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
