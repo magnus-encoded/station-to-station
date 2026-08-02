@@ -12,6 +12,7 @@ import io.github.magnusencoded.setlist2spotify.data.StoredAttendance
 import io.github.magnusencoded.setlist2spotify.data.StoredPlaylist
 import io.github.magnusencoded.setlist2spotify.data.TimelineStore
 import io.github.magnusencoded.setlist2spotify.data.friendFromUri
+import io.github.magnusencoded.setlist2spotify.data.gigIdFromInvite
 import io.github.magnusencoded.setlist2spotify.data.photos.PhotoRepository
 import io.github.magnusencoded.setlist2spotify.data.sfmStamp
 import io.github.magnusencoded.setlist2spotify.data.sfmUserFromDescription
@@ -197,6 +198,8 @@ data class UiState(
      * start rather than being a thing the screen remembers until it doesn't.
      */
     val attendanceByGig: Map<String, StoredAttendance> = emptyMap(),
+    /** Gigs whose one-time "add to calendar" button has been used; restored from disk. */
+    val calendarAddedGigs: Set<String> = emptySet(),
     /**
      * The gig the timeline is offering a check-in for, if the one location fix it
      * took put me at one. Null the rest of the time, which is nearly always.
@@ -350,6 +353,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 songOffsetsBySetlist = it.songOffsetsBySetlist + cached.songOffsetsBySetlist,
                 plannedGigs = sortedPlanned(cached.plannedShows),
                 attendanceByGig = it.attendanceByGig + cached.attendanceByGig,
+                calendarAddedGigs = it.calendarAddedGigs + cached.calendarAddedGigs,
                 // Every lane but mine: the weave reads friends from here.
                 showsByFriend = cached.shows - me,
                 // Only adopt a cached spine if nothing has already loaded into it.
@@ -487,6 +491,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun handleFriendLink(uri: Uri) {
         friendFromUri(uri)?.let { addFriend(it) }
+    }
+
+    /** A gig-invite deep link a contact sent: add their gig to my plans, same as pasting its link. */
+    fun handleGigInvite(uri: Uri) {
+        gigIdFromInvite(uri)?.let { addPlannedGig(it) }
     }
 
     fun removeFriend(friend: Friend) {
@@ -998,6 +1007,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 fail(e)
             }
         }
+    }
+
+    /**
+     * The one-time "add to calendar" button was pressed. Persist it so the button is
+     * gone for good — a calendar entry is idempotent, and making it twice is the
+     * mistake this bit exists to prevent.
+     */
+    fun markCalendarAdded(gigId: String) {
+        if (gigId in _state.value.calendarAddedGigs) return
+        _state.update { it.copy(calendarAddedGigs = it.calendarAddedGigs + gigId) }
+        viewModelScope.launch { timelines.markCalendarAdded(gigId) }
     }
 
     /** Forgets a gig I'm not going to after all. */

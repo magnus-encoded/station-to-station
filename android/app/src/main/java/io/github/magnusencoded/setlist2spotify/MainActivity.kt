@@ -82,6 +82,7 @@ class MainActivity : ComponentActivity() {
             "station-to-station" -> viewModel.openGigLink(uri)
             "setlist2spotify" -> when (uri.authority) {
                 "friend" -> viewModel.handleFriendLink(uri)
+                "gig" -> viewModel.handleGigInvite(uri)
                 else -> viewModel.handleAuthRedirect(uri)
             }
         }

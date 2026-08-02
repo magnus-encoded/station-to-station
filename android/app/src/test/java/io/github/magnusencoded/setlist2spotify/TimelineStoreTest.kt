@@ -311,6 +311,16 @@ class TimelineStoreTest {
     }
 
     @Test
+    fun `add-to-calendar is a spent button that survives a cold start`() = runBlocking {
+        val store = store()
+        store.markCalendarAdded("oya")
+        // Its own field, not a provenance value — the attendance claim is untouched.
+        val cached = store.load()
+        assertTrue(cached.calendarAddedGigs.contains("oya"))
+        assertTrue(cached.attendanceByGig.isEmpty())
+    }
+
+    @Test
     fun `an older cache with no attendance field still loads its timelines`() = runBlocking {
         val file = File.createTempFile("timelines", ".json")
         file.writeText(

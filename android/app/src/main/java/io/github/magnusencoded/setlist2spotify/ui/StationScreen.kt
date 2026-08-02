@@ -1,10 +1,13 @@
 package io.github.magnusencoded.setlist2spotify.ui
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.provider.CalendarContract
 import android.util.Log
 import android.widget.MediaController
+import android.widget.Toast
 import android.widget.VideoView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -116,11 +119,13 @@ import io.github.magnusencoded.setlist2spotify.NOT_STAMPED
 import io.github.magnusencoded.setlist2spotify.data.DeviceLocation
 import io.github.magnusencoded.setlist2spotify.data.Friend
 import io.github.magnusencoded.setlist2spotify.data.StoredAttendance
+import io.github.magnusencoded.setlist2spotify.data.gigInviteUri
 import io.github.magnusencoded.setlist2spotify.data.photos.PhotoRepository
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSong
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
+import java.time.ZoneId
 import kotlin.math.roundToInt
 
 // Station to Station — the timeline face of the app (working title).
@@ -1445,6 +1450,33 @@ private fun GigPhotoSuggestions(
     }
 }
 
+/**
+ * An OS calendar draft for a gig you're going to: title, venue as location, a start
+ * on the gig's date. Keyless and permissionless — ACTION_INSERT hands off to whatever
+ * calendar app the phone has, which owns the entry from there. setlist.fm records no
+ * start time, so the evening is a sensible default the user adjusts in that editor.
+ */
+private fun calendarInsert(setlist: FmSetlist): Intent {
+    val intent = Intent(Intent.ACTION_INSERT)
+        .setData(CalendarContract.Events.CONTENT_URI)
+        .putExtra(CalendarContract.Events.TITLE, setlist.artist?.name ?: "Concert")
+        .putExtra(CalendarContract.Events.EVENT_LOCATION, setlist.venueLine())
+    setlist.localDate()?.atTime(19, 0)?.atZone(ZoneId.systemDefault())?.toInstant()?.toEpochMilli()
+        ?.let { intent.putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, it) }
+    return intent
+}
+
+/** A share-sheet intent carrying a gig-invite deep link a contact's app can open. */
+private fun gigInviteChooser(setlist: FmSetlist): Intent {
+    val label = listOfNotNull(setlist.artist?.name, setlist.venue?.name, setlist.readableDate())
+        .joinToString(" · ")
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, "Come to this with me — $label\n${gigInviteUri(setlist.id)}")
+    }
+    return Intent.createChooser(send, "Invite a friend")
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun StationEventScreen(
@@ -1502,8 +1534,11 @@ fun StationEventScreen(
         },
         bottomBar = {
             if (planned && setlist != null) {
-                // The only two things you can do with a night that hasn't happened:
-                // look it up where it lives, or decide you're not going.
+                // What a planned gig lets you do follows the clock (#55): plan it while
+                // it's still ahead, check in on the night, nudge setlist.fm once it's
+                // over. An unparseable date can't be placed on that line, so it falls
+                // to the plan-ahead actions rather than losing them.
+                val timeState = setlist.localDate()?.let { gigTimeState(LocalDateTime.now(), it) }
                 Column(
                     Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -1525,15 +1560,56 @@ fun StationEventScreen(
                             )
                         }
                     }
-                    setlist.url?.let { url ->
-                        Text(
-                            "‹ swipe to open this show on setlist.fm",
-                            color = Slate,
-                            fontSize = 13.sp,
-                            modifier = Modifier
-                                .clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
-                                .padding(vertical = 6.dp),
-                        )
+                    when (timeState) {
+                        // Over: adding a setlist is a past action, so the setlist.fm
+                        // crumb belongs here and only here.
+                        GigTimeState.PAST -> setlist.url?.let { url ->
+                            Text(
+                                "‹ swipe to open this show on setlist.fm",
+                                color = Slate,
+                                fontSize = 13.sp,
+                                modifier = Modifier
+                                    .clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                                    .padding(vertical = 6.dp),
+                            )
+                        }
+                        // The night itself: maps and check-in (#33), handled above. No
+                        // crumb, no plan-ahead buttons.
+                        GigTimeState.DAY_OF -> {}
+                        // Still ahead (or an undated gig): the two plan-ahead actions.
+                        else -> {
+                            // Add to calendar — a one-time button. Gone once used and
+                            // stays gone across a cold start; making a calendar entry
+                            // twice is the mistake. Degrades to a toast with no calendar app.
+                            if (setlist.id !in state.calendarAddedGigs) {
+                                Text(
+                                    "Add to calendar",
+                                    color = Slate,
+                                    fontSize = 13.sp,
+                                    modifier = Modifier
+                                        .clickable {
+                                            try {
+                                                context.startActivity(calendarInsert(setlist))
+                                                viewModel.markCalendarAdded(setlist.id)
+                                            } catch (e: ActivityNotFoundException) {
+                                                Toast.makeText(context, "No calendar app to add this to.", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                        .padding(vertical = 6.dp),
+                                )
+                            }
+                            // Invite friends — repeatable: an invite is per-person, so
+                            // the button stays. Same deep-link + share-sheet as the
+                            // friend card, a gig-invite payload the recipient opens.
+                            Text(
+                                "Invite friends",
+                                color = Slate,
+                                fontSize = 13.sp,
+                                modifier = Modifier
+                                    .clickable { context.startActivity(gigInviteChooser(setlist)) }
+                                    .padding(vertical = 6.dp),
+                            )
+                        }
                     }
                     Text(
                         "I'm not going",

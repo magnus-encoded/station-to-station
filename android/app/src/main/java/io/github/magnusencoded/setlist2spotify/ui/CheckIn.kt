@@ -57,9 +57,8 @@ const val CITY_GATE_M = 30_000.0
 val NIGHT_ENDS: LocalTime = LocalTime.of(6, 0)
 
 /**
- * Is [gigDate] happening now? False for every past night — which is the guard that
- * matters, since [gigTimeState] has no PAST state and answers DAY_OF for a gig in
- * 2008. Nothing here may lean on it.
+ * Is [gigDate] happening now? False for every past night. This is the window
+ * [gigTimeState] reuses to draw its DAY_OF/PAST line, so the two stay in step.
  */
 fun withinCheckInWindow(now: LocalDateTime, gigDate: LocalDate?): Boolean {
     if (gigDate == null) return false
