@@ -67,6 +67,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -103,6 +104,7 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -860,15 +862,10 @@ internal fun TimelineItem(
                         .padding(start = nodeX - size / 2 + 1.dp, top = 6.dp)
                         .size(size)
                         .clip(CircleShape)
-                        .background(
-                            // See-through: a node is a ring, and the lines stop at
-                            // its rim rather than being hidden behind a fill.
-                            when {
-                                shared -> Color.Transparent
-                                highlight -> AmberSoft
-                                else -> Color.Transparent
-                            },
-                        )
+                        // Opaque interior so the spine stops at the rim instead of
+                        // running through the node. A ring over a transparent centre
+                        // let the line show straight through the circle.
+                        .background(Ground)
                         .border(
                             2.dp,
                             // Amber is what "mine" looks like at every resolution; the
@@ -882,7 +879,13 @@ internal fun TimelineItem(
                             },
                             CircleShape,
                         ),
-                )
+                ) {
+                    // The most-recent node keeps its soft amber glow — over the opaque
+                    // fill now, so it tints the interior without the line behind it.
+                    if (highlight && !shared) {
+                        Box(Modifier.matchParentSize().background(AmberSoft))
+                    }
+                }
             }
         }
         Column(Modifier.padding(start = if (inside) 14.dp else 0.dp, end = 18.dp, bottom = 22.dp)) {
@@ -902,14 +905,15 @@ internal fun TimelineItem(
             )
             Spacer(Modifier.height(2.dp))
             Text(setlist.venueLine(), color = Muted, fontSize = 13.sp)
-            // The Reliver's own keepsakes of the night, small enough not to compete
-            // with the facts around them — under the artist, over the song count.
+            // The Reliver's own keepsakes of the night — under the artist, over the
+            // song count. Big enough to actually read as a photo; the facts still win
+            // by being text, and the full-size gallery on the gig screen is bigger still.
             if (photos.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
                 Row {
                     photos.take(3).forEach { uri ->
-                        PhotoThumb(uri, size = 20.dp, loadPreview = loadPhotoPreview)
-                        Spacer(Modifier.width(4.dp))
+                        PhotoThumb(uri, size = 44.dp, loadPreview = loadPhotoPreview)
+                        Spacer(Modifier.width(6.dp))
                     }
                 }
             }
@@ -2049,7 +2053,21 @@ private fun SongRow(
                     .background(Raised)
                     .border(1.5.dp, LineLit, CircleShape),
                 contentAlignment = Alignment.Center,
-            ) { if (number != null) Text(number.toString(), color = Faint, fontSize = 10.sp) }
+            ) {
+                if (number != null) Text(
+                    number.toString(),
+                    color = Faint,
+                    fontSize = 10.sp,
+                    // Default font padding pads above the ascent, so a centred digit
+                    // sits high in a circle this small. Drop it and pin the line height
+                    // to the glyph so Center means the digit's centre, not the box's.
+                    lineHeight = 10.sp,
+                    textAlign = TextAlign.Center,
+                    style = LocalTextStyle.current.copy(
+                        platformStyle = PlatformTextStyle(includeFontPadding = false),
+                    ),
+                )
+            }
         }
         Column(Modifier.weight(1f).padding(top = 1.dp, bottom = 15.dp)) {
             Text(song.name, color = if (number == null) Muted else Ink, fontSize = 15.sp)
