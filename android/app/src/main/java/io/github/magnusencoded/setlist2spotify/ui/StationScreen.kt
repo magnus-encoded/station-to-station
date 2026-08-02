@@ -64,6 +64,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -100,6 +101,7 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -1974,7 +1976,21 @@ private fun SongRow(
                     .background(Raised)
                     .border(1.5.dp, LineLit, CircleShape),
                 contentAlignment = Alignment.Center,
-            ) { if (number != null) Text(number.toString(), color = Faint, fontSize = 10.sp) }
+            ) {
+                if (number != null) Text(
+                    number.toString(),
+                    color = Faint,
+                    fontSize = 10.sp,
+                    // Default font padding pads above the ascent, so a centred digit
+                    // sits high in a circle this small. Drop it and pin the line height
+                    // to the glyph so Center means the digit's centre, not the box's.
+                    lineHeight = 10.sp,
+                    textAlign = TextAlign.Center,
+                    style = LocalTextStyle.current.copy(
+                        platformStyle = PlatformTextStyle(includeFontPadding = false),
+                    ),
+                )
+            }
         }
         Column(Modifier.weight(1f).padding(top = 1.dp, bottom = 15.dp)) {
             Text(song.name, color = if (number == null) Muted else Ink, fontSize = 15.sp)
