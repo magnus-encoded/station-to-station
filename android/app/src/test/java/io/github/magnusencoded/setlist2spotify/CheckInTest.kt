@@ -65,14 +65,13 @@ class CheckInWindowTest {
     }
 
     /**
-     * The guard PR #45 added for plannedStatus, restated for check-in: gigTimeState
-     * answers DAY_OF for every day from the gig onward, so anything leaning on it
-     * would offer a check-in at a gig from 2008. This must not.
+     * gigTimeState draws its DAY_OF/PAST line from this same window (#55), so a gig
+     * from 2008 reads PAST and offers no check-in. The two can't drift apart.
      */
-    @Test fun `a long past gig is not happening now, whatever gigTimeState says`() {
+    @Test fun `a long past gig is past, and cannot be checked into`() {
         val old = LocalDate.of(2008, 6, 14)
         val now = LocalDateTime.of(2026, 8, 13, 21, 0)
-        assertEquals(GigTimeState.DAY_OF, gigTimeState(now.toLocalDate(), old))
+        assertEquals(GigTimeState.PAST, gigTimeState(now, old))
         assertFalse(withinCheckInWindow(now, old))
         assertFalse(canCheckInManually(gig("old", "14-06-2008"), now))
     }

@@ -128,6 +128,14 @@ data class TimelineCache(
      * provenance `planned` — this list is the record, that map is the claim.
      */
     val plannedShows: List<FmSetlist> = emptyList(),
+    /**
+     * Gigs whose "add to calendar" button has been pressed, by gig id. A local UI
+     * fact — the calendar entry lives in the OS calendar, not here; this only
+     * remembers that the one-time button is spent so it stays gone across a cold
+     * start. Its own field, not a provenance value: adding a calendar entry says
+     * nothing about whether I was there (#29's attendanceByGig owns that claim).
+     */
+    val calendarAddedGigs: Set<String> = emptySet(),
 )
 
 /** [file] rather than a Context only so the merge can be tested on the JVM. */
@@ -228,6 +236,11 @@ class TimelineStore(private val file: File) {
             plannedShows = it.plannedShows.filterNot { s -> s.id == gigId },
             attendanceByGig = if (stillPlanned) it.attendanceByGig - gigId else it.attendanceByGig,
         )
+    }
+
+    /** Remembers that a gig's one-time "add to calendar" button has been used. */
+    suspend fun markCalendarAdded(gigId: String): Unit = writeMerged {
+        it.copy(calendarAddedGigs = it.calendarAddedGigs + gigId)
     }
 
     /**

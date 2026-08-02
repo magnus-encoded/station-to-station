@@ -36,6 +36,22 @@ fun Friend.toShareUri(): Uri = Uri.Builder()
     .apply { spotifyId?.let { appendQueryParameter("sid", it) } }
     .build()
 
+/**
+ * The link that invites someone to a gig I'm going to. Same deep-link mechanism as
+ * the friend card, a different authority: the setlist.fm id is all a second device
+ * needs — it fetches the rest (see [friendFromUri] for the parsing counterpart).
+ */
+fun gigInviteUri(setlistId: String): Uri = Uri.Builder()
+    .scheme("setlist2spotify")
+    .authority("gig")
+    .appendQueryParameter("id", setlistId)
+    .build()
+
+/** The setlist.fm id out of a `setlist2spotify://gig?id=...` invite, or null. */
+fun gigIdFromInvite(uri: Uri): String? =
+    if (uri.authority != "gig") null
+    else uri.getQueryParameter("id")?.trim()?.ifBlank { null }
+
 // --- Playlist-as-card discovery ---
 //
 // A converted playlist's description carries the creator's setlist.fm username in
