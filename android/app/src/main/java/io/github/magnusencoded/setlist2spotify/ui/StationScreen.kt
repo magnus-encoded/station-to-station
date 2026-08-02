@@ -897,14 +897,15 @@ internal fun TimelineItem(
             )
             Spacer(Modifier.height(2.dp))
             Text(setlist.venueLine(), color = Muted, fontSize = 13.sp)
-            // The Reliver's own keepsakes of the night, small enough not to compete
-            // with the facts around them — under the artist, over the song count.
+            // The Reliver's own keepsakes of the night — under the artist, over the
+            // song count. Big enough to actually read as a photo; the facts still win
+            // by being text, and the full-size gallery on the gig screen is bigger still.
             if (photos.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
                 Row {
                     photos.take(3).forEach { uri ->
-                        PhotoThumb(uri, size = 20.dp, loadPreview = loadPhotoPreview)
-                        Spacer(Modifier.width(4.dp))
+                        PhotoThumb(uri, size = 44.dp, loadPreview = loadPhotoPreview)
+                        Spacer(Modifier.width(6.dp))
                     }
                 }
             }
