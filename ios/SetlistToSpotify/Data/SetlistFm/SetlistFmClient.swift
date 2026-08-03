@@ -17,21 +17,24 @@ final class SetlistFmClient {
         }
         var comps = URLComponents(string: "https://api.setlist.fm/rest/1.0/\(path)")!
         comps.queryItems = params.compactMap { k, v in v.map { URLQueryItem(name: k, value: $0) } }
-        var request = URLRequest(url: comps.url!)
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let url = comps.url!
+        let headers = ["x-api-key": apiKey, "Accept": "application/json"]
 
         var backoff: UInt64 = 1_000_000_000 // 1s in ns
         let maxAttempts = 3
         for attempt in 1...maxAttempts {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-            switch code {
-            case 200...299: return data
+            // Forced over IPv4 (see IPv4Https): setlist.fm's IPv6/CloudFront edge
+            // returns 406 to everything, and iOS's URLSession prefers IPv6.
+            let resp = try await IPv4Https.get(url: url, headers: headers)
+            switch resp.status {
+            case 200...299: return resp.body
             case 429, 500...599: break // retry
             case 404: throw AppError("Not found (404). Check the name/ID and try again.")
             case 403: throw AppError("setlist.fm rejected the API key (403).")
-            default: throw AppError("setlist.fm error \(code)")
+            default:
+                let body = String(data: resp.body, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines).prefix(200) ?? ""
+                throw AppError("setlist.fm error \(resp.status)\(body.isEmpty ? "" : ": \(body)")")
             }
             if attempt == maxAttempts { break }
             try await Task.sleep(nanoseconds: backoff)
@@ -99,11 +102,11 @@ final class SetlistFmClient {
     /// Returns nil on anything unexpected — the caller falls back to the venue name.
     func festivalName(setlistURL: String) async -> String? {
         guard let url = URL(string: setlistURL) else { return nil }
-        var request = URLRequest(url: url)
-        request.setValue("text/html", forHTTPHeaderField: "Accept")
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
-              (200...299).contains((response as? HTTPURLResponse)?.statusCode ?? 0),
-              let html = String(data: data, encoding: .utf8)
+        // Same IPv4 forcing as the API — the setlist.fm website is behind the same
+        // CloudFront. Best-effort: any failure just leaves the venue name.
+        guard let resp = try? await IPv4Https.get(url: url, headers: ["Accept": "text/html"]),
+              (200...299).contains(resp.status),
+              let html = String(data: resp.body, encoding: .utf8)
         else { return nil }
         return parseFestivalName(html)
     }
