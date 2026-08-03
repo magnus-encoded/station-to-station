@@ -1,8 +1,11 @@
 name: iOS CI
 
 on:
+  # No branch filter, for the reason android.yml gives: the work happens on
+  # branches and there is no local Xcode, so a branch that can't reach CI can't
+  # be checked at all. Costs macOS runner minutes; buys the timeline snapshot
+  # and the unit tests on every iOS push instead of only at PR time.
   push:
-    branches: [ "main" ]
     paths: [ "ios/**", ".github/workflows/ios.yml" ]
   pull_request:
     branches: [ "main" ]
