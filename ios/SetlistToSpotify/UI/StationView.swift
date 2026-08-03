@@ -6,7 +6,7 @@ import SwiftUI
 // green Crossing on my Spine, and the Joined run after it is green too.
 //
 // The grammar and every rejected alternative (rungs, midpoint merges, wide lanes)
-// live in UBIQUITOUS_LANGUAGE.md and the #22/#23 resolutions. This is the SwiftUI
+// live in CONTEXT.md and the #22/#23 resolutions. This is the SwiftUI
 // rendering of what weaveTimelines already decides; it is not a port of the
 // Compose widget tree (#12: native, not a port).
 

@@ -5,7 +5,7 @@ import Foundation
 // in this file never needs a migration.
 //
 // Ported from the Android FestivalScreen.kt/StationScreen.kt logic, term for term
-// with UBIQUITOUS_LANGUAGE.md. The vocabulary is exact: Line, Spine, Lane, Node,
+// with CONTEXT.md. The vocabulary is exact: Line, Spine, Lane, Node,
 // Crossing, Joined, Absorb.
 
 /// A timeline is a mix of single gigs and festivals (a run of shows at one venue).
