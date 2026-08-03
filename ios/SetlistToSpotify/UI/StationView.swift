@@ -290,7 +290,11 @@ private struct StationRow: View {
                 }
                 node
             }
-            .frame(width: SpineWidth + laneWidth)
+            // Stretch to the row's full height so the Spine is one continuous stroke
+            // down the timeline. Without this the ZStack takes its ideal height (the
+            // node, ~22pt), the line spans only the top of each row, and the Spine
+            // breaks into gaps. Android gets this from IntrinsicSize.Min + fillMaxHeight.
+            .frame(width: SpineWidth + laneWidth, maxHeight: .infinity)
 
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -309,6 +313,10 @@ private struct StationRow: View {
         if isFestival {
             let size: CGFloat = 22
             ZStack {
+                // Opaque interior so the spine stops at the rim instead of running
+                // through the ring — a Node is a ring you see the Ground through, not
+                // the line behind it. Matches Android's TimelineItem fill.
+                Circle().fill(ground)
                 Circle().strokeBorder(nodeColor, lineWidth: 2)
                 Text(row.sharedCount > 0 ? "\(row.sharedCount)" : "\(row.node.shows.count)")
                     .font(.system(size: 10, weight: .semibold)).foregroundStyle(nodeColor)
@@ -317,7 +325,8 @@ private struct StationRow: View {
             .offset(x: nodeX - size / 2, y: 15 - size / 2)
         } else if row.mine {
             let size: CGFloat = row.depth > 0 ? 10 : 14
-            Circle().strokeBorder(nodeColor, lineWidth: 2)
+            Circle().fill(ground)
+                .overlay(Circle().strokeBorder(nodeColor, lineWidth: 2))
                 .frame(width: size, height: size)
                 .offset(x: nodeX - size / 2, y: 13 - size / 2)
         }
