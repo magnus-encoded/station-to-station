@@ -291,7 +291,13 @@ struct StationRow: View {
                 }
                 node
             }
-            .frame(width: SpineWidth + laneWidth)
+            // Pin the column leading: the default centre alignment would centre the
+            // ZStack (whose intrinsic width is the node's), so the Spine and Node —
+            // drawn at a fixed offset inside it — shifted by a node-size-dependent
+            // amount and the line jogged left/right row to row (festival widest, so
+            // leftmost; a small inner Node rightmost). Leading makes the offset
+            // absolute, so the Spine is one straight, continuous stroke.
+            .frame(width: SpineWidth + laneWidth, alignment: .leading)
 
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
