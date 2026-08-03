@@ -65,6 +65,8 @@ struct UiState {
     var zoomedOut = false
     var festivalNames: [String: String] = [:]
     var timelineLoading = false
+    /// Distinguishes "no Lanes yet" from "Lanes arriving" when the strip opens.
+    var lanesLoading = false
     /// Row keys of the Festivals uncollapsed in place. Not a screen: a Festival
     /// opens where it stands.
     var expandedFestivals: Set<String> = []
@@ -187,6 +189,30 @@ final class AppModel: ObservableObject {
     /// Pinch out to open the friends' Lanes beside my Spine, pinch in to close
     /// them. Nothing navigates — the same one Timeline, at a different Resolution.
     func setZoomedOut(_ v: Bool) { state.zoomedOut = v }
+
+    /// Fetches whichever Followed Lanes are stale (missing, empty, or not back
+    /// to my own oldest Gig) and merges them in. Called when the strip opens —
+    /// a cached-and-complete Lane costs nothing here. One friend's failure
+    /// keeps their last good Lane and never blocks the others. Ported term for
+    /// term from Android's `loadFriendTimelines`.
+    func loadFriendTimelines() {
+        let friends = state.friends
+        if friends.isEmpty { return }
+        let myOldest = state.timelineShows.compactMap { $0.localDate() }.min()
+        let stale = friends.filter { laneIsStale(state.showsByFriend[$0.setlistfm], oldestOfMine: myOldest) }
+        if stale.isEmpty { return }
+        state.lanesLoading = true
+        Task {
+            var loaded: [String: [FmSetlist]] = [:]
+            for friend in stale {
+                let shows = try? await setlistFm.attendedShows(friend.setlistfm, backTo: myOldest).shows
+                if let shows, !shows.isEmpty { loaded[friend.setlistfm] = shows }
+            }
+            state.showsByFriend.merge(loaded) { _, new in new }
+            state.lanesLoading = false
+            await timelines.save(shows: loaded)
+        }
+    }
 
     /// Seeds the Timeline from a bundled weave fixture (`fixtures/weave/<name>`).
     /// The only way CI and a URL bar can reach a populated Spine without a live

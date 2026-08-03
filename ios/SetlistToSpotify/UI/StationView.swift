@@ -158,6 +158,11 @@ struct StationView: View {
                 }
         )
         .onAppear { model.loadTimeline() }
+        // Fetch friends' Lanes when the strip opens, not at launch — a
+        // Resolution never opened shouldn't spend setlist.fm's budget.
+        .onChange(of: model.state.zoomedOut) { open in
+            if open { model.loadFriendTimelines() }
+        }
     }
 
     private var wordmark: some View {
@@ -171,6 +176,8 @@ struct StationView: View {
 
     private var menu: some View {
         HStack(spacing: 2) {
+            // Distinguishes an empty strip from one still arriving.
+            if showingLanes && model.state.lanesLoading { ProgressView().tint(faint) }
             // The converter is not gone — it lives behind search, as on Android.
             Button { nav.push(.search) } label: { Image(systemName: "magnifyingglass") }
             Button { nav.push(.friends) } label: { Image(systemName: "person.2") }
