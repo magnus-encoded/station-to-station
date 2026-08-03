@@ -81,20 +81,32 @@ struct StationView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var nav: Nav
 
+    /// In-progress pinch, as a fraction of open (0...1). Nil once the gesture
+    /// has ended and settled into `model.state.zoomedOut`. View-local: it is
+    /// visual feedback for a gesture in flight, not app state to persist.
+    @State private var dragFraction: CGFloat?
+
     private var lanes: [Friend] { model.state.friends }
+
+    /// Open enough to show Lanes, whether settled or mid-pinch.
+    private var showingLanes: Bool { model.state.zoomedOut || (dragFraction ?? 0) > 0 }
 
     private var rows: [WovenRow] {
         let s = model.state
         return weaveTimelines(
             mine: s.timelineShows,
             festivalNames: s.festivalNames,
-            friends: s.zoomedOut ? lanes : [],
-            theirs: s.zoomedOut ? s.showsByFriend : [:],
+            friends: showingLanes ? lanes : [],
+            theirs: showingLanes ? s.showsByFriend : [:],
             expanded: s.expandedFestivals
         )
     }
 
-    private var laneWidth: CGFloat { model.state.zoomedOut ? stripWidth(lanes.count) : 0 }
+    private var laneWidth: CGFloat {
+        let full = stripWidth(lanes.count)
+        if let f = dragFraction { return full * f }
+        return model.state.zoomedOut ? full : 0
+    }
 
     private var earliest: Int? {
         model.state.timelineShows.compactMap { Int($0.year() ?? "") }.min()
@@ -122,12 +134,24 @@ struct StationView: View {
         .navigationBarBackButtonHidden(true)
         // Pinch out to open the friends' Lanes beside my Spine; pinch in to close
         // them. Different mechanics from Android's two-finger pan, same result:
-        // nothing navigates.
-        .gesture(
+        // nothing navigates. `.simultaneousGesture` rather than `.gesture`: the
+        // enclosing ScrollView claims an exclusive gesture first and the pinch
+        // never fires, so this must run alongside the scroll's own recognisers
+        // instead of competing with them. No friends, no strip to open — the
+        // gesture is a no-op rather than opening an empty one.
+        .simultaneousGesture(
             MagnificationGesture()
-                .onEnded { scale in
-                    if scale > 1.15 { withAnimation(.spring()) { model.setZoomedOut(true) } }
-                    else if scale < 0.87 { withAnimation(.spring()) { model.setZoomedOut(false) } }
+                .onChanged { scale in
+                    guard !lanes.isEmpty else { return }
+                    let base: CGFloat = model.state.zoomedOut ? 1 : 0
+                    dragFraction = min(max(base + (scale - 1), 0), 1)
+                }
+                .onEnded { _ in
+                    guard let f = dragFraction else { return }
+                    withAnimation(.spring()) {
+                        model.setZoomedOut(f > 0.5)
+                        dragFraction = nil
+                    }
                 }
         )
         // Swipe the timeline left to start connecting with someone nearby — the
