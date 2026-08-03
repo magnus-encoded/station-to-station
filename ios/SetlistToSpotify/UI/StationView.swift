@@ -132,19 +132,22 @@ struct StationView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
-        // Pinch out to open the friends' Lanes beside my Spine; pinch in to close
-        // them. Different mechanics from Android's two-finger pan, same result:
-        // nothing navigates. `.simultaneousGesture` rather than `.gesture`: the
-        // enclosing ScrollView claims an exclusive gesture first and the pinch
-        // never fires, so this must run alongside the scroll's own recognisers
-        // instead of competing with them. No friends, no strip to open — the
-        // gesture is a no-op rather than opening an empty one.
+        // Zoom out (pinch fingers together) opens the friends' Lanes beside my
+        // Spine — the Timelines resolution is the "larger" one, same sense as
+        // Android's onZoomOut. Zoom in (spread apart) closes them. `scale` from
+        // MagnificationGesture rises as fingers spread, so zooming out is
+        // falling scale, hence `1 - scale` below. `.simultaneousGesture` rather
+        // than `.gesture`: the enclosing ScrollView claims an exclusive gesture
+        // first and the pinch never fires, so this must run alongside the
+        // scroll's own recognisers instead of competing with them. No friends,
+        // no strip to open — the gesture is a no-op rather than opening an
+        // empty one.
         .simultaneousGesture(
             MagnificationGesture()
                 .onChanged { scale in
                     guard !lanes.isEmpty else { return }
                     let base: CGFloat = model.state.zoomedOut ? 1 : 0
-                    dragFraction = min(max(base + (scale - 1), 0), 1)
+                    dragFraction = min(max(base + (1 - scale), 0), 1)
                 }
                 .onEnded { _ in
                     guard let f = dragFraction else { return }
