@@ -290,12 +290,7 @@ private struct StationRow: View {
                 }
                 node
             }
-            // Stretch to the row's full height so the Spine is one continuous stroke
-            // down the timeline. Without this the ZStack takes its ideal height (the
-            // node, ~22pt), the line spans only the top of each row, and the Spine
-            // breaks into gaps. Android gets this from IntrinsicSize.Min + fillMaxHeight.
             .frame(width: SpineWidth + laneWidth)
-            .frame(maxHeight: .infinity)
 
             content
                 .frame(maxWidth: .infinity, alignment: .leading)

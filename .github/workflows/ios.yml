@@ -54,6 +54,17 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             ${{ steps.creds.outputs.args }}
 
+      # A rendered PNG of the Timeline (StationSnapshotTests via ImageRenderer),
+      # so timeline geometry can be reviewed without a device. always(): the
+      # picture is most wanted when something else about the build is off.
+      - name: Upload timeline snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: timeline-snapshot
+          path: ios/snapshot-out/*.png
+          if-no-files-found: warn
+
       - name: Build device app (unsigned)
         working-directory: ios
         run: |

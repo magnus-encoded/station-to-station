@@ -127,6 +127,11 @@ final class AppModel: ObservableObject {
             let me = state.mySetlistFmUser.trimmingCharacters(in: .whitespaces)
             state.festivalNames = cache.festivalNames
             state.timelineShows = cache.shows[me] ?? []
+            // A cached spine may hold festivals whose real names were never
+            // resolved (import failed the scrape, or predates it). Android
+            // resolves on every load; iOS only did so after a fresh import, so
+            // a reopened app kept showing venue names. Retry the unresolved ones.
+            resolveFestivalNames()
         }
     }
 

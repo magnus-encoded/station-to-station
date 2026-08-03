@@ -78,6 +78,7 @@ struct GigView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
         .navigationBarTitleDisplayMode(.inline)
+        .swipeBack(nav)
     }
 
     private func header(_ show: FmSetlist) -> some View {
