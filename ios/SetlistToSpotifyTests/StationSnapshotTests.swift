@@ -32,19 +32,30 @@ final class StationSnapshotTests: XCTestCase {
         let cache = try JSONDecoder().decode(TimelineCache.self, from: data)
         let me = try JSONDecoder().decode(Me.self, from: data).me
 
-        let model = AppModel()
-        model.state.mySetlistFmUser = me
-        model.state.timelineShows = cache.shows[me] ?? []
-        model.state.festivalNames = cache.festivalNames
-        model.state.zoomedOut = false  // my own line — the reported resolution
+        let mine = cache.shows[me] ?? []
         // Open every festival so the member-gig indentation is in the picture too.
-        let rows = weaveTimelines(mine: model.state.timelineShows, festivalNames: cache.festivalNames)
-        model.state.expandedFestivals = Set(rows.filter { $0.node.isFestival }.map(\.key))
+        let collapsed = weaveTimelines(mine: mine, festivalNames: cache.festivalNames)
+        let expanded = Set(collapsed.filter { $0.node.isFestival }.map(\.key))
+        let rows = weaveTimelines(mine: mine, festivalNames: cache.festivalNames, expanded: expanded)
 
-        let content = StationView()
-            .environmentObject(model)
-            .environmentObject(Nav())
-            .frame(width: 393, height: 1400)
+        // Render the rows directly (my own line, laneWidth 0). ImageRenderer can't
+        // draw a ScrollView/LazyVStack, but a plain column of StationRow reproduces
+        // the same geometry: continuity between rows, node position, indentation.
+        let content = VStack(spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.element.key) { i, row in
+                StationRow(
+                    row: row,
+                    next: rows.indices.contains(i + 1) ? rows[i + 1] : nil,
+                    lanes: [],
+                    laneWidth: 0,
+                    highlight: i == 0,
+                    onTap: {}
+                )
+            }
+        }
+        .frame(width: 393)
+        .background(Color(red: 0x0E / 255, green: 0x0B / 255, blue: 0x14 / 255))
+        .environment(\.colorScheme, .dark)
 
         let renderer = ImageRenderer(content: content)
         renderer.scale = 2

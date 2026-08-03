@@ -251,8 +251,9 @@ struct StationView: View {
 }
 
 /// One row of the Spine. The Spine column is a fixed width at every Resolution, so
-/// nothing moves when the Lanes open.
-private struct StationRow: View {
+/// nothing moves when the Lanes open. Not private so a snapshot test can render a
+/// column of rows directly (ImageRenderer can't draw a ScrollView/LazyVStack).
+struct StationRow: View {
     let row: WovenRow
     let next: WovenRow?
     let lanes: [Friend]
