@@ -1,6 +1,7 @@
 package io.github.magnusencoded.setlist2spotify
 
 import io.github.magnusencoded.setlist2spotify.data.StoredAttendance
+import io.github.magnusencoded.setlist2spotify.data.StoredMedia
 import io.github.magnusencoded.setlist2spotify.data.StoredPlaylist
 import io.github.magnusencoded.setlist2spotify.data.TimelineStore
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmArtist
@@ -17,6 +18,11 @@ class TimelineStoreTest {
     private fun store() = TimelineStore(File.createTempFile("timelines", ".json").also { it.delete() })
 
     private fun show(id: String) = FmSetlist(id = id, eventDate = "25-06-2026", artist = FmArtist(name = "The Warning"))
+
+    // Ids fixed rather than random so an assertion can name one.
+    private fun photo(ref: String) = StoredMedia(id = "m-$ref", kind = StoredMedia.Kind.PHOTO, ref = ref)
+
+    private fun video(ref: String) = StoredMedia(id = "m-$ref", kind = StoredMedia.Kind.VIDEO, ref = ref)
 
     @Test
     fun `missing file loads empty rather than throwing`() = runBlocking {
@@ -116,17 +122,42 @@ class TimelineStoreTest {
     @Test
     fun `song offsets survive a save of the shows around them`() = runBlocking {
         val store = store()
-        store.saveSongOffsets("a", listOf(0L, 214_000L, -1L))
+        store.saveMedia("a", listOf(video("content://rec.mp4")))
+        store.saveSongOffsets("m-content://rec.mp4", listOf(0L, 214_000L, -1L))
         store.save(shows = mapOf("magnus" to listOf(show("a"))))
-        assertEquals(listOf(0L, 214_000L, -1L), store.load().songOffsets()["a"])
+        assertEquals(listOf(0L, 214_000L, -1L), store.load().media()["a"]?.single()?.songOffsets)
     }
 
     @Test
-    fun `restamping a night replaces its offsets rather than appending`() = runBlocking {
+    fun `restamping a recording replaces its offsets rather than appending`() = runBlocking {
         val store = store()
-        store.saveSongOffsets("a", listOf(0L, 100L))
-        store.saveSongOffsets("a", listOf(0L, 250L))
-        assertEquals(listOf(0L, 250L), store.load().songOffsets()["a"])
+        store.saveMedia("a", listOf(video("content://rec.mp4")))
+        store.saveSongOffsets("m-content://rec.mp4", listOf(0L, 100L))
+        store.saveSongOffsets("m-content://rec.mp4", listOf(0L, 250L))
+        assertEquals(listOf(0L, 250L), store.load().media()["a"]?.single()?.songOffsets)
+    }
+
+    @Test
+    fun `two recordings of one night each carry their own stamps`() = runBlocking {
+        // The shape #27 needed and a night-keyed map could not express.
+        val store = store()
+        store.saveMedia("a", listOf(video("content://one.mp4"), video("content://two.mp4")))
+        store.saveSongOffsets("m-content://one.mp4", listOf(0L, 100L))
+        store.saveSongOffsets("m-content://two.mp4", listOf(0L, 250L))
+        val media = store.load().media()["a"].orEmpty()
+        assertEquals(listOf(0L, 100L), media[0].songOffsets)
+        assertEquals(listOf(0L, 250L), media[1].songOffsets)
+    }
+
+    @Test
+    fun `removing one recording leaves the other one's stamps alone`() = runBlocking {
+        val store = store()
+        store.saveMedia("a", listOf(video("content://one.mp4"), video("content://two.mp4")))
+        store.saveSongOffsets("m-content://one.mp4", listOf(0L, 100L))
+        store.saveSongOffsets("m-content://two.mp4", listOf(0L, 250L))
+        val kept = store.load().media()["a"].orEmpty().first { it.ref == "content://two.mp4" }
+        store.saveMedia("a", listOf(kept))
+        assertEquals(listOf(0L, 250L), store.load().media()["a"]?.single()?.songOffsets)
     }
 
     @Test
@@ -181,8 +212,8 @@ class TimelineStoreTest {
         // appears on setlist.fm; nothing may be orphaned by the good news.
         val store = store()
         val gigId = store.createLocalGig("25-06-2026", "The Warning", "Vaterland")
-        store.savePhotos(gigId, listOf("content://photo1"))
-        store.saveSongOffsets(gigId, listOf(0L, 214_000L))
+        store.saveMedia(gigId, listOf(photo("content://photo1"), video("content://rec.mp4")))
+        store.saveSongOffsets("m-content://rec.mp4", listOf(0L, 214_000L))
         store.saveAttendance(
             gigId,
             StoredAttendance(provenance = StoredAttendance.Provenance.CHECKED_IN, checkedInAt = 42L),
@@ -195,8 +226,11 @@ class TimelineStoreTest {
         val after = store.load()
         // Adoption moved no data: the same records, now answering to the vendor id.
         assertEquals("63de6d5b", after.setlistIdFor(gigId))
-        assertEquals(listOf("content://photo1"), after.photos()["63de6d5b"])
-        assertEquals(listOf(0L, 214_000L), after.songOffsets()["63de6d5b"])
+        assertEquals(
+            listOf("content://photo1", "content://rec.mp4"),
+            after.media()["63de6d5b"]?.map { it.ref },
+        )
+        assertEquals(listOf(0L, 214_000L), after.media()["63de6d5b"]?.last()?.songOffsets)
         assertEquals(42L, after.attendance()["63de6d5b"]?.checkedInAt)
         assertEquals("content://com.android.calendar/events/7", after.calendarEvents()["63de6d5b"])
         assertEquals(1, after.playlists()["63de6d5b"]?.size)
@@ -216,7 +250,7 @@ class TimelineStoreTest {
     @Test
     fun `a night is found from either end`() = runBlocking {
         val store = store()
-        store.savePhotos("63de6d5b", listOf("content://photo1"))
+        store.saveMedia("63de6d5b", listOf(photo("content://photo1")))
         val cached = store.load()
         val gig = cached.gigForSetlist("63de6d5b")
         assertEquals("63de6d5b", gig?.setlistId)
@@ -242,13 +276,13 @@ class TimelineStoreTest {
     fun `two records of one night merge, oldest id wins, nothing is lost`() = runBlocking {
         val store = store()
         val older = store.createLocalGig("25-06-2026", "The Warning", "Vaterland")
-        store.savePhotos(older, listOf("content://photo1"))
+        store.saveMedia(older, listOf(photo("content://photo1")))
         store.saveAttendance(
             older,
             StoredAttendance(provenance = StoredAttendance.Provenance.CHECKED_IN, checkedInAt = 42L),
         )
         // The same night, found again by an import that didn't know it was already here.
-        store.savePhotos("63de6d5b", listOf("content://photo2"))
+        store.saveMedia("63de6d5b", listOf(photo("content://photo2")))
         val newer = store.load().gigForSetlist("63de6d5b")!!.id
 
         assertEquals(older, store.mergeGigs(older, newer))
@@ -256,7 +290,7 @@ class TimelineStoreTest {
         assertEquals(1, after.gigs.size)
         // The survivor takes the union, and the vendor id the other one carried.
         assertEquals("63de6d5b", after.setlistIdFor(older))
-        assertEquals(listOf("content://photo1", "content://photo2"), after.photos()["63de6d5b"])
+        assertEquals(listOf("content://photo1", "content://photo2"), after.media()["63de6d5b"]?.map { it.ref })
         assertEquals(42L, after.attendance()["63de6d5b"]?.checkedInAt)
     }
 
@@ -268,7 +302,7 @@ class TimelineStoreTest {
             """{"shows":{"magnus":[{"id":"a1","eventDate":"25-06-2026",""" +
                 """"artist":{"name":"Gojira"},"venue":{"name":"Ekebergsletta"}}]},""" +
                 """"playlistsMade":{"a1":[{"url":"u","name":"n","trackCount":3}]},""" +
-                """"photosBySetlist":{"a1":["content://photo1"]},""" +
+                """"photosBySetlist":{"a1":["content://photo1","content://rec.mp4"]},""" +
                 """"songOffsetsBySetlist":{"a1":[0,214000]},""" +
                 """"attendanceByGig":{"a1":{"provenance":"checked_in","checkedInAt":42}},""" +
                 """"calendarEventByGig":{"a1":"content://cal/7"}}"""
@@ -285,8 +319,12 @@ class TimelineStoreTest {
         assertEquals("Gojira", gig.artist)
         assertEquals("Ekebergsletta", gig.venue)
         // Everything still resolves, under the id the screens use.
-        assertEquals(listOf("content://photo1"), cached.photos()["a1"])
-        assertEquals(listOf(0L, 214_000L), cached.songOffsets()["a1"])
+        assertEquals(
+            listOf("content://photo1", "content://rec.mp4"),
+            cached.media()["a1"]?.map { it.ref },
+        )
+        // The night's one video takes the stamps that used to belong to the night.
+        assertEquals(listOf(0L, 214_000L), cached.media()["a1"]?.last()?.songOffsets)
         assertEquals(42L, cached.attendance()["a1"]?.checkedInAt)
         assertEquals("content://cal/7", cached.calendarEvents()["a1"])
         assertEquals(1, cached.playlists()["a1"]?.size)
@@ -302,7 +340,7 @@ class TimelineStoreTest {
         store.save(shows = mapOf("magnus" to listOf(show("b"))))
         val cached = store.load()
         assertEquals(listOf("content://photo1"), cached.photosBySetlist["a1"])
-        assertEquals(listOf("content://photo1"), cached.photos()["a1"])
+        assertEquals(listOf("content://photo1"), cached.media()["a1"]?.map { it.ref })
     }
 
     @Test
@@ -311,10 +349,10 @@ class TimelineStoreTest {
         file.writeText("""{"photosBySetlist":{"a1":["content://photo1"]}}""")
         val store = TimelineStore(file)
         val first = store.load().gigs.keys
-        store.savePhotos("a1", listOf("content://photo1", "content://photo2"))
+        store.saveMedia("a1", listOf(photo("content://photo1"), photo("content://photo2")))
         val cached = store.load()
         assertEquals(first, cached.gigs.keys)
-        assertEquals(2, cached.photos()["a1"]?.size)
+        assertEquals(2, cached.media()["a1"]?.size)
     }
 
     @Test
@@ -338,16 +376,19 @@ class TimelineStoreTest {
         val store = store()
         store.save(shows = mapOf("magnus" to listOf(show("a"), show("b"))))
         store.save(playlists = mapOf("a" to playlist("p1")))
-        store.savePhotos("a", listOf("content://photo1"))
-        store.saveSongOffsets("a", listOf(0L, 200_000L))
+        store.saveMedia("a", listOf(photo("content://photo1"), video("content://rec.mp4")))
+        store.saveSongOffsets("m-content://rec.mp4", listOf(0L, 200_000L))
         store.saveAttendance("a", StoredAttendance(provenance = StoredAttendance.Provenance.CHECKED_IN, checkedInAt = 99L))
         store.saveAttendance("local-1", StoredAttendance(provenance = StoredAttendance.Provenance.PLANNED))
 
         val cached = store.load()
         assertEquals(listOf("a", "b"), cached.shows["magnus"]?.map { it.id })
         assertEquals(1, cached.playlists()["a"]?.size)
-        assertEquals(listOf("content://photo1"), cached.photos()["a"])
-        assertEquals(listOf(0L, 200_000L), cached.songOffsets()["a"])
+        assertEquals(
+            listOf("content://photo1", "content://rec.mp4"),
+            cached.media()["a"]?.map { it.ref },
+        )
+        assertEquals(listOf(0L, 200_000L), cached.media()["a"]?.last()?.songOffsets)
         assertEquals(StoredAttendance.Provenance.CHECKED_IN, cached.attendance()["a"]?.provenance)
         assertEquals(StoredAttendance.Provenance.PLANNED, cached.attendance()["local-1"]?.provenance)
     }
@@ -411,15 +452,18 @@ class TimelineStoreTest {
         val store = store()
         store.save(shows = mapOf("magnus" to listOf(show("a"), show("b"))))
         store.save(playlists = mapOf("a" to playlist("p1")))
-        store.savePhotos("a", listOf("content://photo1"))
-        store.saveSongOffsets("a", listOf(0L, 200_000L))
+        store.saveMedia("a", listOf(photo("content://photo1"), video("content://rec.mp4")))
+        store.saveSongOffsets("m-content://rec.mp4", listOf(0L, 200_000L))
         store.savePlanned(show("oya"))
 
         val cached = store.load()
         assertEquals(listOf("a", "b"), cached.shows["magnus"]?.map { it.id })
         assertEquals(1, cached.playlists()["a"]?.size)
-        assertEquals(listOf("content://photo1"), cached.photos()["a"])
-        assertEquals(listOf(0L, 200_000L), cached.songOffsets()["a"])
+        assertEquals(
+            listOf("content://photo1", "content://rec.mp4"),
+            cached.media()["a"]?.map { it.ref },
+        )
+        assertEquals(listOf(0L, 200_000L), cached.media()["a"]?.last()?.songOffsets)
         assertEquals(listOf("oya"), cached.planned().map { it.id })
         // The gig I'm going to is not among the nights I was at.
         assertTrue(cached.shows["magnus"].orEmpty().none { it.id == "oya" })
@@ -469,5 +513,65 @@ class TimelineStoreTest {
         val cached = TimelineStore(file).load()
         assertEquals(listOf("a"), cached.shows["magnus"]?.map { it.id })
         assertTrue(cached.attendance().isEmpty())
+    }
+
+    // --- #97: media becomes a record ----------------------------------------
+
+    private fun oldCache(photos: String, offsets: String = "[0,214000]"): TimelineStore {
+        val file = File.createTempFile("timelines", ".json")
+        file.writeText(
+            """{"photosBySetlist":{"a1":$photos},"songOffsetsBySetlist":{"a1":$offsets}}"""
+        )
+        return TimelineStore(file)
+    }
+
+    @Test
+    fun `a night with exactly one video takes the stamps that were the night's`() = runBlocking {
+        val cached = oldCache("""["content://photo.jpg","content://rec.mp4"]""").load()
+        val media = cached.media()["a1"].orEmpty()
+        assertEquals(listOf(StoredMedia.Kind.PHOTO, StoredMedia.Kind.VIDEO), media.map { it.kind })
+        assertEquals(emptyList<Long>(), media[0].songOffsets)
+        assertEquals(listOf(0L, 214_000L), media[1].songOffsets)
+    }
+
+    @Test
+    fun `a night with no video leaves its stamps in the dead key untouched`() = runBlocking {
+        val cached = oldCache("""["content://photo.jpg"]""").load()
+        assertEquals(emptyList<Long>(), cached.media()["a1"]?.single()?.songOffsets)
+        // Nothing is lost — the old key still holds them, and a guess would have
+        // been worse than declining: there is no recording to be right about.
+        assertEquals(listOf(0L, 214_000L), cached.songOffsetsBySetlist["a1"])
+    }
+
+    @Test
+    fun `a night with two videos leaves its stamps put rather than guessing`() = runBlocking {
+        val cached = oldCache("""["content://one.mp4","content://two.mp4"]""").load()
+        assertTrue(cached.media()["a1"].orEmpty().all { it.songOffsets.isEmpty() })
+        assertEquals(listOf(0L, 214_000L), cached.songOffsetsBySetlist["a1"])
+    }
+
+    @Test
+    fun `migrated media ids are derived, so two platforms reach one set of them`() = runBlocking {
+        // Fixed rather than recomputed here: iOS asserts the same literal, so
+        // neither platform can drift by agreeing with its own arithmetic.
+        val cached = oldCache("""["content://photo.jpg"]""").load()
+        assertEquals("70c08466-7711-5bc1-a64c-519669c9a42a", cached.media()["a1"]?.single()?.id)
+    }
+
+    @Test
+    fun `Personal survives the migration as false and is never inferred`() = runBlocking {
+        val cached = oldCache("""["content://photo.jpg","content://rec.mp4"]""").load()
+        assertTrue(cached.media()["a1"].orEmpty().none { it.personal })
+        // Nor is anything invented for the fields only a live attach can know.
+        assertTrue(cached.media()["a1"].orEmpty().all { it.capturedAt == null && it.from == null })
+    }
+
+    @Test
+    fun `the old photo keys survive the media migration`() = runBlocking {
+        val store = oldCache("""["content://photo.jpg"]""")
+        store.saveMedia("a1", listOf(photo("content://photo.jpg"), photo("content://new.jpg")))
+        val cached = store.load()
+        assertEquals(listOf("content://photo.jpg"), cached.photosBySetlist["a1"])
+        assertEquals(2, cached.media()["a1"]?.size)
     }
 }

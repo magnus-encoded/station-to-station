@@ -9,6 +9,7 @@ import io.github.magnusencoded.setlist2spotify.data.Friend
 import io.github.magnusencoded.setlist2spotify.data.DeviceLocation
 import io.github.magnusencoded.setlist2spotify.data.SettingsRepository
 import io.github.magnusencoded.setlist2spotify.data.StoredAttendance
+import io.github.magnusencoded.setlist2spotify.data.StoredMedia
 import io.github.magnusencoded.setlist2spotify.data.StoredPlaylist
 import io.github.magnusencoded.setlist2spotify.data.TimelineStore
 import io.github.magnusencoded.setlist2spotify.data.friendFromUri
@@ -144,10 +145,13 @@ data class UiState(
     /** True once the gallery has been searched, so "nothing found" can be said. */
     val coverSearched: Boolean = false,
     val coverPermissionGranted: Boolean = false,
-    /** The Reliver's own photos on a gig's single-night view, by setlist id. */
-    val photosBySetlist: Map<String, List<Uri>> = emptyMap(),
-    /** Where each song starts in a night's recording; see TimelineCache.songOffsetsBySetlist. */
-    val songOffsetsBySetlist: Map<String, List<Long>> = emptyMap(),
+    /**
+     * The Reliver's media on a gig's single-night view, by setlist id — records
+     * now, not bare URIs (#97), so a photo carries its kind, its capture time and
+     * the **Personal** bit rather than being a string the gallery can invalidate.
+     * A video's song stamps ride on its own record.
+     */
+    val mediaBySetlist: Map<String, List<StoredMedia>> = emptyMap(),
     // Gig-photo suggestions: the same same-night gallery search as the playlist
     // cover picker, offered as one-tap adds instead of a single chosen cover.
     val gigPhotoSuggestions: List<CoverCandidate> = emptyList(),
@@ -347,9 +351,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 // it back under the id the screens use — the setlist.fm id where the
                 // night has one, its own where it doesn't.
                 playlistsBySetlist = it.playlistsBySetlist + cached.playlists(),
-                photosBySetlist = it.photosBySetlist +
-                    cached.photos().mapValues { (_, uris) -> uris.map(Uri::parse) },
-                songOffsetsBySetlist = it.songOffsetsBySetlist + cached.songOffsets(),
+                mediaBySetlist = it.mediaBySetlist + cached.media(),
                 plannedGigs = sortedPlanned(cached.planned()),
                 attendanceByGig = it.attendanceByGig + cached.attendance(),
                 calendarEventByGig = it.calendarEventByGig + cached.calendarEvents(),
@@ -1262,7 +1264,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(coverPermissionGranted = granted) }
         viewModelScope.launch {
             _state.update { it.copy(coverLoading = true) }
-            val pinned = _state.value.photosBySetlist[setlist.id].orEmpty()
+            val pinned = _state.value.mediaBySetlist[setlist.id].orEmpty().map { Uri.parse(it.ref) }
             val gallery = if (granted) photos.photosFrom(date).map { it.uri } else emptyList()
             val candidates = (pinned + gallery).distinct().map { CoverCandidate(it, photos.preview(it)) }
             _state.update {
@@ -1305,26 +1307,49 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * picker rather than matched by date — this is "my picture of that night", not the
      * same-night search [loadCoverCandidates] does for a playlist cover.
      */
-    fun addGigPhotos(setlistId: String, uris: List<Uri>) = setGigPhotos(
-        setlistId,
-        (_state.value.photosBySetlist[setlistId].orEmpty() + uris).distinct(),
-    )
+    fun addGigPhotos(setlistId: String, uris: List<Uri>) {
+        viewModelScope.launch {
+            val had = _state.value.mediaBySetlist[setlistId].orEmpty()
+            val fresh = uris.filterNot { u -> had.any { it.ref == u.toString() } }
+                .map { attachedRecord(it, from = it) }
+            if (fresh.isNotEmpty()) setGigMedia(setlistId, had + fresh)
+        }
+    }
 
     /**
      * Same as [addGigPhotos], but for uris fresh out of the system photo picker: those
      * only grant read access for the running process, so they're copied into our own
      * storage first — otherwise the keepsake goes blank the next time the app launches.
+     *
+     * Kind and capture time are read off the *picked* uri, before the copy: that is
+     * the one moment the gallery is guaranteed to answer, which is the whole premise
+     * of #97. The copy is what the record points at afterwards.
      */
     fun addPickedGigPhotos(setlistId: String, uris: List<Uri>) {
         viewModelScope.launch {
-            val copied = uris.mapNotNull { photos.persistCopy(it) }
-            if (copied.isNotEmpty()) addGigPhotos(setlistId, copied)
+            val had = _state.value.mediaBySetlist[setlistId].orEmpty()
+            val fresh = uris.mapNotNull { picked ->
+                photos.persistCopy(picked)?.let { attachedRecord(it, from = picked) }
+            }
+            if (fresh.isNotEmpty()) setGigMedia(setlistId, had + fresh)
         }
     }
 
-    fun removeGigPhoto(setlistId: String, uri: Uri) = setGigPhotos(
+    /**
+     * A record for one newly attached item. [ref] is what it will be found by later;
+     * [from] is where the facts are read, which is the original when [ref] is a copy
+     * the app just made — a copy has no MediaStore row and so no capture time at all.
+     */
+    private fun attachedRecord(ref: Uri, from: Uri) = StoredMedia(
+        id = java.util.UUID.randomUUID().toString(),
+        kind = if (photos.isVideo(from)) StoredMedia.Kind.VIDEO else StoredMedia.Kind.PHOTO,
+        ref = ref.toString(),
+        capturedAt = photos.capturedAtMs(from),
+    )
+
+    fun removeGigPhoto(setlistId: String, uri: Uri) = setGigMedia(
         setlistId,
-        _state.value.photosBySetlist[setlistId].orEmpty() - uri,
+        _state.value.mediaBySetlist[setlistId].orEmpty().filterNot { it.ref == uri.toString() },
     )
 
     /** Drops a playlist link the app made — for when the playlist itself was deleted
@@ -1345,8 +1370,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * edited on setlist.fm after a night was stamped, and a stored list of the old
      * length would otherwise shift every song's time by one.
      */
-    fun songOffsets(setlistId: String, songCount: Int): List<Long> {
-        val stored = _state.value.songOffsetsBySetlist[setlistId].orEmpty()
+    fun songOffsets(mediaId: String?, songCount: Int): List<Long> {
+        val stored = mediaId?.let { id ->
+            _state.value.mediaBySetlist.values.firstNotNullOfOrNull { media ->
+                media.firstOrNull { it.id == id }
+            }
+        }?.songOffsets.orEmpty()
         return List(songCount) { stored.getOrElse(it) { NOT_STAMPED } }
     }
 
@@ -1358,20 +1387,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * songs — a clip setlist.fm left out sits in the gap between two stamps — so
      * nothing may be inferred about its neighbours from one stamp.
      */
-    fun stampSong(setlistId: String, index: Int, atMs: Long, songCount: Int) {
-        val offsets = songOffsets(setlistId, songCount).toMutableList()
+    fun stampSong(mediaId: String, index: Int, atMs: Long, songCount: Int) {
+        val offsets = songOffsets(mediaId, songCount).toMutableList()
         if (index !in offsets.indices) return
         offsets[index] = atMs
-        _state.update { it.copy(songOffsetsBySetlist = it.songOffsetsBySetlist + (setlistId to offsets)) }
-        viewModelScope.launch { timelines.saveSongOffsets(setlistId, offsets) }
+        _state.update {
+            it.copy(
+                mediaBySetlist = it.mediaBySetlist.mapValues { (_, media) ->
+                    media.map { m -> if (m.id == mediaId) m.copy(songOffsets = offsets) else m }
+                },
+            )
+        }
+        viewModelScope.launch { timelines.saveSongOffsets(mediaId, offsets) }
     }
 
     /** Dragged to a new place in the strip — same set, new order. */
-    fun reorderGigPhotos(setlistId: String, newOrder: List<Uri>) = setGigPhotos(setlistId, newOrder)
+    fun reorderGigPhotos(setlistId: String, newOrder: List<Uri>) {
+        val byRef = _state.value.mediaBySetlist[setlistId].orEmpty().associateBy { it.ref }
+        setGigMedia(setlistId, newOrder.mapNotNull { byRef[it.toString()] })
+    }
 
-    private fun setGigPhotos(setlistId: String, photos: List<Uri>) {
-        _state.update { it.copy(photosBySetlist = it.photosBySetlist + (setlistId to photos)) }
-        viewModelScope.launch { timelines.savePhotos(setlistId, photos.map(Uri::toString)) }
+    private fun setGigMedia(setlistId: String, media: List<StoredMedia>) {
+        _state.update { it.copy(mediaBySetlist = it.mediaBySetlist + (setlistId to media)) }
+        viewModelScope.launch { timelines.saveMedia(setlistId, media) }
     }
 
     /**

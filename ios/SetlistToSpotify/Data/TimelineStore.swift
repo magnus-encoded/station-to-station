@@ -116,6 +116,78 @@ struct StoredGig: Codable, Equatable {
     }
 }
 
+/// One photo or video on a night (#97). Field for field with Android's
+/// `StoredMedia`.
+///
+/// Before this, **Attach** stored a raw gallery reference and copied nothing, so
+/// the app owned no bytes: tidying the gallery, reinstalling, or granting access
+/// to only some photos each emptied a night with nothing deleted. A list of
+/// strings also had nowhere to put a capture time, a **Pointer**, the **Personal**
+/// bit, provenance, or a stable id.
+///
+/// `id` is assigned by the owner at **Attach** and carried forever: it names the
+/// thumbnail files #98 writes, and it is what makes any future sync idempotent.
+/// A UUID and not a content hash — hashing full-res means reading a 233 MB
+/// recording at attach time, for a dedup that only applies to the same bytes
+/// attached twice.
+///
+/// `kind` is *stored*, not sniffed at read time: asking for a MIME type works
+/// right up until the reference dies, which is the entire premise of this record.
+struct StoredMedia: Codable, Equatable {
+    enum Kind {
+        static let photo = "photo"
+        static let video = "video"
+        /// The reference was already dead when we looked. Not a guess.
+        static let unknown = "unknown"
+    }
+
+    var id: String = ""
+    /// `Kind`. A plain string, not an enum, for the reason `provenance` is one.
+    var kind: String = Kind.photo
+    /// The local reference: a content URI on Android, an asset id on iOS.
+    var ref: String = ""
+    /// When the camera took it — not when it was attached. Nil when unknowable.
+    var capturedAt: Int64?
+    /// Whose camera it came from: a **Contact**'s public key, per #28. Nil means
+    /// mine. **My media** and **Received media** must stay distinguishable above.
+    var from: String?
+    /// **Personal**: attached, but never sent. One bit, default off.
+    var personal: Bool = false
+    /// A **Pointer** into the owner's own cloud. One nullable string, because
+    /// sharing is deferred (#101–#104 are parked).
+    var pointer: String?
+    /// For a video: where each song starts *inside this recording*, in
+    /// milliseconds, one entry per song in setlist order, `-1` for not stamped.
+    /// On the record and not on the night, because a night with two recordings
+    /// has to put the second one's stamps somewhere (#27).
+    var songOffsets: [Int64] = []
+
+    init(id: String = "", kind: String = Kind.photo, ref: String = "",
+         capturedAt: Int64? = nil, from: String? = nil, personal: Bool = false,
+         pointer: String? = nil, songOffsets: [Int64] = []) {
+        self.id = id
+        self.kind = kind
+        self.ref = ref
+        self.capturedAt = capturedAt
+        self.from = from
+        self.personal = personal
+        self.pointer = pointer
+        self.songOffsets = songOffsets
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decodeIfPresent(String.self, forKey: .id)) ?? nil ?? ""
+        kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? nil ?? Kind.photo
+        ref = (try? c.decodeIfPresent(String.self, forKey: .ref)) ?? nil ?? ""
+        capturedAt = (try? c.decodeIfPresent(Int64.self, forKey: .capturedAt)) ?? nil
+        from = (try? c.decodeIfPresent(String.self, forKey: .from)) ?? nil
+        personal = (try? c.decodeIfPresent(Bool.self, forKey: .personal)) ?? nil ?? false
+        pointer = (try? c.decodeIfPresent(String.self, forKey: .pointer)) ?? nil
+        songOffsets = (try? c.decodeIfPresent([Int64].self, forKey: .songOffsets)) ?? nil ?? []
+    }
+}
+
 /// A UUID derived from `name` rather than drawn at random — RFC 4122 version 5,
 /// the SHA-1 flavour, byte for byte with Android's `uuidFrom`.
 ///
@@ -139,6 +211,18 @@ func uuidFrom(_ name: String) -> String {
 
 /// The id a **Gig** gets the first time it is seen through a setlist.fm id.
 func gigIdForSetlistId(_ setlistId: String) -> String { uuidFrom("gig:\(setlistId)") }
+
+private let videoExtensions: Set<String> = ["mp4", "mov", "m4v", "3gp", "mkv", "webm"]
+private let photoExtensions: Set<String> = ["jpg", "jpeg", "png", "heic", "heif", "webp", "gif"]
+
+/// A picker reference usually has no extension, so this catches the copies the app
+/// made for itself and little else. Honest ignorance beats a guess.
+func mediaKind(of ref: String) -> String {
+    let ext = (ref as NSString).pathExtension.lowercased()
+    if videoExtensions.contains(ext) { return StoredMedia.Kind.video }
+    if photoExtensions.contains(ext) { return StoredMedia.Kind.photo }
+    return StoredMedia.Kind.unknown
+}
 
 /// The file's whole contents. Fields iOS does not use yet are still carried
 /// through a save: dropping Android's photos or song offsets on the first write
@@ -185,9 +269,11 @@ struct TimelineCache: Codable {
 
     /// Every night this app knows about, by its own id. See `StoredGig`.
     var gigs: [String: StoredGig] = [:]
-    /// Replaces `photosBySetlist`. Becomes media records in #97.
+    /// Replaced `photosBySetlist`; dead in turn since #97, which gave media a
+    /// record instead of a bare reference. See `gigMedia`.
     var gigPhotos: [String: [String]] = [:]
-    /// Replaces `songOffsetsBySetlist`.
+    /// Replaced `songOffsetsBySetlist`; dead in turn since #97, which moved
+    /// offsets onto the video they belong to. See `StoredMedia.songOffsets`.
     var gigSongOffsets: [String: [Int64]] = [:]
     /// Replaces `attendanceByGig`.
     var gigAttendance: [String: StoredAttendance] = [:]
@@ -199,6 +285,10 @@ struct TimelineCache: Codable {
     /// the identity; the value is unchanged, and the order it used to carry was
     /// re-sorted on read anyway.
     var gigPlanned: [String: FmSetlist] = [:]
+    /// The media on each night, by **Gig** id, in the order the user arranged it
+    /// (#97). No sort field on the record: deriving and correcting a night's
+    /// arrangement is #75's subject, and a speculative field would prejudge it.
+    var gigMedia: [String: [StoredMedia]] = [:]
 
     init() {}
 
@@ -223,6 +313,7 @@ struct TimelineCache: Codable {
         gigCalendarEvent = map(.gigCalendarEvent, String.self)
         gigPlaylists = map(.gigPlaylists, [StoredPlaylist].self)
         gigPlanned = map(.gigPlanned, FmSetlist.self)
+        gigMedia = map(.gigMedia, [StoredMedia].self)
     }
 
     /// The id this gig is known by *outside* the store: its setlist.fm id where it
@@ -246,8 +337,7 @@ struct TimelineCache: Codable {
     func setlistIdFor(_ gigId: String) -> String? { gigs[gigId]?.setlistId }
 
     // What the screens read: the gig-keyed maps, back under the id the UI uses.
-    func photos() -> [String: [String]] { rekeyed(gigPhotos) }
-    func songOffsets() -> [String: [Int64]] { rekeyed(gigSongOffsets) }
+    func media() -> [String: [StoredMedia]] { rekeyed(gigMedia) }
     func attendance() -> [String: StoredAttendance] { rekeyed(gigAttendance) }
     func calendarEvents() -> [String: String] { rekeyed(gigCalendarEvent) }
     func playlists() -> [String: [StoredPlaylist]] { rekeyed(gigPlaylists) }
@@ -327,22 +417,31 @@ actor TimelineStore {
         }
     }
 
-    /// The Reliver's current set of photos for one gig, replacing what was there.
-    func savePhotos(setlistId: String, uris: [String]) {
+    /// The Reliver's current media for one gig, replacing what was there.
+    func saveMedia(setlistId: String, media: [StoredMedia]) {
         writeMerged { cache in
             var c = cache
             let gigId = c.withGig(setlistId)
-            c.gigPhotos[gigId] = uris
+            c.gigMedia[gigId] = media
             return c
         }
     }
 
-    /// A night's song start times inside its recording, replacing what was there.
-    func saveSongOffsets(setlistId: String, offsets: [Int64]) {
+    /// Where each song starts inside one recording, replacing what was there.
+    ///
+    /// By media id, not by night: a night with two recordings has two answers,
+    /// and before #97 the second one had nowhere to live. A stamp for a video no
+    /// longer attached is dropped rather than resurrecting the record.
+    func saveSongOffsets(mediaId: String, offsets: [Int64]) {
         writeMerged { cache in
             var c = cache
-            let gigId = c.withGig(setlistId)
-            c.gigSongOffsets[gigId] = offsets
+            guard let gigId = c.gigMedia.first(where: { $0.value.contains { $0.id == mediaId } })?.key
+            else { return c }
+            c.gigMedia[gigId] = c.gigMedia[gigId]?.map {
+                var m = $0
+                if m.id == mediaId { m.songOffsets = offsets }
+                return m
+            }
             return c
         }
     }
@@ -427,8 +526,8 @@ actor TimelineStore {
             // Photos and playlists are collections of separate things, so the
             // union is every one of them. The rest are one current value per
             // night, where the survivor's own answer is the one to keep.
-            c.gigPhotos = c.gigPhotos.folded(keep.id, gone.id) { k, d in
-                k + d.filter { !k.contains($0) }
+            c.gigMedia = c.gigMedia.folded(keep.id, gone.id) { k, d in
+                k + d.filter { m in !k.contains(where: { $0.id == m.id }) }
             }
             c.gigPlaylists = c.gigPlaylists.folded(keep.id, gone.id) { k, d in
                 k + d.filter { p in !k.contains(where: { $0.url == p.url }) }
@@ -466,7 +565,9 @@ extension TimelineCache {
     /// `attendanceByGig` allowed for a local id there too, but #34 — the only
     /// thing that would ever have minted one — was never built, so no cache in
     /// existence contains one.
-    func migrated() -> TimelineCache {
+    func migrated() -> TimelineCache { withGigs().withMedia() }
+
+    private func withGigs() -> TimelineCache {
         guard gigs.isEmpty else { return self }
         var oldKeys: [String] = []
         var seen = Set<String>()
@@ -490,6 +591,43 @@ extension TimelineCache {
         c.gigPlaylists = rekey(playlistsMade, idOf)
         for show in plannedShows { c.gigPlanned[idOf[show.id] ?? show.id] = show }
         return c.withGigFacts()
+    }
+
+    /// #97's migration: a bare gallery reference becomes a record with an
+    /// identity, and a night's song stamps move onto the recording they describe.
+    ///
+    /// Kind is resolved from the reference's extension and otherwise recorded as
+    /// `unknown` — an honest gap rather than a guess. Android additionally asks
+    /// its ContentResolver while the reference may still be alive, which is the
+    /// one moment kind can still be learned; there is no equivalent here, because
+    /// the references in an old cache are Android content URIs this platform
+    /// cannot resolve at all. Whichever device migrates first writes `gigMedia`
+    /// and the other simply reads it.
+    ///
+    /// The offsets rule is **exactly one video, or nothing**. A night with none or
+    /// with two leaves the old entry untouched in the dead key rather than
+    /// guessing: a wrong guess silently mis-stamps a recording, and nothing is
+    /// lost by declining.
+    func withMedia() -> TimelineCache {
+        guard gigMedia.isEmpty, !gigPhotos.isEmpty else { return self }
+        var c = self
+        for (gigId, refs) in gigPhotos {
+            var items = refs.map { ref in
+                StoredMedia(
+                    // Derived, like the gig ids, so both platforms migrate one
+                    // cache to one set of ids — and #98's filenames stay stable.
+                    id: uuidFrom("media:\(gigId):\(ref)"),
+                    kind: mediaKind(of: ref),
+                    ref: ref
+                )
+            }
+            if let offsets = gigSongOffsets[gigId] {
+                let videoIndexes = items.indices.filter { items[$0].kind == StoredMedia.Kind.video }
+                if videoIndexes.count == 1 { items[videoIndexes[0]].songOffsets = offsets }
+            }
+            c.gigMedia[gigId] = items
+        }
+        return c
     }
 
     /// The **Gig** `key` names, minting one if this is the first thing ever hung

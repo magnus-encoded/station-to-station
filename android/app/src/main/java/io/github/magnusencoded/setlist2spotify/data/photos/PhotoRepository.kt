@@ -117,6 +117,28 @@ class PhotoRepository(private val context: Context) {
     fun isVideo(uri: Uri): Boolean = context.contentResolver.getType(uri)?.startsWith("video/") == true
 
     /**
+     * When the camera took [uri], for the record #97 keeps — not when it was
+     * attached, which is admin rather than history.
+     *
+     * DATE_TAKEN comes from EXIF and is absent on anything without it; DATE_ADDED
+     * (seconds, not millis) is the fallback and is at least the right order of
+     * magnitude for a night. Null when the row answers neither, because a wrong
+     * timestamp on a keepsake is worse than an honest gap. Must be read from the
+     * *picked* uri: a copy the app made has no MediaStore row at all.
+     */
+    fun capturedAtMs(uri: Uri): Long? = runCatching {
+        val columns = arrayOf(MediaStore.MediaColumns.DATE_TAKEN, MediaStore.MediaColumns.DATE_ADDED)
+        context.contentResolver.query(uri, columns, null, null, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val taken = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_TAKEN)
+                .takeIf { it >= 0 && !cursor.isNull(it) }?.let { cursor.getLong(it) }
+            val added = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_ADDED)
+                .takeIf { it >= 0 && !cursor.isNull(it) }?.let { cursor.getLong(it) * 1000 }
+            (taken ?: added)?.takeIf { it > 0 }
+        }
+    }.getOrNull()
+
+    /**
      * A preview big enough to fill the cover-sized pager. Held in RGB_565: at
      * twenty photos the difference against ARGB_8888 is tens of megabytes, and
      * the uploaded cover is re-decoded from the original at full depth anyway.

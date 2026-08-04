@@ -124,6 +124,7 @@ import io.github.magnusencoded.setlist2spotify.NOT_STAMPED
 import io.github.magnusencoded.setlist2spotify.data.DeviceLocation
 import io.github.magnusencoded.setlist2spotify.data.Friend
 import io.github.magnusencoded.setlist2spotify.data.StoredAttendance
+import io.github.magnusencoded.setlist2spotify.data.StoredMedia
 import io.github.magnusencoded.setlist2spotify.data.gigInviteUri
 import io.github.magnusencoded.setlist2spotify.data.photos.PhotoRepository
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
@@ -514,7 +515,8 @@ fun StationTimelineScreen(
                                         nodeX = nodeX,
                                         shared = row.shared,
                                         rails = rails,
-                                        photos = state.photosBySetlist[node.setlist.id].orEmpty(),
+                                        photos = state.mediaBySetlist[node.setlist.id]
+                                            .orEmpty().map { Uri.parse(it.ref) },
                                         loadPhotoPreview = viewModel::photoPreview,
                                         onClick = {
                                             viewModel.openShow(node.setlist)
@@ -1470,7 +1472,8 @@ fun StationEventScreen(
     // What this night already became. Every one of them: each url may be in
     // somebody's hands, so none of them stops being reachable from here.
     val made = setlist?.let { state.playlistsBySetlist[it.id] }.orEmpty()
-    val gigPhotos = setlist?.let { state.photosBySetlist[it.id] }.orEmpty()
+    val gigMedia = setlist?.let { state.mediaBySetlist[it.id] }.orEmpty()
+    val gigPhotos = gigMedia.map { Uri.parse(it.ref) }
     // The Reliver picks straight from the system photo (and video) picker — no
     // gallery permission needed for that path, unlike the suggestions below.
     val photoPicker = rememberLauncherForActivityResult(
@@ -1490,7 +1493,10 @@ fun StationEventScreen(
     var viewerStartMs by remember { mutableStateOf(NOT_STAMPED) }
     // The night's full recording: the first video among the keepsakes. Photos and
     // one-song clips sit alongside it and are not treated as the recording.
-    val recording = gigPhotos.firstOrNull { viewModel.isVideo(it) }
+    // Kind comes off the record now (#97), not from asking the ContentResolver —
+    // a reference that has died still knows what it was.
+    val recordingMedia = gigMedia.firstOrNull { it.kind == StoredMedia.Kind.VIDEO }
+    val recording = recordingMedia?.let { Uri.parse(it.ref) }
 
     // The planned-gig leaf, staged like the Spotify convert (#55): the swipe adds the
     // gig to the calendar, then — once the event exists and its link is showing —
@@ -1730,7 +1736,7 @@ fun StationEventScreen(
         }
         val rows = setlist.eventRows()
         val canConvert = setlist.performed().isNotEmpty()
-        val offsets = viewModel.songOffsets(setlist.id, setlist.songs().size)
+        val offsets = viewModel.songOffsets(recordingMedia?.id, setlist.songs().size)
         // Offsets are indexed over every song, tape included; row.number skips tape,
         // so it can't be used to look one up. -1 for the rows that aren't songs.
         val songIndexByRow = remember(rows) {
@@ -1901,10 +1907,12 @@ fun StationEventScreen(
             loadPhoto = viewModel::fullPhoto,
             onDismiss = { viewerUri = null; viewerStartMs = NOT_STAMPED },
             songs = songs,
-            offsets = if (setlist != null) viewModel.songOffsets(setlist.id, songs.size) else emptyList(),
+            // The stamps belong to *this* recording, not to the night — a night with
+            // two videos has two answers, and before #97 the second had nowhere to go.
+            offsets = viewModel.songOffsets(recordingMedia?.id, songs.size),
             startAtMs = viewerStartMs,
             onStamp = { index, atMs ->
-                setlist?.let { viewModel.stampSong(it.id, index, atMs, songs.size) }
+                recordingMedia?.let { viewModel.stampSong(it.id, index, atMs, songs.size) }
             },
         )
     }
