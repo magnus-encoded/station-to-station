@@ -38,4 +38,15 @@ final class FriendsLogicTests: XCTestCase {
         XCTAssertEqual(friend, parsed)
         XCTAssertNil(friendFromURL(URL(string: "setlist2spotify://callback?code=x")!))
     }
+
+    @MainActor
+    func testZoomedOutRefusesToOpenWithNoFriends() {
+        let model = AppModel()
+        model.setZoomedOut(true)
+        XCTAssertFalse(model.state.zoomedOut)
+
+        model.addFriend(Friend(setlistfm: "alice"))
+        model.setZoomedOut(true)
+        XCTAssertTrue(model.state.zoomedOut)
+    }
 }
