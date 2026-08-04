@@ -317,6 +317,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+        // #87: the peer tapped, not me — their card arrived over the write characteristic.
+        // Same landing as a tap, so one tap brings both people in.
+        exchange.onFriendReceived = { friend -> viewModelScope.launch { bringIn(friend) } }
     }
 
     override fun onCleared() {
@@ -666,14 +669,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _state.update { it.copy(connectingWith = null) }
                 return@connect
             }
-            viewModelScope.launch {
-                // Persist the friend before loading, or the load runs against the old list.
-                addFriendNow(friend)
-                _state.update { it.copy(justConnected = true, connectingWith = null) }
-                loadFriendTimelines()
-                exchange.stop()
-            }
+            viewModelScope.launch { bringIn(friend) }
         }
+    }
+
+    /**
+     * The landing an Exchange ends on, whichever side tapped: persist, say it happened,
+     * draw the line, and stop the radios — holding a card is the end of looking.
+     */
+    private suspend fun bringIn(friend: Friend) {
+        // Persist the friend before loading, or the load runs against the old list.
+        addFriendNow(friend)
+        _state.update { it.copy(justConnected = true, connectingWith = null) }
+        loadFriendTimelines()
+        exchange.stop()
     }
 
     fun consumeJustConnected() = _state.update { it.copy(justConnected = false) }

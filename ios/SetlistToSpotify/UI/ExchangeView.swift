@@ -76,6 +76,14 @@ struct ExchangeView: View {
         .task {
             // Opening this screen is the user saying they want to be found; the
             // Bluetooth prompt comes from starting the radios, here and nowhere else.
+            // The peer tapped, not me: their card arrived over the write
+            // characteristic, and it lands exactly where a tap lands.
+            session.onFriendReceived = { friend in
+                Task { @MainActor in
+                    model.addFriend(friend)
+                    nav.popToRoot()
+                }
+            }
             if let card = await model.myProbeCard() { session.start(card: card) }
             cardURL = await model.myCardURL()
         }
