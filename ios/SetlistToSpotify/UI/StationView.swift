@@ -297,7 +297,9 @@ struct StationView: View {
 
 /// One row of the Spine. The Spine column is a fixed width at every Resolution, so
 /// nothing moves when the Lanes open.
-private struct StationRow: View {
+// Internal, not private: StationSnapshotTests renders a column of these directly,
+// which is the only way CI can photograph the Spine without a device.
+struct StationRow: View {
     let row: WovenRow
     let next: WovenRow?
     let lanes: [Friend]
@@ -323,19 +325,19 @@ private struct StationRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
-            ZStack(alignment: .topLeading) {
-                // Zoomed out, the canvas owns the Lines (it has friends' Lanes to
-                // draw). Zoomed in, the Spine is a single amber stroke.
-                if zoomedOut {
-                    PeopleRails(row: row, next: next, lanes: lanes, laneWidth: laneWidth)
-                        .frame(maxHeight: .infinity)
-                } else {
-                    Rectangle().fill(amber.opacity(0.3)).frame(width: 2)
-                        .frame(maxHeight: .infinity).offset(x: SpineX)
-                }
-                node
-            }
-            .frame(width: SpineWidth + laneWidth)
+            // The Node only. The Lines are a background of the whole row (see
+            // `lines`), because a sibling here is proposed nothing taller than its
+            // own ideal height — the node's — so `maxHeight: .infinity` on the
+            // stroke could never reach the bottom of the row. The row's height
+            // comes from `content`, and the part below the node (the text and its
+            // 22pt bottom padding) drew no line at all: the gaps between rows.
+            //
+            // Leading, not the default centre: this frame is wider than the node,
+            // and centring shifts the column by a node-size-dependent amount, so
+            // the Spine lands at a different x on every row (festival 22pt, gig
+            // 14pt, inner 10pt) and zig-zags down the screen.
+            ZStack(alignment: .topLeading) { node }
+                .frame(width: SpineWidth + laneWidth, alignment: .leading)
 
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -343,8 +345,26 @@ private struct StationRow: View {
                 .padding(.bottom, 22)
                 .padding(.leading, row.depth > 0 ? 14 : 0)
         }
+        .background(alignment: .topLeading) { lines }
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
+    }
+
+    /// The Lines running through this row, drawn behind it so they span its whole
+    /// height. A background is handed the row's final size, which is the one thing
+    /// that makes the Spine continuous from one Node to the next.
+    @ViewBuilder
+    private var lines: some View {
+        Group {
+            // Zoomed out, the canvas owns the Lines (it has friends' Lanes to
+            // draw). Zoomed in, the Spine is a single amber stroke.
+            if zoomedOut {
+                PeopleRails(row: row, next: next, lanes: lanes, laneWidth: laneWidth)
+            } else {
+                Rectangle().fill(amber.opacity(0.3)).frame(width: 2).offset(x: SpineX)
+            }
+        }
+        .frame(width: SpineWidth + laneWidth, alignment: .leading)
     }
 
     /// My own Node, and a Festival's, are drawn here as a ring. A Gig only friends

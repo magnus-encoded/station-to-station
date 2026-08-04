@@ -57,6 +57,19 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             ${{ steps.creds.outputs.args }}
 
+      # The Timeline is pure geometry and the only way to check it has been to
+      # sideload and photograph the screen. StationSnapshotTests renders the real
+      # rows to a PNG; this carries it out of the runner so the Spine can be
+      # reviewed from a branch. Instrumentation, never a gate: `always()` and
+      # `if-no-files-found: ignore` so a skipped render can't fail the build.
+      - name: Upload timeline snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: timeline-snapshot
+          path: ios/snapshot-out/timeline.png
+          if-no-files-found: ignore
+
       - name: Build device app (unsigned)
         working-directory: ios
         run: |
