@@ -1310,9 +1310,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun addGigPhotos(setlistId: String, uris: List<Uri>) {
         viewModelScope.launch {
             val had = _state.value.mediaBySetlist[setlistId].orEmpty()
-            val fresh = uris.filterNot { u -> had.any { it.ref == u.toString() } }
-                .map { attachedRecord(it, from = it) }
-            if (fresh.isNotEmpty()) setGigMedia(setlistId, had + fresh)
+            val wanted = uris.filterNot { u -> had.any { it.ref == u.toString() } }
+            attach(setlistId, had, wanted.map { it to it })
         }
     }
 
@@ -1328,29 +1327,54 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun addPickedGigPhotos(setlistId: String, uris: List<Uri>) {
         viewModelScope.launch {
             val had = _state.value.mediaBySetlist[setlistId].orEmpty()
-            val fresh = uris.mapNotNull { picked ->
-                photos.persistCopy(picked)?.let { attachedRecord(it, from = picked) }
-            }
-            if (fresh.isNotEmpty()) setGigMedia(setlistId, had + fresh)
+            attach(setlistId, had, uris.mapNotNull { picked -> photos.persistCopy(picked)?.let { it to picked } })
         }
     }
 
     /**
-     * A record for one newly attached item. [ref] is what it will be found by later;
-     * [from] is where the facts are read, which is the original when [ref] is a copy
-     * the app just made — a copy has no MediaStore row and so no capture time at all.
+     * Attaches [wanted] — each a `stored reference to read the facts from` pair,
+     * which differ when the app has just copied the picked item into its own
+     * storage. Generates both thumbnail tiers first, and drops anything whose
+     * durable copy could not be written: an item with no floor under it is a
+     * keepsake that will silently empty later, so a failure is said out loud here
+     * rather than discovered in 2035.
+     *
+     * ponytail: sequential, which is the bounded queue — twenty photos at once is
+     * the normal case, and one at a time on the IO dispatcher keeps the app
+     * responsive without a scheduler. Widen it if attaching a night's worth ever
+     * feels slow.
      */
-    private fun attachedRecord(ref: Uri, from: Uri) = StoredMedia(
-        id = java.util.UUID.randomUUID().toString(),
-        kind = if (photos.isVideo(from)) StoredMedia.Kind.VIDEO else StoredMedia.Kind.PHOTO,
-        ref = ref.toString(),
-        capturedAt = photos.capturedAtMs(from),
-    )
+    private suspend fun attach(setlistId: String, had: List<StoredMedia>, wanted: List<Pair<Uri, Uri>>) {
+        val fresh = mutableListOf<StoredMedia>()
+        var failed = 0
+        for ((ref, from) in wanted) {
+            val id = java.util.UUID.randomUUID().toString()
+            if (!photos.generateThumbnails(id, from)) {
+                failed++
+                continue
+            }
+            fresh += StoredMedia(
+                id = id,
+                kind = if (photos.isVideo(from)) StoredMedia.Kind.VIDEO else StoredMedia.Kind.PHOTO,
+                ref = ref.toString(),
+                capturedAt = photos.capturedAtMs(from),
+            )
+        }
+        if (fresh.isNotEmpty()) setGigMedia(setlistId, had + fresh)
+        if (failed > 0) {
+            _state.update {
+                it.copy(error = "Couldn't read ${if (failed == 1) "that one" else "$failed of those"} — not attached.")
+            }
+        }
+    }
 
-    fun removeGigPhoto(setlistId: String, uri: Uri) = setGigMedia(
-        setlistId,
-        _state.value.mediaBySetlist[setlistId].orEmpty().filterNot { it.ref == uri.toString() },
-    )
+    fun removeGigPhoto(setlistId: String, uri: Uri) {
+        val had = _state.value.mediaBySetlist[setlistId].orEmpty()
+        val (gone, kept) = had.partition { it.ref == uri.toString() }
+        setGigMedia(setlistId, kept)
+        // Removing means removing: the derived copies this app owns go with it.
+        viewModelScope.launch { gone.forEach { photos.deleteThumbnails(it.id) } }
+    }
 
     /** Drops a playlist link the app made — for when the playlist itself was deleted
      *  on Spotify, so the pointer to it here is now just dead weight. */
@@ -1437,9 +1461,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** A thumbnail-sized decode of a gig photo or video frame, for the event view and the timeline row. */
-    suspend fun photoPreview(uri: Uri): MediaThumb =
-        MediaThumb(photos.preview(uri, sizePx = 320), photos.isVideo(uri))
+    /**
+     * The grid picture for a gig keepsake.
+     *
+     * The **durable floor** first (#98): the copy the app owns is the thing still
+     * here when the gallery reference is not, and reading a 30–60 KB JPEG is also
+     * why the strip draws instantly rather than decoding a 12 MP original per cell.
+     * The source is the fallback only for media attached before thumbnails existed.
+     */
+    suspend fun photoPreview(uri: Uri): MediaThumb {
+        val record = mediaFor(uri)
+        val bitmap = record?.let { photos.gridThumbnail(it.id) } ?: photos.preview(uri, sizePx = 320)
+        return MediaThumb(bitmap, record?.kind?.let { it == StoredMedia.Kind.VIDEO } ?: photos.isVideo(uri))
+    }
+
+    /** The record for a keepsake, found by the reference the screens hold. */
+    private fun mediaFor(uri: Uri): StoredMedia? =
+        _state.value.mediaBySetlist.values.firstNotNullOfOrNull { media ->
+            media.firstOrNull { it.ref == uri.toString() }
+        }
 
     /** Whether a gig keepsake is a video clip rather than a photo — cheap metadata
      *  lookup, checked before opening the in-app viewer so it knows which to show. */
@@ -1447,7 +1487,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     /** A bigger decode of the same photo, for the in-app viewer rather than the
      *  strip's thumbnail. */
-    suspend fun fullPhoto(uri: Uri): Bitmap? = photos.preview(uri, sizePx = 1600)
+    suspend fun fullPhoto(uri: Uri): Bitmap? {
+        val record = mediaFor(uri)
+        // Cache tier, then the source, then the floor. The cache tier is already
+        // full-screen quality and costs one small local read; the grid tier at the
+        // end is what makes a lost original degrade to *slightly soft* rather than
+        // to nothing. Absent cache is a normal state — nothing here depends on it.
+        return record?.let { photos.cachedFullThumbnail(it.id) }
+            ?: photos.preview(uri, sizePx = 1600)
+            ?: record?.let { photos.gridThumbnail(it.id) }
+    }
 
     /** Manual re-search for one song with a user-provided query. */
     fun researchSong(index: Int, query: String) {
