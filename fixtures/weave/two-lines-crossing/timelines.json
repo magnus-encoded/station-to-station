@@ -1,6 +1,6 @@
 {
   "me": "dizzi90",
-  "friends": [{ "setlistfm": "Egil", "name": "Egil" }],
+  "friends": [{ "setlistfm": "Ozzy", "name": "Ozzy" }],
   "shows": {
     "dizzi90": [
       {
@@ -22,7 +22,7 @@
         "venue": { "name": "Rockefeller" }
       }
     ],
-    "Egil": [
+    "Ozzy": [
       {
         "id": "m2",
         "eventDate": "21-11-2025",

@@ -73,7 +73,7 @@ enum class SetlistSource { ARTIST, USER }
  * its own is the setlist, a line plus a gig is that line scrolled to it.
  *
  * ponytail: [SINGLE_LINE] is always *my* line. A friend's own line is a resolution
- * the app doesn't have yet, so `station-to-station://Trummispojken/<gig>` lands on
+ * the app doesn't have yet, so `station-to-station://Lemmy/<gig>` lands on
  * mine at that night. Give it its own case when zooming into a lane exists.
  */
 enum class GigLink { SETLIST, SINGLE_LINE, WOVEN }

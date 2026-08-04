@@ -49,19 +49,19 @@ final class TimelineStoreTests: XCTestCase {
     func testSavingOneLaneLeavesTheOthersAlone() async {
         let s = store()
         await s.save(shows: ["magnus": [show("a")]])
-        await s.save(shows: ["Egil": [show("b")]])
+        await s.save(shows: ["Ozzy": [show("b")]])
         let shows = await s.load().shows
         XCTAssertEqual(["a"], shows["magnus"]?.map(\.id))
-        XCTAssertEqual(["b"], shows["Egil"]?.map(\.id))
+        XCTAssertEqual(["b"], shows["Ozzy"]?.map(\.id))
     }
 
     func testAFailedFetchDoesNotWipeTheLastGoodLane() async {
         let s = store()
-        await s.save(shows: ["Egil": [show("a")]])
+        await s.save(shows: ["Ozzy": [show("a")]])
         // A failed fetch puts an empty list in the map.
-        await s.save(shows: ["Egil": []])
+        await s.save(shows: ["Ozzy": []])
         let loaded = await s.load()
-        XCTAssertEqual(["a"], loaded.shows["Egil"]?.map(\.id))
+        XCTAssertEqual(["a"], loaded.shows["Ozzy"]?.map(\.id))
     }
 
     func testFestivalNamesAccumulateAcrossSaves() async {

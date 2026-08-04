@@ -3,19 +3,19 @@
     {
       "key": "c-m0-0", "date": "2026-08-15", "node": "gig", "title": "Ghost",
       "ownership": "mine",
-      "hosts": { "Trummispojken": "lane1", "Egil": "lane2" }
+      "hosts": { "Lemmy": "lane1", "Ozzy": "lane2" }
     },
     {
       "key": "f-w1", "date": "2026-06-25", "node": "festival", "title": "Tons of Rock 2026",
       "ownership": "together",
-      "with": ["Trummispojken", "Egil"], "together": 1, "theirs": 2,
-      "hosts": { "Trummispojken": "spine", "Egil": "spine" }
+      "with": ["Lemmy", "Ozzy"], "together": 1, "theirs": 2,
+      "hosts": { "Lemmy": "spine", "Ozzy": "spine" }
     },
     {
       "key": "c-t0-0", "date": "2026-05-02", "node": "gig", "title": "Kvelertak",
       "ownership": "theirs",
-      "with": ["Trummispojken"], "theirs": 1,
-      "hosts": { "Trummispojken": "lane1", "Egil": "lane2" }
+      "with": ["Lemmy"], "theirs": 1,
+      "hosts": { "Lemmy": "lane1", "Ozzy": "lane2" }
     }
   ]
 }

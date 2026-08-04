@@ -51,7 +51,7 @@ data class ExchangePeer(
  * card is read, by which point the person is already a contact and off this list.
  *
  * The alternative — collapsing a keyless BLE row into a Nearby row with the same display
- * name — is rejected on purpose: two different people who share a name (an "Egil" on each
+ * name — is rejected on purpose: two different people who share a name (an "Ozzy" on each
  * platform) would see one row swallow the other, and *a row that vanishes while someone is
  * reaching for it is the one failure this must not have*. The cost of this choice is that a
  * single Android peer, seen by both radios at once, appears twice for a moment. That is a

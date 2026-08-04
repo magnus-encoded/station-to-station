@@ -1,6 +1,6 @@
 {
   "me": "dizzi90",
-  "friends": [{ "setlistfm": "Trummispojken", "name": "Trummispojken" }],
+  "friends": [{ "setlistfm": "Lemmy", "name": "Lemmy" }],
   "shows": {
     "dizzi90": [
       {
@@ -16,7 +16,7 @@
         "venue": { "name": "Ekebergsletta" }
       }
     ],
-    "Trummispojken": [
+    "Lemmy": [
       {
         "id": "b1",
         "eventDate": "27-06-2026",

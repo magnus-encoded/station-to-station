@@ -6,11 +6,11 @@ import XCTest
 /// never moves to meet anyone. Ported from the Android LaneGeometryTest.
 final class LaneGeometryTests: XCTestCase {
 
-    private let egil = Friend(setlistfm: "Egil", name: "Egil")
-    private let trummis = Friend(setlistfm: "Trummispojken", name: "Trummispojken")
+    private let ozzy = Friend(setlistfm: "Ozzy", name: "Ozzy")
+    private let lemmy = Friend(setlistfm: "Lemmy", name: "Lemmy")
 
     /// Lane 0 is nearest my Spine and belongs to the most recently added friend.
-    private var lanes: [Friend] { [egil, trummis] }
+    private var lanes: [Friend] { [ozzy, lemmy] }
 
     private func row(mine: Bool, _ present: Friend...) -> WovenRow {
         WovenRow(
@@ -21,48 +21,48 @@ final class LaneGeometryTests: XCTestCase {
     }
 
     func testAFriendWhoWasntThereStaysInTheirOwnLane() {
-        XCTAssertEqual(0, hostLane(row(mine: true), egil, lanes))
-        XCTAssertEqual(1, hostLane(row(mine: true), trummis, lanes))
+        XCTAssertEqual(0, hostLane(row(mine: true), ozzy, lanes))
+        XCTAssertEqual(1, hostLane(row(mine: true), lemmy, lanes))
     }
 
     func testANightIWasAtPullsTheirLineOntoMySpine() {
-        let night = row(mine: true, egil)
-        XCTAssertEqual(Spine, hostLane(night, egil, lanes))
-        XCTAssertEqual(1, hostLane(night, trummis, lanes)) // not there, own lane
+        let night = row(mine: true, ozzy)
+        XCTAssertEqual(Spine, hostLane(night, ozzy, lanes))
+        XCTAssertEqual(1, hostLane(night, lemmy, lanes)) // not there, own lane
     }
 
     func testTwoFriendsAtANightIMissedMergeOntoTheLaneNearestMySpine() {
-        let night = row(mine: false, egil, trummis)
+        let night = row(mine: false, ozzy, lemmy)
         XCTAssertEqual(0, nodeHost(night, lanes))
-        XCTAssertEqual(0, hostLane(night, egil, lanes))
-        XCTAssertEqual(0, hostLane(night, trummis, lanes)) // came to meet the inner lane
+        XCTAssertEqual(0, hostLane(night, ozzy, lanes))
+        XCTAssertEqual(0, hostLane(night, lemmy, lanes)) // came to meet the inner lane
     }
 
     func testOneFriendAloneAtANightIMissedKeepsTheirOwnLane() {
-        let night = row(mine: false, trummis)
+        let night = row(mine: false, lemmy)
         XCTAssertEqual(1, nodeHost(night, lanes))
-        XCTAssertEqual(1, hostLane(night, trummis, lanes))
-        XCTAssertFalse(joinedAt(night, trummis)) // alone is not company
+        XCTAssertEqual(1, hostLane(night, lemmy, lanes))
+        XCTAssertFalse(joinedAt(night, lemmy)) // alone is not company
     }
 
     func testCompanyIsGreenWhoeverItIsWith() {
-        XCTAssertTrue(joinedAt(row(mine: true, egil), egil))
-        XCTAssertTrue(joinedAt(row(mine: false, egil, trummis), trummis))
-        XCTAssertFalse(joinedAt(row(mine: true), egil))
+        XCTAssertTrue(joinedAt(row(mine: true, ozzy), ozzy))
+        XCTAssertTrue(joinedAt(row(mine: false, ozzy, lemmy), lemmy))
+        XCTAssertFalse(joinedAt(row(mine: true), ozzy))
     }
 
     func testOnePartingOnTheRowTheOtherJoinsIsTwoIndependentAnswers() {
-        // Above: I was out with Trummispojken. Here: with Egil instead.
-        let above = row(mine: true, trummis)
-        let here = row(mine: true, egil)
+        // Above: I was out with Lemmy. Here: with Ozzy instead.
+        let above = row(mine: true, lemmy)
+        let here = row(mine: true, ozzy)
 
-        // Egil comes in from their lane to my spine.
-        XCTAssertEqual(0, hostLane(above, egil, lanes))
-        XCTAssertEqual(Spine, hostLane(here, egil, lanes))
-        // Trummispojken leaves my spine for theirs, on the same row. Neither
+        // Ozzy comes in from their lane to my spine.
+        XCTAssertEqual(0, hostLane(above, ozzy, lanes))
+        XCTAssertEqual(Spine, hostLane(here, ozzy, lanes))
+        // Lemmy leaves my spine for theirs, on the same row. Neither
         // answer depends on the other, which is what a shared Boolean got wrong.
-        XCTAssertEqual(Spine, hostLane(above, trummis, lanes))
-        XCTAssertEqual(1, hostLane(here, trummis, lanes))
+        XCTAssertEqual(Spine, hostLane(above, lemmy, lanes))
+        XCTAssertEqual(1, hostLane(here, lemmy, lanes))
     }
 
     func testTheStripStopsWideningOnceThereAreEnoughFriends() {

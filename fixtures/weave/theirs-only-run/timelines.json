@@ -1,9 +1,9 @@
 {
   "me": "dizzi90",
-  "friends": [{ "setlistfm": "Trummispojken", "name": "Trummispojken" }],
+  "friends": [{ "setlistfm": "Lemmy", "name": "Lemmy" }],
   "shows": {
     "dizzi90": [],
-    "Trummispojken": [
+    "Lemmy": [
       {
         "id": "d1",
         "eventDate": "16-05-2026",
