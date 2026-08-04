@@ -68,8 +68,6 @@ class MainActivity : ComponentActivity() {
         when (keyCode) {
             KeyEvent.KEYCODE_ZOOM_OUT, KeyEvent.KEYCODE_MINUS -> viewModel.setZoomedOut(true)
             KeyEvent.KEYCODE_ZOOM_IN, KeyEvent.KEYCODE_PLUS -> viewModel.setZoomedOut(false)
-            // `adb shell input keyevent 42` — cycles where a crossing sits.
-            KeyEvent.KEYCODE_N -> viewModel.cycleNodePlace()
             else -> return super.onKeyDown(keyCode, event)
         }
         return true
