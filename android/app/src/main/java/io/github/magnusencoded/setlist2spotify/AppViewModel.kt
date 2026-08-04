@@ -18,7 +18,6 @@ import io.github.magnusencoded.setlist2spotify.data.sfmStamp
 import io.github.magnusencoded.setlist2spotify.data.sfmUserFromDescription
 import io.github.magnusencoded.setlist2spotify.data.spotifyPlaylistId
 import io.github.magnusencoded.setlist2spotify.data.toShareUri
-import io.github.magnusencoded.setlist2spotify.ui.NodePlace
 import io.github.magnusencoded.setlist2spotify.ui.TimelineNode
 import io.github.magnusencoded.setlist2spotify.ui.atVenue
 import io.github.magnusencoded.setlist2spotify.ui.canCheckInManually
@@ -223,12 +222,6 @@ data class UiState(
      * went into a night from the woven view and came back to a different place.
      */
     val openFestivals: Set<String> = emptySet(),
-    /**
-     * Where a crossing sits among the lines that meet there. Three candidates, none
-     * settled by argument — cycled with a key so all three can be looked at on the
-     * same night rather than compared across three builds.
-     */
-    val nodePlace: NodePlace = NodePlace.INNERMOST,
     /**
      * A gig a `station-to-station://` link asked for, and how it wants to be shown.
      * The timeline is the one place that can find a gig's row — a gig inside a
@@ -721,12 +714,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openFestival(key: String) = _state.update {
         it.copy(openFestivals = it.openFestivals + key)
-    }
-
-    /** Next candidate for where a crossing sits. See [NodePlace]. */
-    fun cycleNodePlace() = _state.update {
-        val all = NodePlace.entries
-        it.copy(nodePlace = all[(all.indexOf(it.nodePlace) + 1) % all.size])
     }
 
     /** The gig behind a link, wherever it is already loaded — mine or any lane's. */

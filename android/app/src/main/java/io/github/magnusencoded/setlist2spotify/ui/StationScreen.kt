@@ -277,7 +277,7 @@ fun StationTimelineScreen(
             // Which build is actually on the phone. It is installed over Wi-Fi from CI,
             // and answering that by hashing APKs cost more than it should have.
             Text(
-                "${BuildConfig.VERSION_NAME} · ${BuildConfig.GIT_SHA} · ${state.nodePlace}",
+                "${BuildConfig.VERSION_NAME} · ${BuildConfig.GIT_SHA}",
                 color = Faint.copy(alpha = 0.5f),
                 fontSize = 9.sp,
                 modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 4.dp),
@@ -502,8 +502,8 @@ fun StationTimelineScreen(
                             itemsIndexed(rows, key = { _, row -> row.key }) { index, row ->
                                 val isFirst = index == 0
                                 val rails: @Composable () -> Unit =
-                                    { PeopleRails(row, rows.getOrNull(index + 1), lanes, laneWidth, state.nodePlace) }
-                                val nodeX = crossingX(row, lanes, laneWidth, state.nodePlace)
+                                    { PeopleRails(row, rows.getOrNull(index + 1), lanes, laneWidth) }
+                                val nodeX = crossingX(row, lanes, laneWidth)
                                 when (val node = row.node) {
                                     is TimelineNode.Concert -> TimelineItem(
                                         setlist = node.setlist,
@@ -967,27 +967,13 @@ internal const val Spine = -1
 
 private fun laneX(index: Int, step: Dp) = SpineX + step * (index + 1)
 
-/** Lane positions are continuous, so a node can sit between two of them. -1 is my spine. */
-private fun laneXf(offset: Float, step: Dp) = SpineX + step * (offset + 1f)
-
 /**
- * Where a crossing sits among the lines that meet at it. Undecided by argument, so
- * all three are here to be looked at: the lines converge on whichever this picks, and
- * mine converges too unless the answer happens to be my own spine.
+ * Lane positions as a Float. -1 is my spine.
  *
- * ponytail: cycled by a key (see MainActivity) rather than a setting, because it is a
- * question being answered, not a preference being offered.
+ * ponytail: nothing produces a fractional offset now that CENTRED is gone — the Float
+ * is vestigial and #69 collapses it back to an Int along with the duplicate lookups.
  */
-enum class NodePlace {
-    /** The innermost line that was there — mine whenever I am one of them. */
-    INNERMOST,
-
-    /** The average of everyone who was there; belongs to no one. */
-    CENTRED,
-
-    /** The outermost line that was there — the furthest visitor. */
-    OUTERMOST,
-}
+private fun laneXf(offset: Float, step: Dp) = SpineX + step * (offset + 1f)
 
 /** Which lines were at a row: [Spine] for me, plus a lane index per friend present. */
 internal fun linesAt(row: WovenRow, lanes: List<Friend>): List<Int> = buildList {
@@ -997,27 +983,26 @@ internal fun linesAt(row: WovenRow, lanes: List<Friend>): List<Int> = buildList 
     }
 }
 
-/** Where the row's node sits, as a lane offset — fractional under [NodePlace.CENTRED]. */
-internal fun nodeOffset(row: WovenRow, lanes: List<Friend>, place: NodePlace): Float {
+/**
+ * Where the row's node sits, as a lane offset: the innermost line that was there,
+ * which is my [Spine] whenever I am one of them. My line never moves to meet anyone.
+ */
+internal fun nodeOffset(row: WovenRow, lanes: List<Friend>): Float {
     val at = linesAt(row, lanes)
     if (at.isEmpty()) return Spine.toFloat()
-    return when (place) {
-        NodePlace.INNERMOST -> at.min().toFloat()
-        NodePlace.OUTERMOST -> at.max().toFloat()
-        NodePlace.CENTRED -> at.sum().toFloat() / at.size
-    }
+    return at.min().toFloat()
 }
 
 /**
  * Where a line is drawn at a row: on the node if it was there, otherwise its own lane.
  * [line] is [Spine] for mine or a lane index for a friend's.
  */
-internal fun lineOffset(row: WovenRow?, line: Int, lanes: List<Friend>, place: NodePlace): Float {
+internal fun lineOffset(row: WovenRow?, line: Int, lanes: List<Friend>): Float {
     if (row == null) return line.toFloat()
     val there = if (line == Spine) row.mine else {
         lanes.getOrNull(line)?.let { f -> row.others.any { it.setlistfm == f.setlistfm } } == true
     }
-    return if (there) nodeOffset(row, lanes, place) else line.toFloat()
+    return if (there) nodeOffset(row, lanes) else line.toFloat()
 }
 
 /**
@@ -1060,9 +1045,8 @@ internal fun crossingX(
     row: WovenRow,
     lanes: List<Friend>,
     laneWidth: Dp,
-    place: NodePlace = NodePlace.INNERMOST,
 ): Dp {
-    val offset = nodeOffset(row, lanes, place)
+    val offset = nodeOffset(row, lanes)
     if (laneWidth <= 0.dp || offset == Spine.toFloat()) return SpineX
     val step = laneStep(lanes.size)
     // The lanes are still sliding out while the strip opens; keep the node with them.
@@ -1116,7 +1100,6 @@ internal fun PeopleRails(
     next: WovenRow?,
     friends: List<Friend>,
     laneWidth: Dp,
-    place: NodePlace = NodePlace.INNERMOST,
 ) {
     if (laneWidth <= 0.dp || friends.isEmpty()) return
     Canvas(Modifier.fillMaxSize()) {
@@ -1137,8 +1120,8 @@ internal fun PeopleRails(
         }
 
         // Every line is drawn the same way, mine included. Mine is line -1 and is
-        // only special in that its own lane is the spine — under any placement but
-        // INNERMOST it travels to a crossing like anyone else.
+        // only special in that its own lane is the spine, and that the spine is
+        // always the innermost line — so a crossing I was at happens where I already am.
         val lines = listOf(Spine) + friends.indices
 
         fun slideOf(line: Int) = if (line == Spine) 1f else (open - line).coerceIn(0f, 1f)
@@ -1156,18 +1139,18 @@ internal fun PeopleRails(
         // exactly like one — the weight is what says how many.
         fun peopleAt(r: WovenRow?, line: Int): Int {
             if (r == null) return 1
-            val here = lineOffset(r, line, friends, place)
-            return lines.count { lineOffset(r, it, friends, place) == here && thereAt(r, it) }
+            val here = lineOffset(r, line, friends)
+            return lines.count { lineOffset(r, it, friends) == here && thereAt(r, it) }
                 .coerceAtLeast(1)
         }
 
         // How many travel a bend together: they must share *both* of its ends.
         fun peopleAlong(to: WovenRow?, line: Int): Int {
             if (to == null) return peopleAt(row, line)
-            val a = lineOffset(row, line, friends, place)
-            val b = lineOffset(to, line, friends, place)
+            val a = lineOffset(row, line, friends)
+            val b = lineOffset(to, line, friends)
             return lines.count {
-                lineOffset(row, it, friends, place) == a && lineOffset(to, it, friends, place) == b
+                lineOffset(row, it, friends) == a && lineOffset(to, it, friends) == b
             }.coerceAtLeast(1)
         }
 
@@ -1185,13 +1168,13 @@ internal fun PeopleRails(
             return colour to Stroke(width = LineWidth.toPx() + PerPerson.toPx() * (people - 1))
         }
 
-        val nodeAt = nodeOffset(row, friends, place)
+        val nodeAt = nodeOffset(row, friends)
 
         lines.forEach { line ->
             if (slideOf(line) <= 0f) return@forEach
 
-            val x = xOf(lineOffset(row, line, friends, place), line)
-            val toX = if (next == null) x else xOf(lineOffset(next, line, friends, place), line)
+            val x = xOf(lineOffset(row, line, friends), line)
+            val toX = if (next == null) x else xOf(lineOffset(next, line, friends), line)
             val here = thereAt(row, line)
 
             // Where this line has a node, it stops at the rim and starts again on

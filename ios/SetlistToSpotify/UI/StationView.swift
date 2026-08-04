@@ -51,7 +51,7 @@ private func linesAt(_ row: WovenRow, _ lanes: [Friend]) -> [Int] {
     return out
 }
 
-/// Where the row's Node sits, as a Lane offset. INNERMOST: the innermost Line that
+/// Where the row's Node sits, as a Lane offset: the innermost Line that
 /// was there — mine (Spine = -1, the smallest) whenever I am one of them, so a
 /// night we shared happens *on* my Spine and theirs travels to it.
 private func nodeOffset(_ row: WovenRow, _ lanes: [Friend]) -> CGFloat {
