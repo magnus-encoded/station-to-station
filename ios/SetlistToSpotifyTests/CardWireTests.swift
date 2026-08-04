@@ -47,6 +47,29 @@ final class CardWireTests: XCTestCase {
             "station-to-station://friend?name=%C3%86rlig+%26+co&k=a%2Fb%3D",
             ProbeCard(name: "\u{00C6}rlig & co", publicKey: "a/b=").encode()
         )
+        // The pinned Android expectation: a space and a non-ASCII character in one
+        // name. Swift's own `addingPercentEncoding` would give %20 here, and
+        // `removingPercentEncoding` would read Android's card back as "Anna+\u{00D8}"
+        // — a silently wrong name rather than an error. This is the form-encoded
+        // convention, not RFC 3986; Android is the reference side.
+        XCTAssertEqual(
+            "station-to-station://friend?name=Anna+%C3%98&k=AAAA",
+            ProbeCard(name: "Anna \u{00D8}", publicKey: "AAAA").encode()
+        )
+        XCTAssertEqual("Anna \u{00D8}",
+                       parseProbeCard("station-to-station://friend?name=Anna+%C3%98&k=AAAA")?.name)
+    }
+
+    /// A literal `+` in a name must survive as a `+`, which is why decoding
+    /// percent-escapes and un-plussing happen in one left-to-right pass rather
+    /// than as two string replacements — `%2B` would not survive the naive order.
+    func testALiteralPlusInANameSurvives() {
+        let plus = ProbeCard(name: "Sunn O))) + Boris", publicKey: "AAAA", setlistfm: "dizzi90")
+        XCTAssertEqual(
+            "station-to-station://friend?name=Sunn+O%29%29%29+%2B+Boris&k=AAAA&u=dizzi90",
+            plus.encode()
+        )
+        XCTAssertEqual(plus, parseProbeCard(plus.encode()))
     }
 
     /// A card read at the default MTU comes back as a rising-offset series of
