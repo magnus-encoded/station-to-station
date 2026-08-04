@@ -184,6 +184,10 @@ internal fun uuidFrom(name: String): String {
         "${hex.substring(16, 20)}-${hex.substring(20, 32)}"
 }
 
+/** What a reference's MIME type is, while the reference may still answer. */
+private fun mimeResolver(context: Context): (String) -> String? =
+    { ref -> runCatching { context.contentResolver.getType(Uri.parse(ref)) }.getOrNull() }
+
 /** The id a **Gig** gets the first time it is seen through a setlist.fm id. */
 internal fun gigIdForSetlistId(setlistId: String): String = uuidFrom("gig:$setlistId")
 
@@ -360,7 +364,9 @@ class TimelineStore(
 
     constructor(context: Context) : this(
         File(context.filesDir, "timelines.json"),
-        { ref -> runCatching { context.contentResolver.getType(Uri.parse(ref)) }.getOrNull() },
+        // A named function, not a lambda written here: a lambda inside a delegating
+        // constructor call reads as capturing `this`, which does not exist yet.
+        mimeResolver(context),
     )
 
     // encodeDefaults so an empty cache round-trips; ignoreUnknownKeys so a field
