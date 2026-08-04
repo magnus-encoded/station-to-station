@@ -183,7 +183,10 @@ final class AppModel: ObservableObject {
 
     /// Pinch out to open the friends' Lanes beside my Spine, pinch in to close
     /// them. Nothing navigates — the same one Timeline, at a different Resolution.
-    func setZoomedOut(_ v: Bool) { state.zoomedOut = v }
+    func setZoomedOut(_ v: Bool) {
+        if v && state.friends.isEmpty { return }
+        state.zoomedOut = v
+    }
 
     /// Fetches whichever Followed Lanes are stale (missing, empty, or not back
     /// to my own oldest Gig) and merges them in. Called when the strip opens —

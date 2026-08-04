@@ -81,6 +81,7 @@ struct ExchangeView: View {
             session.onFriendReceived = { friend in
                 Task { @MainActor in
                     model.addFriend(friend)
+                    model.setZoomedOut(true)
                     nav.popToRoot()
                 }
             }
@@ -169,6 +170,7 @@ struct ExchangeView: View {
                     return
                 }
                 model.addFriend(friend)
+                model.setZoomedOut(true)
                 nav.popToRoot()
             }
         }
@@ -178,6 +180,7 @@ struct ExchangeView: View {
     private func addScanned(_ scanned: String) {
         guard let url = URL(string: scanned), let friend = friendFromURL(url) else { return }
         model.addFriend(friend)
+        model.setZoomedOut(true)
         nav.popToRoot()
     }
 
