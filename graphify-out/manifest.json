@@ -1,0 +1,567 @@
+{
+  "android/app/build.gradle.kts": {
+    "mtime": 1785668149.4349012,
+    "ast_hash": "482b2cb48cd32468a305fa30f314e882",
+    "semantic_hash": "482b2cb48cd32468a305fa30f314e882"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/AppViewModel.kt": {
+    "mtime": 1785843679.6068804,
+    "ast_hash": "871f4ff81ec09c477e72189fceb6b8b3",
+    "semantic_hash": "871f4ff81ec09c477e72189fceb6b8b3"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/MainActivity.kt": {
+    "mtime": 1785838481.3461998,
+    "ast_hash": "eb13fc93757eb53586c45e32e679e241",
+    "semantic_hash": "eb13fc93757eb53586c45e32e679e241"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/ble/BleProbe.kt": {
+    "mtime": 1785843679.6088803,
+    "ast_hash": "30eb8354164a99b2d57575f959ad6354",
+    "semantic_hash": "30eb8354164a99b2d57575f959ad6354"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/ble/CardWire.kt": {
+    "mtime": 1785668149.4459496,
+    "ast_hash": "0efd3711f9b7bf62e9f40b53047cf241",
+    "semantic_hash": "0efd3711f9b7bf62e9f40b53047cf241"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/ble/NearbyNameLimit.kt": {
+    "mtime": 1785544901.8387864,
+    "ast_hash": "9984af634f0965ca75ea700aece175d0",
+    "semantic_hash": "9984af634f0965ca75ea700aece175d0"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/data/DeviceLocation.kt": {
+    "mtime": 1785585816.0959308,
+    "ast_hash": "a885ca2d312b25f7ed7ccb6736acc845",
+    "semantic_hash": "a885ca2d312b25f7ed7ccb6736acc845"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/data/Friends.kt": {
+    "mtime": 1785668149.4489639,
+    "ast_hash": "6b1b712b94ed1f553b284ab105c2fb5c",
+    "semantic_hash": "6b1b712b94ed1f553b284ab105c2fb5c"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/data/SettingsRepository.kt": {
+    "mtime": 1785522598.9036593,
+    "ast_hash": "4ed0fcbd6f5ba69d4401fe4ff9cb6cdd",
+    "semantic_hash": "4ed0fcbd6f5ba69d4401fe4ff9cb6cdd"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/data/TimelineStore.kt": {
+    "mtime": 1785667151.6351006,
+    "ast_hash": "f1ff2c16ebbaba8e00e140dcdf30b741",
+    "semantic_hash": "f1ff2c16ebbaba8e00e140dcdf30b741"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/data/exchange/ExchangeSession.kt": {
+    "mtime": 1785843679.6108806,
+    "ast_hash": "1fdda5da2ab58645a7348cdd437b1068",
+    "semantic_hash": "1fdda5da2ab58645a7348cdd437b1068"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/data/nearby/NearbyPeers.kt": {
+    "mtime": 1785522598.9086597,
+    "ast_hash": "f67b045c09929df4451c20451bfbdc3b",
+    "semantic_hash": "f67b045c09929df4451c20451bfbdc3b"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/data/photos/PhotoRepository.kt": {
+    "mtime": 1785522598.913662,
+    "ast_hash": "bdb451ea52264bfaa12ab1e851ca758a",
+    "semantic_hash": "bdb451ea52264bfaa12ab1e851ca758a"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/data/setlistfm/SetlistFmClient.kt": {
+    "mtime": 1785579309.297985,
+    "ast_hash": "862372767154a38403aa64413124479b",
+    "semantic_hash": "862372767154a38403aa64413124479b"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/data/setlistfm/SetlistFmModels.kt": {
+    "mtime": 1785585816.099932,
+    "ast_hash": "6b68247513ce33f9e360f954ad9cc4f7",
+    "semantic_hash": "6b68247513ce33f9e360f954ad9cc4f7"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/data/spotify/SpotifyClient.kt": {
+    "mtime": 1785668149.4529073,
+    "ast_hash": "e6ac88a4785f5e5f933645ac43a6def4",
+    "semantic_hash": "e6ac88a4785f5e5f933645ac43a6def4"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/data/spotify/SpotifyModels.kt": {
+    "mtime": 1785522598.9226604,
+    "ast_hash": "aeb77f6bf008da3d833c15ff07193894",
+    "semantic_hash": "aeb77f6bf008da3d833c15ff07193894"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/data/spotify/TrackRanking.kt": {
+    "mtime": 1785522598.92466,
+    "ast_hash": "0211da09d881c3929cc7b55fdb181f2d",
+    "semantic_hash": "0211da09d881c3929cc7b55fdb181f2d"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/ui/BleProbeScreen.kt": {
+    "mtime": 1785634797.6259623,
+    "ast_hash": "00e0c8be85d981e319a414966f3d2cf5",
+    "semantic_hash": "00e0c8be85d981e319a414966f3d2cf5"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/ui/CalendarInsert.kt": {
+    "mtime": 1785667151.6381,
+    "ast_hash": "4d359db7cee8fe52c1ea74225613f384",
+    "semantic_hash": "4d359db7cee8fe52c1ea74225613f384"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/ui/CheckIn.kt": {
+    "mtime": 1785634209.0179439,
+    "ast_hash": "bc6cdeabb94a367fd5e71d7abbd76b0e",
+    "semantic_hash": "bc6cdeabb94a367fd5e71d7abbd76b0e"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/ui/ConfirmScreen.kt": {
+    "mtime": 1785634797.6309433,
+    "ast_hash": "82df152a6a5b057a49dd2c5b5fd56df6",
+    "semantic_hash": "82df152a6a5b057a49dd2c5b5fd56df6"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/ui/ExchangeScreen.kt": {
+    "mtime": 1785634797.6339724,
+    "ast_hash": "4882a64716a841e51ab34c6fde2c08a5",
+    "semantic_hash": "4882a64716a841e51ab34c6fde2c08a5"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/ui/FestivalScreen.kt": {
+    "mtime": 1785522598.9356606,
+    "ast_hash": "57b80d5f5ea375cfa840c0d240136112",
+    "semantic_hash": "57b80d5f5ea375cfa840c0d240136112"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/ui/FriendsScreen.kt": {
+    "mtime": 1785668149.4559455,
+    "ast_hash": "a562f7099ce27d39d43a93bb53db395e",
+    "semantic_hash": "a562f7099ce27d39d43a93bb53db395e"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/ui/GigTimeState.kt": {
+    "mtime": 1785634209.0209346,
+    "ast_hash": "6054a55d85a100f376bac87c2acf28c5",
+    "semantic_hash": "6054a55d85a100f376bac87c2acf28c5"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/ui/MapsIntent.kt": {
+    "mtime": 1785544901.845786,
+    "ast_hash": "8052e2532d1515567a6f0982fa33b844",
+    "semantic_hash": "8052e2532d1515567a6f0982fa33b844"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/ui/SearchScreen.kt": {
+    "mtime": 1785668149.457945,
+    "ast_hash": "303c6be0a3a113f2f9a5bc0dae164815",
+    "semantic_hash": "303c6be0a3a113f2f9a5bc0dae164815"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/ui/SetlistsScreen.kt": {
+    "mtime": 1785634797.639989,
+    "ast_hash": "852f7d11abf06f732c1f5d9ae29f74aa",
+    "semantic_hash": "852f7d11abf06f732c1f5d9ae29f74aa"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/ui/SettingsScreen.kt": {
+    "mtime": 1785634797.6419625,
+    "ast_hash": "f561aa48e3cde24242f5b8dcdb7ce96b",
+    "semantic_hash": "f561aa48e3cde24242f5b8dcdb7ce96b"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/ui/SpotifyLogin.kt": {
+    "mtime": 1785011921.1487238,
+    "ast_hash": "73600c8f7ed63b5ef66bcad81197c92c",
+    "semantic_hash": "73600c8f7ed63b5ef66bcad81197c92c"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/ui/StationScreen.kt": {
+    "mtime": 1785838481.3512304,
+    "ast_hash": "27ae22749faa0005177a3d0918406efa",
+    "semantic_hash": "27ae22749faa0005177a3d0918406efa"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/ui/SwipeBack.kt": {
+    "mtime": 1785634797.6479313,
+    "ast_hash": "e9f3423712ed6fc18f1f933415e1c541",
+    "semantic_hash": "e9f3423712ed6fc18f1f933415e1c541"
+  },
+  "android/app/src/main/java/io/github/magnusencoded/setlist2spotify/ui/TimelinesScreen.kt": {
+    "mtime": 1785632002.3411765,
+    "ast_hash": "139bf422edf4a572db923e0fde52dc17",
+    "semantic_hash": "139bf422edf4a572db923e0fde52dc17"
+  },
+  "android/app/src/test/java/io/github/magnusencoded/setlist2spotify/CardWireTest.kt": {
+    "mtime": 1785843679.6138804,
+    "ast_hash": "6a26994d159979c589a41bb719daae8d",
+    "semantic_hash": "6a26994d159979c589a41bb719daae8d"
+  },
+  "android/app/src/test/java/io/github/magnusencoded/setlist2spotify/CheckInTest.kt": {
+    "mtime": 1785634209.0309343,
+    "ast_hash": "c91c29f20f0383993dba85944daf092d",
+    "semantic_hash": "c91c29f20f0383993dba85944daf092d"
+  },
+  "android/app/src/test/java/io/github/magnusencoded/setlist2spotify/ExchangeMergeTest.kt": {
+    "mtime": 1785838578.9539542,
+    "ast_hash": "626a3e8423c5c7692c532113a904b68d",
+    "semantic_hash": "626a3e8423c5c7692c532113a904b68d"
+  },
+  "android/app/src/test/java/io/github/magnusencoded/setlist2spotify/FestivalGroupingTest.kt": {
+    "mtime": 1785522598.9656606,
+    "ast_hash": "1bb3a85a5241ee2175bbd23673242a38",
+    "semantic_hash": "1bb3a85a5241ee2175bbd23673242a38"
+  },
+  "android/app/src/test/java/io/github/magnusencoded/setlist2spotify/FestivalNameParseTest.kt": {
+    "mtime": 1785579309.3119884,
+    "ast_hash": "898dee4be8fee938bea6780f6f719fc5",
+    "semantic_hash": "898dee4be8fee938bea6780f6f719fc5"
+  },
+  "android/app/src/test/java/io/github/magnusencoded/setlist2spotify/FriendsLogicTest.kt": {
+    "mtime": 1785522598.969664,
+    "ast_hash": "7217615580e1831d45e781b4127f706e",
+    "semantic_hash": "7217615580e1831d45e781b4127f706e"
+  },
+  "android/app/src/test/java/io/github/magnusencoded/setlist2spotify/GigLinkTest.kt": {
+    "mtime": 1785522598.971661,
+    "ast_hash": "084538c3a0e7e8cf871807bdde32314a",
+    "semantic_hash": "084538c3a0e7e8cf871807bdde32314a"
+  },
+  "android/app/src/test/java/io/github/magnusencoded/setlist2spotify/GigTimeStateTest.kt": {
+    "mtime": 1785634209.0349994,
+    "ast_hash": "b87946dada6fcb969114cefab144c901",
+    "semantic_hash": "b87946dada6fcb969114cefab144c901"
+  },
+  "android/app/src/test/java/io/github/magnusencoded/setlist2spotify/LaneGeometryTest.kt": {
+    "mtime": 1785838578.9559548,
+    "ast_hash": "7c3a5832d611dcb7aaa2607dc6937a03",
+    "semantic_hash": "7c3a5832d611dcb7aaa2607dc6937a03"
+  },
+  "android/app/src/test/java/io/github/magnusencoded/setlist2spotify/OffsetFormatTest.kt": {
+    "mtime": 1785522598.9746604,
+    "ast_hash": "6ef89e4e41a1e0bfbf1f215f01fe22d5",
+    "semantic_hash": "6ef89e4e41a1e0bfbf1f215f01fe22d5"
+  },
+  "android/app/src/test/java/io/github/magnusencoded/setlist2spotify/SetlistNumberingTest.kt": {
+    "mtime": 1785522598.9796698,
+    "ast_hash": "1f7c4a4ae806de1c1fb918cc9588e649",
+    "semantic_hash": "1f7c4a4ae806de1c1fb918cc9588e649"
+  },
+  "android/app/src/test/java/io/github/magnusencoded/setlist2spotify/SpotifyEndpointGuardTest.kt": {
+    "mtime": 1785522598.981661,
+    "ast_hash": "f9869dcfdf413f83923d70ff28f00096",
+    "semantic_hash": "f9869dcfdf413f83923d70ff28f00096"
+  },
+  "android/app/src/test/java/io/github/magnusencoded/setlist2spotify/TimelineStoreTest.kt": {
+    "mtime": 1785838578.9579554,
+    "ast_hash": "99246909302084afcbc0a95f75c6f95e",
+    "semantic_hash": "99246909302084afcbc0a95f75c6f95e"
+  },
+  "android/app/src/test/java/io/github/magnusencoded/setlist2spotify/TrackRankingTest.kt": {
+    "mtime": 1785522598.9846592,
+    "ast_hash": "67ff2dc20e8029d6a332cd771a605938",
+    "semantic_hash": "67ff2dc20e8029d6a332cd771a605938"
+  },
+  "android/app/src/test/java/io/github/magnusencoded/setlist2spotify/WeaveFixturesTest.kt": {
+    "mtime": 1785544901.8547845,
+    "ast_hash": "d2843ef305112d38af7361559fcacba4",
+    "semantic_hash": "d2843ef305112d38af7361559fcacba4"
+  },
+  "android/app/src/test/java/io/github/magnusencoded/setlist2spotify/WeaveTimelinesTest.kt": {
+    "mtime": 1785838578.959959,
+    "ast_hash": "0ed7b22d58c66f97be1ee5ed3d19b9e9",
+    "semantic_hash": "0ed7b22d58c66f97be1ee5ed3d19b9e9"
+  },
+  "android/build.gradle.kts": {
+    "mtime": 1785011921.1527092,
+    "ast_hash": "16cd9e224ac64d30e6bfbc13bf1d0ed5",
+    "semantic_hash": "16cd9e224ac64d30e6bfbc13bf1d0ed5"
+  },
+  "android/gradlew": {
+    "mtime": 1785011921.1586854,
+    "ast_hash": "f2d3d383787f61a4a99710ee8d780434",
+    "semantic_hash": "f2d3d383787f61a4a99710ee8d780434"
+  },
+  "android/settings.gradle.kts": {
+    "mtime": 1785011921.1606815,
+    "ast_hash": "04926cc61983fb3be8f50e50e596d9be",
+    "semantic_hash": "04926cc61983fb3be8f50e50e596d9be"
+  },
+  "fixtures/weave/empty-timeline/expected.json": {
+    "mtime": 1785544901.8627868,
+    "ast_hash": "1db7998f8ef3c3449b84ca35763dbe3c",
+    "semantic_hash": "1db7998f8ef3c3449b84ca35763dbe3c"
+  },
+  "fixtures/weave/empty-timeline/timelines.json": {
+    "mtime": 1785544901.864803,
+    "ast_hash": "8ff241ae09efffcd7fe2a5f40ef51a2f",
+    "semantic_hash": "8ff241ae09efffcd7fe2a5f40ef51a2f"
+  },
+  "fixtures/weave/festival-absorbs-cluster/expected.json": {
+    "mtime": 1785838578.9629557,
+    "ast_hash": "226341c5506e8c0344896c6f0f21817d",
+    "semantic_hash": "226341c5506e8c0344896c6f0f21817d"
+  },
+  "fixtures/weave/festival-absorbs-cluster/timelines.json": {
+    "mtime": 1785838578.963957,
+    "ast_hash": "61e2b6847736ac5cba57bce7669e32c1",
+    "semantic_hash": "61e2b6847736ac5cba57bce7669e32c1"
+  },
+  "fixtures/weave/one-line-alone/expected.json": {
+    "mtime": 1785544901.8697934,
+    "ast_hash": "e59a9c9a2327d7cbe7fa33a38fa3028f",
+    "semantic_hash": "e59a9c9a2327d7cbe7fa33a38fa3028f"
+  },
+  "fixtures/weave/one-line-alone/timelines.json": {
+    "mtime": 1785544901.871785,
+    "ast_hash": "af84a9dd708e1498feb1b2cbbd0c50a1",
+    "semantic_hash": "af84a9dd708e1498feb1b2cbbd0c50a1"
+  },
+  "fixtures/weave/theirs-only-run/expected.json": {
+    "mtime": 1785838578.9659548,
+    "ast_hash": "1c1c4a8d5f11b668a911963476b753d4",
+    "semantic_hash": "1c1c4a8d5f11b668a911963476b753d4"
+  },
+  "fixtures/weave/theirs-only-run/timelines.json": {
+    "mtime": 1785838578.9679556,
+    "ast_hash": "9920718cba62af312f77930711108223",
+    "semantic_hash": "9920718cba62af312f77930711108223"
+  },
+  "fixtures/weave/three-lines-tons-of-rock/expected.json": {
+    "mtime": 1785838578.9699564,
+    "ast_hash": "1d9ac547876ad49fe7d8d56b1d051db6",
+    "semantic_hash": "1d9ac547876ad49fe7d8d56b1d051db6"
+  },
+  "fixtures/weave/three-lines-tons-of-rock/timelines.json": {
+    "mtime": 1785838578.970955,
+    "ast_hash": "ec49fd75513cab3e0941c9fc9e2fba69",
+    "semantic_hash": "ec49fd75513cab3e0941c9fc9e2fba69"
+  },
+  "fixtures/weave/two-lines-crossing/expected.json": {
+    "mtime": 1785838578.972954,
+    "ast_hash": "16650d9282187012a84dbebc8637635b",
+    "semantic_hash": "16650d9282187012a84dbebc8637635b"
+  },
+  "fixtures/weave/two-lines-crossing/timelines.json": {
+    "mtime": 1785838578.9749546,
+    "ast_hash": "fb29674d5b5211d532baf1f94bf6bfe4",
+    "semantic_hash": "fb29674d5b5211d532baf1f94bf6bfe4"
+  },
+  "ios/SetlistToSpotifyTests/CardWireTests.swift": {
+    "mtime": 1785843679.6268811,
+    "ast_hash": "e13551e065d63c3c8f1749f475a8ce81",
+    "semantic_hash": "e13551e065d63c3c8f1749f475a8ce81"
+  },
+  "ios/SetlistToSpotifyTests/FestivalGroupingTests.swift": {
+    "mtime": 1785576143.9838655,
+    "ast_hash": "92f097ef7d277a727a6edb1c91fcb937",
+    "semantic_hash": "92f097ef7d277a727a6edb1c91fcb937"
+  },
+  "ios/SetlistToSpotifyTests/FestivalNameParseTests.swift": {
+    "mtime": 1785576143.9908547,
+    "ast_hash": "d0b1c49c86d2d51518db7919a737ce85",
+    "semantic_hash": "d0b1c49c86d2d51518db7919a737ce85"
+  },
+  "ios/SetlistToSpotifyTests/FriendsLogicTests.swift": {
+    "mtime": 1785844391.2728748,
+    "ast_hash": "f8aa22d6504971c35d13d072c02eddc0",
+    "semantic_hash": "f8aa22d6504971c35d13d072c02eddc0"
+  },
+  "ios/SetlistToSpotifyTests/LaneGeometryTests.swift": {
+    "mtime": 1785838578.9769557,
+    "ast_hash": "d7dcab0dae7d8d5fddee6c5b975010ea",
+    "semantic_hash": "d7dcab0dae7d8d5fddee6c5b975010ea"
+  },
+  "ios/SetlistToSpotifyTests/LaneStalenessTests.swift": {
+    "mtime": 1785844391.2738957,
+    "ast_hash": "eaf8bc040c0fe7b4236728da08c467cd",
+    "semantic_hash": "eaf8bc040c0fe7b4236728da08c467cd"
+  },
+  "ios/SetlistToSpotifyTests/SpotifyEndpointGuardTests.swift": {
+    "mtime": 1785522599.0396683,
+    "ast_hash": "35c650712e26bb609fcc63493d716fb4",
+    "semantic_hash": "35c650712e26bb609fcc63493d716fb4"
+  },
+  "ios/SetlistToSpotifyTests/StationSnapshotTests.swift": {
+    "mtime": 1785844844.2310326,
+    "ast_hash": "45c36fdfd5f4053f6999ae7a40bcf8ac",
+    "semantic_hash": "45c36fdfd5f4053f6999ae7a40bcf8ac"
+  },
+  "ios/SetlistToSpotifyTests/TimelineStoreTests.swift": {
+    "mtime": 1785838578.9789562,
+    "ast_hash": "fbb7ed843f44c0ee102d6ff544995da9",
+    "semantic_hash": "fbb7ed843f44c0ee102d6ff544995da9"
+  },
+  "ios/SetlistToSpotifyTests/WeaveFixtureTests.swift": {
+    "mtime": 1785576144.013861,
+    "ast_hash": "a7aefc178a672e204842297bc8761545",
+    "semantic_hash": "a7aefc178a672e204842297bc8761545"
+  },
+  "ios/SetlistToSpotifyTests/WeaveTimelinesTests.swift": {
+    "mtime": 1785838578.9809556,
+    "ast_hash": "4b159bd01a1143f601d9bd0548c7caba",
+    "semantic_hash": "4b159bd01a1143f601d9bd0548c7caba"
+  },
+  "ios/SetlistToSpotify/App.swift": {
+    "mtime": 1785843679.6168804,
+    "ast_hash": "990fa1a409e68c847b921a0e09d10d61",
+    "semantic_hash": "990fa1a409e68c847b921a0e09d10d61"
+  },
+  "ios/SetlistToSpotify/AppModel.swift": {
+    "mtime": 1785844391.265879,
+    "ast_hash": "3ad90ea04bd6e68de815aba3df631953",
+    "semantic_hash": "3ad90ea04bd6e68de815aba3df631953"
+  },
+  "ios/SetlistToSpotify/Data/AppError.swift": {
+    "mtime": 1785522599.0016623,
+    "ast_hash": "20a1cefc0c868ce23b387fbd6019fee0",
+    "semantic_hash": "20a1cefc0c868ce23b387fbd6019fee0"
+  },
+  "ios/SetlistToSpotify/Data/BleExchange.swift": {
+    "mtime": 1785843679.6198807,
+    "ast_hash": "e8348338bab2db23506354586bca7ce8",
+    "semantic_hash": "e8348338bab2db23506354586bca7ce8"
+  },
+  "ios/SetlistToSpotify/Data/CardWire.swift": {
+    "mtime": 1785843679.621897,
+    "ast_hash": "187e5578c56a1b962eba4e1eb3a5debb",
+    "semantic_hash": "187e5578c56a1b962eba4e1eb3a5debb"
+  },
+  "ios/SetlistToSpotify/Data/CodableDefaults.swift": {
+    "mtime": 1785576143.8968616,
+    "ast_hash": "fb8b1f3b05f10a25961428102baca89c",
+    "semantic_hash": "fb8b1f3b05f10a25961428102baca89c"
+  },
+  "ios/SetlistToSpotify/Data/Config.swift": {
+    "mtime": 1785522599.0046637,
+    "ast_hash": "2af2dda12d924e56597c3cde51221550",
+    "semantic_hash": "2af2dda12d924e56597c3cde51221550"
+  },
+  "ios/SetlistToSpotify/Data/Friends.swift": {
+    "mtime": 1785668149.4689677,
+    "ast_hash": "d4bfc4c6643899877cb49c1eb22f3a32",
+    "semantic_hash": "d4bfc4c6643899877cb49c1eb22f3a32"
+  },
+  "ios/SetlistToSpotify/Data/SetlistFm/IPv4Https.swift": {
+    "mtime": 1785717509.7580428,
+    "ast_hash": "18265c86f9f3a1ab29ae5895c65a1a7b",
+    "semantic_hash": "18265c86f9f3a1ab29ae5895c65a1a7b"
+  },
+  "ios/SetlistToSpotify/Data/SetlistFm/SetlistFmClient.swift": {
+    "mtime": 1785717509.760043,
+    "ast_hash": "4e05016f8f7eb4e714048fb9706eac7f",
+    "semantic_hash": "4e05016f8f7eb4e714048fb9706eac7f"
+  },
+  "ios/SetlistToSpotify/Data/SetlistFm/SetlistFmModels.swift": {
+    "mtime": 1785576143.9338605,
+    "ast_hash": "9aa4d9c155dde85bbc6e0244252c2f38",
+    "semantic_hash": "9aa4d9c155dde85bbc6e0244252c2f38"
+  },
+  "ios/SetlistToSpotify/Data/Settings.swift": {
+    "mtime": 1785522599.0156763,
+    "ast_hash": "6b0e9247a1f54f6b690cb58d48a68584",
+    "semantic_hash": "6b0e9247a1f54f6b690cb58d48a68584"
+  },
+  "ios/SetlistToSpotify/Data/Spotify/SpotifyClient.swift": {
+    "mtime": 1785668149.4719026,
+    "ast_hash": "a5b0bc66bc72bd7762f5cd6bf3318456",
+    "semantic_hash": "a5b0bc66bc72bd7762f5cd6bf3318456"
+  },
+  "ios/SetlistToSpotify/Data/Spotify/SpotifyModels.swift": {
+    "mtime": 1785522599.0206616,
+    "ast_hash": "cbf4fd42461c0a5db4a150adc44cc86c",
+    "semantic_hash": "cbf4fd42461c0a5db4a150adc44cc86c"
+  },
+  "ios/SetlistToSpotify/Data/Timeline.swift": {
+    "mtime": 1785844391.2678778,
+    "ast_hash": "95e3e306988ade972c3b1a6c9dbf6445",
+    "semantic_hash": "95e3e306988ade972c3b1a6c9dbf6445"
+  },
+  "ios/SetlistToSpotify/Data/TimelineStore.swift": {
+    "mtime": 1785576143.9508648,
+    "ast_hash": "566530dd1b8a9eb0bb9106e6eac25f74",
+    "semantic_hash": "566530dd1b8a9eb0bb9106e6eac25f74"
+  },
+  "ios/SetlistToSpotify/UI/ConfirmView.swift": {
+    "mtime": 1785522599.02366,
+    "ast_hash": "4c9596633b2fa3cd8991322f6c3d68d1",
+    "semantic_hash": "4c9596633b2fa3cd8991322f6c3d68d1"
+  },
+  "ios/SetlistToSpotify/UI/ExchangeView.swift": {
+    "mtime": 1785844391.269875,
+    "ast_hash": "e115bf6fb6045b3ece3adb4bd270af24",
+    "semantic_hash": "e115bf6fb6045b3ece3adb4bd270af24"
+  },
+  "ios/SetlistToSpotify/UI/FriendsView.swift": {
+    "mtime": 1785668149.473941,
+    "ast_hash": "f04818c6581155e4c1db5c93f1527f98",
+    "semantic_hash": "f04818c6581155e4c1db5c93f1527f98"
+  },
+  "ios/SetlistToSpotify/UI/GigView.swift": {
+    "mtime": 1785776241.3876245,
+    "ast_hash": "f96a643a97f3c02ff21b45a15f489ecb",
+    "semantic_hash": "f96a643a97f3c02ff21b45a15f489ecb"
+  },
+  "ios/SetlistToSpotify/UI/SearchView.swift": {
+    "mtime": 1785668149.4759412,
+    "ast_hash": "b4f520d78924fa352f9c84d63191a28c",
+    "semantic_hash": "b4f520d78924fa352f9c84d63191a28c"
+  },
+  "ios/SetlistToSpotify/UI/SetlistsView.swift": {
+    "mtime": 1785522599.0326595,
+    "ast_hash": "f7e8fc4c23316237a6215568c6109976",
+    "semantic_hash": "f7e8fc4c23316237a6215568c6109976"
+  },
+  "ios/SetlistToSpotify/UI/SettingsView.swift": {
+    "mtime": 1785522599.034665,
+    "ast_hash": "3d1ea92f196ff0fa1ee53d06f9a115be",
+    "semantic_hash": "3d1ea92f196ff0fa1ee53d06f9a115be"
+  },
+  "ios/SetlistToSpotify/UI/StationView.swift": {
+    "mtime": 1785845853.251009,
+    "ast_hash": "6d380d3077adab6517f38f63dbaa0e5b",
+    "semantic_hash": "6d380d3077adab6517f38f63dbaa0e5b"
+  },
+  "setlistfm_cli.py": {
+    "mtime": 1785011921.1626813,
+    "ast_hash": "134c843b716945eb1159e11905fab48b",
+    "semantic_hash": "134c843b716945eb1159e11905fab48b"
+  },
+  "ship.sh": {
+    "mtime": 1785845853.252009,
+    "ast_hash": "6f5e0ec7404ee0db444074a74c15776a",
+    "semantic_hash": "6f5e0ec7404ee0db444074a74c15776a"
+  },
+  "test_setlistfm_cli.py": {
+    "mtime": 1785011921.1636832,
+    "ast_hash": "481df0a76893cb41069ff79777853293",
+    "semantic_hash": "481df0a76893cb41069ff79777853293"
+  },
+  ".github/workflows/android.yml": {
+    "mtime": 1785522598.8686614,
+    "ast_hash": "38c5e1377c409e99af751c911b83fb8d",
+    "semantic_hash": "38c5e1377c409e99af751c911b83fb8d"
+  },
+  ".github/workflows/ci.yml": {
+    "mtime": 1785011921.117719,
+    "ast_hash": "171442595a23b105971a9e72ac8eed62",
+    "semantic_hash": "171442595a23b105971a9e72ac8eed62"
+  },
+  ".github/workflows/generate-concerts.yml": {
+    "mtime": 1785011921.1187193,
+    "ast_hash": "d0ba57056cf812b2fa21416ce147075e",
+    "semantic_hash": "d0ba57056cf812b2fa21416ce147075e"
+  },
+  ".github/workflows/ios.yml": {
+    "mtime": 1785844844.2240686,
+    "ast_hash": "07a3ca735bdc699c176af22ce7b7ea24",
+    "semantic_hash": "07a3ca735bdc699c176af22ce7b7ea24"
+  },
+  "UBIQUITOUS_LANGUAGE.md": {
+    "mtime": 1785776241.3816102,
+    "ast_hash": "e7ecbce23aef47345c9a7b7e6689f047",
+    "semantic_hash": "e7ecbce23aef47345c9a7b7e6689f047"
+  },
+  "android/README.md": {
+    "mtime": 1785668149.4319673,
+    "ast_hash": "abe7576e9c406ce542ba1681a1eef2d7",
+    "semantic_hash": "abe7576e9c406ce542ba1681a1eef2d7"
+  },
+  "fixtures/weave/README.md": {
+    "mtime": 1785544901.8577876,
+    "ast_hash": "1d6331bc759563ce6e500661d4f0707b",
+    "semantic_hash": "1d6331bc759563ce6e500661d4f0707b"
+  },
+  "ios/README.md": {
+    "mtime": 1785668149.4629457,
+    "ast_hash": "8c6910fbe768e020fe2a39a5455d38b7",
+    "semantic_hash": "8c6910fbe768e020fe2a39a5455d38b7"
+  },
+  "ios/project.yml": {
+    "mtime": 1785843679.6288955,
+    "ast_hash": "346231aa03b1322607eb128d0768a922",
+    "semantic_hash": "346231aa03b1322607eb128d0768a922"
+  },
+  "requirements.txt": {
+    "mtime": 1785011921.1616817,
+    "ast_hash": "b60c34e987d8704b1ec7771dac039e7d",
+    "semantic_hash": "b60c34e987d8704b1ec7771dac039e7d"
+  }
+}
