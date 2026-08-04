@@ -42,6 +42,15 @@ targets:
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
+        # The Exchange: BLE is how an iPhone and a Pixel find each other, the
+        # camera is the QR fallback when the radio sulks. Both are foreground-only
+        # and only ever on the Exchange screen.
+        NSBluetoothAlwaysUsageDescription:
+          Station to Station uses Bluetooth to find people standing next to you and
+          swap timeline cards directly, with no server in between.
+        NSCameraUsageDescription:
+          Station to Station uses the camera to scan a friend's card when Bluetooth
+          can't reach them.
         # Baked-in credentials, surfaced to Config via Info.plist.
         SpotifyClientId: $(SPOTIFY_CLIENT_ID)
         SetlistFmApiKey: $(SETLISTFM_API_KEY)

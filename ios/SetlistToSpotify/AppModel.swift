@@ -279,6 +279,19 @@ final class AppModel: ObservableObject {
                       spotifyId: user?.id).shareURL
     }
 
+    /// Stand-in for the Ed25519 identity (#28) until it exists: 32 random bytes,
+    /// base64, fresh per launch — the same thing Android's `sessionKey` is.
+    private let sessionKey = Data((0..<32).map { _ in UInt8.random(in: 0...255) })
+        .base64EncodedString()
+
+    /// The same card as a BLE payload: adds the public key #28 makes the identity.
+    /// Nil until I've set my username — a blank card is nothing to hand over.
+    func myProbeCard() -> ProbeCard? {
+        guard let me = state.mySetlistFmUser.trimmingCharacters(in: .whitespaces).nilIfBlank
+        else { return nil }
+        return ProbeCard(name: me, publicKey: sessionKey, setlistfm: me)
+    }
+
     func addFriend(_ friend: Friend) {
         // De-dupe on setlist.fm username; a re-share updates the display name.
         let next = state.friends.filter { $0.setlistfm.lowercased() != friend.setlistfm.lowercased() } + [friend]

@@ -73,7 +73,7 @@ internal fun mergePeers(nearby: List<Friend>, ble: List<PeerHit>): List<Exchange
     return fromNearby + fromBle
 }
 
-private fun friendFromCard(card: ProbeCard): Friend? {
+internal fun friendFromCard(card: ProbeCard): Friend? {
     // The meeting only records people this app can draw a line for, which today means a
     // setlist.fm username — the same invariant the Nearby/QR card has always held. A card
     // without one is a contact with no timeline; storing that is the relationship layer's
@@ -100,6 +100,14 @@ class ExchangeSession(private val context: Context, scope: CoroutineScope) {
     private var peripheral: BleCardPeripheral? = null
     private val bleHits = MutableStateFlow<List<PeerHit>>(emptyList())
     private var running = false
+    private var myCard: ProbeCard? = null
+
+    /**
+     * Someone wrote their card to us over BLE (#87) — the other half of an Exchange the
+     * peer tapped. Treated exactly as a tapped card: being on this screen and advertising
+     * *is* the consent, so it is added, not prompted. Fires on a binder thread.
+     */
+    var onFriendReceived: ((Friend) -> Unit)? = null
 
     val peers: StateFlow<List<ExchangePeer>> =
         combine(nearby.peers, bleHits) { n, b -> mergePeers(n, b) }
@@ -124,11 +132,17 @@ class ExchangeSession(private val context: Context, scope: CoroutineScope) {
     fun start(me: Friend, myCard: ProbeCard) {
         if (running) return
         running = true
+        this.myCard = myCard
         // NearbyPeers.start does its own permission check and reports the failure the
         // whole flow already listens for, so a missing grant surfaces once, not per radio.
         nearby.start(me)
         if (nearby.hasPermissions()) {
-            peripheral = BleCardPeripheral(context, myCard).also { it.start() }
+            peripheral = BleCardPeripheral(context, myCard).also {
+                it.onCardWritten = { written ->
+                    friendFromCard(written)?.let { friend -> onFriendReceived?.invoke(friend) }
+                }
+                it.start()
+            }
             central.start()
         }
     }
@@ -140,6 +154,7 @@ class ExchangeSession(private val context: Context, scope: CoroutineScope) {
         if (hasPermissions()) central.stop()
         peripheral?.let { if (hasPermissions()) it.stop() }
         peripheral = null
+        myCard = null
         bleHits.value = emptyList()
     }
 
@@ -161,7 +176,7 @@ class ExchangeSession(private val context: Context, scope: CoroutineScope) {
     fun connect(peer: ExchangePeer, onCard: (Friend?) -> Unit) {
         peer.nearby?.let { onCard(it); return }
         val hit = peer.ble ?: run { onCard(null); return }
-        central.readCard(hit, negotiateMtu = false) { timing ->
+        central.readCard(hit, negotiateMtu = false, myCard = myCard) { timing ->
             onCard(timing.card?.let(::friendFromCard))
         }
     }

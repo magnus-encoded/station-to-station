@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum Route: Hashable { case friends, setlists, confirm, settings, station, search, gig }
+enum Route: Hashable { case friends, setlists, confirm, settings, station, search, gig, exchange }
 
 @MainActor
 final class Nav: ObservableObject {
@@ -32,6 +32,7 @@ struct SetlistToSpotifyApp: App {
                         case .station: StationView()
                         case .search: SearchView()
                         case .gig: GigView()
+                        case .exchange: ExchangeView()
                         }
                     }
             }
