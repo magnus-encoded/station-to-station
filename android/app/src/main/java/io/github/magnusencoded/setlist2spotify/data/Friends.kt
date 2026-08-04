@@ -75,14 +75,28 @@ private val playlistIdRegex = Regex("""playlist[:/]([A-Za-z0-9]+)""")
 fun spotifyPlaylistId(input: String): String? =
     playlistIdRegex.find(input.trim())?.groupValues?.get(1)
 
-/** Parses a `station-to-station://friend?...` link. Null if it isn't one / has no username. */
-fun friendFromUri(uri: Uri): Friend? {
-    if (uri.authority != "friend") return null
-    val user = uri.getQueryParameter("u")?.trim().orEmpty()
+/**
+ * The value-shaping half of [friendFromUri], pulled out to take the three query values
+ * directly rather than a `Uri` — android.net.Uri can't be constructed in a plain JVM
+ * unit test (same reason [io.github.magnusencoded.setlist2spotify.parseGigLink] was
+ * split from its Uri handler), so this is the part the link grammar check can run.
+ */
+fun friendFromQuery(u: String?, name: String?, sid: String?): Friend? {
+    val user = u?.trim().orEmpty()
     if (user.isEmpty()) return null
     return Friend(
         setlistfm = user,
-        name = uri.getQueryParameter("name")?.trim()?.ifBlank { null } ?: user,
-        spotifyId = uri.getQueryParameter("sid")?.trim()?.ifBlank { null },
+        name = name?.trim()?.ifBlank { null } ?: user,
+        spotifyId = sid?.trim()?.ifBlank { null },
+    )
+}
+
+/** Parses a `station-to-station://friend?...` link. Null if it isn't one / has no username. */
+fun friendFromUri(uri: Uri): Friend? {
+    if (uri.authority != "friend") return null
+    return friendFromQuery(
+        uri.getQueryParameter("u"),
+        uri.getQueryParameter("name"),
+        uri.getQueryParameter("sid"),
     )
 }
