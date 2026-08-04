@@ -138,6 +138,43 @@ final class CardWireTests: XCTestCase {
         XCTAssertNil(peers.first?.setlistfm)
     }
 
+    /// The card written back is the same card, through the same parser. A typo in the
+    /// UUID is a silent no-discovery that costs a device session to find, so it is
+    /// pinned here rather than in a room with two phones.
+    func testTheWriteCharacteristicUUIDIsFixedOnBothPlatforms() {
+        XCTAssertEqual("7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7713", cardWriteCharacteristicUUIDString)
+    }
+
+    func testAWrittenCardBecomesTheSameFriendAsAReadOne() {
+        let written = String(decoding: card.bytes(), as: UTF8.self)
+        XCTAssertEqual(friendFromCard(card), friendFromCard(parseProbeCard(written)!))
+        XCTAssertEqual("dizzi90", friendFromCard(card)?.setlistfm)
+    }
+
+    func testAnUnparseableWrittenPayloadYieldsNothing() {
+        XCTAssertNil(parseProbeCard("half a card"))
+        XCTAssertNil(parseProbeCard(""))
+        // …and a card with no username is not a blank friend, it is no friend.
+        XCTAssertNil(friendFromCard(ProbeCard(name: "Magnus", publicKey: "AAAA")))
+    }
+
+    /// A card longer than one ATT PDU arrives as a rising-offset series of write
+    /// requests. The server must place each chunk at its offset; assuming one write
+    /// carried the payload is the read path's truncation bug, in reverse.
+    func testAChunkedWriteAtDefaultMtuStillReassemblesTheWholeCard() {
+        let payload = card.bytes()
+        let chunkSize = 20 // MTU 23 minus the 3-byte ATT overhead
+        XCTAssertTrue(payload.count > chunkSize, "test card should need chunking to be meaningful")
+        var accumulated = Data()
+        var offset = 0
+        while offset < payload.count {
+            let onWire = payload.subdata(in: offset..<min(offset + chunkSize, payload.count))
+            accumulated = writeAtOffset(accumulated, offset, onWire)
+            offset += onWire.count
+        }
+        XCTAssertEqual(card, parseProbeCard(String(decoding: accumulated, as: UTF8.self)))
+    }
+
     func testFriendFromCardNeedsASetlistFmUsername() {
         XCTAssertNil(friendFromCard(ProbeCard(name: "Magnus", publicKey: "AAAA")))
         let friend = friendFromCard(card)

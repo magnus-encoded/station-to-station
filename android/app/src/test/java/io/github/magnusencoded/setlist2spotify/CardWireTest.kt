@@ -1,11 +1,14 @@
 package io.github.magnusencoded.setlist2spotify
 
+import io.github.magnusencoded.setlist2spotify.ble.CARD_WRITE_CHARACTERISTIC_UUID
 import io.github.magnusencoded.setlist2spotify.ble.NearbyNameLimitProbe
 import io.github.magnusencoded.setlist2spotify.ble.ProbeCard
 import io.github.magnusencoded.setlist2spotify.ble.SCAN_RESPONSE_NAME_BUDGET
 import io.github.magnusencoded.setlist2spotify.ble.parseProbeCard
 import io.github.magnusencoded.setlist2spotify.ble.sliceForOffset
 import io.github.magnusencoded.setlist2spotify.ble.truncateToBytes
+import io.github.magnusencoded.setlist2spotify.ble.writeAtOffset
+import io.github.magnusencoded.setlist2spotify.data.exchange.friendFromCard
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -90,6 +93,50 @@ class CardWireTest {
         assertEquals(0, sliceForOffset(payload, payload.size).size)
         assertTrue("$reads reads should need more than one round trip at MTU 23", reads > 1)
         assertEquals(String(payload, Charsets.UTF_8), String(reassembled, Charsets.UTF_8))
+    }
+
+    /**
+     * #87: the card written back is the same card, through the same parser. A typo in
+     * the UUID is a silent no-discovery that costs a device session to find, so it is
+     * pinned here rather than in a room with two phones.
+     */
+    @Test fun theWriteCharacteristicUuidIsFixedOnBothPlatforms() {
+        assertEquals(
+            "7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7713",
+            CARD_WRITE_CHARACTERISTIC_UUID.toString(),
+        )
+    }
+
+    @Test fun aWrittenCardBecomesTheSameFriendAsAReadOne() {
+        val written = String(card.bytes(), Charsets.UTF_8)
+        assertEquals(friendFromCard(card), friendFromCard(parseProbeCard(written)!!))
+        assertEquals("dizzi90", friendFromCard(card)?.setlistfm)
+    }
+
+    @Test fun anUnparseableWrittenPayloadYieldsNothing() {
+        assertNull(parseProbeCard("half a card"))
+        assertNull(parseProbeCard(""))
+        // …and a card with no username is not a blank friend, it is no friend.
+        assertNull(friendFromCard(ProbeCard(name = "Magnus", publicKey = "AAAA")))
+    }
+
+    /**
+     * A card longer than one ATT PDU arrives as a rising-offset series of write
+     * requests. The server must place each chunk at its offset; assuming one write
+     * carried the payload is the read path's truncation bug, in reverse.
+     */
+    @Test fun aChunkedWriteAtDefaultMtuStillReassemblesTheWholeCard() {
+        val payload = card.bytes()
+        val chunkSize = 20 // MTU 23 minus the 3-byte ATT_OVERHEAD
+        var accumulated = ByteArray(0)
+        var offset = 0
+        while (offset < payload.size) {
+            val onWire = payload.copyOfRange(offset, (offset + chunkSize).coerceAtMost(payload.size))
+            accumulated = writeAtOffset(accumulated, offset, onWire)
+            offset += onWire.size
+        }
+        assertTrue("test card should need chunking to be meaningful", payload.size > chunkSize)
+        assertEquals(card, parseProbeCard(String(accumulated, Charsets.UTF_8)))
     }
 
     @Test fun nameTruncationStaysInsideTheScanResponse() {

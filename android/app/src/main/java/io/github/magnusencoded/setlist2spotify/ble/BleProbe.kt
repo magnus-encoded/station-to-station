@@ -47,6 +47,17 @@ import java.util.UUID
 private val SERVICE_UUID: UUID = UUID.fromString("7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7711")
 private val CARD_CHARACTERISTIC_UUID: UUID = UUID.fromString("7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7712")
 
+/**
+ * The other direction (#87). A read is one-directional, so the central writes its own
+ * card here on the same connection and one tap exchanges both cards. Same payload as
+ * the read characteristic — [ProbeCard.encode] bytes, one format, one parser.
+ *
+ * Internal rather than private so a test can pin it: a typo here is a silent
+ * no-discovery that costs a device session to find.
+ */
+internal val CARD_WRITE_CHARACTERISTIC_UUID: UUID =
+    UUID.fromString("7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7713")
+
 /** 0xFFFF is the SIG's "reserved for internal/testing use" company id. */
 private const val TEST_COMPANY_ID = 0xFFFF
 
@@ -63,6 +74,19 @@ private const val ATT_OVERHEAD = 3
  */
 fun sliceForOffset(payload: ByteArray, offset: Int): ByteArray =
     if (offset >= payload.size) ByteArray(0) else payload.copyOfRange(offset, payload.size)
+
+/**
+ * The write path's mirror of [sliceForOffset]. A card longer than one ATT PDU arrives
+ * as a rising-offset series of write requests (a "long write") and only the whole
+ * accumulation parses, so the server must place each chunk *at its offset* rather than
+ * assume one write carried the payload — the same trap as the read path, in reverse.
+ */
+fun writeAtOffset(existing: ByteArray, offset: Int, chunk: ByteArray): ByteArray {
+    if (offset < 0) return existing
+    val out = existing.copyOf(maxOf(existing.size, offset + chunk.size))
+    chunk.copyInto(out, offset)
+    return out
+}
 
 /**
  * Sized to the operation, per the project rule: a card exchange that is meant to
@@ -120,6 +144,15 @@ class BleCardPeripheral(private val context: Context, private var card: ProbeCar
     private var advertiser: BluetoothLeAdvertiser? = null
     var onLog: ((String) -> Unit)? = null
 
+    /**
+     * A peer wrote their card to us (#87). Fires on a binder thread; the session hops.
+     * Being in the Exchange is the consent, so there is nothing to prompt.
+     */
+    var onCardWritten: ((ProbeCard) -> Unit)? = null
+
+    /** Accumulated write payload per device — a long write arrives in pieces. */
+    private val inbox = mutableMapOf<String, ByteArray>()
+
     private val advertiseCallback = object : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
             onLog?.invoke("advertising: ${card.bytes().size}-byte card behind the characteristic")
@@ -145,9 +178,52 @@ class BleCardPeripheral(private val context: Context, private var card: ProbeCar
             onLog?.invoke("server: read from ${device.address} at offset $offset (${slice.size} bytes)")
         }
 
+        override fun onCharacteristicWriteRequest(
+            device: BluetoothDevice,
+            requestId: Int,
+            characteristic: BluetoothGattCharacteristic,
+            preparedWrite: Boolean,
+            responseNeeded: Boolean,
+            offset: Int,
+            value: ByteArray?,
+        ) {
+            val chunk = value ?: ByteArray(0)
+            inbox[device.address] = writeAtOffset(inbox[device.address] ?: ByteArray(0), offset, chunk)
+            // Withholding the response on a write-with-response hangs the writer until
+            // its own timeout, which is the peer's whole exchange.
+            if (responseNeeded) {
+                gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, chunk)
+            }
+            onLog?.invoke("server: write from ${device.address} at offset $offset (${chunk.size} bytes)")
+            // A prepared (long) write is only complete at onExecuteWrite; a short one
+            // carried the whole card in this single request.
+            if (!preparedWrite) deliver(device.address)
+        }
+
+        override fun onExecuteWrite(device: BluetoothDevice, requestId: Int, execute: Boolean) {
+            gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
+            if (execute) deliver(device.address) else inbox.remove(device.address)
+        }
+
+        override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
+            if (newState == BluetoothProfile.STATE_DISCONNECTED) inbox.remove(device.address)
+        }
+
         override fun onMtuChanged(device: BluetoothDevice, mtu: Int) {
             onLog?.invoke("server: MTU with ${device.address} is $mtu")
         }
+    }
+
+    /** One completed write operation is one whole card, or it is ignored and logged. */
+    private fun deliver(address: String) {
+        val payload = inbox.remove(address) ?: return
+        val written = parseProbeCard(String(payload, StandardCharsets.UTF_8))
+        if (written == null) {
+            onLog?.invoke("server: unparseable card from $address (${payload.size} bytes), ignored")
+            return
+        }
+        onLog?.invoke("server: card written by $address (${payload.size} bytes)")
+        onCardWritten?.invoke(written)
     }
 
     @RequiresPermission(allOf = ["android.permission.BLUETOOTH_CONNECT", "android.permission.BLUETOOTH_ADVERTISE"])
@@ -157,8 +233,14 @@ class BleCardPeripheral(private val context: Context, private var card: ProbeCar
             BluetoothGattCharacteristic.PROPERTY_READ,
             BluetoothGattCharacteristic.PERMISSION_READ,
         )
+        // #87: the way back. A read cannot carry my card to them, so they write it here.
+        val inbound = BluetoothGattCharacteristic(
+            CARD_WRITE_CHARACTERISTIC_UUID,
+            BluetoothGattCharacteristic.PROPERTY_WRITE,
+            BluetoothGattCharacteristic.PERMISSION_WRITE,
+        )
         val service = BluetoothGattService(SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
-            .apply { addCharacteristic(characteristic) }
+            .apply { addCharacteristic(characteristic); addCharacteristic(inbound) }
         gattServer = manager.openGattServer(context, serverCallback)?.also { it.addService(service) }
 
         advertiser = manager.adapter.bluetoothLeAdvertiser
@@ -185,6 +267,7 @@ class BleCardPeripheral(private val context: Context, private var card: ProbeCar
         advertiser = null
         gattServer?.close()
         gattServer = null
+        inbox.clear()
     }
 }
 
@@ -240,9 +323,19 @@ class BleCardCentral(private val context: Context) {
      * [negotiateMtu] exists so the probe screen can run both paths on the same two
      * phones and compare: at the default MTU (23) the card comes back as a series
      * of ATT_READ_BLOB round trips instead of one bigger read. See #30.
+     *
+     * [myCard], when given, is written back to the peer on the same connection once
+     * the read succeeds (#87) — a read is one-directional, so without this the person
+     * who tapped is the only one who ends up with a card. A failed write-back does not
+     * undo the successful read: one-way is better than none.
      */
     @RequiresPermission("android.permission.BLUETOOTH_CONNECT")
-    fun readCard(peer: PeerHit, negotiateMtu: Boolean = true, onResult: (ExchangeTiming) -> Unit) {
+    fun readCard(
+        peer: PeerHit,
+        negotiateMtu: Boolean = true,
+        myCard: ProbeCard? = null,
+        onResult: (ExchangeTiming) -> Unit,
+    ) {
         val device = manager.adapter.getRemoteDevice(peer.address)
         var leg = System.currentTimeMillis()
         var phase = "connect"
@@ -312,13 +405,41 @@ class BleCardCentral(private val context: Context) {
                     return
                 }
                 val payload = String(characteristic.value ?: ByteArray(0), StandardCharsets.UTF_8)
-                finish(
-                    timing.copy(
-                        readMs = readMs,
-                        cardBytes = characteristic.value?.size ?: 0,
-                        card = parseProbeCard(payload),
-                    ),
+                timing = timing.copy(
+                    readMs = readMs,
+                    cardBytes = characteristic.value?.size ?: 0,
+                    card = parseProbeCard(payload),
                 )
+                // #87: hand mine over before letting go of the connection, so the peer
+                // never has to tap. Anything that goes wrong here still finishes with
+                // the card that was read.
+                val mine = myCard ?: return finish(timing)
+                val inbound = gatt.getService(SERVICE_UUID)
+                    ?.getCharacteristic(CARD_WRITE_CHARACTERISTIC_UUID)
+                if (inbound == null) {
+                    onLog?.invoke("peer has no write characteristic — one-way exchange")
+                    return finish(timing)
+                }
+                phase = "write"
+                inbound.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                inbound.value = mine.bytes()
+                if (!gatt.writeCharacteristic(inbound)) {
+                    onLog?.invoke("write-back rejected — one-way exchange")
+                    finish(timing)
+                }
+            }
+
+            override fun onCharacteristicWrite(
+                gatt: BluetoothGatt,
+                characteristic: BluetoothGattCharacteristic,
+                status: Int,
+            ) {
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    onLog?.invoke("write-back FAILED (status=$status) — one-way exchange")
+                } else {
+                    onLog?.invoke("wrote my card back in ${split()}ms")
+                }
+                finish(timing)
             }
         }, BluetoothDevice.TRANSPORT_LE)
     }

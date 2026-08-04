@@ -19,6 +19,11 @@ import Foundation
 let exchangeServiceUUIDString = "7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7711"
 let cardCharacteristicUUIDString = "7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7712"
 
+/// The other direction. A read is one-directional, so the central writes its own
+/// card here on the same connection and one tap exchanges both cards. Same payload
+/// as the read characteristic — `ProbeCard.encode()` bytes, one format, one parser.
+let cardWriteCharacteristicUUIDString = "7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7713"
+
 /// 0xFFFF is the SIG's "reserved for internal/testing use" company id.
 let testCompanyId: UInt16 = 0xFFFF
 
@@ -136,6 +141,21 @@ func truncateToBytes(_ name: String, budget: Int = scanResponseNameBudget) -> St
 /// truncates anything over ~22 bytes — `BleProbe.kt:142`.
 func sliceForOffset(_ payload: Data, _ offset: Int) -> Data {
     offset >= payload.count ? Data() : payload.subdata(in: offset..<payload.count)
+}
+
+/// The write path's mirror of `sliceForOffset`. A card longer than one ATT PDU
+/// arrives as a rising-offset series of write requests (a "long write") and only
+/// the whole accumulation parses, so the server must place each chunk *at its
+/// offset* rather than assume one write carried the payload — the same trap as the
+/// read path, in reverse.
+func writeAtOffset(_ existing: Data, _ offset: Int, _ chunk: Data) -> Data {
+    guard offset >= 0 else { return existing }
+    var out = [UInt8](existing)
+    if out.count < offset + chunk.count {
+        out += [UInt8](repeating: 0, count: offset + chunk.count - out.count)
+    }
+    out.replaceSubrange(offset..<(offset + chunk.count), with: [UInt8](chunk))
+    return Data(out)
 }
 
 /// Android's name, off its manufacturer-data record: 2-byte little-endian company

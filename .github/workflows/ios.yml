@@ -1,12 +1,15 @@
 name: iOS CI
 
 on:
+  # No branch filter on push, matching android.yml: the work happens on branches,
+  # and there is no local Xcode to build against, so a branch that can't reach CI
+  # can't be checked at all.
   push:
-    branches: [ "main" ]
     paths: [ "ios/**", ".github/workflows/ios.yml" ]
   pull_request:
     branches: [ "main" ]
     paths: [ "ios/**", ".github/workflows/ios.yml" ]
+  workflow_dispatch:
 
 jobs:
   build:
