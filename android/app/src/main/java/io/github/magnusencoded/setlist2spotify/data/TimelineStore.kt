@@ -13,6 +13,7 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
 
 /**
  * Every timeline on the device, in one file.
@@ -65,6 +66,61 @@ data class StoredAttendance(
     }
 }
 
+/**
+ * One night, as *this app* knows it — the identity everything else hangs off (#107).
+ *
+ * The setlist.fm id is an attribute here, not the key. #28 made exactly this change
+ * for people ("the public key is the identity; setlistfm becomes a nullable
+ * attribute") and named the same gap for events; this is that half. A night from a
+ * poster in a window has no vendor id and may never get one, and once media (#97)
+ * hangs off a gig the data is irreplaceable, so a key that can change — or that a
+ * night can fail to have — is a key that can orphan a keepsake.
+ *
+ * [setlistId] is still the correspondence key *between people*: two devices assign
+ * different local ids to the same night, so **Crossings** and anything cross-person
+ * resolve through it. A local-only Gig is local-only by design (#34 accepts this).
+ *
+ * [createdAt] exists for one rule: two local gigs found to be the same night merge,
+ * and the older id wins. Migrated gigs carry 0 — they predate everything minted
+ * since, and every device agrees on that without a clock.
+ */
+@Serializable
+data class StoredGig(
+    // Defaulted for the same reason every other field here is: a cache missing one
+    // field should cost that field, never the whole timeline.
+    val id: String = "",
+    /** dd-MM-yyyy, the shape setlist.fm sends. Blank until the facts are known. */
+    val date: String = "",
+    val artist: String = "",
+    val venue: String = "",
+    /** Null for a night setlist.fm has never heard of. Set once, by adoption (#34). */
+    val setlistId: String? = null,
+    /** Epoch millis. 0 means "came in with the migration". */
+    val createdAt: Long = 0L,
+)
+
+/**
+ * A UUID derived from [name] rather than drawn at random — RFC 4122 version 5, the
+ * SHA-1 flavour.
+ *
+ * Random would have been less code, and wrong: the same old cache has to migrate to
+ * the same ids on Android and on iOS, or a user with both phones ends up with two
+ * histories of the same nights. Deriving it also makes the migration idempotent and
+ * lets both platforms' tests assert *fixed* expected ids rather than "some uuid",
+ * so neither can drift by agreeing with itself.
+ */
+internal fun uuidFrom(name: String): String {
+    val h = MessageDigest.getInstance("SHA-1").digest(name.toByteArray(Charsets.UTF_8))
+    h[6] = ((h[6].toInt() and 0x0f) or 0x50).toByte() // version 5
+    h[8] = ((h[8].toInt() and 0x3f) or 0x80).toByte() // RFC 4122 variant
+    val hex = h.take(16).joinToString("") { "%02x".format(it) }
+    return "${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-" +
+        "${hex.substring(16, 20)}-${hex.substring(20, 32)}"
+}
+
+/** The id a **Gig** gets the first time it is seen through a setlist.fm id. */
+internal fun gigIdForSetlistId(setlistId: String): String = uuidFrom("gig:$setlistId")
+
 @Serializable
 data class TimelineCache(
     /** Attended shows by setlist.fm username — mine and every friend's alike. */
@@ -82,6 +138,8 @@ data class TimelineCache(
      * parses: the old key is simply unknown now and ignored, where a changed type
      * under the same name would have failed to decode and dropped the timelines
      * with it.
+     *
+     * Dead since #107. See [gigPlaylists].
      */
     val playlistsMade: Map<String, List<StoredPlaylist>> = emptyMap(),
     /**
@@ -97,6 +155,8 @@ data class TimelineCache(
      * @Serializable. Replaced wholesale per setlist on every edit (add or remove),
      * unlike [playlistsMade]: there's no outside link to preserve, just the user's
      * current choice of pictures.
+     *
+     * Dead since #107: read once by the migration, never written again. See [gigPhotos].
      */
     val photosBySetlist: Map<String, List<String>> = emptyMap(),
     /**
@@ -107,6 +167,8 @@ data class TimelineCache(
      * song twice, and the running order is the only thing that tells the two apart.
      * Goes stale if the setlist is edited on setlist.fm afterwards; the length check
      * on read is what catches that.
+     *
+     * Dead since #107. See [gigSongOffsets].
      */
     val songOffsetsBySetlist: Map<String, List<Long>> = emptyMap(),
     /**
@@ -115,6 +177,8 @@ data class TimelineCache(
      * no vendor id until someone creates one, and may never get one, so the key
      * can't require it. Whatever id a gig is known by elsewhere on the timeline
      * is the id to use here too; this store doesn't mint or resolve ids itself.
+     *
+     * Dead since #107, which made that "whatever id" a real record. See [gigAttendance].
      */
     val attendanceByGig: Map<String, StoredAttendance> = emptyMap(),
     /**
@@ -126,6 +190,8 @@ data class TimelineCache(
      *
      * My relationship to it still lives in [attendanceByGig] under the same id, with
      * provenance `planned` — this list is the record, that map is the claim.
+     *
+     * Dead since #107. See [gigPlanned].
      */
     val plannedShows: List<FmSetlist> = emptyList(),
     /**
@@ -140,9 +206,68 @@ data class TimelineCache(
      * Replaces the earlier `calendarAddedGigs` set. An older cache that still carries
      * that key just ignores it (ignoreUnknownKeys) and starts with this map empty —
      * no migration, and no real users to migrate.
+     *
+     * Dead since #107. See [gigCalendarEvent].
      */
     val calendarEventByGig: Map<String, String> = emptyMap(),
-)
+
+    // --- Keyed by the app's own Gig id (#107) ---------------------------------
+    //
+    // Every map above that was keyed by a night is re-keyed here, and the six of
+    // them moved together on purpose: a half-migration leaves two identity schemes
+    // and is worse than either. New keys rather than changed value shapes, per the
+    // playlistsMade precedent — the old keys stay in the format, are read exactly
+    // once by [migrated], and are never written again, so an older build still
+    // round-trips its own cache instead of failing to decode ours.
+
+    /** Every night this app knows about, by its own id. See [StoredGig]. */
+    val gigs: Map<String, StoredGig> = emptyMap(),
+    /** Replaces [photosBySetlist]. Becomes media records in #97. */
+    val gigPhotos: Map<String, List<String>> = emptyMap(),
+    /** Replaces [songOffsetsBySetlist]. */
+    val gigSongOffsets: Map<String, List<Long>> = emptyMap(),
+    /** Replaces [attendanceByGig]. */
+    val gigAttendance: Map<String, StoredAttendance> = emptyMap(),
+    /** Replaces [calendarEventByGig]. */
+    val gigCalendarEvent: Map<String, String> = emptyMap(),
+    /** Replaces [playlistsMade]. */
+    val gigPlaylists: Map<String, List<StoredPlaylist>> = emptyMap(),
+    /**
+     * Replaces [plannedShows]. A map rather than a list because the gig id is now
+     * the identity; the value is unchanged, and the order it used to carry was
+     * re-sorted on read anyway (AppViewModel.sortedPlanned).
+     */
+    val gigPlanned: Map<String, FmSetlist> = emptyMap(),
+) {
+    /**
+     * The id this gig is known by *outside* the store: its setlist.fm id where it
+     * has one, otherwise its own. Exactly the convention [attendanceByGig] already
+     * documented ("a setlist.fm id where the gig has one, or a local id where it
+     * doesn't yet"), which is why the screens above need no re-keying — adoption
+     * changes what this returns for one gig and moves no data at all.
+     */
+    fun keyOf(gigId: String): String = gigs[gigId]?.let { it.setlistId ?: it.id } ?: gigId
+
+    /**
+     * Given a setlist.fm id — from a friend's timeline, say — the local **Gig**.
+     *
+     * ponytail: a scan, not a second index. A collection is hundreds of nights and
+     * this runs on write. Add a reverse map when a scan is actually felt.
+     */
+    fun gigForSetlist(setlistId: String): StoredGig? =
+        gigs.values.firstOrNull { it.setlistId == setlistId }
+
+    /** The other direction: given a local **Gig**, its setlist.fm record's id. */
+    fun setlistIdFor(gigId: String): String? = gigs[gigId]?.setlistId
+
+    // What the screens read: the gig-keyed maps, back under the id the UI uses.
+    fun photos(): Map<String, List<String>> = gigPhotos.mapKeys { keyOf(it.key) }
+    fun songOffsets(): Map<String, List<Long>> = gigSongOffsets.mapKeys { keyOf(it.key) }
+    fun attendance(): Map<String, StoredAttendance> = gigAttendance.mapKeys { keyOf(it.key) }
+    fun calendarEvents(): Map<String, String> = gigCalendarEvent.mapKeys { keyOf(it.key) }
+    fun playlists(): Map<String, List<StoredPlaylist>> = gigPlaylists.mapKeys { keyOf(it.key) }
+    fun planned(): List<FmSetlist> = gigPlanned.values.toList()
+}
 
 /** [file] rather than a Context only so the merge can be tested on the JVM. */
 class TimelineStore(private val file: File) {
@@ -158,11 +283,20 @@ class TimelineStore(private val file: File) {
     // both read the old cache and the loser's writes vanish.
     private val writeLock = Mutex()
 
-    /** The cache as last written. Empty (never null) on first run or unreadable file. */
+    /**
+     * The cache as last written, with #107's migration applied. Empty (never null)
+     * on first run or unreadable file.
+     *
+     * Migrating on read rather than in a one-shot upgrade step: there is no schema
+     * version to hang one off, and this way an old cache restored onto the device
+     * later (a backup, a sideload) migrates too. It is a no-op once [TimelineCache.gigs]
+     * is populated, which the first write after a migration makes permanent.
+     */
     suspend fun load(): TimelineCache = withContext(Dispatchers.IO) {
         if (!file.exists()) return@withContext TimelineCache()
         runCatching { json.decodeFromString<TimelineCache>(file.readText()) }
             .getOrDefault(TimelineCache())
+            .migrated()
     }
 
     /**
@@ -175,38 +309,46 @@ class TimelineStore(private val file: File) {
         festivalNames: Map<String, String> = emptyMap(),
         playlists: Map<String, StoredPlaylist> = emptyMap(),
         attendedTotals: Map<String, Int> = emptyMap(),
-    ): Unit = writeMerged {
-        it.copy(
-            shows = it.shows + shows.filterValues { list -> list.isNotEmpty() },
-            festivalNames = it.festivalNames + festivalNames,
-            attendedTotals = it.attendedTotals + attendedTotals,
-            // Appended, never replaced — see [TimelineCache.playlistsMade].
-            // De-duped on url so re-recording the same playlist is a no-op.
-            playlistsMade = it.playlistsMade + playlists.mapValues { (night, made) ->
-                val had = it.playlistsMade[night].orEmpty()
-                if (had.any { p -> p.url == made.url }) had else had + made
-            },
+    ): Unit = writeMerged { cache ->
+        var c = cache.copy(
+            shows = cache.shows + shows.filterValues { list -> list.isNotEmpty() },
+            festivalNames = cache.festivalNames + festivalNames,
+            attendedTotals = cache.attendedTotals + attendedTotals,
         )
+        for ((night, made) in playlists) {
+            val (resolved, gigId) = c.withGig(night)
+            // Appended, never replaced — see [TimelineCache.gigPlaylists].
+            // De-duped on url so re-recording the same playlist is a no-op.
+            val had = resolved.gigPlaylists[gigId].orEmpty()
+            c = resolved.copy(
+                gigPlaylists = resolved.gigPlaylists +
+                    (gigId to if (had.any { p -> p.url == made.url }) had else had + made),
+            )
+        }
+        c
     }
 
     /** The Reliver's current set of photos for one gig, replacing whatever was there. */
     suspend fun savePhotos(setlistId: String, uris: List<String>): Unit = writeMerged {
-        it.copy(photosBySetlist = it.photosBySetlist + (setlistId to uris))
+        val (c, gigId) = it.withGig(setlistId)
+        c.copy(gigPhotos = c.gigPhotos + (gigId to uris))
     }
 
     /** A night's song start times inside its recording, replacing whatever was there. */
     suspend fun saveSongOffsets(setlistId: String, offsets: List<Long>): Unit = writeMerged {
-        it.copy(songOffsetsBySetlist = it.songOffsetsBySetlist + (setlistId to offsets))
+        val (c, gigId) = it.withGig(setlistId)
+        c.copy(gigSongOffsets = c.gigSongOffsets + (gigId to offsets))
     }
 
     /**
      * My current attendance record for one gig, by [gigId] — a setlist.fm id where
-     * one exists, otherwise a local id (see [TimelineCache.attendanceByGig]).
+     * one exists, otherwise a local id (see [TimelineCache.keyOf]).
      * Replaces whatever was there for that gig, same as [savePhotos]: this is the
      * current state of one relationship, not an append-only log.
      */
     suspend fun saveAttendance(gigId: String, attendance: StoredAttendance): Unit = writeMerged {
-        it.copy(attendanceByGig = it.attendanceByGig + (gigId to attendance))
+        val (c, id) = it.withGig(gigId)
+        c.copy(gigAttendance = c.gigAttendance + (id to attendance))
     }
 
     /**
@@ -216,13 +358,14 @@ class TimelineStore(private val file: File) {
      * Re-adding the same gig replaces its record rather than duplicating it.
      */
     suspend fun savePlanned(setlist: FmSetlist): Unit = writeMerged {
-        it.copy(
-            plannedShows = it.plannedShows.filterNot { s -> s.id == setlist.id } + setlist,
+        val (c, gigId) = it.withGig(setlist.id)
+        c.copy(
+            gigPlanned = c.gigPlanned + (gigId to setlist),
             // Never downgrades: re-storing the record when the night's setlist finally
             // lands must not throw away a check-in that happened in between.
-            attendanceByGig = it.attendanceByGig + (
-                setlist.id to (
-                    it.attendanceByGig[setlist.id]
+            gigAttendance = c.gigAttendance + (
+                gigId to (
+                    c.gigAttendance[gigId]
                         ?: StoredAttendance(provenance = StoredAttendance.Provenance.PLANNED)
                     )
                 ),
@@ -235,35 +378,133 @@ class TimelineStore(private val file: File) {
      * or attended is a night that happened, and removing it from the plans must
      * not quietly erase the evidence that I was there.
      */
-    suspend fun removePlanned(gigId: String): Unit = writeMerged {
+    suspend fun removePlanned(gigId: String): Unit = writeMerged { cache ->
+        val id = cache.gigIdOrNull(gigId) ?: return@writeMerged cache
         val stillPlanned =
-            it.attendanceByGig[gigId]?.provenance == StoredAttendance.Provenance.PLANNED
-        it.copy(
-            plannedShows = it.plannedShows.filterNot { s -> s.id == gigId },
-            attendanceByGig = if (stillPlanned) it.attendanceByGig - gigId else it.attendanceByGig,
+            cache.gigAttendance[id]?.provenance == StoredAttendance.Provenance.PLANNED
+        cache.copy(
+            gigPlanned = cache.gigPlanned - id,
+            gigAttendance = if (stillPlanned) cache.gigAttendance - id else cache.gigAttendance,
         )
     }
 
     /** Remembers the calendar event made for a gig, by its content URI. */
     suspend fun markCalendarAdded(gigId: String, eventUri: String): Unit = writeMerged {
-        it.copy(calendarEventByGig = it.calendarEventByGig + (gigId to eventUri))
+        val (c, id) = it.withGig(gigId)
+        c.copy(gigCalendarEvent = c.gigCalendarEvent + (id to eventUri))
+    }
+
+    /**
+     * A night setlist.fm has never heard of — the poster in the window, the small
+     * venue nobody catalogues. Returns the id everything else keys by; it is also
+     * the id the screens use, until [adoptSetlistId] gives the night a vendor one.
+     *
+     * Random rather than derived: there is no setlist.fm id to derive from, and the
+     * facts are exactly what cannot be trusted as a key (venues get renamed, artists
+     * rename, festival days split) — that is why the natural key was rejected.
+     */
+    suspend fun createLocalGig(date: String, artist: String, venue: String): String {
+        val id = java.util.UUID.randomUUID().toString()
+        writeMerged {
+            it.copy(
+                gigs = it.gigs + (
+                    id to StoredGig(
+                        id = id,
+                        date = date,
+                        artist = artist,
+                        venue = venue,
+                        createdAt = it.nextCreatedAt(),
+                    )
+                    ),
+            )
+        }
+        return id
+    }
+
+    /**
+     * A night that setlist.fm has now catalogued takes their id (#34's search found
+     * the match; this is all that is left to do). One field on one record — no data
+     * moves, because nothing was ever keyed by the vendor id.
+     *
+     * Refuses a gig that already has one: two setlist.fm ids for one night is a bug
+     * upstream, not a merge case, and silently overwriting would hide it. Returns
+     * whether the id was taken.
+     */
+    suspend fun adoptSetlistId(gigId: String, setlistId: String): Boolean {
+        var adopted = false
+        writeMerged { cache ->
+            val gig = cache.gigs[gigId]
+            if (gig == null || gig.setlistId != null) return@writeMerged cache
+            adopted = true
+            cache.copy(gigs = cache.gigs + (gigId to gig.copy(setlistId = setlistId)))
+        }
+        return adopted
+    }
+
+    /**
+     * Two records found to be the same night become one — the case where a night
+     * added by hand is later also imported.
+     *
+     * The older id wins, and the survivor takes the union: nothing a merge touches
+     * may cost the user a photo, a check-in or a playlist link. Returns the id that
+     * survived, or null if either gig is unknown.
+     */
+    suspend fun mergeGigs(gigIdA: String, gigIdB: String): String? {
+        var survivor: String? = null
+        writeMerged { cache ->
+            val a = cache.gigs[gigIdA]
+            val b = cache.gigs[gigIdB]
+            if (a == null || b == null || a.id == b.id) return@writeMerged cache
+            // createdAt, then the id itself, so two devices merging the same pair
+            // reach the same answer without a synchronised clock.
+            val older = if (a.createdAt != b.createdAt) {
+                if (a.createdAt < b.createdAt) a else b
+            } else {
+                if (a.id < b.id) a else b
+            }
+            val gone = if (older.id == a.id) b else a
+            survivor = older.id
+            cache.copy(
+                gigs = cache.gigs - gone.id + (
+                    older.id to older.copy(
+                        setlistId = older.setlistId ?: gone.setlistId,
+                        date = older.date.ifBlank { gone.date },
+                        artist = older.artist.ifBlank { gone.artist },
+                        venue = older.venue.ifBlank { gone.venue },
+                    )
+                    ),
+                // Photos and playlists are collections of separate things, so the
+                // union is every one of them. The rest are one current value per
+                // night, where the survivor's own answer is the one to keep.
+                gigPhotos = cache.gigPhotos.folded(older.id, gone.id) { k, d -> (k + d).distinct() },
+                gigPlaylists = cache.gigPlaylists.folded(older.id, gone.id) { k, d ->
+                    k + d.filterNot { p -> k.any { it.url == p.url } }
+                },
+                gigSongOffsets = cache.gigSongOffsets.folded(older.id, gone.id) { k, _ -> k },
+                gigAttendance = cache.gigAttendance.folded(older.id, gone.id) { k, _ -> k },
+                gigCalendarEvent = cache.gigCalendarEvent.folded(older.id, gone.id) { k, _ -> k },
+                gigPlanned = cache.gigPlanned.folded(older.id, gone.id) { k, _ -> k },
+            )
+        }
+        return survivor
     }
 
     /**
      * Drops one playlist link from a night — the Spotify playlist itself was deleted
      * outside the app, so the pointer to it is now just dead weight.
      */
-    suspend fun removePlaylist(setlistId: String, url: String): Unit = writeMerged {
-        it.copy(
-            playlistsMade = it.playlistsMade +
-                (setlistId to it.playlistsMade[setlistId].orEmpty().filterNot { p -> p.url == url }),
+    suspend fun removePlaylist(setlistId: String, url: String): Unit = writeMerged { cache ->
+        val id = cache.gigIdOrNull(setlistId) ?: return@writeMerged cache
+        cache.copy(
+            gigPlaylists = cache.gigPlaylists +
+                (id to cache.gigPlaylists[id].orEmpty().filterNot { p -> p.url == url }),
         )
     }
 
     private suspend fun writeMerged(transform: (TimelineCache) -> TimelineCache): Unit =
         withContext(Dispatchers.IO) {
             writeLock.withLock {
-                val merged = transform(load())
+                val merged = transform(load()).withGigFacts()
                 // Write via a temp file: a crash mid-write leaves the old cache intact
                 // rather than a truncated one that fails to parse. Files.move, not
                 // renameTo — renameTo won't overwrite an existing file on Windows, so
@@ -273,4 +514,106 @@ class TimelineStore(private val file: File) {
                 Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
             }
         }
+}
+
+/**
+ * #107's migration: every map that was keyed by a night gets re-keyed to a **Gig**
+ * the app owns, and one record per night appears to hang them off.
+ *
+ * All six move at once, deliberately — a half-migration leaves two identity schemes
+ * and is worse than either. Nothing is deleted: the old keys keep their values and
+ * are simply never written again, so an older build reading this file still finds
+ * everything where it left it.
+ *
+ * Every old key is taken to be a setlist.fm id. The old comment on `attendanceByGig`
+ * allowed for a local id there too, but #34 — the only thing that would ever have
+ * minted one — was never built, so no cache in existence contains one.
+ */
+internal fun TimelineCache.migrated(): TimelineCache {
+    if (gigs.isNotEmpty()) return this
+    val oldKeys = LinkedHashSet<String>().apply {
+        addAll(photosBySetlist.keys)
+        addAll(songOffsetsBySetlist.keys)
+        addAll(attendanceByGig.keys)
+        addAll(calendarEventByGig.keys)
+        addAll(playlistsMade.keys)
+        addAll(plannedShows.map { it.id })
+    }
+    if (oldKeys.isEmpty()) return this
+    // One id per *distinct* night, so a setlist id appearing in five maps lands on
+    // one Gig with five associations rather than five gigs with one each.
+    val idOf = oldKeys.associateWith(::gigIdForSetlistId)
+    return copy(
+        gigs = idOf.entries.associate { (old, id) -> id to StoredGig(id = id, setlistId = old) },
+        gigPhotos = photosBySetlist.mapKeys { idOf.getValue(it.key) },
+        gigSongOffsets = songOffsetsBySetlist.mapKeys { idOf.getValue(it.key) },
+        gigAttendance = attendanceByGig.mapKeys { idOf.getValue(it.key) },
+        gigCalendarEvent = calendarEventByGig.mapKeys { idOf.getValue(it.key) },
+        gigPlaylists = playlistsMade.mapKeys { idOf.getValue(it.key) },
+        gigPlanned = plannedShows.associateBy { idOf.getValue(it.id) },
+    ).withGigFacts()
+}
+
+/**
+ * The **Gig** [key] names, minting one if this is the first thing ever hung off that
+ * night. [key] is what the screens use — a setlist.fm id, or a gig id for a night
+ * setlist.fm has never heard of.
+ *
+ * ponytail: minted on demand rather than at import. A Gig record for a night with
+ * nothing attached to it holds nothing the FmSetlist doesn't already, and minting
+ * here happens under the write lock, so two writes for the same night can't race
+ * into two gigs. Mint at import when #34 needs a night to exist before anything
+ * hangs off it.
+ */
+private fun TimelineCache.withGig(key: String): Pair<TimelineCache, String> {
+    gigIdOrNull(key)?.let { return this to it }
+    // The same derivation the migration uses, so attaching to a night here and
+    // migrating a cache that already knew it produce one id, not two.
+    val gig = StoredGig(
+        id = gigIdForSetlistId(key),
+        setlistId = key,
+        createdAt = nextCreatedAt(),
+    )
+    return copy(gigs = gigs + (gig.id to gig)) to gig.id
+}
+
+/**
+ * The stamp a new **Gig** gets: the clock, unless the clock has not moved since the
+ * last one — two gigs created in the same millisecond would otherwise be the same
+ * age, and "the older id wins" needs an answer for every pair. Strictly increasing
+ * records the order they were created in, which is the thing the rule actually means.
+ */
+private fun TimelineCache.nextCreatedAt(): Long =
+    maxOf(System.currentTimeMillis(), (gigs.values.maxOfOrNull { it.createdAt } ?: 0L) + 1)
+
+/** The Gig [key] names, or null — the read-side of [withGig], which mints nothing. */
+private fun TimelineCache.gigIdOrNull(key: String): String? =
+    gigForSetlist(key)?.id ?: key.takeIf { gigs.containsKey(it) }
+
+/**
+ * Fills in the facts of any **Gig** that has none, from a setlist.fm record already
+ * in the cache. A gig minted by attaching a photo knows only its id and its setlist
+ * id; this is what makes it a night — a date, an artist, a venue — as soon as the
+ * import that describes it arrives, in whichever order the two happen.
+ */
+private fun TimelineCache.withGigFacts(): TimelineCache {
+    if (gigs.isEmpty()) return this
+    val known = (shows.values.flatten() + gigPlanned.values).associateBy { it.id }
+    val filled = gigs.mapValues { (_, gig) ->
+        val fm = gig.setlistId?.takeIf { gig.date.isBlank() }?.let(known::get)
+            ?: return@mapValues gig
+        gig.copy(
+            date = fm.eventDate.orEmpty(),
+            artist = fm.artist?.name.orEmpty(),
+            venue = fm.venue?.name.orEmpty(),
+        )
+    }
+    return if (filled == gigs) this else copy(gigs = filled)
+}
+
+/** Moves [drop]'s entry onto [keep], combining the two with [union] if both exist. */
+private fun <V> Map<String, V>.folded(keep: String, drop: String, union: (V, V) -> V): Map<String, V> {
+    val dropped = this[drop] ?: return this
+    val kept = this[keep]
+    return this - drop + (keep to if (kept == null) dropped else union(kept, dropped))
 }

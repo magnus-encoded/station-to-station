@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Every timeline on the device, in one file — the same `timelines.json` the
@@ -66,6 +67,79 @@ struct StoredAttendance: Codable, Equatable {
     }
 }
 
+/// One night, as *this app* knows it — the identity everything else hangs off
+/// (#107). Field for field with Android's `StoredGig`.
+///
+/// The setlist.fm id is an attribute here, not the key. #28 made the same change
+/// for people ("the public key is the identity; setlistfm becomes a nullable
+/// attribute") and named the same gap for events; this is that half. A night from
+/// a poster in a window has no vendor id and may never get one, and once media
+/// (#97) hangs off a gig the data is irreplaceable, so a key that can change — or
+/// that a night can fail to have — is a key that can orphan a keepsake.
+///
+/// `setlistId` is still the correspondence key *between people*: two devices
+/// assign different local ids to the same night, so **Crossings** and anything
+/// cross-person resolve through it. A local-only Gig is local-only by design.
+///
+/// `createdAt` exists for one rule: two local gigs found to be the same night
+/// merge, and the older id wins. Migrated gigs carry 0 — they predate everything
+/// minted since, and every device agrees on that without a clock.
+struct StoredGig: Codable, Equatable {
+    var id: String = ""
+    /// dd-MM-yyyy, the shape setlist.fm sends. Blank until the facts are known.
+    var date: String = ""
+    var artist: String = ""
+    var venue: String = ""
+    /// Nil for a night setlist.fm has never heard of. Set once, by adoption (#34).
+    var setlistId: String?
+    /// Epoch millis. 0 means "came in with the migration".
+    var createdAt: Int64 = 0
+
+    init(id: String = "", date: String = "", artist: String = "", venue: String = "",
+         setlistId: String? = nil, createdAt: Int64 = 0) {
+        self.id = id
+        self.date = date
+        self.artist = artist
+        self.venue = venue
+        self.setlistId = setlistId
+        self.createdAt = createdAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decodeIfPresent(String.self, forKey: .id)) ?? nil ?? ""
+        date = (try? c.decodeIfPresent(String.self, forKey: .date)) ?? nil ?? ""
+        artist = (try? c.decodeIfPresent(String.self, forKey: .artist)) ?? nil ?? ""
+        venue = (try? c.decodeIfPresent(String.self, forKey: .venue)) ?? nil ?? ""
+        setlistId = (try? c.decodeIfPresent(String.self, forKey: .setlistId)) ?? nil
+        createdAt = (try? c.decodeIfPresent(Int64.self, forKey: .createdAt)) ?? nil ?? 0
+    }
+}
+
+/// A UUID derived from `name` rather than drawn at random — RFC 4122 version 5,
+/// the SHA-1 flavour, byte for byte with Android's `uuidFrom`.
+///
+/// Random would have been less code, and wrong: the same old cache has to migrate
+/// to the same ids on both platforms, or a user with two phones ends up with two
+/// histories of the same nights. Deriving it also makes the migration idempotent
+/// and lets both platforms assert *fixed* expected ids rather than "some uuid",
+/// so neither can drift by agreeing with itself.
+func uuidFrom(_ name: String) -> String {
+    var h = Array(Insecure.SHA1.hash(data: Data(name.utf8)))
+    h[6] = (h[6] & 0x0f) | 0x50 // version 5
+    h[8] = (h[8] & 0x3f) | 0x80 // RFC 4122 variant
+    let hex = h.prefix(16).map { String(format: "%02x", $0) }.joined()
+    func part(_ from: Int, _ to: Int) -> String {
+        let s = hex.index(hex.startIndex, offsetBy: from)
+        let e = hex.index(hex.startIndex, offsetBy: to)
+        return String(hex[s..<e])
+    }
+    return "\(part(0, 8))-\(part(8, 12))-\(part(12, 16))-\(part(16, 20))-\(part(20, 32))"
+}
+
+/// The id a **Gig** gets the first time it is seen through a setlist.fm id.
+func gigIdForSetlistId(_ setlistId: String) -> String { uuidFrom("gig:\(setlistId)") }
+
 /// The file's whole contents. Fields iOS does not use yet are still carried
 /// through a save: dropping Android's photos or song offsets on the first write
 /// from this side would be data loss, not scope.
@@ -84,12 +158,47 @@ struct TimelineCache: Codable {
     /// Without it a restored spine looks complete at whatever page it got to.
     var attendedTotals: [String: Int] = [:]
     /// The Reliver's own photos by setlist id. Android-only feature; carried.
+    /// Dead since #107: read once by `migrated()`, never written again.
     var photosBySetlist: [String: [String]] = [:]
     /// Song start times inside a night's recording. Android-only feature; carried.
+    /// Dead since #107; see `gigSongOffsets`.
     var songOffsetsBySetlist: [String: [Int64]] = [:]
     /// How I came to be marked as at a gig, by setlist id. Android-only (#29);
-    /// carried.
+    /// carried. Dead since #107; see `gigAttendance`.
     var attendanceByGig: [String: StoredAttendance] = [:]
+    /// The gigs Android holds a ticket for. Dead since #107; see `gigPlanned`.
+    /// Was not carried at all before #107 — a save from here dropped it, which is
+    /// the exact data-loss this struct exists to prevent.
+    var plannedShows: [FmSetlist] = []
+    /// The calendar event made for a gig, by gig id. Dead since #107; see
+    /// `gigCalendarEvent`. Not carried before #107 either.
+    var calendarEventByGig: [String: String] = [:]
+
+    // MARK: - Keyed by the app's own Gig id (#107)
+    //
+    // Every map above that was keyed by a night is re-keyed here, and the six of
+    // them moved together on purpose: a half-migration leaves two identity schemes
+    // and is worse than either. New keys rather than changed value shapes, per the
+    // playlistsMade precedent — the old keys stay in the format, are read exactly
+    // once by `migrated()`, and are never written again, so an older build still
+    // round-trips its own cache instead of failing to decode ours.
+
+    /// Every night this app knows about, by its own id. See `StoredGig`.
+    var gigs: [String: StoredGig] = [:]
+    /// Replaces `photosBySetlist`. Becomes media records in #97.
+    var gigPhotos: [String: [String]] = [:]
+    /// Replaces `songOffsetsBySetlist`.
+    var gigSongOffsets: [String: [Int64]] = [:]
+    /// Replaces `attendanceByGig`.
+    var gigAttendance: [String: StoredAttendance] = [:]
+    /// Replaces `calendarEventByGig`.
+    var gigCalendarEvent: [String: String] = [:]
+    /// Replaces `playlistsMade`.
+    var gigPlaylists: [String: [StoredPlaylist]] = [:]
+    /// Replaces `plannedShows`. A map rather than a list because the gig id is now
+    /// the identity; the value is unchanged, and the order it used to carry was
+    /// re-sorted on read anyway.
+    var gigPlanned: [String: FmSetlist] = [:]
 
     init() {}
 
@@ -105,6 +214,49 @@ struct TimelineCache: Codable {
         photosBySetlist = map(.photosBySetlist, [String].self)
         songOffsetsBySetlist = map(.songOffsetsBySetlist, [Int64].self)
         attendanceByGig = map(.attendanceByGig, StoredAttendance.self)
+        plannedShows = (try? c.decodeIfPresent([FmSetlist].self, forKey: .plannedShows)) ?? nil ?? []
+        calendarEventByGig = map(.calendarEventByGig, String.self)
+        gigs = map(.gigs, StoredGig.self)
+        gigPhotos = map(.gigPhotos, [String].self)
+        gigSongOffsets = map(.gigSongOffsets, [Int64].self)
+        gigAttendance = map(.gigAttendance, StoredAttendance.self)
+        gigCalendarEvent = map(.gigCalendarEvent, String.self)
+        gigPlaylists = map(.gigPlaylists, [StoredPlaylist].self)
+        gigPlanned = map(.gigPlanned, FmSetlist.self)
+    }
+
+    /// The id this gig is known by *outside* the store: its setlist.fm id where it
+    /// has one, otherwise its own. Exactly the convention `attendanceByGig`
+    /// already documented, which is why the screens above need no re-keying —
+    /// adoption changes what this returns for one gig and moves no data at all.
+    func keyOf(_ gigId: String) -> String {
+        guard let gig = gigs[gigId] else { return gigId }
+        return gig.setlistId ?? gig.id
+    }
+
+    /// Given a setlist.fm id — from a friend's timeline, say — the local **Gig**.
+    ///
+    /// ponytail: a scan, not a second index. A collection is hundreds of nights.
+    /// Add a reverse map when a scan is actually felt.
+    func gigForSetlist(_ setlistId: String) -> StoredGig? {
+        gigs.values.first { $0.setlistId == setlistId }
+    }
+
+    /// The other direction: given a local **Gig**, its setlist.fm record's id.
+    func setlistIdFor(_ gigId: String) -> String? { gigs[gigId]?.setlistId }
+
+    // What the screens read: the gig-keyed maps, back under the id the UI uses.
+    func photos() -> [String: [String]] { rekeyed(gigPhotos) }
+    func songOffsets() -> [String: [Int64]] { rekeyed(gigSongOffsets) }
+    func attendance() -> [String: StoredAttendance] { rekeyed(gigAttendance) }
+    func calendarEvents() -> [String: String] { rekeyed(gigCalendarEvent) }
+    func playlists() -> [String: [StoredPlaylist]] { rekeyed(gigPlaylists) }
+    func planned() -> [FmSetlist] { Array(gigPlanned.values) }
+
+    // uniquingKeysWith rather than uniqueKeysWithValues: two gigs claiming one
+    // setlist.fm id is a bug, but it must not be a crash on the launch path.
+    private func rekeyed<V>(_ map: [String: V]) -> [String: V] {
+        Dictionary(map.map { (keyOf($0.key), $0.value) }, uniquingKeysWith: { first, _ in first })
     }
 }
 
@@ -137,11 +289,16 @@ actor TimelineStore {
 
     /// The cache as last written. Empty (never nil) on first run or an unreadable
     /// file — a corrupt cache must cost the timeline, not the launch.
+    ///
+    /// #107's migration is applied on read rather than as a one-shot upgrade step:
+    /// there is no schema version to hang one off, and this way an old cache
+    /// restored onto the device later migrates too. It is a no-op once `gigs` is
+    /// populated, which the first write after a migration makes permanent.
     func load() -> TimelineCache {
         guard let data = try? Data(contentsOf: file),
               let cache = try? JSONDecoder().decode(TimelineCache.self, from: data)
         else { return TimelineCache() }
-        return cache
+        return cache.migrated()
     }
 
     /// Merges into what is already stored and writes it back. Merging, not
@@ -161,9 +318,10 @@ actor TimelineStore {
             // Appended, never replaced. De-duped on url so recording the same
             // playlist twice is a no-op.
             for (night, made) in playlists {
-                var had = c.playlistsMade[night] ?? []
+                let gigId = c.withGig(night)
+                var had = c.gigPlaylists[gigId] ?? []
                 if !had.contains(where: { $0.url == made.url }) { had.append(made) }
-                c.playlistsMade[night] = had
+                c.gigPlaylists[gigId] = had
             }
             return c
         }
@@ -171,12 +329,22 @@ actor TimelineStore {
 
     /// The Reliver's current set of photos for one gig, replacing what was there.
     func savePhotos(setlistId: String, uris: [String]) {
-        writeMerged { var c = $0; c.photosBySetlist[setlistId] = uris; return c }
+        writeMerged { cache in
+            var c = cache
+            let gigId = c.withGig(setlistId)
+            c.gigPhotos[gigId] = uris
+            return c
+        }
     }
 
     /// A night's song start times inside its recording, replacing what was there.
     func saveSongOffsets(setlistId: String, offsets: [Int64]) {
-        writeMerged { var c = $0; c.songOffsetsBySetlist[setlistId] = offsets; return c }
+        writeMerged { cache in
+            var c = cache
+            let gigId = c.withGig(setlistId)
+            c.gigSongOffsets[gigId] = offsets
+            return c
+        }
     }
 
     /// Drops one playlist link from a night — the Spotify playlist itself was
@@ -184,16 +352,213 @@ actor TimelineStore {
     func removePlaylist(setlistId: String, url: String) {
         writeMerged { cache in
             var c = cache
-            c.playlistsMade[setlistId] = (c.playlistsMade[setlistId] ?? []).filter { $0.url != url }
+            guard let id = c.gigIdOrNil(setlistId) else { return c }
+            c.gigPlaylists[id] = (c.gigPlaylists[id] ?? []).filter { $0.url != url }
             return c
         }
     }
 
+    /// A night setlist.fm has never heard of — the poster in the window, the small
+    /// venue nobody catalogues. Returns the id everything else keys by; it is also
+    /// the id the screens use, until `adoptSetlistId` gives the night a vendor one.
+    ///
+    /// Random rather than derived: there is no setlist.fm id to derive from, and
+    /// the facts are exactly what cannot be trusted as a key (venues get renamed,
+    /// artists rename, festival days split) — that is why a natural key was
+    /// rejected.
+    @discardableResult
+    func createLocalGig(date: String, artist: String, venue: String) -> String {
+        let id = UUID().uuidString.lowercased()
+        writeMerged { cache in
+            var c = cache
+            c.gigs[id] = StoredGig(id: id, date: date, artist: artist, venue: venue,
+                                   createdAt: c.nextCreatedAt())
+            return c
+        }
+        return id
+    }
+
+    /// A night that setlist.fm has now catalogued takes their id (#34's search
+    /// found the match; this is all that is left to do). One field on one record —
+    /// no data moves, because nothing was ever keyed by the vendor id.
+    ///
+    /// Refuses a gig that already has one: two setlist.fm ids for one night is a
+    /// bug upstream, not a merge case, and silently overwriting would hide it.
+    @discardableResult
+    func adoptSetlistId(gigId: String, setlistId: String) -> Bool {
+        var adopted = false
+        writeMerged { cache in
+            var c = cache
+            guard var gig = c.gigs[gigId], gig.setlistId == nil else { return c }
+            gig.setlistId = setlistId
+            c.gigs[gigId] = gig
+            adopted = true
+            return c
+        }
+        return adopted
+    }
+
+    /// Two records found to be the same night become one — the case where a night
+    /// added by hand is later also imported.
+    ///
+    /// The older id wins, and the survivor takes the union: nothing a merge
+    /// touches may cost the user a photo, a check-in or a playlist link. Returns
+    /// the id that survived, or nil if either gig is unknown.
+    @discardableResult
+    func mergeGigs(_ gigIdA: String, _ gigIdB: String) -> String? {
+        var survivor: String?
+        writeMerged { cache in
+            var c = cache
+            guard let a = c.gigs[gigIdA], let b = c.gigs[gigIdB], a.id != b.id else { return c }
+            // createdAt, then the id itself, so two devices merging the same pair
+            // reach the same answer without a synchronised clock.
+            let keepsA = a.createdAt != b.createdAt ? a.createdAt < b.createdAt : a.id < b.id
+            var keep = keepsA ? a : b
+            let gone = keepsA ? b : a
+            survivor = keep.id
+
+            keep.setlistId = keep.setlistId ?? gone.setlistId
+            if keep.date.isEmpty { keep.date = gone.date }
+            if keep.artist.isEmpty { keep.artist = gone.artist }
+            if keep.venue.isEmpty { keep.venue = gone.venue }
+            c.gigs[gone.id] = nil
+            c.gigs[keep.id] = keep
+
+            // Photos and playlists are collections of separate things, so the
+            // union is every one of them. The rest are one current value per
+            // night, where the survivor's own answer is the one to keep.
+            c.gigPhotos = c.gigPhotos.folded(keep.id, gone.id) { k, d in
+                k + d.filter { !k.contains($0) }
+            }
+            c.gigPlaylists = c.gigPlaylists.folded(keep.id, gone.id) { k, d in
+                k + d.filter { p in !k.contains(where: { $0.url == p.url }) }
+            }
+            c.gigSongOffsets = c.gigSongOffsets.folded(keep.id, gone.id) { k, _ in k }
+            c.gigAttendance = c.gigAttendance.folded(keep.id, gone.id) { k, _ in k }
+            c.gigCalendarEvent = c.gigCalendarEvent.folded(keep.id, gone.id) { k, _ in k }
+            c.gigPlanned = c.gigPlanned.folded(keep.id, gone.id) { k, _ in k }
+            return c
+        }
+        return survivor
+    }
+
     private func writeMerged(_ transform: (TimelineCache) -> TimelineCache) {
-        let merged = transform(load())
+        let merged = transform(load()).withGigFacts()
         guard let data = try? encoder.encode(merged) else { return }
         // .atomic: a crash mid-write leaves the old cache intact rather than a
         // truncated one that fails to parse.
         try? data.write(to: file, options: .atomic)
+    }
+}
+
+extension TimelineCache {
+
+    /// #107's migration: every map that was keyed by a night gets re-keyed to a
+    /// **Gig** the app owns, and one record per night appears to hang them off.
+    /// Byte for byte with Android's, which is what the derived ids are for.
+    ///
+    /// All six move at once, deliberately — a half-migration leaves two identity
+    /// schemes and is worse than either. Nothing is deleted: the old keys keep
+    /// their values and are simply never written again, so an older build reading
+    /// this file still finds everything where it left it.
+    ///
+    /// Every old key is taken to be a setlist.fm id. The old comment on
+    /// `attendanceByGig` allowed for a local id there too, but #34 — the only
+    /// thing that would ever have minted one — was never built, so no cache in
+    /// existence contains one.
+    func migrated() -> TimelineCache {
+        guard gigs.isEmpty else { return self }
+        var oldKeys: [String] = []
+        var seen = Set<String>()
+        for key in photosBySetlist.keys.sorted() + songOffsetsBySetlist.keys.sorted()
+            + attendanceByGig.keys.sorted() + calendarEventByGig.keys.sorted()
+            + playlistsMade.keys.sorted() + plannedShows.map(\.id) where seen.insert(key).inserted {
+            oldKeys.append(key)
+        }
+        if oldKeys.isEmpty { return self }
+        // One id per *distinct* night, so a setlist id appearing in five maps lands
+        // on one Gig with five associations rather than five gigs with one each.
+        var idOf: [String: String] = [:]
+        for key in oldKeys { idOf[key] = gigIdForSetlistId(key) }
+
+        var c = self
+        for (old, id) in idOf { c.gigs[id] = StoredGig(id: id, setlistId: old) }
+        c.gigPhotos = rekey(photosBySetlist, idOf)
+        c.gigSongOffsets = rekey(songOffsetsBySetlist, idOf)
+        c.gigAttendance = rekey(attendanceByGig, idOf)
+        c.gigCalendarEvent = rekey(calendarEventByGig, idOf)
+        c.gigPlaylists = rekey(playlistsMade, idOf)
+        for show in plannedShows { c.gigPlanned[idOf[show.id] ?? show.id] = show }
+        return c.withGigFacts()
+    }
+
+    /// The **Gig** `key` names, minting one if this is the first thing ever hung
+    /// off that night. `key` is what the screens use — a setlist.fm id, or a gig
+    /// id for a night setlist.fm has never heard of.
+    ///
+    /// ponytail: minted on demand rather than at import. A Gig record for a night
+    /// with nothing attached to it holds nothing the FmSetlist doesn't already,
+    /// and minting here happens inside the actor, so two writes for the same night
+    /// can't race into two gigs. Mint at import when #34 needs a night to exist
+    /// before anything hangs off it.
+    mutating func withGig(_ key: String) -> String {
+        if let id = gigIdOrNil(key) { return id }
+        // The same derivation the migration uses, so attaching to a night here and
+        // migrating a cache that already knew it produce one id, not two.
+        let id = gigIdForSetlistId(key)
+        gigs[id] = StoredGig(id: id, setlistId: key, createdAt: nextCreatedAt())
+        return id
+    }
+
+    /// The Gig `key` names, or nil — the read side of `withGig`, minting nothing.
+    func gigIdOrNil(_ key: String) -> String? {
+        gigForSetlist(key)?.id ?? (gigs[key] != nil ? key : nil)
+    }
+
+    /// The stamp a new **Gig** gets: the clock, unless the clock has not moved
+    /// since the last one — two gigs created in the same millisecond would
+    /// otherwise be the same age, and "the older id wins" needs an answer for
+    /// every pair. Strictly increasing records the order they were created in,
+    /// which is the thing the rule actually means.
+    func nextCreatedAt() -> Int64 {
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        return max(now, (gigs.values.map(\.createdAt).max() ?? 0) + 1)
+    }
+
+    /// Fills in the facts of any **Gig** that has none, from a setlist.fm record
+    /// already in the cache. A gig minted by attaching a photo knows only its id
+    /// and its setlist id; this is what makes it a night — a date, an artist, a
+    /// venue — as soon as the import that describes it arrives, in whichever order
+    /// the two happen.
+    func withGigFacts() -> TimelineCache {
+        guard !gigs.isEmpty else { return self }
+        var known: [String: FmSetlist] = [:]
+        for list in shows.values { for show in list { known[show.id] = show } }
+        for show in gigPlanned.values { known[show.id] = show }
+        var c = self
+        for (id, gig) in gigs where gig.date.isEmpty {
+            guard let setlistId = gig.setlistId, let fm = known[setlistId] else { continue }
+            var filled = gig
+            filled.date = fm.eventDate ?? ""
+            filled.artist = fm.artist?.name ?? ""
+            filled.venue = fm.venue?.name ?? ""
+            c.gigs[id] = filled
+        }
+        return c
+    }
+
+    private func rekey<V>(_ map: [String: V], _ idOf: [String: String]) -> [String: V] {
+        Dictionary(map.map { (idOf[$0.key] ?? $0.key, $0.value) }, uniquingKeysWith: { a, _ in a })
+    }
+}
+
+extension Dictionary where Key == String {
+    /// Moves `drop`'s entry onto `keep`, combining the two with `union` if both exist.
+    func folded(_ keep: Key, _ drop: Key, _ union: (Value, Value) -> Value) -> Self {
+        guard let dropped = self[drop] else { return self }
+        var copy = self
+        copy[drop] = nil
+        copy[keep] = self[keep].map { union($0, dropped) } ?? dropped
+        return copy
     }
 }
