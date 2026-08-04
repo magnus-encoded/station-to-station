@@ -81,20 +81,37 @@ struct StationView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var nav: Nav
 
+    /// Live scale while a pinch is in progress; 1.0 means no gesture is active.
+    /// Combined with the settled `zoomedOut` state below, this is what lets the
+    /// strip follow fingers instead of snapping open/closed at the end.
+    @State private var pinchScale: CGFloat = 1.0
+
     private var lanes: [Friend] { model.state.friends }
+
+    /// How open the strip is once a gesture finishes: 1 = open, 0 = closed.
+    private var settledFraction: CGFloat { model.state.zoomedOut ? 1 : 0 }
+
+    /// How open the strip is right now, including a gesture in progress. A pinch
+    /// nudges this continuously off `settledFraction`; nothing happens if there
+    /// are no Lanes to show, so the gesture can never open an empty strip.
+    private var openFraction: CGFloat {
+        guard !lanes.isEmpty else { return 0 }
+        return min(max(settledFraction + (pinchScale - 1), 0), 1)
+    }
 
     private var rows: [WovenRow] {
         let s = model.state
+        let showLanes = openFraction > 0
         return weaveTimelines(
             mine: s.timelineShows,
             festivalNames: s.festivalNames,
-            friends: s.zoomedOut ? lanes : [],
-            theirs: s.zoomedOut ? s.showsByFriend : [:],
+            friends: showLanes ? lanes : [],
+            theirs: showLanes ? s.showsByFriend : [:],
             expanded: s.expandedFestivals
         )
     }
 
-    private var laneWidth: CGFloat { model.state.zoomedOut ? stripWidth(lanes.count) : 0 }
+    private var laneWidth: CGFloat { stripWidth(lanes.count) * openFraction }
 
     private var earliest: Int? {
         model.state.timelineShows.compactMap { Int($0.year() ?? "") }.min()
@@ -122,12 +139,19 @@ struct StationView: View {
         .navigationBarBackButtonHidden(true)
         // Pinch out to open the friends' Lanes beside my Spine; pinch in to close
         // them. Different mechanics from Android's two-finger pan, same result:
-        // nothing navigates.
-        .gesture(
+        // nothing navigates. `simultaneousGesture` (rather than `.gesture`) is
+        // what lets this recognise a pinch alongside the ScrollView's own pan —
+        // plain `.gesture` loses the arbitration to the scroll view and the
+        // pinch never fires at all.
+        .simultaneousGesture(
             MagnificationGesture()
+                .onChanged { pinchScale = $0 }
                 .onEnded { scale in
-                    if scale > 1.15 { withAnimation(.spring()) { model.setZoomedOut(true) } }
-                    else if scale < 0.87 { withAnimation(.spring()) { model.setZoomedOut(false) } }
+                    let final = min(max(settledFraction + (scale - 1), 0), 1)
+                    withAnimation(.spring()) {
+                        if !lanes.isEmpty { model.setZoomedOut(final > 0.5) }
+                        pinchScale = 1
+                    }
                 }
         )
         .onAppear { model.loadTimeline() }
