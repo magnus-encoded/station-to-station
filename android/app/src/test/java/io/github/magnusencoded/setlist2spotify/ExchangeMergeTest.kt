@@ -21,9 +21,9 @@ class ExchangeMergeTest {
     }
 
     @Test fun blePeerIsNameOnlyUntilTheCardArrives() {
-        val merged = mergePeers(emptyList(), listOf(hit("AA:BB", "Egil")))
+        val merged = mergePeers(emptyList(), listOf(hit("AA:BB", "Ozzy")))
         assertEquals(1, merged.size)
-        assertEquals("Egil", merged[0].name)
+        assertEquals("Ozzy", merged[0].name)
         assertNull("no username until we've read the card", merged[0].setlistfm)
     }
 
@@ -35,15 +35,15 @@ class ExchangeMergeTest {
         // The accepted failure mode: a person seen by both radios is a brief duplicate,
         // never collapsed on a guessed identity (which could swallow a real second person).
         val merged = mergePeers(
-            listOf(Friend(setlistfm = "egil", name = "Egil")),
-            listOf(hit("AA:BB", "Egil")),
+            listOf(Friend(setlistfm = "ozzy", name = "Ozzy")),
+            listOf(hit("AA:BB", "Ozzy")),
         )
         assertEquals(2, merged.size)
         assertEquals(2, merged.map { it.id }.toSet().size) // distinct rows, distinct keys
     }
 
     @Test fun repeatedScanResultsForOneDeviceAreOneRow() {
-        val merged = mergePeers(emptyList(), listOf(hit("AA:BB", "Egil"), hit("AA:BB", "Egil")))
+        val merged = mergePeers(emptyList(), listOf(hit("AA:BB", "Ozzy"), hit("AA:BB", "Ozzy")))
         assertEquals(1, merged.size)
     }
 }

@@ -23,11 +23,11 @@ import org.junit.Test
  */
 class LaneGeometryTest {
 
-    private val egil = Friend(setlistfm = "Egil", name = "Egil")
-    private val trummis = Friend(setlistfm = "Trummispojken", name = "Trummispojken")
+    private val ozzy = Friend(setlistfm = "Ozzy", name = "Ozzy")
+    private val lemmy = Friend(setlistfm = "Lemmy", name = "Lemmy")
 
     /** Lane 0 is nearest my spine and belongs to the most recently added friend. */
-    private val lanes = listOf(egil, trummis)
+    private val lanes = listOf(ozzy, lemmy)
 
     private fun row(mine: Boolean, vararg present: Friend) = WovenRow(
         node = TimelineNode.Concert(FmSetlist(id = "n", artist = FmArtist(name = "A"))),
@@ -37,53 +37,53 @@ class LaneGeometryTest {
 
     @Test
     fun `a friend who wasn't there stays in their own lane`() {
-        assertEquals(0, hostLane(row(mine = true), egil, lanes))
-        assertEquals(1, hostLane(row(mine = true), trummis, lanes))
+        assertEquals(0, hostLane(row(mine = true), ozzy, lanes))
+        assertEquals(1, hostLane(row(mine = true), lemmy, lanes))
     }
 
     @Test
     fun `a night I was at pulls their line onto my spine`() {
-        val night = row(mine = true, egil)
-        assertEquals(Spine, hostLane(night, egil, lanes))
-        assertEquals(1, hostLane(night, trummis, lanes)) // not there, own lane
+        val night = row(mine = true, ozzy)
+        assertEquals(Spine, hostLane(night, ozzy, lanes))
+        assertEquals(1, hostLane(night, lemmy, lanes)) // not there, own lane
     }
 
     @Test
     fun `two friends at a night I missed merge onto the lane nearest my spine`() {
-        val night = row(mine = false, egil, trummis)
+        val night = row(mine = false, ozzy, lemmy)
         assertEquals(0, nodeHost(night, lanes))
-        assertEquals(0, hostLane(night, egil, lanes))
-        assertEquals(0, hostLane(night, trummis, lanes)) // came to meet the inner lane
+        assertEquals(0, hostLane(night, ozzy, lanes))
+        assertEquals(0, hostLane(night, lemmy, lanes)) // came to meet the inner lane
     }
 
     @Test
     fun `one friend alone at a night I missed keeps their own lane`() {
-        val night = row(mine = false, trummis)
+        val night = row(mine = false, lemmy)
         assertEquals(1, nodeHost(night, lanes))
-        assertEquals(1, hostLane(night, trummis, lanes))
-        assertFalse(joinedAt(night, trummis)) // alone is not company
+        assertEquals(1, hostLane(night, lemmy, lanes))
+        assertFalse(joinedAt(night, lemmy)) // alone is not company
     }
 
     @Test
     fun `company is green whoever it is with`() {
-        assertTrue(joinedAt(row(mine = true, egil), egil))
-        assertTrue(joinedAt(row(mine = false, egil, trummis), trummis))
-        assertFalse(joinedAt(row(mine = true), egil))
+        assertTrue(joinedAt(row(mine = true, ozzy), ozzy))
+        assertTrue(joinedAt(row(mine = false, ozzy, lemmy), lemmy))
+        assertFalse(joinedAt(row(mine = true), ozzy))
     }
 
     @Test
     fun `one parting on the row the other joins is two independent answers`() {
-        // Above: I was out with Trummispojken. Here: with Egil instead.
-        val above = row(mine = true, trummis)
-        val here = row(mine = true, egil)
+        // Above: I was out with Lemmy. Here: with Ozzy instead.
+        val above = row(mine = true, lemmy)
+        val here = row(mine = true, ozzy)
 
-        // Egil comes in from their lane to my spine.
-        assertEquals(0, hostLane(above, egil, lanes))
-        assertEquals(Spine, hostLane(here, egil, lanes))
-        // Trummispojken leaves my spine for theirs, on the same row. Neither
+        // Ozzy comes in from their lane to my spine.
+        assertEquals(0, hostLane(above, ozzy, lanes))
+        assertEquals(Spine, hostLane(here, ozzy, lanes))
+        // Lemmy leaves my spine for theirs, on the same row. Neither
         // answer depends on the other, which is what the old shared Boolean got wrong.
-        assertEquals(Spine, hostLane(above, trummis, lanes))
-        assertEquals(1, hostLane(here, trummis, lanes))
+        assertEquals(Spine, hostLane(above, lemmy, lanes))
+        assertEquals(1, hostLane(here, lemmy, lanes))
     }
 
     @Test

@@ -1,8 +1,8 @@
 {
   "me": "dizzi90",
   "friends": [
-    { "setlistfm": "Trummispojken", "name": "Trummispojken" },
-    { "setlistfm": "Egil", "name": "Egil" }
+    { "setlistfm": "Lemmy", "name": "Lemmy" },
+    { "setlistfm": "Ozzy", "name": "Ozzy" }
   ],
   "shows": {
     "dizzi90": [
@@ -25,7 +25,7 @@
         "venue": { "name": "Ekebergsletta" }
       }
     ],
-    "Trummispojken": [
+    "Lemmy": [
       {
         "id": "b2",
         "eventDate": "26-06-2026",
@@ -45,7 +45,7 @@
         "venue": { "name": "Blå" }
       }
     ],
-    "Egil": [
+    "Ozzy": [
       {
         "id": "w1",
         "eventDate": "25-06-2026",

@@ -10,8 +10,8 @@ final class WeaveTimelinesTests: XCTestCase {
         FmSetlist(id: id, eventDate: date, artist: FmArtist(name: "Artist \(id)"), venue: FmVenue(name: venue))
     }
 
-    private let trummis = Friend(setlistfm: "Trummispojken", name: "Trummispojken")
-    private let egil = Friend(setlistfm: "Egil", name: "Egil")
+    private let lemmy = Friend(setlistfm: "Lemmy", name: "Lemmy")
+    private let ozzy = Friend(setlistfm: "Ozzy", name: "Ozzy")
 
     func testWithNobodyConnectedTheRowsAreJustMyOwn() {
         let rows = weaveTimelines(mine: [show("1", "21-11-2025", "Blå")])
@@ -23,8 +23,8 @@ final class WeaveTimelinesTests: XCTestCase {
     func testTheirFestivalAtMyVenueFoldsIntoMyNode() {
         let rows = weaveTimelines(
             mine: [show("a1", "25-06-2026", "Ekebergsletta"), show("a2", "24-06-2026", "Ekebergsletta")],
-            friends: [trummis],
-            theirs: ["Trummispojken": [show("b1", "27-06-2026", "Ekebergsletta"),
+            friends: [lemmy],
+            theirs: ["Lemmy": [show("b1", "27-06-2026", "Ekebergsletta"),
                                        show("b2", "26-06-2026", "Ekebergsletta")]]
         )
         XCTAssertEqual(1, rows.count)
@@ -36,31 +36,31 @@ final class WeaveTimelinesTests: XCTestCase {
         XCTAssertEqual(0, rows[0].sharedCount)
         XCTAssertEqual(.mine, rows[0].ownership)
         XCTAssertEqual(2, rows[0].showsHereByFriends.count)
-        XCTAssertEqual([trummis], rows[0].others)
+        XCTAssertEqual([lemmy], rows[0].others)
     }
 
     func testANightOnlyTheyWereAtGetsItsOwnRow() {
         let rows = weaveTimelines(
             mine: [show("a1", "21-11-2025", "Blå")],
-            friends: [trummis],
-            theirs: ["Trummispojken": [show("b1", "12-06-2025", "3Arena")]]
+            friends: [lemmy],
+            theirs: ["Lemmy": [show("b1", "12-06-2025", "3Arena")]]
         )
         XCTAssertEqual(2, rows.count)
         // Newest first, and the one that isn't mine carries no node of my own.
         XCTAssertTrue(rows[0].mine)
         XCTAssertFalse(rows[1].mine)
-        XCTAssertEqual([trummis], rows[1].others)
+        XCTAssertEqual([lemmy], rows[1].others)
     }
 
     func testOpeningAFestivalINeverAttendedKeepsEveryGigTheirs() {
-        let theirs = ["Trummispojken": [show("b1", "16-05-2026", "Stora Scenen"),
+        let theirs = ["Lemmy": [show("b1", "16-05-2026", "Stora Scenen"),
                                         show("b2", "15-05-2026", "Stora Scenen")]]
         let mine = [show("a1", "21-11-2025", "Blå")]
-        let collapsed = weaveTimelines(mine: mine, friends: [trummis], theirs: theirs)
+        let collapsed = weaveTimelines(mine: mine, friends: [lemmy], theirs: theirs)
         guard let festival = collapsed.first(where: { $0.node.isFestival }) else {
             return XCTFail("expected a festival row")
         }
-        let rows = weaveTimelines(mine: mine, friends: [trummis], theirs: theirs,
+        let rows = weaveTimelines(mine: mine, friends: [lemmy], theirs: theirs,
                                   expanded: [festival.key])
 
         let inner = rows.filter { $0.depth == 1 }
@@ -71,9 +71,9 @@ final class WeaveTimelinesTests: XCTestCase {
 
     func testOpeningASharedFestivalListsBothSidesGigsUnderneath() {
         let mine = [show("a1", "25-06-2026", "Ekebergsletta"), show("a2", "24-06-2026", "Ekebergsletta")]
-        let theirs = ["Trummispojken": [show("b1", "26-06-2026", "Ekebergsletta")]]
-        let collapsed = weaveTimelines(mine: mine, friends: [trummis], theirs: theirs)
-        let rows = weaveTimelines(mine: mine, friends: [trummis], theirs: theirs,
+        let theirs = ["Lemmy": [show("b1", "26-06-2026", "Ekebergsletta")]]
+        let collapsed = weaveTimelines(mine: mine, friends: [lemmy], theirs: theirs)
+        let rows = weaveTimelines(mine: mine, friends: [lemmy], theirs: theirs,
                                   expanded: [collapsed[0].key])
 
         XCTAssertEqual(4, rows.count) // the festival, then its three gigs
@@ -90,12 +90,12 @@ final class WeaveTimelinesTests: XCTestCase {
         let tons = show("w1", "25-06-2026", "Ekebergsletta")
         let rows = weaveTimelines(
             mine: [tons, show("a2", "24-06-2026", "Ekebergsletta")],
-            friends: [egil, trummis],
-            theirs: ["Trummispojken": [tons, show("b2", "26-06-2026", "Ekebergsletta")],
-                     "Egil": [tons]]
+            friends: [ozzy, lemmy],
+            theirs: ["Lemmy": [tons, show("b2", "26-06-2026", "Ekebergsletta")],
+                     "Ozzy": [tons]]
         )
         XCTAssertEqual(1, rows.count)
-        XCTAssertEqual(Set([egil, trummis]), Set(rows[0].others))
+        XCTAssertEqual(Set([ozzy, lemmy]), Set(rows[0].others))
         XCTAssertTrue(rows[0].hasCompany)
     }
 
@@ -103,8 +103,8 @@ final class WeaveTimelinesTests: XCTestCase {
         let tons = show("w1", "25-06-2026", "Ekebergsletta")
         let rows = weaveTimelines(
             mine: [tons, show("a2", "24-06-2026", "Ekebergsletta")],
-            friends: [egil, trummis],
-            theirs: ["Trummispojken": [tons], "Egil": [tons]]
+            friends: [ozzy, lemmy],
+            theirs: ["Lemmy": [tons], "Ozzy": [tons]]
         )
         // Both were at the same one gig: one show here, and it is the one we shared.
         XCTAssertEqual(1, rows[0].showsHereByFriends.count)
@@ -115,31 +115,31 @@ final class WeaveTimelinesTests: XCTestCase {
         let theirNight = show("b1", "12-06-2025", "3Arena")
         let rows = weaveTimelines(
             mine: [show("a1", "21-11-2025", "Blå")],
-            friends: [egil, trummis],
-            theirs: ["Trummispojken": [theirNight], "Egil": [theirNight]]
+            friends: [ozzy, lemmy],
+            theirs: ["Lemmy": [theirNight], "Ozzy": [theirNight]]
         )
         XCTAssertEqual(2, rows.count) // my night, and the one they shared without me
         guard let without = rows.first(where: { !$0.mine }) else { return XCTFail("no row of theirs") }
-        XCTAssertEqual(Set([egil, trummis]), Set(without.others))
+        XCTAssertEqual(Set([ozzy, lemmy]), Set(without.others))
     }
 
     func testANightWithOneOfThemSaysSo() {
-        let withEgil = show("a1", "21-11-2025", "Blå")
+        let withOzzy = show("a1", "21-11-2025", "Blå")
         let rows = weaveTimelines(
-            mine: [withEgil],
-            friends: [egil, trummis],
-            theirs: ["Egil": [withEgil], "Trummispojken": [show("b9", "01-01-2020", "Somewhere else")]]
+            mine: [withOzzy],
+            friends: [ozzy, lemmy],
+            theirs: ["Ozzy": [withOzzy], "Lemmy": [show("b9", "01-01-2020", "Somewhere else")]]
         )
         guard let mine = rows.first(where: { $0.mine }) else { return XCTFail("no row of mine") }
-        XCTAssertEqual([egil], mine.others)
+        XCTAssertEqual([ozzy], mine.others)
         XCTAssertEqual(1, mine.sharedCount)
     }
 
     func testAFestivalOnlyTheyWentToIsNeverTogether() {
         let rows = weaveTimelines(
             mine: [show("a1", "21-11-2025", "Blå")],
-            friends: [egil, trummis],
-            theirs: ["Egil": [show("b1", "16-05-2026", "Stora Scenen"),
+            friends: [ozzy, lemmy],
+            theirs: ["Ozzy": [show("b1", "16-05-2026", "Stora Scenen"),
                               show("b2", "15-05-2026", "Stora Scenen")]]
         )
         // Their node's own shows are theirs, so intersecting them with "what
@@ -151,8 +151,8 @@ final class WeaveTimelinesTests: XCTestCase {
         let night = show("x1", "21-11-2025", "Blå")
         let rows = weaveTimelines(
             mine: [night],
-            friends: [trummis],
-            theirs: ["Trummispojken": [night]]
+            friends: [lemmy],
+            theirs: ["Lemmy": [night]]
         )
         // A lone gig used to fail to Absorb, so a shared night drew two rows.
         XCTAssertEqual(1, rows.count)
@@ -165,8 +165,8 @@ final class WeaveTimelinesTests: XCTestCase {
     func testRowsAreNewestFirstAcrossBothLines() {
         let rows = weaveTimelines(
             mine: [show("a1", "21-11-2025", "Blå"), show("a2", "01-01-2019", "Blå")],
-            friends: [trummis],
-            theirs: ["Trummispojken": [show("b1", "12-06-2026", "3Arena")]]
+            friends: [lemmy],
+            theirs: ["Lemmy": [show("b1", "12-06-2026", "3Arena")]]
         )
         XCTAssertEqual(["b1", "a1", "a2"], rows.map { $0.shows[0].id })
     }

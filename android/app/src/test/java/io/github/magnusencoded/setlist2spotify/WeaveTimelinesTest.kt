@@ -21,8 +21,8 @@ class WeaveTimelinesTest {
         venue = FmVenue(name = venue),
     )
 
-    private val trummis = Friend(setlistfm = "Trummispojken", name = "Trummispojken")
-    private val egil = Friend(setlistfm = "Egil", name = "Egil")
+    private val lemmy = Friend(setlistfm = "Lemmy", name = "Lemmy")
+    private val ozzy = Friend(setlistfm = "Ozzy", name = "Ozzy")
 
     @Test
     fun `with nobody connected the rows are just my own`() {
@@ -42,15 +42,15 @@ class WeaveTimelinesTest {
         val rows = weaveTimelines(
             mine = listOf(show("a1", "25-06-2026", "Ekebergsletta"), show("a2", "24-06-2026", "Ekebergsletta")),
             festivalNames = emptyMap(),
-            friends = listOf(trummis),
+            friends = listOf(lemmy),
             theirs = mapOf(
-                "Trummispojken" to listOf(show("b1", "27-06-2026", "Ekebergsletta"), show("b2", "26-06-2026", "Ekebergsletta")),
+                "Lemmy" to listOf(show("b1", "27-06-2026", "Ekebergsletta"), show("b2", "26-06-2026", "Ekebergsletta")),
             ),
         )
         assertEquals(1, rows.size)
         assertTrue(rows[0].node is TimelineNode.Festival)
         assertTrue(rows[0].shared)
-        assertEquals(listOf(trummis), rows[0].others)
+        assertEquals(listOf(lemmy), rows[0].others)
     }
 
     @Test
@@ -58,28 +58,28 @@ class WeaveTimelinesTest {
         val rows = weaveTimelines(
             mine = listOf(show("a1", "21-11-2025", "Blå")),
             festivalNames = emptyMap(),
-            friends = listOf(trummis),
-            theirs = mapOf("Trummispojken" to listOf(show("b1", "12-06-2025", "3Arena"))),
+            friends = listOf(lemmy),
+            theirs = mapOf("Lemmy" to listOf(show("b1", "12-06-2025", "3Arena"))),
         )
         assertEquals(2, rows.size)
         // Newest first, and the one that isn't mine carries no node of my own.
         assertTrue(rows[0].mine)
         assertFalse(rows[1].mine)
-        assertEquals(listOf(trummis), rows[1].others)
+        assertEquals(listOf(lemmy), rows[1].others)
     }
 
     @Test
     fun `opening a festival I never attended keeps every gig theirs`() {
         val theirs = mapOf(
-            "Trummispojken" to listOf(
+            "Lemmy" to listOf(
                 show("b1", "16-05-2026", "Stora Scenen"),
                 show("b2", "15-05-2026", "Stora Scenen"),
             ),
         )
         val mine = listOf(show("a1", "21-11-2025", "Blå"))
-        val collapsed = weaveTimelines(mine, emptyMap(), listOf(trummis), theirs)
+        val collapsed = weaveTimelines(mine, emptyMap(), listOf(lemmy), theirs)
         val festival = collapsed.first { it.node is TimelineNode.Festival }
-        val rows = weaveTimelines(mine, emptyMap(), listOf(trummis), theirs, expanded = setOf(festival.key))
+        val rows = weaveTimelines(mine, emptyMap(), listOf(lemmy), theirs, expanded = setOf(festival.key))
 
         val inner = rows.filter { it.depth == 1 }
         assertEquals(2, inner.size)
@@ -90,9 +90,9 @@ class WeaveTimelinesTest {
     @Test
     fun `opening a shared festival lists both sides' gigs underneath it`() {
         val mine = listOf(show("a1", "25-06-2026", "Ekebergsletta"), show("a2", "24-06-2026", "Ekebergsletta"))
-        val theirs = mapOf("Trummispojken" to listOf(show("b1", "26-06-2026", "Ekebergsletta")))
-        val collapsed = weaveTimelines(mine, emptyMap(), listOf(trummis), theirs)
-        val rows = weaveTimelines(mine, emptyMap(), listOf(trummis), theirs, expanded = setOf(collapsed[0].key))
+        val theirs = mapOf("Lemmy" to listOf(show("b1", "26-06-2026", "Ekebergsletta")))
+        val collapsed = weaveTimelines(mine, emptyMap(), listOf(lemmy), theirs)
+        val rows = weaveTimelines(mine, emptyMap(), listOf(lemmy), theirs, expanded = setOf(collapsed[0].key))
 
         assertEquals(4, rows.size) // the festival, then its three gigs
         assertTrue(rows[0].node is TimelineNode.Festival)
@@ -109,14 +109,14 @@ class WeaveTimelinesTest {
         val rows = weaveTimelines(
             mine = listOf(tons, show("a2", "24-06-2026", "Ekebergsletta")),
             festivalNames = emptyMap(),
-            friends = listOf(egil, trummis),
+            friends = listOf(ozzy, lemmy),
             theirs = mapOf(
-                "Trummispojken" to listOf(tons, show("b2", "26-06-2026", "Ekebergsletta")),
-                "Egil" to listOf(tons),
+                "Lemmy" to listOf(tons, show("b2", "26-06-2026", "Ekebergsletta")),
+                "Ozzy" to listOf(tons),
             ),
         )
         assertEquals(1, rows.size)
-        assertEquals(setOf(egil, trummis), rows[0].others.toSet())
+        assertEquals(setOf(ozzy, lemmy), rows[0].others.toSet())
         assertTrue(rows[0].shared)
     }
 
@@ -126,10 +126,10 @@ class WeaveTimelinesTest {
         val rows = weaveTimelines(
             mine = listOf(tons, show("a2", "24-06-2026", "Ekebergsletta")),
             festivalNames = emptyMap(),
-            friends = listOf(egil, trummis),
+            friends = listOf(ozzy, lemmy),
             theirs = mapOf(
-                "Trummispojken" to listOf(tons),
-                "Egil" to listOf(tons),
+                "Lemmy" to listOf(tons),
+                "Ozzy" to listOf(tons),
             ),
         )
         // Both were at the same one gig: one show here, and it is the one we shared.
@@ -143,28 +143,28 @@ class WeaveTimelinesTest {
         val rows = weaveTimelines(
             mine = listOf(show("a1", "21-11-2025", "Blå")),
             festivalNames = emptyMap(),
-            friends = listOf(egil, trummis),
-            theirs = mapOf("Trummispojken" to listOf(theirs), "Egil" to listOf(theirs)),
+            friends = listOf(ozzy, lemmy),
+            theirs = mapOf("Lemmy" to listOf(theirs), "Ozzy" to listOf(theirs)),
         )
         assertEquals(2, rows.size) // my night, and the one they shared without me
         val without = rows.first { !it.mine }
-        assertEquals(setOf(egil, trummis), without.others.toSet())
+        assertEquals(setOf(ozzy, lemmy), without.others.toSet())
     }
 
     @Test
     fun `a night with one of them says so - the other is not on that node`() {
-        val withEgil = show("a1", "21-11-2025", "Blå")
+        val withOzzy = show("a1", "21-11-2025", "Blå")
         val rows = weaveTimelines(
-            mine = listOf(withEgil),
+            mine = listOf(withOzzy),
             festivalNames = emptyMap(),
-            friends = listOf(egil, trummis),
+            friends = listOf(ozzy, lemmy),
             theirs = mapOf(
-                "Egil" to listOf(withEgil),
-                "Trummispojken" to listOf(show("b9", "01-01-2020", "Somewhere else")),
+                "Ozzy" to listOf(withOzzy),
+                "Lemmy" to listOf(show("b9", "01-01-2020", "Somewhere else")),
             ),
         )
         val mine = rows.first { it.mine }
-        assertEquals(listOf(egil), mine.others)
+        assertEquals(listOf(ozzy), mine.others)
         assertEquals(1, mine.sharedCount)
     }
 
@@ -173,9 +173,9 @@ class WeaveTimelinesTest {
         val rows = weaveTimelines(
             mine = listOf(show("a1", "21-11-2025", "Blå")),
             festivalNames = emptyMap(),
-            friends = listOf(egil, trummis),
+            friends = listOf(ozzy, lemmy),
             theirs = mapOf(
-                "Egil" to listOf(
+                "Ozzy" to listOf(
                     show("b1", "16-05-2026", "Stora Scenen"),
                     show("b2", "15-05-2026", "Stora Scenen"),
                 ),
@@ -192,8 +192,8 @@ class WeaveTimelinesTest {
         val rows = weaveTimelines(
             mine = listOf(night),
             festivalNames = emptyMap(),
-            friends = listOf(trummis),
-            theirs = mapOf("Trummispojken" to listOf(night)),
+            friends = listOf(lemmy),
+            theirs = mapOf("Lemmy" to listOf(night)),
         )
         // A lone concert used to fail to absorb, so a shared night drew two rows.
         assertEquals(1, rows.size)
