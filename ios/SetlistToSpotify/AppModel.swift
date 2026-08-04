@@ -65,6 +65,9 @@ struct UiState {
     var zoomedOut = false
     var festivalNames: [String: String] = [:]
     var timelineLoading = false
+    /// A Followed line's Attended list is being fetched — distinguishes "no Lanes
+    /// yet" from "Lanes arriving" (#77).
+    var timelinesLoading = false
     /// Row keys of the Festivals uncollapsed in place. Not a screen: a Festival
     /// opens where it stands.
     var expandedFestivals: Set<String> = []
@@ -181,7 +184,46 @@ final class AppModel: ObservableObject {
 
     /// Pinch out to open the friends' Lanes beside my Spine, pinch in to close
     /// them. Nothing navigates — the same one Timeline, at a different Resolution.
-    func setZoomedOut(_ v: Bool) { state.zoomedOut = v }
+    func setZoomedOut(_ v: Bool) {
+        state.zoomedOut = v
+        if v { loadFriendTimelines() }
+    }
+
+    /// Loads every known friend's Attended list for the Timelines resolution (the
+    /// zoomed-out Lanes strip). Ported from Android's
+    /// `AppViewModel.loadFriendTimelines`/`attendedBackTo`: each stale Lane is
+    /// paged back to my own oldest Gig via the client's `backTo`, and saved
+    /// through the store's merge so one friend's failure can't clobber another's
+    /// Lane or empty a lane that was fine a minute ago.
+    func loadFriendTimelines() {
+        let friends = state.friends
+        if friends.isEmpty { return }
+        let myOldest = state.timelineShows.compactMap { $0.localDate() }.min()
+        // Reload a lane only if it is missing or stops short of my own first gig.
+        // Cached-and-complete is the common case, and refetching every lane on
+        // every zoom-out is exactly the call volume the store exists to remove —
+        // but a lane truncated at the page cap is not complete however cached it is.
+        let stale = friends.filter { friend in
+            let have = state.showsByFriend[friend.setlistfm] ?? []
+            return have.isEmpty || !reachesBack(have, oldestOfMine: myOldest)
+        }
+        if stale.isEmpty { return }
+        state.timelinesLoading = true
+        Task {
+            var loaded: [String: [FmSetlist]] = [:]
+            for friend in stale {
+                // A failed lane is dropped from the batch, never written empty —
+                // the merge below leaves their last good copy untouched.
+                if let result = try? await setlistFm.attendedShows(friend.setlistfm, backTo: myOldest),
+                   !result.shows.isEmpty {
+                    loaded[friend.setlistfm] = result.shows
+                }
+            }
+            state.showsByFriend.merge(loaded) { _, new in new }
+            state.timelinesLoading = false
+            await timelines.save(shows: loaded)
+        }
+    }
 
     /// Seeds the Timeline from a bundled weave fixture (`fixtures/weave/<name>`).
     /// The only way CI and a URL bar can reach a populated Spine without a live

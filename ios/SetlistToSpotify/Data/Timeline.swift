@@ -131,6 +131,20 @@ enum RowOwnership: String {
     case mine, theirs, together
 }
 
+/// Whether a cached Lane already reaches back as far as my own oldest Gig — the
+/// staleness rule a Followed line's fetch is judged against (#77). Ported from
+/// Android's `AppViewModel.reachesBack`.
+///
+/// ponytail: a friend whose whole history is newer than my first gig looks short
+/// every time, so zooming out costs them one page fetch each — the fetch stops on
+/// the first page because it already has their whole list. Store their reported
+/// total if that one call ever matters.
+func reachesBack(_ shows: [FmSetlist], oldestOfMine: Date?) -> Bool {
+    guard let oldestOfMine else { return true }
+    guard let theirOldest = shows.compactMap({ $0.localDate() }).min() else { return false }
+    return theirOldest <= oldestOfMine
+}
+
 /// Whether `other`'s cluster belongs on this node rather than beside it: my
 /// Festival Absorbing their run at the same venue, or — the case a lone gig used
 /// to miss — simply the same gig on both lists. Anything looser (same venue,
