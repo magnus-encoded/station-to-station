@@ -1303,12 +1303,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val act = _state.value.bills.firstOrNull { it.id == billId }?.acts?.getOrNull(actIndex) ?: return
         val gigId = act.gigId
         if (gigId == null && !act.surprise) return
-        _state.update {
-            it.copy(
-                plannedGigs = it.plannedGigs.filterNot { g -> g.id == gigId },
-                attendanceByGig = it.attendanceByGig - gigId,
-                logsByGig = it.logsByGig - gigId,
-            )
+        // An undated Surprise — a typo caught before it was ever tapped — has no gig
+        // to strip, only an act to drop.
+        if (gigId != null) {
+            _state.update {
+                it.copy(
+                    plannedGigs = it.plannedGigs.filterNot { g -> g.id == gigId },
+                    attendanceByGig = it.attendanceByGig - gigId,
+                    logsByGig = it.logsByGig - gigId,
+                )
+            }
         }
         viewModelScope.launch {
             // Refused when the night has media on it — that is not a mistap, and the
