@@ -84,11 +84,15 @@ final class AppModel: ObservableObject {
     private lazy var setlistFm = SetlistFmClient { [settings] in settings.setlistFmApiKeyValue }
     private lazy var spotify = SpotifyClient(settings)
     private let timelines = TimelineStore()
+    /// The device half of the Timeline (ADR-0001): the store, the client, the
+    /// bundle. Held as the concrete type because seeding a fixture is an iOS-only
+    /// entry point that the shared logic layer only ever *reads* the result of.
+    private lazy var plumbing = DeviceTimelinePlumbing(store: timelines, client: setlistFm)
+    /// The shared half: the sequence and the rules, testable because the plumbing
+    /// above is handed in rather than constructed inside it.
+    private lazy var logic = TimelineLogic(plumbing: plumbing)
 
     private var matchTask: Task<Void, Never>?
-
-    /// A fixture was seeded at launch (CI): the stored Spine must not overwrite it.
-    private var seeded = false
 
     init() {
         state.setlistFmApiKey = settings.setlistFmApiKey ?? ""
@@ -118,22 +122,21 @@ final class AppModel: ObservableObject {
 
     // --- The timeline ---
 
-    /// The last spine we drew, straight off disk. Called at launch so the
-    /// timeline is there before any network is.
+    /// The Spine for this run, put on screen. Called at launch so the timeline is
+    /// there before any network is.
+    ///
+    /// Which source it comes from — a launch-seeded fixture or the stored cache —
+    /// and the retry of unresolved **Festival** names that follows are both the
+    /// logic layer's call now (`TimelineLogic.loadSpine`), which is what makes
+    /// them assertable without a device. The closure runs once for the Spine and
+    /// again if the retry found anything.
     func loadTimeline() {
-        // A launch-seeded fixture is the Spine for this run; don't let the (empty
-        // in CI) stored cache clobber it when the view appears.
-        if seeded { return }
+        let me = state.mySetlistFmUser.trimmingCharacters(in: .whitespaces)
         Task {
-            let cache = await timelines.load()
-            let me = state.mySetlistFmUser.trimmingCharacters(in: .whitespaces)
-            state.festivalNames = cache.festivalNames
-            state.timelineShows = cache.shows[me] ?? []
-            // A cached spine may hold festivals whose real names were never
-            // resolved (import failed the scrape, or predates it). Android
-            // resolves on every load; iOS only did so after a fresh import, so
-            // a reopened app kept showing venue names. Retry the unresolved ones.
-            resolveFestivalNames()
+            await logic.loadSpine(me: me) { spine in
+                state.timelineShows = spine.mine
+                state.festivalNames = spine.festivalNames
+            }
         }
     }
 
@@ -161,28 +164,17 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Fills in the real Festival names for the clusters currently on the
-    /// timeline — one page fetch per festival, only for ones not already
-    /// resolved. Failures are silent: the venue name stays as the label.
+    /// Fills in the real **Festival** names for the clusters currently on the
+    /// timeline. The rule itself (which clusters, what counts as unresolved, and
+    /// that the answers are stored) lives in the logic layer; this is the
+    /// after-a-fresh-import caller of it.
     func resolveFestivalNames() {
-        let firsts = groupIntoFestivals(state.timelineShows)
-            .compactMap { node -> FmSetlist? in
-                guard node.isFestival, let first = node.shows.first else { return nil }
-                return first
-            }
-            .filter { state.festivalNames[$0.id] == nil && $0.url?.nilIfBlank != nil }
-        if firsts.isEmpty { return }
+        let mine = state.timelineShows
+        let known = state.festivalNames
         Task {
-            var found: [String: String] = [:]
-            for show in firsts {
-                if let name = await setlistFm.festivalName(setlistURL: show.url!) {
-                    found[show.id] = name
-                }
-            }
+            let found = await logic.resolveFestivalNames(mine: mine, known: known)
             if found.isEmpty { return }
             state.festivalNames.merge(found) { _, new in new }
-            // A festival name costs a fetch each; store them so it's paid once.
-            await timelines.save(festivalNames: found)
         }
     }
 
@@ -223,27 +215,26 @@ final class AppModel: ObservableObject {
     /// the Lanes in order, and every show. `open` uncollapses the Festivals so a
     /// festival-open Resolution can be photographed too.
     func loadFixture(_ name: String, open: Bool) {
-        guard let base = Bundle.main.url(forResource: "weave", withExtension: nil),
-              let data = try? Data(contentsOf: base.appendingPathComponent("\(name)/timelines.json")),
-              let doc = try? JSONDecoder().decode(FixtureDoc.self, from: data)
-        else {
+        // Registering the fixture with the plumbing is what makes it the Spine
+        // for this run: the logic layer prefers it over the stored cache from
+        // then on, so the (empty in CI) cache can no longer clobber it when the
+        // view appears. Synchronous, so the `onAppear` load cannot beat it.
+        guard let spine = plumbing.seed(fixture: name) else {
             state.error = "Fixture \"\(name)\" not bundled."
             return
         }
-        seeded = true
-        let friends = doc.friends ?? []
-        state.mySetlistFmUser = doc.me
-        state.friends = friends
-        state.timelineShows = doc.shows[doc.me] ?? []
-        state.showsByFriend = doc.shows.filter { $0.key != doc.me }
-        state.festivalNames = doc.festivalNames ?? [:]
+        state.mySetlistFmUser = spine.me
+        state.friends = spine.friends
+        state.timelineShows = spine.mine
+        state.showsByFriend = spine.byFriend
+        state.festivalNames = spine.festivalNames
         // A fixture with Lanes is a Timelines-resolution scenario; one without is
         // My-timeline. Either way the shape is derived, never stored.
-        state.zoomedOut = !friends.isEmpty
+        state.zoomedOut = !spine.friends.isEmpty
         state.timelineLoading = false
         let rows = weaveTimelines(
             mine: state.timelineShows, festivalNames: state.festivalNames,
-            friends: friends, theirs: state.showsByFriend
+            friends: spine.friends, theirs: state.showsByFriend
         )
         state.expandedFestivals = open
             ? Set(rows.filter { $0.node.isFestival }.map(\.key))
@@ -348,17 +339,6 @@ final class AppModel: ObservableObject {
         state.friends = next
     }
 
-    /// Fetches attended concerts for one user across up to `maxPages` pages.
-    private func attendedConcerts(_ userId: String, maxPages: Int) async throws -> [FmSetlist] {
-        var all: [FmSetlist] = []
-        for page in 1...maxPages {
-            let resp = try await setlistFm.userAttended(userId, page: page)
-            all += resp.setlist
-            if all.count >= resp.total || resp.setlist.isEmpty { break }
-        }
-        return all
-    }
-
     /// Loads the concerts both `friend` and I attended into the setlists list, so
     /// the existing SetlistsView renders them and tapping one flows into the
     /// normal confirm → create-playlist path.
@@ -377,11 +357,9 @@ final class AppModel: ObservableObject {
         state.setlistsLoading = true
         Task {
             do {
-                // ponytail: caps at 60 concerts each. Bump maxPages or cache per
-                // user if power users miss older overlaps.
-                let mine = try await attendedConcerts(me, maxPages: 3)
-                let theirs = Set(try await attendedConcerts(friend.setlistfm, maxPages: 3).map(\.id))
-                let shared = mine.filter { theirs.contains($0.id) }
+                // The intersection and its paging cap are the logic layer's; see
+                // TimelineLogic.attendedPageCap for what raising it would cost.
+                let shared = try await logic.sharedConcerts(me: me, friend: friend.setlistfm)
                 // total == count so loadMoreSetlists() won't try to paginate this list.
                 state.setlists = shared
                 state.setlistsTotal = shared.count
@@ -527,24 +505,11 @@ final class AppModel: ObservableObject {
                           // Tape songs are intro/outro recordings, not performed live; excluded by default.
                           included: !song.tape)
             }
-        // Year – Artist – Where, matching Android. A festival cluster's "where" is
-        // the festival name (its year stripped, since the year already leads),
-        // standing in for the venue; a lone show keeps its venue.
-        let year = setlist.year()
-        let festival = groupIntoFestivals(state.timelineShows, names: state.festivalNames)
-            .first { node in node.isFestival && node.shows.contains { $0.id == setlist.id } }
-        let whereName: String?
-        if case .festival(let fname, _)? = festival {
-            whereName = year.map { fname.replacingOccurrences(of: $0, with: "")
-                .trimmingCharacters(in: CharacterSet(charactersIn: " -–")) } ?? fname
-        } else {
-            whereName = setlist.venue?.name
-        }
-        // Year first: an alphabetical playlist library then sorts chronologically.
-        let defaultName = [year, artistName.nilIfBlank, whereName?.nilIfBlank]
-            .compactMap { $0 }
-            .joined(separator: " – ")
-            .nilIfBlank ?? "Setlist"
+        // Year – Artist – Where. The rule itself is the logic layer's, asserted by
+        // the same cases on both platforms — it is the one that drifted before.
+        let defaultName = TimelineLogic.playlistName(
+            for: setlist, mine: state.timelineShows, festivalNames: state.festivalNames
+        )
 
         state.selectedSetlist = setlist
         state.matches = matches
@@ -666,15 +631,4 @@ final class AppModel: ObservableObject {
             }
         }
     }
-}
-
-/// A weave fixture as stored on disk (`fixtures/weave/<name>/timelines.json`): a
-/// plain TimelineCache plus the two keys the store itself ignores — which line is
-/// mine, and the friends in Lane order (nearest the Spine first). Decoded here to
-/// seed the Timeline for a screenshot.
-private struct FixtureDoc: Decodable {
-    var me: String
-    var friends: [Friend]?
-    var shows: [String: [FmSetlist]]
-    var festivalNames: [String: String]?
 }

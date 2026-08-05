@@ -7,10 +7,13 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.magnusencoded.setlist2spotify.data.Friend
 import io.github.magnusencoded.setlist2spotify.data.DeviceLocation
+import io.github.magnusencoded.setlist2spotify.data.DeviceTimelinePlumbing
+import io.github.magnusencoded.setlist2spotify.data.LoadedSpine
 import io.github.magnusencoded.setlist2spotify.data.SettingsRepository
 import io.github.magnusencoded.setlist2spotify.data.StoredAttendance
 import io.github.magnusencoded.setlist2spotify.data.StoredMedia
 import io.github.magnusencoded.setlist2spotify.data.StoredPlaylist
+import io.github.magnusencoded.setlist2spotify.data.TimelineLogic
 import io.github.magnusencoded.setlist2spotify.data.TimelineStore
 import io.github.magnusencoded.setlist2spotify.data.friendFromUri
 import io.github.magnusencoded.setlist2spotify.data.gigIdFromInvite
@@ -19,11 +22,9 @@ import io.github.magnusencoded.setlist2spotify.data.sfmStamp
 import io.github.magnusencoded.setlist2spotify.data.sfmUserFromDescription
 import io.github.magnusencoded.setlist2spotify.data.spotifyPlaylistId
 import io.github.magnusencoded.setlist2spotify.data.toShareUri
-import io.github.magnusencoded.setlist2spotify.ui.TimelineNode
 import io.github.magnusencoded.setlist2spotify.ui.atVenue
 import io.github.magnusencoded.setlist2spotify.ui.canCheckInManually
 import io.github.magnusencoded.setlist2spotify.ui.checkInCandidate
-import io.github.magnusencoded.setlist2spotify.ui.groupIntoFestivals
 import io.github.magnusencoded.setlist2spotify.ui.venueMapsQuery
 import io.github.magnusencoded.setlist2spotify.ble.ProbeCard
 import io.github.magnusencoded.setlist2spotify.data.exchange.ExchangePeer
@@ -254,6 +255,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val settings = SettingsRepository(application)
     private val timelines = TimelineStore(application)
     private val setlistFm = SetlistFmClient { settings.setlistFmApiKeyValue() }
+
+    /**
+     * The Timeline's sequence and rules (ADR-0001), with the device half handed in
+     * rather than constructed inside it — which is what makes them reachable from
+     * a test. Everything else in this view model is still the OS-facing half.
+     */
+    private val logic = TimelineLogic(DeviceTimelinePlumbing(timelines, setlistFm))
+
     val spotify = SpotifyClient(settings)
     private val photos = PhotoRepository(application)
     private val exchange = ExchangeSession(application, viewModelScope)
@@ -343,10 +352,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         val me = _state.value.mySetlistFmUser
-        val mine = cached.shows[me].orEmpty()
         _state.update {
             it.copy(
-                festivalNames = it.festivalNames + cached.festivalNames,
                 // The store keys everything by its own Gig id now (#107); these read
                 // it back under the id the screens use — the setlist.fm id where the
                 // night has one, its own where it doesn't.
@@ -355,33 +362,52 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 plannedGigs = sortedPlanned(cached.planned()),
                 attendanceByGig = it.attendanceByGig + cached.attendance(),
                 calendarEventByGig = it.calendarEventByGig + cached.calendarEvents(),
-                // Every lane but mine: the weave reads friends from here.
-                showsByFriend = cached.shows - me,
-                // Only adopt a cached spine if nothing has already loaded into it.
-                setlists = if (mine.isNotEmpty() && it.setlists.isEmpty()) mine else it.setlists,
-                source = if (mine.isNotEmpty() && it.setlists.isEmpty()) SetlistSource.USER else it.source,
-                setlistsTitle = if (mine.isNotEmpty() && it.setlistsTitle.isBlank()) "Attended by $me" else it.setlistsTitle,
-                userQuery = if (mine.isNotEmpty() && it.userQuery.isBlank()) me else it.userQuery,
-                // The total setlist.fm reported, not how many we cached. Setting it to
-                // the cached size made the spine look complete at whatever page it had
-                // reached, so scrolling into your own history stopped there for good.
-                setlistsTotal = if (mine.isNotEmpty() && it.setlists.isEmpty()) {
-                    // No stored total means a cache written before totals were kept.
-                    // Allow exactly one more page: it reports the real total and
-                    // stores it, so the gap heals itself on the first scroll back.
-                    cached.attendedTotals[me] ?: (mine.size + 1)
-                } else {
-                    it.setlistsTotal
-                },
-                // Resume where the cache left off. Floor, so a part-filled last page is
-                // fetched again rather than skipped — loadMoreSetlists de-dupes.
-                setlistsPage = if (mine.isNotEmpty() && it.setlists.isEmpty()) {
-                    (mine.size / SETLISTS_PER_PAGE).coerceAtLeast(1)
-                } else {
-                    it.setlistsPage
-                },
             )
         }
+        // The Spine itself — which source it comes from, and the retry of unresolved
+        // Festival names that follows — is the logic layer's sequence, so it is the
+        // same sequence iOS runs and the same one the tests drive. [adoptSpine] runs
+        // once for the Spine and again if the retry found anything.
+        //
+        // ponytail: this reads timelines.json a second time, since the plumbing owns
+        // the load now and everything above still needs the rest of the cache. One
+        // small file at launch. Hand the cache in if it is ever felt.
+        logic.loadSpine(me) { spine -> adoptSpine(spine, cached.attendedTotals[me]) }
+    }
+
+    /**
+     * Puts a loaded Spine on screen. Only ever *adopts* it: anything already loaded
+     * into the list — a live import that beat the cache back — wins, because the
+     * cache is the older story of the same line.
+     */
+    private fun adoptSpine(spine: LoadedSpine, attendedTotal: Int?) = _state.update {
+        val mine = spine.mine
+        // Only adopt a cached spine if nothing has already loaded into it.
+        val adopt = mine.isNotEmpty() && it.setlists.isEmpty()
+        it.copy(
+            festivalNames = it.festivalNames + spine.festivalNames,
+            // Every lane but mine: the weave reads friends from here.
+            showsByFriend = spine.byFriend,
+            setlists = if (adopt) mine else it.setlists,
+            source = if (adopt) SetlistSource.USER else it.source,
+            setlistsTitle = if (mine.isNotEmpty() && it.setlistsTitle.isBlank()) {
+                "Attended by ${spine.me}"
+            } else {
+                it.setlistsTitle
+            },
+            userQuery = if (mine.isNotEmpty() && it.userQuery.isBlank()) spine.me else it.userQuery,
+            // The total setlist.fm reported, not how many we cached. Setting it to
+            // the cached size made the spine look complete at whatever page it had
+            // reached, so scrolling into your own history stopped there for good.
+            //
+            // No stored total means a cache written before totals were kept. Allow
+            // exactly one more page: it reports the real total and stores it, so the
+            // gap heals itself on the first scroll back.
+            setlistsTotal = if (adopt) attendedTotal ?: (mine.size + 1) else it.setlistsTotal,
+            // Resume where the cache left off. Floor, so a part-filled last page is
+            // fetched again rather than skipped — loadMoreSetlists de-dupes.
+            setlistsPage = if (adopt) (mine.size / SETLISTS_PER_PAGE).coerceAtLeast(1) else it.setlistsPage,
+        )
     }
 
     /** Records that the splash was passed, so it never shows again. */
@@ -516,8 +542,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             try {
-                // ponytail: caps at 60 shows (3 pages). Bump if power users miss older ones.
-                val shows = attendedConcerts(friend.setlistfm, maxPages = 3)
+                // The same runaway guard the shared-concerts lookup uses, named once.
+                val shows = attendedConcerts(friend.setlistfm, maxPages = TimelineLogic.ATTENDED_PAGE_CAP)
                 _state.update { it.copy(viewedFriendShows = shows, viewedFriendLoading = false) }
             } catch (e: Exception) {
                 _state.update {
@@ -591,11 +617,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             try {
-                // ponytail: caps at 60 concerts each. Bump maxPages or cache per
-                // user if power users miss older overlaps.
-                val mine = attendedConcerts(me, maxPages = 3)
-                val theirs = attendedConcerts(friend.setlistfm, maxPages = 3).map { it.id }.toSet()
-                val shared = mine.filter { it.id in theirs }
+                // The intersection and its paging cap are the logic layer's; see
+                // TimelineLogic.ATTENDED_PAGE_CAP for what raising it would cost.
+                val shared = logic.sharedConcerts(me, friend.setlistfm)
                 _state.update {
                     // total == size so loadMoreSetlists() won't try to paginate this list.
                     it.copy(setlists = shared, setlistsTotal = shared.size, setlistsLoading = false)
@@ -729,24 +753,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
 
     /**
-     * Fills in the real festival names for the clusters currently on the timeline —
-     * one page fetch per festival, only for ones not already resolved. Failures are
-     * silent: the venue name stays as the label.
+     * Fills in the real **Festival** names for the clusters currently on the
+     * timeline. The rule itself — which clusters, what counts as unresolved, and
+     * that the answers are stored — lives in the logic layer; this is the screen's
+     * caller of it.
      */
     fun resolveFestivalNames() {
-        val firsts = groupIntoFestivals(_state.value.setlists)
-            .filterIsInstance<TimelineNode.Festival>()
-            .map { it.shows.first() }
-            .filter { it.id !in _state.value.festivalNames && !it.url.isNullOrBlank() }
-        if (firsts.isEmpty()) return
+        val mine = _state.value.setlists
+        val known = _state.value.festivalNames
         viewModelScope.launch {
-            val found = firsts.mapNotNull { show ->
-                setlistFm.festivalName(show.url!!)?.let { show.id to it }
-            }
+            val found = logic.resolveFestivalNames(mine, known)
             if (found.isNotEmpty()) {
                 _state.update { it.copy(festivalNames = it.festivalNames + found) }
-                // A festival name costs a fetch each; store them so it's paid once.
-                timelines.save(festivalNames = found.toMap())
             }
         }
     }
@@ -1128,20 +1146,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     included = !song.tape,
                 )
             }
-        // A festival cluster's "where" is a stage, not a place — the festival name
-        // stands in for it, same slot as every other show's venue.
-        val festival = groupIntoFestivals(_state.value.setlists, _state.value.festivalNames)
-            .filterIsInstance<TimelineNode.Festival>()
-            .find { node -> node.shows.any { it.id == setlist.id } }
-        // The year already leads the name, so strip it back out of the festival
-        // name ("Tons of Rock 2026" -> "Tons of Rock") rather than repeat it.
-        val where = festival?.name?.let { name ->
-            setlist.year()?.let { name.replace(it, "").trim().trim('-', '–').trim() } ?: name
-        } ?: setlist.venue?.name
-        // Year first: an alphabetical playlist library then falls into
-        // chronological order, and the show reads as "when, who, where".
-        val defaultName = listOfNotNull(setlist.year(), artistName.ifBlank { null }, where)
-            .joinToString(" – ").ifBlank { "Setlist" }
+        // Year – Artist – Where. The rule itself is the logic layer's, asserted by
+        // the same cases on both platforms — it is the one that drifted before.
+        val defaultName = TimelineLogic.playlistName(
+            setlist, _state.value.setlists, _state.value.festivalNames,
+        )
         _state.update {
             it.copy(
                 selectedSetlist = setlist,
