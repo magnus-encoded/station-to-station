@@ -149,4 +149,86 @@ class CardWireTest {
         val emoji = truncateToBytes("😀".repeat(10))
         assertEquals(emoji, String(emoji.toByteArray(Charsets.UTF_8), Charsets.UTF_8))
     }
+
+    // --- #84: exact wire format pinned so the iOS port fails a test, not a demo, on divergence. ---
+
+    @Test fun encodesFieldsInAFixedOrderWithPercentEscaping() {
+        val full = ProbeCard(
+            name = "Anna Ø",
+            publicKey = "keyABC=",
+            setlistfm = "annaofficial",
+            spotifyId = "annaspotify",
+        )
+        assertEquals(
+            "station-to-station://friend?name=Anna+%C3%98&k=keyABC%3D&u=annaofficial&sid=annaspotify",
+            full.encode(),
+        )
+    }
+
+    @Test fun encodeOmitsAbsentSetlistfmAndSpotifyId() {
+        val minimal = ProbeCard(name = "Bob", publicKey = "key2")
+        assertEquals("station-to-station://friend?name=Bob&k=key2", minimal.encode())
+    }
+
+    @Test fun parseFallsBackToUForNameWhenNameIsAbsent() {
+        assertEquals(
+            ProbeCard(name = "dizzi90", publicKey = "abc", setlistfm = "dizzi90"),
+            parseProbeCard("station-to-station://friend?u=dizzi90&k=abc"),
+        )
+    }
+
+    @Test fun parseIgnoresAnUnknownQueryParameter() {
+        assertEquals(
+            ProbeCard(name = "Bob", publicKey = "abc"),
+            parseProbeCard("station-to-station://friend?name=Bob&k=abc&future=xyz"),
+        )
+    }
+
+    @Test fun truncateToBytesKeepsANameThatFitsExactlyAtTheBudget() {
+        val exact = "A".repeat(SCAN_RESPONSE_NAME_BUDGET)
+        assertEquals(exact, truncateToBytes(exact))
+    }
+
+    @Test fun truncateToBytesDropsOneCharWhenOneByteOverBudget() {
+        val oneOver = "A".repeat(SCAN_RESPONSE_NAME_BUDGET + 1)
+        assertEquals("A".repeat(SCAN_RESPONSE_NAME_BUDGET), truncateToBytes(oneOver))
+    }
+
+    @Test fun truncateToBytesCutsAMultiByteNameOnACharBoundary() {
+        // É is 2 UTF-8 bytes; 14 of them is 28 bytes, one over budget.
+        val name = "É".repeat(14)
+        val cut = truncateToBytes(name)
+        assertEquals("É".repeat(13), cut)
+        assertEquals(26, cut.toByteArray(Charsets.UTF_8).size)
+    }
+
+    @Test fun truncateToBytesNeverSplitsASurrogatePair() {
+        // Each emoji is a surrogate pair and 4 UTF-8 bytes; 7 of them is 28 bytes,
+        // one over budget. A blind byte-count cut lands mid-emoji, on the high
+        // surrogate of the 7th one — the whole emoji must go, not half of it.
+        val name = "😀".repeat(7)
+        assertEquals("😀".repeat(6), truncateToBytes(name))
+    }
+
+    @Test fun sliceForOffsetAtZeroReturnsTheWholePayload() {
+        val payload = card.bytes()
+        assertEquals(
+            String(payload, Charsets.UTF_8),
+            String(sliceForOffset(payload, 0), Charsets.UTF_8),
+        )
+    }
+
+    @Test fun sliceForOffsetInTheMiddleReturnsTheRemainder() {
+        val payload = card.bytes()
+        val mid = payload.size / 2
+        assertEquals(
+            String(payload.copyOfRange(mid, payload.size), Charsets.UTF_8),
+            String(sliceForOffset(payload, mid), Charsets.UTF_8),
+        )
+    }
+
+    @Test fun sliceForOffsetPastTheEndIsEmptyNotACrash() {
+        val payload = card.bytes()
+        assertEquals(0, sliceForOffset(payload, payload.size + 50).size)
+    }
 }
