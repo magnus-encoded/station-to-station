@@ -58,6 +58,12 @@ android {
     }
 
     buildTypes {
+        // The debug APK is the only artifact the loop produces, and it is ~100x
+        // janker than the same code non-debuggable — measured, see
+        // docs/measuring-on-device.md. Never read a performance number off it.
+        // Flipping `isDebuggable` here also switches off BuildConfig.DEBUG, and
+        // with it the Woven geometry dump: AGP derives DEBUG from the flag, not
+        // from the build type's name.
         release {
             isMinifyEnabled = false
         }
