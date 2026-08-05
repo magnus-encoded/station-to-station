@@ -79,7 +79,7 @@ final class TimelineStoreTests: XCTestCase {
         // A later save of the shows must not drop it: the two write independently.
         await s.save(shows: ["magnus": [show("a"), show("b")]])
         let loaded = await s.load()
-        XCTAssertEqual(19, loaded.playlistsMade["a"]?.first?.trackCount)
+        XCTAssertEqual(19, loaded.playlists()["a"]?.first?.trackCount)
         XCTAssertEqual(["a", "b"], loaded.shows["magnus"]?.map(\.id))
     }
 
@@ -90,7 +90,7 @@ final class TimelineStoreTests: XCTestCase {
         let loaded = await s.load()
         XCTAssertEqual(
             ["https://open.spotify.com/playlist/p1", "https://open.spotify.com/playlist/p2"],
-            loaded.playlistsMade["a"]?.map(\.url)
+            loaded.playlists()["a"]?.map(\.url)
         )
     }
 
@@ -99,7 +99,7 @@ final class TimelineStoreTests: XCTestCase {
         await s.save(playlists: ["a": playlist("p1")])
         await s.save(playlists: ["a": playlist("p1")])
         let loaded = await s.load()
-        XCTAssertEqual(1, loaded.playlistsMade["a"]?.count)
+        XCTAssertEqual(1, loaded.playlists()["a"]?.count)
     }
 
     func testRemovingAPlaylistDropsOnlyThatLink() async {
@@ -108,7 +108,7 @@ final class TimelineStoreTests: XCTestCase {
         await s.save(playlists: ["a": playlist("p2")])
         await s.removePlaylist(setlistId: "a", url: "https://open.spotify.com/playlist/p1")
         let loaded = await s.load()
-        XCTAssertEqual(["https://open.spotify.com/playlist/p2"], loaded.playlistsMade["a"]?.map(\.url))
+        XCTAssertEqual(["https://open.spotify.com/playlist/p2"], loaded.playlists()["a"]?.map(\.url))
     }
 
     func testACacheWrittenBeforePlaylistsWereAListStillLoadsItsTimelines() async {
@@ -119,7 +119,7 @@ final class TimelineStoreTests: XCTestCase {
         """)
         let loaded = await TimelineStore(file: file).load()
         XCTAssertEqual(["a"], loaded.shows["magnus"]?.map(\.id))
-        XCTAssertTrue(loaded.playlistsMade.isEmpty)
+        XCTAssertTrue(loaded.playlists().isEmpty)
     }
 
     func testAnUnreadableCacheDegradesToEmptyInsteadOfCrashingTheLaunch() async {
@@ -132,7 +132,7 @@ final class TimelineStoreTests: XCTestCase {
         await s.saveSongOffsets(setlistId: "a", offsets: [0, 214_000, -1])
         await s.save(shows: ["magnus": [show("a")]])
         let loaded = await s.load()
-        XCTAssertEqual([0, 214_000, -1], loaded.songOffsetsBySetlist["a"])
+        XCTAssertEqual([0, 214_000, -1], loaded.songOffsets()["a"])
     }
 
     func testRestampingANightReplacesItsOffsets() async {
@@ -140,7 +140,7 @@ final class TimelineStoreTests: XCTestCase {
         await s.saveSongOffsets(setlistId: "a", offsets: [0, 100])
         await s.saveSongOffsets(setlistId: "a", offsets: [0, 250])
         let loaded = await s.load()
-        XCTAssertEqual([0, 250], loaded.songOffsetsBySetlist["a"])
+        XCTAssertEqual([0, 250], loaded.songOffsets()["a"])
     }
 
     func testTheReportedTotalSurvivesAReloadSoPagingCanResume() async {
@@ -177,7 +177,7 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual(["a1", "a2"], cache.shows["dizzi90"]?.map(\.id))
         XCTAssertEqual(169, cache.attendedTotals["dizzi90"])
         XCTAssertEqual("Tons of Rock 2026", cache.festivalNames["a1"])
-        XCTAssertEqual([0, 214_000, -1], cache.songOffsetsBySetlist["a1"])
+        XCTAssertEqual([0, 214_000, -1], cache.songOffsets()["a1"])
 
         // The same two shows, grouped by this platform's rules: one festival,
         // named by the resolved festival name rather than the venue.
@@ -205,13 +205,13 @@ final class TimelineStoreTests: XCTestCase {
         let s = TimelineStore(file: file)
         await s.save(shows: ["dizzi90": [show("b1")]])
         let loaded = await s.load()
-        XCTAssertEqual(["content://x/1"], loaded.photosBySetlist["a1"])
-        XCTAssertEqual([0, 5000], loaded.songOffsetsBySetlist["a1"])
+        XCTAssertEqual(["content://x/1"], loaded.photos()["a1"])
+        XCTAssertEqual([0, 5000], loaded.songOffsets()["a1"])
         // #29's check-in is the newest Android-only field, and the one a Reliver
         // would most notice losing: it is evidence they were there.
-        XCTAssertEqual("checked_in", loaded.attendanceByGig["a1"]?.provenance)
-        XCTAssertEqual(1_750_000_000_000, loaded.attendanceByGig["a1"]?.checkedInAt)
-        XCTAssertEqual(59.9, loaded.attendanceByGig["a1"]?.venueLat)
+        XCTAssertEqual("checked_in", loaded.attendance()["a1"]?.provenance)
+        XCTAssertEqual(1_750_000_000_000, loaded.attendance()["a1"]?.checkedInAt)
+        XCTAssertEqual(59.9, loaded.attendance()["a1"]?.venueLat)
         XCTAssertEqual(["b1"], loaded.shows["dizzi90"]?.map(\.id))
     }
 
@@ -223,9 +223,149 @@ final class TimelineStoreTests: XCTestCase {
         await TimelineStore(file: file).save(shows: ["dizzi90": [show("a")]])
         let json = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
         XCTAssertEqual(
-            ["attendanceByGig", "attendedTotals", "festivalNames", "photosBySetlist",
-             "playlistsMade", "shows", "songOffsetsBySetlist"],
+            ["attendanceByGig", "attendedTotals", "calendarEventByGig", "festivalNames",
+             "gigAttendance", "gigCalendarEvent", "gigPhotos", "gigPlanned", "gigPlaylists",
+             "gigSongOffsets", "gigs", "photosBySetlist", "plannedShows", "playlistsMade",
+             "shows", "songOffsetsBySetlist"],
             json?.keys.sorted()
         )
+    }
+
+    /// Before #107 these two were not carried at all: a save from iOS silently
+    /// dropped the gigs Android held tickets for and the calendar events it had
+    /// made. They are dead keys now, but dead is not the same as gone — an older
+    /// Android build reading this file still expects to find them.
+    func testAWriteFromHereKeepsTheDeadKeysAnOlderBuildStillReads() async {
+        let file = tempFile(contents: """
+        {"plannedShows":[{"id":"oya","eventDate":"25-06-2026"}],\
+        "calendarEventByGig":{"oya":"content://com.android.calendar/events/42"}}
+        """)
+        let s = TimelineStore(file: file)
+        await s.save(shows: ["dizzi90": [show("b1")]])
+        let loaded = await s.load()
+        XCTAssertEqual(["oya"], loaded.plannedShows.map(\.id))
+        XCTAssertEqual("content://com.android.calendar/events/42", loaded.calendarEventByGig["oya"])
+    }
+
+    // MARK: - #107: a Gig gets an identity the app owns
+
+    /// The migration has to produce the *same* ids here as on Android, or a user
+    /// with two phones ends up with two histories of the same nights. Asserted
+    /// against fixed values rather than against Android, so neither platform can
+    /// drift by agreeing with itself.
+    func testAnOldCacheMigratesEveryMapOntoOneGigPerNight() async {
+        let file = tempFile(contents: """
+        {"shows":{"magnus":[{"id":"a1","eventDate":"25-06-2026",\
+        "artist":{"name":"Gojira"},"venue":{"name":"Ekebergsletta"}}]},\
+        "playlistsMade":{"a1":[{"url":"u","name":"n","trackCount":3}]},\
+        "photosBySetlist":{"a1":["content://photo1"]},\
+        "songOffsetsBySetlist":{"a1":[0,214000]},\
+        "attendanceByGig":{"a1":{"provenance":"checked_in","checkedInAt":42}},\
+        "calendarEventByGig":{"a1":"content://cal/7"}}
+        """)
+        let cache = await TimelineStore(file: file).load()
+
+        XCTAssertEqual(1, cache.gigs.count)
+        let gig = cache.gigs.values.first!
+        XCTAssertEqual("a1", gig.setlistId)
+        XCTAssertEqual("6033fd8a-ff1e-5334-854f-5e2edfd5a255", gig.id)
+        // The facts of the night are filled in from the show the cache already held.
+        XCTAssertEqual("25-06-2026", gig.date)
+        XCTAssertEqual("Gojira", gig.artist)
+        XCTAssertEqual("Ekebergsletta", gig.venue)
+        // Everything still resolves, under the id the screens use.
+        XCTAssertEqual(["content://photo1"], cache.photos()["a1"])
+        XCTAssertEqual([0, 214_000], cache.songOffsets()["a1"])
+        XCTAssertEqual(42, cache.attendance()["a1"]?.checkedInAt)
+        XCTAssertEqual("content://cal/7", cache.calendarEvents()["a1"])
+        XCTAssertEqual(1, cache.playlists()["a1"]?.count)
+    }
+
+    func testTheOldKeysSurviveTheMigrationSoAnOlderBuildIsUnharmed() async {
+        let file = tempFile(contents: #"{"photosBySetlist":{"a1":["content://photo1"]}}"#)
+        let s = TimelineStore(file: file)
+        await s.save(shows: ["magnus": [show("b")]])
+        let loaded = await s.load()
+        XCTAssertEqual(["content://photo1"], loaded.photosBySetlist["a1"])
+        XCTAssertEqual(["content://photo1"], loaded.photos()["a1"])
+    }
+
+    func testMigratingTwiceChangesNothing() async {
+        let file = tempFile(contents: #"{"photosBySetlist":{"a1":["content://photo1"]}}"#)
+        let s = TimelineStore(file: file)
+        let first = Set(await s.load().gigs.keys)
+        await s.savePhotos(setlistId: "a1", uris: ["content://photo1", "content://photo2"])
+        let loaded = await s.load()
+        XCTAssertEqual(first, Set(loaded.gigs.keys))
+        XCTAssertEqual(2, loaded.photos()["a1"]?.count)
+    }
+
+    /// The assertion #107 exists for: a night carrying everything a night can
+    /// carry appears on setlist.fm, and nothing is orphaned by the good news.
+    func testAdoptingASetlistIdPreservesEveryAssociation() async {
+        let s = store()
+        let gigId = await s.createLocalGig(date: "25-06-2026", artist: "The Warning", venue: "Vaterland")
+        await s.savePhotos(setlistId: gigId, uris: ["content://photo1"])
+        await s.saveSongOffsets(setlistId: gigId, offsets: [0, 214_000])
+        await s.save(playlists: [gigId: playlist("p1")])
+
+        let adopted = await s.adoptSetlistId(gigId: gigId, setlistId: "63de6d5b")
+        XCTAssertTrue(adopted)
+
+        let after = await s.load()
+        XCTAssertEqual("63de6d5b", after.setlistIdFor(gigId))
+        XCTAssertEqual(["content://photo1"], after.photos()["63de6d5b"])
+        XCTAssertEqual([0, 214_000], after.songOffsets()["63de6d5b"])
+        XCTAssertEqual(1, after.playlists()["63de6d5b"]?.count)
+        XCTAssertEqual(1, after.gigs.count)
+    }
+
+    func testAdoptingASecondSetlistIdIsRefused() async {
+        let s = store()
+        let gigId = await s.createLocalGig(date: "25-06-2026", artist: "The Warning", venue: "Vaterland")
+        let first = await s.adoptSetlistId(gigId: gigId, setlistId: "63de6d5b")
+        let second = await s.adoptSetlistId(gigId: gigId, setlistId: "other")
+        XCTAssertTrue(first)
+        XCTAssertFalse(second)
+        let after = await s.load()
+        XCTAssertEqual("63de6d5b", after.setlistIdFor(gigId))
+    }
+
+    func testANightIsFoundFromEitherEnd() async {
+        let s = store()
+        await s.savePhotos(setlistId: "63de6d5b", uris: ["content://photo1"])
+        let cache = await s.load()
+        let gig = cache.gigForSetlist("63de6d5b")
+        XCTAssertEqual("63de6d5b", gig?.setlistId)
+        XCTAssertEqual("63de6d5b", cache.setlistIdFor(gig!.id))
+        XCTAssertEqual(1, cache.gigs.count)
+    }
+
+    /// A local-only Gig cannot be a **Crossing** — the weave keys on setlist.fm
+    /// ids, and this night has none. #34 accepts that consequence; pinned here as
+    /// behaviour rather than prose.
+    func testALocalOnlyGigHasNoSetlistId() async {
+        let s = store()
+        let gigId = await s.createLocalGig(date: "25-06-2026", artist: "Local Band", venue: "A basement")
+        let cache = await s.load()
+        XCTAssertNil(cache.setlistIdFor(gigId))
+        XCTAssertEqual(gigId, cache.keyOf(gigId))
+        XCTAssertTrue(cache.gigs.values.allSatisfy { $0.setlistId == nil })
+    }
+
+    func testTwoRecordsOfOneNightMergeAndTheOlderIdWins() async {
+        let s = store()
+        let older = await s.createLocalGig(date: "25-06-2026", artist: "The Warning", venue: "Vaterland")
+        await s.savePhotos(setlistId: older, uris: ["content://photo1"])
+        // The same night, found again by an import that didn't know it was here.
+        await s.savePhotos(setlistId: "63de6d5b", uris: ["content://photo2"])
+        let newer = await s.load().gigForSetlist("63de6d5b")!.id
+
+        let survivor = await s.mergeGigs(older, newer)
+        XCTAssertEqual(older, survivor)
+        let after = await s.load()
+        XCTAssertEqual(1, after.gigs.count)
+        XCTAssertEqual("63de6d5b", after.setlistIdFor(older))
+        XCTAssertEqual(["content://photo1", "content://photo2"], after.photos()["63de6d5b"])
     }
 }

@@ -334,7 +334,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         // plannedShows counts: a collector with no history but one ticket is a real
         // cold start, and without it here that launch restored nothing at all.
         if (cached.shows.isEmpty() && cached.festivalNames.isEmpty() &&
-            cached.playlistsMade.isEmpty() && cached.plannedShows.isEmpty()
+            cached.gigPlaylists.isEmpty() && cached.gigPlanned.isEmpty()
         ) {
             return
         }
@@ -343,13 +343,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _state.update {
             it.copy(
                 festivalNames = it.festivalNames + cached.festivalNames,
-                playlistsBySetlist = it.playlistsBySetlist + cached.playlistsMade,
+                // The store keys everything by its own Gig id now (#107); these read
+                // it back under the id the screens use — the setlist.fm id where the
+                // night has one, its own where it doesn't.
+                playlistsBySetlist = it.playlistsBySetlist + cached.playlists(),
                 photosBySetlist = it.photosBySetlist +
-                    cached.photosBySetlist.mapValues { (_, uris) -> uris.map(Uri::parse) },
-                songOffsetsBySetlist = it.songOffsetsBySetlist + cached.songOffsetsBySetlist,
-                plannedGigs = sortedPlanned(cached.plannedShows),
-                attendanceByGig = it.attendanceByGig + cached.attendanceByGig,
-                calendarEventByGig = it.calendarEventByGig + cached.calendarEventByGig,
+                    cached.photos().mapValues { (_, uris) -> uris.map(Uri::parse) },
+                songOffsetsBySetlist = it.songOffsetsBySetlist + cached.songOffsets(),
+                plannedGigs = sortedPlanned(cached.planned()),
+                attendanceByGig = it.attendanceByGig + cached.attendance(),
+                calendarEventByGig = it.calendarEventByGig + cached.calendarEvents(),
                 // Every lane but mine: the weave reads friends from here.
                 showsByFriend = cached.shows - me,
                 // Only adopt a cached spine if nothing has already loaded into it.

@@ -7,6 +7,7 @@ import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmArtist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -69,7 +70,7 @@ class TimelineStoreTest {
         // A later save of the shows must not drop it: the two write independently.
         store.save(shows = mapOf("magnus" to listOf(show("a"), show("b"))))
         val cached = store.load()
-        assertEquals(19, cached.playlistsMade["a"]?.single()?.trackCount)
+        assertEquals(19, cached.playlists()["a"]?.single()?.trackCount)
         assertEquals(listOf("a", "b"), cached.shows["magnus"]?.map { it.id })
     }
 
@@ -80,7 +81,7 @@ class TimelineStoreTest {
         store.save(playlists = mapOf("a" to playlist("p2")))
         assertEquals(
             listOf("https://open.spotify.com/playlist/p1", "https://open.spotify.com/playlist/p2"),
-            store.load().playlistsMade["a"]?.map { it.url },
+            store.load().playlists()["a"]?.map { it.url },
         )
     }
 
@@ -89,7 +90,7 @@ class TimelineStoreTest {
         val store = store()
         store.save(playlists = mapOf("a" to playlist("p1")))
         store.save(playlists = mapOf("a" to playlist("p1")))
-        assertEquals(1, store.load().playlistsMade["a"]?.size)
+        assertEquals(1, store.load().playlists()["a"]?.size)
     }
 
     @Test
@@ -102,7 +103,7 @@ class TimelineStoreTest {
         )
         val cached = TimelineStore(file).load()
         assertEquals(listOf("a"), cached.shows["magnus"]?.map { it.id })
-        assertTrue(cached.playlistsMade.isEmpty())
+        assertTrue(cached.playlists().isEmpty())
     }
 
     @Test
@@ -117,7 +118,7 @@ class TimelineStoreTest {
         val store = store()
         store.saveSongOffsets("a", listOf(0L, 214_000L, -1L))
         store.save(shows = mapOf("magnus" to listOf(show("a"))))
-        assertEquals(listOf(0L, 214_000L, -1L), store.load().songOffsetsBySetlist["a"])
+        assertEquals(listOf(0L, 214_000L, -1L), store.load().songOffsets()["a"])
     }
 
     @Test
@@ -125,7 +126,7 @@ class TimelineStoreTest {
         val store = store()
         store.saveSongOffsets("a", listOf(0L, 100L))
         store.saveSongOffsets("a", listOf(0L, 250L))
-        assertEquals(listOf(0L, 250L), store.load().songOffsetsBySetlist["a"])
+        assertEquals(listOf(0L, 250L), store.load().songOffsets()["a"])
     }
 
     @Test
@@ -143,7 +144,7 @@ class TimelineStoreTest {
         store.saveAttendance("a", StoredAttendance(provenance = StoredAttendance.Provenance.PLANNED))
         assertEquals(
             StoredAttendance.Provenance.PLANNED,
-            store.load().attendanceByGig["a"]?.provenance,
+            store.load().attendance()["a"]?.provenance,
         )
     }
 
@@ -155,7 +156,7 @@ class TimelineStoreTest {
             "a",
             StoredAttendance(provenance = StoredAttendance.Provenance.CHECKED_IN, checkedInAt = 1_700_000_000_000L),
         )
-        val loaded = store.load().attendanceByGig["a"]
+        val loaded = store.load().attendance()["a"]
         assertEquals(StoredAttendance.Provenance.CHECKED_IN, loaded?.provenance)
         assertEquals(1_700_000_000_000L, loaded?.checkedInAt)
     }
@@ -166,29 +167,154 @@ class TimelineStoreTest {
         // "local-1" is what #34's local-id fallback looks like: no setlist.fm id yet.
         store.saveAttendance("local-1", StoredAttendance(provenance = StoredAttendance.Provenance.PLANNED))
         store.saveAttendance("a", StoredAttendance(provenance = StoredAttendance.Provenance.ATTENDED))
-        val attendance = store.load().attendanceByGig
+        val attendance = store.load().attendance()
         assertEquals(2, attendance.size)
         assertEquals(StoredAttendance.Provenance.PLANNED, attendance["local-1"]?.provenance)
         assertEquals(StoredAttendance.Provenance.ATTENDED, attendance["a"]?.provenance)
     }
 
+    // --- #107: a Gig gets an identity the app owns ---------------------------
+
     @Test
-    fun `adopting a real setlist id carries the attendance record to the new key`() = runBlocking {
+    fun `adopting a setlist id preserves every association on that night`() = runBlocking {
+        // The test #107 exists for. A night carrying everything a night can carry
+        // appears on setlist.fm; nothing may be orphaned by the good news.
         val store = store()
+        val gigId = store.createLocalGig("25-06-2026", "The Warning", "Vaterland")
+        store.savePhotos(gigId, listOf("content://photo1"))
+        store.saveSongOffsets(gigId, listOf(0L, 214_000L))
         store.saveAttendance(
-            "local-1",
+            gigId,
             StoredAttendance(provenance = StoredAttendance.Provenance.CHECKED_IN, checkedInAt = 42L),
         )
-        val stub = store.load().attendanceByGig.getValue("local-1")
-        // #34's job, not this store's: whoever notices the real id showed up re-saves
-        // under it. The store itself never rewrites a key on the caller's behalf.
-        store.saveAttendance("a", stub)
-        val attendance = store.load().attendanceByGig
-        assertEquals(StoredAttendance.Provenance.CHECKED_IN, attendance["a"]?.provenance)
-        assertEquals(42L, attendance["a"]?.checkedInAt)
-        // The old stub key is still there until whoever adopts it decides to drop it —
-        // this store doesn't delete entries, only [saveAttendance]/[save]-style upserts.
-        assertTrue(attendance.containsKey("local-1"))
+        store.markCalendarAdded(gigId, "content://com.android.calendar/events/7")
+        store.save(playlists = mapOf(gigId to playlist("p1")))
+
+        assertTrue(store.adoptSetlistId(gigId, "63de6d5b"))
+
+        val after = store.load()
+        // Adoption moved no data: the same records, now answering to the vendor id.
+        assertEquals("63de6d5b", after.setlistIdFor(gigId))
+        assertEquals(listOf("content://photo1"), after.photos()["63de6d5b"])
+        assertEquals(listOf(0L, 214_000L), after.songOffsets()["63de6d5b"])
+        assertEquals(42L, after.attendance()["63de6d5b"]?.checkedInAt)
+        assertEquals("content://com.android.calendar/events/7", after.calendarEvents()["63de6d5b"])
+        assertEquals(1, after.playlists()["63de6d5b"]?.size)
+        assertEquals(1, after.gigs.size)
+    }
+
+    @Test
+    fun `adopting a second setlist id is refused rather than silently overwriting`() = runBlocking {
+        val store = store()
+        val gigId = store.createLocalGig("25-06-2026", "The Warning", "Vaterland")
+        assertTrue(store.adoptSetlistId(gigId, "63de6d5b"))
+        // Upstream bug, not a merge case — #34 must find out, not have it swallowed.
+        assertFalse(store.adoptSetlistId(gigId, "other"))
+        assertEquals("63de6d5b", store.load().setlistIdFor(gigId))
+    }
+
+    @Test
+    fun `a night is found from either end`() = runBlocking {
+        val store = store()
+        store.savePhotos("63de6d5b", listOf("content://photo1"))
+        val cached = store.load()
+        val gig = cached.gigForSetlist("63de6d5b")
+        assertEquals("63de6d5b", gig?.setlistId)
+        assertEquals("63de6d5b", cached.setlistIdFor(gig!!.id))
+        // Two local ids, one setlist id, one night: the correspondence key between
+        // people is the setlist.fm id, and it resolves to exactly one Gig here.
+        assertEquals(1, cached.gigs.size)
+    }
+
+    @Test
+    fun `a local-only gig has no setlist id, so it can never be a Crossing`() = runBlocking {
+        val store = store()
+        val gigId = store.createLocalGig("25-06-2026", "Local Band", "A basement")
+        val cached = store.load()
+        assertEquals(null, cached.setlistIdFor(gigId))
+        // The weave keys on setlist.fm ids; with none, this night cannot meet
+        // anyone's line. #34 accepts that consequence — pinned here as behaviour.
+        assertEquals(gigId, cached.keyOf(gigId))
+        assertTrue(cached.gigs.values.none { it.setlistId != null })
+    }
+
+    @Test
+    fun `two records of one night merge, oldest id wins, nothing is lost`() = runBlocking {
+        val store = store()
+        val older = store.createLocalGig("25-06-2026", "The Warning", "Vaterland")
+        store.savePhotos(older, listOf("content://photo1"))
+        store.saveAttendance(
+            older,
+            StoredAttendance(provenance = StoredAttendance.Provenance.CHECKED_IN, checkedInAt = 42L),
+        )
+        // The same night, found again by an import that didn't know it was already here.
+        store.savePhotos("63de6d5b", listOf("content://photo2"))
+        val newer = store.load().gigForSetlist("63de6d5b")!!.id
+
+        assertEquals(older, store.mergeGigs(older, newer))
+        val after = store.load()
+        assertEquals(1, after.gigs.size)
+        // The survivor takes the union, and the vendor id the other one carried.
+        assertEquals("63de6d5b", after.setlistIdFor(older))
+        assertEquals(listOf("content://photo1", "content://photo2"), after.photos()["63de6d5b"])
+        assertEquals(42L, after.attendance()["63de6d5b"]?.checkedInAt)
+    }
+
+    @Test
+    fun `an old cache migrates every map onto one Gig per night`() = runBlocking {
+        val file = File.createTempFile("timelines", ".json")
+        // A cache from before #107: the same night in five different maps.
+        file.writeText(
+            """{"shows":{"magnus":[{"id":"a1","eventDate":"25-06-2026",""" +
+                """"artist":{"name":"Gojira"},"venue":{"name":"Ekebergsletta"}}]},""" +
+                """"playlistsMade":{"a1":[{"url":"u","name":"n","trackCount":3}]},""" +
+                """"photosBySetlist":{"a1":["content://photo1"]},""" +
+                """"songOffsetsBySetlist":{"a1":[0,214000]},""" +
+                """"attendanceByGig":{"a1":{"provenance":"checked_in","checkedInAt":42}},""" +
+                """"calendarEventByGig":{"a1":"content://cal/7"}}"""
+        )
+        val cached = TimelineStore(file).load()
+
+        assertEquals(1, cached.gigs.size)
+        val gig = cached.gigs.values.single()
+        assertEquals("a1", gig.setlistId)
+        // Derived, not drawn: iOS must reach this exact id from the same cache.
+        assertEquals("6033fd8a-ff1e-5334-854f-5e2edfd5a255", gig.id)
+        // The facts of the night are filled in from the show the cache already held.
+        assertEquals("25-06-2026", gig.date)
+        assertEquals("Gojira", gig.artist)
+        assertEquals("Ekebergsletta", gig.venue)
+        // Everything still resolves, under the id the screens use.
+        assertEquals(listOf("content://photo1"), cached.photos()["a1"])
+        assertEquals(listOf(0L, 214_000L), cached.songOffsets()["a1"])
+        assertEquals(42L, cached.attendance()["a1"]?.checkedInAt)
+        assertEquals("content://cal/7", cached.calendarEvents()["a1"])
+        assertEquals(1, cached.playlists()["a1"]?.size)
+    }
+
+    @Test
+    fun `the old keys survive the migration, so an older build is unharmed`() = runBlocking {
+        val file = File.createTempFile("timelines", ".json")
+        file.writeText("""{"photosBySetlist":{"a1":["content://photo1"]}}""")
+        val store = TimelineStore(file)
+        // A write after migrating: the new keys carry the truth, the old ones stay
+        // exactly as they were rather than being cleared out from under an old build.
+        store.save(shows = mapOf("magnus" to listOf(show("b"))))
+        val cached = store.load()
+        assertEquals(listOf("content://photo1"), cached.photosBySetlist["a1"])
+        assertEquals(listOf("content://photo1"), cached.photos()["a1"])
+    }
+
+    @Test
+    fun `migrating twice changes nothing`() = runBlocking {
+        val file = File.createTempFile("timelines", ".json")
+        file.writeText("""{"photosBySetlist":{"a1":["content://photo1"]}}""")
+        val store = TimelineStore(file)
+        val first = store.load().gigs.keys
+        store.savePhotos("a1", listOf("content://photo1", "content://photo2"))
+        val cached = store.load()
+        assertEquals(first, cached.gigs.keys)
+        assertEquals(2, cached.photos()["a1"]?.size)
     }
 
     @Test
@@ -202,7 +328,7 @@ class TimelineStoreTest {
                 venueLon = 10.7522,
             ),
         )
-        val loaded = store.load().attendanceByGig["a"]
+        val loaded = store.load().attendance()["a"]
         assertEquals(59.9139, loaded?.venueLat)
         assertEquals(10.7522, loaded?.venueLon)
     }
@@ -219,11 +345,11 @@ class TimelineStoreTest {
 
         val cached = store.load()
         assertEquals(listOf("a", "b"), cached.shows["magnus"]?.map { it.id })
-        assertEquals(1, cached.playlistsMade["a"]?.size)
-        assertEquals(listOf("content://photo1"), cached.photosBySetlist["a"])
-        assertEquals(listOf(0L, 200_000L), cached.songOffsetsBySetlist["a"])
-        assertEquals(StoredAttendance.Provenance.CHECKED_IN, cached.attendanceByGig["a"]?.provenance)
-        assertEquals(StoredAttendance.Provenance.PLANNED, cached.attendanceByGig["local-1"]?.provenance)
+        assertEquals(1, cached.playlists()["a"]?.size)
+        assertEquals(listOf("content://photo1"), cached.photos()["a"])
+        assertEquals(listOf(0L, 200_000L), cached.songOffsets()["a"])
+        assertEquals(StoredAttendance.Provenance.CHECKED_IN, cached.attendance()["a"]?.provenance)
+        assertEquals(StoredAttendance.Provenance.PLANNED, cached.attendance()["local-1"]?.provenance)
     }
 
     @Test
@@ -231,8 +357,8 @@ class TimelineStoreTest {
         val store = store()
         store.savePlanned(show("oya"))
         val cached = store.load()
-        assertEquals(listOf("oya"), cached.plannedShows.map { it.id })
-        assertEquals(StoredAttendance.Provenance.PLANNED, cached.attendanceByGig["oya"]?.provenance)
+        assertEquals(listOf("oya"), cached.planned().map { it.id })
+        assertEquals(StoredAttendance.Provenance.PLANNED, cached.attendance()["oya"]?.provenance)
     }
 
     @Test
@@ -240,7 +366,7 @@ class TimelineStoreTest {
         val store = store()
         store.savePlanned(show("oya"))
         store.savePlanned(show("oya"))
-        assertEquals(1, store.load().plannedShows.size)
+        assertEquals(1, store.load().planned().size)
     }
 
     @Test
@@ -249,8 +375,8 @@ class TimelineStoreTest {
         store.savePlanned(show("oya"))
         store.removePlanned("oya")
         val cached = store.load()
-        assertTrue(cached.plannedShows.isEmpty())
-        assertTrue(cached.attendanceByGig.isEmpty())
+        assertTrue(cached.planned().isEmpty())
+        assertTrue(cached.attendance().isEmpty())
     }
 
     @Test
@@ -263,8 +389,8 @@ class TimelineStoreTest {
         )
         store.removePlanned("oya")
         val cached = store.load()
-        assertTrue(cached.plannedShows.isEmpty())
-        assertEquals(StoredAttendance.Provenance.CHECKED_IN, cached.attendanceByGig["oya"]?.provenance)
+        assertTrue(cached.planned().isEmpty())
+        assertEquals(StoredAttendance.Provenance.CHECKED_IN, cached.attendance()["oya"]?.provenance)
     }
 
     @Test
@@ -277,7 +403,7 @@ class TimelineStoreTest {
         )
         // refreshSelectedSetlist writes the filled-in record back.
         store.savePlanned(show("oya"))
-        assertEquals(StoredAttendance.Provenance.CHECKED_IN, store.load().attendanceByGig["oya"]?.provenance)
+        assertEquals(StoredAttendance.Provenance.CHECKED_IN, store.load().attendance()["oya"]?.provenance)
     }
 
     @Test
@@ -291,10 +417,10 @@ class TimelineStoreTest {
 
         val cached = store.load()
         assertEquals(listOf("a", "b"), cached.shows["magnus"]?.map { it.id })
-        assertEquals(1, cached.playlistsMade["a"]?.size)
-        assertEquals(listOf("content://photo1"), cached.photosBySetlist["a"])
-        assertEquals(listOf(0L, 200_000L), cached.songOffsetsBySetlist["a"])
-        assertEquals(listOf("oya"), cached.plannedShows.map { it.id })
+        assertEquals(1, cached.playlists()["a"]?.size)
+        assertEquals(listOf("content://photo1"), cached.photos()["a"])
+        assertEquals(listOf(0L, 200_000L), cached.songOffsets()["a"])
+        assertEquals(listOf("oya"), cached.planned().map { it.id })
         // The gig I'm going to is not among the nights I was at.
         assertTrue(cached.shows["magnus"].orEmpty().none { it.id == "oya" })
     }
@@ -307,7 +433,7 @@ class TimelineStoreTest {
         )
         val cached = TimelineStore(file).load()
         assertEquals(listOf("a"), cached.shows["magnus"]?.map { it.id })
-        assertTrue(cached.plannedShows.isEmpty())
+        assertTrue(cached.planned().isEmpty())
     }
 
     @Test
@@ -318,8 +444,8 @@ class TimelineStoreTest {
         // The URI is both the "added" flag and what the link opens; its own field, not
         // a provenance value — the attendance claim is untouched.
         val cached = store.load()
-        assertEquals(uri, cached.calendarEventByGig["oya"])
-        assertTrue(cached.attendanceByGig.isEmpty())
+        assertEquals(uri, cached.calendarEvents()["oya"])
+        assertTrue(cached.attendance().isEmpty())
     }
 
     @Test
@@ -331,7 +457,7 @@ class TimelineStoreTest {
         )
         val cached = TimelineStore(file).load()
         assertEquals(listOf("a"), cached.shows["magnus"]?.map { it.id })
-        assertTrue(cached.calendarEventByGig.isEmpty())
+        assertTrue(cached.calendarEvents().isEmpty())
     }
 
     @Test
@@ -342,6 +468,6 @@ class TimelineStoreTest {
         )
         val cached = TimelineStore(file).load()
         assertEquals(listOf("a"), cached.shows["magnus"]?.map { it.id })
-        assertTrue(cached.attendanceByGig.isEmpty())
+        assertTrue(cached.attendance().isEmpty())
     }
 }
