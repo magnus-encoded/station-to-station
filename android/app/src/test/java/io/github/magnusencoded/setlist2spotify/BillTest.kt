@@ -267,8 +267,7 @@ class BillTest {
         assertFalse(playsSong(emptyList(), "anything"))
     }
 
-    @Test
-    fun `an artist label carries whatever tells it from its namesakes`() {
+    // --- Up is always later, Bills included -------------------------------------
 
     private fun bill(from: String) =
         io.github.magnusencoded.setlist2spotify.data.StoredBill(id = from, name = "F", from = from)
