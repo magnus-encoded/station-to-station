@@ -2028,6 +2028,8 @@ fun StationEventScreen(
                                 .takeIf { setlist.url != null && log.songs.isNotEmpty() },
                             onChange = { viewModel.editLog(setlist.id, it) },
                             onClosed = { viewModel.setLogClosed(setlist.id, it) },
+                            onDisambiguate = { viewModel.disambiguateAct(setlist.id, it) },
+                            searching = state.billFetching != null,
                         )
                         Spacer(Modifier.height(10.dp))
                     }

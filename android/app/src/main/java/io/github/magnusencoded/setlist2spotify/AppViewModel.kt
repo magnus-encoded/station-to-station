@@ -21,6 +21,7 @@ import io.github.magnusencoded.setlist2spotify.data.fmDate
 import io.github.magnusencoded.setlist2spotify.data.isLocal
 import io.github.magnusencoded.setlist2spotify.data.localGigSetlist
 import io.github.magnusencoded.setlist2spotify.data.parseLineup
+import io.github.magnusencoded.setlist2spotify.data.playsSong
 import io.github.magnusencoded.setlist2spotify.data.StoredMedia
 import io.github.magnusencoded.setlist2spotify.data.StoredPlaylist
 import io.github.magnusencoded.setlist2spotify.data.TimelineLogic
@@ -1163,6 +1164,73 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             },
                         )
                     }
+                }
+            } finally {
+                _state.update { it.copy(billFetching = null) }
+            }
+        }
+    }
+
+    /**
+     * The pool came from the wrong band. Name one song you *know* they play, and the
+     * right one is found by it.
+     *
+     * A picker would ask "which of these five identically-named artists?", which
+     * nobody standing in a field can answer — the names are identical, that is the
+     * entire problem. "Name a song you know they play" is always answerable and is
+     * *meaningful*: it is the fact that actually distinguishes them.
+     *
+     * Done by pulling each same-named artist's recent setlists and looking, because
+     * there is no other way: `/search/setlists` has no song parameter (verified, see
+     * [playsSong]). Cost is one extra request per namesake, on a deliberate tap.
+     *
+     * The named song is used to *identify* and is never written into the **Log**.
+     * Naming a song a band is known for is not a claim that they played it tonight,
+     * and quietly recording it as one would be the exact fabrication this whole
+     * feature is built to avoid.
+     */
+    fun disambiguateAct(gigId: String, song: String) {
+        if (song.isBlank() || _state.value.billFetching != null) return
+        val bill = _state.value.bills.firstOrNull { b -> b.acts.any { it.gigId == gigId } } ?: return
+        val index = bill.acts.indexOfFirst { it.gigId == gigId }
+        val act = bill.acts[index]
+        _state.update { it.copy(billFetching = bill.id) }
+        viewModelScope.launch {
+            try {
+                val namesakes = runCatching {
+                    setlistFm.searchArtists(act.name).artist
+                        .filter { it.name.equals(act.name, ignoreCase = true) }
+                }.getOrNull() ?: run {
+                    _state.update { it.copy(error = "Couldn't reach setlist.fm to check.") }
+                    return@launch
+                }
+                for (artist in namesakes) {
+                    val sets = runCatching { setlistFm.artistSetlists(artist.mbid).setlist }
+                        .getOrNull() ?: continue
+                    if (!playsSong(sets, song)) continue
+                    editBill(bill.id) { b ->
+                        b.copy(
+                            acts = b.acts.mapIndexed { j, a ->
+                                if (j != index) a else a.copy(
+                                    candidates = candidateSongs(sets),
+                                    matchedArtist = artistLabel(artist.name, artist.disambiguation),
+                                    mbid = artist.mbid,
+                                    tried = true,
+                                )
+                            },
+                        )
+                    }
+                    _state.update { it.copy(notice = "Found them — songs are from ${artist.name}.") }
+                    return@launch
+                }
+                // Honest dead end. The pool is left exactly as it was rather than
+                // cleared: a pool that might be wrong still beats no pool, and it is
+                // labelled with whose it is.
+                _state.update {
+                    it.copy(
+                        error = "No band called ${act.name} has \"${song.trim()}\" logged " +
+                            "on setlist.fm.",
+                    )
                 }
             } finally {
                 _state.update { it.copy(billFetching = null) }

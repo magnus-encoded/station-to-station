@@ -249,6 +249,31 @@ data class StoredLog(
 }
 
 /**
+ * Loose song-title equality: case, punctuation and spacing thrown away.
+ *
+ * "P.I.M.P." typed as "PIMP", "Don't" as "Dont". This is used for *recognition* —
+ * deciding whether a band has this song in their history — and never for recording,
+ * where the title is kept exactly as it was written. Being strict here would fail the
+ * one gesture it exists to serve.
+ */
+internal fun sameSong(a: String, b: String): Boolean = a.songKey() == b.songKey()
+
+private fun String.songKey(): String = lowercase().filter { it.isLetterOrDigit() }
+
+/**
+ * Does this artist have [song] anywhere in the setlists we just pulled?
+ *
+ * The whole of the disambiguation test, and it is client-side because it has to be:
+ * **verified 2026-08-05, `/search/setlists` accepts artistMbid, artistName,
+ * artistTmid, cityId, cityName, countryCode, date, lastFm, lastUpdated, p, state,
+ * stateCode, tourName, venueId, venueName and year — and no song parameter at all.**
+ * There is no way to ask "who plays this song", so the only route is to pull each
+ * same-named artist's recent setlists and look.
+ */
+fun playsSong(recent: List<FmSetlist>, song: String): Boolean =
+    recent.any { set -> set.performed().any { sameSong(it.name, song) } }
+
+/**
  * The night's set, in setlist.fm's own paste syntax — the Historian's actual output.
  *
  * **What was verified, 2026-08-05.** setlist.fm's editor has a *Text Field* mode that

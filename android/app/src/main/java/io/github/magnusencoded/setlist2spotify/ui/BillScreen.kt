@@ -365,8 +365,12 @@ fun LogEditor(
     published: Int?,
     onChange: (List<String>) -> Unit,
     onClosed: (Boolean) -> Unit,
+    /** A song the owner knows this band plays, used to find the right namesake. */
+    onDisambiguate: (String) -> Unit = {},
+    searching: Boolean = false,
 ) {
     var typed by remember { mutableStateOf("") }
+    var knownSong by remember { mutableStateOf("") }
     val chosen = log.songs
     val remaining = candidates.filterNot { c -> chosen.any { it.equals(c, ignoreCase = true) } }
     Column(Modifier.padding(horizontal = 20.dp)) {
@@ -447,6 +451,27 @@ fun LogEditor(
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
             )
+            // The way out of a wrong match, and it asks the one question a person in a
+            // field can actually answer. A picker would offer five identical names.
+            if (poolArtist.isNotBlank()) {
+                StationField(
+                    value = knownSong,
+                    onValueChange = { knownSong = it },
+                    label = "not them? name a song you know they play",
+                    imeDone = true,
+                )
+                if (knownSong.isNotBlank()) {
+                    Text(
+                        if (searching) "looking for a band that plays it…"
+                        else "→ find the right ${poolArtist.substringBefore(" (")}",
+                        color = if (searching) Faint else Amber,
+                        fontSize = 13.sp,
+                        modifier = Modifier
+                            .clickable(enabled = !searching) { onDisambiguate(knownSong.trim()) }
+                            .padding(vertical = 10.dp),
+                    )
+                }
+            }
             Spacer(Modifier.height(4.dp))
             remaining.forEach { song ->
                 Row(

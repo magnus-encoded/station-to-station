@@ -11,6 +11,7 @@ import io.github.magnusencoded.setlist2spotify.data.isLocal
 import io.github.magnusencoded.setlist2spotify.data.localGigSetlist
 import io.github.magnusencoded.setlist2spotify.data.parseFmDate
 import io.github.magnusencoded.setlist2spotify.data.parseLineup
+import io.github.magnusencoded.setlist2spotify.data.playsSong
 import io.github.magnusencoded.setlist2spotify.data.setlistEditEntry
 import io.github.magnusencoded.setlist2spotify.data.setlistPaste
 import io.github.magnusencoded.setlist2spotify.data.SETLISTFM_ADD_URL
@@ -239,7 +240,35 @@ class BillTest {
         assertEquals("", act.matchedArtist)
     }
 
-    // --- Up is always later, Bills included -------------------------------------
+    // --- Finding the right band among its namesakes ------------------------------
+
+    private fun withSongs(vararg songs: String) =
+        FmSetlist(sets = FmSets(listOf(FmSet(song = songs.map { FmSong(name = it) }))))
+
+    @Test
+    fun `a named song picks the band that actually plays it`() {
+        val wrongSilentMajority = listOf(withSongs("Suburbia", "Polar Bear Club"))
+        val rightSilentMajority = listOf(withSongs("Ei natt til", "Rundt neste sving"))
+        assertFalse(playsSong(wrongSilentMajority, "Ei natt til"))
+        assertTrue(playsSong(rightSilentMajority, "Ei natt til"))
+    }
+
+    @Test
+    fun `recognising a title forgives case, punctuation and spacing`() {
+        // Typed one-handed in a field. "PIMP" has to find "P.I.M.P.".
+        val fifty = listOf(withSongs("P.I.M.P.", "Candy Shop"))
+        assertTrue(playsSong(fifty, "pimp"))
+        assertTrue(playsSong(fifty, "  Candy   shop "))
+        assertFalse(playsSong(fifty, "Magic Stick"))
+    }
+
+    @Test
+    fun `an artist with no setlists cannot be picked by a song, and does not throw`() {
+        assertFalse(playsSong(emptyList(), "anything"))
+    }
+
+    @Test
+    fun `an artist label carries whatever tells it from its namesakes`() {
 
     private fun bill(from: String) =
         io.github.magnusencoded.setlist2spotify.data.StoredBill(id = from, name = "F", from = from)
