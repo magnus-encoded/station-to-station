@@ -447,6 +447,13 @@ fun LogEditor(
         // honest one; only a person may **Close** it, and publishing never does — a
         // set that went out to setlist.fm and came back has no completeness field to
         // come back in, so the bit is only safe if it never leaves.
+        //
+        // The label does NOT swap with the state, which is what made this read
+        // backwards: an unticked box beside the words "there may be more" answers
+        // *no* to the sentence next to it, so the default asserted completeness —
+        // the exact opposite of what a Log is. One fixed sentence, and the box is
+        // the claim: unticked means nobody has claimed it, which is the truth on a
+        // capture built from prompts and is why it stays unticked by default.
         Spacer(Modifier.height(18.dp))
         Row(
             Modifier.fillMaxWidth().heightIn(min = ActRowHeight).clickable { onClosed(!log.closed) },
@@ -460,12 +467,12 @@ fun LogEditor(
             Spacer(Modifier.width(12.dp))
             Column {
                 Text(
-                    if (log.closed) "That was the whole set" else "There may be more",
+                    "That was the whole set",
                     color = if (log.closed) Ink else Muted,
                     fontSize = 14.sp,
                 )
                 Text(
-                    if (log.closed) "tap if you remember more" else "tap when you're sure it's complete",
+                    if (log.closed) "tap if you remember more" else "there may be more until you tick this",
                     color = Faint,
                     fontSize = 11.sp,
                 )
