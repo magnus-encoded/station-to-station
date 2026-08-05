@@ -98,6 +98,40 @@ const val SETLISTFM_ADD_URL = "https://www.setlist.fm/edit"
  */
 fun setlistEditEntry(setlist: FmSetlist): String = setlist.url ?: SETLISTFM_ADD_URL
 
+/**
+ * One row above today: a **Bill** on the wall, or a **Gig** I hold a ticket for.
+ *
+ * They share a list because they share a **Line**. Drawing **Bills** as a block
+ * pinned above the planned gigs put a festival happening *today* above a gig seven
+ * days out — which breaks "up is always later", #31's first non-negotiable, and not a
+ * rule a new kind of **Node** gets an exemption from just for being new.
+ */
+sealed interface FutureRow {
+    data class OnBill(val bill: StoredBill) : FutureRow
+    data class Ticket(val gig: FmSetlist) : FutureRow
+
+    val date: LocalDate?
+        get() = when (this) {
+            // A **Bill** sorts by when it *starts*. Its last day is the wrong handle:
+            // a three-day festival beginning tonight would sort above a gig two days
+            // out, which is this same bug one step smaller.
+            is OnBill -> parseFmDate(bill.from) ?: parseFmDate(bill.to)
+            is Ticket -> gig.localDate()
+        }
+}
+
+/**
+ * Everything above today, furthest future first — the same descending order the
+ * attended rows below already use, which is the whole point: one line, one rule.
+ *
+ * A row with no date sorts to the *bottom* of the future, not the top. Unknown is not
+ * "the furthest away". It still renders: a **Bill** whose dates were never typed in
+ * is a real thing to be holding.
+ */
+fun futureRows(bills: List<StoredBill>, tickets: List<FmSetlist>): List<FutureRow> =
+    (bills.map(FutureRow::OnBill) + tickets.map(FutureRow::Ticket))
+        .sortedWith(compareByDescending(nullsFirst<LocalDate>()) { it.date })
+
 /** dd-MM-yyyy, the one date shape this app and setlist.fm both speak. */
 private val FM_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("dd-MM-yyyy", Locale.ENGLISH)
 

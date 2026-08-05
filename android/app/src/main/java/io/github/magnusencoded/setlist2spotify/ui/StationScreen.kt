@@ -125,10 +125,12 @@ import io.github.magnusencoded.setlist2spotify.MediaThumb
 import io.github.magnusencoded.setlist2spotify.NOT_STAMPED
 import io.github.magnusencoded.setlist2spotify.data.DeviceLocation
 import io.github.magnusencoded.setlist2spotify.data.Friend
+import io.github.magnusencoded.setlist2spotify.data.FutureRow
 import io.github.magnusencoded.setlist2spotify.data.StoredAttendance
 import io.github.magnusencoded.setlist2spotify.data.StoredLog
 import io.github.magnusencoded.setlist2spotify.data.isLocal
 import io.github.magnusencoded.setlist2spotify.data.setlistEditEntry
+import io.github.magnusencoded.setlist2spotify.data.futureRows
 import io.github.magnusencoded.setlist2spotify.data.setlistPaste
 import io.github.magnusencoded.setlist2spotify.data.StoredMedia
 import io.github.magnusencoded.setlist2spotify.data.gigInviteUri
@@ -462,8 +464,17 @@ fun StationTimelineScreen(
                                 return@LaunchedEffect
                             }
                             // The rows don't start at item 0: the future prompt is, and
-                            // every gig I'm going to sits between it and them.
-                            listState.animateScrollToItem(at + 1 + state.plannedGigs.size)
+                            // every Bill and every gig I'm going to sits between it and
+                            // them. Counted off the same list the LazyColumn emits, so
+                            // the two cannot drift — the earlier `plannedGigs.size` was
+                            // already wrong once a Bill was on the wall.
+                            val above = futureRows(
+                                state.bills,
+                                state.plannedGigs.filterNot { g ->
+                                    g.id in state.bills.flatMap { b -> b.acts.mapNotNull { it.gigId } }
+                                },
+                            ).size
+                            listState.animateScrollToItem(at + 1 + above)
                             viewModel.consumeGigLink()
                         }
 
@@ -501,52 +512,63 @@ fun StationTimelineScreen(
                                     onAddBill = { addingBill = true },
                                 )
                             }
-                            // The Bills on the wall. #31 said "no festival grouping for
-                            // future gigs until something forces it"; a festival whose
-                            // lineup is known and whose nights are not is the thing that
-                            // forces it, and this is that node — one per Bill, opening
-                            // in place exactly as a Festival does.
-                            items(state.bills, key = { "bill-${it.id}" }) { bill ->
-                                BillItem(
-                                    bill = bill,
-                                    open = bill.id in expanded,
-                                    fetching = state.billFetching == bill.id,
-                                    onToggle = { viewModel.toggleFestival(bill.id) },
-                                    onPlayed = { i -> viewModel.markActPlayed(bill.id, i) },
-                                    onUnmark = { i -> viewModel.unmarkAct(bill.id, i) },
-                                    onOpenGig = { gigId ->
-                                        state.plannedGigs.firstOrNull { it.id == gigId }?.let {
-                                            viewModel.openShow(it)
-                                            onOpenEvent()
-                                        }
-                                    },
-                                    onSurprise = { name -> viewModel.addSurpriseAct(bill.id, name) },
-                                    onFetchCandidates = { viewModel.fetchCandidates(bill.id) },
-                                    onRemove = { viewModel.removeBill(bill.id) },
-                                )
-                            }
-                            // The gigs I'm going to, above today, furthest out first —
-                            // up is always later, and this is the same descending order
-                            // the attended rows below use. Never grouped into festivals:
-                            // a festival is a shape read off nights that happened.
-                            // A Gig an Act became is drawn inside its Bill, not here:
+                            // Everything above today, in one date-ordered list —
+                            // furthest out first, the same descending order the attended
+                            // rows below use. Bills and tickets interleave because they
+                            // sit on the same Line: drawing Bills as a block above the
+                            // tickets put a festival starting tonight above a gig a week
+                            // out, and "up is always later" is not a rule a new kind of
+                            // node is exempt from.
+                            //
+                            // A Gig an Act became is drawn inside its Bill, never here:
                             // the Bill is its Festival node, and one night must not be
-                            // two nodes on one line.
+                            // two nodes on one line. Planned gigs are still not grouped
+                            // into festivals — a festival is a shape read off nights
+                            // that happened, and a Bill is the announced-lineup case.
                             val billGigs = state.bills.flatMap { b -> b.acts.mapNotNull { it.gigId } }.toSet()
-                            items(
+                            val future = futureRows(
+                                state.bills,
                                 state.plannedGigs.filterNot { it.id in billGigs },
-                                key = { "planned-${it.id}" },
-                            ) { gig ->
-                                TimelineItem(
-                                    setlist = gig,
-                                    highlight = false,
-                                    planned = true,
-                                    laneWidth = laneWidth,
-                                    onClick = {
-                                        viewModel.openShow(gig)
-                                        onOpenEvent()
-                                    },
-                                )
+                            )
+                            items(
+                                future,
+                                key = { row ->
+                                    when (row) {
+                                        is FutureRow.OnBill -> "bill-${row.bill.id}"
+                                        is FutureRow.Ticket -> "planned-${row.gig.id}"
+                                    }
+                                },
+                            ) { row ->
+                                when (row) {
+                                    is FutureRow.OnBill -> BillItem(
+                                        bill = row.bill,
+                                        open = row.bill.id in expanded,
+                                        fetching = state.billFetching == row.bill.id,
+                                        onToggle = { viewModel.toggleFestival(row.bill.id) },
+                                        onPlayed = { i -> viewModel.markActPlayed(row.bill.id, i) },
+                                        onUnmark = { i -> viewModel.unmarkAct(row.bill.id, i) },
+                                        onOpenGig = { gigId ->
+                                            state.plannedGigs.firstOrNull { it.id == gigId }?.let {
+                                                viewModel.openShow(it)
+                                                onOpenEvent()
+                                            }
+                                        },
+                                        onSurprise = { name -> viewModel.addSurpriseAct(row.bill.id, name) },
+                                        onFetchCandidates = { viewModel.fetchCandidates(row.bill.id) },
+                                        onRemove = { viewModel.removeBill(row.bill.id) },
+                                    )
+
+                                    is FutureRow.Ticket -> TimelineItem(
+                                        setlist = row.gig,
+                                        highlight = false,
+                                        planned = true,
+                                        laneWidth = laneWidth,
+                                        onClick = {
+                                            viewModel.openShow(row.gig)
+                                            onOpenEvent()
+                                        },
+                                    )
+                                }
                             }
                             itemsIndexed(rows, key = { _, row -> row.key }) { index, row ->
                                 val isFirst = index == 0

@@ -3,7 +3,9 @@ package io.github.magnusencoded.setlist2spotify
 import io.github.magnusencoded.setlist2spotify.data.StoredLog
 import io.github.magnusencoded.setlist2spotify.data.billNight
 import io.github.magnusencoded.setlist2spotify.data.candidateSongs
+import io.github.magnusencoded.setlist2spotify.data.FutureRow
 import io.github.magnusencoded.setlist2spotify.data.fmDate
+import io.github.magnusencoded.setlist2spotify.data.futureRows
 import io.github.magnusencoded.setlist2spotify.data.isLocal
 import io.github.magnusencoded.setlist2spotify.data.localGigSetlist
 import io.github.magnusencoded.setlist2spotify.data.parseFmDate
@@ -215,6 +217,47 @@ class BillTest {
     @Test
     fun `an undated gig has no clock to follow and keeps the plan-ahead leaf`() {
         assertEquals(GigLeaf.PLAN, gigLeaf(LocalDate.of(2026, 8, 6).atTime(21, 0), null))
+    }
+
+    // --- Up is always later, Bills included -------------------------------------
+
+    private fun bill(from: String) =
+        io.github.magnusencoded.setlist2spotify.data.StoredBill(id = from, name = "F", from = from)
+
+    @Test
+    fun `a festival starting tonight sits below a gig next week`() {
+        // The field report: Ringnes (today) rendered above a Nick Cave gig seven days
+        // out, because Bills were a block pinned above the tickets.
+        val ringnes = bill("06-08-2026")
+        val nickCave = localGigSetlist("nc", "Nick Cave", LocalDate.of(2026, 8, 13), "Oslo", "")
+        val rows = futureRows(listOf(ringnes), listOf(nickCave))
+        assertEquals(
+            listOf<Any>(FutureRow.Ticket(nickCave), FutureRow.OnBill(ringnes)),
+            rows,
+        )
+    }
+
+    @Test
+    fun `a bill sorts by when it starts, not when it ends`() {
+        val threeDays = io.github.magnusencoded.setlist2spotify.data.StoredBill(
+            id = "b", name = "F", from = "06-08-2026", to = "09-08-2026",
+        )
+        val between = localGigSetlist("g", "X", LocalDate.of(2026, 8, 8), "Oslo", "")
+        assertEquals(
+            listOf<Any>(FutureRow.Ticket(between), FutureRow.OnBill(threeDays)),
+            futureRows(listOf(threeDays), listOf(between)),
+        )
+    }
+
+    @Test
+    fun `a bill with no dates typed in still renders, at the bottom of the future`() {
+        // Unknown is not "the furthest away", and it must not vanish either.
+        val undated = bill("")
+        val soon = localGigSetlist("g", "X", LocalDate.of(2026, 8, 7), "Oslo", "")
+        assertEquals(
+            listOf<Any>(FutureRow.Ticket(soon), FutureRow.OnBill(undated)),
+            futureRows(listOf(undated), listOf(soon)),
+        )
     }
 
     // --- Dates ------------------------------------------------------------------
