@@ -539,10 +539,21 @@ private fun billDates(bill: StoredBill): String {
 
 // The one lineup this was built the night before, so tomorrow costs no typing.
 // Debug-only (see AddBillDialog). Delete after Ringnes 2026.
+//
+// The name is setlist.fm's short form, not the festival's own "Hilsen fra RINGNES
+// 25 år": it is the string every minted Gig carries as its venue, and a node has
+// no room for a full official title. Getting the long name onto setlist.fm is an
+// upstream matter and not this record's problem.
 private const val RINGNES_NAME = "Ringnes Festival 2026"
-private const val RINGNES_CITY = "Norway"
+// The town, not the country — this is what venueMapsQuery hands the geocoder, so
+// "open in maps" and the check-in proximity test both need a real place.
+// Skotbuveien 118, Skotbu.
+private const val RINGNES_CITY = "Skotbu"
+// The nights with music. The event itself runs to the 9th, but the programme is
+// "6, 7 & 8.august" and no Act plays the last day — a range is what an Act gets
+// dated within, so it ends where the music does.
 private const val RINGNES_FROM = "06-08-2026"
-private const val RINGNES_TO = "09-08-2026"
+private const val RINGNES_TO = "08-08-2026"
 private const val RINGNES_LINEUP = """Cowboyfrokost TRIO
 Du&Du
 Enok Monk
