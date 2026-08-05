@@ -967,17 +967,22 @@ internal fun stripWidth(count: Int): Dp = laneStep(count) * count
 /** My own line. Not a lane: it is the fixed thing every lane is measured against. */
 internal const val Spine = -1
 
-private fun laneX(index: Int, step: Dp) = SpineX + step * (index + 1)
+/**
+ * A line index in points. [Spine] is -1, so lane 0 sits one step out from my spine.
+ *
+ * Which line is a whole number — the only honest float in this area is *where in
+ * points*, which is this function's result and the strip's openness in [crossingX].
+ */
+internal fun laneXf(offset: Int, step: Dp) = SpineX + step * (offset + 1)
 
 /**
- * Lane positions as a Float. -1 is my spine.
+ * Which lines were at a row: [Spine] for me, plus a lane index per friend present.
  *
- * ponytail: nothing produces a fractional offset now that CENTRED is gone — the Float
- * is vestigial and #69 collapses it back to an Int along with the duplicate lookups.
+ * The single which-line primitive. Everything else in this section is a question
+ * asked of this list — the node's host is its minimum, presence is membership, and
+ * company is its size — so the merge rule is written once and cannot drift out of
+ * step with the canvas that draws it (#69).
  */
-private fun laneXf(offset: Float, step: Dp) = SpineX + step * (offset + 1f)
-
-/** Which lines were at a row: [Spine] for me, plus a lane index per friend present. */
 internal fun linesAt(row: WovenRow, lanes: List<Friend>): List<Int> = buildList {
     if (row.mine) add(Spine)
     lanes.forEachIndexed { i, f ->
@@ -986,38 +991,26 @@ internal fun linesAt(row: WovenRow, lanes: List<Friend>): List<Int> = buildList 
 }
 
 /**
- * Where the row's node sits, as a lane offset: the innermost line that was there,
- * which is my [Spine] whenever I am one of them. My line never moves to meet anyone.
- */
-internal fun nodeOffset(row: WovenRow, lanes: List<Friend>): Float {
-    val at = linesAt(row, lanes)
-    if (at.isEmpty()) return Spine.toFloat()
-    return at.min().toFloat()
-}
-
-/**
- * Where a line is drawn at a row: on the node if it was there, otherwise its own lane.
- * [line] is [Spine] for mine or a lane index for a friend's.
- */
-internal fun lineOffset(row: WovenRow?, line: Int, lanes: List<Friend>): Float {
-    if (row == null) return line.toFloat()
-    val there = if (line == Spine) row.mine else {
-        lanes.getOrNull(line)?.let { f -> row.others.any { it.setlistfm == f.setlistfm } } == true
-    }
-    return if (there) nodeOffset(row, lanes) else line.toFloat()
-}
-
-/**
  * Which line a row's node sits on. Lines that share a node become one line, so a
  * night has exactly one node — mine when I was there (my line never moves to meet
  * anyone), otherwise the innermost lane among the friends who were, which the
  * others come to. Returns [Spine] or a lane index.
+ *
+ * The innermost line *is* the minimum: [Spine] is -1 and so sorts below every lane
+ * index, and `row.mine` is what puts it in the set. That equivalence used to be
+ * something to verify by reading two implementations against each other.
  */
-internal fun nodeHost(row: WovenRow, lanes: List<Friend>): Int {
-    if (row.mine) return Spine
-    return lanes.indices.firstOrNull { i ->
-        row.others.any { it.setlistfm == lanes[i].setlistfm }
-    } ?: Spine
+internal fun nodeHost(row: WovenRow, lanes: List<Friend>): Int =
+    linesAt(row, lanes).minOrNull() ?: Spine
+
+/**
+ * Where a line is drawn at a row: on the node if it was there, otherwise its own lane.
+ * [line] is [Spine] for mine or a lane index for a friend's. The line-index-keyed twin
+ * of [hostLane], and the one the canvas asks.
+ */
+internal fun lineOffset(row: WovenRow?, line: Int, lanes: List<Friend>): Int {
+    if (row == null) return line
+    return if (linesAt(row, lanes).contains(line)) nodeHost(row, lanes) else line
 }
 
 /**
@@ -1025,18 +1018,13 @@ internal fun nodeHost(row: WovenRow, lanes: List<Friend>): Int {
  * otherwise their own lane. This is the whole merge rule — asking it per friend is
  * what makes A parting on the row B joins two independent answers instead of one
  * shared boolean. Replaces `merged()`, whose Boolean could only ever mean "with me".
+ *
+ * Resolves the friend to a lane index and hands the same rule to [lineOffset]: one
+ * rule, two key types, one implementation. `indexOfFirst` returns -1 for someone with
+ * no lane, which is [Spine] — deliberately not lane 0, which belongs to a real friend.
  */
-internal fun hostLane(row: WovenRow?, friend: Friend, lanes: List<Friend>): Int {
-    val own = lanes.indexOfFirst { it.setlistfm == friend.setlistfm }
-    if (row == null || row.others.none { it.setlistfm == friend.setlistfm }) return own
-    return nodeHost(row, lanes)
-}
-
-/** Is this friend's line one line with someone else's here — mine, or another friend's? */
-internal fun joinedAt(row: WovenRow?, friend: Friend): Boolean {
-    if (row == null || row.others.none { it.setlistfm == friend.setlistfm }) return false
-    return row.mine || row.others.size > 1
-}
+internal fun hostLane(row: WovenRow?, friend: Friend, lanes: List<Friend>): Int =
+    lineOffset(row, lanes.indexOfFirst { it.setlistfm == friend.setlistfm }, lanes)
 
 /**
  * Where a row's node sits. My line never moves — a night we shared happens *on* my
@@ -1048,8 +1036,8 @@ internal fun crossingX(
     lanes: List<Friend>,
     laneWidth: Dp,
 ): Dp {
-    val offset = nodeOffset(row, lanes)
-    if (laneWidth <= 0.dp || offset == Spine.toFloat()) return SpineX
+    val offset = nodeHost(row, lanes)
+    if (laneWidth <= 0.dp || offset == Spine) return SpineX
     val step = laneStep(lanes.size)
     // The lanes are still sliding out while the strip opens; keep the node with them.
     val open = (laneWidth / stripWidth(lanes.size)).coerceIn(0f, 1f)
@@ -1127,14 +1115,14 @@ internal fun PeopleRails(
         val lines = listOf(Spine) + friends.indices
 
         fun slideOf(line: Int) = if (line == Spine) 1f else (open - line).coerceIn(0f, 1f)
-        fun xOf(offset: Float, line: Int): Float {
+        fun xOf(offset: Int, line: Int): Float {
             val slide = slideOf(line)
             return spineX + (laneXf(offset, step).toPx() - spineX) * slide
         }
 
-        fun thereAt(r: WovenRow, line: Int) =
-            if (line == Spine) r.mine
-            else friends.getOrNull(line)?.let { f -> r.others.any { it.setlistfm == f.setlistfm } } == true
+        // Was this line at this row? A membership check on the one which-line answer,
+        // not a fourth open-coded copy of it.
+        fun thereAt(r: WovenRow, line: Int) = linesAt(r, friends).contains(line)
 
         // How many lines lie on this one where it runs. Merged lines are one line by
         // definition, so without this two of them draw the same path twice and look
@@ -1170,7 +1158,7 @@ internal fun PeopleRails(
             return colour to Stroke(width = LineWidth.toPx() + PerPerson.toPx() * (people - 1))
         }
 
-        val nodeAt = nodeOffset(row, friends)
+        val nodeAt = nodeHost(row, friends)
 
         lines.forEach { line ->
             if (slideOf(line) <= 0f) return@forEach
@@ -1220,7 +1208,7 @@ internal fun PeopleRails(
             // My own rows and festivals draw their own, so this only fills the gap
             // for a gig of theirs.
             val drawsNode = here && !row.mine && row.node !is TimelineNode.Festival &&
-                line == linesAt(row, friends).minOrNull()
+                line == nodeAt
             if (drawsNode) {
                 val nodeX = xOf(nodeAt, line)
                 val joined = linesAt(row, friends).size > 1

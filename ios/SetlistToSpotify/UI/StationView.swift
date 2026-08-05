@@ -37,45 +37,12 @@ private let laneColors: [Color] = [
 ]
 private func laneColor(_ index: Int) -> Color { laneColors[((index % laneColors.count) + laneColors.count) % laneColors.count] }
 
-// --- Lane geometry (rendering side; the model side lives in Timeline.swift) ---
-
-private func laneXf(_ offset: CGFloat, _ step: CGFloat) -> CGFloat { SpineX + step * (offset + 1) }
-
-/// Which Lines were at a row: Spine for me, plus a Lane index per friend present.
-private func linesAt(_ row: WovenRow, _ lanes: [Friend]) -> [Int] {
-    var out: [Int] = []
-    if row.mine { out.append(Spine) }
-    for (i, f) in lanes.enumerated() where row.others.contains(where: { $0.setlistfm == f.setlistfm }) {
-        out.append(i)
-    }
-    return out
-}
-
-/// Where the row's Node sits, as a Lane offset: the innermost Line that
-/// was there — mine (Spine = -1, the smallest) whenever I am one of them, so a
-/// night we shared happens *on* my Spine and theirs travels to it.
-private func nodeOffset(_ row: WovenRow, _ lanes: [Friend]) -> CGFloat {
-    CGFloat(linesAt(row, lanes).min() ?? Spine)
-}
-
-/// Where a Line is drawn at a row: on the Node if it was there, otherwise its own Lane.
-private func lineDrawnOffset(_ row: WovenRow?, _ line: Int, _ lanes: [Friend]) -> CGFloat {
-    guard let row else { return CGFloat(line) }
-    let there = line == Spine
-        ? row.mine
-        : (lanes.indices.contains(line) && row.others.contains { $0.setlistfm == lanes[line].setlistfm })
-    return there ? nodeOffset(row, lanes) : CGFloat(line)
-}
-
-/// Where a row's Node sits in points. My Line never moves — a shared night happens
-/// on my Spine and theirs comes to meet it.
-private func crossingX(_ row: WovenRow, _ lanes: [Friend], _ laneWidth: CGFloat) -> CGFloat {
-    let offset = nodeOffset(row, lanes)
-    if laneWidth <= 0 || offset == CGFloat(Spine) { return SpineX }
-    let step = laneStep(lanes.count)
-    let open = min(max(laneWidth / stripWidth(lanes.count), 0), 1)
-    return SpineX + (laneXf(offset, step) - SpineX) * open
-}
+// --- Lane geometry lives in Timeline.swift ---
+//
+// It used to be written twice: a tested copy in the model layer deciding the Node's
+// colour, and a private copy here deciding every path that was actually stroked.
+// Nothing made them agree. `linesAt`, `nodeHost`, `lineDrawnOffset`, `laneXf` and
+// `crossingX` are now the model's, and this file draws what they answer (#69).
 
 struct StationView: View {
     @EnvironmentObject var model: AppModel
@@ -483,13 +450,12 @@ private struct PeopleRails: View {
         let lines = [Spine] + Array(0..<lanes.count)
 
         func slideOf(_ line: Int) -> CGFloat { line == Spine ? 1 : min(max(open - CGFloat(line), 0), 1) }
-        func xOf(_ offset: CGFloat, _ line: Int) -> CGFloat {
+        func xOf(_ offset: Int, _ line: Int) -> CGFloat {
             spineX + (laneXf(offset, step) - spineX) * slideOf(line)
         }
-        func thereAt(_ r: WovenRow, _ line: Int) -> Bool {
-            line == Spine ? r.mine
-                : (lanes.indices.contains(line) && r.others.contains { $0.setlistfm == lanes[line].setlistfm })
-        }
+        // Was this Line at this row? A membership check on the one which-Line answer,
+        // not a fourth open-coded copy of it.
+        func thereAt(_ r: WovenRow, _ line: Int) -> Bool { linesAt(r, lanes).contains(line) }
         // How many Lines lie on this one where it runs — merged Lines are one Line,
         // so weight is what says how many. Green when more than one.
         func peopleAt(_ r: WovenRow?, _ line: Int) -> Int {
@@ -512,7 +478,7 @@ private struct PeopleRails: View {
             return (colour, lineWidth + perPerson * CGFloat(people - 1))
         }
 
-        let nodeAt = nodeOffset(row, lanes)
+        let nodeAt = nodeHost(row, lanes)
 
         for line in lines where slideOf(line) > 0 {
             let x = xOf(lineDrawnOffset(row, line, lanes), line)
@@ -551,7 +517,7 @@ private struct PeopleRails: View {
             // One Node per night, drawn once by the innermost Line that was there.
             // Mine and festivals draw their own ring, so this only fills the gap for
             // a Gig of theirs.
-            let drawsNode = here && !row.mine && !isFestival && line == (linesAt(row, lanes).min() ?? Spine)
+            let drawsNode = here && !row.mine && !isFestival && line == nodeAt
             if drawsNode {
                 let nx = xOf(nodeAt, line)
                 let joined = linesAt(row, lanes).count > 1
