@@ -196,7 +196,10 @@ private fun ActRow(
             .heightIn(min = ActRowHeight)
             .combinedClickable(
                 onClick = { if (gigId != null) onOpenGig(gigId) else onPlayed() },
-                onLongClick = { if (seen) onUnmark() },
+                // A Surprise can always be taken back off, dated or not: it was typed
+                // by hand and a typo has nothing to return to. An act off the Bill only
+                // has something to undo once it has been given a night.
+                onLongClick = { if (seen || act.surprise) onUnmark() },
             )
             .padding(start = SpineWidth, end = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -209,7 +212,11 @@ private fun ActRow(
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(name, fontSize = 16.sp, color = if (seen) Ink else Muted)
-            val sub = if (seen) "you were there" else listOfNotNull(
+            // The way out has to be visible, or it may as well not exist — a mistyped
+            // surprise with no stated escape is just wrong data you have to live with.
+            val sub = if (seen) {
+                if (act.surprise) "you were there · hold to remove" else "you were there · hold to undo"
+            } else listOfNotNull(
                 // A maybe stays a maybe until it plays. The poster hedged; so does this.
                 "maybe".takeIf { act.maybe },
                 when {

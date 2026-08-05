@@ -89,6 +89,15 @@ data class StoredAct(
      * false and gets tried again, while a genuine empty is never re-fetched.
      */
     val tried: Boolean = false,
+    /**
+     * Never on the poster — typed in the field, by hand, dated on arrival.
+     *
+     * The bit exists so a mistyped one can be taken back off. An act from the
+     * **Bill** that was tapped by accident should return to being an undated act,
+     * because the poster still says it is playing; a **Surprise** entered wrongly has
+     * nothing to return to and must be able to go entirely.
+     */
+    val surprise: Boolean = false,
 )
 
 /** "Silent Majority (US hardcore)" — the name, plus whatever tells it from its namesakes. */

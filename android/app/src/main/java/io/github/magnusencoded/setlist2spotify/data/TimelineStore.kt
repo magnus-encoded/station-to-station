@@ -565,6 +565,47 @@ class TimelineStore(
     }
 
     /**
+     * Deletes a **Local** **Gig** and everything hanging off it — the mistyped
+     * **Surprise**, the act tapped by accident. Returns whether it went.
+     *
+     * The only destructive operation in this store, so it is fenced by what it
+     * refuses rather than by what it does:
+     *
+     * - **A gig with a setlist.fm id stays.** It is no longer only ours; it is a
+     *   night other people's lines can meet at, and adoption is not undone by a
+     *   long press.
+     * - **A gig with any media stays.** Media is irreplaceable and a night someone
+     *   photographed is not a mistap. The caller keeps the gig instead — see
+     *   `unmarkAct`, which falls back to simply forgetting it was on a **Bill**.
+     *
+     * Everything keyed by the gig goes together. A half-delete would leave an
+     * attendance claim for a night that no longer exists, which is worse than
+     * either outcome — `removePlanned` deliberately refuses to erase a check-in,
+     * and that refusal is exactly what strands one here.
+     */
+    suspend fun deleteGig(gigId: String): Boolean {
+        var deleted = false
+        writeMerged { cache ->
+            val id = cache.gigIdOrNull(gigId) ?: return@writeMerged cache
+            val gig = cache.gigs[id] ?: return@writeMerged cache
+            if (gig.setlistId != null) return@writeMerged cache
+            if (cache.gigMedia[id].orEmpty().isNotEmpty()) return@writeMerged cache
+            deleted = true
+            cache.copy(
+                gigs = cache.gigs - id,
+                gigPlanned = cache.gigPlanned - id,
+                gigAttendance = cache.gigAttendance - id,
+                gigLogs = cache.gigLogs - id,
+                gigMedia = cache.gigMedia - id,
+                gigCalendarEvent = cache.gigCalendarEvent - id,
+                gigPlaylists = cache.gigPlaylists - id,
+                gigSongOffsets = cache.gigSongOffsets - id,
+            )
+        }
+        return deleted
+    }
+
+    /**
      * Two records found to be the same night become one — the case where a night
      * added by hand is later also imported.
      *

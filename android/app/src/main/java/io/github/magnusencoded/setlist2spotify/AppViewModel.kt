@@ -1283,28 +1283,51 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val bill = _state.value.bills.firstOrNull { it.id == billId } ?: return
         val at = bill.acts.size
         viewModelScope.launch {
-            editBill(billId) { it.copy(acts = it.acts + StoredAct(name = name.trim())) }
+            editBill(billId) { it.copy(acts = it.acts + StoredAct(name = name.trim(), surprise = true)) }
             markActPlayed(billId, at, now)
         }
     }
 
-    /** A mistap: the **Act** goes back to having no night, and its stub **Gig** goes. */
+    /**
+     * A mistap, undone — and what "undone" means depends on where the act came from.
+     *
+     * An act off the **Bill** goes back to having no night: the poster still says it
+     * is playing, so there is something to return to. A **Surprise** was typed by
+     * hand and has nothing to return to, so the whole act goes with the night.
+     *
+     * The **Gig** is deleted outright rather than merely unplanned. `removePlanned`
+     * rightly refuses to erase a check-in, which is exactly what used to strand an
+     * attendance claim for a night nothing pointed at any more.
+     */
     fun unmarkAct(billId: String, actIndex: Int) {
-        val gigId = _state.value.bills.firstOrNull { it.id == billId }?.acts?.getOrNull(actIndex)?.gigId ?: return
+        val act = _state.value.bills.firstOrNull { it.id == billId }?.acts?.getOrNull(actIndex) ?: return
+        val gigId = act.gigId
+        if (gigId == null && !act.surprise) return
         _state.update {
             it.copy(
                 plannedGigs = it.plannedGigs.filterNot { g -> g.id == gigId },
                 attendanceByGig = it.attendanceByGig - gigId,
+                logsByGig = it.logsByGig - gigId,
             )
         }
         viewModelScope.launch {
-            // ponytail: the StoredGig itself is left behind — removePlanned drops the
-            // record and (rightly) refuses to erase a check-in, and there is no
-            // deleteGig. An orphan with no date, no media and no claim on screen.
-            // Give TimelineStore a deleteGig when something can actually reach one.
-            timelines.removePlanned(gigId)
+            // Refused when the night has media on it — that is not a mistap, and the
+            // photos are irreplaceable. The act then simply stops being on the Bill
+            // and the gig reappears as an ordinary night above today, still reachable.
+            val gone = gigId == null || timelines.deleteGig(gigId)
             editBill(billId) { b ->
-                b.copy(acts = b.acts.mapIndexed { j, a -> if (j == actIndex) a.copy(gigId = null) else a })
+                b.copy(
+                    acts = if (act.surprise && gone) {
+                        b.acts.filterIndexed { j, _ -> j != actIndex }
+                    } else {
+                        b.acts.mapIndexed { j, a -> if (j == actIndex) a.copy(gigId = null) else a }
+                    },
+                )
+            }
+            if (!gone) {
+                _state.update {
+                    it.copy(notice = "That night has photos on it, so it's been kept.")
+                }
             }
         }
     }
