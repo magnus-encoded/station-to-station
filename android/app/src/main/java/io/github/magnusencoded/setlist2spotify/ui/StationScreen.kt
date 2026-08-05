@@ -1847,10 +1847,14 @@ fun StationEventScreen(
                                     dragX >= threshold -> onBack()
                                     dragX > -threshold -> {}
                                     // A night I logged: the swipe is the labelled
-                                    // publish, matching the hint under it. Never mid-set
-                                    // — while the night is still going the leaf is
-                                    // capture, and swiping does nothing.
-                                    canLog -> if (leaf != GigLeaf.CAPTURE) publish()
+                                    // publish, matching the "‹ copy the set and open
+                                    // setlist.fm" hint under it — this file's rule is
+                                    // that the swipe never contradicts the hint. Not
+                                    // gated on the clock: a gesture that silently does
+                                    // nothing for half the night is a dead gesture, and
+                                    // this one publishes nothing by itself anyway — it
+                                    // fills the clipboard and opens their form.
+                                    canLog -> publish()
                                     planAhead && !added -> onAddToCalendar()
                                     planAhead && added -> onInvite()
                                     canConvert -> {
@@ -1886,11 +1890,22 @@ fun StationEventScreen(
                                 Spacer(Modifier.width(6.dp))
                                 EventTag(it)
                             }
+                            // The rule this row now follows: a chip that names an
+                            // **external record** opens it; a chip stating a local fact
+                            // (song count, tour, "checked in") does not. That is what
+                            // makes the setlist.fm chip below learnable rather than a
+                            // special case — and it was already true of this one, which
+                            // has always named a Spotify URL and done nothing with it.
                             if (made.isNotEmpty()) {
                                 Spacer(Modifier.width(6.dp))
                                 EventTag(
-                                    if (made.size == 1) "playlist" else "${made.size} playlists",
+                                    if (made.size == 1) "playlist ↗" else "${made.size} playlists ↗",
                                     color = SpotifyGreen,
+                                    onClick = {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_VIEW, Uri.parse(made.first().url)),
+                                        )
+                                    },
                                 )
                             }
                             // How the app came to believe I was here. A check-in is
@@ -1912,7 +1927,10 @@ fun StationEventScreen(
                             Spacer(Modifier.width(6.dp))
                             if (setlist.url != null) {
                                 EventTag(
-                                    setlist.id,
+                                    // The glyph is the tell. Nothing in this row has
+                                    // ever answered a tap, so a chip that does cannot
+                                    // rely on anyone trying it.
+                                    "${setlist.id} ↗",
                                     color = Slate,
                                     // The canonical setlist page, never a constructed
                                     // edit url: this one is always valid, needs no login,
