@@ -129,6 +129,11 @@ final class AppModel: ObservableObject {
             let me = state.mySetlistFmUser.trimmingCharacters(in: .whitespaces)
             state.festivalNames = cache.festivalNames
             state.timelineShows = cache.shows[me] ?? []
+            // A cached spine may hold festivals whose real names were never
+            // resolved (import failed the scrape, or predates it). Android
+            // resolves on every load; iOS only did so after a fresh import, so
+            // a reopened app kept showing venue names. Retry the unresolved ones.
+            resolveFestivalNames()
         }
     }
 
@@ -522,9 +527,24 @@ final class AppModel: ObservableObject {
                           // Tape songs are intro/outro recordings, not performed live; excluded by default.
                           included: !song.tape)
             }
-        var defaultName = artistName.isEmpty ? "Setlist" : artistName
-        if let v = setlist.venue?.name { defaultName += " – \(v)" }
-        if let d = setlist.eventDate { defaultName += " – \(d)" }
+        // Year – Artist – Where, matching Android. A festival cluster's "where" is
+        // the festival name (its year stripped, since the year already leads),
+        // standing in for the venue; a lone show keeps its venue.
+        let year = setlist.year()
+        let festival = groupIntoFestivals(state.timelineShows, names: state.festivalNames)
+            .first { node in node.isFestival && node.shows.contains { $0.id == setlist.id } }
+        let whereName: String?
+        if case .festival(let fname, _)? = festival {
+            whereName = year.map { fname.replacingOccurrences(of: $0, with: "")
+                .trimmingCharacters(in: CharacterSet(charactersIn: " -–")) } ?? fname
+        } else {
+            whereName = setlist.venue?.name
+        }
+        // Year first: an alphabetical playlist library then sorts chronologically.
+        let defaultName = [year, artistName.nilIfBlank, whereName?.nilIfBlank]
+            .compactMap { $0 }
+            .joined(separator: " – ")
+            .nilIfBlank ?? "Setlist"
 
         state.selectedSetlist = setlist
         state.matches = matches
