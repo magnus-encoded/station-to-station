@@ -58,6 +58,18 @@ android {
     }
 
     buildTypes {
+        debug {
+            // THROWAWAY PROBE — not for merge. Scrolling the Timeline janks ~20% of
+            // frames, UI-thread bound with the GPU idle, and the same on main, so it
+            // is not any one change. A debuggable APK keeps every method
+            // deoptimizable for an attachable debugger, which blocks inlining and
+            // holds ART to conservative JIT — the suspected cost. Flipping it here
+            // rather than measuring the release build changes exactly one variable:
+            // BuildConfig.DEBUG follows the build type's name, so the Woven dump and
+            // every other debug path stay in, and the committed debug keystore still
+            // signs it so `adb install -r` keeps the timeline on the device.
+            isDebuggable = false
+        }
         release {
             isMinifyEnabled = false
         }
