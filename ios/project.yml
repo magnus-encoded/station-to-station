@@ -55,6 +55,12 @@ targets:
         NSCameraUsageDescription:
           Station to Station uses the camera to scan a friend's card when Bluetooth
           can't reach them.
+        # Attach (#99): the picker runs out of process and needs no permission to
+        # show the library, but reading the picked asset's bytes — to keep the
+        # thumbnail that outlives it (#98) — does. "Selected Photos" is enough.
+        NSPhotoLibraryUsageDescription:
+          Station to Station keeps a small copy of the photos you attach to a gig,
+          so the grid of that night still renders years later.
         # Baked-in credentials, surfaced to Config via Info.plist.
         SpotifyClientId: $(SPOTIFY_CLIENT_ID)
         SetlistFmApiKey: $(SETLISTFM_API_KEY)

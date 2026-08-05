@@ -20,7 +20,6 @@ import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.time.LocalDate
-import java.time.ZoneId
 import java.util.UUID
 
 /** A gallery image taken around the time of a concert. */
@@ -37,16 +36,16 @@ class PhotoRepository(private val context: Context) {
     }
 
     /**
-     * Photos taken on [date], plus the small hours after it: a set that starts
-     * at 23:00 is photographed on the following calendar day, and setlist.fm
-     * dates the show by when it started.
+     * Photos taken on [date], plus the small hours after it. The window itself is
+     * [photoWindow]'s — shared logic (ADR-0001), asserted by the same cases on
+     * both platforms; this is only the query that runs it.
      */
     suspend fun photosFrom(date: LocalDate, limit: Int = 20): List<GalleryPhoto> =
         withContext(Dispatchers.IO) {
             if (!hasPermission()) return@withContext emptyList()
-            val zone = ZoneId.systemDefault()
-            val from = date.atStartOfDay(zone).toInstant().toEpochMilli()
-            val to = date.plusDays(1).atTime(6, 0).atZone(zone).toInstant().toEpochMilli()
+            val window = photoWindow(date)
+            val from = window.first
+            val to = window.last
 
             // DATE_TAKEN comes from EXIF in milliseconds and is null on images
             // that carry no timestamp; DATE_ADDED is always set, in seconds, and
@@ -77,11 +76,10 @@ class PhotoRepository(private val context: Context) {
                 val takenColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
                 val addedColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
                 while (cursor.moveToNext() && photos.size < limit) {
-                    val takenAt = if (cursor.isNull(takenColumn)) {
-                        cursor.getLong(addedColumn) * 1000
-                    } else {
-                        cursor.getLong(takenColumn)
-                    }
+                    val takenAt = capturedAtMs(
+                        taken = if (cursor.isNull(takenColumn)) null else cursor.getLong(takenColumn),
+                        added = if (cursor.isNull(addedColumn)) null else cursor.getLong(addedColumn) * 1000,
+                    ) ?: continue
                     photos += GalleryPhoto(
                         ContentUris.withAppendedId(
                             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
@@ -134,7 +132,7 @@ class PhotoRepository(private val context: Context) {
                 .takeIf { it >= 0 && !cursor.isNull(it) }?.let { cursor.getLong(it) }
             val added = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_ADDED)
                 .takeIf { it >= 0 && !cursor.isNull(it) }?.let { cursor.getLong(it) * 1000 }
-            (taken ?: added)?.takeIf { it > 0 }
+            capturedAtMs(taken, added)
         }
     }.getOrNull()
 

@@ -70,6 +70,13 @@ struct UiState {
     /// Row keys of the Festivals uncollapsed in place. Not a screen: a Festival
     /// opens where it stands.
     var expandedFestivals: Set<String> = []
+    /// The selected night's media (#97), in the order it was attached. Only the
+    /// open **Gig**'s: the grid is the one thing that reads it, and a night at a
+    /// time is what it needs.
+    var gigMedia: [StoredMedia] = []
+    /// Asset ids the library holds from that night's window and this gig has not
+    /// attached — the suggestion the grid offers before the picker is opened.
+    var gigMediaSuggestions: [String] = []
     // Transient banners
     var error: String?
     var notice: String?
@@ -512,6 +519,7 @@ final class AppModel: ObservableObject {
         )
 
         state.selectedSetlist = setlist
+        loadGigMedia(setlist)
         state.matches = matches
         state.matching = true
         state.playlistName = defaultName
@@ -532,6 +540,73 @@ final class AppModel: ObservableObject {
                 try? await Task.sleep(nanoseconds: 120_000_000)
             }
             state.matching = false
+        }
+    }
+
+    // --- Media on a night (#99) ---
+
+    /// What this night already holds, plus what the library says was shot that
+    /// night and is not attached yet.
+    private func loadGigMedia(_ setlist: FmSetlist) {
+        state.gigMedia = []
+        state.gigMediaSuggestions = []
+        Task {
+            let stored = await timelines.load().media()[setlist.id] ?? []
+            guard state.selectedSetlist?.id == setlist.id else { return }
+            state.gigMedia = stored
+            refreshSuggestions(setlist)
+        }
+    }
+
+    private func refreshSuggestions(_ setlist: FmSetlist) {
+        // Silent without permission: the picker is what asks, so a prompt only
+        // ever follows a tap.
+        guard PhotoLibrary.isAuthorized,
+              let date = setlist.eventDate,
+              let window = photoWindow(gigDate: date)
+        else { state.gigMediaSuggestions = []; return }
+        let attached = Set(state.gigMedia.map(\.ref))
+        Task {
+            let found = await Task.detached { PhotoLibrary.assetsFromNight(window) }.value
+            guard state.selectedSetlist?.id == setlist.id else { return }
+            state.gigMediaSuggestions = found.filter { !attached.contains($0) }
+        }
+    }
+
+    /// **Attach**: the picked assets become this night's, with both thumbnail
+    /// tiers written before the record exists. Anything whose bytes could not be
+    /// read is *not* attached and says so — a record with nothing behind it is the
+    /// failure #98 exists to prevent.
+    func attachMedia(assetIds: [String]) {
+        guard let setlist = state.selectedSetlist else { return }
+        let had = state.gigMedia
+        let wanted = assetIds.filter { id in !had.contains { $0.ref == id } }
+        guard !wanted.isEmpty else { return }
+        Task {
+            let (fresh, failed) = await PhotoLibrary.attach(assetIds: wanted)
+            if !fresh.isEmpty {
+                let media = had + fresh
+                state.gigMedia = media
+                await timelines.saveMedia(setlistId: setlist.id, media: media)
+                refreshSuggestions(setlist)
+            }
+            if failed > 0 {
+                state.error = failed == 1
+                    ? "Couldn't read that one — not attached."
+                    : "Couldn't read \(failed) of those — not attached."
+            }
+        }
+    }
+
+    /// Removing means removing: the record goes, and so do the bytes it owned.
+    func removeMedia(_ media: StoredMedia) {
+        guard let setlist = state.selectedSetlist else { return }
+        let kept = state.gigMedia.filter { $0.id != media.id }
+        state.gigMedia = kept
+        Task {
+            await timelines.saveMedia(setlistId: setlist.id, media: kept)
+            PhotoLibrary.deleteThumbnails(media.id)
+            refreshSuggestions(setlist)
         }
     }
 

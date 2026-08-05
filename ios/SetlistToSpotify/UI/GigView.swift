@@ -52,6 +52,8 @@ struct GigView: View {
                         } else {
                             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in songRow(row) }
                         }
+                        // The night's grid (#99): what I shot, under what was played.
+                        NightGrid()
                         if !rows.isEmpty {
                             Button {
                                 nav.push(.confirm)
