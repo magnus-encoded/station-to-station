@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import io.github.magnusencoded.setlist2spotify.BuildConfig
+import io.github.magnusencoded.setlist2spotify.data.StoredAct
 import io.github.magnusencoded.setlist2spotify.data.StoredBill
 import io.github.magnusencoded.setlist2spotify.data.StoredLog
 import io.github.magnusencoded.setlist2spotify.data.parseFmDate
@@ -83,6 +85,11 @@ fun BillItem(
 ) {
     val seen = bill.acts.count { it.gigId != null }
     val accent = if (seen > 0) Amber else Slate
+    // Opportunistic, and this is the whole scheduler: opening a Bill that still has
+    // unanswered acts is the reason to think a lookup might work. Not a timer, not a
+    // background job, no retry loop — in the enclosure it fails once and stops, and
+    // re-opening the Bill is the retry, made by someone who has a reason to try.
+    LaunchedEffect(bill.id, open) { if (open) onFetchCandidates() }
     Column {
         Row(
             Modifier.fillMaxWidth().height(IntrinsicSize.Min).clickable(onClick = onToggle),
@@ -136,10 +143,7 @@ fun BillItem(
         // lineup reliably carries, and a seen act sliding to the top would lose it.
         bill.acts.forEachIndexed { i, act ->
             ActRow(
-                name = act.name,
-                maybe = act.maybe,
-                gigId = act.gigId,
-                candidates = act.candidates.size,
+                act = act,
                 onPlayed = { onPlayed(i) },
                 onUnmark = { onUnmark(i) },
                 onOpenGig = onOpenGig,
@@ -150,13 +154,15 @@ fun BillItem(
             Modifier.fillMaxWidth().padding(start = SpineWidth, end = 18.dp, top = 4.dp, bottom = 20.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
+            // Only while something is actually in flight, and it clears either way.
+            // There is no manual "fetch suggestions" row any more: opening the Bill
+            // does it, and re-opening is the retry — a chore the owner had to
+            // remember before losing signal was the wrong shape for this.
             Text(
-                // The recovery path for a lineup entered with the radio off. Named for
-                // what it is, since in the field it will do nothing useful.
-                if (fetching) "fetching song suggestions…" else "fetch song suggestions",
-                color = if (fetching) Faint else Slate,
+                if (fetching) "looking up song suggestions…" else "",
+                color = Faint,
                 fontSize = 12.sp,
-                modifier = Modifier.clickable(enabled = !fetching, onClick = onFetchCandidates).padding(vertical = 6.dp),
+                modifier = Modifier.padding(vertical = 6.dp),
             )
             Text(
                 "take this bill down",
@@ -176,14 +182,13 @@ fun BillItem(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ActRow(
-    name: String,
-    maybe: Boolean,
-    gigId: String?,
-    candidates: Int,
+    act: StoredAct,
     onPlayed: () -> Unit,
     onUnmark: () -> Unit,
     onOpenGig: (String) -> Unit,
 ) {
+    val name = act.name
+    val gigId = act.gigId
     val seen = gigId != null
     Row(
         Modifier
@@ -204,14 +209,22 @@ private fun ActRow(
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(name, fontSize = 16.sp, color = if (seen) Ink else Muted)
-            val sub = when {
+            val sub = if (seen) "you were there" else listOfNotNull(
                 // A maybe stays a maybe until it plays. The poster hedged; so does this.
-                seen -> "you were there"
-                maybe && candidates > 0 -> "maybe · $candidates songs ready"
-                maybe -> "maybe"
-                candidates > 0 -> "$candidates songs ready"
-                else -> "no night yet"
-            }
+                "maybe".takeIf { act.maybe },
+                when {
+                    // Which artist the pool came from, wherever the pool is mentioned.
+                    // Five bands are called Silent Majority and four of their setlists
+                    // are no use here — naming the source is what lets a wrong match be
+                    // spotted in the second it appears.
+                    act.candidates.isNotEmpty() ->
+                        "${act.candidates.size} songs from ${act.matchedArtist.ifBlank { act.name }}"
+                    // Answered, and the answer was nothing. Correct and final — not
+                    // pending, and not a spinner waiting to become something.
+                    act.tried -> "no setlist.fm history"
+                    else -> "no night yet"
+                },
+            ).joinToString(" · ")
             Text(sub, fontSize = 11.sp, color = if (seen) Amber else Faint)
         }
         Spacer(Modifier.width(10.dp))
@@ -345,6 +358,8 @@ fun AddBillDialog(
 @Composable
 fun LogEditor(
     candidates: List<String>,
+    /** Which artist [candidates] came from, named so a wrong match can be distrusted. */
+    poolArtist: String,
     log: StoredLog,
     /** How many songs setlist.fm's own record holds, when there is one. */
     published: Int?,
@@ -422,8 +437,12 @@ fun LogEditor(
         )
         if (remaining.isNotEmpty()) {
             Spacer(Modifier.height(14.dp))
+            // Named, not implied. The pool comes from whichever artist a name search
+            // landed on, and names are not unique — this line is what turns a wrong
+            // match from an invisible corruption into an obvious one.
             Text(
-                "They have been playing these — tap the ones you heard",
+                if (poolArtist.isBlank()) "They have been playing these — tap the ones you heard"
+                else "$poolArtist has been playing these — tap the ones you heard",
                 color = Slate,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,

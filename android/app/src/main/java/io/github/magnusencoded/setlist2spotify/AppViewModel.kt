@@ -14,6 +14,7 @@ import io.github.magnusencoded.setlist2spotify.data.StoredAct
 import io.github.magnusencoded.setlist2spotify.data.StoredAttendance
 import io.github.magnusencoded.setlist2spotify.data.StoredBill
 import io.github.magnusencoded.setlist2spotify.data.StoredLog
+import io.github.magnusencoded.setlist2spotify.data.artistLabel
 import io.github.magnusencoded.setlist2spotify.data.billNight
 import io.github.magnusencoded.setlist2spotify.data.candidateSongs
 import io.github.magnusencoded.setlist2spotify.data.fmDate
@@ -1109,35 +1110,58 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Fills in every **Act**'s candidate songs from setlist.fm. Re-runnable by hand,
-     * which is the recovery path when the lineup was entered somewhere with no signal.
+     * Fills in every unanswered **Act**'s candidate songs from setlist.fm.
      *
-     * Every failure is silence for that one act: an artist setlist.fm has never heard
-     * of gets an empty pool, which is the honest answer and not an error. Acts that
-     * already have a pool are skipped, so a second run only costs the misses.
+     * Opportunistic, never scheduled: the timeline calls this when a **Bill** is
+     * *opened* and it holds acts nobody has an answer for. That is the same instinct
+     * as the check-in's single foreground fix — computed because a screen is being
+     * looked at, never a background job and never a timer. In the enclosure it will
+     * fail, cost one round of failed requests, and stop; re-opening the Bill is the
+     * retry, which is a gesture the owner makes when they have a reason to.
+     *
+     * An act is skipped once setlist.fm has *answered* about it, empty or not (see
+     * [StoredAct.tried]) — so a small local act nobody has ever logged costs one
+     * lookup in its life, while an act missed for want of signal is asked again.
      *
      * ponytail: sequential, one artist at a time. A lineup is a dozen names and this
-     * runs once, at home. Parallelise if a hundred-act bill ever shows up.
+     * runs on a screen open. Parallelise if a hundred-act bill ever shows up.
      */
     fun fetchCandidates(billId: String) {
         if (_state.value.billFetching != null) return
+        val pending = _state.value.bills.firstOrNull { it.id == billId }?.acts.orEmpty()
+            .withIndex().filter { (_, a) -> !a.tried && a.candidates.isEmpty() }
+        if (pending.isEmpty()) return
         _state.update { it.copy(billFetching = billId) }
         viewModelScope.launch {
             try {
-                val start = _state.value.bills.firstOrNull { it.id == billId } ?: return@launch
-                for ((i, act) in start.acts.withIndex()) {
-                    if (act.candidates.isNotEmpty()) continue
-                    val songs = runCatching {
+                for ((i, act) in pending) {
+                    val answer = runCatching {
+                        // The first exact-name match, and there may be five of them —
+                        // which artist this landed on is recorded and shown, because a
+                        // pool whose source is unnamed cannot be distrusted.
                         val artist = setlistFm.searchArtists(act.name).artist
                             .firstOrNull { it.name.equals(act.name, ignoreCase = true) }
-                            ?: return@runCatching emptyList()
-                        candidateSongs(setlistFm.artistSetlists(artist.mbid).setlist)
-                    }.getOrDefault(emptyList())
-                    if (songs.isEmpty()) continue
-                    // Re-read each time: the field may have been dated in between, and
-                    // a stale snapshot written back would undo it.
+                        artist to candidateSongs(
+                            artist?.let { setlistFm.artistSetlists(it.mbid).setlist }.orEmpty(),
+                        )
+                        // A thrown request is *no answer*: leave the act untried so the
+                        // next open asks again. Only a reply — including "no such
+                        // artist" — settles the question.
+                    }.getOrNull() ?: continue
+                    val (artist, songs) = answer
+                    // Re-read each time: the field may have dated this act in between,
+                    // and a stale snapshot written back would undo it.
                     editBill(billId) { b ->
-                        b.copy(acts = b.acts.mapIndexed { j, a -> if (j == i) a.copy(candidates = songs) else a })
+                        b.copy(
+                            acts = b.acts.mapIndexed { j, a ->
+                                if (j != i) a else a.copy(
+                                    candidates = songs,
+                                    matchedArtist = artist?.let { artistLabel(it.name, it.disambiguation) }.orEmpty(),
+                                    mbid = artist?.mbid.orEmpty(),
+                                    tried = true,
+                                )
+                            },
+                        )
                     }
                 }
             } finally {
@@ -1245,11 +1269,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { timelines.saveLog(gigId, updated) }
     }
 
-    /** The candidate song pool for a local **Gig**, from the **Act** that minted it. */
-    fun candidatesFor(gigId: String): List<String> =
-        _state.value.bills.firstNotNullOfOrNull { bill ->
-            bill.acts.firstOrNull { it.gigId == gigId }?.candidates?.takeIf { it.isNotEmpty() }
-        }.orEmpty()
+    /** The **Act** a local **Gig** was minted from, if it came off a **Bill**. */
+    fun actFor(gigId: String): StoredAct? =
+        _state.value.bills.firstNotNullOfOrNull { bill -> bill.acts.firstOrNull { it.gigId == gigId } }
 
     /**
      * The night is now on setlist.fm — someone typed it in, possibly not me. The

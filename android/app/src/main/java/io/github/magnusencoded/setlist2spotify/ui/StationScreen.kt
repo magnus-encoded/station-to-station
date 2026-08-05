@@ -1537,6 +1537,9 @@ fun StationEventScreen(
     // remembering a song three days later must cost nothing, so nothing below removes
     // the editor. The clock only decides which action leads.
     val log = setlist?.let { state.logsByGig[it.id] } ?: StoredLog()
+    // The Act this night was minted from, when it came off a Bill: it carries the
+    // candidate pool and — the part that matters — which artist that pool came from.
+    val act = setlist?.let { viewModel.actFor(it.id) }
     val localGig = setlist != null && setlist.isLocal()
     val canLog = setlist != null && (checkedIn || localGig)
     val leaf = gigLeaf(
@@ -2014,7 +2017,8 @@ fun StationEventScreen(
                     item {
                         Spacer(Modifier.height(6.dp))
                         LogEditor(
-                            candidates = viewModel.candidatesFor(setlist.id),
+                            candidates = act?.candidates.orEmpty(),
+                            poolArtist = act?.matchedArtist.orEmpty(),
                             log = log,
                             // Only once I have written something down. An untouched log
                             // beside an imported setlist is not a divergence, it is a

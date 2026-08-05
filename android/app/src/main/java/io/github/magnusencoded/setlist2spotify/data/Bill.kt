@@ -67,7 +67,34 @@ data class StoredAct(
     val maybe: Boolean = false,
     val candidates: List<String> = emptyList(),
     val gigId: String? = null,
+    /**
+     * *Which* artist the pool came from, shown wherever the pool is.
+     *
+     * Five bands are called Silent Majority. Matching on name alone picked one of
+     * them and offered a stranger's songs indistinguishably from the right ones —
+     * the Historian failure in miniature: a guess wearing the clothes of a fact.
+     * Naming the source does not prevent a wrong match, it makes a wrong match
+     * *visible in the second it happens*, which is the part that was missing.
+     */
+    val matchedArtist: String = "",
+    /** The MusicBrainz id the pool was fetched against. Empty until one is resolved. */
+    val mbid: String = "",
+    /**
+     * Whether setlist.fm has *answered* about this act — not whether we asked.
+     *
+     * The distinction is the whole value of the field. "No pool because they have no
+     * setlist.fm history" is a correct, final answer and half the Ringnes bill; "no
+     * pool because the radio couldn't reach anyone" is a question still open. Set
+     * only on a reply, so a lookup attempted in a field with no signal leaves this
+     * false and gets tried again, while a genuine empty is never re-fetched.
+     */
+    val tried: Boolean = false,
 )
+
+/** "Silent Majority (US hardcore)" — the name, plus whatever tells it from its namesakes. */
+fun artistLabel(name: String, disambiguation: String?): String =
+    listOfNotNull(name.takeIf { it.isNotBlank() }, disambiguation?.takeIf { it.isNotBlank() }?.let { "($it)" })
+        .joinToString(" ")
 
 /**
  * setlist.fm's add-a-setlist entry point, for a night they have no record of at all.

@@ -1,6 +1,7 @@
 package io.github.magnusencoded.setlist2spotify
 
 import io.github.magnusencoded.setlist2spotify.data.StoredLog
+import io.github.magnusencoded.setlist2spotify.data.artistLabel
 import io.github.magnusencoded.setlist2spotify.data.billNight
 import io.github.magnusencoded.setlist2spotify.data.candidateSongs
 import io.github.magnusencoded.setlist2spotify.data.FutureRow
@@ -217,6 +218,25 @@ class BillTest {
     @Test
     fun `an undated gig has no clock to follow and keeps the plan-ahead leaf`() {
         assertEquals(GigLeaf.PLAN, gigLeaf(LocalDate.of(2026, 8, 6).atTime(21, 0), null))
+    }
+
+    @Test
+    fun `an artist label carries whatever tells it from its namesakes`() {
+        // Five bands are called Silent Majority. The pool has to say which one.
+        assertEquals("Silent Majority (US hardcore)", artistLabel("Silent Majority", "US hardcore"))
+        assertEquals("Villskudd", artistLabel("Villskudd", null))
+        assertEquals("Villskudd", artistLabel("Villskudd", "  "))
+    }
+
+    @Test
+    fun `an act starts un-answered, which is not the same as having no history`() {
+        // "No pool because they have no setlist.fm history" is final; "no pool
+        // because the radio couldn't reach anyone" is a question still open, and
+        // only the second one should ever be asked again.
+        val act = io.github.magnusencoded.setlist2spotify.data.StoredAct(name = "Enok Monk")
+        assertFalse(act.tried)
+        assertTrue(act.candidates.isEmpty())
+        assertEquals("", act.matchedArtist)
     }
 
     // --- Up is always later, Bills included -------------------------------------
