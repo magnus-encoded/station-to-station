@@ -51,6 +51,62 @@ fun gigTimeState(now: LocalDateTime, gigDate: LocalDate): GigTimeState {
 }
 
 /**
+ * What a **Gig**'s leaf *offers first*, on the clock — the same rule as [gigTimeState]
+ * and #55, one step finer, and it governs **primacy only**.
+ *
+ * Read that last part as a hard rule: time decides which action is the headline, never
+ * what remains possible. My own **Log** is editable forever — remembering a song three
+ * days later, or three years later, must cost nothing — so [PUBLISH] does not take the
+ * editor away, it just stops leading with it.
+ */
+enum class GigLeaf {
+    /** Still ahead: the calendar, the invite, the map. Nothing has been played. */
+    PLAN,
+
+    /** It is happening: note what they play. Publishing is not the headline mid-set. */
+    CAPTURE,
+
+    /** Over: hand it to setlist.fm. The **Log** stays editable underneath. */
+    PUBLISH,
+}
+
+/**
+ * When a **Gig** counts as still going on, as coarse or as fine as the caller knows.
+ *
+ * A window rather than an instant, and given rather than computed, because precision
+ * here is entirely a property of the *source*. Ringnes announces no set times at all,
+ * so the honest window is the night — [nightWindow] — and every act from that evening
+ * stays in capture until [NIGHT_ENDS]. A gig that one day arrives with real stage
+ * times passes a tight window instead and this function does not change.
+ *
+ * [checkedIn] widens the opening edge and nothing else: standing there before the
+ * listed start is the strongest evidence the thing has begun, which is the same
+ * instinct `showsMediaBlock` already encodes.
+ */
+fun gigLeaf(
+    now: LocalDateTime,
+    window: ClosedRange<LocalDateTime>?,
+    checkedIn: Boolean = false,
+): GigLeaf = when {
+    // An undated gig has no clock to follow, so it keeps the plan-ahead actions —
+    // exactly what StationEventScreen already does with an unparseable date.
+    window == null -> GigLeaf.PLAN
+    now > window.endInclusive -> GigLeaf.PUBLISH
+    checkedIn || !now.isBefore(window.start) -> GigLeaf.CAPTURE
+    else -> GigLeaf.PLAN
+}
+
+/**
+ * The default window: the whole night, closing at [NIGHT_ENDS] the next morning.
+ *
+ * The same soft edge [withinCheckInWindow] draws, reused rather than restated. A hard
+ * cut at a computed end-of-set would be a precision the input does not have; the 6am
+ * edge is this codebase's existing, honest answer to that.
+ */
+fun nightWindow(gigDate: LocalDate): ClosedRange<LocalDateTime> =
+    gigDate.atStartOfDay()..gigDate.plusDays(1).atTime(NIGHT_ENDS)
+
+/**
  * The humanised countdown for a gig still ahead — coarser the further off it is, so
  * "in 377 days" reads as "in 12 months". [daysUntil] must be >= 1; today, the night
  * itself and the past are other states' words, not a countdown's.

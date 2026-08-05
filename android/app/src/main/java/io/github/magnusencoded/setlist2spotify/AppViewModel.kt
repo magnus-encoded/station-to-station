@@ -10,7 +10,16 @@ import io.github.magnusencoded.setlist2spotify.data.DeviceLocation
 import io.github.magnusencoded.setlist2spotify.data.DeviceTimelinePlumbing
 import io.github.magnusencoded.setlist2spotify.data.LoadedSpine
 import io.github.magnusencoded.setlist2spotify.data.SettingsRepository
+import io.github.magnusencoded.setlist2spotify.data.StoredAct
 import io.github.magnusencoded.setlist2spotify.data.StoredAttendance
+import io.github.magnusencoded.setlist2spotify.data.StoredBill
+import io.github.magnusencoded.setlist2spotify.data.StoredLog
+import io.github.magnusencoded.setlist2spotify.data.billNight
+import io.github.magnusencoded.setlist2spotify.data.candidateSongs
+import io.github.magnusencoded.setlist2spotify.data.fmDate
+import io.github.magnusencoded.setlist2spotify.data.isLocal
+import io.github.magnusencoded.setlist2spotify.data.localGigSetlist
+import io.github.magnusencoded.setlist2spotify.data.parseLineup
 import io.github.magnusencoded.setlist2spotify.data.StoredMedia
 import io.github.magnusencoded.setlist2spotify.data.StoredPlaylist
 import io.github.magnusencoded.setlist2spotify.data.TimelineLogic
@@ -197,6 +206,20 @@ data class UiState(
     /** A planned gig is being fetched from setlist.fm. */
     val planningLoading: Boolean = false,
     /**
+     * The **Bills** on the wall, poster order preserved. Above today like the gigs
+     * I'm going to, and for the same reason — up is always later — but never mixed
+     * in with them: a **Bill** is a lineup, not a set of tickets.
+     */
+    val bills: List<StoredBill> = emptyList(),
+    /** An **Act**'s candidate songs are being fetched. The **Bill** id, or null. */
+    val billFetching: String? = null,
+    /**
+     * My **Log** of each night, by gig id — what I saw, kept apart from what
+     * setlist.fm publishes. Restored from disk, because a set noted in a field with
+     * no signal is the one thing here that cannot be fetched again.
+     */
+    val logsByGig: Map<String, StoredLog> = emptyMap(),
+    /**
      * My relationship to each gig, by gig id — planned, attended, checked in.
      * Restored from disk on launch, which is what makes a check-in survive a cold
      * start rather than being a thing the screen remembers until it doesn't.
@@ -347,7 +370,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         // plannedShows counts: a collector with no history but one ticket is a real
         // cold start, and without it here that launch restored nothing at all.
         if (cached.shows.isEmpty() && cached.festivalNames.isEmpty() &&
-            cached.gigPlaylists.isEmpty() && cached.gigPlanned.isEmpty()
+            cached.gigPlaylists.isEmpty() && cached.gigPlanned.isEmpty() &&
+            // A Bill on its own is a real cold start too: the lineup was entered the
+            // night before, and the phone has been to no gigs at all yet.
+            cached.bills.isEmpty()
         ) {
             return
         }
@@ -360,6 +386,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 playlistsBySetlist = it.playlistsBySetlist + cached.playlists(),
                 mediaBySetlist = it.mediaBySetlist + cached.media(),
                 plannedGigs = sortedPlanned(cached.planned()),
+                bills = cached.bills.values.toList(),
+                logsByGig = it.logsByGig + cached.logs(),
                 attendanceByGig = it.attendanceByGig + cached.attendance(),
                 calendarEventByGig = it.calendarEventByGig + cached.calendarEvents(),
             )
@@ -906,6 +934,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun refreshSelectedSetlist() {
         val open = _state.value.selectedSetlist ?: return
+        // A local Gig's id is this app's, not setlist.fm's — asking them for it is a
+        // guaranteed 404 dressed up as an error the user can do nothing about. The
+        // way a local night gets a real record is adoption, not refresh.
+        if (open.isLocal()) return
         if (_state.value.setlistsLoading) return
         _state.update { it.copy(setlistsLoading = true) }
         viewModelScope.launch {
@@ -1037,6 +1069,230 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun markCalendarAdded(gigId: String, eventUri: String) {
         _state.update { it.copy(calendarEventByGig = it.calendarEventByGig + (gigId to eventUri)) }
         viewModelScope.launch { timelines.markCalendarAdded(gigId, eventUri) }
+    }
+
+    // --- Bills: a festival that isn't on setlist.fm and can't be yet (#34, #93) ---
+
+    /**
+     * Puts a **Bill** on the wall, then — and only if there is signal — goes looking
+     * for each **Act**'s recent setlists so the field has something to tick off.
+     *
+     * The order matters and is the whole point: the **Bill** is written *first* and
+     * unconditionally, so entering a lineup works with the radio off. The fetch is a
+     * best-effort enrichment that runs while you still have wifi, because the one
+     * place it definitely will not run is inside the enclosure.
+     */
+    fun addBill(name: String, city: String, from: String, to: String, lineup: String) {
+        val acts = parseLineup(lineup)
+        if (name.isBlank() || acts.isEmpty()) {
+            _state.update { it.copy(error = "A bill needs a name and at least one act.") }
+            return
+        }
+        val bill = StoredBill(
+            id = java.util.UUID.randomUUID().toString(),
+            name = name.trim(),
+            city = city.trim(),
+            from = from.trim(),
+            to = to.trim(),
+            acts = acts,
+        )
+        _state.update { it.copy(bills = it.bills + bill) }
+        viewModelScope.launch {
+            timelines.saveBill(bill)
+            fetchCandidates(bill.id)
+        }
+    }
+
+    fun removeBill(billId: String) {
+        _state.update { it.copy(bills = it.bills.filterNot { b -> b.id == billId }) }
+        viewModelScope.launch { timelines.removeBill(billId) }
+    }
+
+    /**
+     * Fills in every **Act**'s candidate songs from setlist.fm. Re-runnable by hand,
+     * which is the recovery path when the lineup was entered somewhere with no signal.
+     *
+     * Every failure is silence for that one act: an artist setlist.fm has never heard
+     * of gets an empty pool, which is the honest answer and not an error. Acts that
+     * already have a pool are skipped, so a second run only costs the misses.
+     *
+     * ponytail: sequential, one artist at a time. A lineup is a dozen names and this
+     * runs once, at home. Parallelise if a hundred-act bill ever shows up.
+     */
+    fun fetchCandidates(billId: String) {
+        if (_state.value.billFetching != null) return
+        _state.update { it.copy(billFetching = billId) }
+        viewModelScope.launch {
+            try {
+                val start = _state.value.bills.firstOrNull { it.id == billId } ?: return@launch
+                for ((i, act) in start.acts.withIndex()) {
+                    if (act.candidates.isNotEmpty()) continue
+                    val songs = runCatching {
+                        val artist = setlistFm.searchArtists(act.name).artist
+                            .firstOrNull { it.name.equals(act.name, ignoreCase = true) }
+                            ?: return@runCatching emptyList()
+                        candidateSongs(setlistFm.artistSetlists(artist.mbid).setlist)
+                    }.getOrDefault(emptyList())
+                    if (songs.isEmpty()) continue
+                    // Re-read each time: the field may have been dated in between, and
+                    // a stale snapshot written back would undo it.
+                    editBill(billId) { b ->
+                        b.copy(acts = b.acts.mapIndexed { j, a -> if (j == i) a.copy(candidates = songs) else a })
+                    }
+                }
+            } finally {
+                _state.update { it.copy(billFetching = null) }
+            }
+        }
+    }
+
+    /**
+     * An **Act** played, tonight — the field gesture, and the cheapest thing in the
+     * app. It mints the local **Gig** the act becomes, dates it, and records that I
+     * was there with the strength a check-in carries, because tapping this is
+     * something only a person standing in front of the stage does.
+     *
+     * The date is [billNight]'s, not the calendar's: at half one in the morning the
+     * act you just watched played yesterday.
+     */
+    fun markActPlayed(billId: String, actIndex: Int, now: LocalDateTime = LocalDateTime.now()) {
+        val bill = _state.value.bills.firstOrNull { it.id == billId } ?: return
+        val act = bill.acts.getOrNull(actIndex) ?: return
+        if (act.gigId != null) return
+        val night = billNight(now)
+        viewModelScope.launch {
+            val gigId = timelines.createLocalGig(fmDate(night), act.name, bill.name)
+            val gig = localGigSetlist(gigId, act.name, night, bill.name, bill.city)
+            timelines.savePlanned(gig)
+            val attendance = StoredAttendance(
+                provenance = StoredAttendance.Provenance.CHECKED_IN,
+                checkedInAt = System.currentTimeMillis(),
+            )
+            timelines.saveAttendance(gigId, attendance)
+            _state.update {
+                it.copy(
+                    plannedGigs = sortedPlanned(it.plannedGigs + gig),
+                    attendanceByGig = it.attendanceByGig + (gigId to attendance),
+                )
+            }
+            editBill(billId) { b ->
+                b.copy(acts = b.acts.mapIndexed { j, a -> if (j == actIndex) a.copy(gigId = gigId) else a })
+            }
+        }
+    }
+
+    /**
+     * An **Act** that never was on the poster. Added already dated, because a
+     * **Surprise** is only ever discovered after it has happened — there is no state
+     * in which an unannounced act is pending.
+     */
+    fun addSurpriseAct(billId: String, name: String, now: LocalDateTime = LocalDateTime.now()) {
+        if (name.isBlank()) return
+        val bill = _state.value.bills.firstOrNull { it.id == billId } ?: return
+        val at = bill.acts.size
+        viewModelScope.launch {
+            editBill(billId) { it.copy(acts = it.acts + StoredAct(name = name.trim())) }
+            markActPlayed(billId, at, now)
+        }
+    }
+
+    /** A mistap: the **Act** goes back to having no night, and its stub **Gig** goes. */
+    fun unmarkAct(billId: String, actIndex: Int) {
+        val gigId = _state.value.bills.firstOrNull { it.id == billId }?.acts?.getOrNull(actIndex)?.gigId ?: return
+        _state.update {
+            it.copy(
+                plannedGigs = it.plannedGigs.filterNot { g -> g.id == gigId },
+                attendanceByGig = it.attendanceByGig - gigId,
+            )
+        }
+        viewModelScope.launch {
+            // ponytail: the StoredGig itself is left behind — removePlanned drops the
+            // record and (rightly) refuses to erase a check-in, and there is no
+            // deleteGig. An orphan with no date, no media and no claim on screen.
+            // Give TimelineStore a deleteGig when something can actually reach one.
+            timelines.removePlanned(gigId)
+            editBill(billId) { b ->
+                b.copy(acts = b.acts.mapIndexed { j, a -> if (j == actIndex) a.copy(gigId = null) else a })
+            }
+        }
+    }
+
+    // --- The Log: what I saw, as opposed to what setlist.fm publishes ---
+
+    fun logFor(gigId: String): StoredLog = _state.value.logsByGig[gigId] ?: StoredLog()
+
+    /**
+     * Edits my **Log** of a night. Asserted, never derived: the candidate pool is a
+     * prompt and only a tap is a claim, so a song I *think* they played never becomes
+     * a song they played by inaction.
+     *
+     * Editing songs never touches [StoredLog.closed]. Adding a song days later is
+     * ordinary — the **Log** is the app's own record and stays editable forever —
+     * and saying "that was the whole set" is a separate, deliberate sentence.
+     */
+    fun editLog(gigId: String, songs: List<String>) = writeLog(gigId) { it.copy(songs = songs) }
+
+    /**
+     * The only thing that may **Close** a **Log**, and it is a person saying so. Not
+     * publishing, not a refetch, not a song count: setlist.fm has nowhere to keep
+     * this bit, so it never leaves the device and nothing coming back can set it.
+     */
+    fun setLogClosed(gigId: String, closed: Boolean) = writeLog(gigId) { it.copy(closed = closed) }
+
+    private fun writeLog(gigId: String, edit: (StoredLog) -> StoredLog) {
+        val updated = edit(logFor(gigId))
+        _state.update { it.copy(logsByGig = it.logsByGig + (gigId to updated)) }
+        viewModelScope.launch { timelines.saveLog(gigId, updated) }
+    }
+
+    /** The candidate song pool for a local **Gig**, from the **Act** that minted it. */
+    fun candidatesFor(gigId: String): List<String> =
+        _state.value.bills.firstNotNullOfOrNull { bill ->
+            bill.acts.firstOrNull { it.gigId == gigId }?.candidates?.takeIf { it.isNotEmpty() }
+        }.orEmpty()
+
+    /**
+     * The night is now on setlist.fm — someone typed it in, possibly not me. The
+     * local **Gig** takes their id and stops being a stub, which is the whole payoff
+     * #34 names: only then can it be a **Crossing**.
+     *
+     * A pasted link rather than a search by artist+date. #34 sketched the search, but
+     * the moment this is used is the moment you are looking at the page you just
+     * created, so its url is in your hand and matching heuristics are a way to be
+     * wrong about which night you meant.
+     */
+    fun adoptSetlistLink(gigId: String, linkOrId: String) {
+        val setlistId = parseSetlistId(linkOrId)
+        if (setlistId == null) {
+            _state.update { it.copy(error = "That doesn't look like a setlist.fm link.") }
+            return
+        }
+        viewModelScope.launch {
+            if (!timelines.adoptSetlistId(gigId, setlistId)) {
+                _state.update { it.copy(error = "That night already has a setlist.fm id.") }
+                return@launch
+            }
+            _state.update { it.copy(notice = "Adopted — this night is on setlist.fm now.") }
+            // The real record replaces the stub: it has the url, the songs whoever
+            // typed them in logged, and an id friends' lines can meet at.
+            runCatching { setlistFm.setlist(setlistId) }.getOrNull()?.let { fresh ->
+                timelines.savePlanned(fresh)
+                _state.update {
+                    it.copy(
+                        plannedGigs = sortedPlanned(it.plannedGigs.filterNot { g -> g.id == gigId } + fresh),
+                        selectedSetlist = if (it.selectedSetlist?.id == gigId) fresh else it.selectedSetlist,
+                    )
+                }
+            }
+        }
+    }
+
+    /** Reads, edits and persists one **Bill**, so state and disk never disagree. */
+    private suspend fun editBill(billId: String, edit: (StoredBill) -> StoredBill) {
+        val bill = _state.value.bills.firstOrNull { it.id == billId } ?: return
+        val updated = edit(bill)
+        _state.update { it.copy(bills = it.bills.map { b -> if (b.id == billId) updated else b }) }
+        timelines.saveBill(updated)
     }
 
     /** Forgets a gig I'm not going to after all. */
