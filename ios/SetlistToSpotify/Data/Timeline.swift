@@ -277,36 +277,75 @@ func laneStep(_ count: Int) -> CGFloat {
 /// The strip's width at `count` friends — never more than `MaxStripWidth`.
 func stripWidth(_ count: Int) -> CGFloat { laneStep(count) * CGFloat(count) }
 
+/// A Line index in points. `Spine` is -1, so Lane 0 sits one step out from my Spine.
+///
+/// *Which* Line is a whole number; the only honest float in this area is *where in
+/// points*, which is this function's result and the strip's openness in `crossingX`.
+func laneXf(_ offset: Int, _ step: CGFloat) -> CGFloat { SpineX + step * CGFloat(offset + 1) }
+
+/// Which Lines were at a row: Spine for me, plus a Lane index per friend present.
+///
+/// The single which-Line primitive. Everything else here is a question asked of this
+/// list — the Node's host is its minimum, presence is membership, and company is its
+/// count — so the merge rule is written once and cannot drift out of step with the
+/// canvas that draws it (#69). It used to live private to StationView.swift, where
+/// the copy that actually drew was the one nothing could test.
+func linesAt(_ row: WovenRow, _ lanes: [Friend]) -> [Int] {
+    var out: [Int] = []
+    if row.mine { out.append(Spine) }
+    for (i, f) in lanes.enumerated() where row.others.contains(where: { $0.setlistfm == f.setlistfm }) {
+        out.append(i)
+    }
+    return out
+}
+
 /// Which Line a row's Node sits on. Lines that share a Node become one Line, so a
 /// night has exactly one Node — mine when I was there (my Line never moves to
 /// meet anyone), otherwise the innermost Lane among the friends who were, which
 /// the others come to.
+///
+/// The innermost Line *is* the minimum: Spine is -1 and so sorts below every Lane
+/// index, and `row.mine` is what puts it in the set. That equivalence used to be
+/// something to verify by reading two implementations against each other.
 func nodeHost(_ row: WovenRow, _ lanes: [Friend]) -> Int {
-    if row.mine { return Spine }
-    return lanes.indices.first { i in
-        row.others.contains { $0.setlistfm == lanes[i].setlistfm }
-    } ?? Spine
+    linesAt(row, lanes).min() ?? Spine
+}
+
+/// Where a Line is drawn at a row: on the Node if it was there, otherwise its own
+/// Lane. `line` is Spine for mine or a Lane index for a friend's. The Line-index-keyed
+/// twin of `hostLane`, and the one the canvas asks.
+func lineDrawnOffset(_ row: WovenRow?, _ line: Int, _ lanes: [Friend]) -> Int {
+    guard let row else { return line }
+    return linesAt(row, lanes).contains(line) ? nodeHost(row, lanes) : line
 }
 
 /// Which Line `friend` is drawn on at `row`: the Node's host if they were there,
 /// otherwise their own Lane. This is the whole merge rule — asking it per friend
 /// is what makes a Parting on the row someone else joins two independent answers
 /// instead of one shared boolean.
+///
+/// Resolves the Friend to a Lane index and hands the same rule to `lineDrawnOffset`:
+/// one rule, two key types, one implementation. Spine, not 0, when they have no
+/// Lane — 0 is a real Lane and would draw a stranger's Line next to mine (Kotlin's
+/// indexOfFirst returns -1 here, which is why it reads as `?? Spine`).
 func hostLane(_ row: WovenRow?, _ friend: Friend, _ lanes: [Friend]) -> Int {
-    // Spine, not 0, when they have no lane: 0 is a real lane and would draw
-    // a stranger's line next to mine (Kotlin's indexOfFirst returns -1 here).
     let own = lanes.firstIndex { $0.setlistfm == friend.setlistfm } ?? Spine
-    guard let row, row.others.contains(where: { $0.setlistfm == friend.setlistfm })
-    else { return own }
-    return nodeHost(row, lanes)
+    return lineDrawnOffset(row, own, lanes)
 }
 
-/// Is this friend's Line one Line with someone else's here — mine, or another
-/// friend's? A Joined stretch is Meeting green whoever it is with.
-func joinedAt(_ row: WovenRow?, _ friend: Friend) -> Bool {
-    guard let row, row.others.contains(where: { $0.setlistfm == friend.setlistfm })
-    else { return false }
-    return row.mine || row.others.count > 1
+/// Where a row's Node sits in points. My Line never moves — a shared night happens
+/// on my Spine and theirs comes to meet it. Putting the Node between the two made
+/// both timelines leave their own path to attend it.
+///
+/// The Int→points conversion the whole grammar rests on, and the one thing here that
+/// legitimately produces a float: the Lanes are still sliding out while the strip
+/// opens, so the Node travels with them.
+func crossingX(_ row: WovenRow, _ lanes: [Friend], _ laneWidth: CGFloat) -> CGFloat {
+    let offset = nodeHost(row, lanes)
+    if laneWidth <= 0 || offset == Spine { return SpineX }
+    let step = laneStep(lanes.count)
+    let open = min(max(laneWidth / stripWidth(lanes.count), 0), 1)
+    return SpineX + (laneXf(offset, step) - SpineX) * open
 }
 
 // MARK: - Lane staleness

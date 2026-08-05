@@ -1,14 +1,18 @@
 package io.github.magnusencoded.setlist2spotify
 
+import androidx.compose.ui.unit.dp
 import io.github.magnusencoded.setlist2spotify.data.Friend
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmArtist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
 import io.github.magnusencoded.setlist2spotify.ui.Spine
+import io.github.magnusencoded.setlist2spotify.ui.SpineX
 import io.github.magnusencoded.setlist2spotify.ui.TimelineNode
 import io.github.magnusencoded.setlist2spotify.ui.WovenRow
+import io.github.magnusencoded.setlist2spotify.ui.crossingX
 import io.github.magnusencoded.setlist2spotify.ui.hostLane
-import io.github.magnusencoded.setlist2spotify.ui.joinedAt
 import io.github.magnusencoded.setlist2spotify.ui.laneStep
+import io.github.magnusencoded.setlist2spotify.ui.laneXf
+import io.github.magnusencoded.setlist2spotify.ui.linesAt
 import io.github.magnusencoded.setlist2spotify.ui.nodeHost
 import io.github.magnusencoded.setlist2spotify.ui.stripWidth
 import org.junit.Assert.assertEquals
@@ -20,6 +24,9 @@ import org.junit.Test
  * Which line each person is drawn on at a given row. The merge rule lives here:
  * lines that share a node become one, and my spine is only special in that it
  * never moves to meet anyone.
+ *
+ * These assertions now cover the code that *draws*: the canvas asks [linesAt] and
+ * [nodeHost] directly rather than keeping its own copy of the rule (#69).
  */
 class LaneGeometryTest {
 
@@ -61,14 +68,19 @@ class LaneGeometryTest {
         val night = row(mine = false, lemmy)
         assertEquals(1, nodeHost(night, lanes))
         assertEquals(1, hostLane(night, lemmy, lanes))
-        assertFalse(joinedAt(night, lemmy)) // alone is not company
+        assertFalse(linesAt(night, lanes).size > 1) // alone is not company
     }
 
+    /**
+     * Meeting green comes from the *count* of lines on a stretch, not from a boolean
+     * about me: a joined run between two friends is green without me being one of them.
+     * This is the expression the canvas paints with.
+     */
     @Test
     fun `company is green whoever it is with`() {
-        assertTrue(joinedAt(row(mine = true, ozzy), ozzy))
-        assertTrue(joinedAt(row(mine = false, ozzy, lemmy), lemmy))
-        assertFalse(joinedAt(row(mine = true), ozzy))
+        assertTrue(linesAt(row(mine = true, ozzy), lanes).size > 1)
+        assertTrue(linesAt(row(mine = false, ozzy, lemmy), lanes).size > 1)
+        assertFalse(linesAt(row(mine = true), lanes).size > 1)
     }
 
     @Test
@@ -94,5 +106,21 @@ class LaneGeometryTest {
         // Many: lanes tighten instead of pushing the timeline off the phone.
         assertEquals(stripWidth(8).value, stripWidth(20).value, 0.01f)
         assertTrue(laneStep(20) < laneStep(8))
+    }
+
+    /**
+     * The int→points conversion the whole grammar rests on, and the only step in it
+     * the collapse does not cover by construction: which line is a whole number, but
+     * where that line sits depends on how far the strip has slid open.
+     */
+    @Test
+    fun `the node sits on its host lane when open and on my spine when shut`() {
+        val night = row(mine = false, lemmy) // hosted by lane 1
+        assertEquals(
+            laneXf(nodeHost(night, lanes), laneStep(lanes.size)).value,
+            crossingX(night, lanes, stripWidth(lanes.size)).value,
+            0.01f,
+        )
+        assertEquals(SpineX, crossingX(night, lanes, 0.dp))
     }
 }

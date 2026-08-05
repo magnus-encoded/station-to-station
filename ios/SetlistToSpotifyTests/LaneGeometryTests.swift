@@ -4,6 +4,9 @@ import XCTest
 /// Which Line each person is drawn on at a given row. The merge rule lives here:
 /// Lines that share a Node become one, and my Spine is only special in that it
 /// never moves to meet anyone. Ported from the Android LaneGeometryTest.
+///
+/// These assertions now cover the code that *draws*: the Canvas asks `linesAt` and
+/// `nodeHost` directly rather than keeping its own private copy of the rule (#69).
 final class LaneGeometryTests: XCTestCase {
 
     private let ozzy = Friend(setlistfm: "Ozzy", name: "Ozzy")
@@ -42,13 +45,16 @@ final class LaneGeometryTests: XCTestCase {
         let night = row(mine: false, lemmy)
         XCTAssertEqual(1, nodeHost(night, lanes))
         XCTAssertEqual(1, hostLane(night, lemmy, lanes))
-        XCTAssertFalse(joinedAt(night, lemmy)) // alone is not company
+        XCTAssertFalse(linesAt(night, lanes).count > 1) // alone is not company
     }
 
+    /// Meeting green comes from the *count* of Lines on a stretch, not from a boolean
+    /// about me: a Joined run between two friends is green without me being one of
+    /// them. This is the expression the Canvas paints with.
     func testCompanyIsGreenWhoeverItIsWith() {
-        XCTAssertTrue(joinedAt(row(mine: true, ozzy), ozzy))
-        XCTAssertTrue(joinedAt(row(mine: false, ozzy, lemmy), lemmy))
-        XCTAssertFalse(joinedAt(row(mine: true), ozzy))
+        XCTAssertTrue(linesAt(row(mine: true, ozzy), lanes).count > 1)
+        XCTAssertTrue(linesAt(row(mine: false, ozzy, lemmy), lanes).count > 1)
+        XCTAssertFalse(linesAt(row(mine: true), lanes).count > 1)
     }
 
     func testOnePartingOnTheRowTheOtherJoinsIsTwoIndependentAnswers() {
@@ -72,6 +78,19 @@ final class LaneGeometryTests: XCTestCase {
         // Many: lanes tighten instead of pushing the timeline off the phone.
         XCTAssertEqual(stripWidth(8), stripWidth(20), accuracy: 0.01)
         XCTAssertLessThan(laneStep(20), laneStep(8))
+    }
+
+    /// The Int→points conversion the whole grammar rests on, and the only step in it
+    /// the collapse does not cover by construction: which Line is a whole number, but
+    /// where that Line sits depends on how far the strip has slid open.
+    func testTheNodeSitsOnItsHostLaneWhenOpenAndOnMySpineWhenShut() {
+        let night = row(mine: false, lemmy) // hosted by Lane 1
+        XCTAssertEqual(
+            laneXf(nodeHost(night, lanes), laneStep(lanes.count)),
+            crossingX(night, lanes, stripWidth(lanes.count)),
+            accuracy: 0.01
+        )
+        XCTAssertEqual(SpineX, crossingX(night, lanes, 0))
     }
 
     /// Nobody is drawn in a lane they don't have. Kotlin's indexOfFirst returns
