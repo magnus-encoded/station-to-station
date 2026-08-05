@@ -49,4 +49,25 @@ final class FriendsLogicTests: XCTestCase {
         model.setZoomedOut(true)
         XCTAssertTrue(model.state.zoomedOut)
     }
+
+    // #79: the setlist.fm username must survive exactly, including dots.
+    func testFriendLinkSurvivesADottedUsername() {
+        let friend = Friend(setlistfm: "magnus.vikan.90", name: "Magnus V.", spotifyId: "dizzi.ness")
+        XCTAssertEqual(friend, friendFromURL(friend.shareURL))
+    }
+
+    // #79: no display name / Spotify id on the card degrades to the username, not a crash.
+    func testFriendLinkDegradesCleanlyWithNoNameOrSpotifyId() {
+        let friend = Friend(setlistfm: "alice")
+        let parsed = friendFromURL(friend.shareURL)
+        XCTAssertEqual(friend, parsed)
+        XCTAssertEqual("alice", parsed?.name)
+        XCTAssertNil(parsed?.spotifyId)
+    }
+
+    // #79: links shared before the station-to-station rename must still resolve.
+    func testFriendLinkResolvesOnTheLegacyScheme() {
+        let url = URL(string: "setlist2spotify://friend?u=magnus.vikan&name=Magnus&sid=dizzi")!
+        XCTAssertEqual(Friend(setlistfm: "magnus.vikan", name: "Magnus", spotifyId: "dizzi"), friendFromURL(url))
+    }
 }
