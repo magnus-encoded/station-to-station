@@ -1045,30 +1045,36 @@ internal fun crossingX(
 }
 
 /**
- * How much of a row's tail is spent bending toward the next node. A junction belongs
- * to the **edge** between two nodes, not to the sliver above the lower one: with the
- * whole turn crammed into [nodeY], a line that steps out for one gig and comes back
- * drew a rounded rectangle instead of parting and rejoining.
+ * The height the dump computes its geometry at. A real row's height is only known once
+ * it has been laid out, and it varies with the text in it — but the only number that
+ * depends on it is the tail bend, and at any height a row with a line of text on it
+ * actually reaches, the bend is already clamped to [EdgeBend]. So this stands in for
+ * "a row of ordinary height" rather than pretending to measure one.
  */
-private val EdgeBend = 56.dp
-
-/** One person walking alone, and what each extra one on the same line adds. */
-private val LineWidth = 2.dp
-private val PerPerson = 1.2.dp
+private val DumpRowHeight = 96.dp
 
 /**
  * The woven spine as facts rather than pixels: `adb logcat -s Woven`.
  *
  * Every rule in this file is visual, and the only way to check one has been to read
  * a screenshot — which is slow and, at least once, wrong: three lines converging was
- * read off an image as a merge that the data said never happened. A row's model and
- * the lane each person is drawn on are both computable here, so they can be asserted
- * on instead of squinted at. Debug builds only.
+ * read off an image as a merge that the data said never happened. A row's model, the
+ * lane each person is drawn on, *and the geometry actually stroked* are all computable
+ * here, so they can be asserted on instead of squinted at. Debug builds only.
+ *
+ * The geometry printed is the same [rowGeometry] value the canvas draws from, at a
+ * fully open strip — so a picture that looks wrong converts into a failing test by
+ * copying numbers out of this log.
  */
 internal fun logWovenRows(rows: List<WovenRow>, lanes: List<Friend>) {
     if (!BuildConfig.DEBUG) return
-    Log.d("Woven", "--- ${rows.size} rows, lanes=${lanes.map { it.setlistfm }} ---")
-    rows.forEach { row ->
+    val laneWidth = stripWidth(lanes.size)
+    Log.d(
+        "Woven",
+        "--- ${rows.size} rows, lanes=${lanes.map { it.setlistfm }}, " +
+            "geometry in dp at laneWidth=${laneWidth.value} rowHeight=${DumpRowHeight.value} ---",
+    )
+    rows.forEachIndexed { i, row ->
         val where = lanes.joinToString(" ") { f ->
             val lane = hostLane(row, f, lanes)
             "${f.setlistfm}@${if (lane == Spine) "spine" else "lane$lane"}"
@@ -1081,9 +1087,33 @@ internal fun logWovenRows(rows: List<WovenRow>, lanes: List<Friend>) {
                 "together=${row.sharedCount} theirs=${row.showsHereByFriends.size} " +
                 "host=${nodeHost(row, lanes)} $where key=${row.key}",
         )
+        rowGeometry(row, rows.getOrNull(i + 1), lanes, laneWidth, DumpRowHeight).forEach { d ->
+            Log.d(
+                "Woven",
+                "    ${lineLabel(d.line, lanes)} x=${d.x.value}→${d.toX.value} " +
+                    "node=(${d.nodeY.value},r${d.nodeR.value}) bend=${d.bendLen.value} " +
+                    "${if (d.present) "here" else "past"} " +
+                    "body=${d.people}p/${d.width.value}dp/${d.colour} " +
+                    "ahead=${d.peopleAhead}p/${d.widthAhead.value}dp/${d.colourAhead}",
+            )
+        }
     }
 }
 
+/** A role resolved against the palette. The only thing the canvas gets to decide. */
+private fun LineColour.paint(): Color = when (this) {
+    LineColour.Meeting -> Crossed
+    is LineColour.Mine -> Amber.copy(alpha = if (present) 0.85f else 0.4f)
+    is LineColour.Rail -> railColor(lane)
+    LineColour.Absent -> LineCol
+}
+
+/**
+ * Strokes what [rowGeometry] says. Every number arrives already computed in points;
+ * the only thing this does with geometry is convert it to pixels. A rule that lived
+ * here could not be asserted, so none does — changing how a **Line** looks must not be
+ * able to move where it goes (#116).
+ */
 @Composable
 internal fun PeopleRails(
     row: WovenRow,
@@ -1093,130 +1123,53 @@ internal fun PeopleRails(
 ) {
     if (laneWidth <= 0.dp || friends.isEmpty()) return
     Canvas(Modifier.fillMaxSize()) {
-        val spineX = SpineX.toPx() + 1.dp.toPx()
-        val step = laneStep(friends.size)
-        val open = (laneWidth / stripWidth(friends.size)).coerceIn(0f, 1f) * friends.size
-        val nodeY = if (row.node is TimelineNode.Festival) 15.dp.toPx() else 13.dp.toPx()
         val h = size.height
-        val stroke = Stroke(width = 2.dp.toPx())
-
-        // A node is a ring you see through, so no line may be drawn inside one:
-        // every line stops at the rim and picks up again on the far side. This is
-        // the outer radius of whichever node this row draws.
-        val nodeR = when {
-            row.node is TimelineNode.Festival -> 11.dp.toPx()
-            row.depth > 0 -> 5.dp.toPx()
-            else -> 7.dp.toPx()
-        }
-
-        // Every line is drawn the same way, mine included. Mine is line -1 and is
-        // only special in that its own lane is the spine, and that the spine is
-        // always the innermost line — so a crossing I was at happens where I already am.
-        val lines = listOf(Spine) + friends.indices
-
-        fun slideOf(line: Int) = if (line == Spine) 1f else (open - line).coerceIn(0f, 1f)
-        fun xOf(offset: Int, line: Int): Float {
-            val slide = slideOf(line)
-            return spineX + (laneXf(offset, step).toPx() - spineX) * slide
-        }
-
-        // Was this line at this row? A membership check on the one which-line answer,
-        // not a fourth open-coded copy of it.
-        fun thereAt(r: WovenRow, line: Int) = linesAt(r, friends).contains(line)
-
-        // How many lines lie on this one where it runs. Merged lines are one line by
-        // definition, so without this two of them draw the same path twice and look
-        // exactly like one — the weight is what says how many.
-        fun peopleAt(r: WovenRow?, line: Int): Int {
-            if (r == null) return 1
-            val here = lineOffset(r, line, friends)
-            return lines.count { lineOffset(r, it, friends) == here && thereAt(r, it) }
-                .coerceAtLeast(1)
-        }
-
-        // How many travel a bend together: they must share *both* of its ends.
-        fun peopleAlong(to: WovenRow?, line: Int): Int {
-            if (to == null) return peopleAt(row, line)
-            val a = lineOffset(row, line, friends)
-            val b = lineOffset(to, line, friends)
-            return lines.count {
-                lineOffset(row, it, friends) == a && lineOffset(to, it, friends) == b
-            }.coerceAtLeast(1)
-        }
-
-        // Green means more than one line is on this stretch, and weight means how
-        // many. Colour follows the geometry rather than the endpoints: where lines
-        // lie on top of each other they *are* one line and have to read as one, and
-        // where one peels away it is alone again and takes its own colour back.
-        fun paint(people: Int, present: Boolean, line: Int): Pair<Color, Stroke> {
-            val colour = when {
-                people > 1 -> Crossed
-                line == Spine -> Amber.copy(alpha = if (present) 0.85f else 0.4f)
-                present -> railColor(line)
-                else -> LineCol
-            }
-            return colour to Stroke(width = LineWidth.toPx() + PerPerson.toPx() * (people - 1))
-        }
-
+        val drawn = rowGeometry(row, next, friends, laneWidth, h.toDp())
+        val ring = Stroke(width = 2.dp.toPx())
         val nodeAt = nodeHost(row, friends)
+        val joined = linesAt(row, friends).size > 1
 
-        lines.forEach { line ->
-            if (slideOf(line) <= 0f) return@forEach
-
-            val x = xOf(lineOffset(row, line, friends), line)
-            val toX = if (next == null) x else xOf(lineOffset(next, line, friends), line)
-            val here = thereAt(row, line)
-
-            // Where this line has a node, it stops at the rim and starts again on
-            // the far side — nothing is drawn inside a node. A line only meets a
-            // node it belongs to, so someone who wasn't here just runs past.
-            val gap = if (here) nodeR else 0f
-
-            val (atX, atXStroke) = paint(peopleAt(row, line), here, line)
+        drawn.forEach { d ->
+            val x = d.x.toPx()
+            val toX = d.toX.toPx()
+            val nodeY = d.nodeY.toPx()
+            val gap = d.nodeR.toPx()
+            val bendLen = d.bendLen.toPx()
+            val body = d.colour.paint()
+            val bodyStroke = Stroke(width = d.width.toPx())
 
             if (nodeY - gap > 0f) {
                 val approach = Path().apply {
                     moveTo(x, 0f)
                     lineTo(x, nodeY - gap)
                 }
-                drawPath(approach, atX, style = atXStroke)
+                drawPath(approach, body, style = bodyStroke)
             }
 
-            // The last stretch of a row belongs to the edge ahead, and every line gets
-            // it — not only the ones that bend. Company peeling away leaves a line
-            // alone even when that line never moves, so my spine has to stop being
-            // green there too, or it claims a crossing after the others have gone.
-            // Never longer than the room below the node, or a short row would draw
-            // its straight stretch backwards before turning.
-            val bendLen = minOf((h - nodeY - gap) * 0.8f, EdgeBend.toPx()).coerceAtLeast(0f)
-
-            val body = Path().apply {
+            val trunk = Path().apply {
                 moveTo(x, nodeY + gap)
                 lineTo(x, h - bendLen)
             }
-            drawPath(body, atX, style = atXStroke)
+            drawPath(trunk, body, style = bodyStroke)
 
-            val (leaving, leavingStroke) = paint(peopleAlong(next, line), here, line)
             val tail = Path().apply {
                 moveTo(x, h - bendLen)
                 if (toX == x) lineTo(x, h)
                 else cubicTo(x, h - bendLen * 0.45f, toX, h - bendLen * 0.55f, toX, h)
             }
-            drawPath(tail, leaving, style = leavingStroke)
+            drawPath(tail, d.colourAhead.paint(), style = Stroke(width = d.widthAhead.toPx()))
 
             // One node per night, drawn once by the innermost line that was there.
             // My own rows and festivals draw their own, so this only fills the gap
             // for a gig of theirs.
-            val drawsNode = here && !row.mine && row.node !is TimelineNode.Festival &&
-                line == nodeAt
+            val drawsNode = d.present && !row.mine && row.node !is TimelineNode.Festival &&
+                d.line == nodeAt
             if (drawsNode) {
-                val nodeX = xOf(nodeAt, line)
-                val joined = linesAt(row, friends).size > 1
                 drawCircle(
-                    if (joined) Crossed else railColor(line),
+                    if (joined) Crossed else railColor(d.line),
                     6.dp.toPx(),
-                    Offset(nodeX, nodeY),
-                    style = stroke,
+                    Offset(x, nodeY),
+                    style = ring,
                 )
             }
         }
