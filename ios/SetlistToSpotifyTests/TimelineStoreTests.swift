@@ -29,6 +29,15 @@ final class TimelineStoreTests: XCTestCase {
         FmSetlist(id: id, eventDate: "25-06-2026", artist: FmArtist(name: "The Warning"))
     }
 
+    // Ids fixed rather than random so an assertion can name one.
+    private func photo(_ ref: String) -> StoredMedia {
+        StoredMedia(id: "m-\(ref)", kind: StoredMedia.Kind.photo, ref: ref)
+    }
+
+    private func video(_ ref: String) -> StoredMedia {
+        StoredMedia(id: "m-\(ref)", kind: StoredMedia.Kind.video, ref: ref)
+    }
+
     private func playlist(_ id: String) -> StoredPlaylist {
         StoredPlaylist(url: "https://open.spotify.com/playlist/\(id)", name: "2026 – The Warning", trackCount: 19)
     }
@@ -129,18 +138,31 @@ final class TimelineStoreTests: XCTestCase {
 
     func testSongOffsetsSurviveASaveOfTheShowsAroundThem() async {
         let s = store()
-        await s.saveSongOffsets(setlistId: "a", offsets: [0, 214_000, -1])
+        await s.saveMedia(setlistId: "a", media: [video("content://rec.mp4")])
+        await s.saveSongOffsets(mediaId: "m-content://rec.mp4", offsets: [0, 214_000, -1])
         await s.save(shows: ["magnus": [show("a")]])
         let loaded = await s.load()
-        XCTAssertEqual([0, 214_000, -1], loaded.songOffsets()["a"])
+        XCTAssertEqual([0, 214_000, -1], loaded.media()["a"]?.first?.songOffsets)
     }
 
-    func testRestampingANightReplacesItsOffsets() async {
+    func testRestampingARecordingReplacesItsOffsets() async {
         let s = store()
-        await s.saveSongOffsets(setlistId: "a", offsets: [0, 100])
-        await s.saveSongOffsets(setlistId: "a", offsets: [0, 250])
+        await s.saveMedia(setlistId: "a", media: [video("content://rec.mp4")])
+        await s.saveSongOffsets(mediaId: "m-content://rec.mp4", offsets: [0, 100])
+        await s.saveSongOffsets(mediaId: "m-content://rec.mp4", offsets: [0, 250])
         let loaded = await s.load()
-        XCTAssertEqual([0, 250], loaded.songOffsets()["a"])
+        XCTAssertEqual([0, 250], loaded.media()["a"]?.first?.songOffsets)
+    }
+
+    /// The shape #27 needed and a night-keyed map could not express.
+    func testTwoRecordingsOfOneNightEachCarryTheirOwnStamps() async {
+        let s = store()
+        await s.saveMedia(setlistId: "a", media: [video("content://one.mp4"), video("content://two.mp4")])
+        await s.saveSongOffsets(mediaId: "m-content://one.mp4", offsets: [0, 100])
+        await s.saveSongOffsets(mediaId: "m-content://two.mp4", offsets: [0, 250])
+        let media = await s.load().media()["a"] ?? []
+        XCTAssertEqual([0, 100], media[0].songOffsets)
+        XCTAssertEqual([0, 250], media[1].songOffsets)
     }
 
     func testTheReportedTotalSurvivesAReloadSoPagingCanResume() async {
@@ -177,7 +199,9 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual(["a1", "a2"], cache.shows["dizzi90"]?.map(\.id))
         XCTAssertEqual(169, cache.attendedTotals["dizzi90"])
         XCTAssertEqual("Tons of Rock 2026", cache.festivalNames["a1"])
-        XCTAssertEqual([0, 214_000, -1], cache.songOffsets()["a1"])
+        // No video among that night's media, so the stamps stay in the dead key
+        // rather than being guessed onto a photo. See the one-video rule below.
+        XCTAssertEqual([0, 214_000, -1], cache.songOffsetsBySetlist["a1"])
 
         // The same two shows, grouped by this platform's rules: one festival,
         // named by the resolved festival name rather than the venue.
@@ -205,8 +229,8 @@ final class TimelineStoreTests: XCTestCase {
         let s = TimelineStore(file: file)
         await s.save(shows: ["dizzi90": [show("b1")]])
         let loaded = await s.load()
-        XCTAssertEqual(["content://x/1"], loaded.photos()["a1"])
-        XCTAssertEqual([0, 5000], loaded.songOffsets()["a1"])
+        XCTAssertEqual(["content://x/1"], loaded.media()["a1"]?.map(\.ref))
+        XCTAssertEqual([0, 5000], loaded.songOffsetsBySetlist["a1"])
         // #29's check-in is the newest Android-only field, and the one a Reliver
         // would most notice losing: it is evidence they were there.
         XCTAssertEqual("checked_in", loaded.attendance()["a1"]?.provenance)
@@ -224,8 +248,8 @@ final class TimelineStoreTests: XCTestCase {
         let json = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
         XCTAssertEqual(
             ["attendanceByGig", "attendedTotals", "calendarEventByGig", "festivalNames",
-             "gigAttendance", "gigCalendarEvent", "gigPhotos", "gigPlanned", "gigPlaylists",
-             "gigSongOffsets", "gigs", "photosBySetlist", "plannedShows", "playlistsMade",
+             "gigAttendance", "gigCalendarEvent", "gigMedia", "gigPhotos", "gigPlanned",
+             "gigPlaylists", "gigSongOffsets", "gigs", "photosBySetlist", "plannedShows", "playlistsMade",
              "shows", "songOffsetsBySetlist"],
             json?.keys.sorted()
         )
@@ -258,7 +282,7 @@ final class TimelineStoreTests: XCTestCase {
         {"shows":{"magnus":[{"id":"a1","eventDate":"25-06-2026",\
         "artist":{"name":"Gojira"},"venue":{"name":"Ekebergsletta"}}]},\
         "playlistsMade":{"a1":[{"url":"u","name":"n","trackCount":3}]},\
-        "photosBySetlist":{"a1":["content://photo1"]},\
+        "photosBySetlist":{"a1":["content://photo1","content://rec.mp4"]},\
         "songOffsetsBySetlist":{"a1":[0,214000]},\
         "attendanceByGig":{"a1":{"provenance":"checked_in","checkedInAt":42}},\
         "calendarEventByGig":{"a1":"content://cal/7"}}
@@ -274,8 +298,9 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual("Gojira", gig.artist)
         XCTAssertEqual("Ekebergsletta", gig.venue)
         // Everything still resolves, under the id the screens use.
-        XCTAssertEqual(["content://photo1"], cache.photos()["a1"])
-        XCTAssertEqual([0, 214_000], cache.songOffsets()["a1"])
+        XCTAssertEqual(["content://photo1", "content://rec.mp4"], cache.media()["a1"]?.map(\.ref))
+        // The night's one video takes the stamps that used to belong to the night.
+        XCTAssertEqual([0, 214_000], cache.media()["a1"]?.last?.songOffsets)
         XCTAssertEqual(42, cache.attendance()["a1"]?.checkedInAt)
         XCTAssertEqual("content://cal/7", cache.calendarEvents()["a1"])
         XCTAssertEqual(1, cache.playlists()["a1"]?.count)
@@ -287,17 +312,17 @@ final class TimelineStoreTests: XCTestCase {
         await s.save(shows: ["magnus": [show("b")]])
         let loaded = await s.load()
         XCTAssertEqual(["content://photo1"], loaded.photosBySetlist["a1"])
-        XCTAssertEqual(["content://photo1"], loaded.photos()["a1"])
+        XCTAssertEqual(["content://photo1"], loaded.media()["a1"]?.map(\.ref))
     }
 
     func testMigratingTwiceChangesNothing() async {
         let file = tempFile(contents: #"{"photosBySetlist":{"a1":["content://photo1"]}}"#)
         let s = TimelineStore(file: file)
         let first = Set(await s.load().gigs.keys)
-        await s.savePhotos(setlistId: "a1", uris: ["content://photo1", "content://photo2"])
+        await s.saveMedia(setlistId: "a1", media: [photo("content://photo1"), photo("content://photo2")])
         let loaded = await s.load()
         XCTAssertEqual(first, Set(loaded.gigs.keys))
-        XCTAssertEqual(2, loaded.photos()["a1"]?.count)
+        XCTAssertEqual(2, loaded.media()["a1"]?.count)
     }
 
     /// The assertion #107 exists for: a night carrying everything a night can
@@ -305,8 +330,8 @@ final class TimelineStoreTests: XCTestCase {
     func testAdoptingASetlistIdPreservesEveryAssociation() async {
         let s = store()
         let gigId = await s.createLocalGig(date: "25-06-2026", artist: "The Warning", venue: "Vaterland")
-        await s.savePhotos(setlistId: gigId, uris: ["content://photo1"])
-        await s.saveSongOffsets(setlistId: gigId, offsets: [0, 214_000])
+        await s.saveMedia(setlistId: gigId, media: [photo("content://photo1"), video("content://rec.mp4")])
+        await s.saveSongOffsets(mediaId: "m-content://rec.mp4", offsets: [0, 214_000])
         await s.save(playlists: [gigId: playlist("p1")])
 
         let adopted = await s.adoptSetlistId(gigId: gigId, setlistId: "63de6d5b")
@@ -314,8 +339,11 @@ final class TimelineStoreTests: XCTestCase {
 
         let after = await s.load()
         XCTAssertEqual("63de6d5b", after.setlistIdFor(gigId))
-        XCTAssertEqual(["content://photo1"], after.photos()["63de6d5b"])
-        XCTAssertEqual([0, 214_000], after.songOffsets()["63de6d5b"])
+        XCTAssertEqual(
+            ["content://photo1", "content://rec.mp4"],
+            after.media()["63de6d5b"]?.map(\.ref)
+        )
+        XCTAssertEqual([0, 214_000], after.media()["63de6d5b"]?.last?.songOffsets)
         XCTAssertEqual(1, after.playlists()["63de6d5b"]?.count)
         XCTAssertEqual(1, after.gigs.count)
     }
@@ -333,7 +361,7 @@ final class TimelineStoreTests: XCTestCase {
 
     func testANightIsFoundFromEitherEnd() async {
         let s = store()
-        await s.savePhotos(setlistId: "63de6d5b", uris: ["content://photo1"])
+        await s.saveMedia(setlistId: "63de6d5b", media: [photo("content://photo1")])
         let cache = await s.load()
         let gig = cache.gigForSetlist("63de6d5b")
         XCTAssertEqual("63de6d5b", gig?.setlistId)
@@ -353,12 +381,64 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertTrue(cache.gigs.values.allSatisfy { $0.setlistId == nil })
     }
 
+    // MARK: - #97: media becomes a record
+
+    private func oldCache(_ photos: String, offsets: String = "[0,214000]") -> TimelineStore {
+        TimelineStore(file: tempFile(contents:
+            #"{"photosBySetlist":{"a1":\#(photos)},"songOffsetsBySetlist":{"a1":\#(offsets)}}"#))
+    }
+
+    func testANightWithExactlyOneVideoTakesTheStampsThatWereTheNights() async {
+        let cache = await oldCache(#"["content://photo.jpg","content://rec.mp4"]"#).load()
+        let media = cache.media()["a1"] ?? []
+        XCTAssertEqual([StoredMedia.Kind.photo, StoredMedia.Kind.video], media.map(\.kind))
+        XCTAssertEqual([], media[0].songOffsets)
+        XCTAssertEqual([0, 214_000], media[1].songOffsets)
+    }
+
+    func testANightWithNoVideoLeavesItsStampsInTheDeadKey() async {
+        let cache = await oldCache(#"["content://photo.jpg"]"#).load()
+        XCTAssertEqual([], cache.media()["a1"]?.first?.songOffsets)
+        // Nothing is lost — and a guess would have been worse than declining:
+        // there is no recording to be right about.
+        XCTAssertEqual([0, 214_000], cache.songOffsetsBySetlist["a1"])
+    }
+
+    func testANightWithTwoVideosLeavesItsStampsPutRatherThanGuessing() async {
+        let cache = await oldCache(#"["content://one.mp4","content://two.mp4"]"#).load()
+        XCTAssertTrue((cache.media()["a1"] ?? []).allSatisfy { $0.songOffsets.isEmpty })
+        XCTAssertEqual([0, 214_000], cache.songOffsetsBySetlist["a1"])
+    }
+
+    /// Fixed rather than recomputed here: Android asserts the same literal, so
+    /// neither platform can drift by agreeing with its own arithmetic.
+    func testMigratedMediaIdsAreDerived() async {
+        let cache = await oldCache(#"["content://photo.jpg"]"#).load()
+        XCTAssertEqual("70c08466-7711-5bc1-a64c-519669c9a42a", cache.media()["a1"]?.first?.id)
+    }
+
+    func testPersonalSurvivesTheMigrationAsFalseAndIsNeverInferred() async {
+        let cache = await oldCache(#"["content://photo.jpg","content://rec.mp4"]"#).load()
+        let media = cache.media()["a1"] ?? []
+        XCTAssertTrue(media.allSatisfy { !$0.personal })
+        // Nor is anything invented for the fields only a live attach can know.
+        XCTAssertTrue(media.allSatisfy { $0.capturedAt == nil && $0.from == nil })
+    }
+
+    func testTheOldPhotoKeysSurviveTheMediaMigration() async {
+        let s = oldCache(#"["content://photo.jpg"]"#)
+        await s.saveMedia(setlistId: "a1", media: [photo("content://photo.jpg"), photo("content://new.jpg")])
+        let cache = await s.load()
+        XCTAssertEqual(["content://photo.jpg"], cache.photosBySetlist["a1"])
+        XCTAssertEqual(2, cache.media()["a1"]?.count)
+    }
+
     func testTwoRecordsOfOneNightMergeAndTheOlderIdWins() async {
         let s = store()
         let older = await s.createLocalGig(date: "25-06-2026", artist: "The Warning", venue: "Vaterland")
-        await s.savePhotos(setlistId: older, uris: ["content://photo1"])
+        await s.saveMedia(setlistId: older, media: [photo("content://photo1")])
         // The same night, found again by an import that didn't know it was here.
-        await s.savePhotos(setlistId: "63de6d5b", uris: ["content://photo2"])
+        await s.saveMedia(setlistId: "63de6d5b", media: [photo("content://photo2")])
         let newer = await s.load().gigForSetlist("63de6d5b")!.id
 
         let survivor = await s.mergeGigs(older, newer)
@@ -366,6 +446,6 @@ final class TimelineStoreTests: XCTestCase {
         let after = await s.load()
         XCTAssertEqual(1, after.gigs.count)
         XCTAssertEqual("63de6d5b", after.setlistIdFor(older))
-        XCTAssertEqual(["content://photo1", "content://photo2"], after.photos()["63de6d5b"])
+        XCTAssertEqual(["content://photo1", "content://photo2"], after.media()["63de6d5b"]?.map(\.ref))
     }
 }

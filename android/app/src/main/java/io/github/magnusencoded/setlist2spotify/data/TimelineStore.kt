@@ -1,6 +1,7 @@
 package io.github.magnusencoded.setlist2spotify.data
 
 import android.content.Context
+import android.net.Uri
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -100,6 +101,71 @@ data class StoredGig(
 )
 
 /**
+ * One photo or video on a night (#97).
+ *
+ * Before this, **Attach** stored a raw gallery URI and copied nothing, so the app
+ * owned no bytes: tidying the gallery, reinstalling, switching to "Select photos…"
+ * or letting Google Photos free up space each emptied a night with nothing deleted.
+ * A `List<Uri>` also had nowhere to put a capture time, a **Pointer**, the
+ * **Personal** bit, provenance, or a stable id — every planned feature needed a
+ * field that shape could not hold.
+ *
+ * [id] is assigned by the owner at **Attach** and carried forever: it names the
+ * thumbnail files #98 writes, and it is what makes any future sync idempotent —
+ * the same item arriving twice is one item. A UUID and not a content hash: hashing
+ * full-res means reading a 233 MB recording at attach time, and the dedup a hash
+ * would buy only applies to the same bytes attached twice, which is rare.
+ *
+ * [kind] is *stored*, not sniffed from the reference at read time. Asking the
+ * ContentResolver for a MIME type works right up until the reference dies — which
+ * is the entire premise of this record.
+ */
+@Serializable
+data class StoredMedia(
+    val id: String = "",
+    /** [Kind]. A plain string, not an enum, for the reason `provenance` is one. */
+    val kind: String = Kind.PHOTO,
+    /** The local reference: a content URI on Android, an asset id on iOS. */
+    val ref: String = "",
+    /** When the camera took it — not when it was attached. Null when unknowable. */
+    val capturedAt: Long? = null,
+    /**
+     * Whose camera it came from: a **Contact**'s public key, per #28 — the key is
+     * the identity. Null means mine. **My media** and **Received media** must stay
+     * distinguishable at every layer above this.
+     */
+    val from: String? = null,
+    /** **Personal**: attached, but never sent. One bit, default off. */
+    val personal: Boolean = false,
+    /**
+     * A **Pointer** into the owner's own cloud. A single nullable string, because
+     * sharing is deferred (#101–#104 are parked) — this holds an absolute URL and
+     * nothing more. A folder-relative form, if #100 ever calls for one, is an
+     * additive field rather than a reshape.
+     */
+    val pointer: String? = null,
+    /**
+     * For a video: where each song starts *inside this recording*, in milliseconds,
+     * one entry per song in setlist order, `-1` for "not stamped yet".
+     *
+     * On the record and not on the night, because a night with two recordings has
+     * to put the second one's stamps somewhere (#27). Positional rather than keyed
+     * by song name: a set can play the same song twice, and the running order is
+     * the only thing that tells the two apart. Local to the recording — "two
+     * seconds into the video that song starts" is the whole of what is observed,
+     * and a recording's absolute start is not knowable in general.
+     */
+    val songOffsets: List<Long> = emptyList(),
+) {
+    object Kind {
+        const val PHOTO = "photo"
+        const val VIDEO = "video"
+        /** The reference was already dead when we looked. Not a guess. */
+        const val UNKNOWN = "unknown"
+    }
+}
+
+/**
  * A UUID derived from [name] rather than drawn at random — RFC 4122 version 5, the
  * SHA-1 flavour.
  *
@@ -117,6 +183,10 @@ internal fun uuidFrom(name: String): String {
     return "${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-" +
         "${hex.substring(16, 20)}-${hex.substring(20, 32)}"
 }
+
+/** What a reference's MIME type is, while the reference may still answer. */
+private fun mimeResolver(context: Context): (String) -> String? =
+    { ref -> runCatching { context.contentResolver.getType(Uri.parse(ref)) }.getOrNull() }
 
 /** The id a **Gig** gets the first time it is seen through a setlist.fm id. */
 internal fun gigIdForSetlistId(setlistId: String): String = uuidFrom("gig:$setlistId")
@@ -222,9 +292,16 @@ data class TimelineCache(
 
     /** Every night this app knows about, by its own id. See [StoredGig]. */
     val gigs: Map<String, StoredGig> = emptyMap(),
-    /** Replaces [photosBySetlist]. Becomes media records in #97. */
+    /**
+     * Replaced [photosBySetlist]; dead in turn since #97, which gave media a record
+     * instead of a bare reference. Read once by the migration, never written again.
+     * See [gigMedia].
+     */
     val gigPhotos: Map<String, List<String>> = emptyMap(),
-    /** Replaces [songOffsetsBySetlist]. */
+    /**
+     * Replaced [songOffsetsBySetlist]; dead in turn since #97, which moved offsets
+     * onto the video they belong to. See [StoredMedia.songOffsets].
+     */
     val gigSongOffsets: Map<String, List<Long>> = emptyMap(),
     /** Replaces [attendanceByGig]. */
     val gigAttendance: Map<String, StoredAttendance> = emptyMap(),
@@ -238,6 +315,12 @@ data class TimelineCache(
      * re-sorted on read anyway (AppViewModel.sortedPlanned).
      */
     val gigPlanned: Map<String, FmSetlist> = emptyMap(),
+    /**
+     * The media on each night, by **Gig** id, in the order the user arranged it
+     * (#97). No sort field on the record: deriving and correcting a night's
+     * arrangement is #75's whole subject, and a speculative field would prejudge it.
+     */
+    val gigMedia: Map<String, List<StoredMedia>> = emptyMap(),
 ) {
     /**
      * The id this gig is known by *outside* the store: its setlist.fm id where it
@@ -261,18 +344,30 @@ data class TimelineCache(
     fun setlistIdFor(gigId: String): String? = gigs[gigId]?.setlistId
 
     // What the screens read: the gig-keyed maps, back under the id the UI uses.
-    fun photos(): Map<String, List<String>> = gigPhotos.mapKeys { keyOf(it.key) }
-    fun songOffsets(): Map<String, List<Long>> = gigSongOffsets.mapKeys { keyOf(it.key) }
+    fun media(): Map<String, List<StoredMedia>> = gigMedia.mapKeys { keyOf(it.key) }
     fun attendance(): Map<String, StoredAttendance> = gigAttendance.mapKeys { keyOf(it.key) }
     fun calendarEvents(): Map<String, String> = gigCalendarEvent.mapKeys { keyOf(it.key) }
     fun playlists(): Map<String, List<StoredPlaylist>> = gigPlaylists.mapKeys { keyOf(it.key) }
     fun planned(): List<FmSetlist> = gigPlanned.values.toList()
 }
 
-/** [file] rather than a Context only so the merge can be tested on the JVM. */
-class TimelineStore(private val file: File) {
+/**
+ * [file] rather than a Context only so the merge can be tested on the JVM.
+ *
+ * [mimeOf] is how #97's migration learns whether an old bare reference was a photo
+ * or a video, in the last moment that reference may still be alive. Null off-device.
+ */
+class TimelineStore(
+    private val file: File,
+    private val mimeOf: ((String) -> String?)? = null,
+) {
 
-    constructor(context: Context) : this(File(context.filesDir, "timelines.json"))
+    constructor(context: Context) : this(
+        File(context.filesDir, "timelines.json"),
+        // A named function, not a lambda written here: a lambda inside a delegating
+        // constructor call reads as capturing `this`, which does not exist yet.
+        mimeResolver(context),
+    )
 
     // encodeDefaults so an empty cache round-trips; ignoreUnknownKeys so a field
     // added to FmSetlist doesn't make an existing cache unreadable.
@@ -296,7 +391,7 @@ class TimelineStore(private val file: File) {
         if (!file.exists()) return@withContext TimelineCache()
         runCatching { json.decodeFromString<TimelineCache>(file.readText()) }
             .getOrDefault(TimelineCache())
-            .migrated()
+            .migrated(mimeOf)
     }
 
     /**
@@ -328,22 +423,36 @@ class TimelineStore(private val file: File) {
         c
     }
 
-    /** The Reliver's current set of photos for one gig, replacing whatever was there. */
-    suspend fun savePhotos(setlistId: String, uris: List<String>): Unit = writeMerged {
+    /** The Reliver's current media for one gig, replacing whatever was there. */
+    suspend fun saveMedia(setlistId: String, media: List<StoredMedia>): Unit = writeMerged {
         val (c, gigId) = it.withGig(setlistId)
-        c.copy(gigPhotos = c.gigPhotos + (gigId to uris))
+        c.copy(gigMedia = c.gigMedia + (gigId to media))
     }
 
-    /** A night's song start times inside its recording, replacing whatever was there. */
-    suspend fun saveSongOffsets(setlistId: String, offsets: List<Long>): Unit = writeMerged {
-        val (c, gigId) = it.withGig(setlistId)
-        c.copy(gigSongOffsets = c.gigSongOffsets + (gigId to offsets))
+    /**
+     * Where each song starts inside one recording, replacing whatever was there.
+     *
+     * By media id, not by night: a night with two recordings has two answers, and
+     * before #97 the second one had nowhere to live. A stamp for a video that is no
+     * longer attached is dropped rather than resurrecting the record.
+     */
+    suspend fun saveSongOffsets(mediaId: String, offsets: List<Long>): Unit = writeMerged { cache ->
+        val gigId = cache.gigMedia.entries
+            .firstOrNull { (_, media) -> media.any { it.id == mediaId } }
+            ?.key
+            ?: return@writeMerged cache
+        cache.copy(
+            gigMedia = cache.gigMedia + (
+                gigId to cache.gigMedia.getValue(gigId)
+                    .map { if (it.id == mediaId) it.copy(songOffsets = offsets) else it }
+                ),
+        )
     }
 
     /**
      * My current attendance record for one gig, by [gigId] — a setlist.fm id where
      * one exists, otherwise a local id (see [TimelineCache.keyOf]).
-     * Replaces whatever was there for that gig, same as [savePhotos]: this is the
+     * Replaces whatever was there for that gig, same as [saveMedia]: this is the
      * current state of one relationship, not an append-only log.
      */
     suspend fun saveAttendance(gigId: String, attendance: StoredAttendance): Unit = writeMerged {
@@ -476,7 +585,9 @@ class TimelineStore(private val file: File) {
                 // Photos and playlists are collections of separate things, so the
                 // union is every one of them. The rest are one current value per
                 // night, where the survivor's own answer is the one to keep.
-                gigPhotos = cache.gigPhotos.folded(older.id, gone.id) { k, d -> (k + d).distinct() },
+                gigMedia = cache.gigMedia.folded(older.id, gone.id) { k, d ->
+                    k + d.filterNot { m -> k.any { it.id == m.id } }
+                },
                 gigPlaylists = cache.gigPlaylists.folded(older.id, gone.id) { k, d ->
                     k + d.filterNot { p -> k.any { it.url == p.url } }
                 },
@@ -529,7 +640,10 @@ class TimelineStore(private val file: File) {
  * allowed for a local id there too, but #34 — the only thing that would ever have
  * minted one — was never built, so no cache in existence contains one.
  */
-internal fun TimelineCache.migrated(): TimelineCache {
+internal fun TimelineCache.migrated(mimeOf: ((String) -> String?)? = null): TimelineCache =
+    withGigs().withMedia(mimeOf)
+
+private fun TimelineCache.withGigs(): TimelineCache {
     if (gigs.isNotEmpty()) return this
     val oldKeys = LinkedHashSet<String>().apply {
         addAll(photosBySetlist.keys)
@@ -553,6 +667,63 @@ internal fun TimelineCache.migrated(): TimelineCache {
         gigPlanned = plannedShows.associateBy { idOf.getValue(it.id) },
     ).withGigFacts()
 }
+
+/**
+ * #97's migration: a bare gallery reference becomes a record with an identity, and
+ * a night's song stamps move onto the recording they describe.
+ *
+ * [mimeOf] resolves a reference's MIME type while it is still alive — the one
+ * moment kind can still be learned, since a dead reference is exactly what this
+ * record exists to survive. Absent (the JVM tests, and iOS, which cannot resolve an
+ * Android content URI at all), kind falls back to the reference's extension and
+ * then to `unknown`; a wrong guess would be worse than an honest one.
+ *
+ * The offsets rule is **exactly one video, or nothing**. A night whose media holds
+ * one video takes its stamps; a night with none or with two leaves the old entry
+ * untouched in the dead key rather than guessing, because a wrong guess silently
+ * mis-stamps a recording and nothing is lost by declining.
+ */
+private fun TimelineCache.withMedia(mimeOf: ((String) -> String?)?): TimelineCache {
+    if (gigMedia.isNotEmpty() || gigPhotos.isEmpty()) return this
+    val media = gigPhotos.mapValues { (gigId, refs) ->
+        refs.map { ref ->
+            StoredMedia(
+                // Derived, like the gig ids, so both platforms migrate one cache to
+                // one set of ids — and so #98's thumbnail filenames are stable.
+                id = uuidFrom("media:$gigId:$ref"),
+                kind = kindOf(ref, mimeOf),
+                ref = ref,
+            )
+        }
+    }
+    return copy(
+        gigMedia = media.mapValues { (gigId, items) ->
+            val offsets = gigSongOffsets[gigId] ?: return@mapValues items
+            val videos = items.filter { it.kind == StoredMedia.Kind.VIDEO }
+            if (videos.size != 1) return@mapValues items
+            items.map { if (it.id == videos[0].id) it.copy(songOffsets = offsets) else it }
+        },
+    )
+}
+
+private fun kindOf(ref: String, mimeOf: ((String) -> String?)?): String {
+    val mime = mimeOf?.invoke(ref)
+    return when {
+        mime?.startsWith("video/") == true -> StoredMedia.Kind.VIDEO
+        mime?.startsWith("image/") == true -> StoredMedia.Kind.PHOTO
+        // A picker URI usually has no extension, so this catches the copies the app
+        // made for itself and little else. Honest ignorance beats a guess.
+        ref.extension() in VIDEO_EXTENSIONS -> StoredMedia.Kind.VIDEO
+        ref.extension() in PHOTO_EXTENSIONS -> StoredMedia.Kind.PHOTO
+        else -> StoredMedia.Kind.UNKNOWN
+    }
+}
+
+/** The last path segment's extension, lowercased — "" when there isn't one. */
+private fun String.extension(): String = substringAfterLast('/').substringAfterLast('.', "").lowercase()
+
+private val VIDEO_EXTENSIONS = setOf("mp4", "mov", "m4v", "3gp", "mkv", "webm")
+private val PHOTO_EXTENSIONS = setOf("jpg", "jpeg", "png", "heic", "heif", "webp", "gif")
 
 /**
  * The **Gig** [key] names, minting one if this is the first thing ever hung off that
