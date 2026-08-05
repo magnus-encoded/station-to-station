@@ -90,10 +90,12 @@ struct GigView: View {
             Text(show.artist?.name ?? "Unknown artist")
                 .font(.system(size: 26, design: .serif)).foregroundStyle(ink)
             Text(show.venueLine()).font(.system(size: 14)).foregroundStyle(muted)
-            // ponytail: the self-logged tag (issue #52 item 5) needs the
-            // attendance provenance the store carries but the model never loads —
-            // iOS has no self-log/check-in path yet (#29 is Android-only). Wire
-            // this to state.attendanceByGig once an iOS check-in lands.
+            // ponytail: no tags here yet. The self-logged tag this comment used to
+            // wait on is gone from Android too — it labelled the default state and
+            // so said nothing. What replaced it is a "checked in" badge (needs the
+            // attendance provenance the store carries but this model never loads;
+            // #29 is Android-only) and a chip showing the setlist.fm id, or "local"
+            // where the Gig has none. Wire both when an iOS check-in lands.
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 24).padding(.bottom, 16)

@@ -1897,15 +1897,12 @@ fun StationEventScreen(
                             // stronger evidence than setlist.fm's retroactive flag; the
                             // redundant "planned" chip is gone — "you're going"/countdown
                             // above already says all a planned-and-not-checked-in night can.
-                            when {
-                                checkedIn -> {
-                                    Spacer(Modifier.width(6.dp))
-                                    EventTag("checked in", color = Amber)
-                                }
-                                !planned -> {
-                                    Spacer(Modifier.width(6.dp))
-                                    EventTag("self-logged", color = Faint)
-                                }
+                            // A badge marks the exceptional. "Checked in" is earned;
+                            // the tag that used to sit beside it labelled the *default*
+                            // — nearly every attended gig — and so said nothing. Gone.
+                            if (checkedIn) {
+                                Spacer(Modifier.width(6.dp))
+                                EventTag("checked in", color = Amber)
                             }
                             // The setlist.fm id, rendered. Not a button bolted on beside
                             // the data — it *is* `StoredGig.setlistId`, and its absence
@@ -1927,11 +1924,16 @@ fun StationEventScreen(
                                     },
                                 )
                             } else {
+                                // **Local**: a true property of the record — it exists on
+                                // this phone only, and cannot be a **Crossing** until it
+                                // has an id. Not "self-reported", which describes how
+                                // nearly every claim here was made and so marks nothing.
+                                //
                                 // Deliberately inert. `/edit` shows a signed-out user a
                                 // sign-in wall, and #34 is explicit that a dead-end link
                                 // is worse than no crumb — so the absence is stated and
                                 // the labelled action below is the door.
-                                EventTag("not on setlist.fm", color = Faint)
+                                EventTag("local", color = Faint)
                             }
                         }
                         // Nothing can be pinned to a night nobody has been to yet — the
