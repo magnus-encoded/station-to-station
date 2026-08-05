@@ -284,6 +284,88 @@ class PhotoRepository(private val context: Context) {
         return if (edge <= size) square else Bitmap.createScaledBitmap(square, size, size, true)
     }
 
+    // --- Thumbnails: the durable floor (#98) ---------------------------------
+
+    /** The grid tier's file for [mediaId]. Written once at **Attach**, never evicted. */
+    fun gridThumbFile(mediaId: String): File =
+        File(File(context.filesDir, Thumbnails.GRID_DIR), Thumbnails.fileName(mediaId))
+
+    /** The full-screen tier's file for [mediaId]. A cache: absent is normal. */
+    fun cacheThumbFile(mediaId: String): File =
+        File(File(context.cacheDir, Thumbnails.CACHE_DIR), Thumbnails.fileName(mediaId))
+
+    /**
+     * Both derived copies of [uri], for the item that will be known as [mediaId].
+     * True when the durable tier landed; false is a **failed attach**.
+     *
+     * Generated here — at **Attach** — and not lazily at first display, because the
+     * source is guaranteed readable exactly once: the moment the user picks it.
+     * Every way a keepsake breaks (#97) is that guarantee expiring later, so lazy
+     * generation would mean the floor exists only for the media nobody lost. This
+     * is the one moment the app can still get the bytes, which is why a failure is
+     * loud rather than a record with nothing behind it.
+     *
+     * A video's grid tier is a poster frame, from the same path [preview] uses.
+     */
+    suspend fun generateThumbnails(mediaId: String, uri: Uri): Boolean =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                // One decode, at the larger of the two edges, then scaled down twice.
+                // Decoding the source twice is the obvious alternative and costs a
+                // full re-read of a file that may be arriving from iCloud.
+                val source = if (isVideo(uri)) {
+                    videoFrame(uri, Thumbnails.FULL_EDGE_PX)
+                } else {
+                    decodeScaled(uri, Thumbnails.FULL_EDGE_PX)?.let { upright(uri, it) }
+                } ?: return@runCatching false
+
+                // The cache tier first, so a failure to write it still leaves the
+                // durable tier as the last thing that happened.
+                writeTier(cacheThumbFile(mediaId), source, Thumbnails.FULL_EDGE_PX, Thumbnails.FULL_QUALITY)
+                writeTier(gridThumbFile(mediaId), source, Thumbnails.GRID_EDGE_PX, Thumbnails.GRID_QUALITY)
+            }.getOrDefault(false)
+        }
+
+    private fun writeTier(file: File, source: Bitmap, maxEdge: Int, quality: Int): Boolean {
+        val (w, h) = thumbnailSize(source.width, source.height, maxEdge)
+        if (w <= 0 || h <= 0) return false
+        val scaled = if (w == source.width && h == source.height) source
+        else Bitmap.createScaledBitmap(source, w, h, true)
+        file.parentFile?.mkdirs()
+        file.writeBytes(scaled.toJpeg(quality))
+        return file.length() > 0
+    }
+
+    /** The durable copy, if it is there. Null means fall back to the source. */
+    suspend fun gridThumbnail(mediaId: String): Bitmap? = withContext(Dispatchers.IO) {
+        val file = gridThumbFile(mediaId)
+        if (!file.exists()) null else runCatching { BitmapFactory.decodeFile(file.path) }.getOrNull()
+    }
+
+    /** The full-screen copy, if the cache still holds it. */
+    suspend fun cachedFullThumbnail(mediaId: String): Bitmap? = withContext(Dispatchers.IO) {
+        val file = cacheThumbFile(mediaId)
+        if (!file.exists()) null else runCatching { BitmapFactory.decodeFile(file.path) }.getOrNull()
+    }
+
+    /** Removing means removing: the record goes, and so do the bytes it owned. */
+    suspend fun deleteThumbnails(mediaId: String): Unit = withContext(Dispatchers.IO) {
+        gridThumbFile(mediaId).delete()
+        cacheThumbFile(mediaId).delete()
+    }
+
+    /**
+     * Gives back what the app can under storage pressure.
+     *
+     * **Eviction touches the cache tier only, ever.** Stated as an invariant rather
+     * than a policy, because it is the one rule whose breach silently destroys the
+     * product's core promise — and it is why the two tiers live in two directories
+     * rather than one with a naming convention.
+     */
+    suspend fun evictThumbnailCache(): Unit = withContext(Dispatchers.IO) {
+        File(context.cacheDir, Thumbnails.CACHE_DIR).deleteRecursively()
+    }
+
     companion object {
         private const val PREVIEW_PX = 512
         private const val COVER_PX = 640
