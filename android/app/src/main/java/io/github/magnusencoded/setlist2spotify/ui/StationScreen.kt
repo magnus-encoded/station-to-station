@@ -1994,7 +1994,12 @@ fun StationEventScreen(
                         LogEditor(
                             candidates = viewModel.candidatesFor(setlist.id),
                             log = log,
-                            published = setlist.performed().size.takeIf { setlist.url != null },
+                            // Only once I have written something down. An untouched log
+                            // beside an imported setlist is not a divergence, it is a
+                            // log I have not started — and "setlist.fm has 18, yours has
+                            // 0" the instant you check in is noise, not information.
+                            published = setlist.performed().size
+                                .takeIf { setlist.url != null && log.songs.isNotEmpty() },
                             onChange = { viewModel.editLog(setlist.id, it) },
                             onClosed = { viewModel.setLogClosed(setlist.id, it) },
                         )
