@@ -365,6 +365,7 @@ fun StationTimelineScreen(
                     // Pulling down at the top of the line opens a gap toward the future:
                     // the space where planning will live. It springs shut on release.
                     val scope = rememberCoroutineScope()
+                    var planningOpen by remember { mutableStateOf(false) }
                     val pull = remember { Animatable(0f) }
                     val pullMax = with(LocalDensity.current) { 96.dp.toPx() }
                     val pullNest = remember {
@@ -382,6 +383,11 @@ fun StationTimelineScreen(
                             }
 
                             override suspend fun onPreFling(available: Velocity): Velocity {
+                                // Pulled far enough, the curtain latches instead of
+                                // springing shut. It was a signpost pointing at a place
+                                // that did not exist; planning exists now, so the
+                                // gesture that reaches for it should arrive somewhere.
+                                if (pull.value >= pullMax * 0.6f) planningOpen = true
                                 pull.animateTo(0f)
                                 return Velocity.Zero
                             }
@@ -430,6 +436,15 @@ fun StationTimelineScreen(
                             )
                         }
                         LaunchedEffect(rows, lanes) { logWovenRows(rows, lanes) }
+                        // Everything above today, in one date-ordered list — furthest
+                        // out first, the same descending order the attended rows use.
+                        // Hoisted out of the LazyColumn because the deep-link scroll
+                        // below counts it too, and the two must not drift.
+                        val future = remember(state.bills, state.plannedGigs) {
+                            val billGigs =
+                                state.bills.flatMap { b -> b.acts.mapNotNull { it.gigId } }.toSet()
+                            futureRows(state.bills, state.plannedGigs.filterNot { it.id in billGigs })
+                        }
 
                         // A station-to-station:// link names a gig, and only here can a
                         // gig be turned into a place: one inside a collapsed festival
@@ -468,13 +483,7 @@ fun StationTimelineScreen(
                             // them. Counted off the same list the LazyColumn emits, so
                             // the two cannot drift — the earlier `plannedGigs.size` was
                             // already wrong once a Bill was on the wall.
-                            val above = futureRows(
-                                state.bills,
-                                state.plannedGigs.filterNot { g ->
-                                    g.id in state.bills.flatMap { b -> b.acts.mapNotNull { it.gigId } }
-                                },
-                            ).size
-                            listState.animateScrollToItem(at + 1 + above)
+                            listState.animateScrollToItem(at + 1 + future.size)
                             viewModel.consumeGigLink()
                         }
 
@@ -503,13 +512,20 @@ fun StationTimelineScreen(
                                     )
                                 },
                         ) {
-                            // The future edge: scroll up toward what's ahead.
+                            // The top of the line. Three rows used to sit here, one of
+                            // which — "↑ THE FUTURE" — explained a direction the layout
+                            // already states by being above today. Gone.
+                            //
+                            // The two ways in show when the curtain has been pulled
+                            // open, or when there is nothing above today to point at
+                            // them: a line with a Bill and a ticket on it needs no
+                            // caption, an empty one has nothing to learn from.
                             item {
                                 FuturePrompt(
-                                    planned = state.plannedGigs.size,
+                                    open = planningOpen || future.isEmpty(),
                                     loading = state.planningLoading,
-                                    onAdd = { adding = true },
-                                    onAddBill = { addingBill = true },
+                                    onAdd = { adding = true; planningOpen = false },
+                                    onAddBill = { addingBill = true; planningOpen = false },
                                 )
                             }
                             // Everything above today, in one date-ordered list —
@@ -525,11 +541,6 @@ fun StationTimelineScreen(
                             // two nodes on one line. Planned gigs are still not grouped
                             // into festivals — a festival is a shape read off nights
                             // that happened, and a Bill is the announced-lineup case.
-                            val billGigs = state.bills.flatMap { b -> b.acts.mapNotNull { it.gigId } }.toSet()
-                            val future = futureRows(
-                                state.bills,
-                                state.plannedGigs.filterNot { it.id in billGigs },
-                            )
                             items(
                                 future,
                                 key = { row ->
@@ -635,8 +646,12 @@ fun StationTimelineScreen(
 
 /**
  * The gap that opens when you pull down past the top of your line: the line keeps
- * going up, into the shows you haven't been to yet. ponytail: a signpost, not a
- * destination — releasing springs it shut until planning is somewhere to go.
+ * going up, into the shows you haven't been to yet.
+ *
+ * It is no longer only a signpost. Pulled far enough it latches the two ways in
+ * open — a gig you're going to, or a festival lineup — which is what let the two
+ * permanent add-rows come off the top of the timeline. A short pull still springs
+ * shut, so the gesture stays cheap to abandon.
  */
 @Composable
 private fun PlanningPull(progress: () -> Float, heightPx: () -> Float) {
@@ -651,7 +666,7 @@ private fun PlanningPull(progress: () -> Float, heightPx: () -> Float) {
         Box(Modifier.width(2.dp).height(h * 0.4f).background(LineCol))
         Spacer(Modifier.height(6.dp))
         Text("↑  PLANNING", color = Slate, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp)
-        Text("the shows ahead", color = Faint, fontSize = 11.sp)
+        Text("keep pulling to add something ahead", color = Faint, fontSize = 11.sp)
     }
 }
 
@@ -660,31 +675,39 @@ private fun PlanningPull(progress: () -> Float, heightPx: () -> Float) {
  * a ticket for hang off it, so this is a way in rather than the dead end it was.
  */
 @Composable
-private fun FuturePrompt(planned: Int, loading: Boolean, onAdd: () -> Unit, onAddBill: () -> Unit) {
+private fun FuturePrompt(open: Boolean, loading: Boolean, onAdd: () -> Unit, onAddBill: () -> Unit) {
+    if (loading) {
+        Text(
+            "Looking it up on setlist.fm…",
+            color = Faint,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 2.dp, bottom = 14.dp),
+        )
+        return
+    }
+    // Nothing at all when the curtain is shut and the line already runs on above
+    // today. "↑ THE FUTURE" captioned a direction that being above today already
+    // states, and two permanent add-rows made three lines at the top of a timeline
+    // for a thing you do twice a year.
+    if (!open) return
     Column(
         Modifier
             .fillMaxWidth()
             .padding(start = 20.dp, end = 20.dp, top = 2.dp, bottom = 18.dp),
     ) {
-        Text("↑  THE FUTURE", color = Slate, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp)
-        Spacer(Modifier.height(4.dp))
         Text(
-            when {
-                loading -> "Looking it up on setlist.fm…"
-                planned > 0 -> "+  another gig you're going to"
-                else -> "+  add a gig you're going to"
-            },
-            color = if (loading) Faint else Slate,
-            fontSize = 12.sp,
-            modifier = Modifier.clickable(onClick = onAdd).padding(vertical = 6.dp),
+            "+  a gig you're going to",
+            color = Slate,
+            fontSize = 13.sp,
+            modifier = Modifier.clickable(onClick = onAdd).padding(vertical = 8.dp),
         )
         // The other door: a festival whose lineup is known and whose nights are not,
         // which the setlist.fm link above cannot express because there is no link.
         Text(
             "+  a festival lineup",
             color = Slate,
-            fontSize = 12.sp,
-            modifier = Modifier.clickable(onClick = onAddBill).padding(vertical = 6.dp),
+            fontSize = 13.sp,
+            modifier = Modifier.clickable(onClick = onAddBill).padding(vertical = 8.dp),
         )
     }
 }
