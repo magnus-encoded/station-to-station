@@ -24,15 +24,16 @@ let photoWindowEndHour = 6
 /// The calendar is injected so the window can be asserted against fixed epoch
 /// numbers, the same ones Android's `PhotoWindowTest` asserts.
 func photoWindow(gigDate: String, calendar: Calendar = .current) -> ClosedRange<Int64>? {
-    let parts = gigDate.split(separator: "-").compactMap { Int($0) }
-    guard parts.count == 3 else { return nil }
-    var day = DateComponents()
-    day.day = parts[0]
-    day.month = parts[1]
-    day.year = parts[2]
-    // No hour set, so this is the start of that day in `calendar`'s own zone —
-    // Android's `date.atStartOfDay(zone)`.
-    guard let from = calendar.date(from: day),
+    // A formatter rather than splitting on "-": "2026-08-04" splits into three
+    // numbers just fine and means the year 4, which is a wrong window rather than
+    // no window. Fixed locale so a device set to a non-Gregorian calendar still
+    // reads setlist.fm's field the way setlist.fm wrote it.
+    let parser = DateFormatter()
+    parser.locale = Locale(identifier: "en_US_POSIX")
+    parser.dateFormat = "dd-MM-yyyy"
+    parser.timeZone = calendar.timeZone
+    // Midnight in the calendar's own zone — Android's `date.atStartOfDay(zone)`.
+    guard let from = parser.date(from: gigDate),
           let nextDay = calendar.date(byAdding: .day, value: 1, to: from),
           let to = calendar.date(bySettingHour: photoWindowEndHour, minute: 0, second: 0, of: nextDay)
     else { return nil }
