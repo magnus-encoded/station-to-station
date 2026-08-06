@@ -617,4 +617,30 @@ class TimelineStoreTest {
     fun `deleting an unknown gig is a no-op, not a crash`() = runBlocking {
         assertFalse(store().deleteGig("nothing-here"))
     }
+
+    @Test
+    fun `the deliberate delete takes the media with it`() = runBlocking {
+        val store = store()
+        val id = store.createLocalGig("06-08-2026", "Truls Lorentzen", "Ringnes")
+        store.saveMedia(id, listOf(photo("content://ringnes.jpg")))
+        // The undo of a mistap still refuses; a person reading the night's own
+        // screen can see what is on it and is allowed to mean it.
+        assertFalse(store.deleteGig(id))
+        assertTrue(store.deleteGig(id, withMedia = true))
+        val cached = store.load()
+        assertTrue(cached.gigs.isEmpty())
+        assertTrue(cached.gigMedia.isEmpty())
+    }
+
+    @Test
+    fun `adoption outranks the deliberate delete`() = runBlocking {
+        val store = store()
+        val id = store.createLocalGig("06-08-2026", "Silent Majority", "Ringnes")
+        store.saveMedia(id, listOf(photo("content://ringnes.jpg")))
+        store.adoptSetlistId(id, "abc123")
+        // withMedia lifts the media guard and nothing else: a night other people's
+        // lines can meet at is not deletable by any route.
+        assertFalse(store.deleteGig(id, withMedia = true))
+        assertEquals(1, store.load().gigs.size)
+    }
 }

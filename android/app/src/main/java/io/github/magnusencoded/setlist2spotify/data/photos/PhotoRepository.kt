@@ -353,6 +353,29 @@ class PhotoRepository(private val context: Context) {
     }
 
     /**
+     * Whether this app holds the **only** copy of a photo — the one question a
+     * delete has to ask before it is allowed to be quiet about itself.
+     *
+     * [persistCopy] lands a picked photo under our own FileProvider, and from then
+     * on nothing outside the app points at those bytes. A ref still addressing
+     * `content://media/…` is the system gallery's: our record is a pointer, and
+     * dropping it leaves the photograph exactly where it was.
+     */
+    fun ownsBytes(ref: String): Boolean =
+        ref.startsWith("content://${context.packageName}.fileprovider/")
+
+    /**
+     * The full-res copy this app owns, deleted along with its thumbnails. A no-op
+     * for a ref that only points into the gallery — see [ownsBytes].
+     */
+    suspend fun deleteOwnedBytes(mediaId: String, ref: String): Unit = withContext(Dispatchers.IO) {
+        if (ownsBytes(ref)) {
+            Uri.parse(ref).lastPathSegment?.let { File(File(context.filesDir, "gig_photos"), it).delete() }
+        }
+        deleteThumbnails(mediaId)
+    }
+
+    /**
      * Gives back what the app can under storage pressure.
      *
      * **Eviction touches the cache tier only, ever.** Stated as an invariant rather

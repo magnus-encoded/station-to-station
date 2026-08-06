@@ -795,6 +795,42 @@ private fun CheckInDialog(gig: FmSetlist, onCheckIn: () -> Unit, onDismiss: () -
     }
 }
 
+/**
+ * The one question a delete has to ask: this night holds the only copy of
+ * [photos] photographs, and they go with it.
+ *
+ * Shown only when that count is above zero. A picture that also lives in the
+ * gallery is a pointer, and stopping someone to confirm a pointer teaches them
+ * to tap through the dialog that mattered.
+ */
+@Composable
+private fun DeleteNightDialog(photos: Int, onDelete: () -> Unit, onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(Raised)
+                .padding(20.dp),
+        ) {
+            Text("Delete this night?", fontFamily = Serif, fontSize = 19.sp, color = Ink)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                if (photos == 1) "Its photograph is only stored here. Deleting the night deletes it."
+                else "Its $photos photographs are only stored here. Deleting the night deletes them.",
+                color = Muted,
+                fontSize = 13.sp,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text("There is no undo.", color = Faint, fontSize = 11.sp)
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("Keep it", color = Faint) }
+                TextButton(onClick = onDelete) { Text("Delete", color = Danger) }
+            }
+        }
+    }
+}
+
 /** The empty spine: one lit node you tap to bring in your shows. */
 @Composable
 private fun EmptyTimeline(onAdd: () -> Unit, onPlan: () -> Unit) {
@@ -1628,6 +1664,7 @@ fun StationEventScreen(
         }
     }
     var adopting by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
 
     val plannedTimeState = if (planned) setlist?.localDate()?.let { gigTimeState(LocalDateTime.now(), it) } else null
     val planAhead = planned &&
@@ -1709,6 +1746,20 @@ fun StationEventScreen(
                             fontSize = 13.sp,
                             modifier = Modifier
                                 .clickable { adopting = true }
+                                .padding(vertical = 6.dp),
+                        )
+                        // Reachable from the night itself, on purpose: the undo on a
+                        // Bill's act needs the Bill to still exist, and a night whose
+                        // poster has been taken down was left with no way out at all.
+                        Text(
+                            "delete this night",
+                            color = Danger,
+                            fontSize = 13.sp,
+                            modifier = Modifier
+                                .clickable {
+                                    if (viewModel.photosLostByDeleting(setlist.id) > 0) deleting = true
+                                    else { viewModel.deleteLocalGig(setlist.id); onBack() }
+                                }
                                 .padding(vertical = 6.dp),
                         )
                     }
@@ -1895,6 +1946,13 @@ fun StationEventScreen(
             AdoptSetlistDialog(
                 onAdopt = { link -> viewModel.adoptSetlistLink(setlist.id, link); adopting = false },
                 onDismiss = { adopting = false },
+            )
+        }
+        if (deleting) {
+            DeleteNightDialog(
+                photos = viewModel.photosLostByDeleting(setlist.id),
+                onDelete = { deleting = false; viewModel.deleteLocalGig(setlist.id); onBack() },
+                onDismiss = { deleting = false },
             )
         }
         val rows = setlist.eventRows()

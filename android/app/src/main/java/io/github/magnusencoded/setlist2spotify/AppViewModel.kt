@@ -1344,6 +1344,57 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * How many photographs a delete would destroy — the ones this app holds the
+     * only copy of. Zero means every picture on the night also lives in the
+     * gallery, so removing the night costs nothing that cannot be found again.
+     *
+     * The screen asks this to decide whether to stop and ask.
+     */
+    fun photosLostByDeleting(gigId: String): Int =
+        _state.value.mediaBySetlist[gigId].orEmpty().count { photos.ownsBytes(it.ref) }
+
+    /**
+     * A night deleted from its own screen — the deliberate one, as opposed to
+     * `unmarkAct`'s undo of a mistap.
+     *
+     * It exists because `unmarkAct` was the *only* route to [TimelineStore.deleteGig]
+     * and it needs an **Act** on a live **Bill** to reach a gig. Remove the Bill and
+     * every night its acts minted is stranded: nothing points at it and nothing can
+     * delete it. Deletion must not depend on the poster still being up.
+     *
+     * Unlike the undo this takes the media with it, because someone reading the
+     * night's own screen can see what is on it. The screen is responsible for asking
+     * first when [photosLostByDeleting] says bytes would go — a pointer into the
+     * gallery is not worth a dialog, the only copy of a photograph is.
+     */
+    fun deleteLocalGig(gigId: String) {
+        val media = _state.value.mediaBySetlist[gigId].orEmpty()
+        _state.update {
+            it.copy(
+                plannedGigs = it.plannedGigs.filterNot { g -> g.id == gigId },
+                attendanceByGig = it.attendanceByGig - gigId,
+                logsByGig = it.logsByGig - gigId,
+                mediaBySetlist = it.mediaBySetlist - gigId,
+                playlistsBySetlist = it.playlistsBySetlist - gigId,
+                calendarEventByGig = it.calendarEventByGig - gigId,
+                selectedSetlist = null,
+                // An act still pointing at a deleted night would offer an undo for
+                // something that is gone. The poster keeps the act; it just stops
+                // claiming a gig, exactly as unmarkAct leaves it.
+                bills = it.bills.map { b ->
+                    b.copy(acts = b.acts.map { a -> if (a.gigId == gigId) a.copy(gigId = null) else a })
+                },
+            )
+        }
+        viewModelScope.launch {
+            if (timelines.deleteGig(gigId, withMedia = true)) {
+                media.forEach { photos.deleteOwnedBytes(it.id, it.ref) }
+                _state.value.bills.forEach { timelines.saveBill(it) }
+            }
+        }
+    }
+
     // --- The Log: what I saw, as opposed to what setlist.fm publishes ---
 
     fun logFor(gigId: String): StoredLog = _state.value.logsByGig[gigId] ?: StoredLog()
