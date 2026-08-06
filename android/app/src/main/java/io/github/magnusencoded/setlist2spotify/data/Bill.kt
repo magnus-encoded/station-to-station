@@ -315,6 +315,46 @@ fun setlistPaste(log: StoredLog): String =
     log.songs.joinToString("\n") { it.trim().ifBlank { "@Unknown[]" } }
 
 /**
+ * One value the setlist.fm form wants, ready to be handed over.
+ *
+ * [shown] and [value] differ for exactly one field — the songs, where the value is a
+ * fourteen-line paste and what you want to *read* is "14 songs, in order". Everywhere
+ * else they are the same string.
+ */
+data class FilingField(val label: String, val shown: String, val value: String)
+
+/**
+ * Everything the setlist.fm add form asks for, in the order it asks for it.
+ *
+ * The clipboard holds one thing. The form wants five, and the app screen that knows
+ * them is not on screen once the browser is — so the night's facts were being carried
+ * across the app switch in the Historian's head, which is where a wrong venue comes
+ * from. These go into the notification shade instead, which is the one surface that
+ * stays in reach while Chrome has the foreground.
+ *
+ * Blank fields are dropped rather than posted empty: a **Bill** with no town typed in
+ * should offer four values, not four and a lie. The songs come last because that is
+ * where the form puts them, and they are the one field with a paste syntax
+ * ([setlistPaste]) rather than a plain string.
+ */
+fun filingFields(setlist: FmSetlist, log: StoredLog): List<FilingField> = listOfNotNull(
+    setlist.artist?.name?.takeIf { it.isNotBlank() }?.let { FilingField("Artist", it, it) },
+    setlist.venue?.name?.takeIf { it.isNotBlank() }?.let { FilingField("Venue", it, it) },
+    setlist.venue?.city?.name?.takeIf { it.isNotBlank() }?.let { FilingField("City", it, it) },
+    setlist.eventDate?.takeIf { it.isNotBlank() }?.let { FilingField("Date", it, it) },
+    log.songs.takeIf { it.isNotEmpty() }?.let {
+        FilingField(
+            "Songs",
+            // Gaps are counted in, because they are in the paste and will appear in
+            // the form. "13 songs" beside a fourteen-line paste is the kind of small
+            // disagreement that makes someone distrust the whole handoff.
+            "${it.size} songs, in order" + if (log.gaps > 0) " · ${log.gaps} unnamed" else "",
+            setlistPaste(log),
+        )
+    },
+)
+
+/**
  * The **Gig** an **Act** becomes on the night it plays: a synthetic record carrying
  * the local **Gig** id, so every screen that already knows how to draw an `FmSetlist`
  * draws this one too.

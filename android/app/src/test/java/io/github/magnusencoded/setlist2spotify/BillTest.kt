@@ -4,6 +4,7 @@ import io.github.magnusencoded.setlist2spotify.data.StoredLog
 import io.github.magnusencoded.setlist2spotify.data.artistLabel
 import io.github.magnusencoded.setlist2spotify.data.billNight
 import io.github.magnusencoded.setlist2spotify.data.candidateSongs
+import io.github.magnusencoded.setlist2spotify.data.filingFields
 import io.github.magnusencoded.setlist2spotify.data.FutureRow
 import io.github.magnusencoded.setlist2spotify.data.fmDate
 import io.github.magnusencoded.setlist2spotify.data.futureRows
@@ -148,6 +149,48 @@ class BillTest {
     @Test
     fun `an empty log pastes to nothing rather than to a fabricated set`() {
         assertEquals("", setlistPaste(StoredLog()))
+    }
+
+    // --- What crosses the app switch into setlist.fm's form ---------------------
+
+    @Test
+    fun `the filing carries every field the form asks for, in the form's own order`() {
+        val gig = localGigSetlist("local-1", "Villskudd", LocalDate.of(2026, 8, 7), "Ringnes Festival 2026", "Gjerdrum")
+        val fields = filingFields(gig, StoredLog(songs = listOf("A", "B")))
+        assertEquals(listOf("Artist", "Venue", "City", "Date", "Songs"), fields.map { it.label })
+        assertEquals("Villskudd", fields[0].value)
+        assertEquals("Ringnes Festival 2026", fields[1].value)
+        assertEquals("Gjerdrum", fields[2].value)
+        assertEquals("07-08-2026", fields[3].value)
+        // The songs field hands over the paste, not the summary line beside it.
+        assertEquals("A\nB", fields[4].value)
+        assertEquals("2 songs, in order", fields[4].shown)
+    }
+
+    @Test
+    fun `a field nobody typed in is left out rather than offered blank`() {
+        // A Bill with no town gets four values. A fifth, empty, would be a value to
+        // paste that says nothing — worse than the absence it is hiding.
+        val gig = localGigSetlist("local-1", "Enok Monk", LocalDate.of(2026, 8, 7), "Ringnes", "")
+        val fields = filingFields(gig, StoredLog(songs = listOf("A")))
+        assertEquals(listOf("Artist", "Venue", "Date", "Songs"), fields.map { it.label })
+    }
+
+    @Test
+    fun `nothing logged still files the night itself, minus the songs`() {
+        val gig = localGigSetlist("local-1", "Enok Monk", LocalDate.of(2026, 8, 7), "Ringnes", "Gjerdrum")
+        val fields = filingFields(gig, StoredLog())
+        assertEquals(listOf("Artist", "Venue", "City", "Date"), fields.map { it.label })
+    }
+
+    @Test
+    fun `the songs line counts gaps in, because the paste does`() {
+        // "1 song" beside a two-line paste is the small disagreement that makes
+        // someone distrust the whole handoff.
+        val gig = localGigSetlist("local-1", "Villskudd", LocalDate.of(2026, 8, 7), "Ringnes", "")
+        val songs = filingFields(gig, StoredLog(songs = listOf("A", ""))).first { it.label == "Songs" }
+        assertEquals("2 songs, in order · 1 unnamed", songs.shown)
+        assertEquals("A\n@Unknown[]", songs.value)
     }
 
     // --- Where the Historian is sent -------------------------------------------

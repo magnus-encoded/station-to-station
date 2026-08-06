@@ -131,6 +131,7 @@ import io.github.magnusencoded.setlist2spotify.data.StoredLog
 import io.github.magnusencoded.setlist2spotify.data.isLocal
 import io.github.magnusencoded.setlist2spotify.data.setlistEditEntry
 import io.github.magnusencoded.setlist2spotify.data.futureRows
+import io.github.magnusencoded.setlist2spotify.data.postFiling
 import io.github.magnusencoded.setlist2spotify.data.setlistPaste
 import io.github.magnusencoded.setlist2spotify.data.StoredMedia
 import io.github.magnusencoded.setlist2spotify.data.gigInviteUri
@@ -1592,17 +1593,39 @@ fun StationEventScreen(
     // clipboard is the entire channel — setlist.fm's form takes no prefill parameters
     // and its Text Field editor takes a whole ordered set in one paste — so the copy
     // and the door open together, announced, on a tap that says it will.
+    //
+    // The songs are one of five things the form wants, and the other four were crossing
+    // the app switch in the Historian's memory because this screen is gone the moment
+    // the browser is up. `postFiling` parks all five in the notification shade, which is
+    // the one surface still in reach of Chrome. Songs stay on the clipboard as well —
+    // the shade is an upgrade to the handoff, never a gate on it, so a denied
+    // notification permission leaves this behaving exactly as it always did.
     val publish: () -> Unit = publish@{
         val s = setlist ?: return@publish
         val clip = context.getSystemService(ClipboardManager::class.java)
         clip?.setPrimaryClip(ClipData.newPlainText("setlist", setlistPaste(log)))
+        postFiling(context, s, log)
         Toast.makeText(
             context,
             if (log.songs.isEmpty()) "Nothing logged yet — the gig itself is still worth adding."
-            else "${log.songs.size} songs copied. Paste them into the song field.",
+            else "${log.songs.size} songs copied. The rest is in your notifications.",
             Toast.LENGTH_LONG,
         ).show()
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(setlistEditEntry(s))))
+    }
+    // Asked for on the way to publishing, never on launch, and the answer does not
+    // gate anything: whichever way it goes, `publish` runs straight after.
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { publish() }
+    val onPublish: () -> Unit = {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
+            == PackageManager.PERMISSION_GRANTED
+        ) {
+            publish()
+        } else {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
     var adopting by remember { mutableStateOf(false) }
 
@@ -1677,7 +1700,7 @@ fun StationEventScreen(
                         "‹ copy the set and open setlist.fm",
                         color = Amber,
                         fontSize = 13.sp,
-                        modifier = Modifier.clickable(onClick = publish).padding(vertical = 6.dp),
+                        modifier = Modifier.clickable(onClick = onPublish).padding(vertical = 6.dp),
                     )
                     if (localGig) {
                         Text(
@@ -1920,7 +1943,7 @@ fun StationEventScreen(
                                     // nothing for half the night is a dead gesture, and
                                     // this one publishes nothing by itself anyway — it
                                     // fills the clipboard and opens their form.
-                                    canLog -> publish()
+                                    canLog -> onPublish()
                                     planAhead && !added -> onAddToCalendar()
                                     planAhead && added -> onInvite()
                                     canConvert -> {
