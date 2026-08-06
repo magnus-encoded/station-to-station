@@ -10,7 +10,6 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
-import io.github.magnusencoded.setlist2spotify.R
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
 
 /**
@@ -109,7 +108,7 @@ fun postFiling(context: Context, setlist: FmSetlist, log: StoredLog) {
         manager.notify(
             FILING_SUMMARY_ID + 1 + i,
             Notification.Builder(context, FILING_CHANNEL)
-                .setSmallIcon(R.mipmap.ic_launcher)
+                .setSmallIcon(android.R.drawable.ic_menu_edit)
                 .setContentTitle(field.label)
                 .setContentText(field.shown)
                 // The songs are a paste, not a line: expanded, the shade shows what is
@@ -126,7 +125,7 @@ fun postFiling(context: Context, setlist: FmSetlist, log: StoredLog) {
     manager.notify(
         FILING_SUMMARY_ID,
         Notification.Builder(context, FILING_CHANNEL)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(android.R.drawable.ic_menu_edit)
             .setContentTitle("Filing ${setlist.artist?.name ?: "this night"}")
             .setContentText("Tap a value to copy it, then paste. Swipe to finish.")
             .setGroup(FILING_GROUP)
