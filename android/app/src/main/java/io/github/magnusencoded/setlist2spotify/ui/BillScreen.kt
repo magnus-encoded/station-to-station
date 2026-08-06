@@ -372,12 +372,11 @@ fun LogEditor(
     published: Int?,
     onChange: (List<String>) -> Unit,
     onClosed: (Boolean) -> Unit,
-    /** A song the owner knows this band plays, used to find the right namesake. */
+    /** The typed song, used to find the right namesake instead of being logged. */
     onDisambiguate: (String) -> Unit = {},
     searching: Boolean = false,
 ) {
     var typed by remember { mutableStateOf("") }
-    var knownSong by remember { mutableStateOf("") }
     val chosen = log.songs
     val remaining = candidates.filterNot { c -> chosen.any { it.equals(c, ignoreCase = true) } }
     Column(Modifier.padding(horizontal = 20.dp)) {
@@ -437,6 +436,30 @@ fun LogEditor(
                     .clickable { onChange(chosen + typed.trim()); typed = "" }
                     .padding(vertical = 10.dp),
             )
+            // The way out of a wrong match, on the song already typed above. It used to
+            // have a field of its own asking "name a song you know they play" — which is
+            // the same song: one you just heard them play is one you know they play, so
+            // the screen asked twice for a title you had already given it. Two fields
+            // wanting the same thing is a question about which, and there is no answer.
+            //
+            // A picker would be worse still: it offers five identical names, and the
+            // names being identical is the entire problem. A title is answerable.
+            //
+            // Only the tap decides where it goes. "+ add" puts it in the **Log**;
+            // this looks the band up and writes nothing — naming a song to identify a
+            // band is not a claim they played it tonight, and that rule survives the
+            // fields merging because the actions stayed separate.
+            if (poolArtist.isNotBlank()) {
+                Text(
+                    if (searching) "looking for a band that plays it…"
+                    else "→ not them? find who plays \"${typed.trim()}\"",
+                    color = if (searching) Faint else Slate,
+                    fontSize = 13.sp,
+                    modifier = Modifier
+                        .clickable(enabled = !searching) { onDisambiguate(typed.trim()) }
+                        .padding(vertical = 10.dp),
+                )
+            }
         }
         Text(
             "+ they played one I can't name",
@@ -458,27 +481,6 @@ fun LogEditor(
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
             )
-            // The way out of a wrong match, and it asks the one question a person in a
-            // field can actually answer. A picker would offer five identical names.
-            if (poolArtist.isNotBlank()) {
-                StationField(
-                    value = knownSong,
-                    onValueChange = { knownSong = it },
-                    label = "not them? name a song you know they play",
-                    imeDone = true,
-                )
-                if (knownSong.isNotBlank()) {
-                    Text(
-                        if (searching) "looking for a band that plays it…"
-                        else "→ find the right ${poolArtist.substringBefore(" (")}",
-                        color = if (searching) Faint else Amber,
-                        fontSize = 13.sp,
-                        modifier = Modifier
-                            .clickable(enabled = !searching) { onDisambiguate(knownSong.trim()) }
-                            .padding(vertical = 10.dp),
-                    )
-                }
-            }
             Spacer(Modifier.height(4.dp))
             remaining.forEach { song ->
                 Row(
