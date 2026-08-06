@@ -1531,6 +1531,24 @@ fun StationEventScreen(
     // Silent when permission isn't there yet — same guard as the prompt above,
     // so a gig already granted access just re-searches without another tap.
     LaunchedEffect(setlist?.id) { viewModel.loadGigPhotoSuggestions() }
+    // The disambiguation's answer, either way. It runs from this screen and until
+    // now landed nowhere: "found them, songs are from X" was written into state and
+    // no screen but Friends renders a notice, so the one gesture whose whole point
+    // is to tell you *which* band you got told you nothing — and a dead end, which
+    // deliberately leaves the old pool alone, was indistinguishable from success.
+    // Toast because that is already how this screen answers publish and calendar.
+    LaunchedEffect(state.notice) {
+        state.notice?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            viewModel.consumeNotice()
+        }
+    }
+    LaunchedEffect(state.error) {
+        state.error?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            viewModel.consumeError()
+        }
+    }
     var viewerUri by remember { mutableStateOf<Uri?>(null) }
     // Where the viewer should open — set when a stamped song on the spine is tapped,
     // so the recording lands on that song instead of at the top of the night.

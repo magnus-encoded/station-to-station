@@ -1208,19 +1208,27 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     val sets = runCatching { setlistFm.artistSetlists(artist.mbid).setlist }
                         .getOrNull() ?: continue
                     if (!playsSong(sets, song)) continue
+                    val label = artistLabel(artist.name, artist.disambiguation)
+                    val pool = candidateSongs(sets)
                     editBill(bill.id) { b ->
                         b.copy(
                             acts = b.acts.mapIndexed { j, a ->
                                 if (j != index) a else a.copy(
-                                    candidates = candidateSongs(sets),
-                                    matchedArtist = artistLabel(artist.name, artist.disambiguation),
+                                    candidates = pool,
+                                    matchedArtist = label,
                                     mbid = artist.mbid,
                                     tried = true,
                                 )
                             },
                         )
                     }
-                    _state.update { it.copy(notice = "Found them — songs are from ${artist.name}.") }
+                    // The label, never the bare name. The name is the ambiguous string
+                    // — five bands answer to it — so "songs are from Silent Majority"
+                    // confirms nothing at all. What distinguishes them is the
+                    // disambiguation, and the song count says the swap actually landed.
+                    _state.update {
+                        it.copy(notice = "$label — ${pool.size} songs, from \"${song.trim()}\".")
+                    }
                     return@launch
                 }
                 // Honest dead end. The pool is left exactly as it was rather than
