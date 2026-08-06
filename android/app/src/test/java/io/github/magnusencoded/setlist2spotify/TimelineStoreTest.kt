@@ -1,6 +1,7 @@
 package io.github.magnusencoded.setlist2spotify
 
 import io.github.magnusencoded.setlist2spotify.data.StoredAttendance
+import io.github.magnusencoded.setlist2spotify.data.StoredLog
 import io.github.magnusencoded.setlist2spotify.data.StoredMedia
 import io.github.magnusencoded.setlist2spotify.data.StoredPlaylist
 import io.github.magnusencoded.setlist2spotify.data.TimelineStore
@@ -573,5 +574,73 @@ class TimelineStoreTest {
         val cached = store.load()
         assertEquals(listOf("content://photo.jpg"), cached.photosBySetlist["a1"])
         assertEquals(2, cached.media()["a1"]?.size)
+    }
+
+    // --- Deleting a local gig: fenced by what it refuses ------------------------
+
+    @Test
+    fun `a local gig deletes with everything hanging off it`() = runBlocking {
+        val store = store()
+        val id = store.createLocalGig("06-08-2026", "Villskudd", "Ringnes Festival 2026")
+        store.saveAttendance(id, StoredAttendance(provenance = StoredAttendance.Provenance.CHECKED_IN))
+        store.saveLog(id, StoredLog(songs = listOf("Ei vise")))
+        assertTrue(store.deleteGig(id))
+        val cached = store.load()
+        assertTrue(cached.gigs.isEmpty())
+        assertTrue(cached.gigPlanned.isEmpty())
+        // The whole reason this exists: removePlanned rightly refuses to erase a
+        // check-in, which used to strand a claim for a night nothing pointed at.
+        assertTrue(cached.gigAttendance.isEmpty())
+        assertTrue(cached.gigLogs.isEmpty())
+    }
+
+    @Test
+    fun `a gig with a setlist-fm id is never deleted`() = runBlocking {
+        val store = store()
+        val id = store.createLocalGig("06-08-2026", "Silent Majority", "Ringnes")
+        store.adoptSetlistId(id, "abc123")
+        // It is no longer only ours — other people's lines can meet at it now.
+        assertFalse(store.deleteGig(id))
+        assertEquals(1, store.load().gigs.size)
+    }
+
+    @Test
+    fun `a gig with media on it is kept, because a photographed night is not a mistap`() = runBlocking {
+        val store = store()
+        val id = store.createLocalGig("06-08-2026", "Du&Du", "Ringnes")
+        store.saveMedia(id, listOf(photo("content://ringnes.jpg")))
+        assertFalse(store.deleteGig(id))
+        assertEquals(1, store.load().gigMedia[id]?.size)
+    }
+
+    @Test
+    fun `deleting an unknown gig is a no-op, not a crash`() = runBlocking {
+        assertFalse(store().deleteGig("nothing-here"))
+    }
+
+    @Test
+    fun `the deliberate delete takes the media with it`() = runBlocking {
+        val store = store()
+        val id = store.createLocalGig("06-08-2026", "Truls Lorentzen", "Ringnes")
+        store.saveMedia(id, listOf(photo("content://ringnes.jpg")))
+        // The undo of a mistap still refuses; a person reading the night's own
+        // screen can see what is on it and is allowed to mean it.
+        assertFalse(store.deleteGig(id))
+        assertTrue(store.deleteGig(id, withMedia = true))
+        val cached = store.load()
+        assertTrue(cached.gigs.isEmpty())
+        assertTrue(cached.gigMedia.isEmpty())
+    }
+
+    @Test
+    fun `adoption outranks the deliberate delete`() = runBlocking {
+        val store = store()
+        val id = store.createLocalGig("06-08-2026", "Silent Majority", "Ringnes")
+        store.saveMedia(id, listOf(photo("content://ringnes.jpg")))
+        store.adoptSetlistId(id, "abc123")
+        // withMedia lifts the media guard and nothing else: a night other people's
+        // lines can meet at is not deletable by any route.
+        assertFalse(store.deleteGig(id, withMedia = true))
+        assertEquals(1, store.load().gigs.size)
     }
 }

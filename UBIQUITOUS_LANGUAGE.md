@@ -37,6 +37,15 @@ these words exactly; if a new concept appears, name it here **before** building 
 | **Festival name** | The festival's real name — "Øyafestivalen 2025", not the venue "Tøyenparken". Comes from setlist.fm's festival entity, scraped from the setlist page; the venue name is the fallback. | venue, event name |
 | **Absorb** | What my **Festival** does to a friend's cluster at the same venue and dates: it folds in, marking the festival shared, instead of sitting beside it as a second node. | merge (reserved for lines), group |
 | **Attended** | On someone's setlist.fm attended list. The *only* thing that makes a **Gig** theirs. | went to, logged |
+| **Bill** | A **Festival** whose **Gigs** don't exist yet: a name, a venue, a date range, and a list of **Acts** with no day each. What a poster tells you before you get there. One **Node**, above today, and it stays one **Node** as its **Acts** are dated. | lineup (fine informally), poster, programme |
+| **Act** | A name on a **Bill**. Not a **Gig** — it has no date, and it may never play. It *becomes* a **Gig** the moment someone standing there says which night it played. | artist, slot, booking |
+| **Maybe** | An **Act** the poster itself hedges — "bringing guitars, we'll see". A **Bill** that can only express "confirmed" is lying about what is known. | tentative, unconfirmed (fine) |
+| **Surprise** | An **Act** that was never on the **Bill** and walked on stage anyway. Added dated, in the field, in one gesture — it is only ever discovered *after* it happened. | unannounced, secret set |
+| **Local** | A **Gig** with no setlist.fm id: it exists on this phone and nowhere else. A property of the *record*, not of how the claim was made — so it is worth showing, where "self-reported" (true of nearly every **Gig** here) is not. A **Local** **Gig** cannot be a **Crossing**, which is what the setlist.fm nudge is trying to fix. | self-logged, unverified, private, offline |
+| **Log** | The ordered songs *I* observed at a **Gig**, written down on my own device. Mine, first-hand, and **never setlist.fm's setlist** — that is the published shared record, this is the witness statement it may one day be built from. A **Gig** has at most one **Log**; a **Log** without a **Gig** is not a thing. | setlist (reserved — that word means setlist.fm's record), notes, capture, transcript |
+| **Open** / **Closed** | A **Log**'s own account of whether it is finished. **Open** is the default and means *"there may be more"*; **Closed** is a claim only its owner makes, deliberately, saying *"that was the whole set"*. A capture built by ticking off songs an artist has played before is **incomplete by construction** — it cannot reach a new song, a cover, or an artist with no history — so **Open** is the honest starting state and nothing but a person may change it. | complete/incomplete (fine informally), done, finalised |
+| **Gap** | An entry in a **Log** for a song that *was played* and could not be named. A stated **Gap** is a true fact and belongs in the record; the same song silently left out is a **Log** lying about its own certainty. | missing, unknown (fine), blank |
+| **Publish** | Handing a **Log** to setlist.fm — their web form, their login, our clipboard. It is a **deliberate act afterwards**, never a button offered mid-set, and it **never** changes a **Log** from **Open** to **Closed**: setlist.fm has nowhere to keep that fact, so a published set that came back would look finished when it isn't. | upload, sync, submit (fine), contribute |
 
 ## Ownership and sharing
 
@@ -87,6 +96,16 @@ never makes them a **Contact**, and a **Contact** need not be on setlist.fm at a
 ## Relationships
 
 - A **Line** belongs to exactly one person and occupies one **Spine** or **Lane**.
+- An **Act** is not on any **Line**. Only the **Gig** it becomes is, and only once it has a
+  date — a **Bill** may never produce a **Gig** at all, and that is not a failure state.
+- A **Log** belongs to one **Gig** and to me. It outlives **Publish** and is never replaced by
+  what comes back from setlist.fm: where the two differ, both are shown and neither is merged.
+- **Publish** is one-way. Nothing setlist.fm returns can make a **Log** **Closed**, because
+  their record has no field for it — the knowledge would be destroyed by the round trip, so
+  it is never allowed to make the trip.
+- An **Act** dated in the field is **Attended** on the strength of standing there, which is
+  the same evidence a check-in carries. Its **Gig** has no setlist.fm id and so cannot be a
+  **Crossing** until one is adopted — that is what the setlist.fm nudge is *for*.
 - A **Gig** sits on every **Line** whose owner **Attended** it.
 - A **Gig** attended by two people produces exactly one **Crossing**, on the owner's **Spine**.
 - A **Festival** is a set of **Gigs**; it **Absorbs** a friend's cluster rather than duplicating it.

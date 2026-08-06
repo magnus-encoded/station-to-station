@@ -321,6 +321,19 @@ data class TimelineCache(
      * arrangement is #75's whole subject, and a speculative field would prejudge it.
      */
     val gigMedia: Map<String, List<StoredMedia>> = emptyMap(),
+    /**
+     * The **Bills** on the wall, by id (#34/#93). Not keyed by a **Gig** because a
+     * **Bill** is what exists *before* there are any: it holds names, not nights.
+     * The **Gigs** it eventually mints are ordinary entries in [gigs]/[gigPlanned],
+     * pointed at from [StoredAct.gigId].
+     */
+    val bills: Map<String, StoredBill> = emptyMap(),
+    /**
+     * My own **Log** of each night, by **Gig** id. Keyed like every other gig map, so
+     * adoption moves nothing: the notes I took survive the night acquiring a
+     * setlist.fm id, which is the entire point of keeping them apart from one.
+     */
+    val gigLogs: Map<String, StoredLog> = emptyMap(),
 ) {
     /**
      * The id this gig is known by *outside* the store: its setlist.fm id where it
@@ -349,6 +362,7 @@ data class TimelineCache(
     fun calendarEvents(): Map<String, String> = gigCalendarEvent.mapKeys { keyOf(it.key) }
     fun playlists(): Map<String, List<StoredPlaylist>> = gigPlaylists.mapKeys { keyOf(it.key) }
     fun planned(): List<FmSetlist> = gigPlanned.values.toList()
+    fun logs(): Map<String, StoredLog> = gigLogs.mapKeys { keyOf(it.key) }
 }
 
 /**
@@ -551,6 +565,50 @@ class TimelineStore(
     }
 
     /**
+     * Deletes a **Local** **Gig** and everything hanging off it — the mistyped
+     * **Surprise**, the act tapped by accident. Returns whether it went.
+     *
+     * The only destructive operation in this store, so it is fenced by what it
+     * refuses rather than by what it does:
+     *
+     * - **A gig with a setlist.fm id stays.** It is no longer only ours; it is a
+     *   night other people's lines can meet at, and adoption is not undone by a
+     *   long press.
+     * - **A gig with any media stays, unless [withMedia].** Media is irreplaceable
+     *   and a night someone photographed is not a mistap. The caller keeps the gig
+     *   instead — see `unmarkAct`, which falls back to simply forgetting it was on
+     *   a **Bill**. [withMedia] is the deliberate delete from the night's own
+     *   screen, where the person is looking at the night and means it; the mistap
+     *   undo never passes it.
+     *
+     * Everything keyed by the gig goes together. A half-delete would leave an
+     * attendance claim for a night that no longer exists, which is worse than
+     * either outcome — `removePlanned` deliberately refuses to erase a check-in,
+     * and that refusal is exactly what strands one here.
+     */
+    suspend fun deleteGig(gigId: String, withMedia: Boolean = false): Boolean {
+        var deleted = false
+        writeMerged { cache ->
+            val id = cache.gigIdOrNull(gigId) ?: return@writeMerged cache
+            val gig = cache.gigs[id] ?: return@writeMerged cache
+            if (gig.setlistId != null) return@writeMerged cache
+            if (!withMedia && cache.gigMedia[id].orEmpty().isNotEmpty()) return@writeMerged cache
+            deleted = true
+            cache.copy(
+                gigs = cache.gigs - id,
+                gigPlanned = cache.gigPlanned - id,
+                gigAttendance = cache.gigAttendance - id,
+                gigLogs = cache.gigLogs - id,
+                gigMedia = cache.gigMedia - id,
+                gigCalendarEvent = cache.gigCalendarEvent - id,
+                gigPlaylists = cache.gigPlaylists - id,
+                gigSongOffsets = cache.gigSongOffsets - id,
+            )
+        }
+        return deleted
+    }
+
+    /**
      * Two records found to be the same night become one — the case where a night
      * added by hand is later also imported.
      *
@@ -595,10 +653,37 @@ class TimelineStore(
                 gigAttendance = cache.gigAttendance.folded(older.id, gone.id) { k, _ -> k },
                 gigCalendarEvent = cache.gigCalendarEvent.folded(older.id, gone.id) { k, _ -> k },
                 gigPlanned = cache.gigPlanned.folded(older.id, gone.id) { k, _ -> k },
+                // The longer **Log** survives, and stays **Open** unless both were
+                // **Closed** — a merge must not upgrade a claim nobody made.
+                gigLogs = cache.gigLogs.folded(older.id, gone.id) { k, d ->
+                    (if (d.songs.size > k.songs.size) d else k).copy(closed = k.closed && d.closed)
+                },
             )
         }
         return survivor
     }
+
+    /**
+     * My **Log** of one night, replacing whatever was there — this is the current
+     * state of one observation, not an append-only journal. Nothing outside the app
+     * ever writes here: **Publish** is one-way, and a setlist coming back from
+     * setlist.fm must not touch it.
+     */
+    suspend fun saveLog(gigId: String, log: StoredLog): Unit = writeMerged {
+        val (c, id) = it.withGig(gigId)
+        c.copy(gigLogs = c.gigLogs + (id to log))
+    }
+
+    /** A **Bill**, replacing whatever was under its id. The whole record, every time. */
+    suspend fun saveBill(bill: StoredBill): Unit = writeMerged {
+        it.copy(bills = it.bills + (bill.id to bill))
+    }
+
+    /**
+     * Takes a **Bill** off the wall. The **Gigs** its **Acts** became are *not*
+     * touched: they are nights that happened, and they outlive the poster.
+     */
+    suspend fun removeBill(billId: String): Unit = writeMerged { it.copy(bills = it.bills - billId) }
 
     /**
      * Drops one playlist link from a night — the Spotify playlist itself was deleted

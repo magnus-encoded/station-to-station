@@ -1,6 +1,8 @@
 package io.github.magnusencoded.setlist2spotify.ui
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -123,7 +125,14 @@ import io.github.magnusencoded.setlist2spotify.MediaThumb
 import io.github.magnusencoded.setlist2spotify.NOT_STAMPED
 import io.github.magnusencoded.setlist2spotify.data.DeviceLocation
 import io.github.magnusencoded.setlist2spotify.data.Friend
+import io.github.magnusencoded.setlist2spotify.data.FutureRow
 import io.github.magnusencoded.setlist2spotify.data.StoredAttendance
+import io.github.magnusencoded.setlist2spotify.data.StoredLog
+import io.github.magnusencoded.setlist2spotify.data.isLocal
+import io.github.magnusencoded.setlist2spotify.data.setlistEditEntry
+import io.github.magnusencoded.setlist2spotify.data.futureRows
+import io.github.magnusencoded.setlist2spotify.data.postFiling
+import io.github.magnusencoded.setlist2spotify.data.setlistPaste
 import io.github.magnusencoded.setlist2spotify.data.StoredMedia
 import io.github.magnusencoded.setlist2spotify.data.gigInviteUri
 import io.github.magnusencoded.setlist2spotify.data.photos.PhotoRepository
@@ -221,6 +230,7 @@ fun StationTimelineScreen(
     // Reachable from both the future edge and the empty spine: a collector with no
     // history at all still has a ticket for something.
     var adding by remember { mutableStateOf(false) }
+    var addingBill by remember { mutableStateOf(false) }
 
     // Check-in (#33): opening the timeline takes one fix and compares it against
     // what's already known. Foreground, one-shot, nothing scheduled.
@@ -289,13 +299,22 @@ fun StationTimelineScreen(
                     onDismiss = { adding = false },
                 )
             }
+            if (addingBill) {
+                AddBillDialog(
+                    onAdd = { name, city, from, to, lineup ->
+                        viewModel.addBill(name, city, from, to, lineup)
+                        addingBill = false
+                    },
+                    onDismiss = { addingBill = false },
+                )
+            }
             when {
                 state.setlistsLoading && state.setlists.isEmpty() ->
                     CircularProgressIndicator(color = Amber, modifier = Modifier.align(Alignment.Center))
 
                 // One gig I'm going to and nothing else is a timeline, not an empty
                 // spine — it is exactly the collector's cold start.
-                state.setlists.isEmpty() && state.plannedGigs.isEmpty() ->
+                state.setlists.isEmpty() && state.plannedGigs.isEmpty() && state.bills.isEmpty() ->
                     EmptyTimeline(onAdd = onOpenImport, onPlan = { adding = true })
 
                 else -> {
@@ -347,6 +366,7 @@ fun StationTimelineScreen(
                     // Pulling down at the top of the line opens a gap toward the future:
                     // the space where planning will live. It springs shut on release.
                     val scope = rememberCoroutineScope()
+                    var planningOpen by remember { mutableStateOf(false) }
                     val pull = remember { Animatable(0f) }
                     val pullMax = with(LocalDensity.current) { 96.dp.toPx() }
                     val pullNest = remember {
@@ -364,6 +384,11 @@ fun StationTimelineScreen(
                             }
 
                             override suspend fun onPreFling(available: Velocity): Velocity {
+                                // Pulled far enough, the curtain latches instead of
+                                // springing shut. It was a signpost pointing at a place
+                                // that did not exist; planning exists now, so the
+                                // gesture that reaches for it should arrive somewhere.
+                                if (pull.value >= pullMax * 0.6f) planningOpen = true
                                 pull.animateTo(0f)
                                 return Velocity.Zero
                             }
@@ -412,6 +437,15 @@ fun StationTimelineScreen(
                             )
                         }
                         LaunchedEffect(rows, lanes) { logWovenRows(rows, lanes) }
+                        // Everything above today, in one date-ordered list — furthest
+                        // out first, the same descending order the attended rows use.
+                        // Hoisted out of the LazyColumn because the deep-link scroll
+                        // below counts it too, and the two must not drift.
+                        val future = remember(state.bills, state.plannedGigs) {
+                            val billGigs =
+                                state.bills.flatMap { b -> b.acts.mapNotNull { it.gigId } }.toSet()
+                            futureRows(state.bills, state.plannedGigs.filterNot { it.id in billGigs })
+                        }
 
                         // A station-to-station:// link names a gig, and only here can a
                         // gig be turned into a place: one inside a collapsed festival
@@ -446,8 +480,11 @@ fun StationTimelineScreen(
                                 return@LaunchedEffect
                             }
                             // The rows don't start at item 0: the future prompt is, and
-                            // every gig I'm going to sits between it and them.
-                            listState.animateScrollToItem(at + 1 + state.plannedGigs.size)
+                            // every Bill and every gig I'm going to sits between it and
+                            // them. Counted off the same list the LazyColumn emits, so
+                            // the two cannot drift — the earlier `plannedGigs.size` was
+                            // already wrong once a Bill was on the wall.
+                            listState.animateScrollToItem(at + 1 + future.size)
                             viewModel.consumeGigLink()
                         }
 
@@ -476,29 +513,74 @@ fun StationTimelineScreen(
                                     )
                                 },
                         ) {
-                            // The future edge: scroll up toward what's ahead.
+                            // The top of the line. Three rows used to sit here, one of
+                            // which — "↑ THE FUTURE" — explained a direction the layout
+                            // already states by being above today. Gone.
+                            //
+                            // The two ways in show when the curtain has been pulled
+                            // open, or when there is nothing above today to point at
+                            // them: a line with a Bill and a ticket on it needs no
+                            // caption, an empty one has nothing to learn from.
                             item {
                                 FuturePrompt(
-                                    planned = state.plannedGigs.size,
+                                    open = planningOpen || future.isEmpty(),
                                     loading = state.planningLoading,
-                                    onAdd = { adding = true },
+                                    onAdd = { adding = true; planningOpen = false },
+                                    onAddBill = { addingBill = true; planningOpen = false },
                                 )
                             }
-                            // The gigs I'm going to, above today, furthest out first —
-                            // up is always later, and this is the same descending order
-                            // the attended rows below use. Never grouped into festivals:
-                            // a festival is a shape read off nights that happened.
-                            items(state.plannedGigs, key = { "planned-${it.id}" }) { gig ->
-                                TimelineItem(
-                                    setlist = gig,
-                                    highlight = false,
-                                    planned = true,
-                                    laneWidth = laneWidth,
-                                    onClick = {
-                                        viewModel.openShow(gig)
-                                        onOpenEvent()
-                                    },
-                                )
+                            // Everything above today, in one date-ordered list —
+                            // furthest out first, the same descending order the attended
+                            // rows below use. Bills and tickets interleave because they
+                            // sit on the same Line: drawing Bills as a block above the
+                            // tickets put a festival starting tonight above a gig a week
+                            // out, and "up is always later" is not a rule a new kind of
+                            // node is exempt from.
+                            //
+                            // A Gig an Act became is drawn inside its Bill, never here:
+                            // the Bill is its Festival node, and one night must not be
+                            // two nodes on one line. Planned gigs are still not grouped
+                            // into festivals — a festival is a shape read off nights
+                            // that happened, and a Bill is the announced-lineup case.
+                            items(
+                                future,
+                                key = { row ->
+                                    when (row) {
+                                        is FutureRow.OnBill -> "bill-${row.bill.id}"
+                                        is FutureRow.Ticket -> "planned-${row.gig.id}"
+                                    }
+                                },
+                            ) { row ->
+                                when (row) {
+                                    is FutureRow.OnBill -> BillItem(
+                                        bill = row.bill,
+                                        open = row.bill.id in expanded,
+                                        fetching = state.billFetching == row.bill.id,
+                                        onToggle = { viewModel.toggleFestival(row.bill.id) },
+                                        onPlayed = { i -> viewModel.markActPlayed(row.bill.id, i) },
+                                        onUnmark = { i -> viewModel.unmarkAct(row.bill.id, i) },
+                                        onOpenGig = { gigId ->
+                                            state.plannedGigs.firstOrNull { it.id == gigId }?.let {
+                                                viewModel.openShow(it)
+                                                onOpenEvent()
+                                            }
+                                        },
+                                        onSurprise = { name -> viewModel.addSurpriseAct(row.bill.id, name) },
+                                        onFetchCandidates = { viewModel.fetchCandidates(row.bill.id) },
+                                        onRemove = { viewModel.removeBill(row.bill.id) },
+                                    )
+
+                                    is FutureRow.Ticket -> TimelineItem(
+                                        setlist = row.gig,
+                                        highlight = false,
+                                        planned = true,
+                                        laneWidth = laneWidth,
+                                        onClick = {
+                                            viewModel.openShow(row.gig)
+                                            onOpenEvent()
+                                        },
+                                    )
+                                }
                             }
                             itemsIndexed(rows, key = { _, row -> row.key }) { index, row ->
                                 val isFirst = index == 0
@@ -565,8 +647,12 @@ fun StationTimelineScreen(
 
 /**
  * The gap that opens when you pull down past the top of your line: the line keeps
- * going up, into the shows you haven't been to yet. ponytail: a signpost, not a
- * destination — releasing springs it shut until planning is somewhere to go.
+ * going up, into the shows you haven't been to yet.
+ *
+ * It is no longer only a signpost. Pulled far enough it latches the two ways in
+ * open — a gig you're going to, or a festival lineup — which is what let the two
+ * permanent add-rows come off the top of the timeline. A short pull still springs
+ * shut, so the gesture stays cheap to abandon.
  */
 @Composable
 private fun PlanningPull(progress: () -> Float, heightPx: () -> Float) {
@@ -581,7 +667,7 @@ private fun PlanningPull(progress: () -> Float, heightPx: () -> Float) {
         Box(Modifier.width(2.dp).height(h * 0.4f).background(LineCol))
         Spacer(Modifier.height(6.dp))
         Text("↑  PLANNING", color = Slate, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp)
-        Text("the shows ahead", color = Faint, fontSize = 11.sp)
+        Text("keep pulling to add something ahead", color = Faint, fontSize = 11.sp)
     }
 }
 
@@ -590,23 +676,39 @@ private fun PlanningPull(progress: () -> Float, heightPx: () -> Float) {
  * a ticket for hang off it, so this is a way in rather than the dead end it was.
  */
 @Composable
-private fun FuturePrompt(planned: Int, loading: Boolean, onAdd: () -> Unit) {
+private fun FuturePrompt(open: Boolean, loading: Boolean, onAdd: () -> Unit, onAddBill: () -> Unit) {
+    if (loading) {
+        Text(
+            "Looking it up on setlist.fm…",
+            color = Faint,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 2.dp, bottom = 14.dp),
+        )
+        return
+    }
+    // Nothing at all when the curtain is shut and the line already runs on above
+    // today. "↑ THE FUTURE" captioned a direction that being above today already
+    // states, and two permanent add-rows made three lines at the top of a timeline
+    // for a thing you do twice a year.
+    if (!open) return
     Column(
         Modifier
             .fillMaxWidth()
-            .clickable(onClick = onAdd)
             .padding(start = 20.dp, end = 20.dp, top = 2.dp, bottom = 18.dp),
     ) {
-        Text("↑  THE FUTURE", color = Slate, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp)
-        Spacer(Modifier.height(4.dp))
         Text(
-            when {
-                loading -> "Looking it up on setlist.fm…"
-                planned > 0 -> "+  another gig you're going to"
-                else -> "+  add a gig you're going to"
-            },
-            color = if (loading) Faint else Slate,
-            fontSize = 12.sp,
+            "+  a gig you're going to",
+            color = Slate,
+            fontSize = 13.sp,
+            modifier = Modifier.clickable(onClick = onAdd).padding(vertical = 8.dp),
+        )
+        // The other door: a festival whose lineup is known and whose nights are not,
+        // which the setlist.fm link above cannot express because there is no link.
+        Text(
+            "+  a festival lineup",
+            color = Slate,
+            fontSize = 13.sp,
+            modifier = Modifier.clickable(onClick = onAddBill).padding(vertical = 8.dp),
         )
     }
 }
@@ -688,6 +790,42 @@ private fun CheckInDialog(gig: FmSetlist, onCheckIn: () -> Unit, onDismiss: () -
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text("Not now", color = Faint) }
                 TextButton(onClick = onCheckIn) { Text("Check in", color = Amber) }
+            }
+        }
+    }
+}
+
+/**
+ * The one question a delete has to ask: this night holds the only copy of
+ * [photos] photographs, and they go with it.
+ *
+ * Shown only when that count is above zero. A picture that also lives in the
+ * gallery is a pointer, and stopping someone to confirm a pointer teaches them
+ * to tap through the dialog that mattered.
+ */
+@Composable
+private fun DeleteNightDialog(photos: Int, onDelete: () -> Unit, onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(Raised)
+                .padding(20.dp),
+        ) {
+            Text("Delete this night?", fontFamily = Serif, fontSize = 19.sp, color = Ink)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                if (photos == 1) "Its photograph is only stored here. Deleting the night deletes it."
+                else "Its $photos photographs are only stored here. Deleting the night deletes them.",
+                color = Muted,
+                fontSize = 13.sp,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text("There is no undo.", color = Faint, fontSize = 11.sp)
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("Keep it", color = Faint) }
+                TextButton(onClick = onDelete) { Text("Delete", color = Danger) }
             }
         }
     }
@@ -795,17 +933,19 @@ fun ImportScreen(viewModel: AppViewModel, onBack: () -> Unit, onDone: () -> Unit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun StationField(
+internal fun StationField(
     value: String,
     onValueChange: (String) -> Unit,
     label: String,
     imeDone: Boolean = false,
+    /** A pasted lineup is many lines; every other field here is one. */
+    singleLine: Boolean = true,
 ) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
-        singleLine = true,
+        singleLine = singleLine,
         keyboardOptions = if (imeDone) KeyboardOptions(imeAction = ImeAction.Done) else KeyboardOptions.Default,
         keyboardActions = KeyboardActions.Default,
         colors = OutlinedTextFieldDefaults.colors(
@@ -1428,6 +1568,24 @@ fun StationEventScreen(
     // Silent when permission isn't there yet — same guard as the prompt above,
     // so a gig already granted access just re-searches without another tap.
     LaunchedEffect(setlist?.id) { viewModel.loadGigPhotoSuggestions() }
+    // The disambiguation's answer, either way. It runs from this screen and until
+    // now landed nowhere: "found them, songs are from X" was written into state and
+    // no screen but Friends renders a notice, so the one gesture whose whole point
+    // is to tell you *which* band you got told you nothing — and a dead end, which
+    // deliberately leaves the old pool alone, was indistinguishable from success.
+    // Toast because that is already how this screen answers publish and calendar.
+    LaunchedEffect(state.notice) {
+        state.notice?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            viewModel.consumeNotice()
+        }
+    }
+    LaunchedEffect(state.error) {
+        state.error?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            viewModel.consumeError()
+        }
+    }
     var viewerUri by remember { mutableStateOf<Uri?>(null) }
     // Where the viewer should open — set when a stamped song on the spine is tapped,
     // so the recording lands on that song instead of at the top of the night.
@@ -1449,6 +1607,65 @@ fun StationEventScreen(
     // Only in the plan-ahead window does the swipe do the calendar/invite dance. PAST
     // keeps the setlist.fm crumb, DAY_OF is the check-in — both left to the fall-through
     // below, exactly as they behaved before, so the swipe never contradicts the hint.
+    // --- The Historian's half: my own Log of this night, and where it goes ---------
+    //
+    // A Log makes sense the moment I am known to have been there — a check-in, or a
+    // night this app minted itself, which only ever happens by someone standing in
+    // front of the stage tapping an Act. It stays available *forever* after that:
+    // remembering a song three days later must cost nothing, so nothing below removes
+    // the editor. The clock only decides which action leads.
+    val log = setlist?.let { state.logsByGig[it.id] } ?: StoredLog()
+    // The Act this night was minted from, when it came off a Bill: it carries the
+    // candidate pool and — the part that matters — which artist that pool came from.
+    val act = setlist?.let { viewModel.actFor(it.id) }
+    val localGig = setlist != null && setlist.isLocal()
+    val canLog = setlist != null && (checkedIn || localGig)
+    val leaf = gigLeaf(
+        now = LocalDateTime.now(),
+        window = setlist?.localDate()?.let { nightWindow(it) },
+        checkedIn = checkedIn,
+    )
+    // **Publish**: explicit, labelled, and never a side effect of anything else. The
+    // clipboard is the entire channel — setlist.fm's form takes no prefill parameters
+    // and its Text Field editor takes a whole ordered set in one paste — so the copy
+    // and the door open together, announced, on a tap that says it will.
+    //
+    // The songs are one of five things the form wants, and the other four were crossing
+    // the app switch in the Historian's memory because this screen is gone the moment
+    // the browser is up. `postFiling` parks all five in the notification shade, which is
+    // the one surface still in reach of Chrome. Songs stay on the clipboard as well —
+    // the shade is an upgrade to the handoff, never a gate on it, so a denied
+    // notification permission leaves this behaving exactly as it always did.
+    val publish: () -> Unit = publish@{
+        val s = setlist ?: return@publish
+        val clip = context.getSystemService(ClipboardManager::class.java)
+        clip?.setPrimaryClip(ClipData.newPlainText("setlist", setlistPaste(log)))
+        postFiling(context, s, log)
+        Toast.makeText(
+            context,
+            if (log.songs.isEmpty()) "Nothing logged yet — the gig itself is still worth adding."
+            else "${log.songs.size} songs copied. The rest is in your notifications.",
+            Toast.LENGTH_LONG,
+        ).show()
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(setlistEditEntry(s))))
+    }
+    // Asked for on the way to publishing, never on launch, and the answer does not
+    // gate anything: whichever way it goes, `publish` runs straight after.
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { publish() }
+    val onPublish: () -> Unit = {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
+            == PackageManager.PERMISSION_GRANTED
+        ) {
+            publish()
+        } else {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+    var adopting by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
+
     val plannedTimeState = if (planned) setlist?.localDate()?.let { gigTimeState(LocalDateTime.now(), it) } else null
     val planAhead = planned &&
         plannedTimeState != GigTimeState.PAST && plannedTimeState != GigTimeState.DAY_OF
@@ -1497,7 +1714,57 @@ fun StationEventScreen(
             )
         },
         bottomBar = {
-            if (planned && setlist != null) {
+            if (canLog && setlist != null) {
+                // A night I was at that this app is the record of. Capture is the leaf,
+                // always — the chip in the header is the permanent door to setlist.fm,
+                // so nothing here has to become a handoff when the night ends. The clock
+                // only changes the wording: prompting while you are there, quiet
+                // correction afterwards.
+                Column(
+                    Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        when (leaf) {
+                            GigLeaf.CAPTURE -> "noting the set — add what they play above"
+                            else -> "your log · add anything you remember above"
+                        },
+                        color = Faint,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(vertical = 4.dp),
+                    )
+                    Text(
+                        "‹ copy the set and open setlist.fm",
+                        color = Amber,
+                        fontSize = 13.sp,
+                        modifier = Modifier.clickable(onClick = onPublish).padding(vertical = 6.dp),
+                    )
+                    if (localGig) {
+                        Text(
+                            "it's on setlist.fm now — paste the link",
+                            color = Slate,
+                            fontSize = 13.sp,
+                            modifier = Modifier
+                                .clickable { adopting = true }
+                                .padding(vertical = 6.dp),
+                        )
+                        // Reachable from the night itself, on purpose: the undo on a
+                        // Bill's act needs the Bill to still exist, and a night whose
+                        // poster has been taken down was left with no way out at all.
+                        Text(
+                            "delete this night",
+                            color = Danger,
+                            fontSize = 13.sp,
+                            modifier = Modifier
+                                .clickable {
+                                    if (viewModel.photosLostByDeleting(setlist.id) > 0) deleting = true
+                                    else { viewModel.deleteLocalGig(setlist.id); onBack() }
+                                }
+                                .padding(vertical = 6.dp),
+                        )
+                    }
+                }
+            } else if (planned && setlist != null) {
                 // What a planned gig lets you do follows the clock (#55): plan it while
                 // it's still ahead, check in on the night, nudge setlist.fm once it's
                 // over. An unparseable date can't be placed on that line, so it falls
@@ -1675,6 +1942,19 @@ fun StationEventScreen(
             }
             return@Scaffold
         }
+        if (adopting) {
+            AdoptSetlistDialog(
+                onAdopt = { link -> viewModel.adoptSetlistLink(setlist.id, link); adopting = false },
+                onDismiss = { adopting = false },
+            )
+        }
+        if (deleting) {
+            DeleteNightDialog(
+                photos = viewModel.photosLostByDeleting(setlist.id),
+                onDelete = { deleting = false; viewModel.deleteLocalGig(setlist.id); onBack() },
+                onDismiss = { deleting = false },
+            )
+        }
         val rows = setlist.eventRows()
         val canConvert = setlist.performed().isNotEmpty()
         val offsets = viewModel.songOffsets(recordingMedia?.id, setlist.songs().size)
@@ -1704,7 +1984,7 @@ fun StationEventScreen(
                     // through to that same open-on-setlist.fm, matching their crumb.
                     // Registered even with nothing to convert, or a show with no logged
                     // setlist would be the one screen you can't swipe out of.
-                    .pointerInput(setlist.id, canConvert, planAhead, added) {
+                    .pointerInput(setlist.id, canConvert, planAhead, added, canLog, leaf) {
                         val threshold = 110.dp.toPx()
                         var dragX = 0f
                         detectHorizontalDragGestures(
@@ -1713,6 +1993,15 @@ fun StationEventScreen(
                                 when {
                                     dragX >= threshold -> onBack()
                                     dragX > -threshold -> {}
+                                    // A night I logged: the swipe is the labelled
+                                    // publish, matching the "‹ copy the set and open
+                                    // setlist.fm" hint under it — this file's rule is
+                                    // that the swipe never contradicts the hint. Not
+                                    // gated on the clock: a gesture that silently does
+                                    // nothing for half the night is a dead gesture, and
+                                    // this one publishes nothing by itself anyway — it
+                                    // fills the clipboard and opens their form.
+                                    canLog -> onPublish()
                                     planAhead && !added -> onAddToCalendar()
                                     planAhead && added -> onInvite()
                                     canConvert -> {
@@ -1748,26 +2037,68 @@ fun StationEventScreen(
                                 Spacer(Modifier.width(6.dp))
                                 EventTag(it)
                             }
+                            // The rule this row now follows: a chip that names an
+                            // **external record** opens it; a chip stating a local fact
+                            // (song count, tour, "checked in") does not. That is what
+                            // makes the setlist.fm chip below learnable rather than a
+                            // special case — and it was already true of this one, which
+                            // has always named a Spotify URL and done nothing with it.
                             if (made.isNotEmpty()) {
                                 Spacer(Modifier.width(6.dp))
                                 EventTag(
-                                    if (made.size == 1) "playlist" else "${made.size} playlists",
+                                    if (made.size == 1) "playlist ↗" else "${made.size} playlists ↗",
                                     color = SpotifyGreen,
+                                    onClick = {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_VIEW, Uri.parse(made.first().url)),
+                                        )
+                                    },
                                 )
                             }
                             // How the app came to believe I was here. A check-in is
                             // stronger evidence than setlist.fm's retroactive flag; the
                             // redundant "planned" chip is gone — "you're going"/countdown
                             // above already says all a planned-and-not-checked-in night can.
-                            when {
-                                checkedIn -> {
-                                    Spacer(Modifier.width(6.dp))
-                                    EventTag("checked in", color = Amber)
-                                }
-                                !planned -> {
-                                    Spacer(Modifier.width(6.dp))
-                                    EventTag("self-logged", color = Faint)
-                                }
+                            // A badge marks the exceptional. "Checked in" is earned;
+                            // the tag that used to sit beside it labelled the *default*
+                            // — nearly every attended gig — and so said nothing. Gone.
+                            if (checkedIn) {
+                                Spacer(Modifier.width(6.dp))
+                                EventTag("checked in", color = Amber)
+                            }
+                            // The setlist.fm id, rendered. Not a button bolted on beside
+                            // the data — it *is* `StoredGig.setlistId`, and its absence
+                            // is #34's stub condition showing itself. That id is the
+                            // correspondence key between people, so this chip is the
+                            // joint where my record meets everyone else's.
+                            Spacer(Modifier.width(6.dp))
+                            if (setlist.url != null) {
+                                EventTag(
+                                    // The glyph is the tell. Nothing in this row has
+                                    // ever answered a tap, so a chip that does cannot
+                                    // rely on anyone trying it.
+                                    "${setlist.id} ↗",
+                                    color = Slate,
+                                    // The canonical setlist page, never a constructed
+                                    // edit url: this one is always valid, needs no login,
+                                    // and editing is one click away on their own site.
+                                    onClick = {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_VIEW, Uri.parse(setlist.url)),
+                                        )
+                                    },
+                                )
+                            } else {
+                                // **Local**: a true property of the record — it exists on
+                                // this phone only, and cannot be a **Crossing** until it
+                                // has an id. Not "self-reported", which describes how
+                                // nearly every claim here was made and so marks nothing.
+                                //
+                                // Deliberately inert. `/edit` shows a signed-out user a
+                                // sign-in wall, and #34 is explicit that a dead-end link
+                                // is worse than no crumb — so the absence is stated and
+                                // the labelled action below is the door.
+                                EventTag("local", color = Faint)
                             }
                         }
                         // Nothing can be pinned to a night nobody has been to yet — the
@@ -1801,7 +2132,31 @@ fun StationEventScreen(
                         }
                     }
                 }
-                if (rows.isEmpty()) {
+                // My own Log, and it is never taken away. A partial capture you can no
+                // longer correct from inside the app is the exact trap this feature is
+                // built to avoid, so this renders on a night's page forever after.
+                if (canLog) {
+                    item {
+                        Spacer(Modifier.height(6.dp))
+                        LogEditor(
+                            candidates = act?.candidates.orEmpty(),
+                            poolArtist = act?.matchedArtist.orEmpty(),
+                            log = log,
+                            // Only once I have written something down. An untouched log
+                            // beside an imported setlist is not a divergence, it is a
+                            // log I have not started — and "setlist.fm has 18, yours has
+                            // 0" the instant you check in is noise, not information.
+                            published = setlist.performed().size
+                                .takeIf { setlist.url != null && log.songs.isNotEmpty() },
+                            onChange = { viewModel.editLog(setlist.id, it) },
+                            onClosed = { viewModel.setLogClosed(setlist.id, it) },
+                            onDisambiguate = { viewModel.disambiguateAct(setlist.id, it) },
+                            searching = state.billFetching != null,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                    }
+                }
+                if (rows.isEmpty() && !canLog) {
                     item {
                         Text(
                             // A night that hasn't happened has no setlist missing from
@@ -2072,7 +2427,7 @@ private fun EncoreLabel() {
 }
 
 @Composable
-private fun EventTag(text: String, color: Color = Muted) {
+private fun EventTag(text: String, color: Color = Muted, onClick: (() -> Unit)? = null) {
     Text(
         text,
         color = color,
@@ -2081,6 +2436,7 @@ private fun EventTag(text: String, color: Color = Muted) {
             .clip(RoundedCornerShape(20.dp))
             .background(Raised2)
             .border(1.dp, Color(0xFF2A2338), RoundedCornerShape(20.dp))
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 9.dp, vertical = 4.dp),
     )
 }
