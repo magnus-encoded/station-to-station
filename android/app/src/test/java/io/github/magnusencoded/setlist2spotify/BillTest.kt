@@ -155,16 +155,28 @@ class BillTest {
 
     @Test
     fun `the filing carries every field the form asks for, in the form's own order`() {
+        // Order read off setlist.fm's add form on the Pixel 2026-08-06. Date before
+        // Venue is load-bearing: the venue field is disabled until a date is set.
         val gig = localGigSetlist("local-1", "Villskudd", LocalDate.of(2026, 8, 7), "Ringnes Festival 2026", "Gjerdrum")
         val fields = filingFields(gig, StoredLog(songs = listOf("A", "B")))
-        assertEquals(listOf("Artist", "Venue", "City", "Date", "Songs"), fields.map { it.label })
+        assertEquals(listOf("Artist", "Date", "Venue", "City", "Songs"), fields.map { it.label })
         assertEquals("Villskudd", fields[0].value)
-        assertEquals("Ringnes Festival 2026", fields[1].value)
-        assertEquals("Gjerdrum", fields[2].value)
-        assertEquals("07-08-2026", fields[3].value)
+        assertEquals("07-08-2026", fields[1].value)
+        assertEquals("Ringnes Festival 2026", fields[2].value)
+        assertEquals("Gjerdrum", fields[3].value)
         // The songs field hands over the paste, not the summary line beside it.
         assertEquals("A\nB", fields[4].value)
         assertEquals("2 songs, in order", fields[4].shown)
+    }
+
+    @Test
+    fun `the date reads the way a calendar does, because it is picked and not pasted`() {
+        // setlist.fm opens a month grid for this one, so no string can land in it. The
+        // value shown is the one you go looking for in that grid.
+        val gig = localGigSetlist("local-1", "Villskudd", LocalDate.of(2026, 8, 7), "Ringnes", "")
+        val date = filingFields(gig, StoredLog()).first { it.label == "Date" }
+        assertEquals("7 August 2026", date.shown)
+        assertEquals("07-08-2026", date.value)
     }
 
     @Test
@@ -173,14 +185,14 @@ class BillTest {
         // paste that says nothing — worse than the absence it is hiding.
         val gig = localGigSetlist("local-1", "Enok Monk", LocalDate.of(2026, 8, 7), "Ringnes", "")
         val fields = filingFields(gig, StoredLog(songs = listOf("A")))
-        assertEquals(listOf("Artist", "Venue", "Date", "Songs"), fields.map { it.label })
+        assertEquals(listOf("Artist", "Date", "Venue", "Songs"), fields.map { it.label })
     }
 
     @Test
     fun `nothing logged still files the night itself, minus the songs`() {
         val gig = localGigSetlist("local-1", "Enok Monk", LocalDate.of(2026, 8, 7), "Ringnes", "Gjerdrum")
         val fields = filingFields(gig, StoredLog())
-        assertEquals(listOf("Artist", "Venue", "City", "Date"), fields.map { it.label })
+        assertEquals(listOf("Artist", "Date", "Venue", "City"), fields.map { it.label })
     }
 
     @Test

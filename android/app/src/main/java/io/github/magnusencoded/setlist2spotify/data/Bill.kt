@@ -332,16 +332,27 @@ data class FilingField(val label: String, val shown: String, val value: String)
  * from. These go into the notification shade instead, which is the one surface that
  * stays in reach while Chrome has the foreground.
  *
+ * **The order is the form's, read off it on the Pixel 2026-08-06:** Add artist, Select
+ * event date, Add venue, then the songs on the step after. Date before venue is not a
+ * preference — the venue field is *disabled* until a date is set, and says so ("Select
+ * event date before choosing a venue"). A tray that offered Venue first would be
+ * offering a value with nowhere to go.
+ *
  * Blank fields are dropped rather than posted empty: a **Bill** with no town typed in
- * should offer four values, not four and a lie. The songs come last because that is
- * where the form puts them, and they are the one field with a paste syntax
- * ([setlistPaste]) rather than a plain string.
+ * should offer four values, not four and a lie.
  */
 fun filingFields(setlist: FmSetlist, log: StoredLog): List<FilingField> = listOfNotNull(
     setlist.artist?.name?.takeIf { it.isNotBlank() }?.let { FilingField("Artist", it, it) },
+    // Shown as "5 August 2026" rather than 05-08-2026, because this one is **picked,
+    // not pasted** — verified on the Pixel: the field opens a calendar widget, so no
+    // string can land in it. What the Historian actually does with this value is find
+    // that day in a month grid, and a written-out month is the form of it that matches
+    // the gesture. The raw date stays the copied value; it costs nothing and the
+    // clipboard is the wrong place to editorialise.
+    setlist.eventDate?.takeIf { it.isNotBlank() }
+        ?.let { FilingField("Date", setlist.readableDate() ?: it, it) },
     setlist.venue?.name?.takeIf { it.isNotBlank() }?.let { FilingField("Venue", it, it) },
     setlist.venue?.city?.name?.takeIf { it.isNotBlank() }?.let { FilingField("City", it, it) },
-    setlist.eventDate?.takeIf { it.isNotBlank() }?.let { FilingField("Date", it, it) },
     log.songs.takeIf { it.isNotEmpty() }?.let {
         FilingField(
             "Songs",

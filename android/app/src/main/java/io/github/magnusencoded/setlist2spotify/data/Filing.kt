@@ -37,7 +37,12 @@ import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
  * ponytail: no re-posting, no stepper, no state. Each notification is a fixed value
  * with a fixed action, and swiping the group summary clears all of them.
  */
-private const val FILING_CHANNEL = "filing"
+// v2: the first channel was IMPORTANCE_LOW, and on the Pixel that filed the whole tray
+// under "Silent" — below Discord, Facebook and Spotify, needing a scroll to reach the
+// values you opened the shade for. A channel's importance is immutable once created
+// (it belongs to the user from then on), so raising it takes a new id, not an edit.
+private const val FILING_CHANNEL = "filing.v2"
+private const val FILING_CHANNEL_OLD = "filing"
 private const val FILING_GROUP = "io.github.magnusencoded.setlist2spotify.FILING"
 
 /** Summary owns the base id; each field sits above it. */
@@ -82,17 +87,30 @@ fun postFiling(context: Context, setlist: FmSetlist, log: StoredLog) {
     val fields = filingFields(setlist, log)
     if (fields.isEmpty()) return
     val manager = context.getSystemService(NotificationManager::class.java) ?: return
+    manager.deleteNotificationChannel(FILING_CHANNEL_OLD)
     manager.createNotificationChannel(
         NotificationChannel(
             FILING_CHANNEL,
             "Filing a night",
-            // Low: this is a tray of values you went looking for, not news. It must
-            // never buzz — you are standing in a form when it appears.
-            NotificationManager.IMPORTANCE_LOW,
-        ).apply { description = "The night's details, ready to paste into setlist.fm." },
+            // DEFAULT so the tray sits with the ordinary notifications rather than in
+            // the "Silent" bin at the bottom of the shade — these are the values you
+            // pulled the shade down *for*, and having to scroll past six unrelated
+            // apps to reach them is the difference between a tool and a nuisance.
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = "The night's details, ready to paste into setlist.fm."
+            // Rank high, make no noise. You are standing in a form when this appears,
+            // and a buzz per filing would be its own reason to turn the whole thing off.
+            setSound(null, null)
+            enableVibration(false)
+        },
     )
     clearFiling(context)
-    fields.forEachIndexed { i, field ->
+    // Posted last-first. The shade stacks newest on top, so posting the songs first and
+    // the artist last is what makes the tray read *downwards* in the form's own order —
+    // observed on the Pixel, where posting in order produced the tray upside down. The
+    // id still follows the field's real index, so a slot always holds the same field.
+    fields.withIndex().reversed().forEach { (i, field) ->
         val intent = Intent(context, CopyReceiver::class.java)
             .putExtra(EXTRA_FILING_LABEL, field.label)
             .putExtra(EXTRA_FILING_VALUE, field.value)
