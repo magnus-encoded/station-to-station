@@ -32,15 +32,23 @@ import java.util.Locale
  * Inventing a day per act so the existing machinery would work is precisely the
  * fabrication the record must not commit.
  *
- * [name] doubles as the venue name on the **Gigs** its **Acts** become. One field,
- * deliberately: it is what the **Festival** node reads afterwards
- * (`festivalName()` falls back to the venue), so the same string the user typed on
- * the poster is the one the timeline shows once the nights are real.
+ * [name] used to double as the venue name on the **Gigs** its **Acts** become. It no
+ * longer does (#128). One field was answering two different questions — *which room
+ * was this*, a fact about the night and one third of ADR-0002's correspondence key,
+ * and *which Festival does this belong to*, a fact about grouping — and they disagree
+ * the moment setlist.fm knows the room. A **Gig** minted here is left with no venue
+ * until something authoritative supplies one.
+ *
+ * Nothing was lost by stopping: a **Gig** an **Act** became is drawn *inside* its
+ * **Bill**, and every `groupIntoFestivals` call site is fed either attended setlist.fm
+ * shows or the planned lane, which excludes a **Bill**'s own **Gigs**. So the venue
+ * string was never what clustered these nights, and `festivalName()`'s fallback never
+ * saw them.
  */
 @Serializable
 data class StoredBill(
     val id: String = "",
-    /** "Ringnes Festival 2026". Also the venue on every **Gig** this **Bill** mints. */
+    /** "Ringnes Festival 2026". The festival's name, and nothing else's (#128). */
     val name: String = "",
     val city: String = "",
     /** dd-MM-yyyy, the shape setlist.fm sends — the range, which *is* known. */
@@ -488,7 +496,10 @@ fun localGigSetlist(
     eventDate = fmDate(date),
     artist = FmArtist(name = artist),
     venue = FmVenue(
-        name = venue,
+        // Null, not "", for an unknown room (#128). Empty strings compare equal, so a
+        // blank venue left as "" would make `sameFestival` cluster two nights that
+        // merely both lack a venue — an unknown is not a place two gigs have in common.
+        name = venue.ifBlank { null },
         city = FmCity(name = city.ifBlank { null }),
     ),
     // No songs, ever. What was played lives in the **Log**, which is a record of my

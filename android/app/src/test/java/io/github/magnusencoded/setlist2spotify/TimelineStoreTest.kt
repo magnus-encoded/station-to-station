@@ -6,7 +6,9 @@ import io.github.magnusencoded.setlist2spotify.data.StoredMedia
 import io.github.magnusencoded.setlist2spotify.data.StoredPlaylist
 import io.github.magnusencoded.setlist2spotify.data.TimelineStore
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmArtist
+import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmCity
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
+import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmVenue
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -271,6 +273,66 @@ class TimelineStoreTest {
         // anyone's line. #34 accepts that consequence — pinned here as behaviour.
         assertEquals(gigId, cached.keyOf(gigId))
         assertTrue(cached.gigs.values.none { it.setlistId != null })
+    }
+
+    @Test
+    fun `a night minted from a poster has no venue, and gains one when setlist_fm names the room`() = runBlocking {
+        // #128. The poster says which festival, never which room, so the Gig starts
+        // roomless rather than claiming the festival was the venue — the venue is one
+        // third of ADR-0002's key, and a festival name there is what stopped this
+        // night ever recognising its own setlist.fm record.
+        val store = store()
+        val gigId = store.createLocalGig("07-08-2026", "Paper Cranes", venue = "")
+        assertEquals("", store.load().gigs[gigId]?.venue)
+
+        // The night turns up on setlist.fm, which does know the room.
+        store.save(
+            shows = mapOf(
+                "magnus" to listOf(
+                    FmSetlist(
+                        id = "637062c7",
+                        eventDate = "07-08-2026",
+                        artist = FmArtist(name = "Paper Cranes"),
+                        venue = FmVenue(name = "Hollowmoor Park", city = FmCity(name = "Vardhavn")),
+                    ),
+                ),
+            ),
+        )
+        assertTrue(store.adoptSetlistId(gigId, "637062c7"))
+
+        // Blank was a state that resolves, not a hole: the date it already knew is
+        // untouched, and the room it never knew is filled in.
+        val gig = store.load().gigs[gigId]
+        assertEquals("Hollowmoor Park", gig?.venue)
+        assertEquals("07-08-2026", gig?.date)
+        assertEquals("Paper Cranes", gig?.artist)
+    }
+
+    @Test
+    fun `filling a blank venue does not overwrite a date already known`() = runBlocking {
+        // The gate widened from "no date" to "missing anything" (#128); each field
+        // still fills only if blank, so a night keeps every fact it already had.
+        val store = store()
+        val gigId = store.createLocalGig("07-08-2026", "Paper Cranes", venue = "")
+        store.save(
+            shows = mapOf(
+                "magnus" to listOf(
+                    FmSetlist(
+                        id = "637062c7",
+                        // setlist.fm disagreeing about the night must not silently
+                        // relocate a date someone chose off the Bill's own range.
+                        eventDate = "08-08-2026",
+                        artist = FmArtist(name = "Paper Cranes"),
+                        venue = FmVenue(name = "Hollowmoor Park"),
+                    ),
+                ),
+            ),
+        )
+        assertTrue(store.adoptSetlistId(gigId, "637062c7"))
+
+        val gig = store.load().gigs[gigId]
+        assertEquals("07-08-2026", gig?.date)
+        assertEquals("Hollowmoor Park", gig?.venue)
     }
 
     @Test

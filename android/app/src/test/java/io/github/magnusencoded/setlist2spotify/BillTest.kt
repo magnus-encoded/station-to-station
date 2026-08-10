@@ -571,6 +571,35 @@ class BillTest {
     private fun festivalNameOf(row: FutureRow): String =
         ((row as FutureRow.Ticket).node as TimelineNode.Festival).name
 
+    // --- A poster names the festival, never the room (#128) ---------------------
+
+    @Test
+    fun `a gig minted from a bill has no venue, so the festival name cannot creep back in`() {
+        val gig = localGigSetlist("g1", "Paper Cranes", LocalDate.of(2026, 8, 7), venue = "", city = "Kalmarhavn")
+        // Null rather than "": two roomless nights must not read as sharing a room.
+        assertNull(gig.venue?.name)
+        assertEquals("Kalmarhavn", gig.venue?.city?.name)
+    }
+
+    @Test
+    fun `a night with no room yet reads as the bill's town`() {
+        // What the poster actually told us, rather than a stray leading comma.
+        val gig = localGigSetlist("g1", "Paper Cranes", LocalDate.of(2026, 8, 7), venue = "", city = "Kalmarhavn")
+        assertEquals("Kalmarhavn", gig.venueLine())
+    }
+
+    @Test
+    fun `a night with nothing to say about where it was still says so`() {
+        val gig = localGigSetlist("g1", "Paper Cranes", LocalDate.of(2026, 8, 7), venue = "", city = "")
+        assertEquals("Unknown venue", gig.venueLine())
+    }
+
+    @Test
+    fun `a venue that is known is still the first thing the line says`() {
+        val gig = localGigSetlist("g1", "Paper Cranes", LocalDate.of(2026, 8, 7), "Hollowmoor Park", "Vardhavn")
+        assertEquals("Hollowmoor Park, Vardhavn", gig.venueLine())
+    }
+
     // --- Dates ------------------------------------------------------------------
 
     @Test

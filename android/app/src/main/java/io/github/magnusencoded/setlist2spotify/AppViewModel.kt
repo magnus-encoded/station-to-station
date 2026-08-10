@@ -1291,6 +1291,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * A picked night is [StoredAttendance.Provenance.ATTENDED], not `CHECKED_IN`:
      * answering "which night was that?" days later is a recollection, and a check-in
      * is a thing only someone standing in front of the stage does.
+     *
+     * **The venue is left blank, not filled with the Bill's name (#128).** A poster
+     * says which festival, never which room, and the room is one third of ADR-0002's
+     * correspondence key — so writing "Ringnes Festival 2026" there does not merely
+     * look wrong, it stops this night ever recognising itself in the setlist.fm record
+     * of the same night, whose venue is "Verandaen, Skotbu". Blank is the honest state
+     * and it resolves itself: `withGigFacts` fills the venue in the moment setlist.fm
+     * describes this night. Until then the **Node** reads as the **Bill**'s city.
      */
     fun markActPlayed(
         billId: String,
@@ -1303,8 +1311,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (act.gigId != null) return
         val night = gigNight(bill, chosen, now) ?: return
         viewModelScope.launch {
-            val gigId = timelines.createLocalGig(fmDate(night), act.name, bill.name)
-            val gig = localGigSetlist(gigId, act.name, night, bill.name, bill.city)
+            val gigId = timelines.createLocalGig(fmDate(night), act.name, venue = "")
+            val gig = localGigSetlist(gigId, act.name, night, venue = "", city = bill.city)
             timelines.savePlanned(gig)
             val attendance = if (chosen == null) {
                 StoredAttendance(

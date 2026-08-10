@@ -52,11 +52,19 @@ data class FmSetlist(
      * identify. Every count and every number a user reads means this list, not [songs].
      */
     fun performed(): List<FmSong> = songs().filter { !it.tape && it.name.isNotBlank() }
+    /**
+     * "Verandaen, Skotbu, Norway" — and just "Skotbu" for a night minted from a
+     * **Bill**, which knows the town but not the room (#128). A blank venue is dropped
+     * rather than rendered, so the line reads as the place we do know instead of
+     * opening with a stray comma; "Unknown venue" is kept for the case where there is
+     * nothing at all to say.
+     */
     fun venueLine(): String {
-        val v = venue?.name ?: "Unknown venue"
-        val city = venue?.city?.name
-        val country = venue?.city?.country?.name
-        return listOfNotNull(v, city, country).joinToString(", ")
+        val v = venue?.name?.takeIf { it.isNotBlank() }
+        val city = venue?.city?.name?.takeIf { it.isNotBlank() }
+        val country = venue?.city?.country?.name?.takeIf { it.isNotBlank() }
+        val parts = listOfNotNull(v, city, country)
+        return if (parts.isEmpty()) "Unknown venue" else parts.joinToString(", ")
     }
 
     /** setlist.fm sends the event date as dd-MM-yyyy. */

@@ -888,21 +888,29 @@ private fun TimelineCache.gigIdOrNull(key: String): String? =
     gigForSetlist(key)?.id ?: key.takeIf { gigs.containsKey(it) }
 
 /**
- * Fills in the facts of any **Gig** that has none, from a setlist.fm record already
- * in the cache. A gig minted by attaching a photo knows only its id and its setlist
- * id; this is what makes it a night — a date, an artist, a venue — as soon as the
- * import that describes it arrives, in whichever order the two happen.
+ * Fills in the facts of any **Gig** that is missing one, from a setlist.fm record
+ * already in the cache. A gig minted by attaching a photo knows only its id and its
+ * setlist id; this is what makes it a night — a date, an artist, a venue — as soon as
+ * the import that describes it arrives, in whichever order the two happen.
+ *
+ * **Any** missing fact, not only a missing date (#128). A **Gig** minted from a
+ * **Bill** knows its date and artist the moment it is made and has no venue at all,
+ * because a poster names the festival and never the room. Gating on a blank date
+ * meant that when such a night was later adopted onto its setlist.fm record — the one
+ * event that finally knows the room — the venue was passed over and stayed blank
+ * forever. Each field fills only if blank, so this never overwrites what is known.
  */
 private fun TimelineCache.withGigFacts(): TimelineCache {
     if (gigs.isEmpty()) return this
     val known = (shows.values.flatten() + gigPlanned.values).associateBy { it.id }
     val filled = gigs.mapValues { (_, gig) ->
-        val fm = gig.setlistId?.takeIf { gig.date.isBlank() }?.let(known::get)
+        val wanting = gig.date.isBlank() || gig.artist.isBlank() || gig.venue.isBlank()
+        val fm = gig.setlistId?.takeIf { wanting }?.let(known::get)
             ?: return@mapValues gig
         gig.copy(
-            date = fm.eventDate.orEmpty(),
-            artist = fm.artist?.name.orEmpty(),
-            venue = fm.venue?.name.orEmpty(),
+            date = gig.date.ifBlank { fm.eventDate.orEmpty() },
+            artist = gig.artist.ifBlank { fm.artist?.name.orEmpty() },
+            venue = gig.venue.ifBlank { fm.venue?.name.orEmpty() },
         )
     }
     return if (filled == gigs) this else copy(gigs = filled)
