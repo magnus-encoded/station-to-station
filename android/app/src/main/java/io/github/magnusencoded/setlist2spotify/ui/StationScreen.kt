@@ -1065,7 +1065,7 @@ internal fun TimelineItem(
             Spacer(Modifier.height(7.dp))
             Text(
                 when {
-                    planned -> plannedStatus(setlist.localDate())
+                    planned -> plannedStatus(setlist.localDate(), songCount = songCount)
                     songCount > 0 -> "$songCount songs"
                     else -> "setlist not logged"
                 },
@@ -1546,7 +1546,9 @@ fun StationEventScreen(
     val context = LocalContext.current
     // A night I'm going to, not one I was at. Everything this screen says about a
     // setlist has to change: there is no setlist to be missing yet.
-    val planned = setlist != null && state.plannedGigs.any { it.id == setlist.id }
+    //
+    // The claim decides this, not `gigPlanned` membership (#127) — see [isPlanned].
+    val planned = setlist != null && isPlanned(state.attendanceByGig[setlist.id]?.provenance)
     // Read off state rather than asked of the view model, so checking in redraws
     // this screen instead of leaving the button sitting there.
     val checkedIn = setlist != null &&
@@ -2048,11 +2050,14 @@ fun StationEventScreen(
                         )
                         Spacer(Modifier.height(11.dp))
                         Row {
-                            if (planned) {
-                                EventTag(plannedStatus(setlist.localDate()), color = Slate)
-                            } else {
-                                EventTag("${setlist.performed().size} songs")
-                            }
+                            // Once the night has passed the record has the last word:
+                            // "no setlist yet" is a fact about what is stored, so a Gig
+                            // holding fifteen songs cannot print it and one holding none
+                            // keeps printing it (#127).
+                            EventTag(
+                                gigStatus(planned, setlist.localDate(), setlist.performed().size),
+                                color = if (planned) Slate else Muted,
+                            )
                             setlist.tour?.name?.let {
                                 Spacer(Modifier.width(6.dp))
                                 EventTag(it)

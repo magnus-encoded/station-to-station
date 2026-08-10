@@ -1,5 +1,6 @@
 package io.github.magnusencoded.setlist2spotify.ui
 
+import io.github.magnusencoded.setlist2spotify.data.StoredAttendance
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.temporal.ChronoUnit
@@ -123,19 +124,57 @@ fun formatCountdown(daysUntil: Long): String {
 }
 
 /**
+ * What the **record** says about its own songs — never the calendar (#127). A night
+ * that has passed can hold fifteen songs, and holding none is a fact about the record
+ * whether the date is behind us or ahead. [songCount] is `FmSetlist.performed().size`.
+ */
+fun setlistStatus(songCount: Int): String =
+    if (songCount > 0) "$songCount songs" else "no setlist yet"
+
+/**
  * What a node for a gig you're going to says under the venue — how far off it is.
  * Leans on [gigTimeState]'s real [GigTimeState.PAST] now that it has one, rather
  * than guarding the past by hand.
+ *
+ * Once the night is [GigTimeState.PAST] the calendar has nothing left to say, so the
+ * words come from the record via [setlistStatus] instead of being implied by the date.
  */
-fun plannedStatus(date: LocalDate?, now: LocalDateTime = LocalDateTime.now()): String {
+fun plannedStatus(
+    date: LocalDate?,
+    now: LocalDateTime = LocalDateTime.now(),
+    songCount: Int = 0,
+): String {
     if (date == null) return "you're going"
     return when (gigTimeState(now, date)) {
         GigTimeState.FUTURE, GigTimeState.APPROACHING ->
             formatCountdown(ChronoUnit.DAYS.between(now.toLocalDate(), date))
         GigTimeState.DAY_OF -> "tonight"
-        GigTimeState.PAST -> "no setlist yet"
+        GigTimeState.PAST -> setlistStatus(songCount)
     }
 }
+
+/**
+ * Whether a **Gig** is still only a plan — asked of the attendance claim, never of
+ * `gigPlanned` membership (#127). Nothing ever takes a night out of that map (it is
+ * also the only home of the `FmSetlist` for a **Gig** with no import behind it), so
+ * membership would make every night I ever planned a plan forever.
+ *
+ * `attended` and `checked_in` are evidence I was there; only `planned` is a plan. No
+ * claim at all — an imported night — is not a plan either.
+ */
+fun isPlanned(provenance: String?): Boolean = provenance == StoredAttendance.Provenance.PLANNED
+
+/**
+ * The words on a **Gig**'s headline chip. A plan speaks in the calendar's terms until
+ * its night passes; everything else — and every plan whose night has gone — speaks in
+ * the record's, via [setlistStatus].
+ */
+fun gigStatus(
+    planned: Boolean,
+    date: LocalDate?,
+    songCount: Int,
+    now: LocalDateTime = LocalDateTime.now(),
+): String = if (planned) plannedStatus(date, now, songCount) else setlistStatus(songCount)
 
 /**
  * Whether the keepsake/media block belongs on a gig's detail screen. Never on a
