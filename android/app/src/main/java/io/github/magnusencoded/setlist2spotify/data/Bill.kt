@@ -7,6 +7,10 @@ import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmVenue
 // NIGHT_ENDS is the check-in window's own boundary and this has to draw the same
 // line: an Act tapped at 01:30 belongs to the night that is still going on.
 import io.github.magnusencoded.setlist2spotify.ui.NIGHT_ENDS
+import io.github.magnusencoded.setlist2spotify.ui.TimelineNode
+import io.github.magnusencoded.setlist2spotify.ui.groupIntoFestivals
+import io.github.magnusencoded.setlist2spotify.ui.isPlanned
+import io.github.magnusencoded.setlist2spotify.ui.shows
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -144,7 +148,14 @@ fun setlistEditEntry(setlist: FmSetlist): String = setlist.url ?: SETLISTFM_ADD_
  */
 sealed interface FutureRow {
     data class OnBill(val bill: StoredBill) : FutureRow
-    data class Ticket(val gig: FmSetlist) : FutureRow
+
+    /**
+     * A **Gig** I hold a ticket for — or the **Festival** a few of them at one venue
+     * on one night turn out to be. Two nights above today at the same place is the
+     * same shape as two nights below it, and the lane used to draw them as two loose
+     * nodes only because it did its own grouping, which was none (#134).
+     */
+    data class Ticket(val node: TimelineNode) : FutureRow
 
     val date: LocalDate?
         get() = when (this) {
@@ -152,7 +163,8 @@ sealed interface FutureRow {
             // a three-day festival beginning tonight would sort above a gig two days
             // out, which is this same bug one step smaller.
             is OnBill -> parseFmDate(bill.from) ?: parseFmDate(bill.to)
-            is Ticket -> gig.localDate()
+            // Same rule for a cluster: the night it opens, not the night it ends.
+            is Ticket -> node.shows().mapNotNull { it.localDate() }.minOrNull()
         }
 }
 
@@ -160,13 +172,48 @@ sealed interface FutureRow {
  * Everything above today, furthest future first — the same descending order the
  * attended rows below already use, which is the whole point: one line, one rule.
  *
+ * "Above today" is the nights whose claim in [attendance] is still `planned`, never
+ * the nights that happen to sit in `gigPlanned` (#127, #134). Nothing ever leaves
+ * that map — it is the only home of the `FmSetlist` for a **Gig** with no import
+ * behind it — so membership made every night I ever planned a plan forever.
+ *
+ * Planned gigs cluster into **Festivals** exactly as attended ones do, through the
+ * one [groupIntoFestivals] both lanes now call. [festivalNames] is the scraped name
+ * by cluster-first id; the venue stands in until one lands.
+ *
+ * A **Bill** is not folded into that grouping. It is its own kind of node with its
+ * own lineup, which is why it arrives here as a separate argument.
+ *
  * A row with no date sorts to the *bottom* of the future, not the top. Unknown is not
  * "the furthest away". It still renders: a **Bill** whose dates were never typed in
  * is a real thing to be holding.
  */
-fun futureRows(bills: List<StoredBill>, tickets: List<FmSetlist>): List<FutureRow> =
-    (bills.map(FutureRow::OnBill) + tickets.map(FutureRow::Ticket))
+fun futureRows(
+    bills: List<StoredBill>,
+    tickets: List<FmSetlist>,
+    attendance: Map<String, StoredAttendance>,
+    festivalNames: Map<String, String> = emptyMap(),
+): List<FutureRow> {
+    val nodes = groupIntoFestivals(plannedLane(tickets, attendance), festivalNames)
+    return (bills.map(FutureRow::OnBill) + nodes.map(FutureRow::Ticket))
         .sortedWith(compareByDescending(nullsFirst<LocalDate>()) { it.date })
+}
+
+/**
+ * The nights the future lane is made of: still a plan, newest first.
+ *
+ * Date-ordered because [groupIntoFestivals] clusters *adjacent* shows and
+ * `gigPlanned`'s own order is whatever they happened to be added in. Its own
+ * function because the name resolver has to group the exact same list — a cluster's
+ * name is filed under its *first* show, so a different input order files it under a
+ * key the lane never looks up.
+ */
+fun plannedLane(
+    gigs: List<FmSetlist>,
+    attendance: Map<String, StoredAttendance>,
+): List<FmSetlist> = gigs
+    .filter { isPlanned(attendance[it.id]?.provenance) }
+    .sortedByDescending { it.localDate() }
 
 /** dd-MM-yyyy, the one date shape this app and setlist.fm both speak. */
 private val FM_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("dd-MM-yyyy", Locale.ENGLISH)
