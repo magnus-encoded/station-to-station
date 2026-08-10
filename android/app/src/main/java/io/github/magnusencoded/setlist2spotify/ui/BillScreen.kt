@@ -82,6 +82,7 @@ fun BillItem(
     onSurprise: (String) -> Unit,
     onFetchCandidates: () -> Unit,
     onRemove: () -> Unit,
+    onRename: (Int, String) -> Unit,
 ) {
     val seen = bill.acts.count { it.gigId != null }
     val accent = if (seen > 0) Amber else Slate
@@ -147,6 +148,7 @@ fun BillItem(
                 onPlayed = { onPlayed(i) },
                 onUnmark = { onUnmark(i) },
                 onOpenGig = onOpenGig,
+                onRename = { corrected -> onRename(i, corrected) },
             )
         }
         SurpriseField(onSurprise)
@@ -186,10 +188,42 @@ private fun ActRow(
     onPlayed: () -> Unit,
     onUnmark: () -> Unit,
     onOpenGig: (String) -> Unit,
+    onRename: (String) -> Unit,
 ) {
     val name = act.name
     val gigId = act.gigId
     val seen = gigId != null
+    var editing by remember(act.name) { mutableStateOf(false) }
+    if (editing) {
+        // The whole row becomes the correction, because the row's own gesture is
+        // "played tonight" and a field sharing it would fire that on every tap.
+        var text by remember { mutableStateOf(act.name) }
+        Column(Modifier.padding(start = SpineWidth, end = 18.dp, top = 6.dp, bottom = 6.dp)) {
+            StationField(
+                value = text,
+                onValueChange = { text = it },
+                label = "who is actually on the poster",
+                imeDone = true,
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(
+                    "cancel",
+                    color = Faint,
+                    fontSize = 13.sp,
+                    modifier = Modifier.clickable { editing = false }.padding(vertical = 10.dp),
+                )
+                Text(
+                    "rename and look up again",
+                    color = Amber,
+                    fontSize = 13.sp,
+                    modifier = Modifier
+                        .clickable { onRename(text); editing = false }
+                        .padding(vertical = 10.dp),
+                )
+            }
+        }
+        return
+    }
     Row(
         Modifier
             .fillMaxWidth()
@@ -232,7 +266,16 @@ private fun ActRow(
                     else -> "no night yet"
                 },
             ).joinToString(" · ")
-            Text(sub, fontSize = 11.sp, color = if (seen) Amber else Faint)
+            // The sub-line is where a wrong name shows itself ("no setlist.fm
+            // history" is usually a spelling, not an absence), so it is also the way
+            // to fix it. Only before the act has a night: afterwards the row is a
+            // record of a night, not a line on a poster.
+            Text(
+                if (seen) sub else "$sub · fix the name",
+                fontSize = 11.sp,
+                color = if (seen) Amber else Faint,
+                modifier = if (seen) Modifier else Modifier.clickable { editing = true },
+            )
         }
         Spacer(Modifier.width(10.dp))
         Text(

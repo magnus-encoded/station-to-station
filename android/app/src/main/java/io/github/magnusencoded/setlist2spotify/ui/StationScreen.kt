@@ -565,6 +565,7 @@ fun StationTimelineScreen(
                                                 onOpenEvent()
                                             }
                                         },
+                                        onRename = { i, name -> viewModel.renameAct(row.bill.id, i, name) },
                                         onSurprise = { name -> viewModel.addSurpriseAct(row.bill.id, name) },
                                         onFetchCandidates = { viewModel.fetchCandidates(row.bill.id) },
                                         onRemove = { viewModel.removeBill(row.bill.id) },
@@ -1615,6 +1616,12 @@ fun StationEventScreen(
     // remembering a song three days later must cost nothing, so nothing below removes
     // the editor. The clock only decides which action leads.
     val log = setlist?.let { state.logsByGig[it.id] } ?: StoredLog()
+    // What there is to convert: setlist.fm's songs, or a **Log** I said was complete.
+    // A night I checked into never reaches the convert branch below — `canLog` claims
+    // the bottom bar first — so this has to be offered there too, or the one night the
+    // app itself is the record of is the one night that cannot become a playlist.
+    val convertible = setlist != null &&
+        (setlist.performed().isNotEmpty() || (log.closed && log.named().isNotEmpty()))
     // The Act this night was minted from, when it came off a Bill: it carries the
     // candidate pool and — the part that matters — which artist that pool came from.
     val act = setlist?.let { viewModel.actFor(it.id) }
@@ -1739,6 +1746,19 @@ fun StationEventScreen(
                         fontSize = 13.sp,
                         modifier = Modifier.clickable(onClick = onPublish).padding(vertical = 6.dp),
                     )
+                    // A set I said was complete is a set, so it converts. Offered here
+                    // rather than only in the branch below, which a checked-in night
+                    // never reaches.
+                    if (convertible) {
+                        Text(
+                            "make a playlist of this set",
+                            color = Slate,
+                            fontSize = 13.sp,
+                            modifier = Modifier
+                                .clickable { viewModel.selectSetlist(setlist); onConvert() }
+                                .padding(vertical = 6.dp),
+                        )
+                    }
                     if (localGig) {
                         Text(
                             "it's on setlist.fm now — paste the link",
@@ -1956,7 +1976,7 @@ fun StationEventScreen(
             )
         }
         val rows = setlist.eventRows()
-        val canConvert = setlist.performed().isNotEmpty()
+        val canConvert = convertible
         val offsets = viewModel.songOffsets(recordingMedia?.id, setlist.songs().size)
         // Offsets are indexed over every song, tape included; row.number skips tape,
         // so it can't be used to look one up. -1 for the rows that aren't songs.

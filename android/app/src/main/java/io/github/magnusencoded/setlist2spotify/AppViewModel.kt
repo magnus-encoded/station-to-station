@@ -388,7 +388,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 playlistsBySetlist = it.playlistsBySetlist + cached.playlists(),
                 mediaBySetlist = it.mediaBySetlist + cached.media(),
                 plannedGigs = sortedPlanned(cached.planned()),
-                bills = cached.bills.values.toList(),
+                // An **Act**'s pointer is read back the same way, and for the same
+                // reason: adoption renames a night without moving its data, so a
+                // pointer minted before it is stale afterwards. This was the one map
+                // here that read raw, which is why a published act stopped opening and
+                // its night drew twice. Also heals pointers already saved stale.
+                bills = cached.bills.values.map { b ->
+                    b.copy(acts = b.acts.map { a -> if (a.gigId == null) a else a.copy(gigId = cached.keyOf(a.gigId)) })
+                },
                 logsByGig = it.logsByGig + cached.logs(),
                 attendanceByGig = it.attendanceByGig + cached.attendance(),
                 calendarEventByGig = it.calendarEventByGig + cached.calendarEvents(),
@@ -967,8 +974,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val user = _state.value.userQuery.trim()
                 if (user.isNotEmpty()) timelines.save(shows = mapOf(user to setlists))
             } catch (e: Exception) {
-                _state.update { it.copy(setlistsLoading = false) }
-                fail(e)
+                // A refresh is optional freshness, never a fatal operation: the night
+                // is already on screen from cache, with its artist, venue and date.
+                // `fail` sets the global error, and doing that here tore the screen up
+                // mid-gesture — the pull's own fling was still running, which is how a
+                // 404 on a 1985 setlist came back as "measure is called on a
+                // deactivated node". A notice says what happened and changes nothing.
+                //
+                // The id and code are logged because this only ever fails in the field,
+                // on someone else's phone, where there is no other way to find out
+                // which night and which status it was.
+                android.util.Log.w("StationToStation", "refresh failed for setlist ${open.id}: ${e.message}")
+                _state.update {
+                    it.copy(
+                        setlistsLoading = false,
+                        notice = "setlist.fm didn't have that one just now — showing what's saved.",
+                    )
+                }
             }
         }
     }
@@ -1282,6 +1304,40 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * The name on the poster, corrected — and asked about again.
+     *
+     * A lineup is copied off a wall, and the wall is not authoritative about
+     * spelling: the history says *The* Silent Majority where the programme says
+     * Silent Majority, and `fetchCandidates` matches with exact `equals`, so one
+     * character is the difference between a song pool and "no setlist.fm history".
+     * Rather than guess at normalising names nobody has seen, let the person who is
+     * standing in front of the stage fix it and ask upstream again.
+     *
+     * Clearing [StoredAct.tried] is the point: it is what makes the act eligible for
+     * a lookup at all, and the pool, matched artist and mbid go with it because they
+     * describe an answer to the *old* name.
+     *
+     * The night, if the act already has one, is deliberately untouched — it is a
+     * record of what happened, not a line on a poster.
+     */
+    fun renameAct(billId: String, actIndex: Int, name: String) {
+        val corrected = name.trim()
+        val act = _state.value.bills.firstOrNull { it.id == billId }?.acts?.getOrNull(actIndex) ?: return
+        if (corrected.isBlank() || corrected == act.name) return
+        viewModelScope.launch {
+            editBill(billId) { b ->
+                b.copy(
+                    acts = b.acts.mapIndexed { j, a ->
+                        if (j != actIndex) a
+                        else a.copy(name = corrected, candidates = emptyList(), matchedArtist = "", mbid = "", tried = false)
+                    },
+                )
+            }
+            fetchCandidates(billId)
+        }
+    }
+
+    /**
      * An **Act** that never was on the poster. Added already dated, because a
      * **Surprise** is only ever discovered after it has happened — there is no state
      * in which an unannounced act is pending.
@@ -1459,8 +1515,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         selectedSetlist = if (it.selectedSetlist?.id == gigId) fresh else it.selectedSetlist,
                     )
                 }
+                // An **Act** holds the id its night was minted with, and the line above
+                // just changed the id that night is known by. Left alone the poster
+                // points at nothing: the act's "open" leads nowhere, so the songs
+                // whoever typed them in are unreachable — and because the timeline
+                // hides a ticket only when some act claims its id, the night draws a
+                // second time beside the **Bill** it belongs to.
+                repointActs(from = gigId, to = fresh.id)
             }
         }
+    }
+
+    /**
+     * Moves every **Act**'s pointer from one gig id to another — the other half of
+     * adoption, which renames a night without moving any of its data.
+     *
+     * Touches only the **Bills** that actually point at [from], so publishing one act
+     * doesn't rewrite a festival's whole poster.
+     */
+    private suspend fun repointActs(from: String, to: String) {
+        val touched = _state.value.bills.filter { b -> b.acts.any { it.gigId == from } }
+        if (touched.isEmpty()) return
+        val updated = touched.map { b ->
+            b.copy(acts = b.acts.map { a -> if (a.gigId == from) a.copy(gigId = to) else a })
+        }
+        _state.update { s ->
+            s.copy(bills = s.bills.map { b -> updated.firstOrNull { it.id == b.id } ?: b })
+        }
+        updated.forEach { timelines.saveBill(it) }
     }
 
     /** Reads, edits and persists one **Bill**, so state and disk never disagree. */
@@ -1568,8 +1650,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun selectSetlist(setlist: FmSetlist) {
         matchJob?.cancel()
         val artistName = setlist.artist?.name ?: ""
-        val matches = setlist.songs()
-            .filter { it.name.isNotBlank() }
+        // A closed **Log** is a setlist. #121 put it plainly — "the app is the source
+        // of truth about what was observed and setlist.fm is a publication target" —
+        // so a night whose set I said was complete converts like any other, whether or
+        // not their record has caught up. Only when *closed*: an open Log is a night
+        // still in progress, and offering to make a playlist of the first four songs
+        // while the band is still on is not the same gesture.
+        //
+        // setlist.fm still wins where it has songs. It has the covers and the tape
+        // markers, which a typed title cannot carry.
+        val songs = setlist.songs().filter { it.name.isNotBlank() }.ifEmpty {
+            _state.value.logsByGig[setlist.id]
+                ?.takeIf { it.closed }
+                ?.named()
+                ?.map { FmSong(name = it) }
+                .orEmpty()
+        }
+        val matches = songs
             .map { song ->
                 SongMatch(
                     song = song,

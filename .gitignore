@@ -214,3 +214,7 @@ graphify-out/graph.html
 
 # Personal tooling: pulls CI artifacts onto whatever hardware is plugged in
 ship.sh
+
+# Local build artifacts and editor state
+*.apk
+.obsidian/
