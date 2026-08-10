@@ -357,12 +357,75 @@ data class TimelineCache(
     fun setlistIdFor(gigId: String): String? = gigs[gigId]?.setlistId
 
     // What the screens read: the gig-keyed maps, back under the id the UI uses.
-    fun media(): Map<String, List<StoredMedia>> = gigMedia.mapKeys { keyOf(it.key) }
-    fun attendance(): Map<String, StoredAttendance> = gigAttendance.mapKeys { keyOf(it.key) }
-    fun calendarEvents(): Map<String, String> = gigCalendarEvent.mapKeys { keyOf(it.key) }
-    fun playlists(): Map<String, List<StoredPlaylist>> = gigPlaylists.mapKeys { keyOf(it.key) }
+    fun media(): Map<String, List<StoredMedia>> = gigMedia.combined(::unionMedia)
+    fun attendance(): Map<String, StoredAttendance> = gigAttendance.combined(::unionAttendance)
+    fun calendarEvents(): Map<String, String> = gigCalendarEvent.combined { kept, _ -> kept }
+    fun playlists(): Map<String, List<StoredPlaylist>> = gigPlaylists.combined(::unionPlaylists)
     fun planned(): List<FmSetlist> = gigPlanned.values.toList()
-    fun logs(): Map<String, StoredLog> = gigLogs.mapKeys { keyOf(it.key) }
+    fun logs(): Map<String, StoredLog> = gigLogs.combined(::unionLog)
+
+    /**
+     * Re-keys a gig-keyed map to [keyOf], **combining** entries whose keys collide
+     * rather than letting the last one win (#128).
+     *
+     * `mapKeys` was the obvious way to write this and it silently loses data: two
+     * **Gigs** sharing one `setlistId` collapse to one key and the earlier value is
+     * overwritten — a **Log** someone typed at the gig, or a night's photos, gone
+     * from every screen with no error and no trace. A collision should be impossible
+     * (a `setlistId` names one **Gig**; [TimelineStore.adoptSetlistId] merges rather
+     * than letting a second claim exist), but a read path that discards a memory the
+     * moment its assumption breaks is not a read path worth keeping.
+     *
+     * Oldest **Gig** first, so [union]'s first argument is the record a merge would
+     * have kept — the same "older id wins" rule, so reading a collision and merging
+     * it give the same answer.
+     */
+    private fun <V> Map<String, V>.combined(union: (V, V) -> V): Map<String, V> {
+        val out = LinkedHashMap<String, V>(size)
+        val oldestFirst = compareBy<Map.Entry<String, V>>({ gigs[it.key]?.createdAt ?: 0L }, { it.key })
+        for ((gigId, value) in entries.sortedWith(oldestFirst)) {
+            val key = keyOf(gigId)
+            val kept = out[key]
+            out[key] = if (kept == null) value else union(kept, value)
+        }
+        return out
+    }
+}
+
+// The unions two records of one night combine by, shared by the merge that collapses
+// them (TimelineStore.mergeGigs) and the read that has to survive one that wasn't.
+
+/** Every photo and video from both, de-duped on the id each carries forever. */
+private fun unionMedia(kept: List<StoredMedia>, dropped: List<StoredMedia>): List<StoredMedia> =
+    kept + dropped.filterNot { m -> kept.any { it.id == m.id } }
+
+/** Every playlist link from both: a url is the thing you send someone, so none go. */
+private fun unionPlaylists(kept: List<StoredPlaylist>, dropped: List<StoredPlaylist>): List<StoredPlaylist> =
+    kept + dropped.filterNot { p -> kept.any { it.url == p.url } }
+
+/**
+ * The longer **Log** survives, and stays **Open** unless both were **Closed** — a
+ * merge must not upgrade a claim nobody made.
+ */
+private fun unionLog(kept: StoredLog, dropped: StoredLog): StoredLog =
+    (if (dropped.songs.size > kept.songs.size) dropped else kept)
+        .copy(closed = kept.closed && dropped.closed)
+
+/**
+ * One claim about one night, and the stronger evidence wins: a check-in reached by
+ * one route must not be flattened back to `planned` by the other. Never downgrades,
+ * for the reason `savePlanned` never does.
+ *
+ * An unrecognised provenance ranks lowest rather than throwing — the field is a
+ * plain string precisely so a newer app's value costs this one gig, not the cache.
+ */
+private fun unionAttendance(kept: StoredAttendance, dropped: StoredAttendance): StoredAttendance =
+    if (evidence(dropped.provenance) > evidence(kept.provenance)) dropped else kept
+
+private fun evidence(provenance: String): Int = when (provenance) {
+    StoredAttendance.Provenance.CHECKED_IN -> 2
+    StoredAttendance.Provenance.ATTENDED -> 1
+    else -> 0
 }
 
 /**
@@ -552,6 +615,13 @@ class TimelineStore(
      * Refuses a gig that already has one: two setlist.fm ids for one night is a bug
      * upstream, not a merge case, and silently overwriting would hide it. Returns
      * whether the id was taken.
+     *
+     * **A `setlistId` names one Gig** (#128). If another **Gig** already holds this
+     * one they are the same night, so this merges into the older record instead of
+     * minting a second claim on the id — nothing else enforced it, and a duplicate
+     * pair meant writes landing on one record while the reads came from the other.
+     * The merge takes the union: no media, **Log**, check-in or playlist is lost to
+     * the collapse.
      */
     suspend fun adoptSetlistId(gigId: String, setlistId: String): Boolean {
         var adopted = false
@@ -559,7 +629,12 @@ class TimelineStore(
             val gig = cache.gigs[gigId]
             if (gig == null || gig.setlistId != null) return@writeMerged cache
             adopted = true
-            cache.copy(gigs = cache.gigs + (gigId to gig.copy(setlistId = setlistId)))
+            val holder = cache.gigForSetlist(setlistId)
+                ?: return@writeMerged cache.copy(
+                    gigs = cache.gigs + (gigId to gig.copy(setlistId = setlistId)),
+                )
+            // The holder carries the id, so the survivor takes it either way round.
+            cache.merging(gig, holder).first
         }
         return adopted
     }
@@ -622,43 +697,9 @@ class TimelineStore(
             val a = cache.gigs[gigIdA]
             val b = cache.gigs[gigIdB]
             if (a == null || b == null || a.id == b.id) return@writeMerged cache
-            // createdAt, then the id itself, so two devices merging the same pair
-            // reach the same answer without a synchronised clock.
-            val older = if (a.createdAt != b.createdAt) {
-                if (a.createdAt < b.createdAt) a else b
-            } else {
-                if (a.id < b.id) a else b
-            }
-            val gone = if (older.id == a.id) b else a
-            survivor = older.id
-            cache.copy(
-                gigs = cache.gigs - gone.id + (
-                    older.id to older.copy(
-                        setlistId = older.setlistId ?: gone.setlistId,
-                        date = older.date.ifBlank { gone.date },
-                        artist = older.artist.ifBlank { gone.artist },
-                        venue = older.venue.ifBlank { gone.venue },
-                    )
-                    ),
-                // Photos and playlists are collections of separate things, so the
-                // union is every one of them. The rest are one current value per
-                // night, where the survivor's own answer is the one to keep.
-                gigMedia = cache.gigMedia.folded(older.id, gone.id) { k, d ->
-                    k + d.filterNot { m -> k.any { it.id == m.id } }
-                },
-                gigPlaylists = cache.gigPlaylists.folded(older.id, gone.id) { k, d ->
-                    k + d.filterNot { p -> k.any { it.url == p.url } }
-                },
-                gigSongOffsets = cache.gigSongOffsets.folded(older.id, gone.id) { k, _ -> k },
-                gigAttendance = cache.gigAttendance.folded(older.id, gone.id) { k, _ -> k },
-                gigCalendarEvent = cache.gigCalendarEvent.folded(older.id, gone.id) { k, _ -> k },
-                gigPlanned = cache.gigPlanned.folded(older.id, gone.id) { k, _ -> k },
-                // The longer **Log** survives, and stays **Open** unless both were
-                // **Closed** — a merge must not upgrade a claim nobody made.
-                gigLogs = cache.gigLogs.folded(older.id, gone.id) { k, d ->
-                    (if (d.songs.size > k.songs.size) d else k).copy(closed = k.closed && d.closed)
-                },
-            )
+            val (merged, kept) = cache.merging(a, b)
+            survivor = kept
+            merged
         }
         return survivor
     }
@@ -865,6 +906,47 @@ private fun TimelineCache.withGigFacts(): TimelineCache {
         )
     }
     return if (filled == gigs) this else copy(gigs = filled)
+}
+
+/**
+ * [a] and [b] are the same night: one record, and the older id wins. Returns the
+ * cache with the two collapsed, and the id that survived.
+ *
+ * Its own function rather than living inside `mergeGigs` because adoption needs it
+ * too — a **Gig** taking a `setlistId` another one already holds *is* this case, and
+ * two implementations of "combine two nights" is how one of them ends up dropping a
+ * map the other unions.
+ */
+private fun TimelineCache.merging(a: StoredGig, b: StoredGig): Pair<TimelineCache, String> {
+    // createdAt, then the id itself, so two devices merging the same pair
+    // reach the same answer without a synchronised clock.
+    val older = if (a.createdAt != b.createdAt) {
+        if (a.createdAt < b.createdAt) a else b
+    } else {
+        if (a.id < b.id) a else b
+    }
+    val gone = if (older.id == a.id) b else a
+    return copy(
+        gigs = gigs - gone.id + (
+            older.id to older.copy(
+                setlistId = older.setlistId ?: gone.setlistId,
+                date = older.date.ifBlank { gone.date },
+                artist = older.artist.ifBlank { gone.artist },
+                venue = older.venue.ifBlank { gone.venue },
+            )
+            ),
+        // Photos and playlists are collections of separate things, so the union is
+        // every one of them. The rest are one current value per night, where the
+        // survivor's own answer is the one to keep — except attendance, where the
+        // stronger claim is, so a check-in cannot be flattened by a tie-break.
+        gigMedia = gigMedia.folded(older.id, gone.id, ::unionMedia),
+        gigPlaylists = gigPlaylists.folded(older.id, gone.id, ::unionPlaylists),
+        gigSongOffsets = gigSongOffsets.folded(older.id, gone.id) { k, _ -> k },
+        gigAttendance = gigAttendance.folded(older.id, gone.id, ::unionAttendance),
+        gigCalendarEvent = gigCalendarEvent.folded(older.id, gone.id) { k, _ -> k },
+        gigPlanned = gigPlanned.folded(older.id, gone.id) { k, _ -> k },
+        gigLogs = gigLogs.folded(older.id, gone.id, ::unionLog),
+    ) to older.id
 }
 
 /** Moves [drop]'s entry onto [keep], combining the two with [union] if both exist. */
