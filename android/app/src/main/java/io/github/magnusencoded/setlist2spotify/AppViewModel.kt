@@ -21,6 +21,7 @@ import io.github.magnusencoded.setlist2spotify.data.fmDate
 import io.github.magnusencoded.setlist2spotify.data.isLocal
 import io.github.magnusencoded.setlist2spotify.data.localGigSetlist
 import io.github.magnusencoded.setlist2spotify.data.parseLineup
+import io.github.magnusencoded.setlist2spotify.data.plannedLane
 import io.github.magnusencoded.setlist2spotify.data.playsSong
 import io.github.magnusencoded.setlist2spotify.data.StoredMedia
 import io.github.magnusencoded.setlist2spotify.data.StoredPlaylist
@@ -796,10 +797,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * caller of it.
      */
     fun resolveFestivalNames() {
-        val mine = _state.value.setlists
-        val known = _state.value.festivalNames
+        val s = _state.value
+        val known = s.festivalNames
         viewModelScope.launch {
-            val found = logic.resolveFestivalNames(mine, known)
+            // Two passes rather than one concatenated list: clusters are runs of
+            // *adjacent* shows, so appending the nights ahead to the nights behind
+            // could invent a cluster straddling today. The future lane grows its own
+            // Festivals now (#134) and they want real names too.
+            val found = logic.resolveFestivalNames(s.setlists, known) +
+                logic.resolveFestivalNames(plannedLane(s.plannedGigs, s.attendanceByGig), known)
             if (found.isNotEmpty()) {
                 _state.update { it.copy(festivalNames = it.festivalNames + found) }
             }

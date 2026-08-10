@@ -231,7 +231,8 @@ fun weaveTimelines(
     }
 }
 
-private fun TimelineNode.shows(): List<FmSetlist> = when (this) {
+/** The nights a node stands for, one or many — the future lane reads it too (#134). */
+fun TimelineNode.shows(): List<FmSetlist> = when (this) {
     is TimelineNode.Concert -> listOf(setlist)
     is TimelineNode.Festival -> shows
 }

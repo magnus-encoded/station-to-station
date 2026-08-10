@@ -423,7 +423,11 @@ fun StationTimelineScreen(
                             }
                         }
                         PlanningPull(progress = { pull.value / pullMax }, heightPx = { pull.value })
-                        LaunchedEffect(state.setlists) { viewModel.resolveFestivalNames() }
+                        // Planned nights cluster into Festivals too, so adding one can
+                        // create a cluster whose name has never been looked up (#134).
+                        LaunchedEffect(state.setlists, state.plannedGigs) {
+                            viewModel.resolveFestivalNames()
+                        }
                         LaunchedEffect(zoomedOut) { if (zoomedOut) viewModel.loadFriendTimelines() }
                         val rows = remember(
                             state.setlists, state.festivalNames, lanes, state.showsByFriend, zoomedOut, expanded,
@@ -441,10 +445,17 @@ fun StationTimelineScreen(
                         // out first, the same descending order the attended rows use.
                         // Hoisted out of the LazyColumn because the deep-link scroll
                         // below counts it too, and the two must not drift.
-                        val future = remember(state.bills, state.plannedGigs) {
+                        val future = remember(
+                            state.bills, state.plannedGigs, state.attendanceByGig, state.festivalNames,
+                        ) {
                             val billGigs =
                                 state.bills.flatMap { b -> b.acts.mapNotNull { it.gigId } }.toSet()
-                            futureRows(state.bills, state.plannedGigs.filterNot { it.id in billGigs })
+                            futureRows(
+                                bills = state.bills,
+                                tickets = state.plannedGigs.filterNot { it.id in billGigs },
+                                attendance = state.attendanceByGig,
+                                festivalNames = state.festivalNames,
+                            )
                         }
 
                         // A station-to-station:// link names a gig, and only here can a
@@ -539,15 +550,19 @@ fun StationTimelineScreen(
                             //
                             // A Gig an Act became is drawn inside its Bill, never here:
                             // the Bill is its Festival node, and one night must not be
-                            // two nodes on one line. Planned gigs are still not grouped
-                            // into festivals — a festival is a shape read off nights
-                            // that happened, and a Bill is the announced-lineup case.
+                            // two nodes on one line. Planned gigs that share a venue and
+                            // a night are a Festival like any other, grouped by the same
+                            // function the attended rows use (#134); a Bill stays its own
+                            // node, since an announced lineup is a different thing.
                             items(
                                 future,
                                 key = { row ->
                                     when (row) {
                                         is FutureRow.OnBill -> "bill-${row.bill.id}"
-                                        is FutureRow.Ticket -> "planned-${row.gig.id}"
+                                        is FutureRow.Ticket -> when (val n = row.node) {
+                                            is TimelineNode.Concert -> "planned-${n.setlist.id}"
+                                            is TimelineNode.Festival -> "f-${n.shows.first().id}"
+                                        }
                                     }
                                 },
                             ) { row ->
@@ -571,16 +586,50 @@ fun StationTimelineScreen(
                                         onRemove = { viewModel.removeBill(row.bill.id) },
                                     )
 
-                                    is FutureRow.Ticket -> TimelineItem(
-                                        setlist = row.gig,
-                                        highlight = false,
-                                        planned = true,
-                                        laneWidth = laneWidth,
-                                        onClick = {
-                                            viewModel.openShow(row.gig)
-                                            onOpenEvent()
-                                        },
-                                    )
+                                    is FutureRow.Ticket -> when (val node = row.node) {
+                                        is TimelineNode.Concert -> TimelineItem(
+                                            setlist = node.setlist,
+                                            highlight = false,
+                                            planned = true,
+                                            laneWidth = laneWidth,
+                                            onClick = {
+                                                viewModel.openShow(node.setlist)
+                                                onOpenEvent()
+                                            },
+                                        )
+
+                                        // Opens in place, like every other festival. It
+                                        // has to open: collapsing two planned nights into
+                                        // one node with no way back in would take away
+                                        // the only handle each of them had.
+                                        is TimelineNode.Festival -> {
+                                            val key = "f-${node.shows.first().id}"
+                                            Column {
+                                                FestivalItem(
+                                                    festival = node,
+                                                    highlight = false,
+                                                    open = key in expanded,
+                                                    laneWidth = laneWidth,
+                                                    onClick = { viewModel.toggleFestival(key) },
+                                                )
+                                                if (key in expanded) {
+                                                    node.shows.forEach { gig ->
+                                                        TimelineItem(
+                                                            setlist = gig,
+                                                            highlight = false,
+                                                            planned = true,
+                                                            inside = true,
+                                                            laneWidth = laneWidth,
+                                                            onClick = {
+                                                                viewModel.openShow(gig)
+                                                                onOpenEvent()
+                                                            },
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                             itemsIndexed(rows, key = { _, row -> row.key }) { index, row ->
