@@ -76,8 +76,7 @@ apart on purpose.
 | Term | Definition | Aliases to avoid |
 | ---- | ---------- | ---------------- |
 | **Room** | What you can do standing on a **Gig**: the **Log**, the media, the check-in, the terminals. **Nothing here is ever removed** — time decides which action is offered first, never what remains possible. | screen, detail view, page |
-| **Alcove** | The single fixture opposite the door: one step right, a destination, holding exactly one thing — and it may be empty. Empty while the band plays; closing the **Log** furnishes it. | button, CTA, primary action (the point is that it is a position, not a control) |
-| **Headline** | What the **Room** offers first — the thing in the **Alcove**, named as an offer rather than as a place. | primary action, main button, hero |
+| **Alcove** | The single fixture opposite the door: one step right, a destination, holding exactly one thing — and it may be empty. Empty while the band plays; closing the **Log** furnishes it. | button, CTA, headline, primary action, hero (the point is that it is a position, not a control) |
 | **Curtain** | What pulling down does: draw it back and see what the **Window** says about this night *now*. A returned instruction, not a call site's choice, and it may be a curtain onto an empty view. Failing changes nothing. | refresh (fine informally), sync, reload |
 | **Window** | The data source behind a **Curtain** — setlist.fm or MusicBrainz. Which window a **Room** has depends on what is already known about the night. | api, endpoint, feed |
 
