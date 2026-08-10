@@ -1,9 +1,13 @@
 package io.github.magnusencoded.setlist2spotify
 
+import io.github.magnusencoded.setlist2spotify.data.StoredAttendance
 import io.github.magnusencoded.setlist2spotify.ui.GigTimeState
 import io.github.magnusencoded.setlist2spotify.ui.formatCountdown
+import io.github.magnusencoded.setlist2spotify.ui.gigStatus
 import io.github.magnusencoded.setlist2spotify.ui.gigTimeState
+import io.github.magnusencoded.setlist2spotify.ui.isPlanned
 import io.github.magnusencoded.setlist2spotify.ui.plannedStatus
+import io.github.magnusencoded.setlist2spotify.ui.setlistStatus
 import io.github.magnusencoded.setlist2spotify.ui.showsMediaBlock
 import io.github.magnusencoded.setlist2spotify.ui.venueMapsQuery
 import org.junit.Assert.assertEquals
@@ -91,6 +95,57 @@ class GigTimeStateTest {
     fun `a planned gig whose night has passed never claims to be tonight`() {
         assertEquals("no setlist yet", plannedStatus(today.minusDays(1), now))
         assertEquals("no setlist yet", plannedStatus(today.minusYears(18), now))
+    }
+
+    // --- The night has passed: the record answers, not the calendar (#127) -------
+
+    /** Three days after Ringnes Festival's last night — every gig below is behind us. */
+    private val afterRingnes = LocalDate.of(2026, 8, 10).atTime(12, 0)
+
+    @Test
+    fun `no setlist yet is a fact about the record, not about the date`() {
+        assertEquals("no setlist yet", setlistStatus(0))
+        assertEquals("1 songs", setlistStatus(1))
+        assertEquals("15 songs", setlistStatus(15))
+    }
+
+    @Test
+    fun `a past night with songs stops claiming it has none`() {
+        assertEquals("15 songs", plannedStatus(today.minusDays(1), now, songCount = 15))
+    }
+
+    @Test
+    fun `a plan is a plan only while the claim says planned`() {
+        assertEquals(true, isPlanned(StoredAttendance.Provenance.PLANNED))
+        assertEquals(false, isPlanned(StoredAttendance.Provenance.ATTENDED))
+        assertEquals(false, isPlanned(StoredAttendance.Provenance.CHECKED_IN))
+        // An imported night nobody ever claimed anything about isn't a plan either.
+        assertEquals(false, isPlanned(null))
+    }
+
+    @Test
+    fun `Valkyrien Allstars, checked in, fifteen songs, stops saying no setlist yet`() {
+        // 7 Aug 2026: past, checked into, and the record holds all fifteen titles —
+        // the exact contradiction seen on the device, chip above its own setlist.
+        val night = LocalDate.of(2026, 8, 7)
+        val planned = isPlanned(StoredAttendance.Provenance.CHECKED_IN)
+        assertEquals(false, planned)
+        assertEquals("15 songs", gigStatus(planned, night, songCount = 15, now = afterRingnes))
+    }
+
+    @Test
+    fun `Oyvind Holm, checked in with an empty record, keeps saying no setlist yet`() {
+        // Same night, same venue, setlist.fm id 53705b8d — and zero songs stored.
+        val night = LocalDate.of(2026, 8, 7)
+        val planned = isPlanned(StoredAttendance.Provenance.CHECKED_IN)
+        assertEquals("no setlist yet", gigStatus(planned, night, songCount = 0, now = afterRingnes))
+    }
+
+    @Test
+    fun `a genuine plan ahead still counts down, songs or not`() {
+        assertEquals("tomorrow", gigStatus(planned = true, date = today.plusDays(1), songCount = 0, now = now))
+        assertEquals("tonight", gigStatus(planned = true, date = today, songCount = 0, now = now))
+        assertEquals("you're going", gigStatus(planned = true, date = null, songCount = 0, now = now))
     }
 
     @Test
