@@ -643,4 +643,110 @@ class TimelineStoreTest {
         assertFalse(store.deleteGig(id, withMedia = true))
         assertEquals(1, store.load().gigs.size)
     }
+
+    // --- #128: a setlistId names one Gig, and the read never drops one -----------
+
+    /**
+     * The Valkyrien pair, as it actually sat on the device on 2026-08-10: one night,
+     * two **Gigs**, one `setlistId` — written straight into a cache file because
+     * after this change nothing in the store's API can produce it any more.
+     */
+    private fun collidingPair(): File = File.createTempFile("timelines", ".json").apply {
+        writeText(
+            """{"gigs":{""" +
+                // The newer record first, so the assertions below can only pass by
+                // ordering on createdAt rather than on whatever the map hands back.
+                """"c7d496ae":{"id":"c7d496ae","date":"07-08-2026","artist":"Valkyrien Allstars",""" +
+                """"venue":"Ringnes Festival 2026","setlistId":"637062c7","createdAt":2},""" +
+                """"f41586f4":{"id":"f41586f4","date":"07-08-2026","artist":"Valkyrien Allstars",""" +
+                """"venue":"Verandaen, Skotbu","setlistId":"637062c7","createdAt":1}},""" +
+                """"gigMedia":{"f41586f4":[{"id":"m1","kind":"photo","ref":"content://photo1"}],""" +
+                """"c7d496ae":[{"id":"m2","kind":"photo","ref":"content://photo2"}]},""" +
+                """"gigLogs":{"f41586f4":{"songs":["Ei Natt","Tomma Ord"],"closed":true},""" +
+                """"c7d496ae":{"songs":["Ei Natt"],"closed":false}},""" +
+                """"gigAttendance":{"f41586f4":{"provenance":"checked_in","checkedInAt":42},""" +
+                """"c7d496ae":{"provenance":"planned"}},""" +
+                """"gigPlaylists":{"f41586f4":[{"url":"p1","name":"n","trackCount":3}],""" +
+                """"c7d496ae":[{"url":"p2","name":"n","trackCount":3}]},""" +
+                """"gigCalendarEvent":{"f41586f4":"content://cal/7"}}"""
+        )
+    }
+
+    @Test
+    fun `two gigs sharing a setlist id combine in the read rather than one being dropped`() =
+        runBlocking {
+            val cached = TimelineStore(collidingPair()).load()
+            // mapKeys was last-wins: one of each of these pairs vanished from every
+            // screen with no error. Both records are still here.
+            assertEquals(
+                listOf("content://photo1", "content://photo2"),
+                cached.media()["637062c7"]?.map { it.ref },
+            )
+            assertEquals(listOf("p1", "p2"), cached.playlists()["637062c7"]?.map { it.url })
+            assertEquals("content://cal/7", cached.calendarEvents()["637062c7"])
+            assertEquals(1, cached.media().size)
+        }
+
+    @Test
+    fun `a Log survives a setlist id collision — the worst case named`() = runBlocking {
+        val cached = TimelineStore(collidingPair()).load()
+        // A set someone typed at a gig disappearing is the thing this is for. The
+        // fuller Log is the one kept, and it does not stay Closed on the strength
+        // of a record that was still Open.
+        val log = cached.logs()["637062c7"]
+        assertEquals(listOf("Ei Natt", "Tomma Ord"), log?.songs)
+        assertFalse(log!!.closed)
+    }
+
+    @Test
+    fun `a collision keeps the stronger attendance claim, once`() = runBlocking {
+        val attendance = TimelineStore(collidingPair()).load().attendance()
+        assertEquals(1, attendance.size)
+        // Checked in by one route, merely planned by the other: one check-in on one
+        // night, and it is not flattened back to planned by which key landed last.
+        assertEquals(StoredAttendance.Provenance.CHECKED_IN, attendance["637062c7"]?.provenance)
+        assertEquals(42L, attendance["637062c7"]?.checkedInAt)
+    }
+
+    @Test
+    fun `adopting a setlist id another gig already holds merges into the older record`() =
+        runBlocking {
+            val store = store()
+            // Marked played off a Bill first, so this is the older of the two.
+            val fromBill = store.createLocalGig("07-08-2026", "Valkyrien Allstars", "Ringnes")
+            store.saveLog(fromBill, StoredLog(songs = listOf("Ei Natt"), closed = true))
+            store.saveAttendance(
+                fromBill,
+                StoredAttendance(provenance = StoredAttendance.Provenance.PLANNED),
+            )
+            // The same night arrives from setlist.fm and mints its own Gig.
+            store.saveMedia("637062c7", listOf(photo("content://photo2")))
+            store.saveAttendance(
+                "637062c7",
+                StoredAttendance(provenance = StoredAttendance.Provenance.CHECKED_IN, checkedInAt = 42L),
+            )
+
+            assertTrue(store.adoptSetlistId(fromBill, "637062c7"))
+
+            val after = store.load()
+            // One night, not two, and the older id is the one everything else points at.
+            assertEquals(1, after.gigs.size)
+            assertEquals(fromBill, after.gigForSetlist("637062c7")?.id)
+            assertEquals("637062c7", after.setlistIdFor(fromBill))
+            // Nothing was tie-broken away: both sides' side maps came along.
+            assertEquals(listOf("Ei Natt"), after.logs()["637062c7"]?.songs)
+            assertEquals(listOf("content://photo2"), after.media()["637062c7"]?.map { it.ref })
+            assertEquals(1, after.attendance().size)
+            assertEquals(42L, after.attendance()["637062c7"]?.checkedInAt)
+        }
+
+    @Test
+    fun `adopting an id no other gig holds is still a plain attach`() = runBlocking {
+        val store = store()
+        val gigId = store.createLocalGig("07-08-2026", "Enok Monk", "Ringnes")
+        assertTrue(store.adoptSetlistId(gigId, "637062c7"))
+        val after = store.load()
+        assertEquals(1, after.gigs.size)
+        assertEquals(gigId, after.gigForSetlist("637062c7")?.id)
+    }
 }
