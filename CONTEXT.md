@@ -22,11 +22,31 @@ these words exactly; if a new concept appears, name it here **before** building 
 
 | Term | Definition | Aliases to avoid |
 | ---- | ---------- | ---------------- |
-| **Resolution** | One rung of the continuous-zoom ladder. Zooming changes resolution; it never navigates to a screen. | view, page, screen, level |
+| **Resolution** | One rung of the continuous-zoom ladder. Zooming changes resolution; it never navigates to a screen. The rungs are named by direction — **Outer** and **Inner** — never by "higher" or "lower", which point opposite ways depending on who is reading. | view, page, screen, level, higher/lower resolution, zoom level |
+| **Outer** | Towards **Timelines resolution**: less detail, more nights on screen. Also **broader**. **Timelines resolution** is the outermost rung. | higher resolution, zoomed up, coarser (fine informally) |
+| **Inner** | Towards **Gig resolution**: more detail, fewer nights. Also **narrower**. **Gig resolution** is the innermost rung. | lower resolution, deeper (reserved — see **Depth**), finer |
+| **Date precision** | How exactly a night's date is known — day, month or year. ADR-0002 is titled *"a night is dated at the resolution it is known"* and means this, not a rung. Unqualified, **Resolution** never means precision. | date resolution, the resolution it is known |
 | **Timelines resolution** | Zoomed out: my **Line** plus every known friend's, date-synced at the same scale. Reached by pinching out — the strip beside my spine opens *in place*. | multi-timeline view, comparison view, woven view |
 | **My timeline** | The single-line resolution: my own **Gigs** and **Festivals**. The starting position. | home, main screen |
 | **Festival resolution** | A **Festival** uncollapsed **in place**, listing the **Gigs** inside it. Never a screen of its own. | festival screen, festival page |
 | **Gig resolution** | One night: its setlist, its media, the playlist export. | event screen, concert detail |
+
+## Navigation grammar
+
+The two axes mean different things, always, everywhere. Undocumented, this gets
+re-derived differently each time it comes up.
+
+| Term | Definition | Aliases to avoid |
+| ---- | ---------- | ---------------- |
+| **Vertical is time** | Up is later. A planned gig is not an exception: a night three weeks away sits above tonight, the same as a night in 1992 sits below it. | scroll order, chronology (fine informally), sort direction |
+| **Horizontal is depth** | Left to right is **Outer** to **Inner**: outermost **Resolution** → **Gig** → the **Gig**'s **Alcove**. Nothing else is ever expressed sideways. | swipe navigation, tabs, paging |
+| **Depth** | Position along the horizontal axis. One step right is one rung **Inner**. | level, hierarchy, drill-down |
+| **Back out** | Swipe right. Always one rung **Outer**, on every screen — `swipeRightToBack`. There is no other back gesture and no per-screen exception. | dismiss, pop, close, up navigation |
+| **Pinch** | Replaces **Back out** at the outermost rung, where there is nothing further **Outer** to go. Pinching changes **Resolution** in place; it never pushes a screen. | zoom (fine), expand, collapse |
+
+Because **Horizontal is depth**, what a **Gig** offers first is a *position* and not a
+button: it is literally what sits one step right of that link. That is why the **Alcove**
+is a destination.
 
 ## Events
 
@@ -37,6 +57,28 @@ these words exactly; if a new concept appears, name it here **before** building 
 | **Festival name** | The festival's real name — "Øyafestivalen 2025", not the venue "Tøyenparken". Comes from setlist.fm's festival entity, scraped from the setlist page; the venue name is the fallback. | venue, event name |
 | **Absorb** | What my **Festival** does to a friend's cluster at the same venue and dates: it folds in, marking the festival shared, instead of sitting beside it as a second node. | merge (reserved for lines), group |
 | **Attended** | On someone's setlist.fm attended list. The *only* thing that makes a **Gig** theirs. | went to, logged |
+
+## The Bill family
+
+| Term | Definition | Aliases to avoid |
+| ---- | ---------- | ---------------- |
+| **Bill** | A **Festival** whose **Gigs** don't exist yet — for a festival that is not on setlist.fm and cannot be, because which night each act plays is not known to anyone until the poster goes up. What *is* knowable in advance is the name, the venue, the date range and the list of names, and that is exactly what a **Bill** holds. Not a list of planned **Gigs**: inventing a day per act so the existing machinery works is the fabrication the record must not commit. `StoredBill`. | lineup, poster (fine informally), programme, planned festival |
+| **Act** | One name on a **Bill**, in poster order. Becomes a **Gig** when it is marked as played — the moment an act is dated it played, so no "unconfirmed gig" state can ever be reached. `StoredAct`. | artist (an **Act** may not resolve to one), slot, booking |
+| **Surprise** | An **Act** typed by hand that the poster did not announce. Has nothing to return to if it is undone, unlike an **Act** off the **Bill**. | guest, unlisted, extra |
+| **Log** | My own record of what was played on a night, on this phone — the witness statement, not the published one. Freely editable forever; remembering a song three days later costs nothing. Starts **Open** and only a person may close it, because a set captured by ticking off songs an artist has played before is incomplete by construction. Shown as "Your log of this night". `StoredLog`. | setlist (reserved for setlist.fm's), notes, logcat / `android.util.Log` (unrelated — this collision has already cost one conversation) |
+| **Gap** | A blank entry in a **Log**: they played something and I could not name it. An acknowledged gap is a true fact; the same song silently missing is the record lying about its own certainty. A song always has a name, so blank is unambiguous. | unknown, blank, missing |
+
+## The room
+
+**Gig resolution** is a room off a corridor, and the three things it decides are kept
+apart on purpose.
+
+| Term | Definition | Aliases to avoid |
+| ---- | ---------- | ---------------- |
+| **Room** | What you can do standing on a **Gig**: the **Log**, the media, the check-in, the terminals. **Nothing here is ever removed** — time decides which action is offered first, never what remains possible. | screen, detail view, page |
+| **Alcove** | The single fixture opposite the door: one step right, a destination, holding exactly one thing — and it may be empty. Empty while the band plays; closing the **Log** furnishes it. | button, CTA, headline, primary action, hero (the point is that it is a position, not a control) |
+| **Curtain** | What pulling down does: draw it back and see what the **Window** says about this night *now*. A returned instruction, not a call site's choice, and it may be a curtain onto an empty view. Failing changes nothing. | refresh (fine informally), sync, reload |
+| **Window** | The data source behind a **Curtain** — setlist.fm or MusicBrainz. Which window a **Room** has depends on what is already known about the night. | api, endpoint, feed |
 
 ## Ownership and sharing
 
@@ -91,6 +133,10 @@ never makes them a **Contact**, and a **Contact** need not be on setlist.fm at a
 - A **Gig** attended by two people produces exactly one **Crossing**, on the owner's **Spine**.
 - A **Festival** is a set of **Gigs**; it **Absorbs** a friend's cluster rather than duplicating it.
 - Zooming moves between **Resolutions**; it never pushes a screen.
+- A **Bill** is a set of **Acts**; an **Act** becomes a **Gig** when it is marked as played.
+- A **Log** belongs to one **Gig**, holds **Gaps** among its songs, and is never overwritten
+  by setlist.fm.
+- One step **Inner** from a **Gig** is its **Alcove**; **Back out** is one step **Outer**, always.
 - A **Followed line** grants nothing; only a **Contact** can receive media.
 - **Attach** puts media on a **Gig** and sends it to the **Audience**, unless **Personal**.
 - **Reconcile** runs between **Contacts**, over **Attended** in common — not over what was
@@ -109,3 +155,9 @@ never makes them a **Contact**, and a **Contact** need not be on setlist.fm at a
 
 > **Dev:** "I added a **Contact** today and we were both at a gig in 2026. Do I need to re-share?"
 > **Designer:** "There is nothing to re-share. **Reconcile** has no time bound — the first sync just has a bigger diff."
+
+> **Dev:** "Swiping right from a **Gig** goes to the higher resolution, right?"
+> **Designer:** "Say **Outer**. 'Higher resolution' means more detail to half the room and fewer nights to the other half — and ADR-0002 uses the word for **Date precision** on top of that. **Back out** is one rung **Outer**, and that sentence can only be read one way."
+
+> **Dev:** "The band is still playing and the **Log** is open. What's in the **Alcove**?"
+> **Designer:** "Nothing. You don't want an exit pointed at you mid-set. The **Room** still has the **Log**, the media and the check-in — closing the **Log** is what furnishes the **Alcove**."
