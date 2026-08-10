@@ -18,6 +18,7 @@ import io.github.magnusencoded.setlist2spotify.data.artistLabel
 import io.github.magnusencoded.setlist2spotify.data.billNight
 import io.github.magnusencoded.setlist2spotify.data.candidateSongs
 import io.github.magnusencoded.setlist2spotify.data.fmDate
+import io.github.magnusencoded.setlist2spotify.data.gigNight
 import io.github.magnusencoded.setlist2spotify.data.isLocal
 import io.github.magnusencoded.setlist2spotify.data.localGigSetlist
 import io.github.magnusencoded.setlist2spotify.data.parseLineup
@@ -1275,21 +1276,38 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * something only a person standing in front of the stage does.
      *
      * The date is [billNight]'s, not the calendar's: at half one in the morning the
-     * act you just watched played yesterday.
+     * act you just watched played yesterday. But only while the clock is still inside
+     * the **Bill**'s range — [gigNight] is what decides, and it returns null rather
+     * than date a night at a festival that had not opened or had already ended. A
+     * night the person picked off the range arrives as [chosen] and wins over the
+     * clock, which by then knows nothing.
+     *
+     * A picked night is [StoredAttendance.Provenance.ATTENDED], not `CHECKED_IN`:
+     * answering "which night was that?" days later is a recollection, and a check-in
+     * is a thing only someone standing in front of the stage does.
      */
-    fun markActPlayed(billId: String, actIndex: Int, now: LocalDateTime = LocalDateTime.now()) {
+    fun markActPlayed(
+        billId: String,
+        actIndex: Int,
+        chosen: LocalDate? = null,
+        now: LocalDateTime = LocalDateTime.now(),
+    ) {
         val bill = _state.value.bills.firstOrNull { it.id == billId } ?: return
         val act = bill.acts.getOrNull(actIndex) ?: return
         if (act.gigId != null) return
-        val night = billNight(now)
+        val night = gigNight(bill, chosen, now) ?: return
         viewModelScope.launch {
             val gigId = timelines.createLocalGig(fmDate(night), act.name, bill.name)
             val gig = localGigSetlist(gigId, act.name, night, bill.name, bill.city)
             timelines.savePlanned(gig)
-            val attendance = StoredAttendance(
-                provenance = StoredAttendance.Provenance.CHECKED_IN,
-                checkedInAt = System.currentTimeMillis(),
-            )
+            val attendance = if (chosen == null) {
+                StoredAttendance(
+                    provenance = StoredAttendance.Provenance.CHECKED_IN,
+                    checkedInAt = System.currentTimeMillis(),
+                )
+            } else {
+                StoredAttendance(provenance = StoredAttendance.Provenance.ATTENDED)
+            }
             timelines.saveAttendance(gigId, attendance)
             _state.update {
                 it.copy(
@@ -1341,14 +1359,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * An **Act** that never was on the poster. Added already dated, because a
      * **Surprise** is only ever discovered after it has happened — there is no state
      * in which an unannounced act is pending.
+     *
+     * Dated by the same rule as any other act, and refused outright when there is no
+     * honest date to give it: a hand-typed act is the easiest place to fabricate a
+     * night, not an exception to the invariant.
      */
-    fun addSurpriseAct(billId: String, name: String, now: LocalDateTime = LocalDateTime.now()) {
+    fun addSurpriseAct(
+        billId: String,
+        name: String,
+        chosen: LocalDate? = null,
+        now: LocalDateTime = LocalDateTime.now(),
+    ) {
         if (name.isBlank()) return
         val bill = _state.value.bills.firstOrNull { it.id == billId } ?: return
+        if (gigNight(bill, chosen, now) == null) return
         val at = bill.acts.size
         viewModelScope.launch {
             editBill(billId) { it.copy(acts = it.acts + StoredAct(name = name.trim(), surprise = true)) }
-            markActPlayed(billId, at, now)
+            markActPlayed(billId, at, chosen, now)
         }
     }
 

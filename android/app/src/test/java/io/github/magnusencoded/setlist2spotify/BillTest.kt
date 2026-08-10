@@ -1,8 +1,13 @@
 package io.github.magnusencoded.setlist2spotify
 
+import io.github.magnusencoded.setlist2spotify.data.BillWhen
+import io.github.magnusencoded.setlist2spotify.data.StoredBill
 import io.github.magnusencoded.setlist2spotify.data.StoredLog
 import io.github.magnusencoded.setlist2spotify.data.artistLabel
 import io.github.magnusencoded.setlist2spotify.data.billNight
+import io.github.magnusencoded.setlist2spotify.data.billWhen
+import io.github.magnusencoded.setlist2spotify.data.gigNight
+import io.github.magnusencoded.setlist2spotify.data.nights
 import io.github.magnusencoded.setlist2spotify.data.candidateSongs
 import io.github.magnusencoded.setlist2spotify.data.filingFields
 import io.github.magnusencoded.setlist2spotify.data.FutureRow
@@ -86,6 +91,121 @@ class BillTest {
         assertEquals(
             LocalDate.of(2026, 8, 7),
             billNight(LocalDate.of(2026, 8, 7).atTime(6, 0)),
+        )
+    }
+
+    // --- A Bill knows when it is (#135) -----------------------------------------
+
+    // A festival shaped like the one this was built for — three nights, invented
+    // names — because the case that broke was a Bill read on the day after it ended.
+    private val threeNights = StoredBill(
+        id = "nordlys",
+        name = "Nordlys Fields 2026",
+        city = "Kalmarhavn",
+        from = "06-08-2026",
+        to = "09-08-2026",
+        acts = parseLineup("Paper Cranes\nVelvet Ditch"),
+    )
+
+    @Test
+    fun `a bill's nights are every day of its range, ends included`() {
+        assertEquals(
+            listOf(6, 7, 8, 9).map { LocalDate.of(2026, 8, it) },
+            threeNights.nights(),
+        )
+    }
+
+    @Test
+    fun `a bill with no dates typed in has no nights, and no range to argue with`() {
+        assertEquals(emptyList<LocalDate>(), StoredBill(name = "Nordlys Fields").nights())
+    }
+
+    @Test
+    fun `where the clock stands relative to the range is the whole question`() {
+        assertEquals(BillWhen.BEFORE, billWhen(threeNights, LocalDate.of(2026, 8, 5).atTime(20, 0)))
+        assertEquals(BillWhen.DURING, billWhen(threeNights, LocalDate.of(2026, 8, 7).atTime(22, 30)))
+        assertEquals(BillWhen.AFTER, billWhen(threeNights, LocalDate.of(2026, 8, 10).atTime(12, 0)))
+    }
+
+    @Test
+    fun `walking out of the last night at half one is still during the festival`() {
+        // NIGHT_ENDS decides which night it is, and this reads the same boundary: the
+        // festival is not over while its last night is still going on.
+        assertEquals(BillWhen.DURING, billWhen(threeNights, LocalDate.of(2026, 8, 10).atTime(1, 30)))
+    }
+
+    @Test
+    fun `inside the range the clock still dates the gig, exactly as it always did`() {
+        val now = LocalDate.of(2026, 8, 7).atTime(22, 30)
+        assertEquals(billNight(now), gigNight(threeNights, chosen = null, now = now))
+        assertEquals(LocalDate.of(2026, 8, 7), gigNight(threeNights, null, now))
+    }
+
+    @Test
+    fun `after the festival the clock cannot date anything — it has to be asked`() {
+        // The field report: Nordlys Fields ran 6–9 August, the phone says the 10th, and
+        // tapping an act that never got a night minted a Gig dated 10 August — a night
+        // the festival did not have.
+        val theDayAfter = LocalDate.of(2026, 8, 10).atTime(12, 0)
+        assertNull(gigNight(threeNights, chosen = null, now = theDayAfter))
+        assertEquals(
+            LocalDate.of(2026, 8, 8),
+            gigNight(threeNights, chosen = LocalDate.of(2026, 8, 8), now = theDayAfter),
+        )
+    }
+
+    @Test
+    fun `before the festival opens nothing has played, so there is no night to give`() {
+        assertNull(gigNight(threeNights, null, LocalDate.of(2026, 8, 5).atTime(23, 0)))
+    }
+
+    @Test
+    fun `a night the festival did not have is refused however it was arrived at`() {
+        // The invariant, stated as the one thing that cannot happen: no clock and no
+        // choice can date a Gig outside the Bill it was minted from.
+        val clocks = listOf(4, 5, 6, 7, 8, 9, 10, 11).map { LocalDate.of(2026, 8, it).atTime(1, 30) } +
+            listOf(4, 5, 6, 7, 8, 9, 10, 11).map { LocalDate.of(2026, 8, it).atTime(21, 0) }
+        val choices: List<LocalDate?> =
+            listOf(null) + (1..14).map { LocalDate.of(2026, 8, it) } + LocalDate.of(2025, 8, 7)
+        for (now in clocks) {
+            for (chosen in choices) {
+                val night = gigNight(threeNights, chosen, now) ?: continue
+                assertTrue(
+                    "minted $night outside ${threeNights.from}..${threeNights.to}",
+                    night in threeNights.nights(),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `the minted Gig itself carries a date inside the range`() {
+        // The invariant where it actually lands: on the record, in setlist.fm's own
+        // date shape, which is what artist + venue + day has to match on later.
+        val night = gigNight(threeNights, LocalDate.of(2026, 8, 8), LocalDate.of(2026, 8, 10).atTime(12, 0))!!
+        val gig = localGigSetlist("local-1", "Velvet Ditch", night, threeNights.name, threeNights.city)
+        assertEquals("08-08-2026", gig.eventDate)
+        assertTrue(threeNights.nights().any { fmDate(it) == gig.eventDate })
+    }
+
+    @Test
+    fun `a bill with no range left is the clock's, as before — nothing to disagree with`() {
+        // An undated Bill is a real thing to be holding, and it keeps the old
+        // behaviour rather than becoming un-markable.
+        val undated = StoredBill(id = "u", name = "Nordlys Fields")
+        val now = LocalDate.of(2026, 8, 10).atTime(23, 0)
+        assertEquals(LocalDate.of(2026, 8, 10), gigNight(undated, null, now))
+        assertEquals(BillWhen.DURING, billWhen(undated, now))
+    }
+
+    @Test
+    fun `a one-day bill has one night, and it is the only answer`() {
+        val oneDay = StoredBill(id = "d", name = "Harbour Sessions", from = "06-08-2026")
+        assertEquals(listOf(LocalDate.of(2026, 8, 6)), oneDay.nights())
+        assertNull(gigNight(oneDay, null, LocalDate.of(2026, 8, 7).atTime(20, 0)))
+        assertEquals(
+            LocalDate.of(2026, 8, 6),
+            gigNight(oneDay, LocalDate.of(2026, 8, 6), LocalDate.of(2026, 8, 7).atTime(20, 0)),
         )
     }
 

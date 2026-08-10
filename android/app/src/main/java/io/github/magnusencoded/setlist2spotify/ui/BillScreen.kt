@@ -38,10 +38,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import io.github.magnusencoded.setlist2spotify.BuildConfig
+import io.github.magnusencoded.setlist2spotify.data.BillWhen
 import io.github.magnusencoded.setlist2spotify.data.StoredAct
 import io.github.magnusencoded.setlist2spotify.data.StoredBill
 import io.github.magnusencoded.setlist2spotify.data.StoredLog
+import io.github.magnusencoded.setlist2spotify.data.billWhen
+import io.github.magnusencoded.setlist2spotify.data.nights
 import io.github.magnusencoded.setlist2spotify.data.parseFmDate
+import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -69,6 +74,11 @@ private val ActRowHeight = 56.dp
  * promises eleven acts and delivered three is telling the truth about three.
  *
  * It opens in place, like a **Festival**, because that is what it is.
+ *
+ * What an undated **Act** offers depends on where the clock stands relative to the
+ * **Bill**'s own range ([billWhen]) — "played tonight" only while there is a tonight
+ * to mean. The night a tap produces is the second argument of [onPlayed]: null is
+ * tonight, a date is a night picked off the range.
  */
 @Composable
 fun BillItem(
@@ -76,14 +86,17 @@ fun BillItem(
     open: Boolean,
     fetching: Boolean,
     onToggle: () -> Unit,
-    onPlayed: (Int) -> Unit,
+    onPlayed: (Int, LocalDate?) -> Unit,
     onUnmark: (Int) -> Unit,
     onOpenGig: (String) -> Unit,
-    onSurprise: (String) -> Unit,
+    onSurprise: (String, LocalDate?) -> Unit,
     onFetchCandidates: () -> Unit,
     onRemove: () -> Unit,
     onRename: (Int, String) -> Unit,
+    now: LocalDateTime = LocalDateTime.now(),
 ) {
+    val phase = billWhen(bill, now)
+    val nights = bill.nights()
     val seen = bill.acts.count { it.gigId != null }
     val accent = if (seen > 0) Amber else Slate
     // Opportunistic, and this is the whole scheduler: opening a Bill that still has
@@ -145,13 +158,17 @@ fun BillItem(
         bill.acts.forEachIndexed { i, act ->
             ActRow(
                 act = act,
-                onPlayed = { onPlayed(i) },
+                phase = phase,
+                nights = nights,
+                onPlayed = { night -> onPlayed(i, night) },
                 onUnmark = { onUnmark(i) },
                 onOpenGig = onOpenGig,
                 onRename = { corrected -> onRename(i, corrected) },
             )
         }
-        SurpriseField(onSurprise)
+        // Nothing has played yet, so there is nobody to have been surprised by. The
+        // field would only offer a way to date an act before its festival opened.
+        if (phase != BillWhen.BEFORE) SurpriseField(phase, nights, onSurprise)
         Row(
             Modifier.fillMaxWidth().padding(start = SpineWidth, end = 18.dp, top = 4.dp, bottom = 20.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -177,15 +194,21 @@ fun BillItem(
 }
 
 /**
- * One **Act**. Undated, the whole row is the field gesture: one tap says it played
- * tonight and the act becomes a **Gig** I was at. Dated, it opens that **Gig**; a
- * long press is the way back out of a mistap.
+ * One **Act**. Undated *during* the festival, the whole row is the field gesture: one
+ * tap says it played tonight and the act becomes a **Gig** I was at. Dated, it opens
+ * that **Gig**; a long press is the way back out of a mistap.
+ *
+ * Once the festival is over the same tap asks instead of claims — the clock cannot
+ * name the night any more, and the **Bill**'s own nights are the answers. Before it
+ * starts there is nothing to offer at all.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ActRow(
     act: StoredAct,
-    onPlayed: () -> Unit,
+    phase: BillWhen,
+    nights: List<LocalDate>,
+    onPlayed: (LocalDate?) -> Unit,
     onUnmark: () -> Unit,
     onOpenGig: (String) -> Unit,
     onRename: (String) -> Unit,
@@ -193,6 +216,9 @@ private fun ActRow(
     val name = act.name
     val gigId = act.gigId
     val seen = gigId != null
+    // Undated, at a festival that has ended: the one case that has to be asked about.
+    val ask = !seen && phase == BillWhen.AFTER
+    var asking by remember(act.name) { mutableStateOf(false) }
     var editing by remember(act.name) { mutableStateOf(false) }
     if (editing) {
         // The whole row becomes the correction, because the row's own gesture is
@@ -224,12 +250,23 @@ private fun ActRow(
         }
         return
     }
+    // Emitted as siblings into the Bill's own Column, so the night choices can open
+    // underneath this row without wrapping every act in a layout of its own.
     Row(
         Modifier
             .fillMaxWidth()
             .heightIn(min = ActRowHeight)
             .combinedClickable(
-                onClick = { if (gigId != null) onOpenGig(gigId) else onPlayed() },
+                onClick = {
+                    when {
+                        gigId != null -> onOpenGig(gigId)
+                        // Nothing has played. The row is a name on a poster and the
+                        // tap has no honest meaning yet, so it does nothing.
+                        phase == BillWhen.BEFORE -> Unit
+                        ask -> asking = !asking
+                        else -> onPlayed(null)
+                    }
+                },
                 // A Surprise can always be taken back off, dated or not: it was typed
                 // by hand and a typo has nothing to return to. An act off the Bill only
                 // has something to undo once it has been given a night.
@@ -278,35 +315,109 @@ private fun ActRow(
             )
         }
         Spacer(Modifier.width(10.dp))
+        // The affordance is only ever what the clock can honestly support. After the
+        // festival "played tonight" is a claim about a night that does not exist, so
+        // it becomes a question; before it, there is nothing to say at all.
         Text(
-            if (seen) "open ›" else "played tonight",
+            when {
+                seen -> "open ›"
+                phase == BillWhen.BEFORE -> ""
+                ask -> if (asking) "which night?" else "played · which night?"
+                else -> "played tonight"
+            },
             fontSize = 13.sp,
             fontWeight = if (seen) FontWeight.Normal else FontWeight.SemiBold,
             color = if (seen) Faint else Slate,
         )
     }
+    if (ask && asking) {
+        NightChoices(nights, Modifier.padding(start = SpineWidth, end = 18.dp)) { night ->
+            asking = false
+            onPlayed(night)
+        }
+    }
 }
 
-/** An act nobody announced. Typed once, dated on arrival — see `addSurpriseAct`. */
+/**
+ * The nights this **Bill** actually had, as a list to tap.
+ *
+ * Not a date picker: a festival is three or four days, and a picker would offer every
+ * day there has ever been — including the ones this festival did not have, which is
+ * the fabrication being closed off. The choices *are* the range.
+ */
 @Composable
-private fun SurpriseField(onSurprise: (String) -> Unit) {
+private fun NightChoices(
+    nights: List<LocalDate>,
+    modifier: Modifier = Modifier,
+    onPick: (LocalDate) -> Unit,
+) {
+    Column(modifier.padding(bottom = 10.dp)) {
+        Text(
+            "Which night did they play?",
+            color = Slate,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        nights.forEach { night ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = ActRowHeight)
+                    .clickable { onPick(night) },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("·", color = Faint, fontSize = 16.sp)
+                Spacer(Modifier.width(12.dp))
+                Text(night.format(NightLabel), color = Amber, fontSize = 15.sp)
+            }
+        }
+    }
+}
+
+/** "Thu 6 Aug" — the day of the week is what someone remembers a festival night by. */
+private val NightLabel: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH)
+
+/**
+ * An act nobody announced. Typed once, dated on arrival — see `addSurpriseAct`.
+ *
+ * Hand-typed is the easiest place of all to invent a date, so it is asked the same
+ * question as the poster's own acts once the festival has ended.
+ */
+@Composable
+private fun SurpriseField(
+    phase: BillWhen,
+    nights: List<LocalDate>,
+    onSurprise: (String, LocalDate?) -> Unit,
+) {
     var text by remember { mutableStateOf("") }
+    var asking by remember { mutableStateOf(false) }
+    val ask = phase == BillWhen.AFTER
     Column(Modifier.padding(start = SpineWidth, end = 18.dp, top = 6.dp)) {
         StationField(
             value = text,
-            onValueChange = { text = it },
+            onValueChange = { text = it; asking = false },
             label = "someone nobody announced",
             imeDone = true,
         )
         if (text.isNotBlank()) {
             Text(
-                "+ add \"${text.trim()}\", played tonight",
+                if (ask) "+ add \"${text.trim()}\" — which night?"
+                else "+ add \"${text.trim()}\", played tonight",
                 color = Amber,
                 fontSize = 13.sp,
                 modifier = Modifier
-                    .clickable { onSurprise(text.trim()); text = "" }
+                    .clickable {
+                        if (ask) asking = !asking else { onSurprise(text.trim(), null); text = "" }
+                    }
                     .padding(vertical = 10.dp),
             )
+            if (ask && asking) {
+                NightChoices(nights) { night ->
+                    onSurprise(text.trim(), night)
+                    text = ""
+                    asking = false
+                }
+            }
         }
     }
 }

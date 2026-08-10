@@ -557,7 +557,9 @@ fun StationTimelineScreen(
                                         open = row.bill.id in expanded,
                                         fetching = state.billFetching == row.bill.id,
                                         onToggle = { viewModel.toggleFestival(row.bill.id) },
-                                        onPlayed = { i -> viewModel.markActPlayed(row.bill.id, i) },
+                                        onPlayed = { i, night ->
+                                            viewModel.markActPlayed(row.bill.id, i, night)
+                                        },
                                         onUnmark = { i -> viewModel.unmarkAct(row.bill.id, i) },
                                         onOpenGig = { gigId ->
                                             state.plannedGigs.firstOrNull { it.id == gigId }?.let {
@@ -566,7 +568,9 @@ fun StationTimelineScreen(
                                             }
                                         },
                                         onRename = { i, name -> viewModel.renameAct(row.bill.id, i, name) },
-                                        onSurprise = { name -> viewModel.addSurpriseAct(row.bill.id, name) },
+                                        onSurprise = { name, night ->
+                                            viewModel.addSurpriseAct(row.bill.id, name, night)
+                                        },
                                         onFetchCandidates = { viewModel.fetchCandidates(row.bill.id) },
                                         onRemove = { viewModel.removeBill(row.bill.id) },
                                     )

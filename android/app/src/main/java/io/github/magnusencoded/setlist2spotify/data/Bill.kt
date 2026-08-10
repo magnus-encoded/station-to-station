@@ -188,6 +188,58 @@ fun billNight(now: LocalDateTime): LocalDate =
     if (now.toLocalTime() < NIGHT_ENDS) now.toLocalDate().minusDays(1) else now.toLocalDate()
 
 /**
+ * Every night this **Bill** has — the only days a **Gig** it mints may be dated.
+ *
+ * The range is the one temporal fact a poster does carry, and it is what makes the
+ * question askable afterwards: three or four days is a list to tap, not a date picker.
+ * A **Bill** with no dates typed in has no nights, and then the clock is all there is.
+ */
+fun StoredBill.nights(): List<LocalDate> {
+    val a = parseFmDate(from) ?: parseFmDate(to) ?: return emptyList()
+    val b = parseFmDate(to) ?: a
+    return generateSequence(minOf(a, b)) { it.plusDays(1) }.takeWhile { it <= maxOf(a, b) }.toList()
+}
+
+/** Where the clock stands relative to a **Bill**: not started, on, or over. */
+enum class BillWhen { BEFORE, DURING, AFTER }
+
+/**
+ * Which of the three a **Bill** is in, judged on [billNight] rather than the calendar
+ * day — so half one in the morning on the last night is still **DURING**, the same
+ * boundary the check-in window draws.
+ */
+fun billWhen(bill: StoredBill, now: LocalDateTime): BillWhen {
+    val nights = bill.nights()
+    // Nothing to disagree with. An undated Bill behaves exactly as it always has.
+    if (nights.isEmpty()) return BillWhen.DURING
+    val night = billNight(now)
+    return when {
+        night < nights.first() -> BillWhen.BEFORE
+        night > nights.last() -> BillWhen.AFTER
+        else -> BillWhen.DURING
+    }
+}
+
+/**
+ * **The invariant: a Gig minted from a Bill is dated inside that Bill's range.**
+ *
+ * Null is "there is no honest answer here" and the only correct one in two cases: the
+ * festival has not opened, and it has closed with nobody having said which night this
+ * was. Where the clock disagrees with the range the range wins — the clock does not
+ * get to date a night at a festival that was already over, which is `StoredBill`'s
+ * own "inventing a day per act" fabrication arriving by the back door.
+ *
+ * [chosen] is a night a person picked off the range. It is checked against the range
+ * too rather than trusted: the invariant holds for every path into it or it is not an
+ * invariant.
+ */
+fun gigNight(bill: StoredBill, chosen: LocalDate?, now: LocalDateTime): LocalDate? {
+    val nights = bill.nights()
+    val night = chosen ?: billNight(now)
+    return if (nights.isEmpty()) night else night.takeIf { it in nights }
+}
+
+/**
  * A pasted lineup, one **Act** per line.
  *
  * A line beginning `?` is a **Maybe** — the poster's own hedge, kept as the poster
