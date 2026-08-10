@@ -1,5 +1,6 @@
 package io.github.magnusencoded.setlist2spotify
 
+import io.github.magnusencoded.setlist2spotify.data.StoredAttendance
 import io.github.magnusencoded.setlist2spotify.data.StoredLog
 import io.github.magnusencoded.setlist2spotify.data.artistLabel
 import io.github.magnusencoded.setlist2spotify.data.billNight
@@ -21,6 +22,8 @@ import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSets
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSong
 import io.github.magnusencoded.setlist2spotify.ui.GigLeaf
+import io.github.magnusencoded.setlist2spotify.ui.TimelineNode
+import io.github.magnusencoded.setlist2spotify.ui.shows
 import io.github.magnusencoded.setlist2spotify.ui.gigLeaf
 import io.github.magnusencoded.setlist2spotify.ui.nightWindow
 import org.junit.Assert.assertEquals
@@ -327,15 +330,21 @@ class BillTest {
     private fun bill(from: String) =
         io.github.magnusencoded.setlist2spotify.data.StoredBill(id = from, name = "F", from = from)
 
+    /** Every named gig is still only a plan — the claim, never map membership (#127). */
+    private fun planned(vararg ids: String): Map<String, StoredAttendance> =
+        ids.associateWith { StoredAttendance(StoredAttendance.Provenance.PLANNED) }
+
+    private fun concert(gig: FmSetlist) = FutureRow.Ticket(TimelineNode.Concert(gig))
+
     @Test
     fun `a festival starting tonight sits below a gig next week`() {
         // The field report: Ringnes (today) rendered above a Nick Cave gig seven days
         // out, because Bills were a block pinned above the tickets.
         val ringnes = bill("06-08-2026")
         val nickCave = localGigSetlist("nc", "Nick Cave", LocalDate.of(2026, 8, 13), "Oslo", "")
-        val rows = futureRows(listOf(ringnes), listOf(nickCave))
+        val rows = futureRows(listOf(ringnes), listOf(nickCave), planned("nc"))
         assertEquals(
-            listOf<Any>(FutureRow.Ticket(nickCave), FutureRow.OnBill(ringnes)),
+            listOf<Any>(concert(nickCave), FutureRow.OnBill(ringnes)),
             rows,
         )
     }
@@ -347,8 +356,8 @@ class BillTest {
         )
         val between = localGigSetlist("g", "X", LocalDate.of(2026, 8, 8), "Oslo", "")
         assertEquals(
-            listOf<Any>(FutureRow.Ticket(between), FutureRow.OnBill(threeDays)),
-            futureRows(listOf(threeDays), listOf(between)),
+            listOf<Any>(concert(between), FutureRow.OnBill(threeDays)),
+            futureRows(listOf(threeDays), listOf(between), planned("g")),
         )
     }
 
@@ -358,10 +367,89 @@ class BillTest {
         val undated = bill("")
         val soon = localGigSetlist("g", "X", LocalDate.of(2026, 8, 7), "Oslo", "")
         assertEquals(
-            listOf<Any>(FutureRow.Ticket(soon), FutureRow.OnBill(undated)),
-            futureRows(listOf(undated), listOf(soon)),
+            listOf<Any>(concert(soon), FutureRow.OnBill(undated)),
+            futureRows(listOf(undated), listOf(soon), planned("g")),
         )
     }
+
+    // --- The future lane answers both questions the rest of the line does (#134) ---
+
+    // Invented, on purpose: this repo is public and the device's own timeline is not
+    // going in it. Same shape as the real case — two acts, one park, one night.
+    private val marbleQuiet =
+        localGigSetlist("mq", "Marble Quiet", LocalDate.of(2026, 8, 13), "Hollowmoor Park", "Vardhavn")
+    private val tinFuneral =
+        localGigSetlist("tf", "Tin Funeral", LocalDate.of(2026, 8, 13), "Hollowmoor Park", "Vardhavn")
+
+    @Test
+    fun `two planned gigs at one venue on one night are one festival, not two nodes`() {
+        val rows = futureRows(emptyList(), listOf(marbleQuiet, tinFuneral), planned("mq", "tf"))
+        assertEquals(1, rows.size)
+        val node = (rows.single() as FutureRow.Ticket).node
+        assertTrue(node is TimelineNode.Festival)
+        assertEquals(
+            setOf("mq", "tf"),
+            (node as TimelineNode.Festival).shows.map { it.id }.toSet(),
+        )
+    }
+
+    @Test
+    fun `a planned festival takes the scraped name, and the venue only as fallback`() {
+        val plain = futureRows(emptyList(), listOf(marbleQuiet, tinFuneral), planned("mq", "tf"))
+        assertEquals("Hollowmoor Park", festivalNameOf(plain.single()))
+
+        // Keyed by the cluster's first show, which is the newest — same order the
+        // lane groups in, so the resolver and the lane agree on the key.
+        val first = (plain.single() as FutureRow.Ticket).node.shows().first().id
+        val named = futureRows(
+            emptyList(),
+            listOf(marbleQuiet, tinFuneral),
+            planned("mq", "tf"),
+            festivalNames = mapOf(first to "Hollowmoor Sound 2026"),
+        )
+        assertEquals("Hollowmoor Sound 2026", festivalNameOf(named.single()))
+    }
+
+    @Test
+    fun `a lone planned gig stays a plain node`() {
+        val rows = futureRows(emptyList(), listOf(marbleQuiet), planned("mq"))
+        assertEquals(concert(marbleQuiet), rows.single())
+    }
+
+    @Test
+    fun `a night I checked into is not in the future lane, and never leaves gigPlanned`() {
+        // The device case: fourteen of sixteen gigPlanned entries had been and gone.
+        // Nothing is deleted — the map is the only home of these gigs' facts — the
+        // lane just stops reading membership as a plan.
+        val gigPlanned = listOf(marbleQuiet, tinFuneral)
+        val rows = futureRows(
+            emptyList(),
+            gigPlanned,
+            mapOf(
+                "mq" to StoredAttendance(StoredAttendance.Provenance.CHECKED_IN),
+                "tf" to StoredAttendance(StoredAttendance.Provenance.PLANNED),
+            ),
+        )
+        assertEquals(listOf<Any>(concert(tinFuneral)), rows)
+        assertEquals(2, gigPlanned.size)
+    }
+
+    @Test
+    fun `an imported night with no claim at all is not a plan`() {
+        assertTrue(futureRows(emptyList(), listOf(marbleQuiet), emptyMap()).isEmpty())
+    }
+
+    @Test
+    fun `a bill is never folded into a planned festival, even at the same place`() {
+        // A Bill is its own kind of node with its own lineup; it keeps its own row.
+        val onTheWall = bill("13-08-2026")
+        val rows = futureRows(listOf(onTheWall), listOf(marbleQuiet, tinFuneral), planned("mq", "tf"))
+        assertEquals(2, rows.size)
+        assertTrue(rows.any { it is FutureRow.OnBill })
+    }
+
+    private fun festivalNameOf(row: FutureRow): String =
+        ((row as FutureRow.Ticket).node as TimelineNode.Festival).name
 
     // --- Dates ------------------------------------------------------------------
 
