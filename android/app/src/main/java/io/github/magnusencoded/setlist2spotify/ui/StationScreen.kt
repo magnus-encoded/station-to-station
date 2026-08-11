@@ -134,7 +134,6 @@ import io.github.magnusencoded.setlist2spotify.data.futureRows
 import io.github.magnusencoded.setlist2spotify.data.postFiling
 import io.github.magnusencoded.setlist2spotify.data.setlistPaste
 import androidx.compose.foundation.ScrollState
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
