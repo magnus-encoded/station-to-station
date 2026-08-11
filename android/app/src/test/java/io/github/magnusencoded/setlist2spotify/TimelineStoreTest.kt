@@ -861,27 +861,45 @@ class TimelineStoreTest {
 
     // ---- notes (#50) ---------------------------------------------------------
 
+    private fun note(id: String, text: String, personal: Boolean, verdict: String? = null) =
+        StoredMedia(
+            id = id,
+            kind = StoredMedia.Kind.NOTE,
+            ref = "",
+            text = text,
+            verdict = verdict,
+            personal = personal,
+        )
+
     @Test
-    fun `a note round-trips with its words, its verdict and its band`() = runBlocking {
+    fun `a note round-trips with its words and its verdict`() = runBlocking {
         val store = store()
         store.saveMedia(
             "a",
-            listOf(
-                StoredMedia(
-                    id = "n1",
-                    kind = StoredMedia.Kind.NOTE,
-                    ref = "",
-                    text = "First time seeing these ladies, and they ruled!",
-                    verdict = StoredMedia.Verdict.DOUBLE_UP,
-                    personal = false,
-                ),
-            ),
+            listOf(note("n1", "First time seeing these ladies, and they ruled!", personal = true, verdict = StoredMedia.Verdict.DOUBLE_UP)),
         )
         val note = store.load().media()["a"]?.single()
         assertEquals(StoredMedia.Kind.NOTE, note?.kind)
         assertEquals("First time seeing these ladies, and they ruled!", note?.text)
         assertEquals(StoredMedia.Verdict.DOUBLE_UP, note?.verdict)
-        assertFalse(note?.personal ?: true)
+        assertEquals("", note?.ref)
+    }
+
+    /**
+     * The vault holds. Asserted in this direction rather than the other because
+     * **#162's upgrade has not necessarily run yet on a store this new**: it fires on
+     * the first read of a cache whose `mediaTierMigrated` is false and sends every
+     * unshared night's media *toward* the vault, so a freshly saved shared item can
+     * legitimately come back personal. That is the migration working, not a bug — but
+     * it does mean "saved shared, loaded shared" is only true of a store that has
+     * already been through it, and a test asserting it unconditionally is asserting
+     * the wrong thing.
+     */
+    @Test
+    fun `a vault note stays in the vault across a save and load`() = runBlocking {
+        val store = store()
+        store.saveMedia("a", listOf(note("n1", "not sure about this one", personal = true)))
+        assertTrue(store.load().media()["a"]?.single()?.personal ?: false)
     }
 
     /**
