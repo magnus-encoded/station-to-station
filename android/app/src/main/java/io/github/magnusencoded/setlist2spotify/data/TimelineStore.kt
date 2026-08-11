@@ -393,21 +393,22 @@ data class TimelineCache(
 }
 
 // The unions two records of one night combine by, shared by the merge that collapses
-// them (TimelineStore.mergeGigs) and the read that has to survive one that wasn't.
+// them (TimelineStore.mergeGigs), the read that has to survive one that wasn't, and the
+// device handover, which is this same combination across a whole timeline (#141).
 
 /** Every photo and video from both, de-duped on the id each carries forever. */
-private fun unionMedia(kept: List<StoredMedia>, dropped: List<StoredMedia>): List<StoredMedia> =
+internal fun unionMedia(kept: List<StoredMedia>, dropped: List<StoredMedia>): List<StoredMedia> =
     kept + dropped.filterNot { m -> kept.any { it.id == m.id } }
 
 /** Every playlist link from both: a url is the thing you send someone, so none go. */
-private fun unionPlaylists(kept: List<StoredPlaylist>, dropped: List<StoredPlaylist>): List<StoredPlaylist> =
+internal fun unionPlaylists(kept: List<StoredPlaylist>, dropped: List<StoredPlaylist>): List<StoredPlaylist> =
     kept + dropped.filterNot { p -> kept.any { it.url == p.url } }
 
 /**
  * The longer **Log** survives, and stays **Open** unless both were **Closed** — a
  * merge must not upgrade a claim nobody made.
  */
-private fun unionLog(kept: StoredLog, dropped: StoredLog): StoredLog =
+internal fun unionLog(kept: StoredLog, dropped: StoredLog): StoredLog =
     (if (dropped.songs.size > kept.songs.size) dropped else kept)
         .copy(closed = kept.closed && dropped.closed)
 
@@ -419,7 +420,7 @@ private fun unionLog(kept: StoredLog, dropped: StoredLog): StoredLog =
  * An unrecognised provenance ranks lowest rather than throwing — the field is a
  * plain string precisely so a newer app's value costs this one gig, not the cache.
  */
-private fun unionAttendance(kept: StoredAttendance, dropped: StoredAttendance): StoredAttendance =
+internal fun unionAttendance(kept: StoredAttendance, dropped: StoredAttendance): StoredAttendance =
     if (evidence(dropped.provenance) > evidence(kept.provenance)) dropped else kept
 
 private fun evidence(provenance: String): Int = when (provenance) {
