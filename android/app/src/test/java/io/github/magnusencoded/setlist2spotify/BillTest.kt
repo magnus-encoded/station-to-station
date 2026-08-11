@@ -19,6 +19,7 @@ import io.github.magnusencoded.setlist2spotify.data.localGigSetlist
 import io.github.magnusencoded.setlist2spotify.data.parseFmDate
 import io.github.magnusencoded.setlist2spotify.data.parseLineup
 import io.github.magnusencoded.setlist2spotify.data.playsSong
+import io.github.magnusencoded.setlist2spotify.data.rankTitles
 import io.github.magnusencoded.setlist2spotify.data.setlistEditEntry
 import io.github.magnusencoded.setlist2spotify.data.setlistPaste
 import io.github.magnusencoded.setlist2spotify.data.SETLISTFM_ADD_URL
@@ -606,5 +607,117 @@ class BillTest {
     fun `dates round-trip in the shape setlist-fm sends`() {
         assertEquals(LocalDate.of(2026, 8, 6), parseFmDate(fmDate(LocalDate.of(2026, 8, 6))))
         assertNull(parseFmDate("6 August"))
+    }
+
+    // --- The Remembered Line (#126) ---------------------------------------------
+
+    /**
+     * The whole point: correcting the record must not destroy the words that are the
+     * memory. "All held together by toothpicks and gum" is what was caught in the dark;
+     * "Toothpicks and Gum" is what it is called.
+     */
+    @Test
+    fun `a title replaces the words and the words are kept beneath it`() {
+        val log = StoredLog(songs = listOf("Hollowmoor", "All held together by toothpicks and gum"))
+            .correctingAt(1, "Toothpicks and Gum")
+
+        assertEquals(listOf("Hollowmoor", "Toothpicks and Gum"), log.songs)
+        assertEquals("All held together by toothpicks and gum", log.rememberedAt(1))
+        assertNull(log.rememberedAt(0))
+    }
+
+    /** The first words are the memory; a title I already chose is not. */
+    @Test
+    fun `a second correction keeps the words originally written`() {
+        val log = StoredLog(songs = listOf("All held together by toothpicks and gum"))
+            .correctingAt(0, "Toothpick and Gum")
+            .correctingAt(0, "Toothpicks and Gum")
+
+        assertEquals(listOf("Toothpicks and Gum"), log.songs)
+        assertEquals("All held together by toothpicks and gum", log.rememberedAt(0))
+    }
+
+    /** A wrong correction is never a one-way door. */
+    @Test
+    fun `restoring puts the remembered line back as the entry`() {
+        val log = StoredLog(songs = listOf("Hollowmoor", "a line I misheard"))
+            .correctingAt(1, "Vardhavn")
+            .restoringAt(1)
+
+        assertEquals(listOf("Hollowmoor", "a line I misheard"), log.songs)
+        assertNull(log.rememberedAt(1))
+    }
+
+    /** "One I couldn't name" is an acknowledged fact, not an invitation to guess. */
+    @Test
+    fun `a Gap is not corrected`() {
+        val log = StoredLog(songs = listOf("Hollowmoor", "")).correctingAt(1, "Vardhavn")
+        assertEquals(listOf("Hollowmoor", ""), log.songs)
+        assertEquals(1, log.gaps)
+    }
+
+    /**
+     * The parallel list is only parallel if every edit keeps it so — which is why the
+     * editor gained intent-carrying callbacks rather than "here is the new list".
+     */
+    @Test
+    fun `adding and removing keep the words with the entry they belong to`() {
+        val log = StoredLog()
+            .adding("Hollowmoor")
+            .adding("a line I misheard")
+            .adding("Vardhavn")
+            .correctingAt(1, "Paper Cranes")
+            .removingAt(0)
+
+        assertEquals(listOf("Paper Cranes", "Vardhavn"), log.songs)
+        assertEquals("a line I misheard", log.rememberedAt(0))
+        assertNull(log.rememberedAt(1))
+    }
+
+    /** Nothing on an existing phone is lost or reinterpreted. */
+    @Test
+    fun `a Log written before this feature reads as nothing ever replaced`() {
+        val old = StoredLog(songs = listOf("Hollowmoor", "Vardhavn"), closed = true)
+        assertNull(old.rememberedAt(0))
+        assertNull(old.rememberedAt(1))
+        // And it still edits correctly with no remembered list to align against.
+        val corrected = old.correctingAt(0, "Paper Cranes")
+        assertEquals(listOf("Paper Cranes", "Vardhavn"), corrected.songs)
+        assertEquals("Hollowmoor", corrected.rememberedAt(0))
+        assertNull(corrected.rememberedAt(1))
+        assertTrue(corrected.closed)
+    }
+
+    // --- Ranking candidates against what was written -----------------------------
+
+    /** The case that motivated this, with the real numbers behind it. */
+    @Test
+    fun `the contained title ranks first by a wide margin`() {
+        val catalogue = listOf("High and Apple Sweet", "Vardhavn", "Toothpicks and Gum", "Paper Cranes")
+        val ranked = rankTitles("All held together by toothpicks and gum", catalogue)
+
+        assertEquals("Toothpicks and Gum", ranked.first())
+        assertEquals("High and Apple Sweet", ranked[1]) // one word shared, and only one
+        assertEquals(catalogue.size, ranked.size) // the whole pool stays reachable
+    }
+
+    /** Punctuation is thrown away here exactly as it is everywhere recognition happens. */
+    @Test
+    fun `ranking ignores punctuation and case`() {
+        assertEquals(
+            "Don't Look Back",
+            rankTitles("i think it was dont look back", listOf("Vardhavn", "Don't Look Back")).first(),
+        )
+    }
+
+    /**
+     * Degrades to "nothing confident" rather than promoting a bad match: with no words
+     * in common the pool comes back in the order it came in.
+     */
+    @Test
+    fun `a line sharing no words with any title leaves the order alone`() {
+        val catalogue = listOf("Vardhavn", "Paper Cranes", "Hollowmoor")
+        assertEquals(catalogue, rankTitles("something else entirely", catalogue))
+        assertEquals(catalogue, rankTitles("", catalogue))
     }
 }

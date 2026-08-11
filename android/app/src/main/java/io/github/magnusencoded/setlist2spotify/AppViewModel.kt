@@ -1505,8 +1505,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * Editing songs never touches [StoredLog.closed]. Adding a song days later is
      * ordinary — the **Log** is the app's own record and stays editable forever —
      * and saying "that was the whole set" is a separate, deliberate sentence.
+     *
+     * Four edits rather than one "here is the new list", because a **Log** now carries
+     * a **Remembered Line** beside each entry (#126) and a whole-list replacement
+     * cannot say whether the third entry was deleted or renamed. The intent is what
+     * keeps the two lists parallel, and [StoredLog] is the one place that does it.
      */
-    fun editLog(gigId: String, songs: List<String>) = writeLog(gigId) { it.copy(songs = songs) }
+    fun addToLog(gigId: String, song: String) = writeLog(gigId) { it.adding(song) }
+
+    fun removeFromLog(gigId: String, index: Int) = writeLog(gigId) { it.removingAt(index) }
+
+    /**
+     * A title replaces what was written, and what was written is kept beneath it. The
+     * candidate was ranked, never chosen: only this tap decides.
+     */
+    fun correctLogEntry(gigId: String, index: Int, title: String) =
+        writeLog(gigId) { it.correctingAt(index, title) }
+
+    /** The way back. A wrong correction must not be a one-way door. */
+    fun restoreLogEntry(gigId: String, index: Int) = writeLog(gigId) { it.restoringAt(index) }
 
     /**
      * The only thing that may **Close** a **Log**, and it is a person saying so. Not

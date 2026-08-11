@@ -45,6 +45,7 @@ import io.github.magnusencoded.setlist2spotify.data.StoredLog
 import io.github.magnusencoded.setlist2spotify.data.billWhen
 import io.github.magnusencoded.setlist2spotify.data.nights
 import io.github.magnusencoded.setlist2spotify.data.parseFmDate
+import io.github.magnusencoded.setlist2spotify.data.rankTitles
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -524,13 +525,21 @@ fun LogEditor(
     log: StoredLog,
     /** How many songs setlist.fm's own record holds, when there is one. */
     published: Int?,
-    onChange: (List<String>) -> Unit,
+    onAdd: (String) -> Unit,
+    onRemove: (Int) -> Unit,
+    /** A title replaces entry *i*, and what was written moves beneath it (#126). */
+    onCorrect: (Int, String) -> Unit = { _, _ -> },
+    /** The words come back as the entry. */
+    onRestore: (Int) -> Unit = {},
     onClosed: (Boolean) -> Unit,
     /** The typed song, used to find the right namesake instead of being logged. */
     onDisambiguate: (String) -> Unit = {},
     searching: Boolean = false,
 ) {
     var typed by remember { mutableStateOf("") }
+    // Which entry's correction panel is open, if any. One at a time: this is a room
+    // you are standing in, not a list of forms.
+    var correcting by remember { mutableStateOf<Int?>(null) }
     val chosen = log.songs
     val remaining = candidates.filterNot { c -> chosen.any { it.equals(c, ignoreCase = true) } }
     Column(Modifier.padding(horizontal = 20.dp)) {
@@ -556,22 +565,47 @@ fun LogEditor(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("${i + 1}", color = Faint, fontSize = 12.sp, modifier = Modifier.width(24.dp))
-                // A **Gap** is a song that was played and could not be named. It is in
-                // the record on purpose: an acknowledged hole is a true fact, and the
-                // same song silently absent is the record lying about what it knows.
-                Text(
-                    song.ifBlank { "— one I couldn't name —" },
-                    color = if (song.isBlank()) Faint else Ink,
-                    fontSize = 15.sp,
-                    modifier = Modifier.weight(1f),
-                )
+                Column(
+                    Modifier
+                        .weight(1f)
+                        // A **Gap** offers no correction: "one I couldn't name" is an
+                        // acknowledged fact, not an invitation to guess.
+                        .clickable(enabled = song.isNotBlank()) {
+                            correcting = if (correcting == i) null else i
+                        },
+                ) {
+                    // A **Gap** is a song that was played and could not be named. It is
+                    // in the record on purpose: an acknowledged hole is a true fact, and
+                    // the same song silently absent is the record lying about what it
+                    // knows.
+                    Text(
+                        song.ifBlank { "— one I couldn't name —" },
+                        color = if (song.isBlank()) Faint else Ink,
+                        fontSize = 15.sp,
+                    )
+                    // The words that were written before a title replaced them. One row,
+                    // one song, one position — the set order still reads as the set
+                    // order (#126).
+                    log.rememberedAt(i)?.let {
+                        Text("\"$it\"", color = Faint, fontSize = 12.sp)
+                    }
+                }
                 Text(
                     "×",
                     color = Faint,
                     fontSize = 20.sp,
                     modifier = Modifier
-                        .clickable { onChange(chosen.filterIndexed { j, _ -> j != i }) }
+                        .clickable { correcting = null; onRemove(i) }
                         .padding(horizontal = 14.dp, vertical = 8.dp),
+                )
+            }
+            if (correcting == i) {
+                CorrectEntry(
+                    written = log.rememberedAt(i) ?: song,
+                    candidates = rankTitles(log.rememberedAt(i) ?: song, candidates),
+                    canRestore = log.rememberedAt(i) != null,
+                    onPick = { correcting = null; onCorrect(i, it) },
+                    onRestore = { correcting = null; onRestore(i) },
                 )
             }
         }
@@ -587,7 +621,7 @@ fun LogEditor(
                 color = Amber,
                 fontSize = 13.sp,
                 modifier = Modifier
-                    .clickable { onChange(chosen + typed.trim()); typed = "" }
+                    .clickable { onAdd(typed.trim()); typed = "" }
                     .padding(vertical = 10.dp),
             )
             // The way out of a wrong match, on the song already typed above. It used to
@@ -620,7 +654,7 @@ fun LogEditor(
             color = Slate,
             fontSize = 13.sp,
             modifier = Modifier
-                .clickable { onChange(chosen + "") }
+                .clickable { onAdd("") }
                 .padding(vertical = 12.dp),
         )
         if (remaining.isNotEmpty()) {
@@ -641,7 +675,7 @@ fun LogEditor(
                     Modifier
                         .fillMaxWidth()
                         .heightIn(min = ActRowHeight)
-                        .clickable { onChange(chosen + song) },
+                        .clickable { onAdd(song) },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("+", color = Slate, fontSize = 18.sp)
@@ -703,6 +737,79 @@ fun LogEditor(
                     "Neither is changed by the other.",
                 color = Slate,
                 fontSize = 11.sp,
+            )
+        }
+    }
+}
+
+/**
+ * Correcting one **Log** entry, in place, under the row it belongs to (#126).
+ *
+ * Sometimes what was typed in the dark is not the title but the only words that could
+ * be caught. **Nothing is rewritten without a tap**: [candidates] are ranked against
+ * what was written, never chosen, which is the same human-in-the-loop rule already
+ * settled for correcting an **Act**'s name and for the same reason — "this string is
+ * not a known song" cannot tell a title we don't know from a lyric whose title differs.
+ *
+ * The whole pool is offered rather than close matches only, because a remembered line
+ * sharing no words with any title still has to be correctable. Where there is no pool
+ * the panel says so and typing still works: an artist with nothing known is the
+ * ordinary case here, not a failure.
+ */
+@Composable
+private fun CorrectEntry(
+    written: String,
+    candidates: List<String>,
+    canRestore: Boolean,
+    onPick: (String) -> Unit,
+    onRestore: () -> Unit,
+) {
+    var typed by remember { mutableStateOf("") }
+    Column(Modifier.padding(start = 24.dp, bottom = 10.dp)) {
+        Text(
+            "What was this really called? \"$written\" is kept either way.",
+            color = Slate,
+            fontSize = 11.sp,
+        )
+        Spacer(Modifier.height(8.dp))
+        StationField(typed, { typed = it }, "the title", imeDone = true)
+        if (typed.isNotBlank()) {
+            Text(
+                "→ call it \"${typed.trim()}\"",
+                color = Amber,
+                fontSize = 13.sp,
+                modifier = Modifier.clickable { onPick(typed.trim()) }.padding(vertical = 10.dp),
+            )
+        }
+        if (candidates.isEmpty()) {
+            Text(
+                "Nothing known for this artist — type the title above.",
+                color = Faint,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        } else {
+            Spacer(Modifier.height(6.dp))
+            candidates.forEach { title ->
+                Text(
+                    title,
+                    color = Muted,
+                    fontSize = 14.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = ActRowHeight)
+                        .clickable { onPick(title) }
+                        .padding(vertical = 10.dp),
+                )
+            }
+        }
+        // A wrong correction is never a one-way door.
+        if (canRestore) {
+            Text(
+                "↩ put \"$written\" back as the entry",
+                color = Slate,
+                fontSize = 12.sp,
+                modifier = Modifier.clickable(onClick = onRestore).padding(vertical = 10.dp),
             )
         }
     }

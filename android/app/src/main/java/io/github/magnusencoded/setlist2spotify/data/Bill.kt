@@ -353,16 +353,121 @@ fun candidateSongs(recent: List<FmSetlist>, take: Int = 4, limit: Int = 40): Lis
  * it. An acknowledged gap is a true fact; the same song silently missing is the
  * record lying about its own certainty. A song always has a name, so blank is
  * unambiguous and needs no second field.
+ *
+ * That last sentence was written before [remembered] and is now too strong — see it
+ * for what it did not anticipate (#126).
  */
 @Serializable
 data class StoredLog(
     val songs: List<String> = emptyList(),
     val closed: Boolean = false,
+    /**
+     * The **Remembered Line**: the words originally written where a title replaced
+     * them, blank where nothing was replaced. Parallel to [songs] and the same length.
+     *
+     * A **Log** is written in the dark while the band is still playing, so sometimes
+     * what gets typed is not the title but the only words that could be caught — a
+     * line from the chorus, entered as the title because there was nowhere else to put
+     * it. Correcting that used to mean choosing between a wrong title and destroying
+     * the words that are the actual memory. **The line someone remembered is not
+     * inferior data waiting to be replaced**; for the **Reliver** it is often *the*
+     * memory, and replacing it makes the record more correct and less true.
+     *
+     * A new field rather than a reshaped [songs], following the precedent set by
+     * `playlistsMade`: an older build reads the key it knows and round-trips its own
+     * cache, where a changed type under the same name would have failed to decode and
+     * dropped every **Log** with it. An older cache simply has no [remembered] at all,
+     * which reads as "nothing was ever replaced" — which is exactly true.
+     *
+     * Parallel lists only stay parallel if one place keeps them so. That place is the
+     * five functions below; nothing else may edit [songs] directly.
+     */
+    val remembered: List<String> = emptyList(),
 ) {
     /** Songs actually named. A **Gap** is in the record but is not a title. */
     fun named(): List<String> = songs.filter { it.isNotBlank() }
     val gaps: Int get() = songs.count { it.isBlank() }
+
+    /** The words originally written at [i], or null where the entry is as typed. */
+    fun rememberedAt(i: Int): String? = remembered.getOrNull(i)?.takeIf { it.isNotBlank() }
+
+    /** A song, at the end, in the order it was tapped in. */
+    fun adding(song: String): StoredLog = copy(songs = songs + song, remembered = aligned() + "")
+
+    /** One entry gone, and the words behind it with it. */
+    fun removingAt(i: Int): StoredLog = copy(
+        songs = songs.filterIndexed { j, _ -> j != i },
+        remembered = aligned().filterIndexed { j, _ -> j != i },
+    )
+
+    /**
+     * [i] becomes [title], and what was there moves into [remembered].
+     *
+     * Two rules that are easy to get wrong and are asserted:
+     *
+     * - **A second correction keeps the first words.** They are the ones written in the
+     *   dark; a title I already chose is not a memory to preserve.
+     * - **A Gap is not corrected.** "One I couldn't name" is an acknowledged fact, not
+     *   an invitation to guess, so this leaves a blank entry alone.
+     */
+    fun correctingAt(i: Int, title: String): StoredLog {
+        val was = songs.getOrNull(i)?.takeIf { it.isNotBlank() } ?: return this
+        if (title.isBlank()) return this
+        val lines = aligned().toMutableList()
+        if (lines[i].isBlank()) lines[i] = was
+        return copy(songs = songs.toMutableList().also { it[i] = title }, remembered = lines)
+    }
+
+    /** The words come back as the entry. A wrong correction is never a one-way door. */
+    fun restoringAt(i: Int): StoredLog {
+        val line = rememberedAt(i) ?: return this
+        val lines = aligned().toMutableList().also { it[i] = "" }
+        return copy(songs = songs.toMutableList().also { it[i] = line }, remembered = lines)
+    }
+
+    /** [remembered] at [songs]'s length: an older cache carries none at all. */
+    private fun aligned(): List<String> = List(songs.size) { remembered.getOrNull(it) ?: "" }
 }
+
+/**
+ * The artist's own titles, ranked against the words someone wrote down (#126).
+ *
+ * **Nothing here classifies.** "This string is not a known song" is genuinely ambiguous
+ * between "a title we don't know" and "a lyric whose title differs" — real titles are
+ * frequently whole sentences, and remembered lines frequently contain the title — so
+ * any classifier applied to the string alone is wrong in both directions. This only
+ * *orders* candidates; a tap is what decides, exactly as it is for correcting an
+ * **Act**'s name.
+ *
+ * The whole catalogue is returned, never a filtered shortlist: a remembered line
+ * sharing no words with any title still has to be correctable, so a low-ranking answer
+ * must stay reachable. When nothing matches, the order is simply the order it came in,
+ * which reads as "nothing confident" rather than promoting a bad match to the top.
+ *
+ * A **contained** title outranks scattered overlap. "Toothpicks and Gum" appears in
+ * "All held together by toothpicks and gum" as a contiguous phrase, which is a stronger
+ * signal than the same words spread across a sentence — and cheap to compute. Verified
+ * against that real case: it scores 1.00 where the next candidate scores 0.25.
+ *
+ * Normalisation is `songKey`'s, so "Dont" matches "Don't" here exactly as it does
+ * everywhere else recognition happens.
+ */
+fun rankTitles(line: String, catalogue: List<String>): List<String> {
+    if (line.isBlank()) return catalogue
+    val key = line.songKey()
+    val words = line.words()
+    return catalogue.sortedByDescending { title ->
+        val t = title.songKey()
+        val contained = if (t.isNotEmpty() && key.contains(t)) 1.0 else 0.0
+        val tokens = title.words()
+        val overlap = if (tokens.isEmpty()) 0.0 else tokens.count { it in words }.toDouble() / tokens.size
+        contained + overlap
+    }
+}
+
+/** Words for overlap, where [songKey] throws spacing away too. */
+private fun String.words(): Set<String> =
+    lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }.toSet()
 
 /**
  * Loose song-title equality: case, punctuation and spacing thrown away.

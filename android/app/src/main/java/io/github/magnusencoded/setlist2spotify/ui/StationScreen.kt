@@ -2239,7 +2239,10 @@ fun StationEventScreen(
                             // 0" the instant you check in is noise, not information.
                             published = setlist.performed().size
                                 .takeIf { setlist.url != null && log.songs.isNotEmpty() },
-                            onChange = { viewModel.editLog(setlist.id, it) },
+                            onAdd = { viewModel.addToLog(setlist.id, it) },
+                            onRemove = { viewModel.removeFromLog(setlist.id, it) },
+                            onCorrect = { i, title -> viewModel.correctLogEntry(setlist.id, i, title) },
+                            onRestore = { viewModel.restoreLogEntry(setlist.id, it) },
                             onClosed = { viewModel.setLogClosed(setlist.id, it) },
                             onDisambiguate = { viewModel.disambiguateAct(setlist.id, it) },
                             searching = state.billFetching != null,
