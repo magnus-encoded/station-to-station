@@ -663,11 +663,16 @@ class TimelineStoreTest {
         assertEquals("70c08466-7711-5bc1-a64c-519669c9a42a", cached.media()["a1"]?.single()?.id)
     }
 
+    /**
+     * Personal is never *inferred* from the media — but a cache this old shared no
+     * night, and since #162 that is the answer: it all lands in the vault, because
+     * `personal = false` now means shared on its own and nobody ever said so.
+     */
     @Test
-    fun `Personal survives the migration as false and is never inferred`() = runBlocking {
+    fun `a cache old enough to predate sharing migrates entirely into the vault`() = runBlocking {
         val cached = oldCache("""["content://photo.jpg","content://rec.mp4"]""").load()
-        assertTrue(cached.media()["a1"].orEmpty().none { it.personal })
-        // Nor is anything invented for the fields only a live attach can know.
+        assertTrue(cached.media()["a1"].orEmpty().all { it.personal })
+        // Nothing is invented for the fields only a live attach can know.
         assertTrue(cached.media()["a1"].orEmpty().all { it.capturedAt == null && it.from == null })
     }
 
