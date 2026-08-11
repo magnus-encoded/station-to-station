@@ -9,12 +9,12 @@ package io.github.magnusencoded.setlist2spotify.data
  * trustworthy because a **Contact** is added face to face, which ties a sender to a
  * person.
  *
- * **Two questions, and they are not the same one.** Whether a night is *shared* is an
- * act at the granularity of a **Room** — a set I have already looked at, since I attached
- * those photographs to it. Whether an item is **Personal** is a property of the item, and
- * it is the stricter of the two: **Personal** never leaves for anyone, on a shared night
- * or not. It travels freely between my own devices (#141), which is what keeps privacy
- * from costing me my own record.
+ * **One question, asked once, per item (#162).** There were two — a night-level grant on
+ * top of each item's own bit — and two boundaries that can disagree eventually do. What
+ * is left is [StoredMedia.personal], set by the act of putting a photograph in one band
+ * or the other, at the moment it is attached. **Personal** never leaves for anyone. It
+ * travels freely between my own devices (#141), which is what keeps privacy from costing
+ * me my own record.
  *
  * **This is the one rule.** The contact's-eye view and the manifest a **Contact** is
  * actually sent both come through here. If two implementations can disagree they
@@ -28,13 +28,13 @@ package io.github.magnusencoded.setlist2spotify.data
  */
 
 /**
- * The **Media** any **Contact** can see on one night.
+ * The **Media** any **Contact** can see on one night: exactly the shared band.
  *
- * Empty unless the night was shared, because **the grant is prospective**: marking a
- * night shareable does not grant access to the contacts I have, it grants access to
- * everyone who will ever become one, including someone I meet in a year. Nobody revisits
- * what they flagged eighteen months ago, so nothing is shared by default and each night
- * is a deliberate act.
+ * **The grant is prospective**, which is why it is per item and why the act happens at
+ * the moment of attaching. Putting a photograph in the shared band does not grant it to
+ * the contacts I have, it grants it to everyone who will ever become one, including
+ * someone I meet in a year. Nobody revisits what they flagged eighteen months ago, so
+ * nothing is shared unless it was placed there.
  *
  * **Received media is excluded, and that is a decision rather than an oversight.**
  * [StoredMedia.from] names whose camera it came from, and the record exists so that my
@@ -43,26 +43,24 @@ package io.github.magnusencoded.setlist2spotify.data
  * for their picture that they never agreed to and cannot see. Under #28 their media
  * reaches whoever they share it with, through them.
  */
-fun visibleToContacts(media: List<StoredMedia>, shared: Boolean): List<StoredMedia> =
-    if (!shared) emptyList() else media.filter { !it.personal && it.from == null }
+fun visibleToContacts(media: List<StoredMedia>): List<StoredMedia> =
+    media.filter { !it.personal && it.from == null }
 
 /**
- * The other half of the same question: what I am holding back on a night.
+ * The other half of the same question: what I am holding back on a night — the vault
+ * band.
  *
  * The faithful view answers "what am I exposing" by simply not showing an item. That
  * cannot answer the opposite question — absence cannot tell a night I shared nothing from
  * a night I shared everything — and "what am I withholding" is the one that catches the
  * photograph never re-examined. It is my own data in both cases.
  */
-fun withheldFromContacts(media: List<StoredMedia>, shared: Boolean): List<StoredMedia> =
-    media.filter { it.from == null && (!shared || it.personal) }
+fun withheldFromContacts(media: List<StoredMedia>): List<StoredMedia> =
+    media.filter { it.from == null && it.personal }
 
 /** Every night's **Media**, as a **Contact** sees it. Nights sharing nothing stay, empty. */
-fun contactMedia(
-    media: Map<String, List<StoredMedia>>,
-    sharedNights: Set<String>,
-): Map<String, List<StoredMedia>> =
-    media.mapValues { (gigId, items) -> visibleToContacts(items, gigId in sharedNights) }
+fun contactMedia(media: Map<String, List<StoredMedia>>): Map<String, List<StoredMedia>> =
+    media.mapValues { (_, items) -> visibleToContacts(items) }
 
 /**
  * What the source may offer, by far end.
@@ -111,8 +109,8 @@ fun contactManifest(cache: TimelineCache, me: String): HandoverManifest {
     // In the source's own **Gig** ids throughout, which is what the plan reads: the
     // manifest describes this device's timeline, and translating ids is the receiver's
     // job, not the sender's.
-    val media = cache.gigMedia.mapValues { (gigId, items) ->
-        visibleToContacts(items, gigId in cache.sharedNights)
+    val media = cache.gigMedia.mapValues { (_, items) ->
+        visibleToContacts(items)
     }.filterValues { it.isNotEmpty() }
 
     return HandoverManifest(
@@ -136,11 +134,13 @@ fun contactManifest(cache: TimelineCache, me: String): HandoverManifest {
 }
 
 /**
- * Everything on this night stops being shared, forward only.
+ * Stopping sharing is now dragging a photograph down into the vault, one at a time —
+ * [moveMedia] — so there is no night-level door left to close.
  *
- * The wording matters more than the mechanism: this closes the door, it does not retrieve
- * what already left, and **the one thing worse than having no undo is a button that looks
- * like one**. Nothing is deleted and no item's own **Personal** bit changes — what changes
- * is whether the night is offered at all.
+ * That is finer than what it replaces rather than weaker, and it matches the standing
+ * refusal of bulk operations: closing a door should be as considered an act as opening
+ * one was. The wording it inherited still holds, and matters more than the mechanism
+ * ever did — moving an item to the vault stops it being offered from now on, it does not
+ * retrieve what already left, and **the one thing worse than having no undo is a button
+ * that looks like one**.
  */
-fun stopSharing(sharedNights: Set<String>, gigId: String): Set<String> = sharedNights - gigId

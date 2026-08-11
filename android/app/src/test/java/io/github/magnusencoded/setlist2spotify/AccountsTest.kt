@@ -47,8 +47,9 @@ class AccountsTest {
     fun `no combination of ticked categories puts a credential in the records manifest`() {
         val cache = TimelineCache(
             gigs = mapOf("g1" to StoredGig(id = "g1", date = "12-06-2026", artist = "Paper Cranes")),
+            // In the shared band, which since #162 is simply `personal = false`.
             gigMedia = mapOf("g1" to listOf(StoredMedia(id = "m1", ref = "content://mine/1"))),
-            sharedNights = setOf("g1"),
+            mediaTierMigrated = true,
         )
         val every = (categoriesFor(contact = false) + categoriesFor(contact = true)).toList()
         // The whole power set, walked. Six categories is 64 subsets — cheap enough to

@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.magnusencoded.setlist2spotify.data.Band
 import io.github.magnusencoded.setlist2spotify.data.Friend
 import io.github.magnusencoded.setlist2spotify.data.DeviceLocation
 import io.github.magnusencoded.setlist2spotify.data.DeviceTimelinePlumbing
@@ -15,12 +16,14 @@ import io.github.magnusencoded.setlist2spotify.data.StoredAttendance
 import io.github.magnusencoded.setlist2spotify.data.StoredBill
 import io.github.magnusencoded.setlist2spotify.data.StoredLog
 import io.github.magnusencoded.setlist2spotify.data.artistLabel
+import io.github.magnusencoded.setlist2spotify.data.bandsOf
 import io.github.magnusencoded.setlist2spotify.data.billNight
 import io.github.magnusencoded.setlist2spotify.data.candidateSongs
 import io.github.magnusencoded.setlist2spotify.data.fmDate
 import io.github.magnusencoded.setlist2spotify.data.gigNight
 import io.github.magnusencoded.setlist2spotify.data.isLocal
 import io.github.magnusencoded.setlist2spotify.data.localGigSetlist
+import io.github.magnusencoded.setlist2spotify.data.moveMedia
 import io.github.magnusencoded.setlist2spotify.data.parseLineup
 import io.github.magnusencoded.setlist2spotify.data.plannedLane
 import io.github.magnusencoded.setlist2spotify.data.playsSong
@@ -238,11 +241,6 @@ data class UiState(
      * is the one that needs no interpretation.
      */
     val showWithheld: Boolean = false,
-    /**
-     * The nights shared with my **Audience**, by the id the screens use. Empty by
-     * default and restored from disk: nothing is shared until it is an act (#144).
-     */
-    val sharedNights: Set<String> = emptySet(),
     /** An artist's own titles by mbid, for correcting a **Log** entry (#126). */
     val catalogueByArtist: Map<String, List<String>> = emptyMap(),
     /** The mbid whose catalogue is being fetched, or null. */
@@ -424,7 +422,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     b.copy(acts = b.acts.map { a -> if (a.gigId == null) a else a.copy(gigId = cached.keyOf(a.gigId)) })
                 },
                 logsByGig = it.logsByGig + cached.logs(),
-                sharedNights = it.sharedNights + cached.shared(),
                 catalogueByArtist = it.catalogueByArtist + cached.catalogueByArtist,
                 attendanceByGig = it.attendanceByGig + cached.attendance(),
                 calendarEventByGig = it.calendarEventByGig + cached.calendarEvents(),
@@ -1609,26 +1606,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Shares one night's **Media** with my **Audience** — every **Contact** I have met in
-     * person (#144).
+     * Moves one of my photographs into [band] at [index] — the drag between bands, and
+     * the reorder within one, which are the same operation (#162).
      *
-     * An act, at the granularity of a **Room**, and a *prospective* one: it does not grant
-     * access to the contacts I have, it grants access to everyone who will ever become
-     * one. The screen has to say that; nothing here can.
-     *
-     * **Personal** items are unaffected. They are the stricter tier and never leave for
-     * anyone, shared night or not.
+     * A move between bands *is* the change to its **Personal** bit; there is no separate
+     * gesture and no night-level grant above it. **Received media** is refused by
+     * [moveMedia] rather than here: whose disposition it is belongs with the rule, not
+     * with the caller.
      */
-    fun shareNight(setlistId: String, shared: Boolean) {
-        _state.update {
-            it.copy(
-                sharedNights = if (shared) it.sharedNights + setlistId else it.sharedNights - setlistId,
-            )
-        }
-        viewModelScope.launch { timelines.saveSharedNight(setlistId, shared) }
-    }
+    fun moveGigMedia(setlistId: String, mediaId: String, band: Band, index: Int) = setGigMedia(
+        setlistId,
+        moveMedia(_state.value.mediaBySetlist[setlistId].orEmpty(), mediaId, band, index),
+    )
 
-    /** One photograph's **Personal** bit. The way back from a whole night stopped. */
+    /** One photograph's **Personal** bit, for callers that name it rather than drag it. */
     fun setMediaPersonal(setlistId: String, mediaId: String, personal: Boolean) = setGigMedia(
         setlistId,
         _state.value.mediaBySetlist[setlistId].orEmpty()
@@ -2001,11 +1992,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * picker rather than matched by date — this is "my picture of that night", not the
      * same-night search [loadCoverCandidates] does for a playlist cover.
      */
-    fun addGigPhotos(setlistId: String, uris: List<Uri>) {
+    fun addGigPhotos(setlistId: String, uris: List<Uri>, band: Band = Band.VAULT) {
         viewModelScope.launch {
             val had = _state.value.mediaBySetlist[setlistId].orEmpty()
             val wanted = uris.filterNot { u -> had.any { it.ref == u.toString() } }
-            attach(setlistId, had, wanted.map { it to it })
+            attach(setlistId, had, wanted.map { it to it }, band)
         }
     }
 
@@ -2018,10 +2009,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * the one moment the gallery is guaranteed to answer, which is the whole premise
      * of #97. The copy is what the record points at afterwards.
      */
-    fun addPickedGigPhotos(setlistId: String, uris: List<Uri>) {
+    fun addPickedGigPhotos(setlistId: String, uris: List<Uri>, band: Band = Band.VAULT) {
         viewModelScope.launch {
             val had = _state.value.mediaBySetlist[setlistId].orEmpty()
-            attach(setlistId, had, uris.mapNotNull { picked -> photos.persistCopy(picked)?.let { it to picked } })
+            attach(
+                setlistId,
+                had,
+                uris.mapNotNull { picked -> photos.persistCopy(picked)?.let { it to picked } },
+                band,
+            )
         }
     }
 
@@ -2038,7 +2034,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * responsive without a scheduler. Widen it if attaching a night's worth ever
      * feels slow.
      */
-    private suspend fun attach(setlistId: String, had: List<StoredMedia>, wanted: List<Pair<Uri, Uri>>) {
+    private suspend fun attach(
+        setlistId: String,
+        had: List<StoredMedia>,
+        wanted: List<Pair<Uri, Uri>>,
+        band: Band,
+    ) {
         val fresh = mutableListOf<StoredMedia>()
         var failed = 0
         for ((ref, from) in wanted) {
@@ -2052,9 +2053,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 kind = if (photos.isVideo(from)) StoredMedia.Kind.VIDEO else StoredMedia.Kind.PHOTO,
                 ref = ref.toString(),
                 capturedAt = photos.capturedAtMs(from),
+                // The band the handle was released over *is* the answer. There is no
+                // default path into this: every caller names one (#162).
+                personal = band == Band.VAULT,
             )
         }
-        if (fresh.isNotEmpty()) setGigMedia(setlistId, had + fresh)
+        // Normalised through the bands so a fresh item lands at the end of its own
+        // run rather than after somebody else's media.
+        if (fresh.isNotEmpty()) setGigMedia(setlistId, bandsOf(had + fresh).let { it.shared + it.received + it.vault })
         if (failed > 0) {
             _state.update {
                 it.copy(error = "Couldn't read ${if (failed == 1) "that one" else "$failed of those"} — not attached.")
@@ -2119,11 +2125,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { timelines.saveSongOffsets(mediaId, offsets) }
     }
 
-    /** Dragged to a new place in the strip — same set, new order. */
-    fun reorderGigPhotos(setlistId: String, newOrder: List<Uri>) {
-        val byRef = _state.value.mediaBySetlist[setlistId].orEmpty().associateBy { it.ref }
-        setGigMedia(setlistId, newOrder.mapNotNull { byRef[it.toString()] })
-    }
 
     private fun setGigMedia(setlistId: String, media: List<StoredMedia>) {
         _state.update { it.copy(mediaBySetlist = it.mediaBySetlist + (setlistId to media)) }
