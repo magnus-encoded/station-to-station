@@ -1,6 +1,6 @@
 # Station to Station (Android)
 
-An Android companion app for the setlist.fm CLI in this repository. It lets you:
+The Android app. It lets you:
 
 1. **Find setlists** — search for an artist, or load the concerts you marked as
    attended with your setlist.fm user ID.

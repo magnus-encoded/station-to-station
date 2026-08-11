@@ -21,9 +21,11 @@ Single-context repo:
 ├── docs/adr/                   ← none yet
 ├── ios/                        ← SwiftUI app
 ├── android/                    ← Compose app
-├── fixtures/weave/             ← the corpus both platforms assert against
-└── setlistfm_cli.py            ← the original Python CLI
+└── fixtures/weave/             ← the corpus both platforms assert against
 ```
+
+The original Python CLI the repo grew out of is defunct: archived on the `cli` branch,
+removed from `main`.
 
 ## Use the glossary's vocabulary
 
