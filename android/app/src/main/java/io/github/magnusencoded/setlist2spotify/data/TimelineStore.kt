@@ -334,6 +334,21 @@ data class TimelineCache(
      * setlist.fm id, which is the entire point of keeping them apart from one.
      */
     val gigLogs: Map<String, StoredLog> = emptyMap(),
+    /**
+     * The nights whose **Media** is shared with my **Audience** — every **Contact** I
+     * have met in person (#144). By **Gig** id, and **empty by default**.
+     *
+     * A property of the night rather than a set of per-photo booleans, because the
+     * shareable state is one value to reason about and the night is the unit already
+     * navigated. Sharing is therefore *an act* at the granularity of a **Room**: not a
+     * global toggle, which would remove the look, and not per photo, which is costly
+     * enough to use that the safe path gets abandoned.
+     *
+     * A night's absence is the honest default. A **Media** record's own
+     * [StoredMedia.personal] bit is the other tier and is stricter still: **Personal**
+     * never leaves for anyone, on a shared night or not.
+     */
+    val sharedNights: Set<String> = emptySet(),
 ) {
     /**
      * The id this gig is known by *outside* the store: its setlist.fm id where it
@@ -363,6 +378,7 @@ data class TimelineCache(
     fun playlists(): Map<String, List<StoredPlaylist>> = gigPlaylists.combined(::unionPlaylists)
     fun planned(): List<FmSetlist> = gigPlanned.values.toList()
     fun logs(): Map<String, StoredLog> = gigLogs.combined(::unionLog)
+    fun shared(): Set<String> = sharedNights.mapTo(HashSet()) { keyOf(it) }
 
     /**
      * Re-keys a gig-keyed map to [keyOf], **combining** entries whose keys collide
@@ -499,6 +515,12 @@ class TimelineStore(
             )
         }
         c
+    }
+
+    /** Whether this night's **Media** is shared with my **Audience** (#144). */
+    suspend fun saveSharedNight(setlistId: String, shared: Boolean): Unit = writeMerged {
+        val (c, gigId) = it.withGig(setlistId)
+        c.copy(sharedNights = if (shared) c.sharedNights + gigId else c.sharedNights - gigId)
     }
 
     /** The Reliver's current media for one gig, replacing whatever was there. */

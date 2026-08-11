@@ -14,7 +14,6 @@ import io.github.magnusencoded.setlist2spotify.data.StoredAct
 import io.github.magnusencoded.setlist2spotify.data.StoredAttendance
 import io.github.magnusencoded.setlist2spotify.data.StoredBill
 import io.github.magnusencoded.setlist2spotify.data.StoredLog
-import io.github.magnusencoded.setlist2spotify.data.stopSharing
 import io.github.magnusencoded.setlist2spotify.data.artistLabel
 import io.github.magnusencoded.setlist2spotify.data.billNight
 import io.github.magnusencoded.setlist2spotify.data.candidateSongs
@@ -239,6 +238,11 @@ data class UiState(
      */
     val showWithheld: Boolean = false,
     /**
+     * The nights shared with my **Audience**, by the id the screens use. Empty by
+     * default and restored from disk: nothing is shared until it is an act (#144).
+     */
+    val sharedNights: Set<String> = emptySet(),
+    /**
      * My relationship to each gig, by gig id — planned, attended, checked in.
      * Restored from disk on launch, which is what makes a check-in survive a cold
      * start rather than being a thing the screen remembers until it doesn't.
@@ -414,6 +418,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     b.copy(acts = b.acts.map { a -> if (a.gigId == null) a else a.copy(gigId = cached.keyOf(a.gigId)) })
                 },
                 logsByGig = it.logsByGig + cached.logs(),
+                sharedNights = it.sharedNights + cached.shared(),
                 attendanceByGig = it.attendanceByGig + cached.attendance(),
                 calendarEventByGig = it.calendarEventByGig + cached.calendarEvents(),
             )
@@ -1568,24 +1573,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun setShowWithheld(show: Boolean) = _state.update { it.copy(showWithheld = show) }
 
     /**
-     * Stops sharing everything on a night, from inside the view where you noticed it.
+     * Shares one night's **Media** with my **Audience** — every **Contact** I have met in
+     * person (#144).
      *
-     * Forward only. It closes the door; it does not retrieve what already left, and the
-     * wording on the screen must not suggest otherwise.
+     * An act, at the granularity of a **Room**, and a *prospective* one: it does not grant
+     * access to the contacts I have, it grants access to everyone who will ever become
+     * one. The screen has to say that; nothing here can.
+     *
+     * **Personal** items are unaffected. They are the stricter tier and never leave for
+     * anyone, shared night or not.
      */
-    fun stopSharingNight(setlistId: String) =
-        setGigMedia(setlistId, stopSharing(_state.value.mediaBySetlist[setlistId].orEmpty()))
-
-    /**
-     * The way back. Sharing again is a deliberate tap and not an undo button, because it
-     * is the same prospective grant as the first time: it exposes these to everyone who
-     * will ever become a **Contact**, not to the contacts I have today.
-     */
-    fun resumeSharingNight(setlistId: String) = setGigMedia(
-        setlistId,
-        _state.value.mediaBySetlist[setlistId].orEmpty()
-            .map { if (it.from == null) it.copy(personal = false) else it },
-    )
+    fun shareNight(setlistId: String, shared: Boolean) {
+        _state.update {
+            it.copy(
+                sharedNights = if (shared) it.sharedNights + setlistId else it.sharedNights - setlistId,
+            )
+        }
+        viewModelScope.launch { timelines.saveSharedNight(setlistId, shared) }
+    }
 
     /** One photograph's **Personal** bit. The way back from a whole night stopped. */
     fun setMediaPersonal(setlistId: String, mediaId: String, personal: Boolean) = setGigMedia(

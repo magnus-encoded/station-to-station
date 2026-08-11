@@ -1,60 +1,143 @@
 package io.github.magnusencoded.setlist2spotify.data
 
 /**
- * What a **Contact** can see of my **Line** (#145).
+ * The two tiers, and what a **Contact** can see of my **Line** (#144, #145).
  *
- * The flag that makes **Media** shareable is **prospective**: it does not grant access
- * to my contacts, it grants access to everyone who will ever become one. Adding a
- * contact is deliberate and face to face; nobody revisits what they marked shareable
- * eighteen months ago. With retraction rejected, *knowing what I am currently exposing*
- * is the only protection there is — and a settings screen listing filenames cannot
- * answer it, because the thing you need to notice is a person in the background of a
- * photograph.
+ * **Exactly two tiers, by design.** **Media** is either just me, or my **Audience** —
+ * everyone I have formed an in-person **Contact** with. No per-contact permissions, no
+ * groups, no per-item recipient lists. The single tier is comprehensible, and it is only
+ * trustworthy because a **Contact** is added face to face, which ties a sender to a
+ * person.
+ *
+ * **Two questions, and they are not the same one.** Whether a night is *shared* is an
+ * act at the granularity of a **Room** — a set I have already looked at, since I attached
+ * those photographs to it. Whether an item is **Personal** is a property of the item, and
+ * it is the stricter of the two: **Personal** never leaves for anyone, on a shared night
+ * or not. It travels freely between my own devices (#141), which is what keeps privacy
+ * from costing me my own record.
  *
  * **This is the one rule.** The contact's-eye view and the manifest a **Contact** is
- * actually sent must both come through here. If two implementations can disagree they
+ * actually sent both come through here. If two implementations can disagree they
  * eventually will, and the direction of that disagreement is showing someone less than
  * they are being sent.
  *
- * There is exactly one perspective, never one per contact. **Personal** is a single bit
- * with one **Audience**, so "as seen by <name>" would imply permissions that do not
- * exist and invite requests for them.
+ * **There is no undo, which puts the whole weight on the moment of sharing.** Retraction
+ * was rejected — a mechanism for deleting information on someone else's device, with no
+ * server to deliver it and the Streisand effect against it — so the protections here are
+ * the granularity, the wording, and being able to look at what you are exposing.
  */
 
 /**
- * The **Media** any **Contact** can see: mine, and not **Personal**.
+ * The **Media** any **Contact** can see on one night.
+ *
+ * Empty unless the night was shared, because **the grant is prospective**: marking a
+ * night shareable does not grant access to the contacts I have, it grants access to
+ * everyone who will ever become one, including someone I meet in a year. Nobody revisits
+ * what they flagged eighteen months ago, so nothing is shared by default and each night
+ * is a deliberate act.
  *
  * **Received media is excluded, and that is a decision rather than an oversight.**
- * [StoredMedia.from] names whose camera it came from, and the record exists so that
- * my media and received media stay distinguishable at every layer. Passing a contact's
- * photograph on to my other contacts would be publishing on their behalf — a second
- * path for their picture that they never agreed to and cannot see. Under #28 their
- * media reaches whoever they share it with, through them.
+ * [StoredMedia.from] names whose camera it came from, and the record exists so that my
+ * media and received media stay distinguishable at every layer. Passing a **Contact**'s
+ * photograph on to my other contacts would be publishing on their behalf — a second path
+ * for their picture that they never agreed to and cannot see. Under #28 their media
+ * reaches whoever they share it with, through them.
  */
-fun visibleToContacts(media: List<StoredMedia>): List<StoredMedia> =
-    media.filter { !it.personal && it.from == null }
+fun visibleToContacts(media: List<StoredMedia>, shared: Boolean): List<StoredMedia> =
+    if (!shared) emptyList() else media.filter { !it.personal && it.from == null }
 
 /**
- * The other half of the same question: what I am holding back.
+ * The other half of the same question: what I am holding back on a night.
  *
- * The faithful view answers "what am I exposing" by simply not showing a **Personal**
- * item. That cannot answer the opposite question — absence cannot tell a night I shared
- * nothing from a night I shared everything — and "what am I withholding" is the one
- * that catches the photograph never re-examined. It is my own data in both cases.
+ * The faithful view answers "what am I exposing" by simply not showing an item. That
+ * cannot answer the opposite question — absence cannot tell a night I shared nothing from
+ * a night I shared everything — and "what am I withholding" is the one that catches the
+ * photograph never re-examined. It is my own data in both cases.
  */
-fun withheldFromContacts(media: List<StoredMedia>): List<StoredMedia> =
-    media.filter { it.personal && it.from == null }
+fun withheldFromContacts(media: List<StoredMedia>, shared: Boolean): List<StoredMedia> =
+    media.filter { it.from == null && (!shared || it.personal) }
 
-/** Every night's **Media**, as a **Contact** sees it. Nights with nothing shared stay. */
-fun contactMedia(media: Map<String, List<StoredMedia>>): Map<String, List<StoredMedia>> =
-    media.mapValues { (_, items) -> visibleToContacts(items) }
+/** Every night's **Media**, as a **Contact** sees it. Nights sharing nothing stay, empty. */
+fun contactMedia(
+    media: Map<String, List<StoredMedia>>,
+    sharedNights: Set<String>,
+): Map<String, List<StoredMedia>> =
+    media.mapValues { (gigId, items) -> visibleToContacts(items, gigId in sharedNights) }
+
+/**
+ * What the source may offer, by far end.
+ *
+ * **The Personal categories are absent for a Contact, not merely unticked.** This is an
+ * invariant rather than a UI safety measure: there is no box to mis-tap and no path where
+ * a **Personal** item is one boolean away from leaving. Sending one to a **Contact**
+ * requires making it not **Personal** first, which is an explicit act on that item.
+ *
+ * It is also the one place identity genuinely decides data flow rather than convenience:
+ * the handshake says which far end this is, and the far end says which categories exist
+ * at all.
+ */
+fun categoriesFor(contact: Boolean): Set<String> = if (contact) {
+    setOf(CATEGORY_SETLISTS, StoredMedia.Kind.PHOTO, StoredMedia.Kind.VIDEO)
+} else {
+    setOf(
+        CATEGORY_SETLISTS,
+        StoredMedia.Kind.PHOTO,
+        StoredMedia.Kind.VIDEO,
+        categoryOf(StoredMedia.Kind.PHOTO, personal = true),
+        categoryOf(StoredMedia.Kind.VIDEO, personal = true),
+    )
+}
+
+/**
+ * The manifest a **Contact** is offered: the same shape as a device handover, differing
+ * only in which categories exist and in attribution being someone else's name.
+ *
+ * **Exclusion happens here, at construction.** A **Personal** item never enters a
+ * manifest bound for anyone but me — not filtered out downstream, not left for a tick box
+ * to keep out. That the same manifest, signature, counts and transport carry both cases
+ * is the evidence the shape is right; a second mechanism for sharing would be a second
+ * thing to get wrong.
+ *
+ * [me] is my own public key, written into every item's [OfferedMedia.from] so that
+ * **attribution survives the transfer**. It is in the envelope from the first version
+ * even though a device handover makes the answer trivially "me", because once a
+ * **Contact**'s photographs are mingled into someone's nights with no attribution, which
+ * were whose is unrecoverable.
+ */
+fun contactManifest(cache: TimelineCache, me: String): HandoverManifest {
+    // In the source's own **Gig** ids throughout, which is what the plan reads: the
+    // manifest describes this device's timeline, and translating ids is the receiver's
+    // job, not the sender's.
+    val media = cache.gigMedia.mapValues { (gigId, items) ->
+        visibleToContacts(items, gigId in cache.sharedNights)
+    }.filterValues { it.isNotEmpty() }
+
+    return HandoverManifest(
+        timeline = cache.copy(gigMedia = media),
+        media = media.flatMap { (gigId, items) ->
+            items.map {
+                OfferedMedia(
+                    id = it.id,
+                    gigId = gigId,
+                    kind = it.kind,
+                    capturedAt = it.capturedAt,
+                    // Mine, said out loud. A picture that arrives unattributed silently
+                    // becomes the receiver's.
+                    from = me,
+                    // Never true here, by construction rather than by filtering.
+                    personal = false,
+                )
+            }
+        },
+    )
+}
 
 /**
  * Everything on this night stops being shared, forward only.
  *
- * The wording matters more than the mechanism: this closes the door, it does not
- * retrieve what already left. **Personal** rather than deletion, because the photograph
- * is still mine and still belongs to the night — what changes is who it is for.
+ * The wording matters more than the mechanism: this closes the door, it does not retrieve
+ * what already left, and **the one thing worse than having no undo is a button that looks
+ * like one**. Nothing is deleted and no item's own **Personal** bit changes — what changes
+ * is whether the night is offered at all.
  */
-fun stopSharing(media: List<StoredMedia>): List<StoredMedia> =
-    media.map { if (it.from == null) it.copy(personal = true) else it }
+fun stopSharing(sharedNights: Set<String>, gigId: String): Set<String> = sharedNights - gigId

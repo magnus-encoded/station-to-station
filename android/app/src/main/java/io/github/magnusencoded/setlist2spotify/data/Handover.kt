@@ -53,6 +53,16 @@ data class OfferedMedia(
     val bytes: Long = 0L,
     val capturedAt: Long? = null,
     val personal: Boolean = false,
+    /**
+     * Whose camera it came from — null for my own devices, a **Contact**'s public key
+     * when they are the one offering (#144).
+     *
+     * In the envelope from the first version even though a device handover makes the
+     * answer trivially "me", because it is one of the two fields that cannot be
+     * recovered later: once a **Contact**'s photographs are mingled into someone's
+     * nights with no attribution, which were whose is unrecoverable.
+     */
+    val from: String? = null,
 ) {
     val category: String get() = categoryOf(kind, personal)
 }
@@ -171,8 +181,16 @@ fun handoverPlan(
         }
     }
 
+    // Attribution comes off the manifest, not off the record: the sender's own copy
+    // says `from = null` because it is theirs, and it is *mine* that has to remember it
+    // was not. My media and received media stay distinguishable at every layer.
+    val attribution = offer.media.associate { it.id to it.from }
     val landing = offer.timeline.gigMedia
-        .mapValues { (_, list) -> list.mapNotNull { m -> fromGallery[m.id]?.let { m.copy(ref = it) } } }
+        .mapValues { (_, list) ->
+            list.mapNotNull { m ->
+                fromGallery[m.id]?.let { m.copy(ref = it, from = attribution[m.id] ?: m.from) }
+            }
+        }
         .filterValues { it.isNotEmpty() }
 
     val expected = offer.media

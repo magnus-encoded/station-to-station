@@ -694,7 +694,10 @@ fun StationTimelineScreen(
                                         unlit = state.contactLight,
                                         rails = rails,
                                         photos = (state.mediaBySetlist[node.setlist.id].orEmpty())
-                                            .let { if (state.contactLight) visibleToContacts(it) else it }
+                                            .let {
+                                                if (!state.contactLight) it
+                                                else visibleToContacts(it, node.setlist.id in state.sharedNights)
+                                            }
                                             .map { Uri.parse(it.ref) },
                                         loadPhotoPreview = viewModel::photoPreview,
                                         onClick = {
@@ -1667,8 +1670,9 @@ fun StationEventScreen(
     // Under the contact light the room holds what a Contact can see, through the one
     // rule that also builds their manifest (#145). Withheld items never come back as
     // content here — only as a count, and only when asked for.
-    val gigMedia = if (state.contactLight) visibleToContacts(heldMedia) else heldMedia
-    val withheld = if (state.contactLight) withheldFromContacts(heldMedia) else emptyList()
+    val nightShared = setlist != null && setlist.id in state.sharedNights
+    val gigMedia = if (state.contactLight) visibleToContacts(heldMedia, nightShared) else heldMedia
+    val withheld = if (state.contactLight) withheldFromContacts(heldMedia, nightShared) else emptyList()
     val gigPhotos = gigMedia.map { Uri.parse(it.ref) }
     // The Reliver picks straight from the system photo (and video) picker — no
     // gallery permission needed for that path, unlike the suggestions below.
@@ -2272,6 +2276,19 @@ fun StationEventScreen(
                                     color = Muted,
                                     fontSize = 12.sp,
                                 )
+                                // The act, named for what it actually does. Not "everyone
+                                // I know" — everyone I will ever meet and add.
+                                if (!nightShared && heldMedia.any { it.from == null && !it.personal }) {
+                                    Text(
+                                        "share this night with your contacts — including the ones you " +
+                                            "have not met yet",
+                                        color = Amber,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier
+                                            .clickable { viewModel.shareNight(setlist.id, true) }
+                                            .padding(vertical = 8.dp),
+                                    )
+                                }
                                 if (withheld.isNotEmpty()) {
                                     Text(
                                         if (state.showWithheld) "hide what you are keeping back"
@@ -2299,25 +2316,17 @@ fun StationEventScreen(
                                             )
                                         }
                                     }
-                                    Text(
-                                        "share these with your contacts again",
-                                        color = Slate,
-                                        fontSize = 12.sp,
-                                        modifier = Modifier
-                                            .clickable { viewModel.resumeSharingNight(setlist.id) }
-                                            .padding(vertical = 8.dp),
-                                    )
                                 }
                                 // Honest wording: this closes the door forward. Nothing
                                 // retrieves what already left, and saying otherwise would
                                 // be the one lie this whole view exists to prevent.
-                                if (gigMedia.isNotEmpty()) {
+                                if (nightShared) {
                                     Text(
                                         "stop sharing this night — from now on, not retroactively",
                                         color = Danger,
                                         fontSize = 12.sp,
                                         modifier = Modifier
-                                            .clickable { viewModel.stopSharingNight(setlist.id) }
+                                            .clickable { viewModel.shareNight(setlist.id, false) }
                                             .padding(vertical = 8.dp),
                                     )
                                 }
