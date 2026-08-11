@@ -2392,6 +2392,9 @@ fun StationEventScreen(
                             onClosed = { viewModel.setLogClosed(setlist.id, it) },
                             onDisambiguate = { viewModel.disambiguateAct(setlist.id, it) },
                             searching = state.billFetching != null,
+                            catalogue = act?.mbid?.let { state.catalogueByArtist[it] }.orEmpty(),
+                            catalogueLoading = act?.mbid != null && state.catalogueFetching == act.mbid,
+                            onNeedCatalogue = { act?.mbid?.let(viewModel::fetchCatalogue) },
                         )
                         Spacer(Modifier.height(10.dp))
                     }

@@ -45,6 +45,7 @@ import io.github.magnusencoded.setlist2spotify.data.exchange.ExchangeSession
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmArtist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSong
+import io.github.magnusencoded.setlist2spotify.data.musicbrainz.MusicBrainzClient
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.SetlistFmClient
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.parseSetlistId
 import io.github.magnusencoded.setlist2spotify.data.spotify.SpotifyClient
@@ -242,6 +243,10 @@ data class UiState(
      * default and restored from disk: nothing is shared until it is an act (#144).
      */
     val sharedNights: Set<String> = emptySet(),
+    /** An artist's own titles by mbid, for correcting a **Log** entry (#126). */
+    val catalogueByArtist: Map<String, List<String>> = emptyMap(),
+    /** The mbid whose catalogue is being fetched, or null. */
+    val catalogueFetching: String? = null,
     /**
      * My relationship to each gig, by gig id — planned, attended, checked in.
      * Restored from disk on launch, which is what makes a check-in survive a cold
@@ -301,6 +306,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val settings = SettingsRepository(application)
     private val timelines = TimelineStore(application)
     private val setlistFm = SetlistFmClient { settings.setlistFmApiKeyValue() }
+    private val musicBrainz = MusicBrainzClient()
 
     /**
      * The Timeline's sequence and rules (ADR-0001), with the device half handed in
@@ -419,6 +425,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 },
                 logsByGig = it.logsByGig + cached.logs(),
                 sharedNights = it.sharedNights + cached.shared(),
+                catalogueByArtist = it.catalogueByArtist + cached.catalogueByArtist,
                 attendanceByGig = it.attendanceByGig + cached.attendance(),
                 calendarEventByGig = it.calendarEventByGig + cached.calendarEvents(),
             )
@@ -1571,6 +1578,35 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setShowWithheld(show: Boolean) = _state.update { it.copy(showWithheld = show) }
+
+    /**
+     * The artist's own songs, for correcting a **Log** entry (#126).
+     *
+     * Asked for only when the correction panel opens — a catalogue nobody is about to
+     * read is a request nobody asked for — and asked once: the answer is kept forever, so
+     * the second correction on the same night is offline and instant.
+     *
+     * Failure is silent and leaves the record alone. The free-text field is always
+     * present, so no catalogue is a smaller panel rather than a broken one.
+     */
+    fun fetchCatalogue(mbid: String) {
+        if (mbid.isBlank()) return
+        if (_state.value.catalogueByArtist.containsKey(mbid)) return
+        if (_state.value.catalogueFetching != null) return
+        _state.update { it.copy(catalogueFetching = mbid) }
+        viewModelScope.launch {
+            val titles = runCatching { musicBrainz.catalogue(mbid) }.getOrDefault(emptyList())
+            _state.update {
+                it.copy(
+                    catalogueFetching = null,
+                    catalogueByArtist =
+                    if (titles.isEmpty()) it.catalogueByArtist
+                    else it.catalogueByArtist + (mbid to titles),
+                )
+            }
+            if (titles.isNotEmpty()) timelines.saveCatalogue(mbid, titles)
+        }
+    }
 
     /**
      * Shares one night's **Media** with my **Audience** — every **Contact** I have met in

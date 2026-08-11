@@ -535,6 +535,15 @@ fun LogEditor(
     /** The typed song, used to find the right namesake instead of being logged. */
     onDisambiguate: (String) -> Unit = {},
     searching: Boolean = false,
+    /**
+     * The artist's own titles from MusicBrainz, for correcting an entry (#126). Separate
+     * from [candidates]: that pool is what setlist.fm has seen them *play*, this is what
+     * they have *recorded*, and for a small act the first is often empty.
+     */
+    catalogue: List<String> = emptyList(),
+    catalogueLoading: Boolean = false,
+    /** Asked only when a correction panel opens, and only once per artist. */
+    onNeedCatalogue: () -> Unit = {},
 ) {
     var typed by remember { mutableStateOf("") }
     // Which entry's correction panel is open, if any. One at a time: this is a room
@@ -600,10 +609,18 @@ fun LogEditor(
                 )
             }
             if (correcting == i) {
+                LaunchedEffect(i) { onNeedCatalogue() }
+                val written = log.rememberedAt(i) ?: song
                 CorrectEntry(
-                    written = log.rememberedAt(i) ?: song,
-                    candidates = rankTitles(log.rememberedAt(i) ?: song, candidates),
+                    written = written,
+                    // Both sources, played first and recorded after, then ranked as one
+                    // list. A song they played tonight and have recorded appears once.
+                    candidates = rankTitles(
+                        written,
+                        (candidates + catalogue).distinctBy { it.lowercase() },
+                    ),
                     canRestore = log.rememberedAt(i) != null,
+                    loading = catalogueLoading,
                     onPick = { correcting = null; onCorrect(i, it) },
                     onRestore = { correcting = null; onRestore(i) },
                 )
@@ -761,6 +778,7 @@ private fun CorrectEntry(
     written: String,
     candidates: List<String>,
     canRestore: Boolean,
+    loading: Boolean,
     onPick: (String) -> Unit,
     onRestore: () -> Unit,
 ) {
@@ -783,7 +801,8 @@ private fun CorrectEntry(
         }
         if (candidates.isEmpty()) {
             Text(
-                "Nothing known for this artist — type the title above.",
+                if (loading) "Looking up their songs…"
+                else "Nothing known for this artist — type the title above.",
                 color = Faint,
                 fontSize = 11.sp,
                 modifier = Modifier.padding(top = 8.dp),

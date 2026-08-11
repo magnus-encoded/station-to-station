@@ -349,6 +349,18 @@ data class TimelineCache(
      * never leaves for anyone, on a shared night or not.
      */
     val sharedNights: Set<String> = emptySet(),
+    /**
+     * An artist's own song titles, by MusicBrainz id (#126).
+     *
+     * Kept **forever**, deliberately. MusicBrainz is CC0 and carries no cache clause, so
+     * ADR-0005's rule does not bite, and the moment correction is wanted is standing in a
+     * field with no signal — which is where the gig was. A catalogue that expired would
+     * be absent exactly when it is needed.
+     *
+     * By mbid rather than by name, because a name is not an identity: two bands are
+     * called Norma and only one of them played.
+     */
+    val catalogueByArtist: Map<String, List<String>> = emptyMap(),
 ) {
     /**
      * The id this gig is known by *outside* the store: its setlist.fm id where it
@@ -515,6 +527,12 @@ class TimelineStore(
             )
         }
         c
+    }
+
+    /** An artist's catalogue, kept for good. See [TimelineCache.catalogueByArtist]. */
+    suspend fun saveCatalogue(mbid: String, titles: List<String>): Unit = writeMerged {
+        if (mbid.isBlank() || titles.isEmpty()) it
+        else it.copy(catalogueByArtist = it.catalogueByArtist + (mbid to titles))
     }
 
     /** Whether this night's **Media** is shared with my **Audience** (#144). */
