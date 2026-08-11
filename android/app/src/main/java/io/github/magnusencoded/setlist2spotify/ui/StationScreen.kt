@@ -691,7 +691,7 @@ fun StationTimelineScreen(
                                         laneWidth = laneWidth,
                                         nodeX = nodeX,
                                         sharedCount = row.sharedCount,
-                                        theirCount = row.showsHereByFriends.size,
+                                        theirCount = row.theirsCount,
                                         // Company has a colour of its own — a night two
                                         // friends shared is nobody's lane colour either.
                                         theirColor = if (row.others.size > 1) Crossed
@@ -1345,7 +1345,8 @@ internal fun logWovenRows(rows: List<WovenRow>, lanes: List<Friend>) {
             "${row.date} d${row.depth} ${if (row.mine) "mine" else "theirs"} " +
                 "node=${if (row.node is TimelineNode.Festival) "festival" else "gig"} " +
                 "with=[${row.others.joinToString(",") { it.setlistfm }}] " +
-                "together=${row.sharedCount} theirs=${row.showsHereByFriends.size} " +
+                "together=${row.sharedCount} theirs=${row.theirsCount} " +
+                "here=${row.showsHereByFriends.size} " +
                 "host=${nodeHost(row, lanes)} $where key=${row.key}",
         )
         rowGeometry(row, rows.getOrNull(i + 1), lanes, laneWidth, DumpRowHeight).forEach { d ->

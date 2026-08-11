@@ -93,6 +93,19 @@ struct WovenRow: Identifiable {
         return shows.filter { alsoTheirs.contains($0.id) }.count
     }
 
+    /// Shows a friend was at here **and I was not** — which is what Theirs means: a Gig
+    /// on a friend's timeline and not on mine.
+    ///
+    /// `showsHereByFriends` is a union and not a partition, so counting it directly says
+    /// "theirs" about nights we were at together. Where their list is a subset of mine
+    /// that reads as "4 together · 4 yours · 4 theirs" — four nights of theirs that do
+    /// not exist. Ported with Android.
+    var theirsCount: Int {
+        guard mine else { return showsHereByFriends.count }
+        let mineHere = Set(shows.map(\.id))
+        return showsHereByFriends.filter { !mineHere.contains($0.id) }.count
+    }
+
     var key: String {
         switch node {
         case .concert(let s): return "c-\(s.id)-\(depth)"

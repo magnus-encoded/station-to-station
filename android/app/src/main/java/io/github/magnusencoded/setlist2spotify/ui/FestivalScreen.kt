@@ -144,6 +144,23 @@ data class WovenRow(
             return shows.count { it.id in alsoTheirs }
         }
 
+    /**
+     * Shows a friend was at here **and I was not** — which is what **Theirs** means:
+     * *"a **Gig** on a friend's timeline and not on mine"*.
+     *
+     * [showsHereByFriends] is a union and not a partition, so counting it directly says
+     * "theirs" about nights we were at together. On a node where their list is a subset
+     * of mine that reads as "4 together · 4 yours · 4 theirs" — four unjoined nights of
+     * theirs that do not exist. The **Crossings** were real; the arithmetic beside them
+     * was not.
+     */
+    val theirsCount: Int
+        get() {
+            if (!mine) return showsHereByFriends.size
+            val mineHere = shows.map { it.id }.toSet()
+            return showsHereByFriends.count { it.id !in mineHere }
+        }
+
     val key: String get() = when (val n = node) {
         is TimelineNode.Concert -> "c-${n.setlist.id}-$depth"
         is TimelineNode.Festival -> "f-${n.shows.first().id}"

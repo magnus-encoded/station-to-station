@@ -233,4 +233,51 @@ class WeaveTimelinesTest {
         // And nothing of theirs sits beside mine as a second node.
         assertEquals(mine.size, rows.count { it.mine })
     }
+
+    /**
+     * **Theirs** means a **Gig** on their timeline *and not on mine*. Where their list is
+     * a subset of mine there is nothing that is theirs, however many nights we shared.
+     *
+     * Found on the Pixel with a **Contact** carrying my own username: the festival read
+     * "4 together · 4 yours · 4 theirs". The **Crossings** were real — the arithmetic
+     * beside them counted every shared night twice, once as ours and once as theirs.
+     */
+    @Test
+    fun `nothing is theirs when their nights are a subset of mine`() {
+        val mine = listOf(
+            show("1", "07-08-2026", "Verandaen"),
+            show("2", "08-08-2026", "Verandaen"),
+            show("3", "08-08-2026", "Verandaen"),
+        )
+        val me = Friend(setlistfm = "dizzi90", name = "my other phone")
+
+        val row = weaveTimelines(
+            mine = mine,
+            festivalNames = emptyMap(),
+            friends = listOf(me),
+            theirs = mapOf("dizzi90" to mine),
+        ).first()
+
+        assertTrue(row.mine)
+        assertEquals(3, row.sharedCount)
+        assertEquals(0, row.theirsCount)
+    }
+
+    /** And a night only they were at is still theirs, on the same node. */
+    @Test
+    fun `a night only they were at is theirs`() {
+        val together = show("1", "07-08-2026", "Verandaen")
+        val onlyTheirs = show("9", "08-08-2026", "Verandaen")
+        val lem = Friend(setlistfm = "Lemmy", name = "Lemmy")
+
+        val row = weaveTimelines(
+            mine = listOf(together, show("2", "08-08-2026", "Verandaen")),
+            festivalNames = emptyMap(),
+            friends = listOf(lem),
+            theirs = mapOf("Lemmy" to listOf(together, onlyTheirs)),
+        ).first()
+
+        assertEquals(1, row.sharedCount)
+        assertEquals(1, row.theirsCount)
+    }
 }

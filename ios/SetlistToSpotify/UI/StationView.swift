@@ -396,7 +396,7 @@ struct StationRow: View {
     /// is for: together first, each part in its own colour.
     private func festivalCounts(_ shows: [FmSetlist]) -> Text {
         let mineCount = shows.count
-        let theirCount = row.showsHereByFriends.count
+        let theirCount = row.theirsCount
         let together = row.sharedCount
         if theirCount == 0 && together == 0 {
             return Text("\(mineCount) gigs").foregroundColor(faint)
