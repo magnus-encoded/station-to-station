@@ -134,6 +134,8 @@ import io.github.magnusencoded.setlist2spotify.data.futureRows
 import io.github.magnusencoded.setlist2spotify.data.postFiling
 import io.github.magnusencoded.setlist2spotify.data.setlistPaste
 import io.github.magnusencoded.setlist2spotify.data.StoredMedia
+import io.github.magnusencoded.setlist2spotify.data.visibleToContacts
+import io.github.magnusencoded.setlist2spotify.data.withheldFromContacts
 import io.github.magnusencoded.setlist2spotify.data.gigInviteUri
 import io.github.magnusencoded.setlist2spotify.data.photos.PhotoRepository
 import io.github.magnusencoded.setlist2spotify.data.setlistfm.FmSetlist
@@ -161,6 +163,10 @@ private val Muted = Color(0xFF8B8299)
 private val Faint = Color(0xFF5A5368)
 private val Amber = Color(0xFFE7B24C)
 private val AmberSoft = Color(0x29E7B24C)
+
+/** Amber with the light off: my own **Line** as a **Contact** sees it (#145). */
+private val Unlit = Color(0xFF7C7788)
+private val UnlitField = Color(0xFF1E1B26)
 private val SpotifyGreen = Color(0xFF1DB954)
 private val Slate = Color(0xFF6D7E9B) // the future / a connected-source, a cooler light
 private val Danger = Color(0xFFE08A8A)
@@ -405,6 +411,34 @@ fun StationTimelineScreen(
                             fontSize = 12.sp,
                             modifier = Modifier.padding(start = 20.dp, top = 2.dp, bottom = 14.dp),
                         )
+                        // The light is on, and it says so across the whole width. Not a
+                        // badge: a mode you can forget you are in would make withheld
+                        // photographs read as data loss (#145).
+                        if (state.contactLight) {
+                            Column(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .background(UnlitField)
+                                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                            ) {
+                                Text(
+                                    "AS YOUR CONTACTS SEE IT",
+                                    color = Ink,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    letterSpacing = 1.5.sp,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "One view for everyone you have met in person — there are no " +
+                                        "per-contact settings. Walk into a night to see its photographs. " +
+                                        "Swipe right again to come back.",
+                                    color = Muted,
+                                    fontSize = 11.sp,
+                                )
+                            }
+                            Spacer(Modifier.height(10.dp))
+                        }
                         // Whose line is whose, only while more than one is showing.
                         // Scrolls sideways: the key is the one thing that grows without
                         // limit as friends are added, and it must not push the line off.
@@ -511,7 +545,14 @@ fun StationTimelineScreen(
                                     var dragX = 0f
                                     detectHorizontalDragGestures(
                                         onDragStart = { dragX = 0f },
-                                        onDragEnd = { if (dragX <= -threshold) onOpenNearby() },
+                                        onDragEnd = {
+                                            // Left is Exchange; right is the light switch,
+                                            // which is free here because there is nothing
+                                            // further out than my own Line (#145). A light
+                                            // is not a place, so the same flick returns.
+                                            if (dragX <= -threshold) onOpenNearby()
+                                            else if (dragX >= threshold) viewModel.toggleContactLight()
+                                        },
                                         onHorizontalDrag = { _, delta -> dragX += delta },
                                     )
                                 }
@@ -649,10 +690,12 @@ fun StationTimelineScreen(
                                         laneWidth = laneWidth,
                                         inside = row.depth > 0,
                                         nodeX = nodeX,
-                                        shared = row.shared,
+                                        shared = row.shared && !state.contactLight,
+                                        unlit = state.contactLight,
                                         rails = rails,
-                                        photos = state.mediaBySetlist[node.setlist.id]
-                                            .orEmpty().map { Uri.parse(it.ref) },
+                                        photos = (state.mediaBySetlist[node.setlist.id].orEmpty())
+                                            .let { if (state.contactLight) visibleToContacts(it) else it }
+                                            .map { Uri.parse(it.ref) },
                                         loadPhotoPreview = viewModel::photoPreview,
                                         onClick = {
                                             viewModel.openShow(node.setlist)
@@ -1031,6 +1074,13 @@ internal fun TimelineItem(
      * resolution, since "did I go to this" must never depend on the zoom.
      */
     planned: Boolean = false,
+    /**
+     * Under the contact light (#145): the amber comes off, and with it the meeting
+     * green. Absence of colour asserts nothing new — the palette is committed, Slate
+     * already means an **Act** not yet seen and green already means a night shared —
+     * so desaturating is the honest signal that this is not the view of my own **Line**.
+     */
+    unlit: Boolean = false,
     rails: @Composable () -> Unit = {},
     photos: List<Uri> = emptyList(),
     loadPhotoPreview: suspend (Uri) -> MediaThumb = { MediaThumb(null) },
@@ -1050,7 +1100,7 @@ internal fun TimelineItem(
             if (!zoomedOut || planned) {
                 Box(
                     Modifier.padding(start = SpineX).width(2.dp).fillMaxHeight()
-                        .background(Amber.copy(alpha = 0.3f)),
+                        .background(if (unlit) Unlit.copy(alpha = 0.35f) else Amber.copy(alpha = 0.3f)),
                 )
             }
             if (mine) {
@@ -1070,6 +1120,10 @@ internal fun TimelineItem(
                             // night our lines became one gets a colour of its own; and
                             // a night that hasn't happened has not earned either.
                             when {
+                                // A generic contact view has no "we", so a night marked
+                                // as shared would claim a relationship this view does
+                                // not have — per-contact meaning smuggled back in.
+                                unlit -> Unlit
                                 planned -> Slate
                                 shared -> Crossed
                                 highlight -> Amber
@@ -1080,7 +1134,7 @@ internal fun TimelineItem(
                 ) {
                     // The most-recent node keeps its soft amber glow — over the opaque
                     // fill now, so it tints the interior without the line behind it.
-                    if (highlight && !shared) {
+                    if (highlight && !shared && !unlit) {
                         Box(Modifier.matchParentSize().background(AmberSoft))
                     }
                 }
@@ -1609,7 +1663,12 @@ fun StationEventScreen(
     // What this night already became. Every one of them: each url may be in
     // somebody's hands, so none of them stops being reachable from here.
     val made = setlist?.let { state.playlistsBySetlist[it.id] }.orEmpty()
-    val gigMedia = setlist?.let { state.mediaBySetlist[it.id] }.orEmpty()
+    val heldMedia = setlist?.let { state.mediaBySetlist[it.id] }.orEmpty()
+    // Under the contact light the room holds what a Contact can see, through the one
+    // rule that also builds their manifest (#145). Withheld items never come back as
+    // content here — only as a count, and only when asked for.
+    val gigMedia = if (state.contactLight) visibleToContacts(heldMedia) else heldMedia
+    val withheld = if (state.contactLight) withheldFromContacts(heldMedia) else emptyList()
     val gigPhotos = gigMedia.map { Uri.parse(it.ref) }
     // The Reliver picks straight from the system photo (and video) picker — no
     // gallery permission needed for that path, unlike the suggestions below.
@@ -2195,6 +2254,74 @@ fun StationEventScreen(
                         // Nothing can be pinned to a night nobody has been to yet — the
                         // slot comes back once the gig is checked into or no longer planned.
                         if (showsMediaBlock(planned, checkedIn)) {
+                            // The review, where the sharing decision is actually made:
+                            // one night at a time (#145). At the timeline the lit and
+                            // unlit versions look almost identical; the difference is
+                            // visible here, which is the right place for it.
+                            if (state.contactLight) {
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    when {
+                                        gigMedia.isEmpty() && withheld.isEmpty() ->
+                                            "Nothing to see on this night. They see that you were here."
+                                        gigMedia.isEmpty() ->
+                                            "They see none of the ${withheld.size} here. They see that you were here."
+                                        else ->
+                                            "They see ${gigMedia.size} of ${gigMedia.size + withheld.size} here."
+                                    },
+                                    color = Muted,
+                                    fontSize = 12.sp,
+                                )
+                                if (withheld.isNotEmpty()) {
+                                    Text(
+                                        if (state.showWithheld) "hide what you are keeping back"
+                                        else "show the ${withheld.size} you are keeping back",
+                                        color = Slate,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier
+                                            .clickable { viewModel.setShowWithheld(!state.showWithheld) }
+                                            .padding(vertical = 8.dp),
+                                    )
+                                }
+                                // Placeholders, never content: the question this answers
+                                // is "how much am I keeping back", and re-rendering the
+                                // photographs would answer a different one.
+                                if (state.showWithheld) {
+                                    Row(Modifier.padding(bottom = 6.dp)) {
+                                        withheld.forEach { _ ->
+                                            Box(
+                                                Modifier
+                                                    .padding(end = 6.dp)
+                                                    .size(44.dp)
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(UnlitField)
+                                                    .border(1.dp, LineCol, RoundedCornerShape(6.dp)),
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        "share these with your contacts again",
+                                        color = Slate,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier
+                                            .clickable { viewModel.resumeSharingNight(setlist.id) }
+                                            .padding(vertical = 8.dp),
+                                    )
+                                }
+                                // Honest wording: this closes the door forward. Nothing
+                                // retrieves what already left, and saying otherwise would
+                                // be the one lie this whole view exists to prevent.
+                                if (gigMedia.isNotEmpty()) {
+                                    Text(
+                                        "stop sharing this night — from now on, not retroactively",
+                                        color = Danger,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier
+                                            .clickable { viewModel.stopSharingNight(setlist.id) }
+                                            .padding(vertical = 8.dp),
+                                    )
+                                }
+                            }
                             Spacer(Modifier.height(12.dp))
                             GigPhotos(
                                 photos = gigPhotos,

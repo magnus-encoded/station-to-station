@@ -14,6 +14,7 @@ import io.github.magnusencoded.setlist2spotify.data.StoredAct
 import io.github.magnusencoded.setlist2spotify.data.StoredAttendance
 import io.github.magnusencoded.setlist2spotify.data.StoredBill
 import io.github.magnusencoded.setlist2spotify.data.StoredLog
+import io.github.magnusencoded.setlist2spotify.data.stopSharing
 import io.github.magnusencoded.setlist2spotify.data.artistLabel
 import io.github.magnusencoded.setlist2spotify.data.billNight
 import io.github.magnusencoded.setlist2spotify.data.candidateSongs
@@ -223,6 +224,20 @@ data class UiState(
      * no signal is the one thing here that cannot be fetched again.
      */
     val logsByGig: Map<String, StoredLog> = emptyMap(),
+    /**
+     * The light is on: my own **Line**, lit as a **Contact** sees it (#145).
+     *
+     * A state of where I already am, not a place I travelled to — the same corridor,
+     * the same rooms, in the same order, differently lit. It persists while I walk
+     * around under it and is flicked off by the same gesture that turned it on.
+     */
+    val contactLight: Boolean = false,
+    /**
+     * Inside the light: show what I am *withholding*, as placeholders. Off by default,
+     * because the primary question is what a **Contact** sees and the faithful answer
+     * is the one that needs no interpretation.
+     */
+    val showWithheld: Boolean = false,
     /**
      * My relationship to each gig, by gig id — planned, attended, checked in.
      * Restored from disk on launch, which is what makes a check-in survive a cold
@@ -1537,6 +1552,47 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(logsByGig = it.logsByGig + (gigId to updated)) }
         viewModelScope.launch { timelines.saveLog(gigId, updated) }
     }
+
+    /**
+     * The light switch, at the outermost rung of my own **Line** (#145).
+     *
+     * Toggling rather than travelling: a light is not somewhere you go, so the motion
+     * that turns it on turns it off and there is no way to be stranded under it.
+     * Leaving it always drops the withheld placeholders, so the light comes on faithful
+     * every time — the primary question is what a **Contact** sees.
+     */
+    fun toggleContactLight() = _state.update {
+        it.copy(contactLight = !it.contactLight, showWithheld = false)
+    }
+
+    fun setShowWithheld(show: Boolean) = _state.update { it.copy(showWithheld = show) }
+
+    /**
+     * Stops sharing everything on a night, from inside the view where you noticed it.
+     *
+     * Forward only. It closes the door; it does not retrieve what already left, and the
+     * wording on the screen must not suggest otherwise.
+     */
+    fun stopSharingNight(setlistId: String) =
+        setGigMedia(setlistId, stopSharing(_state.value.mediaBySetlist[setlistId].orEmpty()))
+
+    /**
+     * The way back. Sharing again is a deliberate tap and not an undo button, because it
+     * is the same prospective grant as the first time: it exposes these to everyone who
+     * will ever become a **Contact**, not to the contacts I have today.
+     */
+    fun resumeSharingNight(setlistId: String) = setGigMedia(
+        setlistId,
+        _state.value.mediaBySetlist[setlistId].orEmpty()
+            .map { if (it.from == null) it.copy(personal = false) else it },
+    )
+
+    /** One photograph's **Personal** bit. The way back from a whole night stopped. */
+    fun setMediaPersonal(setlistId: String, mediaId: String, personal: Boolean) = setGigMedia(
+        setlistId,
+        _state.value.mediaBySetlist[setlistId].orEmpty()
+            .map { if (it.id == mediaId) it.copy(personal = personal) else it },
+    )
 
     /** The **Act** a local **Gig** was minted from, if it came off a **Bill**. */
     fun actFor(gigId: String): StoredAct? =
