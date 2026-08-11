@@ -1619,6 +1619,59 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         moveMedia(_state.value.mediaBySetlist[setlistId].orEmpty(), mediaId, band, index),
     )
 
+    /**
+     * Write, edit or clear my **Note** in one **Band** (#50).
+     *
+     * At most one of mine per band, so this is an upsert keyed by band rather than by
+     * id: the write-line the finger landed on already said which one it means. Two
+     * notes in a band would need arranging, arranging would need the handle, and the
+     * thing being served is one opinion about one night.
+     *
+     * **Emptying it removes it.** A note with nothing in it is not something anyone
+     * wrote, and leaving an empty record behind would make the shared band claim a
+     * contributor who said nothing — which would turn a night green over blank text.
+     */
+    fun setGigNote(setlistId: String, band: Band, text: String) {
+        val had = _state.value.mediaBySetlist[setlistId].orEmpty()
+        val personal = band == Band.VAULT
+        val mine = had.firstOrNull {
+            it.kind == StoredMedia.Kind.NOTE && it.from == null && it.personal == personal
+        }
+        val written = text.trim()
+        setGigMedia(
+            setlistId,
+            when {
+                mine != null && written.isEmpty() -> had.filterNot { it.id == mine.id }
+                mine != null -> had.map { if (it.id == mine.id) it.copy(text = written) else it }
+                written.isEmpty() -> had
+                else -> had + StoredMedia(
+                    id = java.util.UUID.randomUUID().toString(),
+                    kind = StoredMedia.Kind.NOTE,
+                    // When it was written. It is what sorts received notes, and a note
+                    // has no camera to ask for anything better.
+                    capturedAt = System.currentTimeMillis(),
+                    personal = personal,
+                    text = written,
+                )
+            },
+        )
+    }
+
+    /**
+     * Set or unset the **Verdict** on one of my **Notes**.
+     *
+     * Tapping the one already set passes null, because unset has to stay reachable —
+     * it is a real state, and a night I have stopped having an opinion about must not
+     * be stuck wearing the one I had.
+     */
+    fun setGigVerdict(setlistId: String, noteId: String, verdict: String?) {
+        val had = _state.value.mediaBySetlist[setlistId].orEmpty()
+        // Mine only. A received note's verdict is its sender's statement and is not
+        // mine to edit, the same way their photograph is not mine to reposition.
+        if (had.none { it.id == noteId && it.from == null }) return
+        setGigMedia(setlistId, had.map { if (it.id == noteId) it.copy(verdict = verdict) else it })
+    }
+
 
     /** The **Act** a local **Gig** was minted from, if it came off a **Bill**. */
     fun actFor(gigId: String): StoredAct? =

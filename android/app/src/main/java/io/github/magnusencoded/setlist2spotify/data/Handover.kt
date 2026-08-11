@@ -63,6 +63,18 @@ data class OfferedMedia(
      * nights with no attribution, which were whose is unrecoverable.
      */
     val from: String? = null,
+    /**
+     * A **Note**'s text, inline (#50).
+     *
+     * **The one kind that arrives complete with the manifest.** A note has no bytes,
+     * so it skips the manifest-then-bytes phase entirely: [hash] is empty, [bytes] is
+     * zero, and there is nothing to drain afterwards. That makes it the most durable
+     * thing here — below even the **Thumbnail** on the floor, because a **Pointer**
+     * can rot and a sentence cannot.
+     */
+    val text: String = "",
+    /** The **Verdict** riding that note, or null. See `StoredMedia.Verdict`. */
+    val verdict: String? = null,
 ) {
     val category: String get() = categoryOf(kind, personal)
 }

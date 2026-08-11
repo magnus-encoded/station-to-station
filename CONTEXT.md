@@ -126,6 +126,9 @@ never makes them a **Contact**, and a **Contact** need not be on setlist.fm at a
 | **Reconcile** | The pairwise sync between two **Contacts**: intersect the gigs we both **Attended**, exchange what the other is missing. Idempotent, unordered, and **without a time bound** — which is why a **Contact** made years later enriches an old **Gig** with no backfill path to build. | push, sync (fine), publish |
 | **Pointer** | A link into the owner's own cloud (BYOS). What actually crosses the radio; the bytes ride the recipient's internet later. Cross-platform, this is the whole payload. | url (fine), reference |
 | **Thumbnail** | The small copy kept forever. The **durable floor** of a keepsake: full-res is best-effort and a **Pointer** can rot, but the grid of that night still renders in ten years. Exchanged in person on Android; fetched from the cloud on iOS, where the radio is too slow to carry it. | preview, cache |
+| **Note** | One thing I wrote about a night, held as **Media** with a **Personal** bit — so it sits in a **Band** and its position is its disposition, exactly like a photograph. At most one of mine per **Band**: a vault note is a draft, a shared note is read by my **Audience**, and dragging it up is the whole of publishing. Editable forever, like the **Log**. Carries no bytes, so it is the one thing that arrives complete with the manifest. | post, review, entry, caption, comment (all feed vocabulary for a thing this app does not have) |
+| **Verdict** | Thumb down, thumb up, or thumb up twice, carried by the **Note** it was written on. Three values and unset, and unset is real. **Never aggregated** — not averaged, not ranked, not compared across people; a score that could be would be the merit primitive ADR-0011 defers. | rating, score, stars, five-star, review |
+| **Preamble** | The sentence rendered above a **Note** from facts the record already holds — who else was there, the venue, the set. Composed at read time, **never stored, never typed, never sent**: **Reconcile** has no time bound, so who was there changes, and a frozen sentence would be the app putting words in my mouth. Every clause is droppable and a night that knows nothing gets none. | header, generated text, template, auto-caption |
 
 ## Relationships
 
@@ -142,6 +145,10 @@ never makes them a **Contact**, and a **Contact** need not be on setlist.fm at a
 - **Attach** puts media on a **Gig** in one **Band** or the other; the shared one reaches
   the **Audience**, the vault reaches nobody. Dragging it between them is what changes its
   mind, and is the only way to stop offering something.
+- A **Note** is **Media**, so every sentence above applies to it unchanged: it lives in a
+  **Band**, its position is its **Personal** bit, and a **Contact**'s shared **Note**
+  arrives as **Received media**. A **Verdict** rides the **Note**; a **Preamble** is drawn
+  over it and is not part of it.
 - **Reconcile** runs between **Contacts**, over **Attended** in common — not over what was
   attached recently, and not over who was checked in at the time.
 

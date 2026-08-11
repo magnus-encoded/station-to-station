@@ -52,6 +52,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -94,6 +95,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -114,6 +116,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -146,6 +149,7 @@ import io.github.magnusencoded.setlist2spotify.data.ReleaseHint
 import io.github.magnusencoded.setlist2spotify.data.bandsOf
 import io.github.magnusencoded.setlist2spotify.data.hintForAdding
 import io.github.magnusencoded.setlist2spotify.data.hintForMoving
+import io.github.magnusencoded.setlist2spotify.data.preamble
 import io.github.magnusencoded.setlist2spotify.data.visibleToContacts
 import io.github.magnusencoded.setlist2spotify.data.withheldFromContacts
 import io.github.magnusencoded.setlist2spotify.data.gigInviteUri
@@ -1536,8 +1540,21 @@ private fun GigMediaBands(
     onOpen: (Uri) -> Unit,
     onRemove: (StoredMedia) -> Unit,
     onMove: (String, Band, Int) -> Unit,
+    /** The night's own facts, already composed. Empty when the record knows nothing. */
+    preamble: String = "",
+    onWrite: (Band, String) -> Unit = { _, _ -> },
+    onVerdict: (String, String?) -> Unit = { _, _ -> },
 ) {
-    val bands = bandsOf(media)
+    // Two splits of the same night, and the difference between them is the whole of
+    // #50's wiring. [all] is every item and answers *who is in the commons* — a
+    // **Note** in the shared band makes me a contributor exactly as a photograph
+    // does. [bands] is the visual run only and answers *what the strip draws*: the
+    // strip's index maths is tile-strided, and a full-width prose row is not a tile.
+    //
+    // MediaBands itself stays kind-blind, which is the claim this feature rests on.
+    val all = bandsOf(media)
+    val bands = bandsOf(media.filterNot { it.kind == StoredMedia.Kind.NOTE })
+    val noteBands = bandsOf(media.filter { it.kind == StoredMedia.Kind.NOTE })
     val density = LocalDensity.current
     val strideX = with(density) { (GigPhotoSize + ItemGap).toPx() }
     val padStart = with(density) { 20.dp.toPx() }
@@ -1621,12 +1638,14 @@ private fun GigMediaBands(
                 crossed = if (promised == Band.SHARED && hint != ReleaseHint.NONE) {
                     hint == ReleaseHint.GAINED
                 } else {
-                    bands.crossed
+                    // Off the whole night, not the strip: a **Contact** who sent only
+                    // a **Note** is still someone I shared the night with.
+                    all.crossed
                 },
                 say = when {
                     promised != Band.SHARED -> null
                     hint == ReleaseHint.GAINED -> {
-                        val who = bands.received.mapNotNull { it.from }.distinct()
+                        val who = all.received.mapNotNull { it.from }.distinct()
                             .mapNotNull(senderName)
                         // Named where the name is known. There is no join from a
                         // sender's key to a Contact's name yet, so this degrades
@@ -1655,6 +1674,26 @@ private fun GigMediaBands(
                 onDragStart = { startDrag(Band.SHARED, it) },
                 onDragAt = moveDrag,
                 onDrop = endDrag,
+                notes = {
+                    BandNotes(
+                        band = Band.SHARED,
+                        mine = noteBands.shared.firstOrNull(),
+                        received = noteBands.received,
+                        // Once per night, over whichever note is uppermost. The same
+                        // sentence twice is noise, and it is a fact about the night
+                        // rather than about either band.
+                        preamble = if (noteBands.shared.isNotEmpty()) preamble else "",
+                        senderName = senderName,
+                        editable = !contactLight,
+                        onWrite = { onWrite(Band.SHARED, it) },
+                        onVerdict = { v ->
+                            noteBands.shared.firstOrNull()?.let { onVerdict(it.id, v) }
+                        },
+                        // Withdrawing: the same move a photograph makes, through the
+                        // same function. One note per band, so there is no index.
+                        onLift = { id -> onMove(id, Band.VAULT, 0) },
+                    )
+                },
             )
             // Under the contact light the room holds what a Contact can see, and they
             // cannot see the vault at all — so it is absent rather than drawn empty,
@@ -1681,6 +1720,27 @@ private fun GigMediaBands(
                     onDragStart = { startDrag(Band.VAULT, it) },
                     onDragAt = moveDrag,
                     onDrop = endDrag,
+                    notes = {
+                        BandNotes(
+                            band = Band.VAULT,
+                            mine = noteBands.vault.firstOrNull(),
+                            // Nothing arrives here. A **Contact**'s note is something
+                            // they put in the commons; there is no path by which one
+                            // lands in my vault.
+                            received = emptyList(),
+                            preamble = if (noteBands.shared.isEmpty()) preamble else "",
+                            senderName = senderName,
+                            editable = true,
+                            onWrite = { onWrite(Band.VAULT, it) },
+                            onVerdict = { v ->
+                                noteBands.vault.firstOrNull()?.let { onVerdict(it.id, v) }
+                            },
+                            // Publishing a draft. The upward move earns the green
+                            // promise for free, because [hintForMoving] never asked
+                            // what kind of item it was holding.
+                            onLift = { id -> onMove(id, Band.SHARED, 0) },
+                        )
+                    },
                 )
             }
         }
@@ -1785,6 +1845,9 @@ private fun MediaBand(
     onDragStart: (Offset) -> Unit,
     onDragAt: (Offset) -> Unit,
     onDrop: () -> Unit,
+    /** This band's **Note** row, drawn under the strip. A slot, so the band does not
+     *  grow nine parameters to describe prose it only has to make room for. */
+    notes: @Composable () -> Unit = {},
 ) {
     val tilePx = with(LocalDensity.current) { (GigPhotoSize + ItemGap).toPx() }
     // The gesture lives on the strip, never on a tile. A tile leaves the composition
@@ -1909,7 +1972,179 @@ private fun MediaBand(
                 ) { Text(offerText, color = Ink, fontSize = 12.sp) }
             }
         }
+        // Inside the band's own Column, not between two bands: the prose belongs to
+        // this side of the tier line, and the 12dp that separates the bands would
+        // make it ambiguous which one a row underneath had joined.
+        notes()
     }
+}
+
+/**
+ * One band's prose: my **Note**, then any **Received** ones (#50).
+ *
+ * **Position is the bit here too.** There is no switch and no badge — a note in the
+ * lower band reaches nobody, a note in the upper one reaches my **Audience**, and
+ * moving it is the act that changes its mind. Which write-line you tapped is which
+ * question you answered, so nothing has to ask a second time.
+ *
+ * The empty line renders on a night nothing was written about, for the same reason
+ * the empty vault strip does: a surface nobody can see is a surface nobody finds.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun BandNotes(
+    band: Band,
+    mine: StoredMedia?,
+    received: List<StoredMedia>,
+    /** The night's own facts. Rendered, never stored — see [preamble]. */
+    preamble: String,
+    senderName: (String) -> String?,
+    editable: Boolean,
+    onWrite: (String) -> Unit,
+    onVerdict: (String?) -> Unit,
+    onLift: (String) -> Unit,
+) {
+    var editing by remember(mine?.id, band) { mutableStateOf(false) }
+    var draft by remember(mine?.id, band) { mutableStateOf(mine?.text.orEmpty()) }
+    var expanded by remember(mine?.id) { mutableStateOf(false) }
+
+    Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp)) {
+        when {
+            editing -> {
+                // One field, no toolbar. The phone is the wrong surface for long form
+                // (ADR-0012) and the answer is to keep the room visible around it,
+                // not to grow an editor.
+                BasicTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    textStyle = LocalTextStyle.current.copy(color = Ink, fontSize = 13.sp),
+                    cursorBrush = SolidColor(Amber),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(UnlitField)
+                        .border(1.dp, Amber, RoundedCornerShape(6.dp))
+                        .padding(10.dp),
+                )
+                Row(Modifier.padding(top = 6.dp)) {
+                    Text(
+                        "done",
+                        color = Amber,
+                        fontSize = 12.sp,
+                        modifier = Modifier
+                            .clickable { onWrite(draft); editing = false }
+                            .padding(vertical = 4.dp, horizontal = 2.dp),
+                    )
+                    Spacer(Modifier.width(16.dp))
+                    Text(
+                        "discard",
+                        color = Faint,
+                        fontSize = 12.sp,
+                        modifier = Modifier
+                            .clickable { draft = mine?.text.orEmpty(); editing = false }
+                            .padding(vertical = 4.dp, horizontal = 2.dp),
+                    )
+                }
+            }
+
+            mine != null -> {
+                if (preamble.isNotEmpty()) {
+                    // Not editable, and drawn apart from the typed text: nothing
+                    // generated may be mistaken for something I said.
+                    Text(preamble, color = Faint, fontSize = 11.sp)
+                    Spacer(Modifier.height(3.dp))
+                }
+                Text(
+                    mine.text,
+                    color = Ink,
+                    fontSize = 13.sp,
+                    maxLines = if (expanded) Int.MAX_VALUE else 3,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        // A long-press lifts the note into the other band. The same
+                        // act as dragging a photograph across, minus the index —
+                        // one note per band means there is no position to choose.
+                        .combinedClickable(
+                            onClick = { expanded = !expanded },
+                            onLongClick = { if (editable) onLift(mine.id) },
+                        ),
+                )
+                if (editable) {
+                    Row(
+                        Modifier.padding(top = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        VerdictThumbs(mine.verdict, onVerdict)
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            "edit",
+                            color = Faint,
+                            fontSize = 11.sp,
+                            modifier = Modifier
+                                .clickable { draft = mine.text; editing = true }
+                                .padding(4.dp),
+                        )
+                    }
+                }
+            }
+
+            editable -> Text(
+                if (band == Band.SHARED) "Write something to share"
+                else "Write something just for you",
+                color = Faint,
+                fontSize = 12.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { draft = ""; editing = true }
+                    .padding(vertical = 6.dp),
+            )
+        }
+
+        received.forEach { note ->
+            Spacer(Modifier.height(8.dp))
+            Text(
+                // A name where the key resolves to one, and never an invented name:
+                // the same degradation the green promise makes.
+                senderName(note.from.orEmpty()) ?: "Someone else",
+                color = Slate,
+                fontSize = 11.sp,
+            )
+            Text(note.text, color = Slate, fontSize = 13.sp)
+            if (note.verdict != null) {
+                Spacer(Modifier.height(2.dp))
+                Text(verdictGlyph(note.verdict), color = Slate, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+/** Down, up, up twice — and unset, which is reachable by tapping the one that is set. */
+@Composable
+private fun VerdictThumbs(current: String?, onVerdict: (String?) -> Unit) {
+    Row {
+        listOf(
+            StoredMedia.Verdict.DOWN,
+            StoredMedia.Verdict.UP,
+            StoredMedia.Verdict.DOUBLE_UP,
+        ).forEach { v ->
+            Text(
+                verdictGlyph(v),
+                color = if (current == v) Amber else Faint,
+                fontSize = 15.sp,
+                modifier = Modifier
+                    .clickable { onVerdict(if (current == v) null else v) }
+                    .padding(end = 10.dp, top = 2.dp, bottom = 2.dp),
+            )
+        }
+    }
+}
+
+private fun verdictGlyph(verdict: String?): String = when (verdict) {
+    StoredMedia.Verdict.DOWN -> "👎"
+    StoredMedia.Verdict.UP -> "👍"
+    StoredMedia.Verdict.DOUBLE_UP -> "👍👍"
+    else -> ""
 }
 
 /** Where the photograph will land, opened as a real gap in the row. */
@@ -2080,7 +2315,25 @@ fun StationEventScreen(
     // content here — only as a count, and only when asked for.
     val gigMedia = if (state.contactLight) visibleToContacts(heldMedia) else heldMedia
     val withheld = if (state.contactLight) withheldFromContacts(heldMedia) else emptyList()
-    val gigPhotos = gigMedia.map { Uri.parse(it.ref) }
+    // A **Note** has no bytes and an empty [StoredMedia.ref], so every path that
+    // resolves a reference has to be handed the visual run instead of the night.
+    // Split once, here, rather than guarded at each of the six call sites below.
+    val gigVisuals = gigMedia.filterNot { it.kind == StoredMedia.Kind.NOTE }
+    val gigPhotos = gigVisuals.map { Uri.parse(it.ref) }
+    // The night's own facts, for the **Preamble** over a **Note** (#50). Derived on
+    // every composition and never stored: **Reconcile** has no time bound, so who the
+    // record knows was here changes, and a frozen sentence would be the app putting
+    // words in my mouth about an evening it has since learned more about.
+    val alsoThere = setlist?.let { s ->
+        state.friends.filter { f ->
+            f.setlistfm.isNotBlank() && state.showsByFriend[f.setlistfm].orEmpty().any { it.id == s.id }
+        }.map { it.name }
+    }.orEmpty()
+    val gigPreamble = preamble(
+        people = alsoThere,
+        venue = setlist?.venue?.name,
+        songCount = setlist?.performed()?.size ?: 0,
+    )
     // Arranging belongs to the Room, not to the strip: that is the whole of "a tap
     // anywhere that is not an [x] leaves it".
     var arranging by remember(setlist?.id) { mutableStateOf(false) }
@@ -2126,7 +2379,7 @@ fun StationEventScreen(
     // one-song clips sit alongside it and are not treated as the recording.
     // Kind comes off the record now (#97), not from asking the ContentResolver —
     // a reference that has died still knows what it was.
-    val recordingMedia = gigMedia.firstOrNull { it.kind == StoredMedia.Kind.VIDEO }
+    val recordingMedia = gigVisuals.firstOrNull { it.kind == StoredMedia.Kind.VIDEO }
     val recording = recordingMedia?.let { Uri.parse(it.ref) }
 
     // The planned-gig leaf, staged like the Spotify convert (#55): the swipe adds the
@@ -2757,6 +3010,9 @@ fun StationEventScreen(
                                 onOpen = { uri -> viewerUri = uri },
                                 onRemove = { item -> viewModel.removeGigPhoto(setlist.id, Uri.parse(item.ref)) },
                                 onMove = { id, band, index -> viewModel.moveGigMedia(setlist.id, id, band, index) },
+                                preamble = gigPreamble,
+                                onWrite = { band, text -> viewModel.setGigNote(setlist.id, band, text) },
+                                onVerdict = { id, v -> viewModel.setGigVerdict(setlist.id, id, v) },
                             )
                             Spacer(Modifier.height(8.dp))
                             GigPhotoSuggestions(
