@@ -37,6 +37,11 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.magnusencoded.setlist2spotify
         TARGETED_DEVICE_FAMILY: "1,2"
+        # The Spine with two Nodes on it, same mark as the Android launcher icon.
+        # A single 1024 asset; iOS renders every other size from it and applies
+        # its own corner mask, so the mark is drawn full-bleed with no rounding
+        # of our own.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Simulator builds need no signing (mirrors Android's unsigned debug APK).
         CODE_SIGNING_ALLOWED: "NO"
     info:

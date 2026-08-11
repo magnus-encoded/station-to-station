@@ -1,0 +1,45 @@
+<!--
+  The Station to Station mark: the Spine, with two Nodes on it.
+
+  One line, two stations. The line stops at each Node's rim and resumes past it,
+  which is the rule the drawn timeline itself follows (#116) rather than a
+  decoration. The lower Node is filled — a night that happened, amber for mine —
+  and the upper one is open, a night still ahead. Up is later, as everywhere else.
+
+  108dp viewport with the art kept inside the central 66dp safe zone, so no part
+  of it is clipped by a launcher's mask.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- The Spine, in three segments: interrupted by each Node, never drawn through it. -->
+    <path
+        android:pathData="M54,22 L54,28"
+        android:strokeColor="#E7B24C"
+        android:strokeWidth="4"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M54,48 L54,60"
+        android:strokeColor="#E7B24C"
+        android:strokeWidth="4"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M54,80 L54,86"
+        android:strokeColor="#E7B24C"
+        android:strokeWidth="4"
+        android:strokeLineCap="round" />
+
+    <!-- A night still ahead: open ring. -->
+    <path
+        android:pathData="M44,38 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0"
+        android:strokeColor="#E7B24C"
+        android:strokeWidth="4" />
+
+    <!-- A night that happened: filled, amber for mine. -->
+    <path
+        android:pathData="M44,70 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0"
+        android:fillColor="#E7B24C" />
+</vector>

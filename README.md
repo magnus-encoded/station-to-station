@@ -1,7 +1,15 @@
+<img src="docs/img/mark-512.png" alt="" width="88" align="left" hspace="16" vspace="4">
+
 # Station to Station
 
 Your concert-going life as a single continuous line — the gigs you attended, the
 festivals they collapse into, and the nights your line crossed someone else's.
+
+<br clear="left">
+
+The mark is the app's own drawing: the **Spine**, with two **Nodes** on it. The line stops at each
+node's rim and resumes past it, exactly as the timeline draws it. The filled node is a night that
+happened; the open one is still ahead. Up is later.
 
 Two native apps, one shared design:
 
