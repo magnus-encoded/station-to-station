@@ -430,101 +430,67 @@ private struct PeopleRails: View {
     let lanes: [Friend]
     let laneWidth: CGFloat
 
-    private let edgeBend: CGFloat = 56
-    private let lineWidth: CGFloat = 2
-    private let perPerson: CGFloat = 1.2
-
     var body: some View {
         Canvas { ctx, size in draw(&ctx, size) }
     }
 
+    /// Strokes the description and keeps no rule of its own (#116). Where a Line goes is
+    /// `rowGeometry`'s answer; this decides only what a role looks like and how a bend is
+    /// curved. A geometry rule that appears in here is a rule in the wrong place.
     private func draw(_ ctx: inout GraphicsContext, _ size: CGSize) {
         guard laneWidth > 0, !lanes.isEmpty else { return }
-        let spineX = SpineX + 1
-        let step = laneStep(lanes.count)
-        let open = min(max(laneWidth / stripWidth(lanes.count), 0), 1) * CGFloat(lanes.count)
-        let isFestival = row.node.isFestival
-        let nodeY: CGFloat = isFestival ? 15 : 13
         let h = size.height
-        let nodeR: CGFloat = isFestival ? 11 : (row.depth > 0 ? 5 : 7)
-        let lines = [Spine] + Array(0..<lanes.count)
-
-        func slideOf(_ line: Int) -> CGFloat { line == Spine ? 1 : min(max(open - CGFloat(line), 0), 1) }
-        func xOf(_ offset: Int, _ line: Int) -> CGFloat {
-            spineX + (laneXf(offset, step) - spineX) * slideOf(line)
-        }
-        // Was this Line at this row? A membership check on the one which-Line answer,
-        // not a fourth open-coded copy of it.
-        func thereAt(_ r: WovenRow, _ line: Int) -> Bool { linesAt(r, lanes).contains(line) }
-        // How many Lines lie on this one where it runs — merged Lines are one Line,
-        // so weight is what says how many. Green when more than one.
-        func peopleAt(_ r: WovenRow?, _ line: Int) -> Int {
-            guard let r else { return 1 }
-            let here = lineDrawnOffset(r, line, lanes)
-            return max(lines.filter { lineDrawnOffset(r, $0, lanes) == here && thereAt(r, $0) }.count, 1)
-        }
-        func peopleAlong(_ to: WovenRow?, _ line: Int) -> Int {
-            guard let to else { return peopleAt(row, line) }
-            let a = lineDrawnOffset(row, line, lanes)
-            let b = lineDrawnOffset(to, line, lanes)
-            return max(lines.filter { lineDrawnOffset(row, $0, lanes) == a && lineDrawnOffset(to, $0, lanes) == b }.count, 1)
-        }
-        func paint(_ people: Int, _ present: Bool, _ line: Int) -> (Color, CGFloat) {
-            let colour: Color
-            if people > 1 { colour = crossed }
-            else if line == Spine { colour = amber.opacity(present ? 0.85 : 0.4) }
-            else if present { colour = laneColor(line) }
-            else { colour = lineCol }
-            return (colour, lineWidth + perPerson * CGFloat(people - 1))
-        }
-
+        let isFestival = row.node.isFestival
         let nodeAt = nodeHost(row, lanes)
 
-        for line in lines where slideOf(line) > 0 {
-            let x = xOf(lineDrawnOffset(row, line, lanes), line)
-            let toX = next == nil ? x : xOf(lineDrawnOffset(next, line, lanes), line)
-            let here = thereAt(row, line)
-            let gap = here ? nodeR : 0
+        for d in rowGeometry(row, next, lanes, laneWidth, h) {
+            let atColor = color(d.colour)
 
-            let (atColor, atWidth) = paint(peopleAt(row, line), here, line)
-
-            if nodeY - gap > 0 {
-                var p = Path(); p.move(to: CGPoint(x: x, y: 0)); p.addLine(to: CGPoint(x: x, y: nodeY - gap))
-                ctx.stroke(p, with: .color(atColor), lineWidth: atWidth)
+            if d.nodeY - d.nodeR > 0 {
+                var p = Path()
+                p.move(to: CGPoint(x: d.x, y: 0))
+                p.addLine(to: CGPoint(x: d.x, y: d.nodeY - d.nodeR))
+                ctx.stroke(p, with: .color(atColor), lineWidth: d.width)
             }
-
-            let bendLen = max(min((h - nodeY - gap) * 0.8, edgeBend), 0)
 
             var body = Path()
-            body.move(to: CGPoint(x: x, y: nodeY + gap))
-            body.addLine(to: CGPoint(x: x, y: h - bendLen))
-            ctx.stroke(body, with: .color(atColor), lineWidth: atWidth)
+            body.move(to: CGPoint(x: d.x, y: d.nodeY + d.nodeR))
+            body.addLine(to: CGPoint(x: d.x, y: h - d.bendLen))
+            ctx.stroke(body, with: .color(atColor), lineWidth: d.width)
 
-            let (leaveColor, leaveWidth) = paint(peopleAlong(next, line), here, line)
             var tail = Path()
-            tail.move(to: CGPoint(x: x, y: h - bendLen))
-            if toX == x {
-                tail.addLine(to: CGPoint(x: x, y: h))
+            tail.move(to: CGPoint(x: d.x, y: h - d.bendLen))
+            if d.toX == d.x {
+                tail.addLine(to: CGPoint(x: d.x, y: h))
             } else {
                 tail.addCurve(
-                    to: CGPoint(x: toX, y: h),
-                    control1: CGPoint(x: x, y: h - bendLen * 0.45),
-                    control2: CGPoint(x: toX, y: h - bendLen * 0.55)
+                    to: CGPoint(x: d.toX, y: h),
+                    control1: CGPoint(x: d.x, y: h - d.bendLen * 0.45),
+                    control2: CGPoint(x: d.toX, y: h - d.bendLen * 0.55)
                 )
             }
-            ctx.stroke(tail, with: .color(leaveColor), lineWidth: leaveWidth)
+            ctx.stroke(tail, with: .color(color(d.colourAhead)), lineWidth: d.widthAhead)
 
             // One Node per night, drawn once by the innermost Line that was there.
             // Mine and festivals draw their own ring, so this only fills the gap for
             // a Gig of theirs.
-            let drawsNode = here && !row.mine && !isFestival && line == nodeAt
-            if drawsNode {
-                let nx = xOf(nodeAt, line)
+            if d.present && !row.mine && !isFestival && d.line == nodeAt {
                 let joined = linesAt(row, lanes).count > 1
                 let r: CGFloat = 6
-                let rect = CGRect(x: nx - r, y: nodeY - r, width: 2 * r, height: 2 * r)
-                ctx.stroke(Path(ellipseIn: rect), with: .color(joined ? crossed : laneColor(line)), lineWidth: 2)
+                let rect = CGRect(x: d.x - r, y: d.nodeY - r, width: 2 * r, height: 2 * r)
+                ctx.stroke(Path(ellipseIn: rect), with: .color(joined ? crossed : laneColor(d.line)), lineWidth: 2)
             }
+        }
+    }
+
+    /// The Canvas is the only thing that knows what a role looks like — which is what
+    /// lets the colour rules be asserted in a unit test with nothing rendered.
+    private func color(_ role: LineColour) -> Color {
+        switch role {
+        case .meeting: return crossed
+        case .mine(let present): return amber.opacity(present ? 0.85 : 0.4)
+        case .rail(let lane): return laneColor(lane)
+        case .absent: return lineCol
         }
     }
 }
