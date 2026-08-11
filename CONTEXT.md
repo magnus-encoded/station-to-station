@@ -118,8 +118,9 @@ never makes them a **Contact**, and a **Contact** need not be on setlist.fm at a
 
 | Term | Definition | Aliases to avoid |
 | ---- | ---------- | ---------------- |
-| **Attach** | Putting media on a **Gig**. **Attach is share** — there is no second gesture and no recipient picker. Media generated at a gig is of shared interest by default. | upload, post, add |
-| **Personal** | Attached, but never sent: on my own **Gig resolution**, held back from everyone. One bit, default off, the only exception the model has. Excluding a *named person* is deliberately not representable — that is the share sheet's job. | private (fine), hidden, secret |
+| **Attach** | Putting media on a **Gig**. **Attach asks, once** — the gesture that adds a photograph is the gesture that says which **Band** it lands in, and there is no second step and no recipient picker. Nothing is ever placed by a default. | upload, post, add |
+| **Band** | One of the two runs a **Gig**'s media is drawn in: shared above, vault below. **Position is the bit** — which band an item sits in *is* whether it is **Personal**. Never a badge, and never a colour: **Amber** means mine in both bands. | row (fine), tier, section |
+| **Personal** | In the vault **Band**: attached, but never sent, held back from everyone. One of two named destinations rather than an exception — a photograph is in the commons or it is just for you, and both are said out loud. Excluding a *named person* is deliberately not representable — that is the share sheet's job. | private (fine), hidden, secret |
 | **My media** / **Received media** | Whose camera it came from. Always distinguishable — a crowd-sourced entry where you cannot tell what you shot is a worse record, not a richer one. Same instinct as **Amber**. | our photos, the gallery |
 | **Audience** | Who **Received media** reaches: **Contacts** who **Attended** the same **Gig**. Derived from data already held, never a list anyone maintains. Check-in is not the gate — it is one kind of evidence for **Attended**. | recipients, share list, circle, group |
 | **Reconcile** | The pairwise sync between two **Contacts**: intersect the gigs we both **Attended**, exchange what the other is missing. Idempotent, unordered, and **without a time bound** — which is why a **Contact** made years later enriches an old **Gig** with no backfill path to build. | push, sync (fine), publish |
@@ -138,7 +139,9 @@ never makes them a **Contact**, and a **Contact** need not be on setlist.fm at a
   by setlist.fm.
 - One step **Inner** from a **Gig** is its **Alcove**; **Back out** is one step **Outer**, always.
 - A **Followed line** grants nothing; only a **Contact** can receive media.
-- **Attach** puts media on a **Gig** and sends it to the **Audience**, unless **Personal**.
+- **Attach** puts media on a **Gig** in one **Band** or the other; the shared one reaches
+  the **Audience**, the vault reaches nobody. Dragging it between them is what changes its
+  mind, and is the only way to stop offering something.
 - **Reconcile** runs between **Contacts**, over **Attended** in common — not over what was
   attached recently, and not over who was checked in at the time.
 

@@ -134,6 +134,11 @@ import io.github.magnusencoded.setlist2spotify.data.futureRows
 import io.github.magnusencoded.setlist2spotify.data.postFiling
 import io.github.magnusencoded.setlist2spotify.data.setlistPaste
 import io.github.magnusencoded.setlist2spotify.data.StoredMedia
+import io.github.magnusencoded.setlist2spotify.data.Band
+import io.github.magnusencoded.setlist2spotify.data.ReleaseHint
+import io.github.magnusencoded.setlist2spotify.data.bandsOf
+import io.github.magnusencoded.setlist2spotify.data.hintForAdding
+import io.github.magnusencoded.setlist2spotify.data.hintForMoving
 import io.github.magnusencoded.setlist2spotify.data.visibleToContacts
 import io.github.magnusencoded.setlist2spotify.data.withheldFromContacts
 import io.github.magnusencoded.setlist2spotify.data.gigInviteUri
@@ -1493,98 +1498,428 @@ private fun PhotoThumb(uri: Uri, size: Dp, loadPreview: suspend (Uri) -> MediaTh
 }
 
 /**
- * The Reliver's own pictures and clips on a gig, picked straight from the system
- * photo picker — no gallery permission, and no attempt at matching the night by
- * date; that's [GigPhotoSuggestions]' job. Tap opens one in whatever app the phone
- * already uses for the format. Long-press any of them to enter arranging — every
- * photo gets an [x], dragging one reorders the strip, and a tap anywhere that
- * isn't an [x] leaves arranging again.
+ * A night's **Media**, in its two bands (#162).
+ *
+ * **Position is the bit.** The upper band is what a **Contact** can see, the lower is
+ * what only I can, and which band a photograph sits in *is* its **Personal** bit.
+ * **Amber** edges mine in *both* bands, because Amber means mine and never
+ * held-back; the cooler light edges **Received media**, which sits to the right of my
+ * own and cannot be dragged at all — its disposition is not mine to set.
+ *
+ * **The handle teaches itself.** At rest it is a two-way arrow, which says only that
+ * it moves. Drag it and the band you are over answers with the whole sentence, so you
+ * learn both halves of the model before spending anything — the drag is reversible
+ * right up to the release. Down is the vault, deliberately: it is the easier reach,
+ * and the direction an unfamiliar thumb drifts must be the one that shares nothing.
+ *
+ * Long-press a photograph to arrange. [arranging] is owned by the **Room** rather
+ * than by this composable, which is what lets a tap anywhere that is not an [x] leave
+ * it again.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun GigPhotos(
-    photos: List<Uri>,
+private fun GigMediaBands(
+    media: List<StoredMedia>,
     loadPreview: suspend (Uri) -> MediaThumb,
-    onAdd: () -> Unit,
+    arranging: Boolean,
+    senderName: (String) -> String?,
+    onArrange: () -> Unit,
+    onAdd: (Band) -> Unit,
     onOpen: (Uri) -> Unit,
-    onRemove: (Uri) -> Unit,
-    onReorder: (List<Uri>) -> Unit,
+    onRemove: (StoredMedia) -> Unit,
+    onMove: (String, Band, Int) -> Unit,
 ) {
-    var arranging by remember { mutableStateOf(false) }
-    // A working copy so a drag can preview the new order before it's committed —
-    // resynced whenever the real list changes under it (an add, a remove, or the
-    // commit at the end of a drag landing back through [photos]).
-    val order = remember(photos) { photos.toMutableStateList() }
-    val strideX = with(LocalDensity.current) { (GigPhotoSize + ItemGap).toPx() }
+    val bands = bandsOf(media)
+    val density = LocalDensity.current
+    val strideX = with(density) { (GigPhotoSize + ItemGap).toPx() }
+    val bandStep = with(density) { 44.dp.toPx() }
 
-    Row(
+    // The handle's live answer, and the tile drag's. Both name a band and both are
+    // reversible until the finger lifts, so they share one piece of state.
+    var over by remember { mutableStateOf<Band?>(null) }
+    var dragging by remember { mutableStateOf<StoredMedia?>(null) }
+    var dragTo by remember { mutableStateOf<Band?>(null) }
+    var dragIndex by remember { mutableStateOf(0) }
+
+    // What letting go would do to the shared band, asked the same way by both
+    // gestures — see [releaseHint]. Nothing here special-cases the direction.
+    val hint = when {
+        dragging != null && dragTo != null -> hintForMoving(media, dragging!!.id, dragTo!!)
+        over != null -> hintForAdding(media, over!!)
+        else -> ReleaseHint.NONE
+    }
+    val promised = if (dragging != null) dragTo else over
+
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                MediaBand(
+                    label = "Shared",
+                    mine = bands.shared,
+                    received = bands.received,
+                    crossed = if (promised == Band.SHARED && hint != ReleaseHint.NONE) {
+                        hint == ReleaseHint.GAINED
+                    } else {
+                        bands.crossed
+                    },
+                    say = when {
+                        promised != Band.SHARED -> null
+                        hint == ReleaseHint.GAINED -> {
+                            val who = bands.received.mapNotNull { it.from }.distinct()
+                                .mapNotNull(senderName)
+                            // Named where the name is known. There is no join from a
+                            // sender's key to a Contact's name yet, so this degrades
+                            // rather than inventing one.
+                            val subject = if (who.isEmpty()) "someone else is" else who.joinToString(" and ") + " is"
+                            "$subject already here — let go and it becomes a night you shared"
+                        }
+                        hint == ReleaseHint.LOST -> "let go and this stops being a night you shared"
+                        else -> null
+                    },
+                    offering = over == Band.SHARED,
+                    offerText = "Share a picture or video",
+                    arranging = arranging,
+                    dragging = dragging,
+                    slotAt = if (dragTo == Band.SHARED) dragIndex else null,
+                    loadPreview = loadPreview,
+                    onOpen = onOpen,
+                    onRemove = onRemove,
+                    onArrange = onArrange,
+                    onDrag = { item, dx, dy ->
+                        dragging = item
+                        // ponytail: two bands, so the sign of the vertical travel is
+                        // the whole hit test. Add real bounds if a third band ever
+                        // exists.
+                        dragTo = if (dy > bandStep) Band.VAULT else Band.SHARED
+                        dragIndex = (bands.shared.indexOfFirst { it.id == item.id }
+                            .coerceAtLeast(0) + (dx / strideX).roundToInt())
+                            .coerceIn(0, bands.shared.size)
+                    },
+                    onDrop = {
+                        dragging?.let { onMove(it.id, dragTo ?: Band.SHARED, dragIndex) }
+                        dragging = null
+                        dragTo = null
+                    },
+                )
+                MediaBand(
+                    label = "In the vault",
+                    mine = bands.vault,
+                    received = emptyList(),
+                    crossed = false,
+                    say = null,
+                    offering = over == Band.VAULT,
+                    offerText = "Add a picture or video just for you",
+                    arranging = arranging,
+                    dragging = dragging,
+                    slotAt = if (dragTo == Band.VAULT) dragIndex else null,
+                    loadPreview = loadPreview,
+                    onOpen = onOpen,
+                    onRemove = onRemove,
+                    onArrange = onArrange,
+                    onDrag = { item, dx, dy ->
+                        dragging = item
+                        dragTo = if (dy < -bandStep) Band.SHARED else Band.VAULT
+                        dragIndex = (bands.vault.indexOfFirst { it.id == item.id }
+                            .coerceAtLeast(0) + (dx / strideX).roundToInt())
+                            .coerceIn(0, bands.vault.size)
+                    },
+                    onDrop = {
+                        dragging?.let { onMove(it.id, dragTo ?: Band.VAULT, dragIndex) }
+                        dragging = null
+                        dragTo = null
+                    },
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            AttachHandle(
+                onOver = { over = it },
+                onRelease = { band -> over = null; band?.let(onAdd) },
+            )
+            Spacer(Modifier.width(4.dp))
+        }
+    }
+}
+
+/**
+ * The two-way arrow, and the only control that adds.
+ *
+ * It carries no state during the drag on purpose: a thumb is on top of it for the
+ * whole gesture, so anything it said would be said where nobody can read it. The
+ * bands answer instead. A tap does nothing, which reads as the wrong gesture rather
+ * than as a broken app — a plus that ignored a tap would read as the second.
+ */
+@Composable
+private fun AttachHandle(
+    onOver: (Band?) -> Unit,
+    onRelease: (Band?) -> Unit,
+) {
+    val commit = with(LocalDensity.current) { 14.dp.toPx() }
+    var offsetY by remember { mutableStateOf(0f) }
+    var chosen by remember { mutableStateOf<Band?>(null) }
+
+    Box(
         Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            // Catches a tap on the blank space past the last photo — arranging
-            // has to be dismissible from anywhere, not only from a thumbnail.
-            .pointerInput(arranging) {
-                if (arranging) detectTapGestures(onTap = { arranging = false })
+            .offset { IntOffset(0, offsetY.roundToInt()) }
+            .size(GigPhotoSize)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Raised2)
+            .border(1.dp, if (chosen != null) Amber else LineLit, RoundedCornerShape(10.dp))
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDrag = { change, amount ->
+                        change.consume()
+                        offsetY = (offsetY + amount.y).coerceIn(-160f, 160f)
+                        chosen = when {
+                            offsetY < -commit -> Band.SHARED
+                            offsetY > commit -> Band.VAULT
+                            else -> null
+                        }
+                        onOver(chosen)
+                    },
+                    onDragEnd = {
+                        onRelease(chosen)
+                        offsetY = 0f
+                        chosen = null
+                    },
+                    onDragCancel = {
+                        onRelease(null)
+                        offsetY = 0f
+                        chosen = null
+                    },
+                )
             },
-        verticalAlignment = Alignment.CenterVertically,
+        contentAlignment = Alignment.Center,
     ) {
-        order.forEach { uri ->
-            var dragX by remember(uri) { mutableStateOf(0f) }
-            Box(
+        Text(
+            "↕",
+            color = if (chosen != null) Amber else Muted,
+            fontSize = 26.sp,
+        )
+    }
+}
+
+/**
+ * One band: my own media, then **Received media**, then whatever the gesture in
+ * progress is promising.
+ *
+ * [say] and [offerText] are drawn *over* the strip and never displace it — a state
+ * change here is colour, never geometry, which is the rule the contact light
+ * established. The landing slot is a real slot in the row, so the photographs open a
+ * gap where the one you are carrying will go.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun MediaBand(
+    label: String,
+    mine: List<StoredMedia>,
+    received: List<StoredMedia>,
+    crossed: Boolean,
+    say: String?,
+    offering: Boolean,
+    offerText: String,
+    arranging: Boolean,
+    dragging: StoredMedia?,
+    slotAt: Int?,
+    loadPreview: suspend (Uri) -> MediaThumb,
+    onOpen: (Uri) -> Unit,
+    onRemove: (StoredMedia) -> Unit,
+    onArrange: () -> Unit,
+    onDrag: (StoredMedia, Float, Float) -> Unit,
+    onDrop: () -> Unit,
+) {
+    val scroll = rememberScrollState()
+    val tilePx = with(LocalDensity.current) { (GigPhotoSize + ItemGap).toPx() }
+
+    // The strip follows the landing slot rather than the finger. ponytail: this is
+    // the whole of "I cannot drag to a position I cannot see" — a free-running edge
+    // scroll is more code and the same outcome.
+    LaunchedEffect(slotAt) {
+        val at = slotAt ?: return@LaunchedEffect
+        val left = (at * tilePx).toInt()
+        val right = left + tilePx.toInt()
+        when {
+            left < scroll.value -> scroll.animateScrollTo(left)
+            right > scroll.value + scroll.viewportSize ->
+                scroll.animateScrollTo((right - scroll.viewportSize).coerceAtLeast(0))
+        }
+    }
+
+    Column {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, bottom = 5.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            Text(
+                label,
+                color = if (say != null) {
+                    if (crossed) Crossed else Muted
+                } else {
+                    Faint
+                },
+                fontSize = 10.sp,
+            )
+            if (say != null) {
+                Spacer(Modifier.width(8.dp))
+                Text(say, color = if (crossed) Crossed else Muted, fontSize = 10.sp)
+            }
+        }
+        Box {
+            Row(
                 Modifier
-                    .offset { IntOffset(dragX.roundToInt(), 0) }
+                    .fillMaxWidth()
+                    .horizontalScroll(scroll)
+                    .padding(horizontal = 20.dp, vertical = 4.dp)
                     .then(
-                        if (arranging) {
-                            Modifier
-                                .pointerInput(uri, order.size) {
-                                    detectDragGestures(
-                                        onDrag = { change, amount -> change.consume(); dragX += amount.x },
-                                        onDragEnd = {
-                                            val moves = (dragX / strideX).roundToInt()
-                                            val from = order.indexOf(uri)
-                                            val to = (from + moves).coerceIn(0, order.lastIndex)
-                                            if (to != from) order.add(to, order.removeAt(from))
-                                            dragX = 0f
-                                            onReorder(order.toList())
-                                        },
-                                        onDragCancel = { dragX = 0f },
-                                    )
-                                }
-                                .pointerInput(uri) { detectTapGestures(onTap = { arranging = false }) }
+                        if (crossed) {
+                            Modifier.border(1.dp, Crossed, RoundedCornerShape(6.dp))
                         } else {
-                            Modifier.combinedClickable(
-                                onClick = { onOpen(uri) },
-                                onLongClick = { arranging = true },
-                            )
+                            Modifier
                         },
                     ),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                PhotoThumb(uri, size = GigPhotoSize, loadPreview = loadPreview)
-                if (arranging) {
-                    Box(
-                        Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(3.dp)
-                            .size(20.dp)
-                            .clip(CircleShape)
-                            .background(Danger)
-                            .clickable { onRemove(uri) },
-                        contentAlignment = Alignment.Center,
-                    ) { Icon(Icons.Filled.Close, contentDescription = "Remove", tint = Color.White, modifier = Modifier.size(13.dp)) }
+                mine.forEachIndexed { index, item ->
+                    if (slotAt == index) LandingSlot()
+                    if (item.id != dragging?.id) {
+                        MediaTile(
+                            item = item,
+                            arranging = arranging,
+                            draggable = true,
+                            loadPreview = loadPreview,
+                            onOpen = onOpen,
+                            onRemove = onRemove,
+                            onArrange = onArrange,
+                            onDrag = onDrag,
+                            onDrop = onDrop,
+                        )
+                        Spacer(Modifier.width(ItemGap))
+                    }
+                }
+                if (slotAt != null && slotAt >= mine.size) LandingSlot()
+                received.forEach { item ->
+                    MediaTile(
+                        item = item,
+                        arranging = arranging,
+                        // Not mine to place. Removable, never movable.
+                        draggable = false,
+                        loadPreview = loadPreview,
+                        onOpen = onOpen,
+                        onRemove = onRemove,
+                        onArrange = onArrange,
+                        onDrag = onDrag,
+                        onDrop = onDrop,
+                    )
+                    Spacer(Modifier.width(ItemGap))
+                }
+                if (mine.isEmpty() && received.isEmpty() && slotAt == null) {
+                    // Rendered empty rather than hidden: a band nobody can see is a
+                    // gesture nobody can find on a fresh install.
+                    Box(Modifier.height(GigPhotoSize), contentAlignment = Alignment.CenterStart) {
+                        Text(
+                            if (label == "Shared") "Nothing shared yet" else "Nothing held back",
+                            color = Faint,
+                            fontSize = 11.sp,
+                        )
+                    }
                 }
             }
-            Spacer(Modifier.width(ItemGap))
+            if (offering) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(AmberSoft)
+                        .border(2.dp, Amber, RoundedCornerShape(6.dp)),
+                    contentAlignment = Alignment.Center,
+                ) { Text(offerText, color = Ink, fontSize = 12.sp) }
+            }
         }
-        if (!arranging) {
+    }
+}
+
+/** Where the photograph will land, opened as a real gap in the row. */
+@Composable
+private fun LandingSlot() {
+    Box(
+        Modifier
+            .size(GigPhotoSize)
+            .clip(RoundedCornerShape(10.dp))
+            .background(AmberSoft)
+            .border(1.dp, Amber, RoundedCornerShape(10.dp)),
+    )
+    Spacer(Modifier.width(ItemGap))
+}
+
+/** One photograph. Amber if it is mine, the cooler light if it was given to me. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun MediaTile(
+    item: StoredMedia,
+    arranging: Boolean,
+    draggable: Boolean,
+    loadPreview: suspend (Uri) -> MediaThumb,
+    onOpen: (Uri) -> Unit,
+    onRemove: (StoredMedia) -> Unit,
+    onArrange: () -> Unit,
+    onDrag: (StoredMedia, Float, Float) -> Unit,
+    onDrop: () -> Unit,
+) {
+    val uri = remember(item.ref) { Uri.parse(item.ref) }
+    var dx by remember(item.id) { mutableStateOf(0f) }
+    var dy by remember(item.id) { mutableStateOf(0f) }
+
+    Box(
+        Modifier
+            .offset { IntOffset(dx.roundToInt(), dy.roundToInt()) }
+            .clip(RoundedCornerShape(10.dp))
+            .border(
+                1.5.dp,
+                if (item.from == null) Amber else Slate,
+                RoundedCornerShape(10.dp),
+            )
+            .then(
+                if (arranging && draggable) {
+                    Modifier.pointerInput(item.id) {
+                        detectDragGestures(
+                            onDrag = { change, amount ->
+                                change.consume()
+                                dx += amount.x
+                                dy += amount.y
+                                onDrag(item, dx, dy)
+                            },
+                            onDragEnd = { onDrop(); dx = 0f; dy = 0f },
+                            onDragCancel = { onDrop(); dx = 0f; dy = 0f },
+                        )
+                    }
+                } else if (!arranging) {
+                    Modifier.combinedClickable(
+                        onClick = { onOpen(uri) },
+                        onLongClick = onArrange,
+                    )
+                } else {
+                    Modifier
+                },
+            ),
+    ) {
+        PhotoThumb(uri, size = GigPhotoSize, loadPreview = loadPreview)
+        if (arranging) {
             Box(
                 Modifier
-                    .size(GigPhotoSize)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Raised2)
-                    .border(1.dp, LineLit, RoundedCornerShape(10.dp))
-                    .clickable(onClick = onAdd),
+                    .align(Alignment.TopEnd)
+                    .padding(3.dp)
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(Danger)
+                    .clickable { onRemove(item) },
                 contentAlignment = Alignment.Center,
-            ) { Text("+", color = Muted, fontSize = 26.sp) }
+            ) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = "Remove",
+                    tint = Color.White,
+                    modifier = Modifier.size(13.dp),
+                )
+            }
         }
     }
 }
@@ -1681,15 +2016,20 @@ fun StationEventScreen(
     // Under the contact light the room holds what a Contact can see, through the one
     // rule that also builds their manifest (#145). Withheld items never come back as
     // content here — only as a count, and only when asked for.
-    val nightShared = setlist != null && setlist.id in state.sharedNights
-    val gigMedia = if (state.contactLight) visibleToContacts(heldMedia, nightShared) else heldMedia
-    val withheld = if (state.contactLight) withheldFromContacts(heldMedia, nightShared) else emptyList()
+    val gigMedia = if (state.contactLight) visibleToContacts(heldMedia) else heldMedia
+    val withheld = if (state.contactLight) withheldFromContacts(heldMedia) else emptyList()
     val gigPhotos = gigMedia.map { Uri.parse(it.ref) }
+    // Arranging belongs to the Room, not to the strip: that is the whole of "a tap
+    // anywhere that is not an [x] leaves it".
+    var arranging by remember(setlist?.id) { mutableStateOf(false) }
+    // Which band the handle was released over, held across the picker's round trip —
+    // the answer is given by the gesture and the picker cannot carry it.
+    var attachTo by remember { mutableStateOf(Band.VAULT) }
     // The Reliver picks straight from the system photo (and video) picker — no
     // gallery permission needed for that path, unlike the suggestions below.
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia()
-    ) { uris -> if (uris.isNotEmpty()) setlist?.let { viewModel.addPickedGigPhotos(it.id, uris) } }
+    ) { uris -> if (uris.isNotEmpty()) setlist?.let { viewModel.addPickedGigPhotos(it.id, uris, attachTo) } }
     // Gallery access is only ever asked for after the "suggest" tap, so opening
     // a gig never triggers a permission prompt on its own.
     val gigSuggestPermissionLauncher = rememberLauncherForActivityResult(
@@ -2138,6 +2478,13 @@ fun StationEventScreen(
             LazyColumn(
                 Modifier
                     .fillMaxSize()
+                    // Arranging is the Room's mode, so the whole Room dismisses it —
+                    // every tap that is not an [x] on a thumbnail, not merely a tap on
+                    // the strip that opened it (#162). Registered before the swipe so
+                    // it never eats a horizontal gesture.
+                    .pointerInput(arranging) {
+                        if (arranging) detectTapGestures(onTap = { arranging = false })
+                    }
                     // Swipe-left is THE action gesture; swipe-right is always back, the
                     // way out of any pushed screen. What left does depends on the gig:
                     // a plan-ahead gig adds it to the calendar, then invites once added
@@ -2287,19 +2634,6 @@ fun StationEventScreen(
                                     color = Muted,
                                     fontSize = 12.sp,
                                 )
-                                // The act, named for what it actually does. Not "everyone
-                                // I know" — everyone I will ever meet and add.
-                                if (!nightShared && heldMedia.any { it.from == null && !it.personal }) {
-                                    Text(
-                                        "share this night with your contacts — including the ones you " +
-                                            "have not met yet",
-                                        color = Amber,
-                                        fontSize = 12.sp,
-                                        modifier = Modifier
-                                            .clickable { viewModel.shareNight(setlist.id, true) }
-                                            .padding(vertical = 8.dp),
-                                    )
-                                }
                                 if (withheld.isNotEmpty()) {
                                     Text(
                                         if (state.showWithheld) "hide what you are keeping back"
@@ -2328,32 +2662,45 @@ fun StationEventScreen(
                                         }
                                     }
                                 }
-                                // Honest wording: this closes the door forward. Nothing
-                                // retrieves what already left, and saying otherwise would
-                                // be the one lie this whole view exists to prevent.
-                                if (nightShared) {
+                                // Stopping is now a drag down into the vault, one
+                                // photograph at a time (#162) — so the honest wording
+                                // moved onto the act itself. Nothing here retrieves
+                                // what already left, and no control may look as if it
+                                // does, which is why there is no button.
+                                if (gigMedia.isNotEmpty()) {
                                     Text(
-                                        "stop sharing this night — from now on, not retroactively",
-                                        color = Danger,
+                                        "drag one down into the vault to stop offering it — " +
+                                            "from now on, not retroactively",
+                                        color = Slate,
                                         fontSize = 12.sp,
-                                        modifier = Modifier
-                                            .clickable { viewModel.shareNight(setlist.id, false) }
-                                            .padding(vertical = 8.dp),
+                                        modifier = Modifier.padding(vertical = 8.dp),
                                     )
                                 }
                             }
                             Spacer(Modifier.height(12.dp))
-                            GigPhotos(
-                                photos = gigPhotos,
+                            GigMediaBands(
+                                media = gigMedia,
                                 loadPreview = viewModel::photoPreview,
-                                onAdd = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
+                                arranging = arranging,
+                                // A sender is a public key (#28) and a Contact's name
+                                // lives on the friends list under a setlist.fm handle.
+                                // Nothing joins the two yet, so the promise degrades to
+                                // "someone else" rather than inventing a name.
+                                senderName = { key -> state.friends.firstOrNull { it.setlistfm == key }?.name },
+                                onArrange = { arranging = true },
+                                onAdd = { band ->
+                                    attachTo = band
+                                    photoPicker.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
+                                    )
+                                },
                                 // Opens in the in-app viewer below rather than handing the uri to
                                 // whatever app the phone picks: an external app can fail to read
                                 // it (permission scoped to us, or the phone's own quirks) and
                                 // leave the user staring at a viewer with nothing in it.
                                 onOpen = { uri -> viewerUri = uri },
-                                onRemove = { uri -> viewModel.removeGigPhoto(setlist.id, uri) },
-                                onReorder = { newOrder -> viewModel.reorderGigPhotos(setlist.id, newOrder) },
+                                onRemove = { item -> viewModel.removeGigPhoto(setlist.id, Uri.parse(item.ref)) },
+                                onMove = { id, band, index -> viewModel.moveGigMedia(setlist.id, id, band, index) },
                             )
                             Spacer(Modifier.height(8.dp))
                             GigPhotoSuggestions(
@@ -2365,7 +2712,9 @@ fun StationEventScreen(
                                 onRequestPermission = {
                                     gigSuggestPermissionLauncher.launch(PhotoRepository.requiredPermissions())
                                 },
-                                onAdd = { uri -> viewModel.addGigPhotos(setlist.id, listOf(uri)) },
+                                // A suggestion has no gesture behind it, so it takes the
+                                // safe band. Moving it up is one drag.
+                                onAdd = { uri -> viewModel.addGigPhotos(setlist.id, listOf(uri), Band.VAULT) },
                             )
                         }
                     }

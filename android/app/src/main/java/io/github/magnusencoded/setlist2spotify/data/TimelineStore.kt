@@ -335,20 +335,26 @@ data class TimelineCache(
      */
     val gigLogs: Map<String, StoredLog> = emptyMap(),
     /**
-     * The nights whose **Media** is shared with my **Audience** — every **Contact** I
-     * have met in person (#144). By **Gig** id, and **empty by default**.
+     * **Legacy, and read exactly once.** The nights whose **Media** was shared with my
+     * **Audience** under #144's night-level grant.
      *
-     * A property of the night rather than a set of per-photo booleans, because the
-     * shareable state is one value to reason about and the night is the unit already
-     * navigated. Sharing is therefore *an act* at the granularity of a **Room**: not a
-     * global toggle, which would remove the look, and not per photo, which is costly
-     * enough to use that the safe path gets abandoned.
-     *
-     * A night's absence is the honest default. A **Media** record's own
-     * [StoredMedia.personal] bit is the other tier and is stricter still: **Personal**
-     * never leaves for anyone, on a shared night or not.
+     * #162 removed that grant: there is one tier line now, it is
+     * [StoredMedia.personal], and it is always set by an act. Nothing reads this any
+     * more except [toBands], which needs it for one pass to tell a night somebody
+     * actually shared from a night that merely defaulted to shareable — and then
+     * empties it. The field stays declared because an old file on disk still carries
+     * it, and dropping the declaration would silently discard the very answer the
+     * upgrade depends on.
      */
     val sharedNights: Set<String> = emptySet(),
+    /**
+     * Whether [toBands] has run. Set once, never unset.
+     *
+     * A flag rather than an inference, because after the upgrade an unshared night
+     * and a night whose media was all vaulted deliberately are indistinguishable —
+     * so there would be nothing left to test to know whether to run it again.
+     */
+    val mediaTierMigrated: Boolean = false,
     /**
      * An artist's own song titles, by MusicBrainz id (#126).
      *
@@ -390,7 +396,6 @@ data class TimelineCache(
     fun playlists(): Map<String, List<StoredPlaylist>> = gigPlaylists.combined(::unionPlaylists)
     fun planned(): List<FmSetlist> = gigPlanned.values.toList()
     fun logs(): Map<String, StoredLog> = gigLogs.combined(::unionLog)
-    fun shared(): Set<String> = sharedNights.mapTo(HashSet()) { keyOf(it) }
 
     /**
      * Re-keys a gig-keyed map to [keyOf], **combining** entries whose keys collide
@@ -533,12 +538,6 @@ class TimelineStore(
     suspend fun saveCatalogue(mbid: String, titles: List<String>): Unit = writeMerged {
         if (mbid.isBlank() || titles.isEmpty()) it
         else it.copy(catalogueByArtist = it.catalogueByArtist + (mbid to titles))
-    }
-
-    /** Whether this night's **Media** is shared with my **Audience** (#144). */
-    suspend fun saveSharedNight(setlistId: String, shared: Boolean): Unit = writeMerged {
-        val (c, gigId) = it.withGig(setlistId)
-        c.copy(sharedNights = if (shared) c.sharedNights + gigId else c.sharedNights - gigId)
     }
 
     /** The Reliver's current media for one gig, replacing whatever was there. */
@@ -808,7 +807,24 @@ class TimelineStore(
  * minted one — was never built, so no cache in existence contains one.
  */
 internal fun TimelineCache.migrated(mimeOf: ((String) -> String?)? = null): TimelineCache =
-    withGigs().withMedia(mimeOf)
+    withGigs().withMedia(mimeOf).withBands()
+
+/**
+ * #162's upgrade: the night-level grant becomes each item's own bit.
+ *
+ * Runs on read like every other migration here, so a backup or a sideload restored
+ * later migrates too — and the flag rather than the data is what makes it idempotent,
+ * since afterwards a vaulted night is indistinguishable from one that was never
+ * shared. See [toBands] for why the direction is always toward the vault.
+ */
+private fun TimelineCache.withBands(): TimelineCache {
+    if (mediaTierMigrated) return this
+    return copy(
+        gigMedia = gigMedia.mapValues { (gigId, media) -> toBands(media, gigId in sharedNights) },
+        sharedNights = emptySet(),
+        mediaTierMigrated = true,
+    )
+}
 
 private fun TimelineCache.withGigs(): TimelineCache {
     if (gigs.isNotEmpty()) return this

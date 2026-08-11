@@ -9,7 +9,9 @@ import io.github.magnusencoded.setlist2spotify.data.categoriesFor
 import io.github.magnusencoded.setlist2spotify.data.contactManifest
 import io.github.magnusencoded.setlist2spotify.data.contactMedia
 import io.github.magnusencoded.setlist2spotify.data.handoverPlan
-import io.github.magnusencoded.setlist2spotify.data.stopSharing
+import io.github.magnusencoded.setlist2spotify.data.Band
+import io.github.magnusencoded.setlist2spotify.data.moveMedia
+import io.github.magnusencoded.setlist2spotify.data.toBands
 import io.github.magnusencoded.setlist2spotify.data.visibleToContacts
 import io.github.magnusencoded.setlist2spotify.data.withheldFromContacts
 import org.junit.Assert.assertEquals
@@ -38,39 +40,40 @@ class ContactViewTest {
 
     private fun cache(shared: Set<String>, media: Map<String, List<StoredMedia>>) = TimelineCache(
         gigs = media.keys.associateWith { StoredGig(id = it, date = "12-06-2026", artist = "Paper Cranes") },
-        gigMedia = media,
-        sharedNights = shared,
+        // The band, not a night-level grant: an unshared night is one whose media is
+        // all in the vault (#162).
+        gigMedia = media.mapValues { (gigId, items) -> toBands(items, gigId in shared) },
+        mediaTierMigrated = true,
     )
 
-    // --- The tiers ---------------------------------------------------------------
+    // --- The tier ------------------------------------------------------------------
 
     /**
      * Nothing is shared until sharing is an act. The grant is prospective — it reaches
      * everyone who will ever become a **Contact** — so a default of "shared" would be a
-     * grant nobody made.
+     * grant nobody made. Since #162 the act is per photograph, at the moment it is
+     * attached, and the vault is where the un-acted-on ones sit.
      */
     @Test
-    fun `a night nobody shared shows a contact nothing`() {
-        assertTrue(visibleToContacts(listOf(mine("a"), mine("b")), shared = false).isEmpty())
-        assertEquals(
-            listOf("a", "b"),
-            visibleToContacts(listOf(mine("a"), mine("b")), shared = true).map { it.id },
-        )
+    fun `a photograph nobody put in the commons shows a contact nothing`() {
+        val vaulted = listOf(mine("a", personal = true), mine("b", personal = true))
+        assertTrue(visibleToContacts(vaulted).isEmpty())
+        assertEquals(listOf("a", "b"), visibleToContacts(listOf(mine("a"), mine("b"))).map { it.id })
     }
 
-    /** The stricter tier: **Personal** never leaves for anyone, shared night or not. */
+    /** The bands are exactly the two halves: what is exposed, and what is held back. */
     @Test
-    fun `Personal media is withheld even on a night that is shared`() {
+    fun `Personal media is withheld and the two halves account for all of mine`() {
         val held = listOf(mine("a"), mine("b", personal = true), mine("c"))
-        assertEquals(listOf("a", "c"), visibleToContacts(held, shared = true).map { it.id })
-        assertEquals(listOf("b"), withheldFromContacts(held, shared = true).map { it.id })
+        assertEquals(listOf("a", "c"), visibleToContacts(held).map { it.id })
+        assertEquals(listOf("b"), withheldFromContacts(held).map { it.id })
     }
 
-    /** On an unshared night everything of mine is withheld, and the view says so. */
+    /** A night with everything vaulted withholds all of it, and the view says so. */
     @Test
-    fun `an unshared night withholds all of it`() {
-        val held = listOf(mine("a"), mine("b", personal = true))
-        assertEquals(listOf("a", "b"), withheldFromContacts(held, shared = false).map { it.id })
+    fun `an all-vault night withholds all of it`() {
+        val held = listOf(mine("a", personal = true), mine("b", personal = true))
+        assertEquals(listOf("a", "b"), withheldFromContacts(held).map { it.id })
     }
 
     /**
@@ -81,16 +84,15 @@ class ContactViewTest {
     @Test
     fun `received media is never re-shared`() {
         val held = listOf(mine("a"), theirs("t"))
-        assertEquals(listOf("a"), visibleToContacts(held, shared = true).map { it.id })
-        assertTrue(withheldFromContacts(held, shared = true).none { it.id == "t" })
+        assertEquals(listOf("a"), visibleToContacts(held).map { it.id })
+        assertTrue(withheldFromContacts(held).none { it.id == "t" })
     }
 
-    /** One night at a time: the act is the **Room**, and it does not reach the next one. */
+    /** One photograph at a time: placing one in the commons says nothing about the rest. */
     @Test
-    fun `sharing one night leaves every other night alone`() {
+    fun `sharing one photograph leaves every other night alone`() {
         val seen = contactMedia(
-            mapOf("g1" to listOf(mine("a")), "g2" to listOf(mine("b"))),
-            sharedNights = setOf("g1"),
+            mapOf("g1" to listOf(mine("a")), "g2" to listOf(mine("b", personal = true))),
         )
         assertEquals(listOf("a"), seen["g1"]?.map { it.id })
         assertTrue(seen["g2"].isNullOrEmpty())
@@ -160,17 +162,22 @@ class ContactViewTest {
         assertEquals(me, plan.merged.gigMedia["g1"]?.single()?.from)
     }
 
-    /** Forward only. Nothing is deleted, and no item's own **Personal** bit changes. */
+    /**
+     * Forward only, and now one photograph at a time: dragging it into the vault is
+     * what closes the door. Nothing is deleted and the photograph stays on the night —
+     * what changes is whether it is offered from here on.
+     */
     @Test
-    fun `stopping sharing closes the door and takes the night out of later manifests`() {
+    fun `moving a photograph into the vault takes it out of later manifests`() {
         val c = cache(shared = setOf("g1"), media = mapOf("g1" to listOf(mine("a"))))
         assertEquals(1, contactManifest(c, me).media.size)
 
-        val after = c.copy(sharedNights = stopSharing(c.sharedNights, "g1"))
+        val after = c.copy(
+            gigMedia = c.gigMedia + ("g1" to moveMedia(c.gigMedia.getValue("g1"), "a", Band.VAULT, 0)),
+        )
         assertTrue(contactManifest(after, me).media.isEmpty())
-        // The photograph is still mine and still on the night.
         assertEquals(listOf("a"), after.gigMedia["g1"]?.map { it.id })
-        assertFalse(after.gigMedia.getValue("g1").first().personal)
+        assertTrue(after.gigMedia.getValue("g1").first().personal)
     }
 
     /**
@@ -188,7 +195,7 @@ class ContactViewTest {
                 "g2" to listOf(mine("c")),
             ),
         )
-        val shown = contactMedia(c.gigMedia, c.sharedNights).values.flatten().map { it.id }.toSet()
+        val shown = contactMedia(c.gigMedia).values.flatten().map { it.id }.toSet()
         val offered = contactManifest(c, me).media.map { it.id }.toSet()
 
         assertEquals(shown, offered)

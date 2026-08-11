@@ -115,6 +115,48 @@ class TimelineStoreTest {
         assertTrue(cached.playlists().isEmpty())
     }
 
+    /**
+     * The #162 upgrade, on the bytes the previous build actually wrote.
+     *
+     * This is the dangerous one: before it, `personal = false` needed a night-level
+     * grant on top to mean anything, and afterwards it means shared on its own. Every
+     * photograph on a night nobody shared has to reach the vault, or the update itself
+     * publishes a collection.
+     */
+    @Test
+    fun `media on a night nobody shared lands in the vault after the upgrade`() = runBlocking {
+        val file = File.createTempFile("timelines", ".json")
+        // Two nights, one of them actually shared, media with no `personal` written at
+        // all — the shape that made everything shareable by default.
+        file.writeText(
+            """{"gigs":{"g1":{"id":"g1"},"g2":{"id":"g2"}},""" +
+                """"gigMedia":{"g1":[{"id":"m1","ref":"content://a"}],""" +
+                """"g2":[{"id":"m2","ref":"content://b"},{"id":"t","ref":"content://c","from":"someone"}]},""" +
+                """"sharedNights":["g1"]}"""
+        )
+        val cached = TimelineStore(file).load()
+
+        assertFalse(cached.gigMedia.getValue("g1").single().personal)
+        assertTrue(cached.gigMedia.getValue("g2").first { it.id == "m2" }.personal)
+        // Received media is not mine to vault: `personal` says nothing about it.
+        assertFalse(cached.gigMedia.getValue("g2").first { it.id == "t" }.personal)
+        assertTrue(cached.sharedNights.isEmpty())
+        assertTrue(cached.mediaTierMigrated)
+    }
+
+    /** Idempotent, and it has to be: after one pass there is nothing left to read. */
+    @Test
+    fun `the upgrade does not run a second time and re-vault a shared photograph`() = runBlocking {
+        val file = File.createTempFile("timelines", ".json")
+        file.writeText(
+            """{"gigs":{"g1":{"id":"g1"}},""" +
+                """"gigMedia":{"g1":[{"id":"m1","ref":"content://a"}]},""" +
+                """"sharedNights":["g1"],"mediaTierMigrated":true}"""
+        )
+        val cached = TimelineStore(file).load()
+        assertFalse(cached.gigMedia.getValue("g1").single().personal)
+    }
+
     @Test
     fun `an unreadable cache degrades to empty instead of crashing the launch`() = runBlocking {
         val file = File.createTempFile("timelines", ".json")
