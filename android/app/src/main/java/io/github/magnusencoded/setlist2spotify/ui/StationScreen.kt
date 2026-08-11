@@ -1682,11 +1682,24 @@ fun StationEventScreen(
     val act = setlist?.let { viewModel.actFor(it.id) }
     val localGig = setlist != null && setlist.isLocal()
     val canLog = setlist != null && (checkedIn || localGig)
-    val leaf = gigLeaf(
-        now = LocalDateTime.now(),
+    // The state of this **Gig**, as known — one value, decided once (#129). Everything
+    // on this screen is a rendering of this link's state, and before this each part
+    // worked it out again from a different subset and they disagreed.
+    val gigAsKnown = GigAsKnown(
         window = setlist?.localDate()?.let { nightWindow(it) },
-        checkedIn = checkedIn,
+        provenance = if (checkedIn) StoredAttendance.Provenance.CHECKED_IN else null,
+        // An editor nobody has typed in is not a **Log**. `log` above defaults to an
+        // empty one so there is always something to render; the decision needs the
+        // difference between "never started" and "started and still open".
+        log = log.takeIf { it.songs.isNotEmpty() || it.closed },
+        setlistId = setlist?.id?.takeUnless { localGig },
+        songCount = setlist?.performed()?.size ?: 0,
+        calendarEvent = calendarEventUri,
     )
+    // The phase comes off the same value as the offers, so the two cannot disagree.
+    // The alcove and the curtain are not dispatched from yet: two of the four curtains
+    // want the artist's catalogue, and that client is #125/#126 and not built.
+    val leaf = gigOffers(gigAsKnown, LocalDateTime.now()).phase
     // **Publish**: explicit, labelled, and never a side effect of anything else. The
     // clipboard is the entire channel — setlist.fm's form takes no prefill parameters
     // and its Text Field editor takes a whole ordered set in one paste — so the copy
