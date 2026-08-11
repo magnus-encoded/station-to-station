@@ -25,6 +25,74 @@ future content packs (an artist enriching their own gig entries with logos or im
 built; kept so a sponsorship feature gets reasoned about rather than bolted on. Any such content
 stays presentation-layer — sponsor money must never touch the Historian's record.
 
+**Not a user: the Volunteer.** See below. The second non-user, and the counterparty to the first.
+
+## The Volunteer
+
+Named 2026-08-11, during a persona pass over the **Media** sharing specs.
+
+The young person working a festival for a wristband and little or no money: the gate, the bar, the
+waste run, the wristband table. A recognisable role, and the one the design protects.
+
+Everything about them is in the frame and none of it is by choice. They are at work in a spot
+somebody else assigned, so they cannot step out of your photograph. They appear repeatedly and
+identifiably — same person, same hi-vis, same post, across several days at a known place and time —
+which is far more identifying than one stranger's face once. And they are young, while this record
+is built in decades: an eighteen-year-old bound permanently to a dated venue and a named event is a
+different proposition at thirty.
+
+They stand for a class rather than being its only member. The stranger smoking in the background of
+a stage shot is not a volunteer, but the test generalises, which is what a scoping heuristic needs.
+The performer is *not* in this class: performing is a deliberate public act and documenting setlists
+is setlist.fm's founding premise, so the stage is expected to be photographed. Nor is a contact, who
+has an account and made a face-to-face act of consent. The Volunteer is the non-performing,
+non-consenting person: in the record but not of it.
+
+**Why they are owed something rather than merely not owed harm.** Every other persona's night
+depends on their labour. The Collector's collection, the Friendgroup Member's meetup and the
+Journalist's piece all require somebody to have worked the gate. The obligation is not "avoid
+harming a stranger", it is "do not exploit someone already being exploited whose work you are
+enjoying".
+
+**Why this app is a sharper risk to them than a camera roll.** Precision is the product. A photo in
+a gallery is a photo; the same photo here is bound to a named artist, a dated night and a located
+venue, and it is built to survive decades and device migrations. A crowd shot in this app is not a
+picture, it is an attendance record about a stranger — the same claim the app treats as significant
+enough to need a gold star when you make it about yourself.
+
+**Apply it like this:** ask whether the volunteer at the bar would be harmed. It is a question with
+an answer, where "is this a privacy problem" is not. They cannot act on their own behalf: no
+account, no setting, no way to know they are in the record at all. Their interest is unrepresented
+in any sharing transaction, because both the sender and the recipient benefit. So it has to be
+represented deliberately or not at all.
+
+### What they already explain
+
+Introduced late, but retroactively the motive behind a set of decisions made without a word for it:
+sharing at the granularity of a night rather than a global toggle; "look before you share" as the
+reason; private by default; two tiers rather than publishing; no feed, no discovery, no server; and
+contacts added face to face, which bounds who can ever receive. A persona that explains choices you
+already made is doing its job.
+
+### The tensions it surfaces
+
+- **Against the Friendgroup Member**, most directly. Communal keepsakes are crowd photographs, which
+  are exactly the ones with volunteers in them.
+- **Against the Collector and the Historian**, mildly: a full room is a richer record than an empty
+  stage, and documentation wants completeness.
+- **Against the Journalist**, and this one is genuinely unresolved. Press photography has a real
+  tradition of public interest overriding a bystander's preference, and her workflow explicitly
+  involves her contacts' photographs. Sometimes her claim wins. There is no tidy rule here yet.
+- **Against the Organizer**, which is the tidy one: the party that would pay for content packs is the
+  same party underpaying this one.
+
+### What they would ask for that does not exist
+
+Nothing distinguishes a crowd shot from a stage shot, which is the single highest-signal distinction
+for this stakeholder — and roughly speaking, "not the stage" is where the volunteers are. Video is
+treated almost identically to photographs, split only by size. And the night's context travels
+automatically with any shared item, which is the entire point of the app and also the amplifier.
+
 ## The Journalist
 
 Named 2026-08-06, during the ADR-0002 persona review.
@@ -96,6 +164,17 @@ not at all. That is a sharper deferral than the one it replaces.
   than fraud-proofing the whole record.
 - **We resist global, top-down publishing structures for user-generated data.** It keeps the design
   honest and keeps servers out of the social layer.
+- **The Organizer's commercial interest never overrides the Volunteer's protection** (2026-08-11).
+  The same shape as the resolution above about sponsor money and the Historian's record, and for the
+  same reason: the two non-users are in tension, and only one of them could ever pay for the
+  outcome.
+- **No persona is protective, and that is a known hole** (2026-08-11). All six are pulled toward more
+  record, more comparison, more sharing. The Journalist looks like the exception and is not: her
+  private notes are instrumental, material saved for an article rather than material protected from
+  exposure. So requirements about exposure — encrypting a transfer, limiting blast radius, reviewing
+  what you are exposing — cannot be generated by the persona set and must be argued for on their own
+  terms. A feature no persona wants is normally a signal to cut it; when the heuristic says cut
+  something obviously right, the heuristic is what is wrong.
 
 ## Related
 
