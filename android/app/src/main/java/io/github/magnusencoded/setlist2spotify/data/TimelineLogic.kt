@@ -265,7 +265,17 @@ class DeviceTimelinePlumbing(
         return LoadedSpine(
             me = me,
             mine = cache.shows[me].orEmpty(),
-            byFriend = cache.shows - me,
+            // Not `shows - me`. A **Contact** whose **Card** carries my own setlist.fm
+            // username is my other device, and subtracting my key left that lane empty:
+            // every night rendered as mine-only instead of **Joined**, which is the
+            // opposite of the truth. Only friends are ever read out of this map
+            // (`weaveTimelines` iterates the friends list), so carrying my own key costs
+            // nothing and is what makes the self-comparison work.
+            //
+            // It also closes a worse one: with the lane missing, `loadFriendTimelines`
+            // treated it as stale, refetched my own attended list as a friend's, and
+            // saved it back over my own — a page-limited fetch overwriting my Spine.
+            byFriend = cache.shows,
             festivalNames = cache.festivalNames,
         )
     }

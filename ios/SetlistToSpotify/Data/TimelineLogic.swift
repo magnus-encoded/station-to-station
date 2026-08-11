@@ -266,7 +266,11 @@ final class DeviceTimelinePlumbing: TimelinePlumbing {
         return LoadedSpine(
             me: me,
             mine: cache.shows[me] ?? [],
-            byFriend: cache.shows.filter { $0.key != me },
+            // Not `shows - me`. A Contact whose Card carries my own setlist.fm username
+            // is my other device, and subtracting my key left that lane empty: every
+            // night rendered as mine-only instead of Joined. Only friends are ever read
+            // out of this map, so carrying my own key costs nothing. Ported with Android.
+            byFriend: cache.shows,
             festivalNames: cache.festivalNames
         )
     }

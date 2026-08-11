@@ -200,4 +200,37 @@ class WeaveTimelinesTest {
         assertTrue(rows[0].shared)
         assertEquals(1, rows[0].sharedCount)
     }
+
+    /**
+     * My other device, added by **Exchange** with my own **Card**. Every night of mine
+     * is a **Crossing** and the whole **Line** runs **Joined** — which is what makes this
+     * the sharpest correctness check there is: any node that is *not* green is a real
+     * difference between the two devices, not a rendering accident.
+     *
+     * The lane used to arrive empty, because the stored spine subtracted my own username
+     * from the friends map before the weave ever saw it.
+     */
+    @Test
+    fun `a contact carrying my own username is joined at every night of mine`() {
+        val mine = listOf(
+            show("1", "21-11-2025", "Blå"),
+            show("2", "05-08-2026", "Hollowmoor Park"),
+        )
+        val me = Friend(setlistfm = "dizzi90", name = "my other phone")
+
+        val rows = weaveTimelines(
+            mine = mine,
+            festivalNames = emptyMap(),
+            friends = listOf(me),
+            theirs = mapOf("dizzi90" to mine),
+        )
+
+        assertEquals(2, rows.size)
+        rows.forEach {
+            assertTrue("every night is mine", it.mine)
+            assertEquals(listOf("dizzi90"), it.others.map { o -> o.setlistfm })
+        }
+        // And nothing of theirs sits beside mine as a second node.
+        assertEquals(mine.size, rows.count { it.mine })
+    }
 }
