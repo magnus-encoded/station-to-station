@@ -129,6 +129,20 @@ class MediaBandsTest {
     }
 
     @Test
+    fun `adding to a band two other people are already in promises nothing`() {
+        // Two senders is already a Crossing, so there is no line left to cross —
+        // the count going 2 to 3 is not news.
+        val night = listOf(theirs("t", "ida"), theirs("u", "tor"))
+        assertEquals(ReleaseHint.NONE, hintForAdding(night, Band.SHARED))
+    }
+
+    @Test
+    fun `pulling mine out of a band two others are in warns nothing`() {
+        val night = listOf(mine("a"), theirs("t", "ida"), theirs("u", "tor"))
+        assertEquals(ReleaseHint.NONE, hintForMoving(night, "a", Band.VAULT))
+    }
+
+    @Test
     fun `adding where nobody else is promises nothing`() {
         assertEquals(ReleaseHint.NONE, hintForAdding(listOf(mine("a", personal = true)), Band.SHARED))
     }

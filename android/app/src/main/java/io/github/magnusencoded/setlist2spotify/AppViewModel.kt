@@ -1619,12 +1619,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         moveMedia(_state.value.mediaBySetlist[setlistId].orEmpty(), mediaId, band, index),
     )
 
-    /** One photograph's **Personal** bit, for callers that name it rather than drag it. */
-    fun setMediaPersonal(setlistId: String, mediaId: String, personal: Boolean) = setGigMedia(
-        setlistId,
-        _state.value.mediaBySetlist[setlistId].orEmpty()
-            .map { if (it.id == mediaId) it.copy(personal = personal) else it },
-    )
 
     /** The **Act** a local **Gig** was minted from, if it came off a **Bill**. */
     fun actFor(gigId: String): StoredAct? =

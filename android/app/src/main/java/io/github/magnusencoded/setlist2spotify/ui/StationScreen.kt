@@ -133,6 +133,14 @@ import io.github.magnusencoded.setlist2spotify.data.setlistEditEntry
 import io.github.magnusencoded.setlist2spotify.data.futureRows
 import io.github.magnusencoded.setlist2spotify.data.postFiling
 import io.github.magnusencoded.setlist2spotify.data.setlistPaste
+import androidx.compose.foundation.ScrollState
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.runtime.mutableStateMapOf
+import kotlin.math.abs
 import io.github.magnusencoded.setlist2spotify.data.StoredMedia
 import io.github.magnusencoded.setlist2spotify.data.Band
 import io.github.magnusencoded.setlist2spotify.data.ReleaseHint
@@ -1522,6 +1530,7 @@ private fun GigMediaBands(
     media: List<StoredMedia>,
     loadPreview: suspend (Uri) -> MediaThumb,
     arranging: Boolean,
+    contactLight: Boolean,
     senderName: (String) -> String?,
     onArrange: () -> Unit,
     onAdd: (Band) -> Unit,
@@ -1532,76 +1541,128 @@ private fun GigMediaBands(
     val bands = bandsOf(media)
     val density = LocalDensity.current
     val strideX = with(density) { (GigPhotoSize + ItemGap).toPx() }
-    val bandStep = with(density) { 44.dp.toPx() }
+    val padStart = with(density) { 20.dp.toPx() }
 
-    // The handle's live answer, and the tile drag's. Both name a band and both are
-    // reversible until the finger lifts, so they share one piece of state.
+    val sharedScroll = rememberScrollState()
+    val vaultScroll = rememberScrollState()
+    // Each strip's rectangle in root coordinates, so a drop lands in the band the
+    // finger is actually over. Guessing it from the sign of the vertical travel put
+    // the shared band 44dp from a vault photograph, which is inside the vault's own
+    // row — the one direction that must be hard to hit by accident was the cheapest.
+    val strips = remember { mutableStateMapOf<Band, Rect>() }
+
     var over by remember { mutableStateOf<Band?>(null) }
-    var dragging by remember { mutableStateOf<StoredMedia?>(null) }
+    var dragId by remember { mutableStateOf<String?>(null) }
+    var dragFrom by remember { mutableStateOf(Band.SHARED) }
     var dragTo by remember { mutableStateOf<Band?>(null) }
     var dragIndex by remember { mutableStateOf(0) }
+
+    fun listOf(band: Band) = if (band == Band.SHARED) bands.shared else bands.vault
+    fun scrollOf(band: Band) = if (band == Band.SHARED) sharedScroll else vaultScroll
+
+    fun bandUnder(p: Offset): Band {
+        strips.forEach { (band, r) -> if (p.y >= r.top && p.y <= r.bottom) return band }
+        val shared = strips[Band.SHARED] ?: return dragFrom
+        val vault = strips[Band.VAULT] ?: return dragFrom
+        return if (abs(p.y - shared.center.y) <= abs(p.y - vault.center.y)) Band.SHARED else Band.VAULT
+    }
+
+    /**
+     * Where in [band] the finger is, counted over that band *without* the item being
+     * carried — which is the list [moveMedia] inserts into, so the slot that opens is
+     * the position the photograph actually takes.
+     */
+    fun indexUnder(band: Band, p: Offset): Int {
+        val r = strips[band] ?: return 0
+        val x = p.x - r.left + scrollOf(band).value - padStart
+        val room = listOf(band).size - if (band == dragFrom) 1 else 0
+        return ((x + strideX / 2f) / strideX).toInt().coerceIn(0, room.coerceAtLeast(0))
+    }
 
     // What letting go would do to the shared band, asked the same way by both
     // gestures — see [releaseHint]. Nothing here special-cases the direction.
     val hint = when {
-        dragging != null && dragTo != null -> hintForMoving(media, dragging!!.id, dragTo!!)
+        dragId != null && dragTo != null -> hintForMoving(media, dragId!!, dragTo!!)
         over != null -> hintForAdding(media, over!!)
         else -> ReleaseHint.NONE
     }
-    val promised = if (dragging != null) dragTo else over
+    val promised = if (dragId != null) dragTo else over
 
-    Column(Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                MediaBand(
-                    label = "Shared",
-                    mine = bands.shared,
-                    received = bands.received,
-                    crossed = if (promised == Band.SHARED && hint != ReleaseHint.NONE) {
-                        hint == ReleaseHint.GAINED
-                    } else {
-                        bands.crossed
-                    },
-                    say = when {
-                        promised != Band.SHARED -> null
-                        hint == ReleaseHint.GAINED -> {
-                            val who = bands.received.mapNotNull { it.from }.distinct()
-                                .mapNotNull(senderName)
-                            // Named where the name is known. There is no join from a
-                            // sender's key to a Contact's name yet, so this degrades
-                            // rather than inventing one.
-                            val subject = if (who.isEmpty()) "someone else is" else who.joinToString(" and ") + " is"
-                            "$subject already here — let go and it becomes a night you shared"
+    val startDrag = { band: Band, p: Offset ->
+        val r = strips[band]
+        val at = if (r == null) -1 else ((p.x - r.left + scrollOf(band).value - padStart) / strideX).toInt()
+        val item = listOf(band).getOrNull(at)
+        if (item != null) {
+            dragId = item.id
+            dragFrom = band
+            dragTo = band
+            dragIndex = at
+        }
+    }
+    val moveDrag = { p: Offset ->
+        if (dragId != null) {
+            val band = bandUnder(p)
+            dragTo = band
+            dragIndex = indexUnder(band, p)
+        }
+    }
+    val endDrag = {
+        dragId?.let { onMove(it, dragTo ?: dragFrom, dragIndex) }
+        dragId = null
+        dragTo = null
+    }
+
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            MediaBand(
+                band = Band.SHARED,
+                label = "Shared",
+                mine = bands.shared,
+                received = bands.received,
+                crossed = if (promised == Band.SHARED && hint != ReleaseHint.NONE) {
+                    hint == ReleaseHint.GAINED
+                } else {
+                    bands.crossed
+                },
+                say = when {
+                    promised != Band.SHARED -> null
+                    hint == ReleaseHint.GAINED -> {
+                        val who = bands.received.mapNotNull { it.from }.distinct()
+                            .mapNotNull(senderName)
+                        // Named where the name is known. There is no join from a
+                        // sender's key to a Contact's name yet, so this degrades
+                        // rather than inventing one.
+                        val subject = when (who.size) {
+                            0 -> "someone else is"
+                            1 -> who.single() + " is"
+                            else -> who.joinToString(" and ") + " are"
                         }
-                        hint == ReleaseHint.LOST -> "let go and this stops being a night you shared"
-                        else -> null
-                    },
-                    offering = over == Band.SHARED,
-                    offerText = "Share a picture or video",
-                    arranging = arranging,
-                    dragging = dragging,
-                    slotAt = if (dragTo == Band.SHARED) dragIndex else null,
-                    loadPreview = loadPreview,
-                    onOpen = onOpen,
-                    onRemove = onRemove,
-                    onArrange = onArrange,
-                    onDrag = { item, dx, dy ->
-                        dragging = item
-                        // ponytail: two bands, so the sign of the vertical travel is
-                        // the whole hit test. Add real bounds if a third band ever
-                        // exists.
-                        dragTo = if (dy > bandStep) Band.VAULT else Band.SHARED
-                        dragIndex = (bands.shared.indexOfFirst { it.id == item.id }
-                            .coerceAtLeast(0) + (dx / strideX).roundToInt())
-                            .coerceIn(0, bands.shared.size)
-                    },
-                    onDrop = {
-                        dragging?.let { onMove(it.id, dragTo ?: Band.SHARED, dragIndex) }
-                        dragging = null
-                        dragTo = null
-                    },
-                )
+                        "$subject already here — let go and it becomes a night you shared"
+                    }
+                    hint == ReleaseHint.LOST -> "let go and this stops being a night you shared"
+                    else -> null
+                },
+                offering = over == Band.SHARED,
+                offerText = "Share a picture or video",
+                arranging = arranging,
+                draggingId = dragId,
+                slotAt = if (dragTo == Band.SHARED) dragIndex else null,
+                scroll = sharedScroll,
+                loadPreview = loadPreview,
+                onBounds = { strips[Band.SHARED] = it },
+                onOpen = onOpen,
+                onRemove = onRemove,
+                onArrange = onArrange,
+                onDragStart = { startDrag(Band.SHARED, it) },
+                onDragAt = moveDrag,
+                onDrop = endDrag,
+            )
+            // Under the contact light the room holds what a Contact can see, and they
+            // cannot see the vault at all — so it is absent rather than drawn empty,
+            // which would have it claim "nothing held back" over a full vault.
+            if (!contactLight) {
                 MediaBand(
+                    band = Band.VAULT,
                     label = "In the vault",
                     mine = bands.vault,
                     received = emptyList(),
@@ -1610,26 +1671,21 @@ private fun GigMediaBands(
                     offering = over == Band.VAULT,
                     offerText = "Add a picture or video just for you",
                     arranging = arranging,
-                    dragging = dragging,
+                    draggingId = dragId,
                     slotAt = if (dragTo == Band.VAULT) dragIndex else null,
+                    scroll = vaultScroll,
                     loadPreview = loadPreview,
+                    onBounds = { strips[Band.VAULT] = it },
                     onOpen = onOpen,
                     onRemove = onRemove,
                     onArrange = onArrange,
-                    onDrag = { item, dx, dy ->
-                        dragging = item
-                        dragTo = if (dy < -bandStep) Band.SHARED else Band.VAULT
-                        dragIndex = (bands.vault.indexOfFirst { it.id == item.id }
-                            .coerceAtLeast(0) + (dx / strideX).roundToInt())
-                            .coerceIn(0, bands.vault.size)
-                    },
-                    onDrop = {
-                        dragging?.let { onMove(it.id, dragTo ?: Band.VAULT, dragIndex) }
-                        dragging = null
-                        dragTo = null
-                    },
+                    onDragStart = { startDrag(Band.VAULT, it) },
+                    onDragAt = moveDrag,
+                    onDrop = endDrag,
                 )
             }
+        }
+        if (!contactLight) {
             Spacer(Modifier.width(10.dp))
             AttachHandle(
                 onOver = { over = it },
@@ -1710,6 +1766,7 @@ private fun AttachHandle(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MediaBand(
+    band: Band,
     label: String,
     mine: List<StoredMedia>,
     received: List<StoredMedia>,
@@ -1718,17 +1775,24 @@ private fun MediaBand(
     offering: Boolean,
     offerText: String,
     arranging: Boolean,
-    dragging: StoredMedia?,
+    draggingId: String?,
     slotAt: Int?,
+    scroll: ScrollState,
     loadPreview: suspend (Uri) -> MediaThumb,
+    onBounds: (Rect) -> Unit,
     onOpen: (Uri) -> Unit,
     onRemove: (StoredMedia) -> Unit,
     onArrange: () -> Unit,
-    onDrag: (StoredMedia, Float, Float) -> Unit,
+    onDragStart: (Offset) -> Unit,
+    onDragAt: (Offset) -> Unit,
     onDrop: () -> Unit,
 ) {
-    val scroll = rememberScrollState()
     val tilePx = with(LocalDensity.current) { (GigPhotoSize + ItemGap).toPx() }
+    // The gesture lives on the strip, never on a tile. A tile leaves the composition
+    // the moment it is picked up — that is how the gap opens — and a pointerInput on
+    // a detached node has its coroutine cancelled, so onDragEnd would never arrive
+    // and the drop would silently never commit.
+    var here by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
     // The strip follows the landing slot rather than the finger. ponytail: this is
     // the whole of "I cannot drag to a position I cannot see" — a free-running edge
@@ -1767,7 +1831,23 @@ private fun MediaBand(
             Row(
                 Modifier
                     .fillMaxWidth()
+                    .onGloballyPositioned {
+                        here = it
+                        onBounds(it.boundsInRoot())
+                    }
                     .horizontalScroll(scroll)
+                    .pointerInput(arranging, band, mine.size) {
+                        if (!arranging) return@pointerInput
+                        detectDragGestures(
+                            onDragStart = { at -> here?.let { onDragStart(it.localToRoot(at)) } },
+                            onDrag = { change, _ ->
+                                change.consume()
+                                here?.let { onDragAt(it.localToRoot(change.position)) }
+                            },
+                            onDragEnd = onDrop,
+                            onDragCancel = onDrop,
+                        )
+                    }
                     .padding(horizontal = 20.dp, vertical = 4.dp)
                     .then(
                         if (crossed) {
@@ -1778,40 +1858,36 @@ private fun MediaBand(
                     ),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                mine.forEachIndexed { index, item ->
-                    if (slotAt == index) LandingSlot()
-                    if (item.id != dragging?.id) {
-                        MediaTile(
-                            item = item,
-                            arranging = arranging,
-                            draggable = true,
-                            loadPreview = loadPreview,
-                            onOpen = onOpen,
-                            onRemove = onRemove,
-                            onArrange = onArrange,
-                            onDrag = onDrag,
-                            onDrop = onDrop,
-                        )
-                        Spacer(Modifier.width(ItemGap))
-                    }
-                }
-                if (slotAt != null && slotAt >= mine.size) LandingSlot()
-                received.forEach { item ->
+                // Counted over the band without the carried item, so the gap opens
+                // exactly where [moveMedia] will put it.
+                var placed = 0
+                mine.forEach { item ->
+                    if (item.id == draggingId) return@forEach
+                    if (slotAt == placed) LandingSlot()
                     MediaTile(
                         item = item,
                         arranging = arranging,
-                        // Not mine to place. Removable, never movable.
-                        draggable = false,
                         loadPreview = loadPreview,
                         onOpen = onOpen,
                         onRemove = onRemove,
                         onArrange = onArrange,
-                        onDrag = onDrag,
-                        onDrop = onDrop,
+                    )
+                    Spacer(Modifier.width(ItemGap))
+                    placed++
+                }
+                if (slotAt != null && slotAt >= placed) LandingSlot()
+                received.forEach { item ->
+                    MediaTile(
+                        item = item,
+                        arranging = arranging,
+                        loadPreview = loadPreview,
+                        onOpen = onOpen,
+                        onRemove = onRemove,
+                        onArrange = onArrange,
                     )
                     Spacer(Modifier.width(ItemGap))
                 }
-                if (mine.isEmpty() && received.isEmpty() && slotAt == null) {
+                if (mine.none { it.id != draggingId } && received.isEmpty() && slotAt == null) {
                     // Rendered empty rather than hidden: a band nobody can see is a
                     // gesture nobody can find on a fresh install.
                     Box(Modifier.height(GigPhotoSize), contentAlignment = Alignment.CenterStart) {
@@ -1850,27 +1926,27 @@ private fun LandingSlot() {
     Spacer(Modifier.width(ItemGap))
 }
 
-/** One photograph. Amber if it is mine, the cooler light if it was given to me. */
+/**
+ * One photograph. **Amber** if it is mine, the cooler light if it was given to me.
+ *
+ * Carries no drag gesture of its own — the strip owns that (see [MediaBand]). Tap and
+ * long-press only, and only while not arranging, so a press that begins a drag is not
+ * competing with a click.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MediaTile(
     item: StoredMedia,
     arranging: Boolean,
-    draggable: Boolean,
     loadPreview: suspend (Uri) -> MediaThumb,
     onOpen: (Uri) -> Unit,
     onRemove: (StoredMedia) -> Unit,
     onArrange: () -> Unit,
-    onDrag: (StoredMedia, Float, Float) -> Unit,
-    onDrop: () -> Unit,
 ) {
     val uri = remember(item.ref) { Uri.parse(item.ref) }
-    var dx by remember(item.id) { mutableStateOf(0f) }
-    var dy by remember(item.id) { mutableStateOf(0f) }
 
     Box(
         Modifier
-            .offset { IntOffset(dx.roundToInt(), dy.roundToInt()) }
             .clip(RoundedCornerShape(10.dp))
             .border(
                 1.5.dp,
@@ -1878,20 +1954,7 @@ private fun MediaTile(
                 RoundedCornerShape(10.dp),
             )
             .then(
-                if (arranging && draggable) {
-                    Modifier.pointerInput(item.id) {
-                        detectDragGestures(
-                            onDrag = { change, amount ->
-                                change.consume()
-                                dx += amount.x
-                                dy += amount.y
-                                onDrag(item, dx, dy)
-                            },
-                            onDragEnd = { onDrop(); dx = 0f; dy = 0f },
-                            onDragCancel = { onDrop(); dx = 0f; dy = 0f },
-                        )
-                    }
-                } else if (!arranging) {
+                if (!arranging) {
                     Modifier.combinedClickable(
                         onClick = { onOpen(uri) },
                         onLongClick = onArrange,
@@ -2662,26 +2725,20 @@ fun StationEventScreen(
                                         }
                                     }
                                 }
-                                // Stopping is now a drag down into the vault, one
-                                // photograph at a time (#162) — so the honest wording
-                                // moved onto the act itself. Nothing here retrieves
-                                // what already left, and no control may look as if it
-                                // does, which is why there is no button.
-                                if (gigMedia.isNotEmpty()) {
-                                    Text(
-                                        "drag one down into the vault to stop offering it — " +
-                                            "from now on, not retroactively",
-                                        color = Slate,
-                                        fontSize = 12.sp,
-                                        modifier = Modifier.padding(vertical = 8.dp),
-                                    )
-                                }
+                                // Stopping is a drag down into the vault, one photograph
+                                // at a time (#162), so there is no button here — and
+                                // there must not be one: nothing retrieves what already
+                                // left, and no control may look as though it does.
                             }
                             Spacer(Modifier.height(12.dp))
                             GigMediaBands(
                                 media = gigMedia,
                                 loadPreview = viewModel::photoPreview,
                                 arranging = arranging,
+                                // The light shows what they see, so the vault band and
+                                // the handle are absent under it rather than drawn over
+                                // a filtered list they could only misreport.
+                                contactLight = state.contactLight,
                                 // A sender is a public key (#28) and a Contact's name
                                 // lives on the friends list under a setlist.fm handle.
                                 // Nothing joins the two yet, so the promise degrades to

@@ -98,10 +98,14 @@ fun bandsOf(media: List<StoredMedia>): Bands {
 fun releaseHint(media: List<StoredMedia>, mineSharedAfter: Int): ReleaseHint {
     val bands = bandsOf(media)
     val after = (if (mineSharedAfter > 0) 1 else 0) + bands.senders()
-    val now = bands.contributors
+    // Only the *crossing* of the line matters, not the count either side of it.
+    // Going from two contributors to three is not news, and neither is going back
+    // to two — the promise is about a night becoming one I shared, and nothing else.
+    val crossedNow = bands.contributors > 1
+    val crossedAfter = after > 1
     return when {
-        after > now && after > 1 -> ReleaseHint.GAINED
-        after < now && now > 1 -> ReleaseHint.LOST
+        !crossedNow && crossedAfter -> ReleaseHint.GAINED
+        crossedNow && !crossedAfter -> ReleaseHint.LOST
         else -> ReleaseHint.NONE
     }
 }
