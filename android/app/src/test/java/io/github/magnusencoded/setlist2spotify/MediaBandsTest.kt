@@ -258,4 +258,109 @@ class MediaBandsTest {
         val once = toBands(night, nightShared = false)
         assertEquals(once, toBands(once, nightShared = false))
     }
+
+    // ---- a Note is media, and needed no exception (#50) ----------------------
+    //
+    // The point of every test below is that MediaBands was not edited to make them
+    // pass. If one of them ever needs a `kind` parameter threaded into this module,
+    // the premise of #50 is wrong and that is the finding, not the fix.
+
+    private fun note(id: String, text: String, personal: Boolean, at: Long? = null) =
+        StoredMedia(
+            id = id,
+            kind = StoredMedia.Kind.NOTE,
+            ref = "",
+            text = text,
+            personal = personal,
+            capturedAt = at,
+        )
+
+    private fun theirNote(id: String, from: String, text: String, at: Long? = null) =
+        StoredMedia(
+            id = id,
+            kind = StoredMedia.Kind.NOTE,
+            ref = "",
+            text = text,
+            from = from,
+            capturedAt = at,
+        )
+
+    @Test
+    fun `a note lands in the band its personal bit names`() {
+        val bands = bandsOf(
+            listOf(
+                mine("photo"),
+                note("draft", "sounded rough from the back", personal = true),
+                note("said", "best thing all year", personal = false),
+            ),
+        )
+        assertEquals(listOf("photo", "said"), ids(bands.shared))
+        assertEquals(listOf("draft"), ids(bands.vault))
+    }
+
+    @Test
+    fun `a shared note makes me a contributor on its own`() {
+        // One sender's photograph and nothing of mine is one contributor. My note
+        // arriving in the commons is the second, and the night is a Crossing —
+        // being in it together is what green means, not what kind of thing it is.
+        val night = listOf(theirs("t", "ida"), note("said", "we were both there", personal = false))
+        assertTrue(bandsOf(night).crossed)
+        assertEquals(2, bandsOf(night).contributors)
+    }
+
+    @Test
+    fun `a vault note leaves the night uncrossed`() {
+        val night = listOf(theirs("t", "ida"), note("draft", "for me", personal = true))
+        assertTrue(!bandsOf(night).crossed)
+    }
+
+    @Test
+    fun `dragging a note up out of the vault gains the green`() {
+        val night = listOf(theirs("t", "ida"), note("draft", "worth saying", personal = true))
+        assertEquals(ReleaseHint.GAINED, hintForMoving(night, "draft", Band.SHARED))
+    }
+
+    @Test
+    fun `dragging my last shared item down loses it whether note or photograph`() {
+        val withNote = listOf(theirs("t", "ida"), note("said", "x", personal = false))
+        assertEquals(ReleaseHint.LOST, hintForMoving(withNote, "said", Band.VAULT))
+        val withPhoto = listOf(theirs("t", "ida"), mine("p"))
+        assertEquals(ReleaseHint.LOST, hintForMoving(withPhoto, "p", Band.VAULT))
+    }
+
+    @Test
+    fun `a received note cannot be moved between bands`() {
+        val night = listOf(theirNote("t", "ida", "loved it"))
+        assertEquals(ReleaseHint.NONE, hintForMoving(night, "t", Band.VAULT))
+        assertEquals(night, moveMedia(night, "t", Band.VAULT, 0))
+    }
+
+    @Test
+    fun `moving a note flips its bit and keeps its words and verdict`() {
+        val draft = note("draft", "first time seeing these ladies", personal = true)
+            .copy(verdict = StoredMedia.Verdict.DOUBLE_UP)
+        val after = moveMedia(listOf(draft), "draft", Band.SHARED, 0)
+        val moved = after.single()
+        assertTrue(!moved.personal)
+        assertEquals("first time seeing these ladies", moved.text)
+        assertEquals(StoredMedia.Verdict.DOUBLE_UP, moved.verdict)
+    }
+
+    @Test
+    fun `received notes sort chronologically among themselves like any received media`() {
+        val night = listOf(
+            theirNote("late", "egil", "second", at = 200),
+            theirNote("early", "ida", "first", at = 100),
+        )
+        assertEquals(listOf("early", "late"), ids(bandsOf(night).received))
+    }
+
+    @Test
+    fun `an added photograph still gains the green on a night whose only share is a note`() {
+        // Both callers, one derivation: nothing here knows a note from a picture.
+        val night = listOf(note("said", "x", personal = false))
+        assertEquals(ReleaseHint.NONE, hintForAdding(night, Band.SHARED))
+        val withSender = night + theirs("t", "ida")
+        assertTrue(bandsOf(withSender).crossed)
+    }
 }

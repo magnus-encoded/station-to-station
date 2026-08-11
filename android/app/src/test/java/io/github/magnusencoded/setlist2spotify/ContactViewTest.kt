@@ -201,4 +201,75 @@ class ContactViewTest {
         assertEquals(shown, offered)
         assertEquals(setOf("a"), offered)
     }
+
+    // ---- text obeys the same tier line as everything else (#50) --------------
+
+    private fun myNote(id: String, text: String, personal: Boolean, verdict: String? = null) =
+        StoredMedia(
+            id = id,
+            kind = StoredMedia.Kind.NOTE,
+            ref = "",
+            text = text,
+            personal = personal,
+            verdict = verdict,
+        )
+
+    @Test
+    fun `a note in the vault reaches nobody`() {
+        val night = listOf(myNote("draft", "not sure about this one", personal = true))
+        assertTrue(visibleToContacts(night).isEmpty())
+        assertEquals(listOf("draft"), withheldFromContacts(night).map { it.id })
+    }
+
+    /**
+     * A note has no bytes, so there is no second phase to fetch it in: it either
+     * rides the manifest or it never arrives. That makes the text and the verdict
+     * part of the envelope rather than part of a payload.
+     */
+    @Test
+    fun `a shared note travels with its words and its verdict intact`() {
+        val c = cache(
+            shared = setOf("g1"),
+            media = mapOf(
+                "g1" to listOf(
+                    myNote("said", "they ruled", personal = false, verdict = StoredMedia.Verdict.DOUBLE_UP),
+                ),
+            ),
+        )
+        val offered = contactManifest(c, me).media.single()
+        assertEquals("said", offered.id)
+        assertEquals("they ruled", offered.text)
+        assertEquals(StoredMedia.Verdict.DOUBLE_UP, offered.verdict)
+        assertEquals("", offered.hash)
+        assertEquals(0L, offered.bytes)
+    }
+
+    @Test
+    fun `a vault note never enters a contact manifest`() {
+        val c = cache(
+            shared = setOf("g1"),
+            media = mapOf("g1" to listOf(myNote("draft", "for me", personal = true), mine("a"))),
+        )
+        assertEquals(setOf("a"), contactManifest(c, me).media.map { it.id }.toSet())
+    }
+
+    /**
+     * Passing on someone's words would be publishing on their behalf — a second path
+     * for their sentence that they never agreed to and cannot see. Same rule their
+     * photograph already got.
+     */
+    @Test
+    fun `a received note is not passed on to my other contacts`() {
+        val given = myNote("t", "loved it", personal = false).copy(from = them)
+        assertTrue(visibleToContacts(listOf(given)).isEmpty())
+    }
+
+    @Test
+    fun `the note categories exist for my own device and the personal one never for a contact`() {
+        assertTrue(categoriesFor(contact = true).contains(StoredMedia.Kind.NOTE))
+        assertFalse(categoriesFor(contact = true).contains("personal_note"))
+        // My own other phone: a draft has to travel, or keeping it back costs me the
+        // material I write from.
+        assertTrue(categoriesFor(contact = false).contains("personal_note"))
+    }
 }

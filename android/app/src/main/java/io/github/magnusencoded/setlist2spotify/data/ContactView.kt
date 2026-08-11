@@ -77,14 +77,18 @@ fun contactMedia(media: Map<String, List<StoredMedia>>): Map<String, List<Stored
 fun categoriesFor(contact: Boolean): Set<String> = if (contact) {
     // No Personal categories, and no accounts: a credential moves between my own devices
     // only. The far end being me is what makes it a move rather than a giveaway (#143).
-    setOf(CATEGORY_SETLISTS, StoredMedia.Kind.PHOTO, StoredMedia.Kind.VIDEO)
+    setOf(CATEGORY_SETLISTS, StoredMedia.Kind.PHOTO, StoredMedia.Kind.VIDEO, StoredMedia.Kind.NOTE)
 } else {
     setOf(
         CATEGORY_SETLISTS,
         StoredMedia.Kind.PHOTO,
         StoredMedia.Kind.VIDEO,
+        StoredMedia.Kind.NOTE,
         categoryOf(StoredMedia.Kind.PHOTO, personal = true),
         categoryOf(StoredMedia.Kind.VIDEO, personal = true),
+        // A draft I never dragged up. It reaches my own other device and nobody else,
+        // which is what keeps privacy from costing me the material I write from (#50).
+        categoryOf(StoredMedia.Kind.NOTE, personal = true),
         CATEGORY_ACCOUNTS,
     )
 }
@@ -127,6 +131,10 @@ fun contactManifest(cache: TimelineCache, me: String): HandoverManifest {
                     from = me,
                     // Never true here, by construction rather than by filtering.
                     personal = false,
+                    // A **Note** carries its own payload: there is no second phase to
+                    // fetch it in, so it either rides the manifest or never arrives.
+                    text = it.text,
+                    verdict = it.verdict,
                 )
             }
         },

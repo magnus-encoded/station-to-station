@@ -101,7 +101,7 @@ data class StoredGig(
 )
 
 /**
- * One photo or video on a night (#97).
+ * One item on a night: a photo, a video, or a **Note** (#97, #50).
  *
  * Before this, **Attach** stored a raw gallery URI and copied nothing, so the app
  * owned no bytes: tidying the gallery, reinstalling, switching to "Select photos…"
@@ -156,12 +156,56 @@ data class StoredMedia(
      * and a recording's absolute start is not knowable in general.
      */
     val songOffsets: List<Long> = emptyList(),
+    /**
+     * A **Note**'s text: what I wrote about the night (#50). Empty otherwise.
+     *
+     * A **Note** is **Media** rather than a record of its own, because ADR-0012 said
+     * so — *"notes are media with a Personal bit"* — and because #162 built the only
+     * thing that claim was missing: two **Bands**, with position carrying the bit.
+     * Everything a note needs is inherited rather than re-implemented: a band, a
+     * disposition, a drag that changes its mind, and arrival as **Received media**.
+     */
+    val text: String = "",
+    /**
+     * A **Verdict** on the night, carried by the **Note** it was written on: one of
+     * [Verdict], or null for unset.
+     *
+     * On the note and not on the **Gig** so that its **Band** decides who reads it.
+     * A verdict in the vault is mine, a verdict in the shared band travels, and
+     * neither needed a rule written for it — which is the whole reason it lives
+     * here rather than beside [StoredGig.setlistId].
+     *
+     * A string and not an enum, for the reason [kind] is one: an unknown value from
+     * a future version must cost that field, never the night.
+     */
+    val verdict: String? = null,
 ) {
     object Kind {
         const val PHOTO = "photo"
         const val VIDEO = "video"
+        /**
+         * A **Note**: text, and no bytes at all. [ref] is empty and [pointer] is
+         * null, which is why every path that resolves a reference has to skip it.
+         */
+        const val NOTE = "note"
         /** The reference was already dead when we looked. Not a guess. */
         const val UNKNOWN = "unknown"
+    }
+
+    /**
+     * Thumb down, thumb up, or thumb up twice — and unset, which is a real state
+     * and never rendered as a middling one.
+     *
+     * Three values because a concert does not support five. Stars and the Norwegian
+     * die roll were both rejected: they invite a precision nobody has about a night,
+     * and they look like a score that wants averaging. **Nothing aggregates one** —
+     * that is the line ADR-0011 draws, and a verdict that could be averaged across
+     * people would be the merit primitive it says needs solving first (#50).
+     */
+    object Verdict {
+        const val DOWN = "down"
+        const val UP = "up"
+        const val DOUBLE_UP = "double_up"
     }
 }
 

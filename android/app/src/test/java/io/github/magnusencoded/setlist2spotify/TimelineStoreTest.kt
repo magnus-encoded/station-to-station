@@ -858,4 +858,45 @@ class TimelineStoreTest {
         assertEquals(1, after.gigs.size)
         assertEquals(gigId, after.gigForSetlist("637062c7")?.id)
     }
+
+    // ---- notes (#50) ---------------------------------------------------------
+
+    @Test
+    fun `a note round-trips with its words, its verdict and its band`() = runBlocking {
+        val store = store()
+        store.saveMedia(
+            "a",
+            listOf(
+                StoredMedia(
+                    id = "n1",
+                    kind = StoredMedia.Kind.NOTE,
+                    ref = "",
+                    text = "First time seeing these ladies, and they ruled!",
+                    verdict = StoredMedia.Verdict.DOUBLE_UP,
+                    personal = false,
+                ),
+            ),
+        )
+        val note = store.load().media()["a"]?.single()
+        assertEquals(StoredMedia.Kind.NOTE, note?.kind)
+        assertEquals("First time seeing these ladies, and they ruled!", note?.text)
+        assertEquals(StoredMedia.Verdict.DOUBLE_UP, note?.verdict)
+        assertFalse(note?.personal ?: true)
+    }
+
+    /**
+     * The fields are additive, so a cache written before #50 still parses and simply
+     * has no notes in it. There is no migration here and that is the point — #162's
+     * was the dangerous half precisely because it had to reinterpret a field that
+     * already existed.
+     */
+    @Test
+    fun `a cache written before notes existed loads unchanged`() = runBlocking {
+        val store = store()
+        store.saveMedia("a", listOf(photo("content://old.jpg")))
+        val media = store.load().media()["a"].orEmpty()
+        assertEquals(1, media.size)
+        assertEquals("", media.single().text)
+        assertEquals(null, media.single().verdict)
+    }
 }
