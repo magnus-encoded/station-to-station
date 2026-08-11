@@ -303,4 +303,35 @@ class HandoverTest {
         assertEquals(listOf("their-local"), plan.unkeyed)
         assertEquals(setOf("mine-local", "their-local"), plan.merged.gigs.keys)
     }
+
+    /**
+     * Resumption is not a mechanism, it is a consequence (#142). **Media** ids are
+     * assigned at **Attach** and carried forever, so an item that arrived is an item I
+     * hold — and re-running the plan after a dropped connection asks for exactly the
+     * remainder. There is nothing to checkpoint and nothing to get out of step.
+     */
+    @Test
+    fun `a dropped transfer resumes without asking twice for what arrived`() {
+        val theirs = TimelineCache(
+            gigs = mapOf("a" to gig("a", setlistId = "s1")),
+            gigMedia = mapOf("a" to listOf(photo("m1"), photo("m2"), photo("m3"))),
+        )
+        val offer = HandoverManifest(
+            timeline = theirs,
+            media = listOf(offered("m1", "a", "h1"), offered("m2", "a", "h2"), offered("m3", "a", "h3")),
+        )
+        val mine = TimelineCache(gigs = mapOf("a" to gig("a", setlistId = "s1")))
+
+        assertEquals(listOf("m1", "m2", "m3"), handoverPlan(mine, offer, all, verified = true).request)
+
+        // The first photograph landed, and then the wifi went.
+        val afterDrop = mine.copy(gigMedia = mapOf("a" to listOf(photo("m1", ref = "content://mine/m1"))))
+        val resumed = handoverPlan(afterDrop, offer, all, verified = true)
+
+        assertEquals(listOf("m1"), resumed.held)
+        assertEquals(listOf("m2", "m3"), resumed.request)
+        // And what already arrived is coherent on its own: a cancelled transfer leaves a
+        // smaller library, never a corrupt one.
+        assertEquals(listOf("m1"), resumed.merged.gigMedia["a"]?.map { it.id })
+    }
 }
