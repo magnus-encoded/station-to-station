@@ -212,9 +212,11 @@ graphify-out/.graphify_python
 graphify-out/.graphify_root
 graphify-out/graph.html
 
-# Personal tooling: pulls CI artifacts onto whatever hardware is plugged in
+# Personal tooling
 ship.sh
 
 # Local build artifacts and editor state
 *.apk
 .obsidian/
+.vscode/
+desktop.ini

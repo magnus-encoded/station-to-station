@@ -1,6 +1,6 @@
 # ADR-0014: The Volunteer
 
-**Status:** accepted as **not a user** (2026-08-11). The stakeholder the design protects.
+**Status:** accepted as **not a user** (2026-08-11). A stakeholder the design protects.
 
 ## Context
 

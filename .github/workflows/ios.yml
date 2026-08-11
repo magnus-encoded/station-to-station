@@ -52,8 +52,8 @@ jobs:
         working-directory: ios
         run: |
           xcodebuild test \
-            -project SetlistToSpotify.xcodeproj \
-            -scheme SetlistToSpotify \
+            -project StationToStation.xcodeproj \
+            -scheme StationToStation \
             -destination "id=${{ steps.sim.outputs.udid }}" \
             ${{ steps.creds.outputs.args }}
 
@@ -76,8 +76,8 @@ jobs:
           # Build for real iPhone hardware (arm64), unsigned — a sideload tool
           # re-signs it with the user's Apple ID at install time.
           xcodebuild build \
-            -project SetlistToSpotify.xcodeproj \
-            -scheme SetlistToSpotify \
+            -project StationToStation.xcodeproj \
+            -scheme StationToStation \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -configuration Debug \
@@ -88,14 +88,14 @@ jobs:
       - name: Package .ipa
         working-directory: ios
         run: |
-          app=build/Build/Products/Debug-iphoneos/SetlistToSpotify.app
-          rm -rf Payload SetlistToSpotify.ipa
+          app=build/Build/Products/Debug-iphoneos/StationToStation.app
+          rm -rf Payload StationToStation.ipa
           mkdir Payload
           cp -R "$app" Payload/
-          zip -qr SetlistToSpotify.ipa Payload
+          zip -qr StationToStation.ipa Payload
 
       - name: Upload .ipa artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SetlistToSpotify-ipa
-          path: ios/SetlistToSpotify.ipa
+          name: StationToStation-ipa
+          path: ios/StationToStation.ipa
