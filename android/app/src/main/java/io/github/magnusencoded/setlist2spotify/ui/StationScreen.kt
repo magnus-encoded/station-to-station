@@ -411,34 +411,6 @@ fun StationTimelineScreen(
                             fontSize = 12.sp,
                             modifier = Modifier.padding(start = 20.dp, top = 2.dp, bottom = 14.dp),
                         )
-                        // The light is on, and it says so across the whole width. Not a
-                        // badge: a mode you can forget you are in would make withheld
-                        // photographs read as data loss (#145).
-                        if (state.contactLight) {
-                            Column(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .background(UnlitField)
-                                    .padding(horizontal = 20.dp, vertical = 12.dp),
-                            ) {
-                                Text(
-                                    "AS YOUR CONTACTS SEE IT",
-                                    color = Ink,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    letterSpacing = 1.5.sp,
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    "One view for everyone you have met in person — there are no " +
-                                        "per-contact settings. Walk into a night to see its photographs. " +
-                                        "Swipe right again to come back.",
-                                    color = Muted,
-                                    fontSize = 11.sp,
-                                )
-                            }
-                            Spacer(Modifier.height(10.dp))
-                        }
                         // Whose line is whose, only while more than one is showing.
                         // Scrolls sideways: the key is the one thing that grows without
                         // limit as friends are added, and it must not push the line off.
@@ -693,12 +665,15 @@ fun StationTimelineScreen(
                                         shared = row.shared && !state.contactLight,
                                         unlit = state.contactLight,
                                         rails = rails,
-                                        photos = (state.mediaBySetlist[node.setlist.id].orEmpty())
-                                            .let {
-                                                if (!state.contactLight) it
-                                                else visibleToContacts(it, node.setlist.id in state.sharedNights)
-                                            }
-                                            .map { Uri.parse(it.ref) },
+                                        // Unfiltered on purpose. Filtering here removed a
+                                        // night's whole photo strip, so every row changed
+                                        // height and the line moved under you — the one
+                                        // thing a light switch must never do. The strip
+                                        // dims instead, and what a contact actually sees
+                                        // of a night is answered inside the Room, which is
+                                        // where the sharing decision is made anyway.
+                                        photos = state.mediaBySetlist[node.setlist.id]
+                                            .orEmpty().map { Uri.parse(it.ref) },
                                         loadPhotoPreview = viewModel::photoPreview,
                                         onClick = {
                                             viewModel.openShow(node.setlist)
@@ -721,6 +696,7 @@ fun StationTimelineScreen(
                                         // friends shared is nobody's lane colour either.
                                         theirColor = if (row.others.size > 1) Crossed
                                         else railColor(nodeHost(row, lanes).coerceAtLeast(0)),
+                                        unlit = state.contactLight,
                                         rails = rails,
                                         onClick = {
                                             viewModel.toggleFestival(row.key)
@@ -739,6 +715,38 @@ fun StationTimelineScreen(
                             }
                         }
                     }
+                }
+            }
+            // The light is on, and it says so across the whole width. Not a badge: a mode
+            // you can forget you are in would make withheld photographs read as data loss.
+            //
+            // Floated over the timeline rather than placed above it, because **flipping
+            // the switch must not move the line**. Lighting a corridor does not shorten
+            // it: everything here changes colour and opacity and nothing changes size or
+            // position, so the night you were looking at is still under your thumb.
+            if (state.contactLight) {
+                Column(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .background(UnlitField)
+                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                ) {
+                    Text(
+                        "AS YOUR CONTACTS SEE IT",
+                        color = Ink,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 1.5.sp,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "One view for everyone you have met in person — there are no per-contact " +
+                            "settings. Walk into a night to see what they see of it. Swipe right " +
+                            "again to come back.",
+                        color = Muted,
+                        fontSize = 11.sp,
+                    )
                 }
             }
         }
@@ -1165,7 +1173,9 @@ internal fun TimelineItem(
             // by being text, and the full-size gallery on the gig screen is bigger still.
             if (photos.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
-                Row {
+                // Opacity, not absence: the same three thumbnails in the same three
+                // places, so nothing above or below them moves.
+                Row(Modifier.alpha(if (unlit) 0.35f else 1f)) {
                     photos.take(3).forEach { uri ->
                         PhotoThumb(uri, size = 44.dp, loadPreview = loadPhotoPreview)
                         Spacer(Modifier.width(6.dp))

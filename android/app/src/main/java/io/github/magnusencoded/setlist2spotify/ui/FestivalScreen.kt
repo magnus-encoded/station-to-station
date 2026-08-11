@@ -294,11 +294,16 @@ fun FestivalItem(
     sharedCount: Int = 0,
     theirCount: Int = 0,
     theirColor: Color = Slate,
+    /** Under the contact light (#145): the amber comes off, and the meeting green with it. */
+    unlit: Boolean = false,
     rails: @Composable () -> Unit = {},
 ) {
-    val amber = Color(0xFFE7B24C)
+    val amber = if (unlit) Color(0xFF7C7788) else Color(0xFFE7B24C)
     // Amber means mine, at every resolution; brightness means most recent or shared.
     val accent = when {
+        // A generic contact view has no "we", so a night marked as shared would claim a
+        // relationship this view deliberately does not have.
+        unlit -> amber
         sharedCount > 0 -> Crossed
         highlight -> amber
         mine -> amber.copy(alpha = 0.6f)
