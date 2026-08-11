@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "SetlistToSpotify"
+rootProject.name = "StationToStation"
 include(":app")

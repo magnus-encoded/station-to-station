@@ -58,7 +58,7 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.SetlistToSpotify">
+        android:theme="@style/Theme.StationToStation">
 
         <activity
             android:name=".MainActivity"
@@ -117,7 +117,7 @@
              gig_photos/ (see PhotoRepository.persistCopy) and re-exposed through this. -->
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="io.github.magnusencoded.setlist2spotify.fileprovider"
+            android:authorities="io.github.magnusencoded.stationtostation.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data

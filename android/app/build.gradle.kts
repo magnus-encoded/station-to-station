@@ -3,6 +3,16 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
+    id("app.cash.paparazzi") version "1.3.5"
+}
+
+// Lets the Compose Preview extension re-render selectively without forcing
+// a full rebuild: the filter env var becomes a tracked test input.
+tasks.withType<Test>().configureEach {
+    inputs.property(
+        "composePreviewFilter",
+        providers.environmentVariable("COMPOSE_PREVIEW_FILTER").orElse("")
+    )
 }
 
 // Bundled credentials so users get one-tap "Log in with Spotify" and never
@@ -31,11 +41,11 @@ val gitSha: String = runCatching {
 }.getOrDefault("").ifBlank { "nogit" }
 
 android {
-    namespace = "io.github.magnusencoded.setlist2spotify"
+    namespace = "io.github.magnusencoded.stationtostation"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "io.github.magnusencoded.setlist2spotify"
+        applicationId = "io.github.magnusencoded.stationtostation"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
@@ -91,6 +101,11 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-compose:1.9.2")
     implementation("androidx.compose.ui:ui")
+    // @Preview and the renderer behind it. The annotation ships in the main artifact
+    // so it compiles in release; the tooling that draws it is debug-only, because it
+    // pulls a chunk of the Studio renderer and must not reach a shipped APK.
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    debugImplementation("androidx.compose.ui:ui-tooling")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.navigation:navigation-compose:2.8.2")

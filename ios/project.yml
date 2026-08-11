@@ -1,4 +1,4 @@
-name: SetlistToSpotify
+name: StationToStation
 options:
   bundleIdPrefix: io.github.magnusencoded
   deploymentTarget:
@@ -20,11 +20,11 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
 
 targets:
-  SetlistToSpotify:
+  StationToStation:
     type: application
     platform: iOS
     sources:
-      - SetlistToSpotify
+      - StationToStation
       # The shared weave fixtures, bundled as a folder reference (structure
       # preserved, so the two timelines.json in different cases don't collide).
       # This is how CI seeds a real Spine: `station-to-station://fixture/<name>`
@@ -35,7 +35,7 @@ targets:
         buildPhase: resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.github.magnusencoded.setlist2spotify
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.magnusencoded.stationtostation
         TARGETED_DEVICE_FAMILY: "1,2"
         # The Spine with two Nodes on it, same mark as the Android launcher icon.
         # A single 1024 asset; iOS renders every other size from it and applies
@@ -45,7 +45,7 @@ targets:
         # Simulator builds need no signing (mirrors Android's unsigned debug APK).
         CODE_SIGNING_ALLOWED: "NO"
     info:
-      path: SetlistToSpotify/Info.plist
+      path: StationToStation/Info.plist
       properties:
         CFBundleDisplayName: Station to Station
         UILaunchScreen: {}
@@ -84,23 +84,23 @@ targets:
           - CFBundleURLName: io.github.magnusencoded.setlist2spotify
             CFBundleURLSchemes: [setlist2spotify]
 
-  SetlistToSpotifyTests:
+  StationToStationTests:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - SetlistToSpotifyTests
+      - StationToStationTests
     settings:
       base:
         GENERATE_INFOPLIST_FILE: "YES"
         CODE_SIGNING_ALLOWED: "NO"
     dependencies:
-      - target: SetlistToSpotify
+      - target: StationToStation
 
 schemes:
-  SetlistToSpotify:
+  StationToStation:
     build:
       targets:
-        SetlistToSpotify: all
+        StationToStation: all
     test:
       targets:
-        - SetlistToSpotifyTests
+        - StationToStationTests

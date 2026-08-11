@@ -1,0 +1,618 @@
+package io.github.magnusencoded.stationtostation.data
+
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmCity
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmVenue
+// NIGHT_ENDS is the check-in window's own boundary and this has to draw the same
+// line: an Act tapped at 01:30 belongs to the night that is still going on.
+import io.github.magnusencoded.stationtostation.ui.NIGHT_ENDS
+import io.github.magnusencoded.stationtostation.ui.TimelineNode
+import io.github.magnusencoded.stationtostation.ui.groupIntoFestivals
+import io.github.magnusencoded.stationtostation.ui.isPlanned
+import io.github.magnusencoded.stationtostation.ui.shows
+import kotlinx.serialization.Serializable
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+
+/**
+ * A **Bill**: a **Festival** whose **Gigs** don't exist yet.
+ *
+ * The case this exists for is a festival that is not on setlist.fm at all *and*
+ * cannot be, because the thing setlist.fm needs — which night each act plays — is
+ * not known to anyone until the poster goes up on the noticeboard during the
+ * festival. What *is* knowable in advance is the name, the venue, the date range
+ * and the list of names. That is exactly the shape of this record.
+ *
+ * A **Bill** is not a list of planned gigs. `groupIntoFestivals` clusters on venue
+ * *and date*, so an undated act cannot cluster with anything; and a planned gig
+ * renders as a night you hold a ticket for, which an act on a hedged lineup is not.
+ * Inventing a day per act so the existing machinery would work is precisely the
+ * fabrication the record must not commit.
+ *
+ * [name] used to double as the venue name on the **Gigs** its **Acts** become. It no
+ * longer does (#128). One field was answering two different questions — *which room
+ * was this*, a fact about the night and one third of ADR-0002's correspondence key,
+ * and *which Festival does this belong to*, a fact about grouping — and they disagree
+ * the moment setlist.fm knows the room. A **Gig** minted here is left with no venue
+ * until something authoritative supplies one.
+ *
+ * Nothing was lost by stopping: a **Gig** an **Act** became is drawn *inside* its
+ * **Bill**, and every `groupIntoFestivals` call site is fed either attended setlist.fm
+ * shows or the planned lane, which excludes a **Bill**'s own **Gigs**. So the venue
+ * string was never what clustered these nights, and `festivalName()`'s fallback never
+ * saw them.
+ */
+@Serializable
+data class StoredBill(
+    val id: String = "",
+    /** "Ringnes Festival 2026". The festival's name, and nothing else's (#128). */
+    val name: String = "",
+    val city: String = "",
+    /** dd-MM-yyyy, the shape setlist.fm sends — the range, which *is* known. */
+    val from: String = "",
+    val to: String = "",
+    /** In poster order. Order is the only thing a lineup reliably carries. */
+    val acts: List<StoredAct> = emptyList(),
+)
+
+/**
+ * One name on a **Bill**.
+ *
+ * [maybe] is the hedge the poster itself makes. It is a property of the **Bill**,
+ * never of a **Gig**: the moment an act is dated it played, so there is nothing
+ * left to be unsure about and no "unconfirmed gig" state can ever be reached.
+ *
+ * [candidates] is what #93 asks for — a plausible song set to tick off rather than
+ * type — fetched from this artist's recent setlists **while there is still signal**,
+ * which is at home the night before and never in the field. Empty is the honest and
+ * common answer for a small local act setlist.fm has never heard of.
+ *
+ * [gigId] is null until someone standing there says which night this played. Then it
+ * is a local **Gig** (`createLocalGig`) and this act is done being an act.
+ */
+@Serializable
+data class StoredAct(
+    val name: String = "",
+    val maybe: Boolean = false,
+    val candidates: List<String> = emptyList(),
+    val gigId: String? = null,
+    /**
+     * *Which* artist the pool came from, shown wherever the pool is.
+     *
+     * Five bands are called Silent Majority. Matching on name alone picked one of
+     * them and offered a stranger's songs indistinguishably from the right ones —
+     * the Historian failure in miniature: a guess wearing the clothes of a fact.
+     * Naming the source does not prevent a wrong match, it makes a wrong match
+     * *visible in the second it happens*, which is the part that was missing.
+     */
+    val matchedArtist: String = "",
+    /** The MusicBrainz id the pool was fetched against. Empty until one is resolved. */
+    val mbid: String = "",
+    /**
+     * Whether setlist.fm has *answered* about this act — not whether we asked.
+     *
+     * The distinction is the whole value of the field. "No pool because they have no
+     * setlist.fm history" is a correct, final answer and half the Ringnes bill; "no
+     * pool because the radio couldn't reach anyone" is a question still open. Set
+     * only on a reply, so a lookup attempted in a field with no signal leaves this
+     * false and gets tried again, while a genuine empty is never re-fetched.
+     */
+    val tried: Boolean = false,
+    /**
+     * Never on the poster — typed in the field, by hand, dated on arrival.
+     *
+     * The bit exists so a mistyped one can be taken back off. An act from the
+     * **Bill** that was tapped by accident should return to being an undated act,
+     * because the poster still says it is playing; a **Surprise** entered wrongly has
+     * nothing to return to and must be able to go entirely.
+     */
+    val surprise: Boolean = false,
+)
+
+/** "Silent Majority (US hardcore)" — the name, plus whatever tells it from its namesakes. */
+fun artistLabel(name: String, disambiguation: String?): String =
+    listOfNotNull(name.takeIf { it.isNotBlank() }, disambiguation?.takeIf { it.isNotBlank() }?.let { "($it)" })
+        .joinToString(" ")
+
+/**
+ * setlist.fm's add-a-setlist entry point, for a night they have no record of at all.
+ *
+ * **Verified 2026-08-05.** It requires a login and takes **no prefill parameters** —
+ * the Ringnes festival page's own "Add Setlist" link is a bare `../edit`. There is no
+ * url that can carry the facts, which is why the clipboard ([setlistPaste]) is not a
+ * shortcut around the form but the only channel into it.
+ *
+ * There is a *second* url — `/edit?setlist=<id>&step=song`, which lands straight on
+ * one setlist's song editor — and this app deliberately does not build it. The id in
+ * that parameter is **not** the id the API returns: the page `…-63a80d2f.html` links
+ * to `edit?setlist=3a80d2f`, and `edit?setlist=63a80d2f` opens *a different concert
+ * entirely* (verified). Constructing it from an `FmSetlist.id` would send the
+ * Historian to edit a stranger's night, silently, on a shared public record. Where a
+ * record exists the app has its `url` already — [setlistEditEntry] opens that page,
+ * whose own "Edit setlist" link is correct by construction.
+ */
+const val SETLISTFM_ADD_URL = "https://www.setlist.fm/edit"
+
+/**
+ * Where the Historian is sent to file this night, and it is one of two places.
+ *
+ * A gig setlist.fm already has — including the empty-setlist case, a record with a
+ * page and no songs — goes to *its own page*, one click from the right edit form. A
+ * gig they have never heard of goes to the generic add flow, which is the only door
+ * there is. The clipboard carries the set either way.
+ */
+fun setlistEditEntry(setlist: FmSetlist): String = setlist.url ?: SETLISTFM_ADD_URL
+
+/**
+ * One row above today: a **Bill** on the wall, or a **Gig** I hold a ticket for.
+ *
+ * They share a list because they share a **Line**. Drawing **Bills** as a block
+ * pinned above the planned gigs put a festival happening *today* above a gig seven
+ * days out — which breaks "up is always later", #31's first non-negotiable, and not a
+ * rule a new kind of **Node** gets an exemption from just for being new.
+ */
+sealed interface FutureRow {
+    data class OnBill(val bill: StoredBill) : FutureRow
+
+    /**
+     * A **Gig** I hold a ticket for — or the **Festival** a few of them at one venue
+     * on one night turn out to be. Two nights above today at the same place is the
+     * same shape as two nights below it, and the lane used to draw them as two loose
+     * nodes only because it did its own grouping, which was none (#134).
+     */
+    data class Ticket(val node: TimelineNode) : FutureRow
+
+    val date: LocalDate?
+        get() = when (this) {
+            // A **Bill** sorts by when it *starts*. Its last day is the wrong handle:
+            // a three-day festival beginning tonight would sort above a gig two days
+            // out, which is this same bug one step smaller.
+            is OnBill -> parseFmDate(bill.from) ?: parseFmDate(bill.to)
+            // Same rule for a cluster: the night it opens, not the night it ends.
+            is Ticket -> node.shows().mapNotNull { it.localDate() }.minOrNull()
+        }
+}
+
+/**
+ * Everything above today, furthest future first — the same descending order the
+ * attended rows below already use, which is the whole point: one line, one rule.
+ *
+ * "Above today" is the nights whose claim in [attendance] is still `planned`, never
+ * the nights that happen to sit in `gigPlanned` (#127, #134). Nothing ever leaves
+ * that map — it is the only home of the `FmSetlist` for a **Gig** with no import
+ * behind it — so membership made every night I ever planned a plan forever.
+ *
+ * Planned gigs cluster into **Festivals** exactly as attended ones do, through the
+ * one [groupIntoFestivals] both lanes now call. [festivalNames] is the scraped name
+ * by cluster-first id; the venue stands in until one lands.
+ *
+ * A **Bill** is not folded into that grouping. It is its own kind of node with its
+ * own lineup, which is why it arrives here as a separate argument.
+ *
+ * A row with no date sorts to the *bottom* of the future, not the top. Unknown is not
+ * "the furthest away". It still renders: a **Bill** whose dates were never typed in
+ * is a real thing to be holding.
+ */
+fun futureRows(
+    bills: List<StoredBill>,
+    tickets: List<FmSetlist>,
+    attendance: Map<String, StoredAttendance>,
+    festivalNames: Map<String, String> = emptyMap(),
+): List<FutureRow> {
+    val nodes = groupIntoFestivals(plannedLane(tickets, attendance), festivalNames)
+    return (bills.map(FutureRow::OnBill) + nodes.map(FutureRow::Ticket))
+        .sortedWith(compareByDescending(nullsFirst<LocalDate>()) { it.date })
+}
+
+/**
+ * The nights the future lane is made of: still a plan, newest first.
+ *
+ * Date-ordered because [groupIntoFestivals] clusters *adjacent* shows and
+ * `gigPlanned`'s own order is whatever they happened to be added in. Its own
+ * function because the name resolver has to group the exact same list — a cluster's
+ * name is filed under its *first* show, so a different input order files it under a
+ * key the lane never looks up.
+ */
+fun plannedLane(
+    gigs: List<FmSetlist>,
+    attendance: Map<String, StoredAttendance>,
+): List<FmSetlist> = gigs
+    .filter { isPlanned(attendance[it.id]?.provenance) }
+    .sortedByDescending { it.localDate() }
+
+/** dd-MM-yyyy, the one date shape this app and setlist.fm both speak. */
+private val FM_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("dd-MM-yyyy", Locale.ENGLISH)
+
+fun fmDate(date: LocalDate): String = date.format(FM_DATE)
+
+fun parseFmDate(text: String): LocalDate? =
+    runCatching { LocalDate.parse(text.trim(), FM_DATE) }.getOrNull()
+
+/**
+ * The night an **Act** tapped at [now] belongs to. Before [NIGHT_ENDS] it is still
+ * last night — you are walking out of the tent at half one and the act you are
+ * logging played yesterday's date, which is the one moment this matters.
+ *
+ * ponytail: today or last night, nothing else. Logging Thursday's act on Saturday
+ * is a date picker, and at a three-day festival you log the act as you leave it.
+ */
+fun billNight(now: LocalDateTime): LocalDate =
+    if (now.toLocalTime() < NIGHT_ENDS) now.toLocalDate().minusDays(1) else now.toLocalDate()
+
+/**
+ * Every night this **Bill** has — the only days a **Gig** it mints may be dated.
+ *
+ * The range is the one temporal fact a poster does carry, and it is what makes the
+ * question askable afterwards: three or four days is a list to tap, not a date picker.
+ * A **Bill** with no dates typed in has no nights, and then the clock is all there is.
+ */
+fun StoredBill.nights(): List<LocalDate> {
+    val a = parseFmDate(from) ?: parseFmDate(to) ?: return emptyList()
+    val b = parseFmDate(to) ?: a
+    return generateSequence(minOf(a, b)) { it.plusDays(1) }.takeWhile { it <= maxOf(a, b) }.toList()
+}
+
+/** Where the clock stands relative to a **Bill**: not started, on, or over. */
+enum class BillWhen { BEFORE, DURING, AFTER }
+
+/**
+ * Which of the three a **Bill** is in, judged on [billNight] rather than the calendar
+ * day — so half one in the morning on the last night is still **DURING**, the same
+ * boundary the check-in window draws.
+ */
+fun billWhen(bill: StoredBill, now: LocalDateTime): BillWhen {
+    val nights = bill.nights()
+    // Nothing to disagree with. An undated Bill behaves exactly as it always has.
+    if (nights.isEmpty()) return BillWhen.DURING
+    val night = billNight(now)
+    return when {
+        night < nights.first() -> BillWhen.BEFORE
+        night > nights.last() -> BillWhen.AFTER
+        else -> BillWhen.DURING
+    }
+}
+
+/**
+ * **The invariant: a Gig minted from a Bill is dated inside that Bill's range.**
+ *
+ * Null is "there is no honest answer here" and the only correct one in two cases: the
+ * festival has not opened, and it has closed with nobody having said which night this
+ * was. Where the clock disagrees with the range the range wins — the clock does not
+ * get to date a night at a festival that was already over, which is `StoredBill`'s
+ * own "inventing a day per act" fabrication arriving by the back door.
+ *
+ * [chosen] is a night a person picked off the range. It is checked against the range
+ * too rather than trusted: the invariant holds for every path into it or it is not an
+ * invariant.
+ */
+fun gigNight(bill: StoredBill, chosen: LocalDate?, now: LocalDateTime): LocalDate? {
+    val nights = bill.nights()
+    val night = chosen ?: billNight(now)
+    return if (nights.isEmpty()) night else night.takeIf { it in nights }
+}
+
+/**
+ * A pasted lineup, one **Act** per line.
+ *
+ * A line beginning `?` is a **Maybe** — the poster's own hedge, kept as the poster
+ * made it. Blank lines and duplicates are dropped; leading bullets are tolerated
+ * because a lineup is usually copied out of a PDF that had them.
+ */
+fun parseLineup(text: String): List<StoredAct> =
+    text.lineSequence()
+        .map { it.trim().removePrefix("-").removePrefix("*").removePrefix("•").trim() }
+        .filter { it.isNotEmpty() }
+        .map { line ->
+            val maybe = line.startsWith("?")
+            StoredAct(name = line.removePrefix("?").trim(), maybe = maybe)
+        }
+        .filter { it.name.isNotEmpty() }
+        .distinctBy { it.name.lowercase() }
+        .toList()
+
+/**
+ * The songs an artist has been playing lately, most-played first — the pool an
+ * **Act**'s setlist is ticked off from rather than typed.
+ *
+ * Frequency across the most recent setlists, not the single latest one: a set has a
+ * stable core and a rotating edge, and the core is what is worth offering first.
+ * Covers and tape tracks come through `performed()`'s filter already.
+ */
+fun candidateSongs(recent: List<FmSetlist>, take: Int = 4, limit: Int = 40): List<String> {
+    val counts = LinkedHashMap<String, Int>()
+    recent.take(take).forEach { set ->
+        set.performed().forEach { song -> counts[song.name] = (counts[song.name] ?: 0) + 1 }
+    }
+    // Stable: LinkedHashMap keeps first-seen order, and sortedByDescending is stable,
+    // so equal counts stay in the order the most recent setlist played them.
+    return counts.entries.sortedByDescending { it.value }.map { it.key }.take(limit)
+}
+
+/**
+ * A **Log**: the ordered songs *I* observed at one **Gig**, on my own device.
+ *
+ * Not setlist.fm's setlist. That is the published shared record; this is the witness
+ * statement, and the two are kept apart because **the app is the source of truth
+ * about what was observed and setlist.fm is a publication target**. A **Log** is
+ * freely editable forever — remembering a song three days later costs nothing — and
+ * **Publish** never writes back into it.
+ *
+ * [closed] is the whole reason this record exists rather than a list of strings on
+ * the night. A set captured by ticking off songs an artist has played before is
+ * **incomplete by construction**: the candidate pool cannot contain a new song, a
+ * cover, a guest spot, or anything at all by an artist setlist.fm has never heard of.
+ * So a **Log** starts **Open**, renders as unfinished, and only a person may say
+ * otherwise. Crucially the bit never makes the round trip — setlist.fm has nowhere to
+ * keep it, so a published set coming back would look finished when it isn't, and that
+ * is unrecoverable by construction. The fix is that it never leaves.
+ *
+ * A blank entry in [songs] is a **Gap**: they played something and I could not name
+ * it. An acknowledged gap is a true fact; the same song silently missing is the
+ * record lying about its own certainty. A song always has a name, so blank is
+ * unambiguous and needs no second field.
+ *
+ * That last sentence was written before [remembered] and is now too strong — see it
+ * for what it did not anticipate (#126).
+ */
+@Serializable
+data class StoredLog(
+    val songs: List<String> = emptyList(),
+    val closed: Boolean = false,
+    /**
+     * The **Remembered Line**: the words originally written where a title replaced
+     * them, blank where nothing was replaced. Parallel to [songs] and the same length.
+     *
+     * A **Log** is written in the dark while the band is still playing, so sometimes
+     * what gets typed is not the title but the only words that could be caught — a
+     * line from the chorus, entered as the title because there was nowhere else to put
+     * it. Correcting that used to mean choosing between a wrong title and destroying
+     * the words that are the actual memory. **The line someone remembered is not
+     * inferior data waiting to be replaced**; for the **Reliver** it is often *the*
+     * memory, and replacing it makes the record more correct and less true.
+     *
+     * A new field rather than a reshaped [songs], following the precedent set by
+     * `playlistsMade`: an older build reads the key it knows and round-trips its own
+     * cache, where a changed type under the same name would have failed to decode and
+     * dropped every **Log** with it. An older cache simply has no [remembered] at all,
+     * which reads as "nothing was ever replaced" — which is exactly true.
+     *
+     * Parallel lists only stay parallel if one place keeps them so. That place is the
+     * five functions below; nothing else may edit [songs] directly.
+     */
+    val remembered: List<String> = emptyList(),
+) {
+    /** Songs actually named. A **Gap** is in the record but is not a title. */
+    fun named(): List<String> = songs.filter { it.isNotBlank() }
+    val gaps: Int get() = songs.count { it.isBlank() }
+
+    /** The words originally written at [i], or null where the entry is as typed. */
+    fun rememberedAt(i: Int): String? = remembered.getOrNull(i)?.takeIf { it.isNotBlank() }
+
+    /** A song, at the end, in the order it was tapped in. */
+    fun adding(song: String): StoredLog = copy(songs = songs + song, remembered = aligned() + "")
+
+    /** One entry gone, and the words behind it with it. */
+    fun removingAt(i: Int): StoredLog = copy(
+        songs = songs.filterIndexed { j, _ -> j != i },
+        remembered = aligned().filterIndexed { j, _ -> j != i },
+    )
+
+    /**
+     * [i] becomes [title], and what was there moves into [remembered].
+     *
+     * Two rules that are easy to get wrong and are asserted:
+     *
+     * - **A second correction keeps the first words.** They are the ones written in the
+     *   dark; a title I already chose is not a memory to preserve.
+     * - **A Gap is not corrected.** "One I couldn't name" is an acknowledged fact, not
+     *   an invitation to guess, so this leaves a blank entry alone.
+     */
+    fun correctingAt(i: Int, title: String): StoredLog {
+        val was = songs.getOrNull(i)?.takeIf { it.isNotBlank() } ?: return this
+        if (title.isBlank()) return this
+        val lines = aligned().toMutableList()
+        if (lines[i].isBlank()) lines[i] = was
+        return copy(songs = songs.toMutableList().also { it[i] = title }, remembered = lines)
+    }
+
+    /** The words come back as the entry. A wrong correction is never a one-way door. */
+    fun restoringAt(i: Int): StoredLog {
+        val line = rememberedAt(i) ?: return this
+        val lines = aligned().toMutableList().also { it[i] = "" }
+        return copy(songs = songs.toMutableList().also { it[i] = line }, remembered = lines)
+    }
+
+    /** [remembered] at [songs]'s length: an older cache carries none at all. */
+    private fun aligned(): List<String> = List(songs.size) { remembered.getOrNull(it) ?: "" }
+}
+
+/**
+ * The artist's own titles, ranked against the words someone wrote down (#126).
+ *
+ * **Nothing here classifies.** "This string is not a known song" is genuinely ambiguous
+ * between "a title we don't know" and "a lyric whose title differs" — real titles are
+ * frequently whole sentences, and remembered lines frequently contain the title — so
+ * any classifier applied to the string alone is wrong in both directions. This only
+ * *orders* candidates; a tap is what decides, exactly as it is for correcting an
+ * **Act**'s name.
+ *
+ * The whole catalogue is returned, never a filtered shortlist: a remembered line
+ * sharing no words with any title still has to be correctable, so a low-ranking answer
+ * must stay reachable. When nothing matches, the order is simply the order it came in,
+ * which reads as "nothing confident" rather than promoting a bad match to the top.
+ *
+ * A **contained** title outranks scattered overlap. "Toothpicks and Gum" appears in
+ * "All held together by toothpicks and gum" as a contiguous phrase, which is a stronger
+ * signal than the same words spread across a sentence — and cheap to compute. Verified
+ * against that real case: it scores 1.00 where the next candidate scores 0.25.
+ *
+ * Normalisation is `songKey`'s, so "Dont" matches "Don't" here exactly as it does
+ * everywhere else recognition happens.
+ */
+fun rankTitles(line: String, catalogue: List<String>): List<String> {
+    if (line.isBlank()) return catalogue
+    val key = line.songKey()
+    val words = line.words()
+    return catalogue.sortedByDescending { title ->
+        val t = title.songKey()
+        val contained = if (t.isNotEmpty() && key.contains(t)) 1.0 else 0.0
+        val tokens = title.words()
+        val overlap = if (tokens.isEmpty()) 0.0 else tokens.count { it in words }.toDouble() / tokens.size
+        contained + overlap
+    }
+}
+
+/** Words for overlap, where [songKey] throws spacing away too. */
+private fun String.words(): Set<String> =
+    lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }.toSet()
+
+/**
+ * Loose song-title equality: case, punctuation and spacing thrown away.
+ *
+ * "P.I.M.P." typed as "PIMP", "Don't" as "Dont". This is used for *recognition* —
+ * deciding whether a band has this song in their history — and never for recording,
+ * where the title is kept exactly as it was written. Being strict here would fail the
+ * one gesture it exists to serve.
+ */
+internal fun sameSong(a: String, b: String): Boolean = a.songKey() == b.songKey()
+
+private fun String.songKey(): String = lowercase().filter { it.isLetterOrDigit() }
+
+/**
+ * Does this artist have [song] anywhere in the setlists we just pulled?
+ *
+ * The whole of the disambiguation test, and it is client-side because it has to be:
+ * **verified 2026-08-05, `/search/setlists` accepts artistMbid, artistName,
+ * artistTmid, cityId, cityName, countryCode, date, lastFm, lastUpdated, p, state,
+ * stateCode, tourName, venueId, venueName and year — and no song parameter at all.**
+ * There is no way to ask "who plays this song", so the only route is to pull each
+ * same-named artist's recent setlists and look.
+ */
+fun playsSong(recent: List<FmSetlist>, song: String): Boolean =
+    recent.any { set -> set.performed().any { sameSong(it.name, song) } }
+
+/**
+ * The night's set, in setlist.fm's own paste syntax — the Historian's actual output.
+ *
+ * **What was verified, 2026-08-05.** setlist.fm's editor has a *Text Field* mode that
+ * takes a whole setlist as plain text in one paste and resolves the titles itself,
+ * so one paste per night is the real mechanism. Its syntax is one song per line, with
+ * markers layered on top: a blank line before an encore's first song, `@Cover[artist]`,
+ * `@With[artist]`, `@Tape[note]`, `@Info[note]`, `@Set[name]`, `@Unknown[note]`, and
+ * ` / ` between the parts of a medley.
+ *
+ * **This emits bare titles, one per line, and nothing else — deliberately.** Every one
+ * of those markers encodes a fact this app never captured: nobody ticking songs off in
+ * a field told it which one was a cover or where the encore began. Emitting a marker
+ * would be inventing the fact it marks, on a public shared database, silently. The
+ * plain form is the whole of what is known, so it is both the safest output *and* the
+ * complete one. Add a marker the day the capture actually asks the question.
+ *
+ * Order is the payload: a set can play the same song twice and running order is the
+ * only thing that distinguishes them — the same reasoning `StoredMedia.songOffsets`
+ * is a positional list for.
+ *
+ * A **Gap** is the one marker emitted, as `@Unknown[]`, and only because setlist.fm
+ * has the concept natively — the tutorial documents `@Unknown[optional comment]` and
+ * their API already returns nameless placeholder songs for it, which `performed()`
+ * has filtered since long before this. Dropping gaps instead would publish a set that
+ * silently claims the missing songs were never played. If the marker is ever wrong it
+ * fails *loudly*, as a song visibly titled `@Unknown[]` — which someone fixes — rather
+ * than quietly, which is the failure mode that actually matters here.
+ */
+fun setlistPaste(log: StoredLog): String =
+    log.songs.joinToString("\n") { it.trim().ifBlank { "@Unknown[]" } }
+
+/**
+ * One value the setlist.fm form wants, ready to be handed over.
+ *
+ * [shown] and [value] differ for exactly one field — the songs, where the value is a
+ * fourteen-line paste and what you want to *read* is "14 songs, in order". Everywhere
+ * else they are the same string.
+ */
+data class FilingField(val label: String, val shown: String, val value: String)
+
+/**
+ * Everything the setlist.fm add form asks for, in the order it asks for it.
+ *
+ * The clipboard holds one thing. The form wants five, and the app screen that knows
+ * them is not on screen once the browser is — so the night's facts were being carried
+ * across the app switch in the Historian's head, which is where a wrong venue comes
+ * from. These go into the notification shade instead, which is the one surface that
+ * stays in reach while Chrome has the foreground.
+ *
+ * **The order is the form's, read off it on the Pixel 2026-08-06:** Add artist, Select
+ * event date, Add venue, then the songs on the step after. Date before venue is not a
+ * preference — the venue field is *disabled* until a date is set, and says so ("Select
+ * event date before choosing a venue"). A tray that offered Venue first would be
+ * offering a value with nowhere to go.
+ *
+ * Blank fields are dropped rather than posted empty: a **Bill** with no town typed in
+ * should offer four values, not four and a lie.
+ */
+fun filingFields(setlist: FmSetlist, log: StoredLog): List<FilingField> = listOfNotNull(
+    setlist.artist?.name?.takeIf { it.isNotBlank() }?.let { FilingField("Artist", it, it) },
+    // Shown as "5 August 2026" rather than 05-08-2026, because this one is **picked,
+    // not pasted** — verified on the Pixel: the field opens a calendar widget, so no
+    // string can land in it. What the Historian actually does with this value is find
+    // that day in a month grid, and a written-out month is the form of it that matches
+    // the gesture. The raw date stays the copied value; it costs nothing and the
+    // clipboard is the wrong place to editorialise.
+    setlist.eventDate?.takeIf { it.isNotBlank() }
+        ?.let { FilingField("Date", setlist.readableDate() ?: it, it) },
+    setlist.venue?.name?.takeIf { it.isNotBlank() }?.let { FilingField("Venue", it, it) },
+    setlist.venue?.city?.name?.takeIf { it.isNotBlank() }?.let { FilingField("City", it, it) },
+    log.songs.takeIf { it.isNotEmpty() }?.let {
+        FilingField(
+            "Songs",
+            // Gaps are counted in, because they are in the paste and will appear in
+            // the form. "13 songs" beside a fourteen-line paste is the kind of small
+            // disagreement that makes someone distrust the whole handoff.
+            "${it.size} songs, in order" + if (log.gaps > 0) " · ${log.gaps} unnamed" else "",
+            setlistPaste(log),
+        )
+    },
+)
+
+/**
+ * The **Gig** an **Act** becomes on the night it plays: a synthetic record carrying
+ * the local **Gig** id, so every screen that already knows how to draw an `FmSetlist`
+ * draws this one too.
+ *
+ * The lie, stated plainly: [FmSetlist.id] is a setlist.fm id everywhere else in this
+ * app, and here it is not. It leaks in exactly two places and both are guarded —
+ * anything that would *fetch* this id from setlist.fm (`refreshSelectedSetlist`), and
+ * anything that assumes a `url` exists. `url` staying null is what makes the second
+ * one detectable: **a local Gig is precisely a gig with no url**, which is also the
+ * condition the setlist.fm nudge fires on. `TimelineCache.keyOf` already returns the
+ * local id for a gig with no `setlistId`, so adoption later moves no data at all.
+ */
+fun localGigSetlist(
+    gigId: String,
+    artist: String,
+    date: LocalDate,
+    venue: String,
+    city: String,
+): FmSetlist = FmSetlist(
+    id = gigId,
+    eventDate = fmDate(date),
+    artist = FmArtist(name = artist),
+    venue = FmVenue(
+        // Null, not "", for an unknown room (#128). Empty strings compare equal, so a
+        // blank venue left as "" would make `sameFestival` cluster two nights that
+        // merely both lack a venue — an unknown is not a place two gigs have in common.
+        name = venue.ifBlank { null },
+        city = FmCity(name = city.ifBlank { null }),
+    ),
+    // No songs, ever. What was played lives in the **Log**, which is a record of my
+    // own observation and is deliberately not dressed up as a setlist.fm setlist —
+    // that conflation is exactly how a partial capture starts looking complete.
+    sets = null,
+    url = null,
+)
+
+/** A gig this app minted rather than setlist.fm: the one thing that has no page. */
+fun FmSetlist.isLocal(): Boolean = url == null

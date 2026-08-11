@@ -38,15 +38,15 @@ The Xcode project is generated from [`project.yml`](project.yml) with
 ```sh
 cd ios
 brew install xcodegen   # once
-xcodegen generate       # writes SetlistToSpotify.xcodeproj + Info.plist
-open SetlistToSpotify.xcodeproj
+xcodegen generate       # writes StationToStation.xcodeproj + Info.plist
+open StationToStation.xcodeproj
 ```
 
 Or from the command line (what CI does — a simulator build needs no signing):
 
 ```sh
-xcodebuild build -scheme SetlistToSpotify -sdk iphonesimulator
-xcodebuild test  -scheme SetlistToSpotify -destination 'platform=iOS Simulator,name=iPhone 15'
+xcodebuild build -scheme StationToStation -sdk iphonesimulator
+xcodebuild test  -scheme StationToStation -destination 'platform=iOS Simulator,name=iPhone 15'
 ```
 
 Requires Xcode 15+ (iOS 16 deployment target). CI (`.github/workflows/ios.yml`)
