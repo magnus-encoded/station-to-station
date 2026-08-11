@@ -79,6 +79,16 @@ data class HandoverManifest(
     val timeline: TimelineCache = TimelineCache(),
     val media: List<OfferedMedia> = emptyList(),
     val counts: Map<String, Int> = emptyMap(),
+    /**
+     * Who I am: which setlist.fm user, which Spotify account. **Records, not secrets**
+     * (#143), so they travel with the records whether or not accounts are being moved —
+     * the new phone knowing who it is costs nothing in blast radius.
+     *
+     * There is deliberately no field here for a credential, and there must never be one.
+     * A bearer secret travels only in [AccountsPayload], as its own acknowledged step, so
+     * that no combination of ticked media categories can move one as a side effect.
+     */
+    val identities: Identities = Identities(),
 )
 
 /**

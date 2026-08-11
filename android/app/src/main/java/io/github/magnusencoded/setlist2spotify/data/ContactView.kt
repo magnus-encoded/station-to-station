@@ -77,6 +77,8 @@ fun contactMedia(
  * at all.
  */
 fun categoriesFor(contact: Boolean): Set<String> = if (contact) {
+    // No Personal categories, and no accounts: a credential moves between my own devices
+    // only. The far end being me is what makes it a move rather than a giveaway (#143).
     setOf(CATEGORY_SETLISTS, StoredMedia.Kind.PHOTO, StoredMedia.Kind.VIDEO)
 } else {
     setOf(
@@ -85,6 +87,7 @@ fun categoriesFor(contact: Boolean): Set<String> = if (contact) {
         StoredMedia.Kind.VIDEO,
         categoryOf(StoredMedia.Kind.PHOTO, personal = true),
         categoryOf(StoredMedia.Kind.VIDEO, personal = true),
+        CATEGORY_ACCOUNTS,
     )
 }
 
