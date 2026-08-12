@@ -1,3 +1,7 @@
+// Imported rather than written as `java.util.Properties`: inside the `android`
+// block `java` resolves to Gradle's own Java extension, not the package.
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -48,8 +52,14 @@ android {
         applicationId = "io.github.magnusencoded.stationtostation"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.1" + (System.getenv("GITHUB_RUN_NUMBER")?.let { ".$it" } ?: "")
+        // Both from gradle.properties, so the shipped version lives in git. The
+        // run number still suffixes versionName on CI builds — that is what tells
+        // two debug APKs of the same release apart on a device — but it must not
+        // reach versionCode, which Play requires to be monotonic and which a
+        // re-run of CI would otherwise move backwards.
+        versionCode = (property("appVersionCode") as String).toInt()
+        versionName = property("appVersionName") as String +
+            (System.getenv("GITHUB_RUN_NUMBER")?.let { ".$it" } ?: "")
         buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")
         buildConfigField("String", "SETLISTFM_API_KEY", "\"$setlistFmApiKey\"")
         buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
@@ -65,6 +75,39 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+
+        // The Play upload key. Not the app signing key — Play holds that one and
+        // re-signs every bundle we send, so this key only proves the upload is
+        // ours. Losing it is recoverable (Play can reset an upload key); losing
+        // the app signing key would not be, which is why we let Play keep it.
+        //
+        // Credentials come from a gitignored keystore.properties, or from env
+        // vars for CI. Absent on a machine that has neither, the config is not
+        // created at all and `assembleRelease` produces an unsigned build rather
+        // than failing — a contributor without the key can still compile release.
+        val keystoreProps = rootProject.file("keystore.properties")
+        val storePath = if (keystoreProps.exists()) {
+            Properties().apply { keystoreProps.inputStream().use(::load) }
+        } else null
+        val storeFileName = storePath?.getProperty("storeFile") ?: System.getenv("UPLOAD_STORE_FILE")
+        // Having the file but not being able to read a key out of it means the
+        // file is malformed, not that we are a contributor without the key — and
+        // the difference is invisible later: an unsigned bundle builds green and
+        // is only rejected at the Play Console. A UTF-8 BOM did exactly this once
+        // (Java reads it as part of the first key's name).
+        check(storePath == null || storeFileName != null) {
+            "keystore.properties exists but has no readable storeFile — malformed? (a UTF-8 BOM will do it)"
+        }
+        if (storeFileName != null && rootProject.file(storeFileName).exists()) {
+            create("release") {
+                storeFile = rootProject.file(storeFileName)
+                storePassword = storePath?.getProperty("storePassword")
+                    ?: System.getenv("UPLOAD_STORE_PASSWORD")
+                keyAlias = storePath?.getProperty("keyAlias") ?: System.getenv("UPLOAD_KEY_ALIAS")
+                keyPassword = storePath?.getProperty("keyPassword")
+                    ?: System.getenv("UPLOAD_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
@@ -76,6 +119,7 @@ android {
         // from the build type's name.
         release {
             isMinifyEnabled = false
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
 
