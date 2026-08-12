@@ -14,8 +14,16 @@ class SetlistFmClient(private val apiKeyProvider: suspend () -> String?) {
     private val http = OkHttpClient()
     private val json = Json { ignoreUnknownKeys = true }
 
-    // Mirrors the retry behaviour of the Python CLI: retry on 429/5xx with
-    // exponential backoff, fail fast on other HTTP errors.
+    // Retry 5xx with exponential backoff, fail fast on everything else — 429
+    // included. A 429 is not transient trouble the way a 502 is: it says the
+    // quota is already spent, and the next two attempts spend two more units of
+    // it to arrive at the same answer. With every tester on one bundled key,
+    // that turns a queue into a stampede.
+    //
+    // ponytail: one bundled key, 1440 requests/day, shared by every tester —
+    // that ceiling is the real problem and not retrying merely stops us making
+    // it worse. The fix is a key per user (Settings already takes one) or a
+    // proxy holding our key and rationing per install.
     private suspend fun get(path: String, params: Map<String, String?>): String {
         val apiKey = apiKeyProvider()
             ?: throw IOException("setlist.fm API key is not configured. Set it in Settings.")
@@ -36,7 +44,11 @@ class SetlistFmClient(private val apiKeyProvider: suspend () -> String?) {
                 http.newCall(request).execute().use { resp ->
                     when {
                         resp.isSuccessful -> resp.body?.string() ?: ""
-                        resp.code == 429 || resp.code >= 500 -> null
+                        resp.code >= 500 -> null
+                        resp.code == 429 -> throw IOException(
+                            "setlist.fm's request limit for today has been reached. " +
+                                "Nothing is wrong — try again later."
+                        )
                         resp.code == 404 -> throw IOException("Not found (404). Check the name/ID and try again.")
                         resp.code == 403 -> throw IOException("setlist.fm rejected the API key (403).")
                         else -> throw IOException("setlist.fm error ${resp.code}")
@@ -48,7 +60,7 @@ class SetlistFmClient(private val apiKeyProvider: suspend () -> String?) {
             delay(backoffMs)
             backoffMs *= 2
         }
-        throw IOException("setlist.fm is rate limiting or unavailable. Try again in a moment.")
+        throw IOException("setlist.fm is unavailable. Try again in a moment.")
     }
 
     suspend fun searchArtists(name: String, page: Int = 1): ArtistSearchResponse =
