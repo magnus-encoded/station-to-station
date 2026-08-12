@@ -1,5 +1,7 @@
 package io.github.magnusencoded.stationtostation.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -156,10 +158,14 @@ fun SettingsScreen(
                 )
             } else {
                 Text(
-                    "Request a free API key at api.setlist.fm.",
+                    "This app needs a free setlist.fm API key of your own.",
                     style = MaterialTheme.typography.bodySmall,
                 )
-                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse("https://www.setlist.fm/settings/api"))
+                    )
+                }) { Text("Request one at setlist.fm/settings/api") }
                 OutlinedTextField(
                     value = apiKey,
                     onValueChange = { apiKey = it },

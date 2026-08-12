@@ -998,6 +998,7 @@ private fun EmptyTimeline(onAdd: () -> Unit, onPlan: () -> Unit) {
 @Composable
 fun ImportScreen(viewModel: AppViewModel, onBack: () -> Unit, onDone: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     val startCount = remember { viewModel.state.value.setlists.size }
     var username by remember { mutableStateOf(state.mySetlistFmUser) }
     var apiKey by remember { mutableStateOf("") }
@@ -1030,6 +1031,19 @@ fun ImportScreen(viewModel: AppViewModel, onBack: () -> Unit, onDone: () -> Unit
             Spacer(Modifier.height(22.dp))
             if (!state.setlistFmReady) {
                 StationField(apiKey, { apiKey = it }, "setlist.fm API key")
+                // The field alone asks for something a stranger has no way to find.
+                Text(
+                    "Get a free key at setlist.fm/settings/api ›",
+                    color = Amber,
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .clickable {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse("https://www.setlist.fm/settings/api"))
+                            )
+                        }
+                        .padding(vertical = 6.dp),
+                )
                 Spacer(Modifier.height(10.dp))
             }
             StationField(username, { username = it }, "setlist.fm username", imeDone = true)
