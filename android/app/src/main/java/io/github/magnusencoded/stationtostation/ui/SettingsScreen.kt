@@ -128,12 +128,24 @@ fun SettingsScreen(
             }
             Spacer(Modifier.height(16.dp))
             Text(
-                "To use a different Spotify app, create one at " +
+                "Spotify allows five signed-in users per app, so logging in may be " +
+                    "refused. Use your own Spotify app instead: create one at " +
                     "developer.spotify.com/dashboard with Web API enabled and " +
                     "redirect URI $SPOTIFY_REDIRECT_URI, paste its Client ID " +
                     "below, Save, then log out and back in.",
                 style = MaterialTheme.typography.bodySmall,
             )
+            // The steps above are the ones people get wrong, and a phone is a bad
+            // place to follow them. The site has the same list plus a way to ask
+            // for one of the five slots.
+            TextButton(onClick = {
+                context.startActivity(
+                    Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse("https://magnus-encoded.github.io/station-to-station/"),
+                    )
+                )
+            }) { Text("Step by step, and how to ask for a slot") }
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(
                 value = clientId,
