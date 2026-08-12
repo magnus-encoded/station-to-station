@@ -41,6 +41,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -92,6 +93,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -1540,10 +1543,6 @@ private fun GigMediaBands(
     onOpen: (Uri) -> Unit,
     onRemove: (StoredMedia) -> Unit,
     onMove: (String, Band, Int) -> Unit,
-    /** The night's own facts, already composed. Empty when the record knows nothing. */
-    preamble: String = "",
-    onWrite: (Band, String) -> Unit = { _, _ -> },
-    onVerdict: (String, String?) -> Unit = { _, _ -> },
 ) {
     // Two splits of the same night, and the difference between them is the whole of
     // #50's wiring. [all] is every item and answers *who is in the commons* — a
@@ -1554,7 +1553,6 @@ private fun GigMediaBands(
     // MediaBands itself stays kind-blind, which is the claim this feature rests on.
     val all = bandsOf(media)
     val bands = bandsOf(media.filterNot { it.kind == StoredMedia.Kind.NOTE })
-    val noteBands = bandsOf(media.filter { it.kind == StoredMedia.Kind.NOTE })
     val density = LocalDensity.current
     val strideX = with(density) { (GigPhotoSize + ItemGap).toPx() }
     val padStart = with(density) { 20.dp.toPx() }
@@ -1674,26 +1672,6 @@ private fun GigMediaBands(
                 onDragStart = { startDrag(Band.SHARED, it) },
                 onDragAt = moveDrag,
                 onDrop = endDrag,
-                notes = {
-                    BandNotes(
-                        band = Band.SHARED,
-                        mine = noteBands.shared.firstOrNull(),
-                        received = noteBands.received,
-                        // Once per night, over whichever note is uppermost. The same
-                        // sentence twice is noise, and it is a fact about the night
-                        // rather than about either band.
-                        preamble = if (noteBands.shared.isNotEmpty()) preamble else "",
-                        senderName = senderName,
-                        editable = !contactLight,
-                        onWrite = { onWrite(Band.SHARED, it) },
-                        onVerdict = { v ->
-                            noteBands.shared.firstOrNull()?.let { onVerdict(it.id, v) }
-                        },
-                        // Withdrawing: the same move a photograph makes, through the
-                        // same function. One note per band, so there is no index.
-                        onLift = { id -> onMove(id, Band.VAULT, 0) },
-                    )
-                },
             )
             // Under the contact light the room holds what a Contact can see, and they
             // cannot see the vault at all — so it is absent rather than drawn empty,
@@ -1720,27 +1698,6 @@ private fun GigMediaBands(
                     onDragStart = { startDrag(Band.VAULT, it) },
                     onDragAt = moveDrag,
                     onDrop = endDrag,
-                    notes = {
-                        BandNotes(
-                            band = Band.VAULT,
-                            mine = noteBands.vault.firstOrNull(),
-                            // Nothing arrives here. A **Contact**'s note is something
-                            // they put in the commons; there is no path by which one
-                            // lands in my vault.
-                            received = emptyList(),
-                            preamble = if (noteBands.shared.isEmpty()) preamble else "",
-                            senderName = senderName,
-                            editable = true,
-                            onWrite = { onWrite(Band.VAULT, it) },
-                            onVerdict = { v ->
-                                noteBands.vault.firstOrNull()?.let { onVerdict(it.id, v) }
-                            },
-                            // Publishing a draft. The upward move earns the green
-                            // promise for free, because [hintForMoving] never asked
-                            // what kind of item it was holding.
-                            onLift = { id -> onMove(id, Band.SHARED, 0) },
-                        )
-                    },
                 )
             }
         }
@@ -1845,9 +1802,6 @@ private fun MediaBand(
     onDragStart: (Offset) -> Unit,
     onDragAt: (Offset) -> Unit,
     onDrop: () -> Unit,
-    /** This band's **Note** row, drawn under the strip. A slot, so the band does not
-     *  grow nine parameters to describe prose it only has to make room for. */
-    notes: @Composable () -> Unit = {},
 ) {
     val tilePx = with(LocalDensity.current) { (GigPhotoSize + ItemGap).toPx() }
     // The gesture lives on the strip, never on a tile. A tile leaves the composition
@@ -1972,10 +1926,73 @@ private fun MediaBand(
                 ) { Text(offerText, color = Ink, fontSize = 12.sp) }
             }
         }
-        // Inside the band's own Column, not between two bands: the prose belongs to
-        // this side of the tier line, and the 12dp that separates the bands would
-        // make it ambiguous which one a row underneath had joined.
-        notes()
+    }
+}
+
+/**
+ * The night's prose, both bands of it, drawn below the setlist (#50).
+ *
+ * **Below the set, not beside the photographs.** Analysis happens after the show —
+ * the Journalist writes when the lights are up and the Reliver reads after they have
+ * been through the night again — so the write-line sits at the end of the room rather
+ * than in the middle of it, where it would interrupt the scroll through the material
+ * with a demand for a sentence.
+ *
+ * **Shared above vault, always**, which is the same order the **Bands** are drawn in
+ * and the same claim: up is what my **Audience** reads, down is what reaches nobody.
+ * The prose leaves the band frames but not the model — a long-press still lifts a note
+ * between them, and [MediaBands] still never learns that any of this is text.
+ */
+@Composable
+private fun GigNotes(
+    media: List<StoredMedia>,
+    /** The night's own facts, already composed. Empty when the record knows nothing. */
+    preamble: String,
+    senderName: (String) -> String?,
+    contactLight: Boolean,
+    onWrite: (Band, String) -> Unit,
+    onVerdict: (String, String?) -> Unit,
+    onMove: (String, Band, Int) -> Unit,
+) {
+    val noteBands = bandsOf(media.filter { it.kind == StoredMedia.Kind.NOTE })
+    Column {
+        BandNotes(
+            band = Band.SHARED,
+            mine = noteBands.shared.firstOrNull(),
+            received = noteBands.received,
+            // Once per night, over whichever note is uppermost. The same sentence
+            // twice is noise, and it is a fact about the night rather than about
+            // either band.
+            preamble = if (noteBands.shared.isNotEmpty()) preamble else "",
+            senderName = senderName,
+            editable = !contactLight,
+            onWrite = { onWrite(Band.SHARED, it) },
+            onVerdict = { v -> noteBands.shared.firstOrNull()?.let { onVerdict(it.id, v) } },
+            // Withdrawing: the same move a photograph makes, through the same
+            // function. One note per band, so there is no index.
+            onLift = { id -> onMove(id, Band.VAULT, 0) },
+        )
+        // Absent under the contact light for the reason the vault strip is: a Contact
+        // cannot see the vault, and an empty row drawn there would claim nothing is
+        // held back over a vault that holds something.
+        if (!contactLight) {
+            BandNotes(
+                band = Band.VAULT,
+                mine = noteBands.vault.firstOrNull(),
+                // Nothing arrives here. A **Contact**'s note is something they put in
+                // the commons; there is no path by which one lands in my vault.
+                received = emptyList(),
+                preamble = if (noteBands.shared.isEmpty()) preamble else "",
+                senderName = senderName,
+                editable = true,
+                onWrite = { onWrite(Band.VAULT, it) },
+                onVerdict = { v -> noteBands.vault.firstOrNull()?.let { onVerdict(it.id, v) } },
+                // Publishing a draft. The upward move earns the green promise for
+                // free, because [hintForMoving] never asked what kind of item it was
+                // holding.
+                onLift = { id -> onMove(id, Band.SHARED, 0) },
+            )
+        }
     }
 }
 
@@ -2007,6 +2024,11 @@ private fun BandNotes(
     var editing by remember(mine?.id, band) { mutableStateOf(false) }
     var draft by remember(mine?.id, band) { mutableStateOf(mine?.text.orEmpty()) }
     var expanded by remember(mine?.id) { mutableStateOf(false) }
+    // The tap that opens the field is the tap that means "I am writing now" — asking
+    // for a second one to raise the keyboard is the whole cost of capture doubled, on
+    // the surface ADR-0012 says has to be one-handed and cheap.
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(editing) { if (editing) focus.requestFocus() }
 
     Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp)) {
         when {
@@ -2014,6 +2036,11 @@ private fun BandNotes(
                 // One field, no toolbar. The phone is the wrong surface for long form
                 // (ADR-0012) and the answer is to keep the room visible around it,
                 // not to grow an editor.
+                //
+                // Tall enough to invite several sentences, though: a one-line box asks
+                // for a caption, and the thing being asked for is what the night was
+                // like. The floor is the invitation; the field grows past it as it
+                // fills, and nothing truncates what gets typed.
                 BasicTextField(
                     value = draft,
                     onValueChange = { draft = it },
@@ -2021,10 +2048,12 @@ private fun BandNotes(
                     cursorBrush = SolidColor(Amber),
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = 108.dp)
                         .clip(RoundedCornerShape(6.dp))
                         .background(UnlitField)
                         .border(1.dp, Amber, RoundedCornerShape(6.dp))
-                        .padding(10.dp),
+                        .padding(10.dp)
+                        .focusRequester(focus),
                 )
                 Row(Modifier.padding(top = 6.dp)) {
                     Text(
@@ -2793,6 +2822,10 @@ fun StationEventScreen(
             LazyColumn(
                 Modifier
                     .fillMaxSize()
+                    // No imePadding here, deliberately: the Scaffold already insets for
+                    // the keyboard, and a second one shrinks the viewport past where
+                    // the list draws — the note field kept its layout and lost its
+                    // bottom border, its "done" and the vault's write-line under it.
                     // Arranging is the Room's mode, so the whole Room dismisses it —
                     // every tap that is not an [x] on a thumbnail, not merely a tap on
                     // the strip that opened it (#162). Registered before the swipe so
@@ -3010,9 +3043,6 @@ fun StationEventScreen(
                                 onOpen = { uri -> viewerUri = uri },
                                 onRemove = { item -> viewModel.removeGigPhoto(setlist.id, Uri.parse(item.ref)) },
                                 onMove = { id, band, index -> viewModel.moveGigMedia(setlist.id, id, band, index) },
-                                preamble = gigPreamble,
-                                onWrite = { band, text -> viewModel.setGigNote(setlist.id, band, text) },
-                                onVerdict = { id, v -> viewModel.setGigVerdict(setlist.id, id, v) },
                             )
                             Spacer(Modifier.height(8.dp))
                             GigPhotoSuggestions(
@@ -3093,7 +3123,24 @@ fun StationEventScreen(
                         }
                     }
                 }
-                item { Spacer(Modifier.height(16.dp)) }
+                // Last of the night's own material, and after the set on purpose: the
+                // sentence is written once the songs have been read back, which is
+                // what "analysis happens after the show" means as a layout. Still
+                // above the **Alcove**, which is the room's fixture rather than the
+                // night's record.
+                item {
+                    Spacer(Modifier.height(14.dp))
+                    GigNotes(
+                        media = gigMedia,
+                        preamble = gigPreamble,
+                        senderName = { key -> state.friends.firstOrNull { it.setlistfm == key }?.name },
+                        contactLight = state.contactLight,
+                        onWrite = { band, text -> viewModel.setGigNote(setlist.id, band, text) },
+                        onVerdict = { id, v -> viewModel.setGigVerdict(setlist.id, id, v) },
+                        onMove = { id, band, index -> viewModel.moveGigMedia(setlist.id, id, band, index) },
+                    )
+                }
+                item { Spacer(Modifier.height(96.dp)) }
             }
         }
     }
