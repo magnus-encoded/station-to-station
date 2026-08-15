@@ -12,6 +12,7 @@ import io.github.magnusencoded.stationtostation.data.setlistfm.FmVenue
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -619,6 +620,67 @@ class TimelineStoreTest {
         assertEquals(listOf("a"), cached.shows["magnus"]?.map { it.id })
         assertTrue(cached.attendance().isEmpty())
     }
+
+    /**
+     * #126 story 11, and the part of it the spec called the risky one: `remembered` is
+     * **parallel to `songs`**, and a cache written before the field existed carries none
+     * at all. Fifteen songs and zero remembered lines is not a corrupt record — it is
+     * "nothing was ever replaced", which is exactly true — but it is the shape every
+     * edit has to survive, and the real device is holding one right now.
+     */
+    @Test
+    fun `a Log written before the remembered field loads with every entry intact`() =
+        runBlocking {
+            val file = File.createTempFile("timelines", ".json")
+            file.writeText(
+                """{"gigs":{"g1":{"id":"g1","date":"07-08-2026","artist":"Øyvind Holm",""" +
+                    """"venue":"Verandaen, Skotbu","createdAt":1}},""" +
+                    """"gigLogs":{"g1":{"songs":["","All held together by toothpicks and gum",""" +
+                    """"","Between Stations"],"closed":true}}}"""
+            )
+            val log = TimelineStore(file).load().gigLogs["g1"]!!
+
+            assertEquals(4, log.songs.size)
+            assertEquals(2, log.gaps) // the two Gaps are still acknowledged Gaps
+            assertEquals(
+                listOf("All held together by toothpicks and gum", "Between Stations"),
+                log.named(),
+            )
+            // No remembered line anywhere, rather than blanks that read as replaced.
+            assertNull(log.rememberedAt(1))
+            assertTrue(log.remembered.isEmpty())
+        }
+
+    /**
+     * The same cache, then edited. `aligned()` is the only thing standing between an
+     * empty `remembered` and a correction writing its words into the wrong row — so
+     * correcting entry 1 of a log that has never carried the field must land on 1.
+     */
+    @Test
+    fun `correcting a Log that predates the field keeps the two lists parallel`() =
+        runBlocking {
+            val file = File.createTempFile("timelines", ".json")
+            // The Gig record matters: withGig() mints a night for a key it does not
+            // already hold, so a Log with no Gig would be saved under a derived id.
+            file.writeText(
+                """{"gigs":{"g1":{"id":"g1","date":"07-08-2026","artist":"Øyvind Holm",""" +
+                    """"venue":"Verandaen, Skotbu","createdAt":1}},""" +
+                    """"gigLogs":{"g1":{"songs":["","All held together by toothpicks and gum",""" +
+                    """"","Between Stations"],"closed":true}}}"""
+            )
+            val store = TimelineStore(file)
+            val corrected = store.load().gigLogs["g1"]!!.correctingAt(1, "Toothpicks and Gum")
+            store.saveLog("g1", corrected)
+
+            val reloaded = store.load().gigLogs["g1"]!!
+            assertEquals(
+                listOf("", "Toothpicks and Gum", "", "Between Stations"),
+                reloaded.songs,
+            )
+            assertEquals("All held together by toothpicks and gum", reloaded.rememberedAt(1))
+            assertNull(reloaded.rememberedAt(3)) // the untouched entry stayed untouched
+            assertEquals(2, reloaded.gaps)
+        }
 
     // --- #97: media becomes a record ----------------------------------------
 
