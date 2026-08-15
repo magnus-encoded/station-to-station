@@ -480,6 +480,58 @@ actor TimelineStore {
         return c.gigLogs[gigId] ?? StoredLog()
     }
 
+    /// How I came to be marked as at one gig, replacing what was there — this is the
+    /// current state of one relationship, not an append-only log.
+    ///
+    /// The counterpart Android has had since #29. It arrives here alongside
+    /// `savePlanned`/`removePlanned` because both of those are *about* the claim — one
+    /// refuses to downgrade it, the other refuses to erase it — and neither rule can be
+    /// stated, or tested, without a way to write one.
+    func saveAttendance(setlistId: String, attendance: StoredAttendance) {
+        writeMerged { cache in
+            var c = cache
+            let gigId = c.withGig(setlistId)
+            c.gigAttendance[gigId] = attendance
+            return c
+        }
+    }
+
+    /// Adds a gig I am going to, with the attendance claim that goes with it (#175).
+    ///
+    /// **One write**, because the record and the claim are useless apart: a planned gig
+    /// whose provenance did not land would read as attended on the next launch.
+    /// Re-adding the same gig replaces its record rather than duplicating it.
+    ///
+    /// **Never downgrades the claim.** Re-storing the record when the night's setlist
+    /// finally lands must not throw away a check-in that happened in between — which is
+    /// exactly the sequence a night you planned and then went to produces.
+    func savePlanned(_ setlist: FmSetlist) {
+        writeMerged { cache in
+            var c = cache
+            let gigId = c.withGig(setlist.id)
+            c.gigPlanned[gigId] = setlist
+            if c.gigAttendance[gigId] == nil {
+                c.gigAttendance[gigId] = StoredAttendance(provenance: "planned")
+            }
+            return c
+        }
+    }
+
+    /// Forgets a gig I am no longer going to.
+    ///
+    /// Drops the attendance claim with it — **but only while it is still `planned`**. A
+    /// gig since checked into or attended is a night that happened, and taking it out
+    /// of my plans must not quietly erase the evidence that I was there.
+    func removePlanned(setlistId: String) {
+        writeMerged { cache in
+            var c = cache
+            guard let id = c.gigIdOrNil(setlistId) else { return c }
+            c.gigPlanned[id] = nil
+            if c.gigAttendance[id]?.provenance == "planned" { c.gigAttendance[id] = nil }
+            return c
+        }
+    }
+
     /// The Reliver's current media for one gig, replacing what was there.
     func saveMedia(setlistId: String, media: [StoredMedia]) {
         writeMerged { cache in

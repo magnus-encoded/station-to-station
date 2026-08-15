@@ -58,7 +58,8 @@ final class SetlistFmClient {
             get("user/\(userId)/attended", params: ["p": "\(page)"]))
     }
 
-    /// One setlist, fresh — for when it was just edited on setlist.fm.
+    /// One setlist, fresh — for when it was just edited on setlist.fm, and the only
+    /// way a gig that has not happened yet can be fetched at all. See `parseSetlistId`.
     func setlist(_ setlistId: String) async throws -> FmSetlist {
         try await decoder.decode(FmSetlist.self, from: get("setlist/\(setlistId)", params: [:]))
     }
