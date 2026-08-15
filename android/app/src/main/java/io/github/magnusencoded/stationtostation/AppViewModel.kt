@@ -136,6 +136,10 @@ data class UiState(
     val setlistFmReady: Boolean = false,
     val bundledSpotifyClientId: Boolean = false,
     val bundledSetlistFmKey: Boolean = false,
+    /** The bundled Spotify client id, masked — what the empty field hints at. */
+    val bundledSpotifyHint: String = "",
+    /** The bundled setlist.fm key, masked. */
+    val bundledSetlistFmHint: String = "",
     /** Scopes granted at the last Spotify login; null when unknown. */
     val grantedScope: String? = null,
     // Search
@@ -346,14 +350,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.update {
                 it.copy(
                     setlistFmApiKey = settings.setlistFmApiKey.first() ?: "",
-                    // Effective value, so Settings shows the bundled ID and lets
-                    // it be swapped for another app's without a rebuild.
-                    spotifyClientId = settings.spotifyClientIdValue() ?: "",
+                    // What *I* entered, never the effective value. This used to be
+                    // `spotifyClientIdValue()`, which falls back to the bundled id —
+                    // so the field arrived pre-filled with a value the user had not
+                    // typed, and pressing Save pinned it as their personal override.
+                    // A later build shipping a different bundled id would then be
+                    // ignored on that phone, silently and permanently. The bundled
+                    // one is hinted at instead, masked (see [bundledSpotifyHint]).
+                    spotifyClientId = settings.spotifyClientId.first() ?: "",
                     spotifyConnected = spotify.isConnected(),
                     spotifyLoginReady = settings.spotifyClientIdValue() != null,
                     setlistFmReady = settings.setlistFmApiKeyValue() != null,
                     bundledSpotifyClientId = settings.hasBundledSpotifyClientId(),
                     bundledSetlistFmKey = settings.hasBundledSetlistFmKey(),
+                    bundledSpotifyHint = settings.bundledSpotifyClientIdHint(),
+                    bundledSetlistFmHint = settings.bundledSetlistFmKeyHint(),
                     grantedScope = settings.grantedScope(),
                     mySetlistFmUser = settings.mySetlistFmUser.first() ?: "",
                     friends = settings.friends.first(),

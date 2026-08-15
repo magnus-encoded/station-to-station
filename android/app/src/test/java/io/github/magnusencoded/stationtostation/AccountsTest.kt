@@ -7,6 +7,7 @@ import io.github.magnusencoded.stationtostation.data.CATEGORY_SETLISTS
 import io.github.magnusencoded.stationtostation.data.Credentials
 import io.github.magnusencoded.stationtostation.data.HandoverManifest
 import io.github.magnusencoded.stationtostation.data.Identities
+import io.github.magnusencoded.stationtostation.data.maskedHint
 import io.github.magnusencoded.stationtostation.data.StoredGig
 import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.TimelineCache
@@ -152,5 +153,20 @@ class AccountsTest {
         assertEquals(token, payload.credentials.spotifyRefreshToken)
         // And the records manifest has no field that could hold it.
         assertTrue(HandoverManifest().identities.setlistFmUser == null)
+    }
+
+    /**
+     * The hint the Settings fields show for a bundled credential. Enough to tell two
+     * keys apart, never enough to be one — the field is empty because the user has
+     * entered nothing, and the placeholder says which bundled value is in use.
+     */
+    @Test
+    fun `a masked hint shows the last four characters and no more`() {
+        assertEquals("*******cb4f", maskedHint("2a9f1d7e4b6c0a3d5e8f2b1c9d7e0cb4f"))
+        assertEquals("", maskedHint(""))
+        assertEquals("", maskedHint("   ".trim()))
+        // Short enough that four characters would be most of it: show none.
+        assertEquals("********", maskedHint("abcdefgh"))
+        assertEquals("****", maskedHint("abcd"))
     }
 }

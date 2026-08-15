@@ -151,6 +151,15 @@ fun SettingsScreen(
                 value = clientId,
                 onValueChange = { clientId = it },
                 label = { Text("Spotify Client ID") },
+                // Empty means "using the bundled one", and the placeholder says which
+                // bundled one. It used to arrive pre-filled with the bundled id, which
+                // made a value the user never typed look like one they had — and Save
+                // then pinned it as their override for good.
+                placeholder = {
+                    if (state.bundledSpotifyClientId) {
+                        Text(state.bundledSpotifyHint, color = MaterialTheme.colorScheme.outline)
+                    }
+                },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -161,31 +170,37 @@ fun SettingsScreen(
 
             Text("setlist.fm", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
-            if (state.bundledSetlistFmKey) {
-                Text(
+            Text(
+                if (state.bundledSetlistFmKey) {
                     "Using the bundled setlist.fm API key. The setlist.fm API has no " +
                         "user login — to load your attended concerts, just enter your " +
-                        "setlist.fm username on the My concerts tab.",
-                    style = MaterialTheme.typography.bodySmall,
+                        "setlist.fm username on the My concerts tab."
+                } else {
+                    "This app needs a free setlist.fm API key of your own."
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
+            TextButton(onClick = {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse("https://www.setlist.fm/settings/api"))
                 )
-            } else {
-                Text(
-                    "This app needs a free setlist.fm API key of your own.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                TextButton(onClick = {
-                    context.startActivity(
-                        Intent(Intent.ACTION_VIEW, Uri.parse("https://www.setlist.fm/settings/api"))
-                    )
-                }) { Text("Request one at setlist.fm/settings/api") }
-                OutlinedTextField(
-                    value = apiKey,
-                    onValueChange = { apiKey = it },
-                    label = { Text("setlist.fm API key") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+            }) { Text("Request one at setlist.fm/settings/api") }
+            // The field is here whether or not a key is bundled. Hiding it when one was
+            // meant "the bundled key cannot be replaced without a rebuild", which is the
+            // opposite of what a bring-your-own-source app should offer — and it is the
+            // only way out if the bundled key is ever revoked or rate-limited.
+            OutlinedTextField(
+                value = apiKey,
+                onValueChange = { apiKey = it },
+                label = { Text("setlist.fm API key") },
+                placeholder = {
+                    if (state.bundledSetlistFmKey) {
+                        Text(state.bundledSetlistFmHint, color = MaterialTheme.colorScheme.outline)
+                    }
+                },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
 
             Spacer(Modifier.height(16.dp))
             Button(

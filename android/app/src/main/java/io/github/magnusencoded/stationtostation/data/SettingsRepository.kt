@@ -124,6 +124,9 @@ class SettingsRepository(private val context: Context) {
     fun hasBundledSetlistFmKey(): Boolean = BuildConfig.SETLISTFM_API_KEY.isNotBlank()
     fun hasBundledSpotifyClientId(): Boolean = BuildConfig.SPOTIFY_CLIENT_ID.isNotBlank()
 
+    fun bundledSetlistFmKeyHint(): String = maskedHint(BuildConfig.SETLISTFM_API_KEY)
+    fun bundledSpotifyClientIdHint(): String = maskedHint(BuildConfig.SPOTIFY_CLIENT_ID)
+
     suspend fun saveSetlistFmApiKey(value: String) {
         context.dataStore.edit { it[Keys.SETLISTFM_API_KEY] = value.trim() }
     }
@@ -194,4 +197,18 @@ class SettingsRepository(private val context: Context) {
             Keys.PKCE_VERIFIER,
         )
     }
+}
+
+/**
+ * What a bundled credential looks like in a field the user has not filled in.
+ *
+ * The last four characters, because the only question the hint has to answer is
+ * "is something already in use here, and is it the one I think it is" — enough to
+ * tell two keys apart, not enough to be one. A short value shows nothing at all
+ * rather than most of itself.
+ */
+fun maskedHint(value: String): String = when {
+    value.isBlank() -> ""
+    value.length <= 8 -> "*".repeat(value.length)
+    else -> "*".repeat(7) + value.takeLast(4)
 }
