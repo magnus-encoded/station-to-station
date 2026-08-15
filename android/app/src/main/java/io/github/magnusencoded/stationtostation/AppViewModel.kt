@@ -26,6 +26,7 @@ import io.github.magnusencoded.stationtostation.data.gigNight
 import io.github.magnusencoded.stationtostation.data.isLocal
 import io.github.magnusencoded.stationtostation.data.localGigSetlist
 import io.github.magnusencoded.stationtostation.data.moveMedia
+import io.github.magnusencoded.stationtostation.data.parseFmDate
 import io.github.magnusencoded.stationtostation.data.parseLineup
 import io.github.magnusencoded.stationtostation.data.plannedLane
 import io.github.magnusencoded.stationtostation.data.playsSong
@@ -1151,6 +1152,44 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 _state.update { it.copy(planningLoading = false) }
                 fail(e)
+            }
+        }
+    }
+
+    /**
+     * A night entered by hand — the zero-account floor's one door (#225).
+     *
+     * Nothing here is new machinery. `createLocalGig` has minted **Gig**s with no
+     * setlist.fm id since the **Bill** shipped, and `localGigSetlist` has been
+     * dressing them as an `FmSetlist` for every screen to draw. The floor was
+     * always real; what was missing was a way onto it, because both affordances on
+     * the empty spine led to setlist.fm.
+     *
+     * **Attendance is ATTENDED, never CHECKED_IN.** Typing a night in is a claim
+     * about the past made now; a check-in is a claim the phone corroborated at the
+     * venue on the night. Recording the two as the same thing would make the
+     * provenance the Room shows a lie, which is the one thing this path must not do.
+     *
+     * A blank venue stays blank rather than becoming "": an unknown room is not a
+     * place two gigs have in common, and `localGigSetlist` is careful about that.
+     */
+    fun addLocalGig(artist: String, venue: String, date: String) {
+        val night = parseFmDate(date)
+        if (artist.isBlank() || night == null) {
+            _state.update { it.copy(error = "A night needs who played and a date as dd-MM-yyyy.") }
+            return
+        }
+        viewModelScope.launch {
+            val gigId = timelines.createLocalGig(fmDate(night), artist.trim(), venue.trim())
+            val gig = localGigSetlist(gigId, artist.trim(), night, venue.trim(), city = "")
+            val attendance = StoredAttendance(provenance = StoredAttendance.Provenance.ATTENDED)
+            timelines.savePlanned(gig)
+            timelines.saveAttendance(gigId, attendance)
+            _state.update {
+                it.copy(
+                    plannedGigs = sortedPlanned(it.plannedGigs + gig),
+                    attendanceByGig = it.attendanceByGig + (gigId to attendance),
+                )
             }
         }
     }

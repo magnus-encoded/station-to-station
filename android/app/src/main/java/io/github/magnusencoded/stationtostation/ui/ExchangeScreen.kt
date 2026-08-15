@@ -332,8 +332,29 @@ private fun PeerRow(peer: ExchangePeer, onConnect: () -> Unit) {
 private fun QrExchange(cardUri: String?, username: String, onSetUsername: () -> Unit) {
     val context = LocalContext.current
     if (cardUri == null) {
+        // The exchange is not symmetric, and this used to read as though it were: one
+        // prompt asking for a username, which for a user who has decided against a
+        // setlist.fm account is a request they cannot satisfy (#225).
+        //
+        // The asymmetry is honest rather than a hole to fill. Weaving a line is a
+        // subscription to someone's *public setlist.fm data* — with no account there
+        // is no public data for a card to point at, so a card of theirs would resolve
+        // to nothing, and ADR-0003 rules out a backend that could make it resolve. So
+        // say what they can do, which is the half that works.
         Spacer(Modifier.height(10.dp))
-        Text("Set your setlist.fm username to make your card.", color = Muted, fontSize = 13.sp)
+        Text(
+            "You can take their card. Point your camera at their code and their " +
+                "line joins yours.",
+            color = Muted,
+            fontSize = 13.sp,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Handing yours over needs a setlist.fm username, because a card points at " +
+                "a public history and yours is on this phone only.",
+            color = Faint,
+            fontSize = 12.sp,
+        )
         Spacer(Modifier.height(10.dp))
         OutlinedButton(onClick = onSetUsername) { Text("Add your username", color = Amber) }
         return
