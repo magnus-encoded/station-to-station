@@ -727,4 +727,26 @@ class BillTest {
         assertEquals(catalogue, rankTitles("something else entirely", catalogue))
         assertEquals(catalogue, rankTitles("", catalogue))
     }
+
+    /**
+     * A title is not "contained" across a word boundary.
+     *
+     * `songKey` throws spacing away, so on its terms "Sand" sits inside
+     * "toothpick*s and* gum" — and containment is worth a whole point, so a
+     * two-word coincidence outranked the title the line actually names.
+     */
+    @Test
+    fun `a title spanning two words is not a contained match`() {
+        val ranked = rankTitles("All held together by toothpicks and gum", listOf("Sand", "Toothpicks and Gum"))
+
+        assertEquals("Toothpicks and Gum", ranked.first())
+    }
+
+    /** The same, with nothing to outrank it: a coincidence must not lead on its own. */
+    @Test
+    fun `a word-boundary coincidence does not beat a real word match`() {
+        val ranked = rankTitles("All held together by toothpicks and gum", listOf("Sand", "Gum"))
+
+        assertEquals("Gum", ranked.first())
+    }
 }

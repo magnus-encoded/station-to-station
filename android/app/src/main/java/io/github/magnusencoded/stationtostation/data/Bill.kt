@@ -485,11 +485,11 @@ data class StoredLog(
  */
 fun rankTitles(line: String, catalogue: List<String>): List<String> {
     if (line.isBlank()) return catalogue
-    val key = line.songKey()
+    val phrase = line.phrase()
     val words = line.words()
     return catalogue.sortedByDescending { title ->
-        val t = title.songKey()
-        val contained = if (t.isNotEmpty() && key.contains(t)) 1.0 else 0.0
+        val t = title.phrase()
+        val contained = if (t.isNotBlank() && phrase.contains(t)) 1.0 else 0.0
         val tokens = title.words()
         val overlap = if (tokens.isEmpty()) 0.0 else tokens.count { it in words }.toDouble() / tokens.size
         contained + overlap
@@ -498,7 +498,25 @@ fun rankTitles(line: String, catalogue: List<String>): List<String> {
 
 /** Words for overlap, where [songKey] throws spacing away too. */
 private fun String.words(): Set<String> =
-    lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }.toSet()
+    lowercase().replace("'", "").replace("’", "")
+        .split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }.toSet()
+
+/**
+ * The same words, in order, with a space at each end — [songKey] with its spacing kept.
+ *
+ * Containment is tested on this and not on `songKey`, which throws spacing away
+ * entirely: on its terms the title *Sand* is inside "toothpick**s and** gum", and a
+ * false containment is worth a whole point here, so a two-word coincidence would be
+ * promoted above the title someone actually wrote. Right for equality, wrong for
+ * substring search.
+ *
+ * Apostrophes close rather than split, so "Don't" is the one word "dont" that someone
+ * typing in the dark would write — the case `songKey` exists for, applied to spacing.
+ */
+private fun String.phrase(): String =
+    lowercase().replace("'", "").replace("’", "")
+        .split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }
+        .joinToString(" ", prefix = " ", postfix = " ")
 
 /**
  * Loose song-title equality: case, punctuation and spacing thrown away.
