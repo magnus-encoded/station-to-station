@@ -264,10 +264,17 @@ final class TimelineStoreTests: XCTestCase {
 
         let json = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
         // Asserted against the raw file rather than a decoded cache, because the
-        // whole point is that this platform models none of these — carrying them
-        // is what the file says, not what a Swift type remembered.
+        // whole point is that this platform models almost none of these — carrying
+        // them is what the file says, not what a Swift type remembered. (gigLogs
+        // became the exception in #169; see below.)
         XCTAssertEqual(["b1"], (json?["bills"] as? [String: Any])?.keys.sorted())
+        // gigLogs is the exception since #169: it is modelled now, not carried, so
+        // this asserts it survives *decoding and re-encoding* rather than surviving
+        // untouched. The Gap in the middle is the part a lossy round-trip would eat.
         XCTAssertEqual(["g1"], (json?["gigLogs"] as? [String: Any])?.keys.sorted())
+        let log = (json?["gigLogs"] as? [String: Any])?["g1"] as? [String: Any]
+        XCTAssertEqual(["Flying Whales", ""], log?["songs"] as? [String])
+        XCTAssertEqual(false, log?["closed"] as? Bool)
         XCTAssertEqual(["g1"], json?["sharedNights"] as? [String])
         XCTAssertEqual(true, json?["mediaTierMigrated"] as? Bool)
         XCTAssertEqual(
@@ -301,8 +308,11 @@ final class TimelineStoreTests: XCTestCase {
         await TimelineStore(file: file).save(shows: ["dizzi90": [show("a")]])
         let json = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
         XCTAssertEqual(
+            // gigLogs joined the list in #169: iOS now models the Log rather than
+            // carrying it blind, so it writes the key itself instead of only echoing
+            // one it found. Android reads an absent or empty map the same way.
             ["attendanceByGig", "attendedTotals", "calendarEventByGig", "festivalNames",
-             "gigAttendance", "gigCalendarEvent", "gigMedia", "gigPhotos", "gigPlanned",
+             "gigAttendance", "gigCalendarEvent", "gigLogs", "gigMedia", "gigPhotos", "gigPlanned",
              "gigPlaylists", "gigSongOffsets", "gigs", "photosBySetlist", "plannedShows", "playlistsMade",
              "shows", "songOffsetsBySetlist"],
             json?.keys.sorted()

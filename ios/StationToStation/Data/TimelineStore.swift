@@ -315,6 +315,20 @@ struct TimelineCache: Codable {
     /// (#97). No sort field on the record: deriving and correcting a night's
     /// arrangement is #75's subject, and a speculative field would prejudge it.
     var gigMedia: [String: [StoredMedia]] = [:]
+    /// The **Log** for each night, by **Gig** id (#169). See `StoredLog`.
+    ///
+    /// **This key stops being carried raw and starts being modelled**, which reverses
+    /// the call #168 made for it — deliberately. That rule was about "records this
+    /// platform never reads", and iOS reads this one now. Carrying it blind is what
+    /// you do with a record you cannot use; you cannot render a witness statement you
+    /// have not decoded.
+    ///
+    /// The cost, stated so it is not discovered later: a field Android adds to
+    /// `StoredLog` was previously preserved inside the raw blob and now is not,
+    /// because `carryingUnknownKeys` works on top-level keys only. `StoredLog` on both
+    /// sides must move together — the same rule the rest of this file already lives
+    /// under, now applying one level deeper.
+    var gigLogs: [String: StoredLog] = [:]
 
     init() {}
 
@@ -340,6 +354,7 @@ struct TimelineCache: Codable {
         gigPlaylists = map(.gigPlaylists, [StoredPlaylist].self)
         gigPlanned = map(.gigPlanned, FmSetlist.self)
         gigMedia = map(.gigMedia, [StoredMedia].self)
+        gigLogs = map(.gigLogs, StoredLog.self)
     }
 
     /// The id this gig is known by *outside* the store: its setlist.fm id where it
@@ -441,6 +456,28 @@ actor TimelineStore {
             }
             return c
         }
+    }
+
+    /// The **Log** for one night, replacing what was there (#169).
+    ///
+    /// Keyed by **Gig** id via `withGig`, the same way media is — a **Log** written
+    /// before a night was adopted has to survive adoption, and the gig id is the
+    /// identity that does not move.
+    func saveLog(setlistId: String, log: StoredLog) {
+        writeMerged { cache in
+            var c = cache
+            let gigId = c.withGig(setlistId)
+            c.gigLogs[gigId] = log
+            return c
+        }
+    }
+
+    /// The **Log** for one night, or an empty open one — a night not yet logged and a
+    /// night logged and emptied are the same thing to a reader.
+    func log(setlistId: String) -> StoredLog {
+        let c = load()
+        guard let gigId = c.gigIdOrNil(setlistId) else { return StoredLog() }
+        return c.gigLogs[gigId] ?? StoredLog()
     }
 
     /// The Reliver's current media for one gig, replacing what was there.
