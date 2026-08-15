@@ -4,7 +4,7 @@ package io.github.magnusencoded.stationtostation.data
  * The sentence rendered above a **Note**, composed from what the record already
  * holds (#50).
  *
- * *"I was here with Egil and Trummispojken at Rockefeller, seeing this set."*
+ * *"I was here with Ozzy and Lemmy at Rockefeller, seeing this set."*
  *
  * **It is not text and it is never stored.** A **Preamble** is the record showing
  * itself, which is why it cannot be typed, cannot be edited, and does not travel: a
@@ -57,7 +57,7 @@ fun preamble(
 }
 
 /**
- * "Egil", "Egil and Trummispojken", "Egil, Trummispojken and Ida".
+ * "Ozzy", "Ozzy and Lemmy", "Ozzy, Lemmy and Ida".
  *
  * No serial comma before the conjunction, and no "and" for one name — a list of one
  * that reads like a list is the tell that a sentence was assembled rather than

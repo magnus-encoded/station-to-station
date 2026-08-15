@@ -15,16 +15,16 @@ class PreambleTest {
     @Test
     fun `every clause known reads as one sentence`() {
         assertEquals(
-            "I was here with Egil and Trummispojken at Verandaen, seeing this set.",
-            preamble(listOf("Egil", "Trummispojken"), "Verandaen", songCount = 14),
+            "I was here with Ozzy and Lemmy at Verandaen, seeing this set.",
+            preamble(listOf("Ozzy", "Lemmy"), "Verandaen", songCount = 14),
         )
     }
 
     @Test
     fun `no venue drops the place and nothing else`() {
         assertEquals(
-            "I was here with Egil, seeing this set.",
-            preamble(listOf("Egil"), venue = null, songCount = 14),
+            "I was here with Ozzy, seeing this set.",
+            preamble(listOf("Ozzy"), venue = null, songCount = 14),
         )
     }
 
@@ -39,8 +39,8 @@ class PreambleTest {
     @Test
     fun `no setlist drops the set and nothing else`() {
         assertEquals(
-            "I was here with Egil at Verandaen.",
-            preamble(listOf("Egil"), "Verandaen", songCount = 0),
+            "I was here with Ozzy at Verandaen.",
+            preamble(listOf("Ozzy"), "Verandaen", songCount = 0),
         )
     }
 
@@ -59,8 +59,8 @@ class PreambleTest {
     fun `one name reads without a conjunction and three read as a list`() {
         assertEquals("I was here with Ida.", preamble(listOf("Ida")))
         assertEquals(
-            "I was here with Ida, Egil and Trummispojken.",
-            preamble(listOf("Ida", "Egil", "Trummispojken")),
+            "I was here with Ida, Ozzy and Lemmy.",
+            preamble(listOf("Ida", "Ozzy", "Lemmy")),
         )
     }
 
@@ -72,8 +72,8 @@ class PreambleTest {
     @Test
     fun `a contact discovered later simply appears in the sentence`() {
         val then = preamble(listOf("Ida"), "Verandaen")
-        val now = preamble(listOf("Ida", "Egil"), "Verandaen")
+        val now = preamble(listOf("Ida", "Ozzy"), "Verandaen")
         assertEquals("I was here with Ida at Verandaen.", then)
-        assertEquals("I was here with Ida and Egil at Verandaen.", now)
+        assertEquals("I was here with Ida and Ozzy at Verandaen.", now)
     }
 }
