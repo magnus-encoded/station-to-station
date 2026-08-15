@@ -7,6 +7,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.magnusencoded.stationtostation.data.Band
 import io.github.magnusencoded.stationtostation.data.Friend
+import io.github.magnusencoded.stationtostation.data.FriendArrival
+import io.github.magnusencoded.stationtostation.data.friendArrival
 import io.github.magnusencoded.stationtostation.data.DeviceLocation
 import io.github.magnusencoded.stationtostation.data.DeviceTimelinePlumbing
 import io.github.magnusencoded.stationtostation.data.LoadedSpine
@@ -253,6 +255,15 @@ data class UiState(
     val attendanceByGig: Map<String, StoredAttendance> = emptyMap(),
     /** The calendar event made for a gig, by gig id → its content URI; restored from disk. */
     val calendarEventByGig: Map<String, String> = emptyMap(),
+    /**
+     * A card that would change a **Contact** I already hold, waiting to be allowed or
+     * refused (#188). Nothing has been written while this is set.
+     *
+     * Not persisted, deliberately: an unanswered question about a card is not a fact
+     * about my record, and a prompt surviving a cold start would outlive the moment
+     * that produced it — by which time nobody remembers who handed it over.
+     */
+    val friendConflict: FriendArrival.Conflict? = null,
     /**
      * The gig the timeline is offering a check-in for, if the one location fix it
      * took put me at one. Null the rest of the time, which is nearly always.
@@ -562,13 +573,38 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         ).toShareUri()
     }
 
+    /**
+     * A card handed to me. Writes into an empty space; **asks before changing a contact
+     * I already hold** (#188).
+     *
+     * Every route in comes through here — a deep link, a BLE write, a pasted username —
+     * so the question is answered once rather than at each door.
+     */
     fun addFriend(friend: Friend) {
         viewModelScope.launch { addFriendNow(friend) }
     }
 
     private suspend fun addFriendNow(friend: Friend) {
+        when (val arrival = friendArrival(friend, _state.value.friends)) {
+            is FriendArrival.Unchanged -> Unit
+            is FriendArrival.New -> writeFriend(arrival.friend)
+            is FriendArrival.Conflict ->
+                _state.update { it.copy(friendConflict = arrival) }
+        }
+    }
+
+    /** The confirmed overwrite, and the only thing the prompt can do besides nothing. */
+    fun confirmFriendOverwrite() {
+        val pending = _state.value.friendConflict ?: return
+        _state.update { it.copy(friendConflict = null) }
+        viewModelScope.launch { writeFriend(pending.incoming) }
+    }
+
+    fun dismissFriendOverwrite() = _state.update { it.copy(friendConflict = null) }
+
+    private suspend fun writeFriend(friend: Friend) {
         val current = _state.value.friends
-        // De-dupe on setlist.fm username; a re-share updates the display name.
+        // De-dupe on setlist.fm username — the identity the list has always used.
         val next = current.filterNot { it.setlistfm.equals(friend.setlistfm, ignoreCase = true) } + friend
         settings.saveFriends(next)
         _state.update { it.copy(friends = next) }
@@ -765,6 +801,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun bringIn(friend: Friend) {
         // Persist the friend before loading, or the load runs against the old list.
         addFriendNow(friend)
+        // A card that would change someone I already hold has written nothing and left a
+        // question open (#188). Landing anyway would report a swap that did not happen —
+        // and stopping the radios mid-exchange is exactly what a hostile write wants.
+        if (_state.value.friendConflict != null) return
         _state.update { it.copy(justConnected = true, connectingWith = null) }
         loadFriendTimelines()
         exchange.stop()

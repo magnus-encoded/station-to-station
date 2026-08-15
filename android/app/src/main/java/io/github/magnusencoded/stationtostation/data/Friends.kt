@@ -19,6 +19,53 @@ data class Friend(
     val spotifyId: String? = null,
 )
 
+/**
+ * What arriving at my **Contact** list means for a card I have just been handed (#188).
+ *
+ * A card arrives from a link any page can open, or from a write by any radio in range,
+ * and the write it used to perform was a **replace**: an attacker who knew a real
+ * contact's username could silently rewrite the name I see against their **Line**.
+ *
+ * The line is drawn where the risk is. **Writing into an empty space costs nothing** —
+ * a contact I do not hold cannot be spoofed by adding them, and a swap that stopped to
+ * ask on every first meeting would be ceremony at exactly the moment two people are
+ * standing in front of each other. **Changing what is already there is different**: it
+ * is the only case where a card can make my record say something about someone I
+ * already know, so that one asks.
+ */
+sealed interface FriendArrival {
+    /** Nobody by that username yet. Write it, say nothing. */
+    data class New(val friend: Friend) : FriendArrival
+
+    /**
+     * Already held, and the card says the same thing. **Not a write and not a prompt.**
+     *
+     * Without this, meeting the same person twice — the ordinary case for people who go
+     * to gigs together — would ask permission to change nothing, and a prompt that
+     * routinely means nothing is a prompt nobody reads.
+     */
+    data object Unchanged : FriendArrival
+
+    /** Already held, and the card differs. The one case that asks. */
+    data class Conflict(val existing: Friend, val incoming: Friend) : FriendArrival
+}
+
+/**
+ * Matched on the setlist.fm username, case-insensitively — the same key the list has
+ * always de-duplicated on, because it is the identity setlist.fm itself uses.
+ */
+fun friendArrival(incoming: Friend, known: List<Friend>): FriendArrival {
+    val existing = known.firstOrNull { it.setlistfm.equals(incoming.setlistfm, ignoreCase = true) }
+        ?: return FriendArrival.New(incoming)
+    // The username is the identity and cannot differ here; only what the card *says*
+    // about that identity can. A card carrying no Spotify id is not a claim that they
+    // have none, so it does not count as a change on its own.
+    val sameName = existing.name == incoming.name
+    val sameSpotify = incoming.spotifyId == null || existing.spotifyId == incoming.spotifyId
+    return if (sameName && sameSpotify) FriendArrival.Unchanged
+    else FriendArrival.Conflict(existing, incoming)
+}
+
 private val friendsJson = Json { ignoreUnknownKeys = true }
 
 fun encodeFriends(friends: List<Friend>): String = friendsJson.encodeToString(friends)

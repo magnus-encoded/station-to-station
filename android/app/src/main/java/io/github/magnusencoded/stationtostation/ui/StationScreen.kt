@@ -135,6 +135,7 @@ import io.github.magnusencoded.stationtostation.MediaThumb
 import io.github.magnusencoded.stationtostation.NOT_STAMPED
 import io.github.magnusencoded.stationtostation.data.DeviceLocation
 import io.github.magnusencoded.stationtostation.data.Friend
+import io.github.magnusencoded.stationtostation.data.FriendArrival
 import io.github.magnusencoded.stationtostation.data.FutureRow
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredLog
@@ -283,6 +284,13 @@ fun StationTimelineScreen(
             gig = gig,
             onCheckIn = { viewModel.checkIn(gig.id) },
             onDismiss = { viewModel.dismissCheckInOffer() },
+        )
+    }
+    state.friendConflict?.let { conflict ->
+        FriendOverwriteDialog(
+            conflict = conflict,
+            onConfirm = { viewModel.confirmFriendOverwrite() },
+            onDismiss = { viewModel.dismissFriendOverwrite() },
         )
     }
 
@@ -955,6 +963,58 @@ private fun CheckInDialog(gig: FmSetlist, onCheckIn: () -> Unit, onDismiss: () -
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text("Not now", color = Faint) }
                 TextButton(onClick = onCheckIn) { Text("Check in", color = Amber) }
+            }
+        }
+    }
+}
+
+/**
+ * The one question a handed-over card has to ask: it names someone I already hold, and
+ * says something different about them (#188).
+ *
+ * Shown only for a change. A card for a stranger is written without asking, and the
+ * same card twice asks nothing — a prompt that routinely means nothing is a prompt
+ * nobody reads, and this one has to be read.
+ *
+ * It names **both** values rather than only the new one, because the question is not
+ * "is this name plausible" but "did the person in front of you mean to change what you
+ * already had". A card can be handed over by a radio nobody tapped.
+ */
+@Composable
+private fun FriendOverwriteDialog(
+    conflict: FriendArrival.Conflict,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(Raised)
+                .padding(20.dp),
+        ) {
+            Text("Change this contact?", fontFamily = Serif, fontSize = 19.sp, color = Ink)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "A card for @${conflict.existing.setlistfm} says something different " +
+                    "from what you have.",
+                color = Muted,
+                fontSize = 13.sp,
+            )
+            Spacer(Modifier.height(10.dp))
+            Text("Now: ${conflict.existing.name}", color = Ink, fontSize = 13.sp)
+            Text("Card: ${conflict.incoming.name}", color = Amber, fontSize = 13.sp)
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Their timeline does not change either way — only the name you see " +
+                    "against it.",
+                color = Faint,
+                fontSize = 11.sp,
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("Keep mine", color = Faint) }
+                TextButton(onClick = onConfirm) { Text("Use the card", color = Amber) }
             }
         }
     }
