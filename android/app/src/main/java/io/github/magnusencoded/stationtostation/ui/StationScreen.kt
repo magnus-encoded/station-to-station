@@ -98,6 +98,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -425,14 +427,23 @@ fun StationTimelineScreen(
                             viewModel.loadMoreSetlists()
                         }
                     }
-                    // Pulling down at the top of the line opens a gap toward the future:
-                    // the space where planning will live. It springs shut on release.
+                    // Pulling down at the top of the line opens a gap toward the future,
+                    // and the two ways in hang in that gap. How far you pull is what
+                    // picks one: the curtain used to latch open and grow two rows on the
+                    // timeline underneath it, which spent a continuous gesture on a
+                    // boolean and made the actions a consequence of reading a caption.
                     val scope = rememberCoroutineScope()
-                    var planningOpen by remember { mutableStateOf(false) }
                     val pull = remember { Animatable(0f) }
-                    val pullMax = with(LocalDensity.current) { 96.dp.toPx() }
+                    // 160dp of gap over 320dp of finger: enough travel to separate two
+                    // detents by more than a twitch, and enough drag that neither is
+                    // reached by an ordinary flick at the top of the list.
+                    val pullMax = with(LocalDensity.current) { 160.dp.toPx() }
+                    val haptics = LocalHapticFeedback.current
                     val pullNest = remember {
                         object : NestedScrollConnection {
+                            /** Last detent crossed, so each one ticks once. */
+                            var lastArmed = PlanningDoor.None
+
                             override fun onPostScroll(
                                 consumed: Offset,
                                 available: Offset,
@@ -440,17 +451,30 @@ fun StationTimelineScreen(
                             ): Offset {
                                 if (available.y <= 0f || source != NestedScrollSource.UserInput) return Offset.Zero
                                 scope.launch {
-                                    pull.snapTo((pull.value + available.y * 0.4f).coerceAtMost(pullMax))
+                                    pull.snapTo((pull.value + available.y * 0.5f).coerceAtMost(pullMax))
+                                    // A detent you cannot feel is a threshold, and two
+                                    // outcomes separated by a bare distance are a coin
+                                    // flip in the hand.
+                                    val now = armedDoor(pull.value / pullMax)
+                                    if (now != lastArmed) {
+                                        lastArmed = now
+                                        if (now != PlanningDoor.None) {
+                                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        }
+                                    }
                                 }
                                 return Offset(0f, available.y)
                             }
 
                             override suspend fun onPreFling(available: Velocity): Velocity {
-                                // Pulled far enough, the curtain latches instead of
-                                // springing shut. It was a signpost pointing at a place
-                                // that did not exist; planning exists now, so the
-                                // gesture that reaches for it should arrive somewhere.
-                                if (pull.value >= pullMax * 0.6f) planningOpen = true
+                                // Release takes the lit door. Releasing with none lit
+                                // closes the gap, so a short pull stays cheap to abandon.
+                                when (armedDoor(pull.value / pullMax)) {
+                                    PlanningDoor.Gig -> adding = true
+                                    PlanningDoor.Bill -> addingBill = true
+                                    PlanningDoor.None -> {}
+                                }
+                                lastArmed = PlanningDoor.None
                                 pull.animateTo(0f)
                                 return Velocity.Zero
                             }
@@ -616,6 +640,16 @@ fun StationTimelineScreen(
                                             if (zoomedOut) "Close the other timelines"
                                             else "Open the other timelines beside yours"
                                         ) { viewModel.setZoomedOut(!zoomedOut); true },
+                                        // The two doors moved into the curtain, and a
+                                        // pull depth is not a thing TalkBack can express
+                                        // — so without these the only way into planning
+                                        // would be a gesture the reader intercepts.
+                                        CustomAccessibilityAction("Add a gig you're going to") {
+                                            adding = true; true
+                                        },
+                                        CustomAccessibilityAction("Add a festival lineup") {
+                                            addingBill = true; true
+                                        },
                                     )
                                 },
                         ) {
@@ -623,16 +657,17 @@ fun StationTimelineScreen(
                             // which — "↑ THE FUTURE" — explained a direction the layout
                             // already states by being above today. Gone.
                             //
-                            // The two ways in show when the curtain has been pulled
-                            // open, or when there is nothing above today to point at
-                            // them: a line with a Bill and a ticket on it needs no
-                            // caption, an empty one has nothing to learn from.
+                            // The two ways in live in the curtain now. They stay here as
+                            // well only while there is nothing above today: a line with
+                            // a Bill and a ticket on it demonstrates that the future has
+                            // things in it, an empty one has nothing to learn from and
+                            // no reason to guess that pulling it would help.
                             item {
                                 FuturePrompt(
-                                    open = planningOpen || future.isEmpty(),
+                                    open = future.isEmpty(),
                                     loading = state.planningLoading,
-                                    onAdd = { adding = true; planningOpen = false },
-                                    onAddBill = { addingBill = true; planningOpen = false },
+                                    onAdd = { adding = true },
+                                    onAddBill = { addingBill = true },
                                 )
                             }
                             // Everything above today, in one date-ordered list —
@@ -832,32 +867,6 @@ fun StationTimelineScreen(
                 }
             }
         }
-    }
-}
-
-/**
- * The gap that opens when you pull down past the top of your line: the line keeps
- * going up, into the shows you haven't been to yet.
- *
- * It is no longer only a signpost. Pulled far enough it latches the two ways in
- * open — a gig you're going to, or a festival lineup — which is what let the two
- * permanent add-rows come off the top of the timeline. A short pull still springs
- * shut, so the gesture stays cheap to abandon.
- */
-@Composable
-private fun PlanningPull(progress: () -> Float, heightPx: () -> Float) {
-    val density = LocalDensity.current
-    val h = with(density) { heightPx().toDp() }
-    if (h <= 0.dp) return
-    Column(
-        Modifier.fillMaxWidth().height(h).alpha((progress() * 1.4f).coerceIn(0f, 1f)),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Box(Modifier.width(2.dp).height(h * 0.4f).background(LineCol))
-        Spacer(Modifier.height(6.dp))
-        Text("↑  PLANNING", color = Slate, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp)
-        Text("keep pulling to add something ahead", color = Faint, fontSize = 11.sp)
     }
 }
 
