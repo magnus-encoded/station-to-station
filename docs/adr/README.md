@@ -8,6 +8,14 @@ An ADR belongs here when the decision is **architecturally significant** — it 
 built later, or it is expensive to undo. A decision that is easy to change belongs in a comment next
 to the code it affects.
 
+## Revising one
+
+**Append and strike through. Never replace.** A superseded line stays on the page with `~~strikethrough~~`, and the reasoning that replaced it is added below under a dated `## Amendment` heading naming what changed and what made it change.
+
+The reason is the same one that justifies the directory at all: an ADR whose wrong turns have been edited out reads as though the decision was always obvious, which is exactly the record that lets it be silently reversed later. **What a decision used to say is evidence about how much weight to give what it says now** — ADR-0009 was accepted one day before the fact that broke it, and that gap is the most useful thing on the page.
+
+Issues elsewhere may be edited freely; this rule is for `docs/adr/` only.
+
 ## Structural
 
 | | Decision | Status |
@@ -28,7 +36,7 @@ status column is doing real work here: two of them are people nothing is built f
 | --- | --- | --- |
 | [0007](0007-the-collector.md) | The Collector | served |
 | [0008](0008-the-historian.md) | The Historian | served |
-| [0009](0009-the-reliver.md) | The Reliver | served; low net-new need |
+| [0009](0009-the-reliver.md) | The Reliver | ~~served; low net-new need~~ **served for five accounts** (amended 2026-08-15) |
 | [0010](0010-the-friendgroup-member.md) | The Friendgroup Member | served |
 | [0011](0011-the-tastemaker.md) | The Tastemaker | **deferred** |
 | [0012](0012-the-journalist.md) | The Journalist | served |
