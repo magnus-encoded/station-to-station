@@ -83,13 +83,37 @@ fun spotifyPlaylistId(input: String): String? =
  */
 fun friendFromQuery(u: String?, name: String?, sid: String?): Friend? {
     val user = u?.trim().orEmpty()
-    if (user.isEmpty()) return null
+    if (!isPlausibleSetlistFmUser(user)) return null
     return Friend(
         setlistfm = user,
         name = name?.trim()?.ifBlank { null } ?: user,
         spotifyId = sid?.trim()?.ifBlank { null },
     )
 }
+
+/**
+ * Letters, digits, dot, hyphen, underscore — nothing that means something to a URL.
+ *
+ * A username is the least trusted string this app holds: it arrives from a link any
+ * page can open, or from any radio in range, and it ends up in a **path segment**
+ * against setlist.fm carrying our API key. #187 is what that costs when it is not
+ * checked — a percent-encoded CRLF rode the path into the request line and split one
+ * request into two. That fix encodes the path, which is the right root fix; this is
+ * the other half, refusing the value at the door so it never travels at all.
+ *
+ * An allow-list, because the interesting characters here are the ones nobody thought
+ * of. Unicode letters and digits rather than ASCII, so a name in a non-Latin script
+ * is still a name — the point is to exclude URL and protocol syntax, not foreigners.
+ *
+ * Deliberately conservative, and it is worth saying what that costs: setlist.fm's own
+ * rule is not published anywhere we can read, so this is a guess at the shape of a
+ * username rather than a copy of their policy. If a real account is ever rejected,
+ * widen this — but widen it to a character, not to "anything non-blank".
+ */
+fun isPlausibleSetlistFmUser(user: String): Boolean =
+    user.isNotEmpty() && user.length <= 64 && SETLISTFM_USER.matches(user)
+
+private val SETLISTFM_USER = Regex("""[\p{L}\p{N}._-]+""")
 
 /** Parses a `station-to-station://friend?...` link. Null if it isn't one / has no username. */
 fun friendFromUri(uri: Uri): Friend? {

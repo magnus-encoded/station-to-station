@@ -7,6 +7,7 @@ import io.github.magnusencoded.stationtostation.ble.BleCardPeripheral
 import io.github.magnusencoded.stationtostation.ble.PeerHit
 import io.github.magnusencoded.stationtostation.ble.ProbeCard
 import io.github.magnusencoded.stationtostation.data.Friend
+import io.github.magnusencoded.stationtostation.data.isPlausibleSetlistFmUser
 import io.github.magnusencoded.stationtostation.data.nearby.NearbyPeers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -78,7 +79,10 @@ internal fun friendFromCard(card: ProbeCard): Friend? {
     // setlist.fm username — the same invariant the Nearby/QR card has always held. A card
     // without one is a contact with no timeline; storing that is the relationship layer's
     // job (#28/#29), not the meeting's.
-    val user = card.setlistfm?.trim()?.ifBlank { null } ?: return null
+    // Checked, not merely non-blank: a card is written by any radio in range, and the
+    // username goes into a setlist.fm path carrying our API key. See #187, and
+    // [isPlausibleSetlistFmUser] for what the rule is and what it deliberately costs.
+    val user = card.setlistfm?.trim()?.takeIf { isPlausibleSetlistFmUser(it) } ?: return null
     return Friend(setlistfm = user, name = card.name.ifBlank { user }, spotifyId = card.spotifyId)
 }
 

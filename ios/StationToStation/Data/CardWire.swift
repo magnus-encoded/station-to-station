@@ -207,7 +207,11 @@ struct PeerHit: Equatable {
 /// same invariant the QR card has always held. A card without one is a contact
 /// with no timeline; storing that is the relationship layer's job (#28/#29).
 func friendFromCard(_ card: ProbeCard) -> Friend? {
-    guard let user = card.setlistfm?.nilIfBlank?.trimmingCharacters(in: .whitespaces).nilIfBlank
+    // Checked, not merely non-blank: a card is written by any radio in range, and the
+    // username goes into a setlist.fm path carrying our API key. See #187, and
+    // `isPlausibleSetlistFmUser` for the rule and what it deliberately costs.
+    guard let user = card.setlistfm?.nilIfBlank?.trimmingCharacters(in: .whitespaces).nilIfBlank,
+          isPlausibleSetlistFmUser(user)
     else { return nil }
     return Friend(setlistfm: user, name: card.name.nilIfBlank ?? user, spotifyId: card.spotifyId)
 }

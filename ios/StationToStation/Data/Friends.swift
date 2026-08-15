@@ -75,8 +75,36 @@ func friendFromURL(_ url: URL) -> Friend? {
     func param(_ n: String) -> String? {
         c.queryItems?.first { $0.name == n }?.value?.trimmingCharacters(in: .whitespaces).nilIfBlank
     }
-    guard let user = param("u") else { return nil }
+    guard let user = param("u"), isPlausibleSetlistFmUser(user) else { return nil }
     return Friend(setlistfm: user, name: param("name"), spotifyId: param("sid"))
+}
+
+/// Letters, digits, dot, hyphen, underscore — nothing that means something to a URL.
+///
+/// A username is the least trusted string this app holds: it arrives from a link any
+/// app can open, or from any radio in range, and it ends up in a **path segment**
+/// against setlist.fm carrying our API key. #187 is what that costs when it is not
+/// checked — a percent-encoded CRLF rode the path into the request line and split one
+/// request into two. That fix encodes the path, which is the right root fix; this is
+/// the other half, refusing the value at the door so it never travels at all.
+///
+/// An allow-list, because the interesting characters here are the ones nobody thought
+/// of. Unicode letters and digits rather than ASCII, so a name in a non-Latin script
+/// is still a name — the point is to exclude URL and protocol syntax, not foreigners.
+///
+/// Deliberately conservative, and it is worth saying what that costs: setlist.fm's own
+/// rule is not published anywhere we can read, so this is a guess at the shape of a
+/// username rather than a copy of their policy. If a real account is ever rejected,
+/// widen this — but widen it to a character, not to "anything non-blank".
+///
+/// The Android twin is `isPlausibleSetlistFmUser` in `Friends.kt`; the two must agree,
+/// or a card that crosses platforms is accepted by one end and dropped by the other.
+func isPlausibleSetlistFmUser(_ user: String) -> Bool {
+    guard !user.isEmpty, user.count <= 64 else { return false }
+    return user.unicodeScalars.allSatisfy {
+        CharacterSet.letters.contains($0) || CharacterSet.decimalDigits.contains($0)
+            || $0 == "." || $0 == "-" || $0 == "_"
+    }
 }
 
 extension String {
