@@ -1,10 +1,13 @@
 import Foundation
 
-/// On-device storage for settings, Spotify tokens, and friends. Mirrors the
-/// Android SettingsRepository (which uses a plain, unencrypted DataStore), so
-/// UserDefaults is faithful parity.
-/// ponytail: tokens sit in UserDefaults like Android's plaintext DataStore.
-/// Move the access/refresh token to the Keychain if that threat model matters.
+/// On-device storage for settings, Spotify tokens, and friends. Mirrors the Android
+/// SettingsRepository, including its split: the ordinary settings and the friends
+/// live in `UserDefaults`, and the bearer secrets live somewhere a backup does not
+/// reach — [KeychainStore] here, an excluded DataStore file there.
+///
+/// The parity is in the property, not the mechanism. `Identities` records that the
+/// setlist.fm username is *"public and is an identity, not a credential"*, so it stays
+/// with the friends on both platforms; what moves is what `Credentials` names.
 final class Settings {
 
     private let store = UserDefaults.standard
@@ -50,28 +53,74 @@ final class Settings {
     }
 
     // --- Spotify OAuth ---
+    //
+    // Everything below reads and writes the Keychain, never `store`. The expiry rides
+    // with the token although it is not itself secret: an expiry restored for a token
+    // that did not come back would be a lie about a credential the device does not
+    // hold, and the two are only ever written together.
 
-    func savePkceVerifier(_ v: String) { store.set(v, forKey: Key.pkceVerifier) }
-    var pkceVerifier: String? { store.string(forKey: Key.pkceVerifier) }
+    /// Tokens written before the move, relocated once and erased from the plist.
+    ///
+    /// Leaving a copy in `UserDefaults` would keep the exact exposure this closes —
+    /// the plist is in an unencrypted local backup and the Keychain item is not — and
+    /// reading them across is what stops the move costing a login already done.
+    ///
+    /// Only fills an empty Keychain: a login writes straight there, so anything
+    /// already present is newer than whatever the plist kept, and copying then would
+    /// restore the token the user had just replaced. The plist copy goes either way.
+    private func migrateFromDefaults() {
+        let keys = [Key.accessToken, Key.refreshToken, Key.scope, Key.pkceVerifier]
+        let leftBehind = keys.filter { store.string(forKey: $0) != nil }
+        guard !leftBehind.isEmpty else { return }
+
+        if keys.allSatisfy({ KeychainStore.string($0) == nil }) {
+            for key in leftBehind {
+                if let v = store.string(forKey: key) { KeychainStore.set(v, for: key) }
+            }
+            if let expiry = store.object(forKey: Key.tokenExpiry) as? Double {
+                KeychainStore.set(String(expiry), for: Key.tokenExpiry)
+            }
+        }
+        (leftBehind + [Key.tokenExpiry]).forEach(store.removeObject)
+    }
+
+    func savePkceVerifier(_ v: String) { KeychainStore.set(v, for: Key.pkceVerifier) }
+    var pkceVerifier: String? {
+        migrateFromDefaults()
+        return KeychainStore.string(Key.pkceVerifier)
+    }
 
     func saveTokens(access: String, refresh: String?, expiresIn: Double, scope: String?) {
-        store.set(access, forKey: Key.accessToken)
+        KeychainStore.set(access, for: Key.accessToken)
         // Refresh one minute early to avoid using a token that expires mid-request.
-        store.set(Date().timeIntervalSince1970 + (expiresIn - 60), forKey: Key.tokenExpiry)
-        if let refresh { store.set(refresh, forKey: Key.refreshToken) }
-        if let scope, !scope.isEmpty { store.set(scope, forKey: Key.scope) }
+        KeychainStore.set(String(Date().timeIntervalSince1970 + (expiresIn - 60)), for: Key.tokenExpiry)
+        if let refresh { KeychainStore.set(refresh, for: Key.refreshToken) }
+        if let scope, !scope.isEmpty { KeychainStore.set(scope, for: Key.scope) }
     }
 
-    var grantedScope: String? { store.string(forKey: Key.scope)?.nilIfBlank }
-    var refreshTokenValue: String? { store.string(forKey: Key.refreshToken)?.nilIfBlank }
+    var grantedScope: String? {
+        migrateFromDefaults()
+        return KeychainStore.string(Key.scope)
+    }
+
+    var refreshTokenValue: String? {
+        migrateFromDefaults()
+        return KeychainStore.string(Key.refreshToken)
+    }
 
     var validAccessToken: String? {
-        guard let token = store.string(forKey: Key.accessToken) else { return nil }
-        return Date().timeIntervalSince1970 < store.double(forKey: Key.tokenExpiry) ? token : nil
+        migrateFromDefaults()
+        guard let token = KeychainStore.string(Key.accessToken),
+              let expiry = KeychainStore.string(Key.tokenExpiry).flatMap(Double.init)
+        else { return nil }
+        return Date().timeIntervalSince1970 < expiry ? token : nil
     }
 
+    /// Clears both, since an install that predates the move may still hold a plist
+    /// copy if nothing has read it yet, and "log out" has to mean both.
     func clearSpotifyAuth() {
-        [Key.accessToken, Key.refreshToken, Key.tokenExpiry, Key.scope, Key.pkceVerifier]
-            .forEach(store.removeObject)
+        let keys = [Key.accessToken, Key.refreshToken, Key.tokenExpiry, Key.scope, Key.pkceVerifier]
+        keys.forEach(KeychainStore.remove)
+        keys.forEach(store.removeObject)
     }
 }
