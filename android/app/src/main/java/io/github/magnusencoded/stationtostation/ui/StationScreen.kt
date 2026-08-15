@@ -3119,6 +3119,13 @@ fun StationEventScreen(
                 if (canLog) {
                     item {
                         Spacer(Modifier.height(6.dp))
+                        // Whose catalogue to offer when correcting an entry: the night's
+                        // own setlist.fm record first, the **Bill** **Act** behind it
+                        // second. Only the Act was read before, so a night that arrived
+                        // from setlist.fm — which is most of them — had no catalogue at
+                        // all and fell back to typing the title by hand, which is the
+                        // workflow #126 exists to remove.
+                        val catalogueArtist = setlist.artist?.mbid?.ifBlank { null } ?: act?.mbid
                         LogEditor(
                             candidates = act?.candidates.orEmpty(),
                             poolArtist = act?.matchedArtist.orEmpty(),
@@ -3136,9 +3143,9 @@ fun StationEventScreen(
                             onClosed = { viewModel.setLogClosed(setlist.id, it) },
                             onDisambiguate = { viewModel.disambiguateAct(setlist.id, it) },
                             searching = state.billFetching != null,
-                            catalogue = act?.mbid?.let { state.catalogueByArtist[it] }.orEmpty(),
-                            catalogueLoading = act?.mbid != null && state.catalogueFetching == act.mbid,
-                            onNeedCatalogue = { act?.mbid?.let(viewModel::fetchCatalogue) },
+                            catalogue = catalogueArtist?.let { state.catalogueByArtist[it] }.orEmpty(),
+                            catalogueLoading = catalogueArtist != null && state.catalogueFetching == catalogueArtist,
+                            onNeedCatalogue = { catalogueArtist?.let(viewModel::fetchCatalogue) },
                         )
                         Spacer(Modifier.height(10.dp))
                     }
