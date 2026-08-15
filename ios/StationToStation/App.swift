@@ -56,6 +56,12 @@ struct StationToStationApp: App {
                     model.handleFriendLink(url)
                     return
                 }
+                // An invite a contact sent, opening the night it names (#179). Until
+                // this, every invite an Android phone shared was dead on arrival here.
+                if url.host == "gig" {
+                    model.handleGigInvite(url) { nav.popToRoot(); nav.push(.gig) }
+                    return
+                }
                 // station-to-station://<host>/… — a Resolution reached without a
                 // gesture, so CI and a URL bar can both get to the Spine (pinch
                 // cannot be scripted). The Timeline is the root now, so routing

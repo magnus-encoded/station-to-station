@@ -68,6 +68,28 @@ func spotifyPlaylistId(_ input: String) -> String? {
     return String(group)
 }
 
+/// The link that invites someone to a gig I'm going to.
+///
+/// Same deep-link mechanism as the friend card, a different authority: the setlist.fm
+/// id is all a second device needs, because it fetches the rest. The Android twin is
+/// `gigInviteUri` in `data/Friends.kt`, and the two have to agree exactly — an invite
+/// is the one thing in this app that is *made* on one platform and *read* on the other.
+func gigInviteURL(setlistId: String) -> URL {
+    var c = URLComponents()
+    c.scheme = "station-to-station"
+    c.host = "gig"
+    c.queryItems = [URLQueryItem(name: "id", value: setlistId)]
+    return c.url!
+}
+
+/// The setlist.fm id out of a `station-to-station://gig?id=…` invite, or nil.
+func gigIdFromInvite(_ url: URL) -> String? {
+    guard let c = URLComponents(url: url, resolvingAgainstBaseURL: false), c.host == "gig"
+    else { return nil }
+    return c.queryItems?.first { $0.name == "id" }?
+        .value?.trimmingCharacters(in: .whitespaces).nilIfBlank
+}
+
 /// Parses a `station-to-station://friend?...` link. Nil if it isn't one / has no username.
 func friendFromURL(_ url: URL) -> Friend? {
     guard let c = URLComponents(url: url, resolvingAgainstBaseURL: false), c.host == "friend"

@@ -340,6 +340,38 @@ final class AppModel: ObservableObject {
         if let friend = friendFromURL(url) { addFriend(friend) }
     }
 
+    /// A gig invite a contact sent: open the night it names.
+    ///
+    /// Reaches for the night on my own line first and only asks setlist.fm when it is
+    /// not there — an invite to a gig we both attended is the common case, and it
+    /// should not cost a request or fail without signal.
+    ///
+    /// **This opens the night; it does not add it to my plans.** Android's
+    /// `handleGigInvite` calls `addPlannedGig`, and iOS has no planned gig to add to
+    /// yet — `gigPlanned` is in the cache but nothing on this side reads or writes it.
+    /// That is #175, and this is deliberately the half that works without it: a link
+    /// that lands somewhere real beats a link that silently does nothing, which is
+    /// what every invite from an Android phone does today.
+    ///
+    /// Returns nothing and reports nothing on failure: an invite for a night
+    /// setlist.fm cannot serve is a dead link, and a banner about it would be telling
+    /// the reader about the sender's problem.
+    func handleGigInvite(_ url: URL, onOpen: @escaping () -> Void) {
+        guard let id = gigIdFromInvite(url) else { return }
+        if let known = state.timelineShows.first(where: { $0.id == id }) {
+            state.selectedSetlist = known
+            loadGigMedia(known)
+            onOpen()
+            return
+        }
+        Task {
+            guard let fetched = try? await setlistFm.setlist(id) else { return }
+            state.selectedSetlist = fetched
+            loadGigMedia(fetched)
+            onOpen()
+        }
+    }
+
     func removeFriend(_ friend: Friend) {
         let next = state.friends.filter { $0.setlistfm != friend.setlistfm }
         settings.saveFriends(next)
