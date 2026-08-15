@@ -6,6 +6,12 @@
   decoration. The lower Node is filled — a night that happened, amber for mine —
   and the upper one is open, a night still ahead. Up is later, as everywhere else.
 
+  The two colours are the app's own: amber #E7B24C is mine and has happened,
+  Slate #6D7E9B is the future. So the open Node and the segment running past it
+  off the top are Slate, and everything from that Node down is amber. The mark
+  used to be amber throughout, which made it the only surface in the app that
+  did not obey the rule.
+
   108dp viewport with the art kept inside the central 66dp safe zone, so no part
   of it is clipped by a launcher's mask.
 -->
@@ -18,7 +24,7 @@
     <!-- The Spine, in three segments: interrupted by each Node, never drawn through it. -->
     <path
         android:pathData="M54,22 L54,28"
-        android:strokeColor="#E7B24C"
+        android:strokeColor="#6D7E9B"
         android:strokeWidth="4"
         android:strokeLineCap="round" />
     <path
@@ -32,10 +38,10 @@
         android:strokeWidth="4"
         android:strokeLineCap="round" />
 
-    <!-- A night still ahead: open ring. -->
+    <!-- A night still ahead: open ring, Slate. -->
     <path
         android:pathData="M44,38 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0"
-        android:strokeColor="#E7B24C"
+        android:strokeColor="#6D7E9B"
         android:strokeWidth="4" />
 
     <!-- A night that happened: filled, amber for mine. -->
