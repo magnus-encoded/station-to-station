@@ -23,13 +23,44 @@ enum IPv4Https {
 
     struct Response { let status: Int; let body: Data }
 
+    /// The request line and headers, as bytes on the wire.
+    ///
+    /// Split out from [get] because it is the half worth testing: everything here is
+    /// string concatenation into a protocol that ends its fields with CRLF, which is
+    /// the one place a hostile value can add a field of its own.
+    ///
+    /// **The path and query go on the wire percent-encoded.** `URL.path` returns the
+    /// *decoded* path, so a friend's setlist.fm username of `alice%0d%0aX-Evil:+1` —
+    /// which survives `URLComponents` intact, being ordinary text at that point —
+    /// would decode to a real CRLF here and split the request in two, on a connection
+    /// that carries our API key. A username arrives from a QR link or from any radio
+    /// in BLE range, so it is hostile input by default.
+    ///
+    /// Header values are rejected rather than escaped: HTTP has no escape for a CRLF
+    /// inside a value, and every header this file sends is one we chose, so a control
+    /// character in one is a bug and not something to paper over.
+    static func requestBytes(url: URL, host: String, headers: [String: String]) throws -> Data {
+        var target = url.path(percentEncoded: true)
+        if target.isEmpty { target = "/" }
+        if let q = url.query(percentEncoded: true) { target += "?\(q)" }
+
+        for (k, v) in headers where k.hasControlCharacter || v.hasControlCharacter {
+            throw AppError("Refusing to send a header containing a control character: \(k)")
+        }
+
+        var request = "GET \(target) HTTP/1.1\r\n"
+        request += "Host: \(host)\r\n"
+        for (k, v) in headers { request += "\(k): \(v)\r\n" }
+        request += "Accept-Encoding: identity\r\n"
+        request += "Connection: close\r\n\r\n"
+        return Data(request.utf8)
+    }
+
     static func get(url: URL, headers: [String: String], timeout: TimeInterval = 20) async throws -> Response {
         guard let host = url.host else { throw AppError("Bad URL (no host): \(url)") }
         guard let port = NWEndpoint.Port(rawValue: UInt16(url.port ?? 443)) else {
             throw AppError("Bad port")
         }
-        var target = url.path.isEmpty ? "/" : url.path
-        if let q = url.query { target += "?\(q)" }
 
         // TLS over TCP, then pin the internet layer to IPv4. Connecting by hostname
         // (not IP) makes Network.framework set the TLS server name to `host`, so the
@@ -40,11 +71,7 @@ enum IPv4Https {
         }
         let conn = NWConnection(host: .name(host, nil), port: port, using: params)
 
-        var request = "GET \(target) HTTP/1.1\r\n"
-        request += "Host: \(host)\r\n"
-        for (k, v) in headers { request += "\(k): \(v)\r\n" }
-        request += "Accept-Encoding: identity\r\n"
-        request += "Connection: close\r\n\r\n"
+        let request = try requestBytes(url: url, host: host, headers: headers)
 
         let queue = DispatchQueue(label: "ipv4https")
         return try await withCheckedThrowingContinuation { cont in
@@ -74,7 +101,7 @@ enum IPv4Https {
             conn.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
-                    conn.send(content: Data(request.utf8), completion: .contentProcessed { err in
+                    conn.send(content: request, completion: .contentProcessed { err in
                         if let err { finish(.failure(err)) } else { readMore() }
                     })
                 case .failed(let e):
@@ -133,5 +160,14 @@ enum IPv4Https {
             rest = rest.subdata(in: next..<rest.endIndex)
         }
         return out
+    }
+}
+
+private extension String {
+    /// CR, LF and the rest of C0 — the characters that end a field in a protocol
+    /// built out of them. Checked on scalars, so a multi-byte character cannot
+    /// smuggle one past a byte-wise test.
+    var hasControlCharacter: Bool {
+        unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
     }
 }
