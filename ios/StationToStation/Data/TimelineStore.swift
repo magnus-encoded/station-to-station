@@ -137,6 +137,9 @@ struct StoredMedia: Codable, Equatable {
     enum Kind {
         static let photo = "photo"
         static let video = "video"
+        /// A **Note**: text, and no bytes at all. `ref` is empty and `pointer` is
+        /// nil, which is why every path that resolves a reference has to skip it.
+        static let note = "note"
         /// The reference was already dead when we looked. Not a guess.
         static let unknown = "unknown"
     }
@@ -161,10 +164,25 @@ struct StoredMedia: Codable, Equatable {
     /// On the record and not on the night, because a night with two recordings
     /// has to put the second one's stamps somewhere (#27).
     var songOffsets: [Int64] = []
+    /// A **Note**'s text: what I wrote about the night (#50). Empty otherwise.
+    ///
+    /// A **Note** is **Media** rather than a record of its own, because ADR-0012
+    /// said so — *"notes are media with a Personal bit"* — so everything a note
+    /// needs is inherited rather than re-implemented: a band, a disposition, and
+    /// arrival as **Received media**.
+    var text: String = ""
+    /// A **Verdict** on the night, carried by the **Note** it was written on:
+    /// `down`, `up`, `double_up`, or nil for unset.
+    ///
+    /// On the note and not on the **Gig** so that its **Band** decides who reads
+    /// it — a verdict in the vault is mine, a verdict in the shared band travels.
+    /// A string and not an enum, for the reason `kind` is one.
+    var verdict: String?
 
     init(id: String = "", kind: String = Kind.photo, ref: String = "",
          capturedAt: Int64? = nil, from: String? = nil, personal: Bool = false,
-         pointer: String? = nil, songOffsets: [Int64] = []) {
+         pointer: String? = nil, songOffsets: [Int64] = [], text: String = "",
+         verdict: String? = nil) {
         self.id = id
         self.kind = kind
         self.ref = ref
@@ -173,6 +191,8 @@ struct StoredMedia: Codable, Equatable {
         self.personal = personal
         self.pointer = pointer
         self.songOffsets = songOffsets
+        self.text = text
+        self.verdict = verdict
     }
 
     init(from decoder: Decoder) throws {
@@ -185,6 +205,8 @@ struct StoredMedia: Codable, Equatable {
         personal = (try? c.decodeIfPresent(Bool.self, forKey: .personal)) ?? nil ?? false
         pointer = (try? c.decodeIfPresent(String.self, forKey: .pointer)) ?? nil
         songOffsets = (try? c.decodeIfPresent([Int64].self, forKey: .songOffsets)) ?? nil ?? []
+        text = (try? c.decodeIfPresent(String.self, forKey: .text)) ?? nil ?? ""
+        verdict = (try? c.decodeIfPresent(String.self, forKey: .verdict)) ?? nil
     }
 }
 
@@ -227,6 +249,10 @@ func mediaKind(of ref: String) -> String {
 /// The file's whole contents. Fields iOS does not use yet are still carried
 /// through a save: dropping Android's photos or song offsets on the first write
 /// from this side would be data loss, not scope.
+///
+/// The keys declared here are the ones iOS *reads*. The ones it has never heard
+/// of — `bills`, `gigLogs` and whatever Android adds next — are carried without
+/// being modelled, by `carryingUnknownKeys` on the way out (#168).
 struct TimelineCache: Codable {
     /// Attended shows by setlist.fm username — mine and every friend's alike.
     var shows: [String: [FmSetlist]] = [:]
@@ -546,7 +572,33 @@ actor TimelineStore {
         guard let data = try? encoder.encode(merged) else { return }
         // .atomic: a crash mid-write leaves the old cache intact rather than a
         // truncated one that fails to parse.
-        try? data.write(to: file, options: .atomic)
+        try? carryingUnknownKeys(data).write(to: file, options: .atomic)
+    }
+
+    /// Puts back every top-level key the file on disk had that `TimelineCache`
+    /// does not model at all (#168).
+    ///
+    /// `Codable` drops what it never decoded, so without this the first save from
+    /// here erases whatever Android has learned to write since — and `bills` and
+    /// `gigLogs` are the two records in this app with no upstream, so a setlist.fm
+    /// pull cannot put them back. That is data loss, not scope, which is the rule
+    /// `TimelineCache` states about itself.
+    ///
+    /// Carried raw rather than modelled: five Swift types for records this
+    /// platform never reads would fix exactly today's five, and break again on
+    /// the next field the other side adds. Every key iOS *does* know is
+    /// non-optional with a default and is therefore always encoded, so "absent
+    /// from what we just encoded" is precisely "unknown to this platform".
+    ///
+    /// `.sortedKeys` again on the way out, so the same content still produces the
+    /// same bytes and a cache stays diffable against the Android one.
+    private func carryingUnknownKeys(_ encoded: Data) -> Data {
+        guard let old = try? Data(contentsOf: file),
+              let stored = (try? JSONSerialization.jsonObject(with: old)) as? [String: Any],
+              var object = (try? JSONSerialization.jsonObject(with: encoded)) as? [String: Any]
+        else { return encoded }
+        for (key, value) in stored where object[key] == nil { object[key] = value }
+        return (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? encoded
     }
 }
 

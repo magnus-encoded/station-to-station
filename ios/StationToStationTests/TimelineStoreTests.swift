@@ -239,6 +239,60 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual(["b1"], loaded.shows["dizzi90"]?.map(\.id))
     }
 
+    /// The keys iOS has never heard of at all — the **Bills** on the wall, my
+    /// **Logs** of the nights, the catalogue, the two tier-upgrade fields — plus
+    /// `text` and `verdict` inside a **Note**. `Codable` drops what it never
+    /// decoded, so before #168 the first save from this side erased every one of
+    /// them, and a **Bill** and a **Log** have no upstream: nothing can put them
+    /// back.
+    func testAWriteFromHereKeepsTheKeysThisPlatformHasNeverHeardOf() async throws {
+        let file = tempFile(contents: """
+        {"shows":{},"festivalNames":{},"gigs":{"g1":{"id":"g1","date":"25-06-2026",\
+        "artist":"Gojira","venue":"Ekebergsletta","setlistId":null,"createdAt":1}},\
+        "gigMedia":{"g1":[{"id":"n1","kind":"note","ref":"","capturedAt":null,"from":null,\
+        "personal":true,"pointer":null,"songOffsets":[],\
+        "text":"Best encore I have stood through.","verdict":"double_up"}]},\
+        "bills":{"b1":{"id":"b1","name":"Tons of Rock 2026","city":"Oslo",\
+        "from":"25-06-2026","to":"27-06-2026",\
+        "acts":[{"name":"Gojira","maybe":false,"candidates":[],"gigId":null}]}},\
+        "gigLogs":{"g1":{"songs":["Flying Whales",""],"closed":false}},\
+        "sharedNights":["g1"],"mediaTierMigrated":true,\
+        "catalogueByArtist":{"mb-1":["Flying Whales","Stranded"]}}
+        """)
+        let s = TimelineStore(file: file)
+        await s.save(shows: ["dizzi90": [show("b1")]])
+
+        let json = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
+        // Asserted against the raw file rather than a decoded cache, because the
+        // whole point is that this platform models none of these — carrying them
+        // is what the file says, not what a Swift type remembered.
+        XCTAssertEqual(["b1"], (json?["bills"] as? [String: Any])?.keys.sorted())
+        XCTAssertEqual(["g1"], (json?["gigLogs"] as? [String: Any])?.keys.sorted())
+        XCTAssertEqual(["g1"], json?["sharedNights"] as? [String])
+        XCTAssertEqual(true, json?["mediaTierMigrated"] as? Bool)
+        XCTAssertEqual(
+            ["Flying Whales", "Stranded"],
+            (json?["catalogueByArtist"] as? [String: [String]])?["mb-1"]
+        )
+        // A Bill's own shape has to survive too, not just its key: nothing here
+        // reads an Act, so nothing here may flatten one.
+        let bill = (json?["bills"] as? [String: [String: Any]])?["b1"]
+        XCTAssertEqual("Tons of Rock 2026", bill?["name"] as? String)
+        XCTAssertEqual(["Gojira"], (bill?["acts"] as? [[String: Any]])?.compactMap { $0["name"] as? String })
+
+        // The two inside StoredMedia are modelled rather than carried — a note
+        // round-trips through the same decode every photo does, so raw carrying
+        // could never have reached them. #170 needs them on this side anyway.
+        let loaded = await s.load()
+        let note = loaded.gigMedia["g1"]?.first
+        XCTAssertEqual(StoredMedia.Kind.note, note?.kind)
+        XCTAssertEqual("Best encore I have stood through.", note?.text)
+        XCTAssertEqual("double_up", note?.verdict)
+        XCTAssertEqual(true, note?.personal)
+        // And the save that carried all of it still did its own job.
+        XCTAssertEqual(["b1"], loaded.shows["dizzi90"]?.map(\.id))
+    }
+
     /// Every key kotlinx expects is present in what we write, so the file we
     /// hand back is one an Android build can read without its own tolerance
     /// rules doing the work.
