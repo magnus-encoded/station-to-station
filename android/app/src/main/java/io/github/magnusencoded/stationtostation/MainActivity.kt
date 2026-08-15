@@ -24,6 +24,7 @@ import androidx.navigation.compose.rememberNavController
 import io.github.magnusencoded.stationtostation.ui.BleProbeScreen
 import io.github.magnusencoded.stationtostation.ui.ConfirmScreen
 import io.github.magnusencoded.stationtostation.ui.FriendsScreen
+import io.github.magnusencoded.stationtostation.ui.ProgrammeScreen
 import io.github.magnusencoded.stationtostation.ui.SearchScreen
 import io.github.magnusencoded.stationtostation.ui.SetlistsScreen
 import io.github.magnusencoded.stationtostation.ui.ExchangeScreen
@@ -137,6 +138,7 @@ fun AppNavigation(viewModel: AppViewModel) {
                 onOpenConnect = { navController.navigate("exchange") },
                 onOpenNearby = { navController.navigate("exchange") },
                 onOpenSettings = { navController.navigate("settings") },
+                onOpenProgramme = { navController.navigate("programme") },
             )
         }
         composable("exchange") {
@@ -213,6 +215,9 @@ fun AppNavigation(viewModel: AppViewModel) {
         }
         composable("bleprobe") {
             BleProbeScreen(onBack = { navController.popBackStack() })
+        }
+        composable("programme") {
+            ProgrammeScreen(onBack = { navController.popBackStack() })
         }
     }
 }

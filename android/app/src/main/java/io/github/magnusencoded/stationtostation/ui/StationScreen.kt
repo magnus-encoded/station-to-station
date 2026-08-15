@@ -61,6 +61,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -250,6 +251,7 @@ fun StationTimelineScreen(
     onOpenConnect: () -> Unit,
     onOpenNearby: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenProgramme: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     // Reachable from both the future edge and the empty spine: a collector with no
@@ -301,6 +303,13 @@ fun StationTimelineScreen(
                         IconButton(onClick = onOpenImport) {
                             Icon(Icons.Filled.Add, contentDescription = "Add shows", tint = Faint)
                         }
+                    }
+                    IconButton(onClick = onOpenProgramme) {
+                        Icon(
+                            Icons.Filled.Schedule,
+                            contentDescription = "Festival programme",
+                            tint = Faint,
+                        )
                     }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = Faint)

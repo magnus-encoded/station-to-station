@@ -223,6 +223,37 @@ fun plannedLane(
     .filter { isPlanned(attendance[it.id]?.provenance) }
     .sortedByDescending { it.localDate() }
 
+/**
+ * The nights the **Spine** is made of: setlist.fm's **Attended** list, plus my own
+ * evidenced nights it has never heard of. Newest first, for [plannedLane]'s reason.
+ *
+ * The counterpart to [plannedLane], and the half that was missing. The Spine used to
+ * be `shows[me]` alone, so a night's only route onto the timeline was setlist.fm
+ * knowing about it — and [plannedLane] drops a night the moment it stops being a
+ * plan. A night I checked into that setlist.fm has never heard of therefore left the
+ * future lane and arrived nowhere: it was on neither list, holding a **Log** and
+ * seven photographs that nothing would draw. Nick Cave at Øya 2026 is the night that
+ * found this.
+ *
+ * "Evidenced" is [isPlanned] read the other way round — `attended` and `checked_in`
+ * are evidence I was there, and a check-in is the strongest claim this app can hold.
+ * A night carrying it must outrank the absence of a vendor's row about it.
+ *
+ * Deduplicated on the setlist.fm id, which is what the two lists share: a planned
+ * night that later turns up in the **Attended** import is one night, and the
+ * imported copy wins because it is the published record of the same evening.
+ */
+fun spineNights(
+    attended: List<FmSetlist>,
+    planned: List<FmSetlist>,
+    attendance: Map<String, StoredAttendance>,
+): List<FmSetlist> {
+    val known = attended.map { it.id }.toSet()
+    val mine = planned.filter { it.id !in known && !isPlanned(attendance[it.id]?.provenance) }
+    if (mine.isEmpty()) return attended
+    return (attended + mine).sortedByDescending { it.localDate() }
+}
+
 /** dd-MM-yyyy, the one date shape this app and setlist.fm both speak. */
 private val FM_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("dd-MM-yyyy", Locale.ENGLISH)
 

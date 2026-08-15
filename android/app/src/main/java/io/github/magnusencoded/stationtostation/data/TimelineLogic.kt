@@ -264,7 +264,10 @@ class DeviceTimelinePlumbing(
         if (cache.shows.isEmpty() && cache.festivalNames.isEmpty()) return null
         return LoadedSpine(
             me = me,
-            mine = cache.shows[me].orEmpty(),
+            // Not `shows[me]` alone: a night I checked into that setlist.fm has never
+            // heard of is on no attended list, and leaves the future lane the moment
+            // it stops being a plan. See [spineNights].
+            mine = spineNights(cache.shows[me].orEmpty(), cache.planned(), cache.attendance()),
             // Not `shows - me`. A **Contact** whose **Card** carries my own setlist.fm
             // username is my other device, and subtracting my key left that lane empty:
             // every night rendered as mine-only instead of **Joined**, which is the
