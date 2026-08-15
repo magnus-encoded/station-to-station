@@ -127,6 +127,18 @@ struct StationView: View {
         // Swipe the timeline left to start connecting with someone nearby — the
         // "act on this level" gesture, people axis.
         .swipeLeft { nav.push(.exchange) }
+        // The same two moves for VoiceOver, which takes the flick and the pinch for
+        // itself. A gesture is the whole of how this screen changes Resolution, so
+        // without these the other lines are not awkward to reach — they are absent.
+        // Named as verbs, and the strip's action says which way it goes, because the
+        // rotor reads them with nothing on screen to disambiguate.
+        .accessibilityAction(named: "Connect with someone nearby") { nav.push(.exchange) }
+        .accessibilityAction(
+            named: model.state.zoomedOut ? "Close the other timelines" : "Open the other timelines beside yours"
+        ) {
+            guard !lanes.isEmpty else { return }
+            withAnimation(.spring()) { model.setZoomedOut(!model.state.zoomedOut) }
+        }
         .onAppear { model.loadTimeline() }
         // Fetch friends' Lanes when the strip opens, not at launch — a
         // Resolution never opened shouldn't spend setlist.fm's budget.

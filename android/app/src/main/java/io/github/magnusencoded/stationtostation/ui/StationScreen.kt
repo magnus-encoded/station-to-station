@@ -109,6 +109,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
@@ -562,6 +565,32 @@ fun StationTimelineScreen(
                                     detectPinch(
                                         onZoomOut = { viewModel.setZoomedOut(true) },
                                         onZoomIn = { viewModel.setZoomedOut(false) },
+                                    )
+                                }
+                                // The same three moves, for anyone not making them with
+                                // their fingers. A flick and a pinch are the whole of how
+                                // this screen changes **Resolution**, and TalkBack sends
+                                // both to the reader instead — so without this the light
+                                // and the other lines are not merely awkward to reach,
+                                // they do not exist. The gestures above stay exactly as
+                                // they are; this is the same call from another door.
+                                //
+                                // Labels are verbs and say which way the toggle goes,
+                                // because the actions menu reads them out of context with
+                                // nothing on screen to disambiguate them.
+                                .semantics {
+                                    customActions = listOf(
+                                        CustomAccessibilityAction("Connect with someone nearby") {
+                                            onOpenNearby(); true
+                                        },
+                                        CustomAccessibilityAction(
+                                            if (state.contactLight) "Turn the contact light off"
+                                            else "Turn the contact light on, to see your line as a contact sees it"
+                                        ) { viewModel.toggleContactLight(); true },
+                                        CustomAccessibilityAction(
+                                            if (zoomedOut) "Close the other timelines"
+                                            else "Open the other timelines beside yours"
+                                        ) { viewModel.setZoomedOut(!zoomedOut); true },
                                     )
                                 },
                         ) {

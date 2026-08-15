@@ -63,7 +63,12 @@ struct GigView: View {
         }
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
-                Button { nav.pop() } label: { Image(systemName: "chevron.left") }.tint(faint)
+                Button { nav.pop() } label: { Image(systemName: "chevron.left") }
+                    .tint(faint)
+                    // Without this a reader hears the symbol's own name, "chevron
+                    // left" — a shape, where every other control here is named by
+                    // what it does.
+                    .accessibilityLabel("Back")
             }
         }
         .toolbarBackground(ground, for: .navigationBar)
@@ -75,6 +80,15 @@ struct GigView: View {
         // Act on this level: the playlist. Nothing to convert on a night nobody
         // logged, so an empty setlist offers nothing rather than an empty screen.
         .swipeLeft { if !rows.isEmpty { nav.push(.confirm) } }
+        // The same move for VoiceOver, which takes the flick for itself. This used
+        // to be a button, and the button was reachable; the gesture on its own is
+        // not, so the grammar cannot cost a reader the action.
+        .accessibilityAction(named: "Make a Spotify playlist") {
+            if !rows.isEmpty { nav.push(.confirm) }
+        }
+        // Back is a chevron with no label, and the swipe that also does it is a
+        // gesture VoiceOver consumes.
+        .accessibilityAction(.escape) { nav.pop() }
     }
 
     private func header(_ show: FmSetlist) -> some View {
