@@ -164,6 +164,7 @@ import io.github.magnusencoded.stationtostation.data.visibleToContacts
 import io.github.magnusencoded.stationtostation.data.withheldFromContacts
 import io.github.magnusencoded.stationtostation.data.gigInviteUri
 import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
+import io.github.magnusencoded.stationtostation.data.musicbrainz.MbArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSong
 import kotlinx.coroutines.launch
@@ -346,8 +347,15 @@ fun StationTimelineScreen(
             )
             if (adding) {
                 AddPlannedGigDialog(
-                    onAdd = { link -> viewModel.addPlannedGig(link); adding = false },
-                    onDismiss = { adding = false },
+                    suggestions = state.artistSuggestions,
+                    onArtistTyped = { viewModel.suggestArtists(it) },
+                    onArtistPicked = { viewModel.clearArtistSuggestions() },
+                    onAdd = { artist, venue, date ->
+                        viewModel.addPlannedGigByHand(artist, venue, date)
+                        adding = false
+                    },
+                    onAddByLink = { link -> viewModel.addPlannedGig(link); adding = false },
+                    onDismiss = { viewModel.clearArtistSuggestions(); adding = false },
                 )
             }
             if (addingByHand) {
@@ -913,17 +921,40 @@ private fun FuturePrompt(open: Boolean, loading: Boolean, onAdd: () -> Unit, onA
 }
 
 /**
- * Where a gig you're going to comes from: the setlist.fm page's link.
+ * A gig you're going to: who is playing, where, and when.
  *
- * Not a search box and not an artist/venue/date form. setlist.fm's API carries the
- * gig — real id, real venue, empty set list — but its search index stops about a day
- * out, so nothing weeks away can be found by artist, venue or date (#29). The id in
- * the url of the page you were just on is the only handle there is, and typing the
- * details in by hand would invent a second record for a gig setlist.fm already has.
+ * **This used to be a paste box for a setlist.fm link**, defended on two grounds. The
+ * first still holds: setlist.fm's search index stops about a day out, so a show weeks
+ * away cannot be *found* by artist, venue or date (#29). The second — that typing the
+ * details in "would invent a second record for a gig setlist.fm already has" — has not
+ * been true since the **Bill** shipped. `markActPlayed` mints local **Gig**s for nights
+ * setlist.fm has never heard of and `adoptSetlistId` moves one onto the vendor id when
+ * setlist.fm catches up, with every association intact. The collision that argument
+ * described is one the codebase learned to resolve two features ago.
+ *
+ * **The link path stays, demoted.** It is strictly better when you have the link: it
+ * brings the real id, the real venue and the real date, and needs no adoption later.
+ *
+ * **The artist completes; the venue does not.** MusicBrainz has a `place` entity and
+ * its coverage of small rooms is thin, so a completion box that fails most of the time
+ * would teach people to ignore the one above it. A plain field that never guesses is
+ * the honest version of a venue.
  */
 @Composable
-private fun AddPlannedGigDialog(onAdd: (String) -> Unit, onDismiss: () -> Unit) {
-    var text by remember { mutableStateOf("") }
+private fun AddPlannedGigDialog(
+    suggestions: List<MbArtist>,
+    onArtistTyped: (String) -> Unit,
+    onArtistPicked: () -> Unit,
+    onAdd: (artist: String, venue: String, date: String) -> Unit,
+    onAddByLink: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var artist by remember { mutableStateOf("") }
+    var venue by remember { mutableStateOf("") }
+    var date by remember { mutableStateOf("") }
+    var link by remember { mutableStateOf("") }
+    var pasting by remember { mutableStateOf(false) }
+
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
@@ -933,26 +964,65 @@ private fun AddPlannedGigDialog(onAdd: (String) -> Unit, onDismiss: () -> Unit) 
         ) {
             Text("A gig you're going to", fontFamily = Serif, fontSize = 19.sp, color = Ink)
             Spacer(Modifier.height(6.dp))
-            Text(
-                "Paste the setlist.fm link for the show. It can't be searched for this " +
-                    "far ahead — the link is the way in.",
-                color = Muted,
-                fontSize = 12.sp,
-            )
-            Spacer(Modifier.height(14.dp))
-            StationField(
-                value = text,
-                onValueChange = { text = it },
-                label = "setlist.fm link",
-                imeDone = true,
-            )
-            Spacer(Modifier.height(10.dp))
+            if (pasting) {
+                Text(
+                    "Paste the setlist.fm link for the show. It brings the real venue " +
+                        "and date with it.",
+                    color = Muted,
+                    fontSize = 12.sp,
+                )
+                Spacer(Modifier.height(14.dp))
+                StationField(link, { link = it }, "setlist.fm link", imeDone = true)
+            } else {
+                Text(
+                    "It can't be searched for this far ahead, so this night lives on " +
+                        "this phone until setlist.fm catches up with it.",
+                    color = Muted,
+                    fontSize = 12.sp,
+                )
+                Spacer(Modifier.height(14.dp))
+                StationField(artist, { artist = it; onArtistTyped(it) }, "who's playing")
+                // Suggestions sit directly under the field they belong to and nowhere
+                // else. Capped at four rows: this is a prompt above a keyboard, and a
+                // list that scrolls is a search result page pretending to be a hint.
+                suggestions.take(4).forEach { hit ->
+                    Text(
+                        buildString {
+                            append(hit.name)
+                            if (hit.disambiguation.isNotBlank()) append("  · ${hit.disambiguation}")
+                        },
+                        color = Slate,
+                        fontSize = 12.sp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { artist = hit.name; onArtistPicked() }
+                            .padding(vertical = 6.dp),
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                StationField(venue, { venue = it }, "venue (optional)")
+                Spacer(Modifier.height(8.dp))
+                StationField(date, { date = it }, "date (dd-MM-yyyy)", imeDone = true)
+            }
+
+            Spacer(Modifier.height(4.dp))
+            TextButton(onClick = { pasting = !pasting }) {
+                Text(
+                    if (pasting) "or type it in" else "or paste a setlist.fm link",
+                    color = Faint,
+                    fontSize = 12.sp,
+                )
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text("Cancel", color = Faint) }
+                val ready =
+                    if (pasting) link.isNotBlank() else artist.isNotBlank() && date.isNotBlank()
                 TextButton(
-                    onClick = { onAdd(text) },
-                    enabled = text.isNotBlank(),
-                ) { Text("Add", color = if (text.isBlank()) Faint else Amber) }
+                    onClick = {
+                        if (pasting) onAddByLink(link) else onAdd(artist, venue, date)
+                    },
+                    enabled = ready,
+                ) { Text("Add", color = if (ready) Amber else Faint) }
             }
         }
     }

@@ -1,6 +1,7 @@
 package io.github.magnusencoded.stationtostation
 
 import io.github.magnusencoded.stationtostation.data.musicbrainz.dedupe
+import io.github.magnusencoded.stationtostation.data.musicbrainz.parseArtists
 import io.github.magnusencoded.stationtostation.data.musicbrainz.parseRecordings
 import io.github.magnusencoded.stationtostation.data.rankTitles
 import org.junit.Assert.assertEquals
@@ -87,5 +88,38 @@ class MusicBrainzTest {
 
         assertEquals("Toothpicks and Gum", ranked.first())
         assertEquals(3, ranked.size)
+    }
+
+    /**
+     * Artist completion for a planned gig (#228). The four artists called Nirvana are the
+     * reason the disambiguation comes back with the name.
+     */
+    private val artistPage = """
+        {
+          "count": 4,
+          "artists": [
+            { "id": "a", "name": "Nirvana", "score": 74, "disambiguation": "UK band" },
+            { "id": "b", "name": "Nirvana", "score": 100, "disambiguation": "US grunge band" },
+            { "id": "c", "name": "", "score": 90 },
+            { "id": "", "name": "Nirvana 2002", "score": 88 }
+          ]
+        }
+    """.trimIndent()
+
+    @Test
+    fun `artists come back best first, with what tells them apart`() {
+        val hits = parseArtists(artistPage)
+
+        // The nameless hit and the idless one are both dropped: a row nobody can read is
+        // not a suggestion, and one with no id cannot be followed up.
+        assertEquals(2, hits.size)
+        assertEquals("US grunge band", hits.first().disambiguation)
+        assertEquals("b", hits.first().mbid)
+    }
+
+    @Test
+    fun `a reply that is not what we expected is an empty list, not a crash`() {
+        assertTrue(parseArtists("<html>rate limited</html>").isEmpty())
+        assertTrue(parseArtists("").isEmpty())
     }
 }

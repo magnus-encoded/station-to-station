@@ -65,6 +65,30 @@ class MusicBrainzClient {
         return dedupe(titles).take(cap)
     }
 
+    /**
+     * Artists whose name looks like [query], best match first.
+     *
+     * The one place this app asks MusicBrainz by *name* rather than by identity, and it
+     * is deliberately not a resolution step: it offers spellings to a person who then
+     * picks one. Nothing is keyed on the **mbid** it returns — a planned gig typed in by
+     * hand is a local **Gig** either way — so a wrong pick here costs a wrong name and
+     * not a wrong join.
+     *
+     * The disambiguation comment comes back with the name because MusicBrainz has four
+     * artists called Nirvana and a list of four identical rows is worse than no list.
+     */
+    suspend fun searchArtists(query: String, limit: Int = ARTIST_LIMIT): List<MbArtist> {
+        val q = query.trim()
+        if (q.length < MIN_QUERY) return emptyList()
+        val url = "https://musicbrainz.org/ws/2/artist".toHttpUrl().newBuilder()
+            .addQueryParameter("query", q)
+            .addQueryParameter("fmt", "json")
+            .addQueryParameter("limit", limit.toString())
+            .build()
+        val body = get(url.toString())
+        return parseArtists(body, json).take(limit)
+    }
+
     private suspend fun recordings(mbid: String, offset: Int): RecordingsPage {
         val url = "https://musicbrainz.org/ws/2/recording".toHttpUrl().newBuilder()
             .addQueryParameter("artist", mbid)
@@ -72,26 +96,37 @@ class MusicBrainzClient {
             .addQueryParameter("limit", PAGE.toString())
             .addQueryParameter("offset", offset.toString())
             .build()
+        return parseRecordings(get(url.toString()), json)
+    }
+
+    /**
+     * One place the User-Agent is set. MusicBrainz blocks a blank or generic one, so a
+     * second call site that forgot it would fail in a way that looks like the query
+     * being wrong.
+     */
+    private suspend fun get(url: String): String {
         val request = Request.Builder()
             .url(url)
-            // Required by MusicBrainz, and a blank or generic one gets blocked. Naming
-            // the application and a way to reach us is the deal for an open database.
+            // Required by MusicBrainz. Naming the application and a way to reach us is
+            // the deal for an open database.
             .header("User-Agent", USER_AGENT)
             .header("Accept", "application/json")
             .build()
-
-        val body = withContext(Dispatchers.IO) {
+        return withContext(Dispatchers.IO) {
             http.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) throw IOException("MusicBrainz says ${resp.code}")
                 resp.body?.string().orEmpty()
             }
         }
-        return parseRecordings(body, json)
     }
 
     companion object {
         private const val PAGE = 100
         internal const val MAX_TITLES = 400
+        /** A prompt, not a search result page: eight rows is what fits above a keyboard. */
+        internal const val ARTIST_LIMIT = 8
+        /** Below this a query matches most of the database and the list is noise. */
+        internal const val MIN_QUERY = 2
         internal const val USER_AGENT =
             "StationToStation/1.0 ( https://github.com/magnus-encoded/station-to-station )"
     }
@@ -105,6 +140,40 @@ internal data class RecordingsPage(
 
 @Serializable
 internal data class Recording(val title: String = "")
+
+/**
+ * One artist MusicBrainz offered for a typed name.
+ *
+ * [disambiguation] is MusicBrainz's own one-line note — "US grunge band", "Norwegian rock
+ * band" — and is empty for most artists. It is carried because without it the four
+ * artists called Nirvana are four identical rows.
+ */
+data class MbArtist(val name: String, val mbid: String, val disambiguation: String = "")
+
+@Serializable
+private data class ArtistsPage(val artists: List<ArtistHit> = emptyList())
+
+@Serializable
+private data class ArtistHit(
+    val id: String = "",
+    val name: String = "",
+    val score: Int = 0,
+    val disambiguation: String = "",
+)
+
+/**
+ * Parsing kept apart from fetching, as with [parseRecordings].
+ *
+ * Sorted by MusicBrainz's own score rather than trusting document order, and nameless or
+ * idless hits are dropped — a row a person cannot read is not a suggestion, and one with
+ * no id cannot be followed up later.
+ */
+internal fun parseArtists(body: String, json: Json = Json { ignoreUnknownKeys = true }): List<MbArtist> =
+    runCatching { json.decodeFromString<ArtistsPage>(body) }.getOrDefault(ArtistsPage())
+        .artists
+        .filter { it.name.isNotBlank() && it.id.isNotBlank() }
+        .sortedByDescending { it.score }
+        .map { MbArtist(it.name, it.id, it.disambiguation) }
 
 /** Parsing kept apart from fetching, so the shape of a reply is asserted without a socket. */
 internal fun parseRecordings(body: String, json: Json = Json { ignoreUnknownKeys = true }): RecordingsPage =

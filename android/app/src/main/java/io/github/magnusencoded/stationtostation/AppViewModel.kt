@@ -51,6 +51,7 @@ import io.github.magnusencoded.stationtostation.data.exchange.ExchangeSession
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSong
+import io.github.magnusencoded.stationtostation.data.musicbrainz.MbArtist
 import io.github.magnusencoded.stationtostation.data.musicbrainz.MusicBrainzClient
 import io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmClient
 import io.github.magnusencoded.stationtostation.data.setlistfm.parseSetlistId
@@ -221,6 +222,12 @@ data class UiState(
     /** A planned gig is being fetched from setlist.fm. */
     val planningLoading: Boolean = false,
     /**
+     * Spellings MusicBrainz offered for the artist name being typed into a planned
+     * gig. A prompt and never a requirement — the field works with the list empty,
+     * which is the ordinary case for a small act and must stay usable.
+     */
+    val artistSuggestions: List<MbArtist> = emptyList(),
+    /**
      * The **Bills** on the wall, poster order preserved. Above today like the gigs
      * I'm going to, and for the same reason — up is always later — but never mixed
      * in with them: a **Bill** is a lineup, not a set of tickets.
@@ -344,6 +351,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private var matchJob: Job? = null
+
+    /** The in-flight artist lookup, so a new keystroke cancels the last one. */
+    private var artistSearch: Job? = null
 
     init {
         viewModelScope.launch {
@@ -1165,6 +1175,74 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 fail(e)
             }
         }
+    }
+
+    /**
+     * A gig I'm going to, typed in: who is playing, where, and when.
+     *
+     * **The objection that kept this a paste box is obsolete.** `AddPlannedGigDialog`
+     * defended taking only a setlist.fm link on two grounds. The first still holds —
+     * setlist.fm's search index stops about a day out (#29), so a future gig cannot be
+     * *found*. The second, that typing the details in "would invent a second record for
+     * a gig setlist.fm already has", has not been true since the **Bill** shipped:
+     * `markActPlayed` mints local **Gig**s for nights setlist.fm has never heard of, and
+     * `adoptSetlistId` moves one onto the vendor id when setlist.fm catches up, with
+     * every photo, offset, calendar link and playlist intact. The collision the comment
+     * described is one the codebase learned to resolve two features ago.
+     *
+     * **No attendance is written**, which is the whole difference from [addLocalGig].
+     * `savePlanned` records `PLANNED` for a gig with no claim on it, and a night I have
+     * not been to yet has no claim to make. Writing `ATTENDED` here would be the app
+     * asserting I was somewhere I have not been.
+     */
+    fun addPlannedGigByHand(artist: String, venue: String, date: String) {
+        val night = parseFmDate(date)
+        if (artist.isBlank() || night == null) {
+            _state.update { it.copy(error = "A night needs who is playing and a date as dd-MM-yyyy.") }
+            return
+        }
+        viewModelScope.launch {
+            val gigId = timelines.createLocalGig(fmDate(night), artist.trim(), venue.trim())
+            val gig = localGigSetlist(gigId, artist.trim(), night, venue.trim(), city = "")
+            timelines.savePlanned(gig)
+            _state.update {
+                it.copy(
+                    plannedGigs = sortedPlanned(it.plannedGigs + gig),
+                    artistSuggestions = emptyList(),
+                )
+            }
+        }
+    }
+
+    /**
+     * Spellings for the artist name being typed, from MusicBrainz.
+     *
+     * Debounced rather than rate-limited: MusicBrainz asks for no more than a request a
+     * second, and a search-as-you-type field would otherwise send one per keystroke.
+     * Cancelling the previous job is also what keeps the answers in order — without it a
+     * slow reply for "ka" can land after a fast one for "kaizers" and replace it.
+     *
+     * Failures are swallowed to an empty list on purpose. This is a prompt; a person who
+     * is offline can still type the name, and an error snackbar for a suggestion that
+     * did not arrive would be nagging about a service they did not ask to use.
+     */
+    fun suggestArtists(query: String) {
+        artistSearch?.cancel()
+        if (query.isBlank()) {
+            _state.update { it.copy(artistSuggestions = emptyList()) }
+            return
+        }
+        artistSearch = viewModelScope.launch {
+            delay(350)
+            val hits = runCatching { musicBrainz.searchArtists(query) }.getOrDefault(emptyList())
+            _state.update { it.copy(artistSuggestions = hits) }
+        }
+    }
+
+    /** The typed name was replaced by a picked one, so the list has done its job. */
+    fun clearArtistSuggestions() {
+        artistSearch?.cancel()
+        _state.update { it.copy(artistSuggestions = emptyList()) }
     }
 
     /**

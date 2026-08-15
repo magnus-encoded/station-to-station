@@ -45,6 +45,9 @@ these words exactly; if a new concept appears, name it here **before** building 
 | **Log** | The ordered songs *I* observed at a **Gig**, written down on my own device. Mine, first-hand, and **never setlist.fm's setlist** — that is the published shared record, this is the witness statement it may one day be built from. A **Gig** has at most one **Log**; a **Log** without a **Gig** is not a thing. | setlist (reserved — that word means setlist.fm's record), notes, capture, transcript |
 | **Open** / **Closed** | A **Log**'s own account of whether it is finished. **Open** is the default and means *"there may be more"*; **Closed** is a claim only its owner makes, deliberately, saying *"that was the whole set"*. A capture built by ticking off songs an artist has played before is **incomplete by construction** — it cannot reach a new song, a cover, or an artist with no history — so **Open** is the honest starting state and nothing but a person may change it. | complete/incomplete (fine informally), done, finalised |
 | **Gap** | An entry in a **Log** for a song that *was played* and could not be named. A stated **Gap** is a true fact and belongs in the record; the same song silently left out is a **Log** lying about its own certainty. | missing, unknown (fine), blank |
+| **Performance** | One line in a set list: *this song, played by this artist, on this night.* That is the whole fact, and it is **independent of any vendor**. A Spotify track is not what a **Performance** is — it is one *resolution* of it, on one service, and a lossy one: the studio recording is a different take of the same song, played by nobody, on no night. A **Performance** is what survives when Spotify does not. (Unrelated to "performance" as speed; that word only appears in `docs/measuring-on-device.md`.) | track, song (fine loosely), setlist entry, item |
+| **Resolver** | Anything that turns a **Performance** into something playable *here*: Spotify, a MusicBrainz lookup, a folder of files, a person with a memory. A **Resolver** is swappable by construction, and one failing to answer is a normal outcome — it means "not on that service", never "this song did not happen". | provider, backend, source (reserved) |
+| **Playlist** | A **projection** of a **Gig**'s **Performances** through one **Resolver**. Not a stored object and never the record: it is derived on demand, it is per-service, and the same night projects differently on two services and to nothing at all on a third. What gets exported is the **Performances**; the playlist is what someone's player makes of them. | export (reserved — see below), the playlist (there is no *the*) |
 | **Publish** | Handing a **Log** to setlist.fm — their web form, their login, our clipboard. It is a **deliberate act afterwards**, never a button offered mid-set, and it **never** changes a **Log** from **Open** to **Closed**: setlist.fm has nowhere to keep that fact, so a published set that came back would look finished when it isn't. | upload, sync, submit (fine), contribute |
 
 ## Ownership and sharing
@@ -100,6 +103,13 @@ never makes them a **Contact**, and a **Contact** need not be on setlist.fm at a
   date — a **Bill** may never produce a **Gig** at all, and that is not a failure state.
 - A **Log** belongs to one **Gig** and to me. It outlives **Publish** and is never replaced by
   what comes back from setlist.fm: where the two differ, both are shown and neither is merged.
+- A **Log** is a sequence of **Performances**, and so is setlist.fm's setlist. A **Gap** is a
+  **Performance** whose song could not be named — the night and the artist are still known,
+  which is why it is a fact and not a blank.
+- A **Performance** is never stored as a vendor id. Vendor ids are cached *answers* from a
+  **Resolver** and may be thrown away without losing anything; the song title and the artist
+  are the fact. This is why an export carries titles and open identifiers and never
+  `spotify:track:` URIs — a file full of one vendor's pointers is not durable, it is a bet.
 - **Publish** is one-way. Nothing setlist.fm returns can make a **Log** **Closed**, because
   their record has no field for it — the knowledge would be destroyed by the round trip, so
   it is never allowed to make the trip.
