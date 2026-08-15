@@ -16,6 +16,7 @@ import io.github.magnusencoded.stationtostation.data.visibleToContacts
 import io.github.magnusencoded.stationtostation.data.withheldFromContacts
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -74,6 +75,45 @@ class ContactViewTest {
     fun `an all-vault night withholds all of it`() {
         val held = listOf(mine("a", personal = true), mine("b", personal = true))
         assertEquals(listOf("a", "b"), withheldFromContacts(held).map { it.id })
+    }
+
+    /**
+     * The timeline's lit subset, which is the expression StationScreen hands the strip.
+     *
+     * The tint is a device concern, but *which* thumbnails are lit is decidable here,
+     * and it is the half that was wrong: the strip dimmed as one row, so a night with an
+     * empty vault drew exactly as dark as a night that held everything back. That is not
+     * a weak signal, it is a false one — the same defect the doc on
+     * [withheldFromContacts] names about absence, arrived at through uniformity instead.
+     *
+     * Pinned to [visibleToContacts] rather than to `!personal`, because ContactView.kt
+     * is explicit that a second implementation of this rule eventually disagrees with
+     * the first, in the direction of showing someone less than they are being sent.
+     */
+    @Test
+    fun `the lit thumbnails are exactly the ones a contact is sent`() {
+        fun lit(media: List<StoredMedia>) = visibleToContacts(media).map { it.ref }.toSet()
+
+        // The night that used to lie: nothing held back, yet drawn as if it were.
+        val nothingHeldBack = listOf(mine("a"), mine("b"))
+        assertEquals(nothingHeldBack.map { it.ref }.toSet(), lit(nothingHeldBack))
+
+        // The night it was indistinguishable from.
+        val allHeldBack = listOf(mine("a", personal = true), mine("b", personal = true))
+        assertTrue(lit(allHeldBack).isEmpty())
+
+        // And the two must not agree, which is the whole point of the switch.
+        assertNotEquals(lit(nothingHeldBack), lit(allHeldBack))
+
+        // Mixed: the shared ones light, the vaulted one does not, and the strip still
+        // draws all three — so the count is unchanged and no row can change height.
+        val mixed = listOf(mine("a"), mine("b", personal = true), mine("c"))
+        assertEquals(setOf("content://mine/a", "content://mine/c"), lit(mixed))
+        assertEquals(3, mixed.size)
+
+        // A contact's own photograph is never lit: it is not mine to pass on, and a
+        // thumbnail drawn at full strength would claim I am sending it.
+        assertTrue(lit(listOf(theirs("t"))).isEmpty())
     }
 
     /**

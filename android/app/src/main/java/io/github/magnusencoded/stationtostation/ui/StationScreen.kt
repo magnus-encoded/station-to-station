@@ -780,31 +780,37 @@ fun StationTimelineScreen(
                                     { PeopleRails(row, rows.getOrNull(index + 1), lanes, laneWidth) }
                                 val nodeX = crossingX(row, lanes, laneWidth)
                                 when (val node = row.node) {
-                                    is TimelineNode.Concert -> TimelineItem(
-                                        setlist = node.setlist,
-                                        highlight = isFirst && row.mine,
-                                        mine = row.mine,
-                                        laneWidth = laneWidth,
-                                        inside = row.depth > 0,
-                                        nodeX = nodeX,
-                                        shared = row.shared && !state.contactLight,
-                                        unlit = state.contactLight,
-                                        rails = rails,
-                                        // Unfiltered on purpose. Filtering here removed a
-                                        // night's whole photo strip, so every row changed
-                                        // height and the line moved under you — the one
-                                        // thing a light switch must never do. The strip
-                                        // dims instead, and what a contact actually sees
-                                        // of a night is answered inside the Room, which is
-                                        // where the sharing decision is made anyway.
-                                        photos = state.mediaBySetlist[node.setlist.id]
-                                            .orEmpty().map { Uri.parse(it.ref) },
-                                        loadPhotoPreview = viewModel::photoPreview,
-                                        onClick = {
-                                            viewModel.openShow(node.setlist)
-                                            onOpenEvent()
-                                        },
-                                    )
+                                    is TimelineNode.Concert -> {
+                                        val nightMedia = state.mediaBySetlist[node.setlist.id].orEmpty()
+                                        TimelineItem(
+                                            setlist = node.setlist,
+                                            highlight = isFirst && row.mine,
+                                            mine = row.mine,
+                                            laneWidth = laneWidth,
+                                            inside = row.depth > 0,
+                                            nodeX = nodeX,
+                                            shared = row.shared && !state.contactLight,
+                                            unlit = state.contactLight,
+                                            rails = rails,
+                                            // Unfiltered on purpose. Filtering here removed a
+                                            // night's whole photo strip, so every row changed
+                                            // height and the line moved under you — the one
+                                            // thing a light switch must never do.
+                                            photos = nightMedia.map { Uri.parse(it.ref) },
+                                            // Which is why the answer rides alongside instead:
+                                            // the same thumbnails in the same places, lit one
+                                            // by one. The Room still holds the detail and the
+                                            // sharing decision; the timeline now at least says
+                                            // truthfully which nights are worth opening.
+                                            litPhotos = visibleToContacts(nightMedia)
+                                                .map { Uri.parse(it.ref) }.toSet(),
+                                            loadPhotoPreview = viewModel::photoPreview,
+                                            onClick = {
+                                                viewModel.openShow(node.setlist)
+                                                onOpenEvent()
+                                            },
+                                        )
+                                    }
 
                                     // A festival opens where it stands rather than pushing
                                     // you into a screen of its own.
@@ -1419,6 +1425,17 @@ internal fun TimelineItem(
     unlit: Boolean = false,
     rails: @Composable () -> Unit = {},
     photos: List<Uri> = emptyList(),
+    /**
+     * Which of [photos] a **Contact** actually sees, so the strip can say which under
+     * the light rather than dimming all of them alike. Empty off the light, where the
+     * question is not being asked and every thumbnail is drawn at full strength.
+     *
+     * Resolved by [visibleToContacts] at the call site and never re-derived here:
+     * ContactView.kt is explicit that a second implementation of this rule will
+     * eventually disagree with the first, and that it would disagree in the direction
+     * of showing someone less than they are being sent.
+     */
+    litPhotos: Set<Uri> = emptySet(),
     loadPhotoPreview: suspend (Uri) -> MediaThumb = { MediaThumb(null) },
 ) {
     val songCount = setlist.performed().size
@@ -1500,9 +1517,21 @@ internal fun TimelineItem(
                 Spacer(Modifier.height(6.dp))
                 // Opacity, not absence: the same three thumbnails in the same three
                 // places, so nothing above or below them moves.
-                Row(Modifier.alpha(if (unlit) 0.35f else 1f)) {
+                //
+                // Per thumbnail, not per strip. Dimming the whole row was uniform, and
+                // uniform is the failure ContactView.kt names about absence — it cannot
+                // tell a night I shared nothing from a night I shared everything. A night
+                // with an empty vault came up as dark as a withheld one, which does not
+                // merely under-inform, it misreports. Count and slots are unchanged, so
+                // the reflow this dimming exists to avoid still cannot happen.
+                Row {
                     photos.take(3).forEach { uri ->
-                        PhotoThumb(uri, size = 44.dp, loadPreview = loadPhotoPreview)
+                        PhotoThumb(
+                            uri,
+                            size = 44.dp,
+                            loadPreview = loadPhotoPreview,
+                            modifier = Modifier.alpha(if (unlit && uri !in litPhotos) 0.35f else 1f),
+                        )
                         Spacer(Modifier.width(6.dp))
                     }
                 }
