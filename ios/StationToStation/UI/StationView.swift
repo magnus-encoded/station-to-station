@@ -385,14 +385,13 @@ struct StationRow: View {
                     .font(.system(size: 17, design: .serif))
                     .foregroundStyle(row.mine ? ink : muted)
                 Text(show.venueLine()).font(.system(size: 13)).foregroundStyle(muted)
-                Text(gigStatus(show)).font(.system(size: 12)).foregroundStyle(faint).padding(.top, 4)
+                // The shared rule, not a local one: what the record says about its own
+                // songs (#127). Said "setlist not logged" here while Android said "no
+                // setlist yet" for the identical state — one line, two apps.
+                Text(setlistStatus(songCount: show.performed().count))
+                    .font(.system(size: 12)).foregroundStyle(faint).padding(.top, 4)
             }
         }
-    }
-
-    private func gigStatus(_ show: FmSetlist) -> String {
-        let n = show.performed().count
-        return n > 0 ? "\(n) songs" : "setlist not logged"
     }
 
     /// Whose is only worth saying when someone else is on screen; on My timeline a
