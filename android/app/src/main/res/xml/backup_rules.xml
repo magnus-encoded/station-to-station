@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ (API 31+). The API 26-30 twin is full_backup_content.xml, and the two
+  must be kept in step — minSdk is 26, so both are live.
+
+  The Spotify bearer secrets do not leave the device by this route. Credentials.kt
+  states the rule ("never in the records manifest, never in an export, never in a
+  backup"); this is where the backup half of it is actually enforced.
+
+  A refresh token does not expire on its own, so a copy in a Google Drive backup — or
+  in an `adb backup` pulled off an API 26-30 device — mints Spotify access tokens as
+  the user until they think to revoke the app, which they have no reason to do.
+
+  Excluded by file, because that is the only granularity backup rules have. That is
+  the whole reason the credentials live in a DataStore of their own: `settings` keeps
+  the friends list and the setlist.fm username, which are identity rather than
+  credential and are exactly what someone reinstalling wants back.
+
+  cloud and device are both excluded: device-to-device transfer carries the same file.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="datastore/credentials.preferences_pb" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="datastore/credentials.preferences_pb" />
+    </device-transfer>
+</data-extraction-rules>

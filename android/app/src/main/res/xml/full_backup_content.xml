@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  API 26-30. The Android 12+ twin is backup_rules.xml; keep the two in step — minSdk
+  is 26, so both are live and a change to one that misses the other silently leaves
+  half the fleet exposed.
+
+  This is the half that matters most in practice: on these versions
+  `adb backup -f out.ab io.github.magnusencoded.stationtostation` extracts the file
+  with USB debugging on and a single on-device tap, no root required.
+-->
+<full-backup-content>
+    <exclude domain="file" path="datastore/credentials.preferences_pb" />
+</full-backup-content>

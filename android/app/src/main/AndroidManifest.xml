@@ -52,8 +52,16 @@
         android:name="android.permission.NEARBY_WIFI_DEVICES"
         android:usesPermissionFlags="neverForLocation" />
 
+    <!--
+      Backup stays on: the friends list and the setlist.fm username are worth keeping
+      across a reinstall. The bearer secrets are not in it — both rule files exclude
+      the credentials DataStore, and minSdk 26 means both are live (dataExtractionRules
+      from API 31, fullBackupContent for 26-30).
+    -->
     <application
         android:allowBackup="true"
+        android:dataExtractionRules="@xml/backup_rules"
+        android:fullBackupContent="@xml/full_backup_content"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
