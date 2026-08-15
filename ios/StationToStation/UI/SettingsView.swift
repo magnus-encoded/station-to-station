@@ -47,6 +47,31 @@ struct SettingsView: View {
                 }
             }
 
+            // Cards are swapped peer to peer and never expire on their own, so
+            // without this the only way to drop a lane was to wipe the app.
+            // Friends lists the same people; what is new here is the lane — how
+            // many nights of theirs this device is actually holding.
+            Section("Known timelines") {
+                if s.friends.isEmpty {
+                    Text("Nobody yet. Swipe left from your timeline to swap cards with "
+                        + "someone, and their line opens beside yours.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    ForEach(s.friends) { friend in
+                        VStack(alignment: .leading) {
+                            Text(friend.name)
+                            Text("@\(friend.setlistfm) · \(s.showsByFriend[friend.setlistfm]?.count ?? 0) shows")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        .swipeActions {
+                            Button(role: .destructive) { model.removeFriend(friend) } label: {
+                                Label("Remove", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+            }
+
             Section {
                 Button("Save") { model.saveSettings(apiKey: apiKey, clientId: clientId) }
             }
