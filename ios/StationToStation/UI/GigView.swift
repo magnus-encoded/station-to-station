@@ -1,15 +1,15 @@
 import SwiftUI
 
 // The Gig resolution: one night. Its real setlist as a spine, encores marked, and
-// the existing playlist conversion still one tap away (iOS already had it; #52
-// keeps it). Reached by tapping a Gig Node on the Timeline.
+// the playlist conversion still here (iOS already had it; #52 keeps it) — on
+// swipe-left, the "act on this level" gesture, not a control. Reached by tapping
+// a Gig Node on the Timeline. Which action is offered is #177's question.
 
 private let ground = Color(red: 0x0E / 255, green: 0x0B / 255, blue: 0x14 / 255)
 private let raised = Color(red: 0x17 / 255, green: 0x12 / 255, blue: 0x1F / 255)
 private let ink = Color(red: 0xED / 255, green: 0xE9 / 255, blue: 0xF2 / 255)
 private let muted = Color(red: 0x8B / 255, green: 0x82 / 255, blue: 0x99 / 255)
 private let faint = Color(red: 0x5A / 255, green: 0x53 / 255, blue: 0x68 / 255)
-private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
 
 /// A row of the night: an encore divider, or a performed song (numbered; a tape
 /// track has no number — it played but is not one of the band's songs).
@@ -38,13 +38,13 @@ struct GigView: View {
 
     var body: some View {
         let show = model.state.selectedSetlist
+        let rows = show.map(eventRows) ?? []
         ZStack {
             ground.ignoresSafeArea()
             if let show {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         header(show)
-                        let rows = eventRows(show)
                         if rows.isEmpty {
                             Text("No setlist was logged for this night on setlist.fm.")
                                 .font(.system(size: 13)).foregroundStyle(muted)
@@ -54,15 +54,6 @@ struct GigView: View {
                         }
                         // The night's grid (#99): what I shot, under what was played.
                         NightGrid()
-                        if !rows.isEmpty {
-                            Button {
-                                nav.push(.confirm)
-                            } label: {
-                                Text("Make a Spotify playlist").frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.borderedProminent).tint(amber).foregroundStyle(Color.black)
-                            .padding(24)
-                        }
                     }
                     .padding(.top, 8)
                 }
@@ -81,6 +72,9 @@ struct GigView: View {
         .navigationBarBackButtonHidden(true)
         .navigationBarTitleDisplayMode(.inline)
         .swipeBack(nav)
+        // Act on this level: the playlist. Nothing to convert on a night nobody
+        // logged, so an empty setlist offers nothing rather than an empty screen.
+        .swipeLeft { if !rows.isEmpty { nav.push(.confirm) } }
     }
 
     private func header(_ show: FmSetlist) -> some View {

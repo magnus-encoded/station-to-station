@@ -25,6 +25,10 @@ struct SettingsView: View {
                     + "URI \(spotifyRedirectURI), paste its Client ID below, Save, then log "
                     + "out and back in.")
                     .font(.caption).foregroundStyle(.secondary)
+                // The way past Spotify's five-user cap, which the paragraph above
+                // only hints at. Android links the same page from the same place.
+                Link("Step by step, and how to ask for a slot",
+                     destination: URL(string: "https://magnus-encoded.github.io/station-to-station/")!)
                 TextField("Spotify Client ID", text: $clientId)
                     .autocorrectionDisabled().textInputAutocapitalization(.never)
             }

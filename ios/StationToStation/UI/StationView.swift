@@ -125,16 +125,8 @@ struct StationView: View {
                 }
         )
         // Swipe the timeline left to start connecting with someone nearby — the
-        // "act on this level" gesture, people axis. Android's 90dp threshold; the
-        // vertical bound is what keeps a diagonal scroll from opening a screen.
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 20)
-                .onEnded { drag in
-                    if drag.translation.width <= -90 && abs(drag.translation.height) < 60 {
-                        nav.push(.exchange)
-                    }
-                }
-        )
+        // "act on this level" gesture, people axis.
+        .swipeLeft { nav.push(.exchange) }
         .onAppear { model.loadTimeline() }
         // Fetch friends' Lanes when the strip opens, not at launch — a
         // Resolution never opened shouldn't spend setlist.fm's budget.
