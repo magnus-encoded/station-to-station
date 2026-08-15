@@ -14,6 +14,11 @@ on:
 jobs:
   bundle:
     runs-on: ubuntu-latest
+    # Creating the release and attaching the .apk needs write; the default for
+    # GITHUB_TOKEN is read-only on repos that have tightened it, and the failure
+    # is a 403 after the build has already been paid for.
+    permissions:
+      contents: write
 
     steps:
       - name: Check out repository code
@@ -49,18 +54,29 @@ jobs:
       # keystore.properties is gitignored and absent here, so the signing config
       # in app/build.gradle.kts falls through to these env vars. UPLOAD_STORE_FILE
       # is resolved against the Gradle root, which is android/.
+      # `tr -d` because the secret is set by a human at a shell, and `base64 -w0`
+      # under Git Bash on Windows emits CRLF. GNU base64 rejects the CR outright
+      # and writes a truncated file, which then fails as "wrong password" three
+      # steps later. Stripping both line endings costs nothing and makes the
+      # secret portable across whatever machine sets it next.
       - name: Restore the upload keystore
         env:
           UPLOAD_KEYSTORE_BASE64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
-        run: echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > android/upload-keystore.jks
+        run: |
+          printf '%s' "$UPLOAD_KEYSTORE_BASE64" | tr -d '\r\n' | base64 -d > android/upload-keystore.jks
+          echo "decoded $(stat -c%s android/upload-keystore.jks) bytes"
 
       # Without the key, build.gradle.kts drops the signing config and produces an
       # *unsigned* bundle rather than failing — green here, rejected at the Play
-      # Console. Catch the missing secret before spending a build on it.
+      # Console. Catch it before spending a build on it.
+      #
+      # keytool's output is kept: piping it to /dev/null once turned a one-line
+      # "keystore password was incorrect" into a bare exit 1 with nothing to read.
       - name: Check the keystore arrived
         run: |
           keytool -list -keystore android/upload-keystore.jks \
-            -storepass "${{ secrets.UPLOAD_STORE_PASSWORD }}" > /dev/null
+            -storepass "${{ secrets.UPLOAD_STORE_PASSWORD }}" \
+            -alias "${{ secrets.UPLOAD_KEY_ALIAS }}"
 
       - name: Build release bundle
         working-directory: android
@@ -71,20 +87,45 @@ jobs:
           UPLOAD_STORE_PASSWORD: ${{ secrets.UPLOAD_STORE_PASSWORD }}
           UPLOAD_KEY_ALIAS: ${{ secrets.UPLOAD_KEY_ALIAS }}
           UPLOAD_KEY_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD }}
-        run: ./gradlew --no-daemon bundleRelease
+        run: ./gradlew --no-daemon bundleRelease assembleRelease
 
-      # An unsigned .aab is accepted by Gradle and refused by Play, hours later
-      # and with a worse error. jarsigner is the cheapest place to learn it.
-      - name: Verify the bundle is signed
+      # An unsigned artifact is accepted by Gradle and refused by Play, hours
+      # later and with a worse error. jarsigner is the cheapest place to learn it.
+      - name: Verify both artifacts are signed
         run: |
           jarsigner -verify -strict \
             android/app/build/outputs/bundle/release/app-release.aab
+          jarsigner -verify -strict \
+            android/app/build/outputs/apk/release/app-release.apk
 
+      # The .aab goes to Play and nowhere else — it is not installable, so putting
+      # it on the Releases page would only offer people a file they cannot open.
       - name: Upload bundle artifact
         uses: actions/upload-artifact@v7
         with:
           name: app-release-${{ github.ref_name }}
           path: android/app/build/outputs/bundle/release/app-release.aab
+
+      # The store is one channel, not the only one. The .apk is what someone
+      # downloads and installs directly, so it is the asset on the Releases page.
+      #
+      # It is signed with the upload key. Play re-signs its own copy with the app
+      # signing key it holds, so the two are different signatures and Android will
+      # not update one with the other — a sideloader has to uninstall before
+      # switching channels. That is a property of Play App Signing, not something
+      # this workflow can reconcile; it belongs in the release notes.
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          cp "$apk" "StationToStation-${{ github.ref_name }}.apk"
+          # --clobber so a re-run replaces the asset rather than failing, and
+          # `create || true` so the iOS side can own the release if it lands first.
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" --generate-notes || true
+          gh release upload "${{ github.ref_name }}" \
+            "StationToStation-${{ github.ref_name }}.apk" --clobber
 
       - name: Delete the keystore
         if: always()
