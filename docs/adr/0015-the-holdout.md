@@ -53,17 +53,32 @@ them would have produced two vague personas instead of one sharp one.
 - **Every feature that needs an account must degrade to something, not to nothing.** This is the
   general form of #225. A surface that is blank without setlist.fm is a surface that tells him the
   app was never for him.
-- **Export does not exist and he is the persona who asks for it.** There is no user-facing way to
-  take `timelines.json` and leave. No other persona generates this: the Collector wants the
-  collection *in* the app, the Historian wants facts flowing outward *to setlist.fm*. The Holdout
-  wants them flowing outward to nowhere in particular, which is a different feature. **This is the
-  first concrete thing he is owed.**
-- **He pulls hardest against the Reliver** (ADR-0009), and this tension was invisible before he was
-  named. The Reliver is served *by playlists* — that is, served by Spotify, a proprietary service
-  with a permanent five-user development cap. The Holdout will not have a Spotify account. Nothing in
-  the persona set objected to that dependency, so it read as settled when it is not. **Unresolved on
-  purpose:** what the Reliver's motive is served by when Spotify is off the table has no answer yet,
-  and inventing one here would be worse than recording the gap.
+- **Export is the first concrete thing he is owed, and it is #106** — the night as durable Markdown
+  in a folder the user picks. No other persona generates it: the Collector wants the collection *in*
+  the app (#141 device handover is his, and is a different requirement — it moves the collection
+  between two installs of *this* app), the Historian wants facts flowing outward *to setlist.fm*,
+  where upstream is a destination rather than portability. Flowing outward to nowhere in particular
+  is the Holdout's ask alone. This does not change #106's spec; it changes its priority, from a
+  keepsake feature to the condition of his consent.
+- **A durable export cannot carry vendor pointers and call itself durable.** Raised against #106 as
+  "should playlists export as `.m3u8`" and answered no: an m3u8 of `spotify:track:` URIs looks
+  durable and is not, which is worse than its absence. The form that survives is open identifiers
+  (MusicBrainz MBIDs) in the front matter, resolvable by anything — best-effort per song, since
+  setlist.fm gives a title and title → work → recording is lossy for live material.
+- **He pulls hardest against the Reliver** (ADR-0009). The Reliver is served *by playlists* — that
+  is, served by Spotify, a proprietary service with a permanent five-user development cap. The
+  Holdout will not have a Spotify account. **Unresolved on purpose:** what the Reliver's motive is
+  served by when Spotify is off the table has no answer yet, and inventing one here would be worse
+  than recording the gap.
+
+  ~~This tension was invisible before he was named; nothing in the persona set objected to that
+  dependency, so it read as settled when it is not.~~ **Corrected 2026-08-15, same day:** false, and
+  it took credit that belongs to ADR-0009. That ADR's own amendment had already reopened the music
+  primitive hours earlier, on the ground that a permanent five-user allowlist contradicts the
+  premise that every capability is unlocked by a source *the user chooses to plug in*. The Holdout
+  does not discover this tension. What he adds is a person who holds the position permanently rather
+  than a term that happens to be bad: ADR-0009 reopened the question about *this vendor*, and he is
+  why the answer cannot be *a better vendor of the same shape*.
 - **He pulls against the Collector** (ADR-0007) on anything that compares collections. Comparison
   wants identity, identity wants accounts, and he refuses the account. Comparison features must
   therefore fail soft — absent, not broken.
@@ -84,5 +99,6 @@ them would have produced two vague personas instead of one sharp one.
 
 - ADR-0003 no backend for the social layer — decided on other grounds, serves his motive.
 - ADR-0007 the Collector, ADR-0008 the Historian, ADR-0009 the Reliver, ADR-0014 the Volunteer.
+- #106 the vault — the export he is owed. #222 the music primitive, reopened on the vendor's terms.
 - #225 / #226 the zero-account floor; #227 bring-your-own key.
 - `docs/personas.md` — the standing resolution about the protective hole, now amended.

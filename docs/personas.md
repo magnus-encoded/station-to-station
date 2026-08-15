@@ -56,8 +56,9 @@ the heuristic is what is wrong.
 - **Organizer ↔ Historian**: sponsor money must never touch the record. Presentation-layer only.
 - **Holdout ↔ Reliver**, and **this one is unresolved on purpose.** The Reliver is served *by
   playlists*, which means served by Spotify — proprietary, and permanently capped at five accounts.
-  The Holdout will not have one. Nothing objected to that dependency until he was named, so it read
-  as settled when it is not. What serves the Reliver's motive without Spotify has no answer yet.
+  The Holdout will not have one. ADR-0009's amendment had already reopened the music primitive on
+  the vendor's terms; what he adds is that the answer cannot be a better vendor of the same shape.
+  What serves the Reliver's motive without Spotify has no answer yet.
 - **Holdout ↔ Collector**: comparison wants identity, identity wants accounts, and he refuses the
   account. Comparison features have to fail soft — absent, not broken.
 - **Holdout ↔ Historian**, the resolved one: both want the fact to survive and they disagree about
