@@ -70,7 +70,7 @@ class WeaveFixturesTest {
         date = r.date?.toString(),
         node = if (r.node is TimelineNode.Festival) "festival" else "gig",
         title = when (val n = r.node) {
-            is TimelineNode.Festival -> n.name
+            is TimelineNode.Festival -> n.label
             is TimelineNode.Concert -> n.setlist.artist?.name.orEmpty()
         },
         ownership = when {

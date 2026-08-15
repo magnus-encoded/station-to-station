@@ -20,7 +20,7 @@ class FestivalGroupingTest {
     )
 
     @Test
-    fun festivalIsNamedByVenueNotFreeTextInfo() {
+    fun freeTextInfoNeverLeaksIntoTheLabel() {
         // setlist.fm `info` is arbitrary notes, not the festival name, so it must
         // never leak into the label.
         val nodes = groupIntoFestivals(
@@ -30,7 +30,42 @@ class FestivalGroupingTest {
             ),
         )
         val festival = nodes.single() as TimelineNode.Festival
-        assertEquals("Tøyenparken", festival.name)
+        assertTrue("First show in Norway" !in festival.label)
+        assertTrue("editorial" !in festival.label)
+    }
+
+    /**
+     * #166. The venue used to be the label whenever the festival name had not
+     * resolved — so a room appeared on the **Line** as though it were an event, and
+     * the **Node** claimed festivalhood on the strength of a venue string and a date
+     * window. Nothing knows this was a festival, so nothing says it was.
+     */
+    @Test
+    fun anUnidentifiedClusterIsNeverNamedAfterItsVenue() {
+        val nodes = groupIntoFestivals(
+            listOf(
+                show("1", "08-08-2025", "Tøyenparken"),
+                show("2", "07-08-2025", "Tøyenparken"),
+            ),
+        )
+        val festival = nodes.single() as TimelineNode.Festival
+        assertEquals(null, festival.name)
+        assertTrue(!festival.identified)
+        assertTrue("Tøyenparken" !in festival.label)
+    }
+
+    @Test
+    fun anIdentityFromTheSourceIsTheLabel() {
+        val nodes = groupIntoFestivals(
+            listOf(
+                show("1", "08-08-2025", "Tøyenparken"),
+                show("2", "07-08-2025", "Tøyenparken"),
+            ),
+            names = mapOf("1" to "Øyafestivalen 2025"),
+        )
+        val festival = nodes.single() as TimelineNode.Festival
+        assertTrue(festival.identified)
+        assertEquals("Øyafestivalen 2025", festival.label)
     }
 
     @Test
@@ -45,7 +80,6 @@ class FestivalGroupingTest {
         assertEquals(1, nodes.size)
         val festival = nodes[0] as TimelineNode.Festival
         assertEquals(3, festival.shows.size)
-        assertEquals("Ekebergsletta", festival.name)
     }
 
     @Test

@@ -52,14 +52,21 @@ android {
         applicationId = "io.github.magnusencoded.stationtostation"
         minSdk = 26
         targetSdk = 35
-        // Both from gradle.properties, so the shipped version lives in git. The
-        // run number still suffixes versionName on CI builds — that is what tells
-        // two debug APKs of the same release apart on a device — but it must not
-        // reach versionCode, which Play requires to be monotonic and which a
-        // re-run of CI would otherwise move backwards.
-        versionCode = (property("appVersionCode") as String).toInt()
-        versionName = property("appVersionName") as String +
-            (System.getenv("GITHUB_RUN_NUMBER")?.let { ".$it" } ?: "")
+        // Play requires versionCode to be strictly increasing and never accepts the
+        // same one twice, so on a release build it comes from the commit count —
+        // an int that only climbs, resets never, and can be recovered from any
+        // checkout with `git rev-list --count`. android-release.yml passes it in.
+        //
+        // Explicitly NOT the CI run number, which was the obvious candidate: it is
+        // scoped per workflow file, so a new or renamed release workflow restarts
+        // at 1 and every upload is refused until the count catches back up. It also
+        // holds steady across a re-run, which is exactly when you need a new code.
+        //
+        // Absent the env var — any local or debug build — this falls back to
+        // gradle.properties, so a developer build still has a sensible number.
+        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull()
+            ?: (property("appVersionCode") as String).toInt()
+        versionName = property("appVersionName") as String
         buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")
         buildConfigField("String", "SETLISTFM_API_KEY", "\"$setlistFmApiKey\"")
         buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
@@ -117,6 +124,15 @@ android {
         // Flipping `isDebuggable` here also switches off BuildConfig.DEBUG, and
         // with it the Woven geometry dump: AGP derives DEBUG from the flag, not
         // from the build type's name.
+        // The run number tells two debug APKs of the same release apart on a
+        // device. It lives here rather than in defaultConfig because it must not
+        // reach a shipped bundle: GITHUB_RUN_NUMBER is set in every workflow, so
+        // from defaultConfig it would follow the release build to Play and testers
+        // would see "1.2.7" in the listing. The tag is the release's provenance.
+        debug {
+            versionNameSuffix = System.getenv("GITHUB_RUN_NUMBER")?.let { ".$it" }
+        }
+
         release {
             isMinifyEnabled = false
             signingConfigs.findByName("release")?.let { signingConfig = it }

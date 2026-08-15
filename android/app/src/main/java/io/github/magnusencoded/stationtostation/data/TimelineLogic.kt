@@ -103,6 +103,43 @@ interface TimelinePlumbing {
 
 // --- The rules ---
 
+/**
+ * What an evening of several acts is called when nothing knows it was a festival:
+ * **the headliner, then its supports in parentheses.** "Devin Townsend (Haken)".
+ *
+ * This is the label half of #166. A **Node** was named after its venue whenever the
+ * festival-name lookup had not landed — so 24 November 2019 at Sentrum Scene, a
+ * headline show with support, read as a **Festival** called "Sentrum Scene". A room is
+ * not an event, and 44 nights on the line are shaped like that one.
+ *
+ * **The headliner is the longest set, and that is a fallback rather than the answer.**
+ * setlist.fm publishes set times on the festival page and they are the real evidence
+ * for who played last; the API does not carry them, and this app does not scrape that
+ * page yet. Song count is a *weaker answer to the same question* — it is right for
+ * support-plus-headliner, which is the case this fixes, and it is uninformative for a
+ * festival day, which is the case an identity is supposed to name anyway. Ties go to
+ * the order the source gave, so the label is stable rather than arbitrary.
+ *
+ * **Supports are capped at two.** Beyond that a **Node** is growing into a list, and
+ * the list already exists one **Resolution** in.
+ */
+fun billedAs(shows: List<FmSetlist>, supportCap: Int = SUPPORT_CAP): String {
+    val named = shows.filter { !it.artist?.name.isNullOrBlank() }
+    if (named.isEmpty()) return shows.firstOrNull()?.venue?.name ?: "Several acts"
+    // maxByOrNull keeps the first on a tie, which is the source's own order.
+    val headliner = named.maxByOrNull { it.performed().size } ?: named.first()
+    val supports = named.filter { it.id != headliner.id }.map { it.artist!!.name }
+    val head = headliner.artist!!.name
+    if (supports.isEmpty()) return head
+    val shown = supports.take(supportCap)
+    val tail = if (supports.size > shown.size) "${shown.joinToString(", ")} +${supports.size - shown.size}"
+    else shown.joinToString(", ")
+    return "$head ($tail)"
+}
+
+/** Two supports named, the rest counted. See [billedAs]. */
+const val SUPPORT_CAP = 2
+
 class TimelineLogic(private val plumbing: TimelinePlumbing) {
 
     companion object {

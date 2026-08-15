@@ -522,9 +522,13 @@ class BillTest {
     }
 
     @Test
-    fun `a planned festival takes the scraped name, and the venue only as fallback`() {
+    fun `a planned festival takes the scraped name, and its own acts otherwise`() {
+        // Unnamed, the evening is billed by who is playing it. It is not called
+        // "Hollowmoor Park": a room is not the name of an event (#166), and the
+        // venue fallback that used to sit here is the claim that bug was about.
         val plain = futureRows(emptyList(), listOf(marbleQuiet, tinFuneral), planned("mq", "tf"))
-        assertEquals("Hollowmoor Park", festivalNameOf(plain.single()))
+        assertEquals("Marble Quiet (Tin Funeral)", festivalNameOf(plain.single()))
+        assertFalse((plain.single() as FutureRow.Ticket).node.let { it as TimelineNode.Festival }.identified)
 
         // Keyed by the cluster's first show, which is the newest — same order the
         // lane groups in, so the resolver and the lane agree on the key.
@@ -577,7 +581,7 @@ class BillTest {
     }
 
     private fun festivalNameOf(row: FutureRow): String =
-        ((row as FutureRow.Ticket).node as TimelineNode.Festival).name
+        ((row as FutureRow.Ticket).node as TimelineNode.Festival).label
 
     // --- A poster names the festival, never the room (#128) ---------------------
 

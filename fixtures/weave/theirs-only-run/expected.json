@@ -1,7 +1,7 @@
 {
   "rows": [
     {
-      "key": "f-d1", "date": "2026-05-16", "node": "festival", "title": "Stora Scenen",
+      "key": "f-d1", "date": "2026-05-16", "node": "festival", "title": "Refused (Viagra Boys)",
       "ownership": "theirs",
       "with": ["Lemmy"], "together": 0, "theirs": 2,
       "hosts": { "Lemmy": "lane1" }

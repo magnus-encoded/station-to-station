@@ -1,0 +1,91 @@
+name: Android Release Bundle
+
+# Only tagged commits produce an uploadable artifact: a bundle exists because
+# someone decided to publish, not because a branch happened to be green.
+#
+# Deliberately NOT folded into android.yml. That workflow's push trigger carries
+# a `paths:` filter, and GitHub applies path filters to tag pushes as well — a
+# release tag whose diff never touched android/** would be silently skipped, and
+# the failure mode is a tag that produces no bundle and no red run to notice.
+on:
+  push:
+    tags: [ "v*" ]
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v7
+        with:
+          # versionCode is the commit count, and the default shallow clone cannot
+          # count. Without this the build silently falls back to gradle.properties
+          # and ships a stale code that Play refuses.
+          fetch-depth: 0
+
+      # Monotonic along a line of history, recoverable from any checkout, and it
+      # never resets. It only climbs if you tag from main: a tag on a branch that
+      # is behind can produce a lower count than the last upload, which Play then
+      # refuses. Left unguarded because the rejection is immediate and harmless.
+      - name: Derive versionCode from the commit count
+        run: echo "VERSION_CODE=$(git rev-list --count HEAD)" >> "$GITHUB_ENV"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      # Green before published. The tag says "ship this"; the tests say whether
+      # it can be shipped, and a red tag must not leave a bundle behind.
+      - name: Run unit tests
+        working-directory: android
+        run: ./gradlew --no-daemon testDebugUnitTest
+
+      # keystore.properties is gitignored and absent here, so the signing config
+      # in app/build.gradle.kts falls through to these env vars. UPLOAD_STORE_FILE
+      # is resolved against the Gradle root, which is android/.
+      - name: Restore the upload keystore
+        env:
+          UPLOAD_KEYSTORE_BASE64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
+        run: echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > android/upload-keystore.jks
+
+      # Without the key, build.gradle.kts drops the signing config and produces an
+      # *unsigned* bundle rather than failing — green here, rejected at the Play
+      # Console. Catch the missing secret before spending a build on it.
+      - name: Check the keystore arrived
+        run: |
+          keytool -list -keystore android/upload-keystore.jks \
+            -storepass "${{ secrets.UPLOAD_STORE_PASSWORD }}" > /dev/null
+
+      - name: Build release bundle
+        working-directory: android
+        env:
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+          SETLISTFM_API_KEY: ${{ secrets.SETLISTFM_API_KEY }}
+          UPLOAD_STORE_FILE: upload-keystore.jks
+          UPLOAD_STORE_PASSWORD: ${{ secrets.UPLOAD_STORE_PASSWORD }}
+          UPLOAD_KEY_ALIAS: ${{ secrets.UPLOAD_KEY_ALIAS }}
+          UPLOAD_KEY_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon bundleRelease
+
+      # An unsigned .aab is accepted by Gradle and refused by Play, hours later
+      # and with a worse error. jarsigner is the cheapest place to learn it.
+      - name: Verify the bundle is signed
+        run: |
+          jarsigner -verify -strict \
+            android/app/build/outputs/bundle/release/app-release.aab
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-release-${{ github.ref_name }}
+          path: android/app/build/outputs/bundle/release/app-release.aab
+
+      - name: Delete the keystore
+        if: always()
+        run: rm -f android/upload-keystore.jks

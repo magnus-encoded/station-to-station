@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.magnusencoded.stationtostation.AppViewModel
 import io.github.magnusencoded.stationtostation.data.Friend
+import io.github.magnusencoded.stationtostation.data.billedAs
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -73,17 +74,45 @@ private val Serif = FontFamily.Serif
 /** A timeline is a mix of single concerts and festivals (a run of shows at one venue). */
 sealed interface TimelineNode {
     data class Concert(val setlist: FmSetlist) : TimelineNode
-    data class Festival(val name: String, val shows: List<FmSetlist>) : TimelineNode
+
+    /**
+     * Several shows drawn as one **Node**.
+     *
+     * [name] is the **identity** — the real festival name, from a source that knows —
+     * and it is **null when nothing knows**. It used to fall back to the venue string,
+     * which is the visible half of #166: "Sentrum Scene" is a room, not the name of
+     * anything that happened, and putting it here made the record assert a festival
+     * on the strength of a venue and a date window.
+     *
+     * [label] is what to draw, and it never invents an identity. With no [name] the
+     * evening is named by [billedAs] from its own acts, which is a smaller claim and
+     * a true one.
+     */
+    data class Festival(val name: String?, val shows: List<FmSetlist>) : TimelineNode {
+        val label: String get() = name ?: billedAs(shows)
+
+        /** Whether anything actually knows this was a festival. See [name]. */
+        val identified: Boolean get() = name != null
+    }
 }
 
 /**
  * The festival's real name — "Øyafestivalen 2025", not "Tøyenparken" — resolved from
  * setlist.fm's festival entity and passed in by [AppViewModel.resolveFestivalNames],
- * keyed by the cluster's first show. Until it lands (or if it never does) the venue
- * stands in, which is what the timeline showed before.
+ * keyed by the cluster's first show. Null until it lands, and null forever if it never
+ * does: an unresolved cluster is a run of nights, not a festival whose name we mislaid.
  */
-private fun festivalName(shows: List<FmSetlist>, names: Map<String, String>): String =
-    names[shows.first().id] ?: shows.first().venue?.name ?: "Festival"
+private fun festivalName(shows: List<FmSetlist>, names: Map<String, String>): String? =
+    names[shows.first().id]
+
+/**
+ * What an unidentified cluster calls itself above its label: "ONE NIGHT" for several
+ * acts on one date, "N NIGHTS" for a run. Both are things the data actually says.
+ */
+private fun eveningKicker(shows: List<FmSetlist>): String {
+    val nights = shows.mapNotNull { it.localDate() }.distinct().size
+    return if (nights <= 1) "ONE NIGHT" else "$nights NIGHTS"
+}
 
 private const val FESTIVAL_WINDOW_DAYS = 4L
 
@@ -357,9 +386,18 @@ fun FestivalItem(
             }
         }
         Column(Modifier.padding(end = 18.dp, bottom = 22.dp)) {
-            Text("FESTIVAL", color = Slate, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp)
+            // Only a Node with an identity is called a festival. Without one this is
+            // still one evening drawn as one Node — which is a fact we have — and the
+            // eyebrow says only that (#166).
+            Text(
+                if (festival.identified) "FESTIVAL" else eveningKicker(festival.shows),
+                color = Slate,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 1.5.sp,
+            )
             Spacer(Modifier.height(3.dp))
-            Text(festival.name, fontFamily = Serif, fontSize = 17.sp, color = Ink)
+            Text(festival.label, fontFamily = Serif, fontSize = 17.sp, color = Ink)
             Spacer(Modifier.height(2.dp))
             Text(festivalDateRange(festival.shows), color = Muted, fontSize = 13.sp)
             Spacer(Modifier.height(7.dp))
