@@ -1163,13 +1163,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 val gig = setlistFm.setlist(id)
+                // Saved before the state update, not after, because the claim the lane
+                // filters on comes back from the save. The old order left this path
+                // with the same hole as the typed-in one.
+                val attendance = timelines.savePlanned(gig)
                 _state.update {
                     it.copy(
                         plannedGigs = sortedPlanned(it.plannedGigs.filterNot { g -> g.id == gig.id } + gig),
+                        attendanceByGig = it.attendanceByGig + (gig.id to attendance),
                         planningLoading = false,
                     )
                 }
-                timelines.savePlanned(gig)
             } catch (e: Exception) {
                 _state.update { it.copy(planningLoading = false) }
                 fail(e)
@@ -1204,10 +1208,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val gigId = timelines.createLocalGig(fmDate(night), artist.trim(), venue.trim())
             val gig = localGigSetlist(gigId, artist.trim(), night, venue.trim(), city = "")
-            timelines.savePlanned(gig)
+            // The claim goes into state as well as onto disk. `plannedLane` filters on
+            // it, so a gig added without it was written correctly and then drawn by
+            // nothing — the night appeared only after a restart, which reads as Add
+            // having done nothing at all.
+            val attendance = timelines.savePlanned(gig)
             _state.update {
                 it.copy(
                     plannedGigs = sortedPlanned(it.plannedGigs + gig),
+                    attendanceByGig = it.attendanceByGig + (gig.id to attendance),
                     artistSuggestions = emptyList(),
                 )
             }

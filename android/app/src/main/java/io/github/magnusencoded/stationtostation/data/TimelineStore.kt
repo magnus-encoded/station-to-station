@@ -626,20 +626,32 @@ class TimelineStore(
      * write, because the record and the claim are useless apart: a planned gig
      * whose provenance didn't land would read as attended on the next launch.
      * Re-adding the same gig replaces its record rather than duplicating it.
+     *
+     * **Returns the claim it settled on**, which callers need rather than merely
+     * may want. `plannedLane` draws a gig only if an attendance record says it is
+     * planned, so a caller that writes the record here and does not put the same
+     * claim into its own state has saved a night the timeline will not draw until
+     * the next cold start. Two callers had done exactly that. Returning it is what
+     * stops a third from inventing its own answer to a question this function has
+     * already answered — including the never-downgrade rule below, which a caller
+     * writing `Provenance.PLANNED` by hand would get wrong.
      */
-    suspend fun savePlanned(setlist: FmSetlist): Unit = writeMerged {
-        val (c, gigId) = it.withGig(setlist.id)
-        c.copy(
-            gigPlanned = c.gigPlanned + (gigId to setlist),
+    suspend fun savePlanned(setlist: FmSetlist): StoredAttendance {
+        // Assigned inside the transform because that is where the existing claim is
+        // visible, and read after because writeMerged holds the lock across it.
+        var settled = StoredAttendance(provenance = StoredAttendance.Provenance.PLANNED)
+        writeMerged {
+            val (c, gigId) = it.withGig(setlist.id)
             // Never downgrades: re-storing the record when the night's setlist finally
             // lands must not throw away a check-in that happened in between.
-            gigAttendance = c.gigAttendance + (
-                gigId to (
-                    c.gigAttendance[gigId]
-                        ?: StoredAttendance(provenance = StoredAttendance.Provenance.PLANNED)
-                    )
-                ),
-        )
+            settled = c.gigAttendance[gigId]
+                ?: StoredAttendance(provenance = StoredAttendance.Provenance.PLANNED)
+            c.copy(
+                gigPlanned = c.gigPlanned + (gigId to setlist),
+                gigAttendance = c.gigAttendance + (gigId to settled),
+            )
+        }
+        return settled
     }
 
     /**

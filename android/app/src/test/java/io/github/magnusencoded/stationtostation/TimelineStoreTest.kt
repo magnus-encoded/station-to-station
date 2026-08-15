@@ -9,6 +9,7 @@ import io.github.magnusencoded.stationtostation.data.fmDate
 import io.github.magnusencoded.stationtostation.data.isLocal
 import io.github.magnusencoded.stationtostation.data.localGigSetlist
 import io.github.magnusencoded.stationtostation.data.parseFmDate
+import io.github.magnusencoded.stationtostation.data.plannedLane
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmCity
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
@@ -555,6 +556,37 @@ class TimelineStoreTest {
         // refreshSelectedSetlist writes the filled-in record back.
         store.savePlanned(show("oya"))
         assertEquals(StoredAttendance.Provenance.CHECKED_IN, store.load().attendance()["oya"]?.provenance)
+    }
+
+    @Test
+    fun `savePlanned hands back the claim the future lane filters on`() = runBlocking {
+        val store = store()
+        val gig = show("oya")
+
+        // The bug: the caller saved this and put only the gig into its own state, so
+        // plannedLane — which asks the attendance map, not the gig — drew nothing. The
+        // night was on disk and off the screen until the next cold start, which is
+        // indistinguishable from Add having silently failed.
+        val claim = store.savePlanned(gig)
+        assertEquals(StoredAttendance.Provenance.PLANNED, claim.provenance)
+        assertEquals(listOf("oya"), plannedLane(listOf(gig), mapOf(gig.id to claim)).map { it.id })
+
+        // Without it, the lane is empty — this is the state the two callers were in.
+        assertTrue(plannedLane(listOf(gig), emptyMap()).isEmpty())
+    }
+
+    @Test
+    fun `the claim handed back is the one kept, not the one offered`() = runBlocking {
+        val store = store()
+        store.savePlanned(show("oya"))
+        store.saveAttendance(
+            "oya",
+            StoredAttendance(provenance = StoredAttendance.Provenance.CHECKED_IN, checkedInAt = 99L),
+        )
+        // A caller that wrote PLANNED into its own state here would show a night I am
+        // standing at as one I merely intend to attend. The return value is the point:
+        // the store settles this, callers do not get a second opinion.
+        assertEquals(StoredAttendance.Provenance.CHECKED_IN, store.savePlanned(show("oya")).provenance)
     }
 
     @Test
