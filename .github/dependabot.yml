@@ -1,0 +1,35 @@
+# Dependency updates, standing rather than as a one-off.
+#
+# The #165 security review left dependency CVE scanning as the one checklist item
+# it could not honestly claim: the tooling it named (snyk, OWASP dependency-check)
+# was not available, and a scan run once tells you about the day it ran. This does
+# the same job continuously and needs nobody to remember it.
+#
+# No iOS entry: the app has no SwiftPM or CocoaPods manifest — every dependency is
+# an Apple framework, so there is nothing there for Dependabot to read. If a third
+# party ever lands in ios/, add a `swift` ecosystem here in the same commit.
+version: 2
+updates:
+  # The app's own Gradle dependencies, plus the AGP/Kotlin plugins.
+  - package-ecosystem: gradle
+    directory: /android
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the routine bumps: androidx moves in step and a PR per artifact
+      # is how a dependency bot gets muted. Majors stay separate — those are the
+      # ones worth reading.
+      androidx:
+        patterns:
+          - "androidx.*"
+        update-types:
+          - minor
+          - patch
+
+  # The workflows themselves. A pinned action is a dependency like any other, and
+  # this is the half a Gradle scan never sees.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
