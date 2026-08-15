@@ -90,12 +90,20 @@ jobs:
         run: ./gradlew --no-daemon bundleRelease assembleRelease
 
       # An unsigned artifact is accepted by Gradle and refused by Play, hours
-      # later and with a worse error. jarsigner is the cheapest place to learn it.
+      # later and with a worse error. This is the cheapest place to learn it.
       - name: Verify both artifacts are signed
         run: |
-          jarsigner -verify -strict \
-            android/app/build/outputs/bundle/release/app-release.aab
-          jarsigner -verify -strict \
+          # Not -strict. An upload key is self-signed by definition and -strict
+          # ranks a self-signed chain as an error, so it failed on a bundle that
+          # was correctly signed. Plain -verify still catches what matters: an
+          # unsigned jar reports "jar is unsigned" and exits non-zero.
+          jarsigner -verify android/app/build/outputs/bundle/release/app-release.aab
+
+          # jarsigner is the wrong tool for the APK. minSdk is 26, so AGP signs
+          # with APK Signature Scheme v2/v3 and can omit the v1 JAR signature
+          # altogether — jarsigner would call a properly signed APK unsigned.
+          apksigner=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$apksigner" verify --verbose \
             android/app/build/outputs/apk/release/app-release.apk
 
       # The .aab goes to Play and nowhere else — it is not installable, so putting
