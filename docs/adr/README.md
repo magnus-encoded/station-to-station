@@ -42,6 +42,7 @@ status column is doing real work here: two of them are people nothing is built f
 | [0012](0012-the-journalist.md) | The Journalist | served |
 | [0013](0013-the-organizer.md) | The Organizer | **not a user**, nothing built |
 | [0014](0014-the-volunteer.md) | The Volunteer | **not a user**, protected |
+| [0015](0015-the-holdout.md) | The Holdout | served; the first who pulls the other way |
 
 `docs/personas.md` is the map across them: how to apply the set, where their motives pull against
 each other, and the resolutions that settled particular conflicts. Read it alongside these, because
@@ -57,5 +58,5 @@ than reading: consult the ones a piece of work touches.
 ## Related
 
 - `CONTEXT.md` and `UBIQUITOUS_LANGUAGE.md` — the vocabulary these are written in. Read first.
-- `docs/personas.md` — the map across 0007–0014.
+- `docs/personas.md` — the map across 0007–0015.
 - `docs/persona-review-0002.md` — the personas arguing over a draft ADR, as stories.
