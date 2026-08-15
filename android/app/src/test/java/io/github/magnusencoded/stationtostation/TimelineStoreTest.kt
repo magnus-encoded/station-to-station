@@ -5,6 +5,10 @@ import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.StoredPlaylist
 import io.github.magnusencoded.stationtostation.data.TimelineStore
+import io.github.magnusencoded.stationtostation.data.fmDate
+import io.github.magnusencoded.stationtostation.data.isLocal
+import io.github.magnusencoded.stationtostation.data.localGigSetlist
+import io.github.magnusencoded.stationtostation.data.parseFmDate
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmCity
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
@@ -978,5 +982,55 @@ class TimelineStoreTest {
         assertEquals(1, media.size)
         assertEquals("", media.single().text)
         assertEquals(null, media.single().verdict)
+    }
+
+    // --- #225: the zero-account floor's one door ---
+
+    /**
+     * The exact sequence `AppViewModel.addLocalGig` writes, asserted end to end,
+     * because the door is new and the machinery behind it is not.
+     *
+     * The ordering is the part worth pinning: `savePlanned` writes a `PLANNED`
+     * provenance when the gig has none, so the attendance write has to come after it
+     * or a night the user typed in as one they *attended* reads as one they are going
+     * to on the next launch.
+     */
+    @Test
+    fun `a night typed in by hand round-trips as a local gig that was attended`() = runBlocking {
+        val store = store()
+        val night = parseFmDate("07-08-2026")!!
+        val gigId = store.createLocalGig(fmDate(night), "Øyvind Holm", venue = "")
+        store.savePlanned(localGigSetlist(gigId, "Øyvind Holm", night, venue = "", city = ""))
+        store.saveAttendance(
+            gigId,
+            StoredAttendance(provenance = StoredAttendance.Provenance.ATTENDED),
+        )
+
+        val cached = store.load()
+        val back = cached.planned().single { it.id == gigId }
+
+        // No url, so nothing will try to fetch this night from setlist.fm.
+        assertTrue(back.isLocal())
+        assertNull(cached.setlistIdFor(gigId))
+        // ATTENDED, never CHECKED_IN: typing a night in is a claim made now about the
+        // past, and the provenance the Room shows must not present it as one the
+        // phone corroborated at the venue.
+        assertEquals(
+            StoredAttendance.Provenance.ATTENDED,
+            cached.attendance()[gigId]?.provenance,
+        )
+        assertNull(cached.attendance()[gigId]?.checkedInAt)
+        // An unknown room stays unknown rather than becoming "" (#128).
+        assertNull(back.venue?.name)
+        assertEquals("07-08-2026", back.eventDate)
+    }
+
+    /** A blank artist or an unparseable date is refused before anything is written. */
+    @Test
+    fun `a date the app cannot read is not a night`() {
+        assertNull(parseFmDate(""))
+        assertNull(parseFmDate("7 August 2026"))
+        assertNull(parseFmDate("2026-08-07")) // ISO, which is not what setlist.fm speaks
+        assertEquals("07-08-2026", fmDate(parseFmDate(" 07-08-2026 ")!!))
     }
 }

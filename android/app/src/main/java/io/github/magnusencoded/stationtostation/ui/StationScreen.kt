@@ -262,6 +262,7 @@ fun StationTimelineScreen(
     // history at all still has a ticket for something.
     var adding by remember { mutableStateOf(false) }
     var addingBill by remember { mutableStateOf(false) }
+    var addingByHand by remember { mutableStateOf(false) }
 
     // Check-in (#33): opening the timeline takes one fix and compares it against
     // what's already known. Foreground, one-shot, nothing scheduled.
@@ -310,10 +311,13 @@ fun StationTimelineScreen(
                     IconButton(onClick = onOpenConnect) {
                         Icon(Icons.Filled.Person, contentDescription = "Connect with people", tint = Faint)
                     }
-                    if (state.setlists.isNotEmpty()) {
-                        IconButton(onClick = onOpenImport) {
-                            Icon(Icons.Filled.Add, contentDescription = "Add shows", tint = Faint)
-                        }
+                    // Ungated since #225. It used to appear only once `setlists` had
+                    // something in it, which is fine while setlist.fm is the only way
+                    // in — but a timeline built by hand never fills `setlists`, so the
+                    // gate hid the "add" affordance from precisely the user who has no
+                    // other one.
+                    IconButton(onClick = onOpenImport) {
+                        Icon(Icons.Filled.Add, contentDescription = "Add shows", tint = Faint)
                     }
                     IconButton(onClick = onOpenProgramme) {
                         Icon(
@@ -344,6 +348,15 @@ fun StationTimelineScreen(
                     onDismiss = { adding = false },
                 )
             }
+            if (addingByHand) {
+                AddLocalGigDialog(
+                    onAdd = { artist, venue, date ->
+                        viewModel.addLocalGig(artist, venue, date)
+                        addingByHand = false
+                    },
+                    onDismiss = { addingByHand = false },
+                )
+            }
             if (addingBill) {
                 AddBillDialog(
                     onAdd = { name, city, from, to, lineup ->
@@ -360,7 +373,11 @@ fun StationTimelineScreen(
                 // One gig I'm going to and nothing else is a timeline, not an empty
                 // spine — it is exactly the collector's cold start.
                 state.setlists.isEmpty() && state.plannedGigs.isEmpty() && state.bills.isEmpty() ->
-                    EmptyTimeline(onAdd = onOpenImport, onPlan = { adding = true })
+                    EmptyTimeline(
+                        onAdd = onOpenImport,
+                        onPlan = { adding = true },
+                        onAddByHand = { addingByHand = true },
+                    )
 
                 else -> {
                     val earliest = state.setlists.mapNotNull { it.year()?.toIntOrNull() }.minOrNull()
@@ -933,6 +950,64 @@ private fun AddPlannedGigDialog(onAdd: (String) -> Unit, onDismiss: () -> Unit) 
 }
 
 /**
+ * A night you were at, typed in — the door onto the zero-account floor (#225).
+ *
+ * The mirror image of [AddPlannedGigDialog], and the difference between them is the
+ * whole reason both exist. A gig you are *going to* cannot be typed in, because
+ * setlist.fm's search stops about a day out and a hand-typed future night would
+ * invent a second record for one setlist.fm already holds. A night that has already
+ * happened, entered by someone with no setlist.fm account, has no upstream record to
+ * collide with — there is nothing to import, which is exactly why this is here.
+ *
+ * The venue is optional and blank is honest. What the app cannot do is guess it.
+ */
+@Composable
+private fun AddLocalGigDialog(
+    onAdd: (artist: String, venue: String, date: String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var artist by remember { mutableStateOf("") }
+    var venue by remember { mutableStateOf("") }
+    var date by remember { mutableStateOf("") }
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(Raised)
+                .padding(20.dp),
+        ) {
+            Text("A night you were at", fontFamily = Serif, fontSize = 19.sp, color = Ink)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "No account needed. This night lives on this phone, and what was " +
+                    "played goes in its log afterwards.",
+                color = Muted,
+                fontSize = 12.sp,
+            )
+            Spacer(Modifier.height(14.dp))
+            StationField(artist, { artist = it }, "who played")
+            Spacer(Modifier.height(8.dp))
+            StationField(venue, { venue = it }, "venue (optional)")
+            Spacer(Modifier.height(8.dp))
+            StationField(date, { date = it }, "date (dd-MM-yyyy)", imeDone = true)
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("Cancel", color = Faint) }
+                TextButton(
+                    onClick = { onAdd(artist, venue, date) },
+                    enabled = artist.isNotBlank() && date.isNotBlank(),
+                ) {
+                    Text(
+                        "Add it",
+                        color = if (artist.isBlank() || date.isBlank()) Faint else Amber,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
  * "Are you here?" — the one thing a check-in asks. Shown only when a fix already
  * put the phone at the venue on the night, so it states what it thinks and offers
  * the two honest answers.
@@ -1056,9 +1131,17 @@ private fun DeleteNightDialog(photos: Int, onDelete: () -> Unit, onDismiss: () -
     }
 }
 
-/** The empty spine: one lit node you tap to bring in your shows. */
+/**
+ * The empty spine: one lit node you tap to bring in your shows.
+ *
+ * Three doors, and the third is not decoration. The lit node imports from
+ * setlist.fm and the planned-gig row needs a setlist.fm link, so until #225 every
+ * way onto a fresh timeline ran through an account the app insists is optional.
+ * The manual row is what makes that claim true at the front door as well as in the
+ * data model.
+ */
 @Composable
-private fun EmptyTimeline(onAdd: () -> Unit, onPlan: () -> Unit) {
+private fun EmptyTimeline(onAdd: () -> Unit, onPlan: () -> Unit, onAddByHand: () -> Unit) {
     Column(
         Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1088,6 +1171,14 @@ private fun EmptyTimeline(onAdd: () -> Unit, onPlan: () -> Unit) {
             fontSize = 13.sp,
             modifier = Modifier.clickable(onClick = onPlan).padding(8.dp),
         )
+        // Both rows above end at setlist.fm. This one does not, and it is the only
+        // affordance on this screen that a user without an account can act on.
+        Text(
+            "or type in a night you were at",
+            color = Slate,
+            fontSize = 13.sp,
+            modifier = Modifier.clickable(onClick = onAddByHand).padding(8.dp),
+        )
     }
 }
 
@@ -1100,6 +1191,18 @@ fun ImportScreen(viewModel: AppViewModel, onBack: () -> Unit, onDone: () -> Unit
     val startCount = remember { viewModel.state.value.setlists.size }
     var username by remember { mutableStateOf(state.mySetlistFmUser) }
     var apiKey by remember { mutableStateOf("") }
+    var byHand by remember { mutableStateOf(false) }
+
+    if (byHand) {
+        AddLocalGigDialog(
+            onAdd = { artist, venue, date ->
+                viewModel.addLocalGig(artist, venue, date)
+                byHand = false
+                onDone()
+            },
+            onDismiss = { byHand = false },
+        )
+    }
 
     // Leave for the timeline the moment an import actually brings shows in.
     LaunchedEffect(state.setlists.size) {
@@ -1166,6 +1269,18 @@ fun ImportScreen(viewModel: AppViewModel, onBack: () -> Unit, onDone: () -> Unit
                     Text("Import from setlist.fm", fontWeight = FontWeight.SemiBold)
                 }
             }
+            Spacer(Modifier.height(20.dp))
+            // The door that does not run through an account, kept on the screen whose
+            // whole job is "add your shows" — the empty spine offers it too, but the
+            // empty spine is gone the moment there is one night on the line (#225).
+            Text(
+                "or type a night in by hand",
+                color = Slate,
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .clickable { byHand = true }
+                    .padding(vertical = 8.dp),
+            )
         }
     }
 }
