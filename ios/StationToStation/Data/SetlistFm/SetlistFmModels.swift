@@ -117,6 +117,27 @@ struct FmVenue: Codable {
 struct FmCity: Codable {
     var name: String?
     var country: FmCountry?
+    /// setlist.fm ships coordinates for the **city**, never the venue. The coarse
+    /// gate check-in uses before paying for a geocode — see `CheckIn.swift`.
+    var coords: FmCoords?
+
+    init(name: String? = nil, country: FmCountry? = nil, coords: FmCoords? = nil) {
+        self.name = name
+        self.country = country
+        self.coords = coords
+    }
+}
+
+/// City-centre coordinates, both optional because setlist.fm omits them on records it
+/// has no position for — and a half-known point is no point at all.
+struct FmCoords: Codable {
+    var lat: Double?
+    var long: Double?
+
+    init(lat: Double? = nil, long: Double? = nil) {
+        self.lat = lat
+        self.long = long
+    }
 }
 
 struct FmCountry: Codable {
