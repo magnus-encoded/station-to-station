@@ -46,12 +46,12 @@ val gitSha: String = runCatching {
 
 android {
     namespace = "io.github.magnusencoded.stationtostation"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "io.github.magnusencoded.stationtostation"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         // Play requires versionCode to be strictly increasing and never accepts the
         // same one twice, so on a release build it comes from the commit count —
         // an int that only climbs, resets never, and can be recovered from any
