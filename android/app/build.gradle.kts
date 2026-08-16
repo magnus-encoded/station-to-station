@@ -46,7 +46,13 @@ val gitSha: String = runCatching {
 
 android {
     namespace = "io.github.magnusencoded.stationtostation"
-    compileSdk = 36
+    // Play requires targetSdk 36 (below), but Paparazzi cannot render against
+    // compileSdk 36: neither 1.3.5 nor the 2.0.0-alpha knows the platform, and the
+    // previewer test dies in Renderer with a bare NoSuchElementException. So the
+    // compile target stays one behind on purpose. Nothing here calls a 36-only API,
+    // and the 36 behaviour changes apply at runtime by targetSdk regardless.
+    // Move this to 36 the day Paparazzi ships support.
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "io.github.magnusencoded.stationtostation"
