@@ -155,6 +155,32 @@ jobs:
           gh release upload "${{ github.ref_name }}" \
             "StationToStation-${{ github.ref_name }}.apk" --clobber
 
+      # The iOS half of the same release. Pulled from the newest green iOS run
+      # rather than built here — this runner has no Xcode, and ios.yml has
+      # already produced exactly this file. Without it a tag would publish an
+      # APK alone: a release event raised by GITHUB_TOKEN cannot start ios.yml,
+      # so nothing on the iOS side notices a tag was cut.
+      #
+      # Unsigned Debug for arm64, to be re-signed by whoever installs it; the
+      # filename says so. Never fails the release: the Android bundle is already
+      # published by this point, and an absent or stale iOS build is a state to
+      # report, not a reason to redo everything above.
+      - name: Attach the newest iOS build
+        if: startsWith(github.ref, 'refs/tags/')
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run=$(gh run list --workflow=ios.yml --branch main --status success \
+                  --limit 1 --json databaseId -q '.[0].databaseId')
+          if [ -z "$run" ]; then
+            echo "no green iOS run on main — release goes out without an IPA"
+            exit 0
+          fi
+          gh run download "$run" -n StationToStation-ipa -D ipa
+          mv ipa/StationToStation.ipa StationToStation-debug.ipa
+          gh release upload "${{ github.ref_name }}" StationToStation-debug.ipa --clobber
+
       # Last, because everything above is recoverable and this is not: once a
       # versionCode is on a track it cannot be re-uploaded, only superseded.
       #

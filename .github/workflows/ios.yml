@@ -9,11 +9,22 @@ on:
   pull_request:
     branches: [ "main" ]
     paths: [ "ios/**", ".github/workflows/ios.yml" ]
+  # A release published by hand builds the iOS side for it. Not load-bearing:
+  # android-release.yml creates its release with GITHUB_TOKEN, and GitHub will
+  # not start a workflow from an event a workflow token raised — so a *tagged*
+  # release never fires this. That path is covered from the other end: the
+  # release workflow attaches the last green IPA itself.
+  release:
+    types: [ published ]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: macos-latest
+    # The attach step writes a release asset. The default token is read-only on
+    # repos that have tightened it, and the failure lands after the build is paid for.
+    permissions:
+      contents: write
 
     steps:
       - name: Check out repository code
@@ -99,3 +110,37 @@ jobs:
         with:
           name: StationToStation-ipa
           path: ios/StationToStation.ipa
+
+      # The same file, put where someone without a GitHub account can reach it.
+      # A workflow artifact needs a login to download and expires after 90 days,
+      # so "the iOS build is on the repo" was only true for signed-in visitors
+      # who knew about the Actions tab.
+      #
+      # It rides the newest release rather than one of its own: the tag is the
+      # Android publish, and cutting a parallel iOS tag for a build nobody can
+      # install without re-signing it themselves would be ceremony. The name says
+      # debug because that is exactly what it is — an unsigned Debug build for
+      # arm64, to be signed with the installer's own Apple ID.
+      #
+      # Fixed filename, --clobber: one stable URL that always holds the newest
+      # iOS build, replaced in place rather than accumulating one asset per push.
+      # It therefore may be *ahead* of the tag it hangs on, which is the trade
+      # for having a link that does not rot.
+      - name: Attach the .ipa to the newest release
+        if: github.event_name == 'release' || github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # A release event names its own tag; a push to main takes whatever is
+          # newest. Without the release trigger, cutting a tag would leave the
+          # top release holding an APK and no IPA until the next iOS commit —
+          # which is the exact gap this step exists to close.
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          tag="${RELEASE_TAG:-$(gh release view --json tagName -q .tagName)}"
+          if [ -z "$tag" ]; then
+            echo "no release to attach to — skipping"
+            exit 0
+          fi
+          cp ios/StationToStation.ipa StationToStation-debug.ipa
+          gh release upload "$tag" StationToStation-debug.ipa --clobber
+          echo "attached to $tag"
