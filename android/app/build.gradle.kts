@@ -7,16 +7,6 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
-    id("app.cash.paparazzi") version "1.3.5"
-}
-
-// Lets the Compose Preview extension re-render selectively without forcing
-// a full rebuild: the filter env var becomes a tracked test input.
-tasks.withType<Test>().configureEach {
-    inputs.property(
-        "composePreviewFilter",
-        providers.environmentVariable("COMPOSE_PREVIEW_FILTER").orElse("")
-    )
 }
 
 // Bundled credentials so users get one-tap "Log in with Spotify" and never
@@ -46,13 +36,7 @@ val gitSha: String = runCatching {
 
 android {
     namespace = "io.github.magnusencoded.stationtostation"
-    // Play requires targetSdk 36 (below), but Paparazzi cannot render against
-    // compileSdk 36: neither 1.3.5 nor the 2.0.0-alpha knows the platform, and the
-    // previewer test dies in Renderer with a bare NoSuchElementException. So the
-    // compile target stays one behind on purpose. Nothing here calls a 36-only API,
-    // and the 36 behaviour changes apply at runtime by targetSdk regardless.
-    // Move this to 36 the day Paparazzi ships support.
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "io.github.magnusencoded.stationtostation"
