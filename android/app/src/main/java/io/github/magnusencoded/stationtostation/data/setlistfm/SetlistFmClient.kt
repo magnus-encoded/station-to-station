@@ -24,7 +24,15 @@ class SetlistFmClient(private val apiKeyProvider: suspend () -> String?) {
     // that ceiling is the real problem and not retrying merely stops us making
     // it worse. The fix is a key per user (Settings already takes one) or a
     // proxy holding our key and rationing per install.
-    private suspend fun get(path: String, params: Map<String, String?>): String {
+    private suspend fun get(
+        path: String,
+        params: Map<String, String?>,
+        // setlist.fm returns 404, not an empty 200, for a real user whose attended
+        // list has zero shows — a brand-new account looks identical to a typo'd
+        // username unless this call site is told to read that 404 as "no shows"
+        // rather than "no such user".
+        notFoundIsEmpty: Boolean = false,
+    ): String {
         val apiKey = apiKeyProvider()
             ?: throw IOException("setlist.fm API key is not configured. Set it in Settings.")
         val urlBuilder = "https://api.setlist.fm/rest/1.0/$path".toHttpUrl().newBuilder()
@@ -49,6 +57,7 @@ class SetlistFmClient(private val apiKeyProvider: suspend () -> String?) {
                             "setlist.fm's request limit for today has been reached. " +
                                 "Nothing is wrong — try again later."
                         )
+                        resp.code == 404 && notFoundIsEmpty -> """{"total":0}"""
                         resp.code == 404 -> throw IOException("Not found (404). Check the name/ID and try again.")
                         resp.code == 403 -> throw IOException("setlist.fm rejected the API key (403).")
                         else -> throw IOException("setlist.fm error ${resp.code}")
@@ -76,7 +85,9 @@ class SetlistFmClient(private val apiKeyProvider: suspend () -> String?) {
         json.decodeFromString(get("setlist/$setlistId", emptyMap()))
 
     suspend fun userAttended(userId: String, page: Int = 1): SetlistsResponse =
-        json.decodeFromString(get("user/$userId/attended", mapOf("p" to page.toString())))
+        json.decodeFromString(
+            get("user/$userId/attended", mapOf("p" to page.toString()), notFoundIsEmpty = true)
+        )
 
     /**
      * The festival a setlist belongs to, e.g. "Øyafestivalen 2025" for a show whose

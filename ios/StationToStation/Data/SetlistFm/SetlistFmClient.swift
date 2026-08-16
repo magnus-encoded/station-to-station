@@ -11,7 +11,15 @@ final class SetlistFmClient {
         self.apiKeyProvider = apiKeyProvider
     }
 
-    private func get(_ path: String, params: [String: String?]) async throws -> Data {
+    private func get(
+        _ path: String,
+        params: [String: String?],
+        // setlist.fm returns 404, not an empty 200, for a real user whose attended
+        // list has zero shows — a brand-new account looks identical to a typo'd
+        // username unless this call site is told to read that 404 as "no shows"
+        // rather than "no such user".
+        notFoundIsEmpty: Bool = false
+    ) async throws -> Data {
         guard let apiKey = apiKeyProvider() else {
             throw AppError("setlist.fm API key is not configured. Set it in Settings.")
         }
@@ -29,6 +37,7 @@ final class SetlistFmClient {
             switch resp.status {
             case 200...299: return resp.body
             case 429, 500...599: break // retry
+            case 404 where notFoundIsEmpty: return Data(#"{"total":0}"#.utf8)
             case 404: throw AppError("Not found (404). Check the name/ID and try again.")
             case 403: throw AppError("setlist.fm rejected the API key (403).")
             default:
@@ -55,7 +64,7 @@ final class SetlistFmClient {
 
     func userAttended(_ userId: String, page: Int = 1) async throws -> SetlistsResponse {
         try await decoder.decode(SetlistsResponse.self, from:
-            get("user/\(userId)/attended", params: ["p": "\(page)"]))
+            get("user/\(userId)/attended", params: ["p": "\(page)"], notFoundIsEmpty: true))
     }
 
     /// One setlist, fresh — for when it was just edited on setlist.fm, and the only
