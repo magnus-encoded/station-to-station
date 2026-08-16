@@ -51,6 +51,26 @@ internal const val GigDetent = 0.35f
 internal const val BillDetent = 0.62f
 internal const val ImportDetent = 0.88f
 
+/**
+ * Finger-to-gap ratio: the gap grows at half the speed of the drag, so the travel is
+ * felt as weight rather than as a panel stuck to the fingertip.
+ */
+internal const val PullDamping = 0.5f
+
+/**
+ * How much of an upward drag the open gap takes for itself, before the list sees any.
+ *
+ * The list can always scroll down into the past, so it consumed every upward delta and
+ * left nothing over: the gap stayed open with a door still armed while the timeline moved
+ * behind it. While the gap is open the drag is the curtain's — but only as far as the
+ * distance that shuts it ([pull] px of gap ÷ the damping), so a drag that closes it early
+ * still scrolls with what's left rather than dying in the curtain.
+ *
+ * [dy] and the result are raw drag pixels, negative upward.
+ */
+internal fun curtainTakes(dy: Float, pull: Float): Float =
+    if (dy >= 0f || pull <= 0f) 0f else dy.coerceAtLeast(-pull / PullDamping)
+
 /** Which door a pull this deep has armed. [progress] is 0f..1f of the curtain's travel. */
 internal fun armedDoor(progress: Float): PlanningDoor = when {
     progress >= ImportDetent -> PlanningDoor.Import

@@ -443,19 +443,10 @@ fun StationTimelineScreen(
                             /** Last detent crossed, so each one ticks once. */
                             var lastArmed = PlanningDoor.None
 
-                            override fun onPostScroll(
-                                consumed: Offset,
-                                available: Offset,
-                                source: NestedScrollSource,
-                            ): Offset {
-                                // Both directions matter: pulling back up has to be able
-                                // to de-arm a door before release, not just close the gap
-                                // from zero. Only the leftover scroll at the list's own
-                                // top edge reaches here, so hijacking either direction
-                                // never steals an ordinary scroll.
-                                if (available.y == 0f || source != NestedScrollSource.UserInput) return Offset.Zero
+                            /** Move the gap by a raw drag delta, ticking on each detent. */
+                            fun drag(dy: Float) {
                                 scope.launch {
-                                    pull.snapTo((pull.value + available.y * 0.5f).coerceIn(0f, pullMax))
+                                    pull.snapTo((pull.value + dy * PullDamping).coerceIn(0f, pullMax))
                                     // A detent you cannot feel is a threshold, and two
                                     // outcomes separated by a bare distance are a coin
                                     // flip in the hand.
@@ -467,6 +458,32 @@ fun StationTimelineScreen(
                                         }
                                     }
                                 }
+                            }
+
+                            override fun onPreScroll(
+                                available: Offset,
+                                source: NestedScrollSource,
+                            ): Offset {
+                                // Closing has to happen *before* the list sees the drag,
+                                // or the list eats it and the gap never comes back up.
+                                // See curtainTakes for why.
+                                if (source != NestedScrollSource.UserInput) return Offset.Zero
+                                val take = curtainTakes(available.y, pull.value)
+                                if (take == 0f) return Offset.Zero
+                                drag(take)
+                                return Offset(0f, take)
+                            }
+
+                            override fun onPostScroll(
+                                consumed: Offset,
+                                available: Offset,
+                                source: NestedScrollSource,
+                            ): Offset {
+                                // Opening: only the leftover downward scroll at the list's
+                                // own top edge reaches here, so this never steals an
+                                // ordinary scroll. Upward is handled in onPreScroll above.
+                                if (available.y <= 0f || source != NestedScrollSource.UserInput) return Offset.Zero
+                                drag(available.y)
                                 return Offset(0f, available.y)
                             }
 
@@ -655,26 +672,18 @@ fun StationTimelineScreen(
                                         CustomAccessibilityAction("Add a festival lineup") {
                                             addingBill = true; true
                                         },
+                                        CustomAccessibilityAction("Import your setlist.fm history") {
+                                            onOpenImport(); true
+                                        },
                                     )
                                 },
                         ) {
-                            // The top of the line. Three rows used to sit here, one of
-                            // which — "↑ THE FUTURE" — explained a direction the layout
-                            // already states by being above today. Gone.
-                            //
-                            // The two ways in live in the curtain now. They stay here as
-                            // well only while there is nothing above today: a line with
-                            // a Bill and a ticket on it demonstrates that the future has
-                            // things in it, an empty one has nothing to learn from and
-                            // no reason to guess that pulling it would help.
-                            item {
-                                FuturePrompt(
-                                    open = future.isEmpty(),
-                                    loading = state.planningLoading,
-                                    onAdd = { adding = true },
-                                    onAddBill = { addingBill = true },
-                                )
-                            }
+                            // The top of the line. Nothing sits here now but the lookup
+                            // notice: "↑ THE FUTURE" captioned a direction the layout
+                            // already states, and the add-rows that outlived it were the
+                            // curtain's doors printed a second time — the doors were
+                            // meant to *replace* them, not join them.
+                            item { FuturePrompt(loading = state.planningLoading) }
                             // Everything above today, in one date-ordered list —
                             // furthest out first, the same descending order the attended
                             // rows below use. Bills and tickets interleave because they
@@ -882,45 +891,18 @@ fun StationTimelineScreen(
 }
 
 /**
- * Top of the timeline — the future. The line runs on above today, and the gigs I hold
- * a ticket for hang off it, so this is a way in rather than the dead end it was.
+ * Top of the timeline — the future. Only ever a notice now: the ways in are the doors
+ * inside the curtain, and printing them here too made the pull decorative.
  */
 @Composable
-private fun FuturePrompt(open: Boolean, loading: Boolean, onAdd: () -> Unit, onAddBill: () -> Unit) {
-    if (loading) {
-        Text(
-            "Looking it up on setlist.fm…",
-            color = Faint,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 2.dp, bottom = 14.dp),
-        )
-        return
-    }
-    // Nothing at all when the curtain is shut and the line already runs on above
-    // today. "↑ THE FUTURE" captioned a direction that being above today already
-    // states, and two permanent add-rows made three lines at the top of a timeline
-    // for a thing you do twice a year.
-    if (!open) return
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(start = 20.dp, end = 20.dp, top = 2.dp, bottom = 18.dp),
-    ) {
-        Text(
-            "+  a gig you're going to",
-            color = Slate,
-            fontSize = 13.sp,
-            modifier = Modifier.clickable(onClick = onAdd).padding(vertical = 8.dp),
-        )
-        // The other door: a festival whose lineup is known and whose nights are not,
-        // which the setlist.fm link above cannot express because there is no link.
-        Text(
-            "+  a festival lineup",
-            color = Slate,
-            fontSize = 13.sp,
-            modifier = Modifier.clickable(onClick = onAddBill).padding(vertical = 8.dp),
-        )
-    }
+private fun FuturePrompt(loading: Boolean) {
+    if (!loading) return
+    Text(
+        "Looking it up on setlist.fm…",
+        color = Faint,
+        fontSize = 12.sp,
+        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 2.dp, bottom = 14.dp),
+    )
 }
 
 /**
