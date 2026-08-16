@@ -57,7 +57,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
@@ -314,14 +313,6 @@ fun StationTimelineScreen(
                     IconButton(onClick = onOpenConnect) {
                         Icon(Icons.Filled.Person, contentDescription = "Connect with people", tint = Faint)
                     }
-                    // Ungated since #225. It used to appear only once `setlists` had
-                    // something in it, which is fine while setlist.fm is the only way
-                    // in — but a timeline built by hand never fills `setlists`, so the
-                    // gate hid the "add" affordance from precisely the user who has no
-                    // other one.
-                    IconButton(onClick = onOpenImport) {
-                        Icon(Icons.Filled.Add, contentDescription = "Add shows", tint = Faint)
-                    }
                     IconButton(onClick = onOpenProgramme) {
                         Icon(
                             Icons.Filled.Schedule,
@@ -442,10 +433,10 @@ fun StationTimelineScreen(
                     // boolean and made the actions a consequence of reading a caption.
                     val scope = rememberCoroutineScope()
                     val pull = remember { Animatable(0f) }
-                    // 160dp of gap over 320dp of finger: enough travel to separate two
-                    // detents by more than a twitch, and enough drag that neither is
-                    // reached by an ordinary flick at the top of the list.
-                    val pullMax = with(LocalDensity.current) { 160.dp.toPx() }
+                    // 200dp of gap: enough travel to separate three detents by more than
+                    // a twitch, and enough drag that none is reached by an ordinary flick
+                    // at the top of the list.
+                    val pullMax = with(LocalDensity.current) { 200.dp.toPx() }
                     val haptics = LocalHapticFeedback.current
                     val pullNest = remember {
                         object : NestedScrollConnection {
@@ -457,9 +448,14 @@ fun StationTimelineScreen(
                                 available: Offset,
                                 source: NestedScrollSource,
                             ): Offset {
-                                if (available.y <= 0f || source != NestedScrollSource.UserInput) return Offset.Zero
+                                // Both directions matter: pulling back up has to be able
+                                // to de-arm a door before release, not just close the gap
+                                // from zero. Only the leftover scroll at the list's own
+                                // top edge reaches here, so hijacking either direction
+                                // never steals an ordinary scroll.
+                                if (available.y == 0f || source != NestedScrollSource.UserInput) return Offset.Zero
                                 scope.launch {
-                                    pull.snapTo((pull.value + available.y * 0.5f).coerceAtMost(pullMax))
+                                    pull.snapTo((pull.value + available.y * 0.5f).coerceIn(0f, pullMax))
                                     // A detent you cannot feel is a threshold, and two
                                     // outcomes separated by a bare distance are a coin
                                     // flip in the hand.
@@ -480,6 +476,7 @@ fun StationTimelineScreen(
                                 when (armedDoor(pull.value / pullMax)) {
                                     PlanningDoor.Gig -> adding = true
                                     PlanningDoor.Bill -> addingBill = true
+                                    PlanningDoor.Import -> onOpenImport()
                                     PlanningDoor.None -> {}
                                 }
                                 lastArmed = PlanningDoor.None
