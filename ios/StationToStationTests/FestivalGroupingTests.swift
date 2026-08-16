@@ -15,17 +15,47 @@ final class FestivalGroupingTests: XCTestCase {
         )
     }
 
-    func testFestivalIsNamedByVenueNotFreeTextInfo() {
+    func testFreeTextInfoNeverLeaksIntoTheLabel() {
         // setlist.fm `info` is arbitrary notes, not the festival name, so it must
         // never leak into the label.
         let nodes = groupIntoFestivals([
             show("1", "08-08-2025", "Tøyenparken", info: "a long editorial note"),
             show("2", "07-08-2025", "Tøyenparken", info: "First show in Norway"),
         ])
+        guard let festival = nodes.first, nodes.count == 1 else {
+            return XCTFail("expected one festival, got \(nodes.count)")
+        }
+        XCTAssertFalse(festival.label.contains("First show in Norway"))
+        XCTAssertFalse(festival.label.contains("editorial"))
+    }
+
+    /// #166. The venue used to be the label whenever the festival name had not
+    /// resolved — so a room appeared on the Line as though it were an event, and the
+    /// Node claimed festivalhood on the strength of a venue string and a date window.
+    /// Nothing knows this was a festival, so nothing says it was.
+    func testAnUnidentifiedClusterIsNeverNamedAfterItsVenue() {
+        let nodes = groupIntoFestivals([
+            show("1", "08-08-2025", "Tøyenparken"),
+            show("2", "07-08-2025", "Tøyenparken"),
+        ])
         guard case .festival(let name, _)? = nodes.first, nodes.count == 1 else {
             return XCTFail("expected one festival, got \(nodes.count)")
         }
-        XCTAssertEqual("Tøyenparken", name)
+        XCTAssertNil(name)
+        XCTAssertFalse(nodes[0].identified)
+        XCTAssertFalse(nodes[0].label.contains("Tøyenparken"))
+    }
+
+    func testAnIdentityFromTheSourceIsTheLabel() {
+        let nodes = groupIntoFestivals([
+            show("1", "08-08-2025", "Tøyenparken"),
+            show("2", "07-08-2025", "Tøyenparken"),
+        ], names: ["1": "Øyafestivalen 2025"])
+        guard nodes.count == 1 else {
+            return XCTFail("expected one festival, got \(nodes.count)")
+        }
+        XCTAssertTrue(nodes[0].identified)
+        XCTAssertEqual("Øyafestivalen 2025", nodes[0].label)
     }
 
     func testSameVenueAdjacentDatesBecomeOneFestival() {
@@ -39,7 +69,8 @@ final class FestivalGroupingTests: XCTestCase {
             return XCTFail("expected a festival")
         }
         XCTAssertEqual(3, shows.count)
-        XCTAssertEqual("Ekebergsletta", name)
+        // Grouped, not named: nothing has told us what this run was called.
+        XCTAssertNil(name)
     }
 
     func testALoneShowStaysAConcert() {

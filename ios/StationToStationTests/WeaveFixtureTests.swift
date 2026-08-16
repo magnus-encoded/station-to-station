@@ -91,7 +91,7 @@ final class WeaveFixtureTests: XCTestCase {
             for (want, got) in zip(expected.rows, rows) {
                 XCTAssertEqual(want.key, got.key, "\(name): key")
                 XCTAssertEqual(want.node, got.node.isFestival ? "festival" : "gig", "\(name) \(want.key): node")
-                XCTAssertEqual(want.title, title(of: got), "\(name) \(want.key): title")
+                XCTAssertEqual(want.title, got.node.label, "\(name) \(want.key): title")
                 XCTAssertEqual(want.ownership, got.ownership.rawValue, "\(name) \(want.key): ownership")
                 XCTAssertEqual(want.with ?? [], got.others.map(\.setlistfm), "\(name) \(want.key): with")
                 XCTAssertEqual(want.together ?? 0, got.sharedCount, "\(name) \(want.key): together")
@@ -110,13 +110,6 @@ final class WeaveFixtureTests: XCTestCase {
                                    "\(name) \(want.key): \(who)")
                 }
             }
-        }
-    }
-
-    private func title(of row: WovenRow) -> String {
-        switch row.node {
-        case .festival(let name, _): return name
-        case .concert(let show): return show.artist?.name ?? ""
         }
     }
 }

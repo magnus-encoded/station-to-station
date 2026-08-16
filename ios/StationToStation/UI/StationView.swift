@@ -371,9 +371,11 @@ struct StationRow: View {
         switch row.node {
         case .festival(let name, let shows):
             VStack(alignment: .leading, spacing: 3) {
-                Text("FESTIVAL")
+                // Only a node with an identity says FESTIVAL. Without one it says
+                // ONE NIGHT or N NIGHTS — a smaller claim, and a true one.
+                Text(name != nil ? "FESTIVAL" : eveningKicker(shows))
                     .font(.system(size: 10, weight: .semibold)).kerning(1.5).foregroundStyle(slate)
-                Text(name).font(.system(size: 17, design: .serif)).foregroundStyle(ink)
+                Text(row.node.label).font(.system(size: 17, design: .serif)).foregroundStyle(ink)
                 Text(festivalDateRange(shows)).font(.system(size: 13)).foregroundStyle(muted)
                 festivalCounts(shows).font(.system(size: 12)).padding(.top, 4)
             }

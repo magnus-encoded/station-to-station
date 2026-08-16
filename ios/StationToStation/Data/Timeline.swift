@@ -11,7 +11,11 @@ import Foundation
 /// A timeline is a mix of single gigs and festivals (a run of shows at one venue).
 enum TimelineNode {
     case concert(FmSetlist)
-    case festival(name: String, shows: [FmSetlist])
+    /// `name` is the festival's *identity* and is nil when nothing knows it. It is
+    /// never guessed from the venue: two acts at one venue on one date is all
+    /// setlist.fm sends, and it reads the same for a headline show with support as
+    /// for one day of a festival. Draw ``label``, not this.
+    case festival(name: String?, shows: [FmSetlist])
 
     var shows: [FmSetlist] {
         switch self {
@@ -24,6 +28,59 @@ enum TimelineNode {
         if case .festival = self { return true }
         return false
     }
+
+    /// Whether anything actually knows this cluster was a festival.
+    var identified: Bool {
+        if case .festival(let name, _) = self { return name != nil }
+        return false
+    }
+
+    /// What to draw for this node. A cluster with no identity is named from its own
+    /// acts — "Devin Townsend (Haken)" — never from the room it happened in.
+    var label: String {
+        switch self {
+        case .concert(let s): return s.artist?.name ?? ""
+        case .festival(let name, let shows): return name ?? billedAs(shows)
+        }
+    }
+}
+
+/// Two supports named, the rest counted. See ``billedAs(_:cap:)``.
+let supportCap = 2
+
+/// How an evening bills itself from its own acts, when no festival identity names it.
+///
+/// The headliner is the longest set. That is a fallback rather than the answer:
+/// setlist.fm publishes set times on the festival page and those are the real evidence
+/// for who played last, but the API does not carry them and we do not scrape that page.
+/// Song count is right for support-plus-headliner — the case this is for — and
+/// uninformative for a festival day, which is the case an identity should have named.
+///
+/// Ties keep the source's own order, so the label is stable between renders.
+func billedAs(_ shows: [FmSetlist], cap: Int = supportCap) -> String {
+    let named = shows.filter { !($0.artist?.name ?? "").isEmpty }
+    guard let first = named.first else { return shows.first?.venue?.name ?? "Several acts" }
+    // max(by:) returns the *last* maximal element, so the comparison is strict on
+    // the other side to keep the first — the order the source gave.
+    let headliner = named.dropFirst().reduce(first) {
+        $1.performed().count > $0.performed().count ? $1 : $0
+    }
+    let supports = named.filter { $0.id != headliner.id }.map { $0.artist?.name ?? "" }
+    let head = headliner.artist?.name ?? ""
+    if supports.isEmpty { return head }
+    let shown = supports.prefix(cap)
+    let tail = supports.count > shown.count
+        ? "\(shown.joined(separator: ", ")) +\(supports.count - shown.count)"
+        : shown.joined(separator: ", ")
+    return "\(head) (\(tail))"
+}
+
+/// What an unidentified cluster calls itself above its label: "ONE NIGHT" for several
+/// acts on one date, "N NIGHTS" for a run. Both are things the data actually says.
+func eveningKicker(_ shows: [FmSetlist]) -> String {
+    var days = Set<Date>()
+    for show in shows { if let d = show.localDate() { days.insert(d) } }
+    return days.count <= 1 ? "ONE NIGHT" : "\(days.count) NIGHTS"
 }
 
 /// A Festival is two or more Gigs at the same venue within a few days.
@@ -40,11 +97,12 @@ private func sameFestival(_ a: FmSetlist, _ b: FmSetlist) -> Bool {
 }
 
 /// The festival's real name — "Øyafestivalen 2025", not "Tøyenparken" — resolved
-/// from setlist.fm's festival entity and keyed by the cluster's first show. Until
-/// it lands (or if it never does) the venue stands in.
-private func festivalName(_ shows: [FmSetlist], _ names: [String: String]) -> String {
-    guard let first = shows.first else { return "Festival" }
-    return names[first.id] ?? first.venue?.name ?? "Festival"
+/// from setlist.fm's festival entity and keyed by the cluster's first show. Nil until
+/// it lands, and nil forever if it never does: an unresolved cluster is a run of
+/// nights, not a festival whose name we mislaid.
+private func festivalName(_ shows: [FmSetlist], _ names: [String: String]) -> String? {
+    guard let first = shows.first else { return nil }
+    return names[first.id]
 }
 
 /// Groups a date-ordered list of shows into festivals, leaving lone shows as

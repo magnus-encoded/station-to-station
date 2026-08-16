@@ -199,7 +199,10 @@ struct TimelineLogic {
         let festival = groupIntoFestivals(mine, names: festivalNames)
             .first { node in node.isFestival && node.shows.contains { $0.id == setlist.id } }
         let whereName: String?
-        if case .festival(let fname, _)? = festival {
+        // The identity, not the label: a cluster nobody has named is a run of nights,
+        // and its own acts are already the artist half of this name. Falls through to
+        // the venue, exactly as a lone show does.
+        if case .festival(let fname?, _)? = festival {
             whereName = year.map {
                 fname.replacingOccurrences(of: $0, with: "")
                     .trimmingCharacters(in: CharacterSet(charactersIn: " -–"))
