@@ -10,6 +10,21 @@ name: Android Release Bundle
 on:
   push:
     tags: [ "v*" ]
+  # Publishing the same tag twice, or shipping a build to a different track
+  # without cutting a new tag for it. The track input is how production happens:
+  # run this by hand against the tag once the build has proven itself elsewhere.
+  workflow_dispatch:
+    inputs:
+      track:
+        description: Play track to publish to
+        default: internal
+        type: choice
+        options: [ internal, alpha, beta, production ]
+
+# One place to change when the app graduates. A tag push publishes here; the
+# manual trigger above overrides it per-run without touching this file.
+env:
+  DEFAULT_PUBLISH_TRACK: internal
 
 jobs:
   bundle:
@@ -122,7 +137,12 @@ jobs:
       # not update one with the other — a sideloader has to uninstall before
       # switching channels. That is a property of Play App Signing, not something
       # this workflow can reconcile; it belongs in the release notes.
+      #
+      # Tag pushes only. A manual run can be dispatched against a branch, and
+      # github.ref_name would then name the release after the branch — creating
+      # a "main" release with an APK attached to it.
       - name: Publish the GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -134,6 +154,30 @@ jobs:
             --title "${{ github.ref_name }}" --generate-notes || true
           gh release upload "${{ github.ref_name }}" \
             "StationToStation-${{ github.ref_name }}.apk" --clobber
+
+      # Last, because everything above is recoverable and this is not: once a
+      # versionCode is on a track it cannot be re-uploaded, only superseded.
+      #
+      # Skips rather than fails when the credential is absent, so the workflow
+      # still does its other job — build, verify, GitHub release — on a fork or
+      # before the secret is set. A missing secret is a configuration state, not
+      # a broken build.
+      - name: Publish to Play
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          TRACK: ${{ inputs.track || env.DEFAULT_PUBLISH_TRACK }}
+        run: |
+          if [ -z "$PLAY_SERVICE_ACCOUNT_JSON" ]; then
+            echo "PLAY_SERVICE_ACCOUNT_JSON not set — skipping Play upload"
+            exit 0
+          fi
+          pip install --quiet google-api-python-client google-auth
+          # --version-code so a dispatched re-run of an already published tag
+          # promotes the existing bundle instead of trying to upload a rebuild
+          # of it, which Play rejects as a duplicate versionCode.
+          python tools/publish_play.py \
+            android/app/build/outputs/bundle/release/app-release.aab \
+            --track "$TRACK" --version-code "$VERSION_CODE" --commit
 
       - name: Delete the keystore
         if: always()
