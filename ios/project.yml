@@ -66,6 +66,11 @@ targets:
         NSPhotoLibraryUsageDescription:
           Station to Station keeps a small copy of the photos you attach to a gig,
           so the grid of that night still renders years later.
+        # Check-in (#174): one foreground fix, compared against a planned gig's
+        # venue, to offer "are you here?" on the night. No background location.
+        NSLocationWhenInUseUsageDescription:
+          Station to Station checks your location once, only while you're using
+          the app, to offer a check-in when you're at a gig you're going to.
         # Baked-in credentials, surfaced to Config via Info.plist.
         SpotifyClientId: $(SPOTIFY_CLIENT_ID)
         SetlistFmApiKey: $(SETLISTFM_API_KEY)

@@ -145,6 +145,26 @@ struct StationView: View {
         .onChange(of: model.state.zoomedOut) { open in
             if open { model.loadFriendTimelines() }
         }
+        // Check-in (#174): opening the timeline takes one fix and compares it
+        // against what's already known. Foreground, one-shot, nothing
+        // scheduled. The permission is only ever asked for on a night there is
+        // something to check into — never merely for opening the app.
+        .task {
+            guard await model.checkInDue() else { return }
+            if model.hasLocationPermission() { model.offerCheckIn() }
+            else { model.requestLocationPermission() }
+        }
+        .sheet(item: Binding(
+            get: { model.state.checkInOffer },
+            set: { if $0 == nil { model.dismissCheckInOffer() } }
+        )) { gig in
+            CheckInDialog(
+                gig: gig,
+                onCheckIn: { model.checkIn(gig.id) },
+                onDismiss: { model.dismissCheckInOffer() }
+            )
+            .presentationDetents([.fraction(0.3)])
+        }
     }
 
     private var wordmark: some View {
@@ -523,4 +543,33 @@ func festivalDateRange(_ shows: [FmSetlist]) -> String {
     guard let first = dates.first, let last = dates.last else { return "" }
     if first == last { return dayMonthYear.string(from: first) }
     return "\(dayMonth.string(from: first)) \u{2013} \(dayMonthYear.string(from: last))"
+}
+
+/// "Are you here?" — the one thing a check-in asks (#174). Shown only when a
+/// fix already put the phone at the venue on the night, so it states what it
+/// thinks and offers the two honest answers.
+private struct CheckInDialog: View {
+    let gig: FmSetlist
+    let onCheckIn: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Are you here?")
+                .font(.system(size: 19, design: .serif)).foregroundStyle(ink)
+            Text("\(gig.artist?.name ?? "This show") at \(gig.venue?.name ?? "the venue"), tonight.")
+                .font(.system(size: 13)).foregroundStyle(muted)
+            Text("Checking in records that you were at it — on this phone, nowhere else.")
+                .font(.system(size: 11)).foregroundStyle(faint)
+            Spacer(minLength: 12)
+            HStack {
+                Spacer()
+                Button("Not now") { onDismiss() }.foregroundStyle(faint)
+                Button("Check in") { onCheckIn() }.foregroundStyle(amber)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(ground.ignoresSafeArea())
+    }
 }
