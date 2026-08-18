@@ -160,6 +160,21 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
+    /**
+     * Stores a refresh token received via a device handover (#143) — no access token,
+     * because the sending device's [AccountsPayload] never carries one (it is short-lived
+     * and pointless to move). [validAccessToken] correctly reports "needs a refresh" until
+     * [SpotifyClient][io.github.magnusencoded.stationtostation.data.spotify.SpotifyClient]
+     * exchanges this refresh token for one on first use, the same lazy path an expired
+     * token already takes.
+     */
+    suspend fun saveHandoverCredentials(refreshToken: String, scope: String?) {
+        context.credentialStore.edit { prefs ->
+            prefs[Keys.SPOTIFY_REFRESH_TOKEN] = refreshToken
+            if (!scope.isNullOrBlank()) prefs[Keys.SPOTIFY_SCOPE] = scope
+        }
+    }
+
     suspend fun grantedScope(): String? {
         migrateCredentials()
         return context.credentialStore.data.map { it[Keys.SPOTIFY_SCOPE]?.ifBlank { null } }.first()

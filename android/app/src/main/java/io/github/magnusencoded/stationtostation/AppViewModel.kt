@@ -46,8 +46,15 @@ import io.github.magnusencoded.stationtostation.ui.canCheckInManually
 import io.github.magnusencoded.stationtostation.ui.checkInCandidate
 import io.github.magnusencoded.stationtostation.ui.venueMapsQuery
 import io.github.magnusencoded.stationtostation.ble.ProbeCard
+import io.github.magnusencoded.stationtostation.data.AccountsMove
+import io.github.magnusencoded.stationtostation.data.AccountsPayload
+import io.github.magnusencoded.stationtostation.data.mayClearCredentials
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangePeer
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangeSession
+import io.github.magnusencoded.stationtostation.data.exchange.readAccountsAck
+import io.github.magnusencoded.stationtostation.data.exchange.readAccountsStep
+import io.github.magnusencoded.stationtostation.data.exchange.writeAccountsAck
+import io.github.magnusencoded.stationtostation.data.exchange.writeAccountsStep
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSong
@@ -58,6 +65,7 @@ import io.github.magnusencoded.stationtostation.data.setlistfm.parseSetlistId
 import io.github.magnusencoded.stationtostation.data.spotify.SpotifyClient
 import io.github.magnusencoded.stationtostation.data.spotify.SpotifyTrack
 import io.github.magnusencoded.stationtostation.data.spotify.rankCandidates
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -66,6 +74,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.Socket
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.util.Base64
@@ -572,6 +582,65 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(spotifyConnected = false, grantedScope = null) }
         }
     }
+
+    // --- Device handover, accounts step (#143) --------------------------------------
+    //
+    // What connects `HandoverWire`'s tested wire primitives (#259) to real storage.
+    // Both functions take an already-authenticated `Socket` — the TLS handshake and
+    // `proveLinkKey`/`verifyLinkKey` challenge (`HandoverWire.kt`) already passed —
+    // because establishing that socket between two real devices is the transport
+    // bring-up #142 owns, not this step. Deliberately not unit-testable at this layer
+    // for the same reason `AndroidKeyStoreCert`/`HandoverDebugHarness` are not: real
+    // sockets. The protocol sequencing they call is already covered by
+    // `HandoverWireTest`, and the gating decision they call ([mayClearCredentials]) is
+    // already covered by `AccountsTest`.
+
+    /**
+     * Receiving device's half. Stores whatever arrives — durably, via [settings] —
+     * *before* acking, because the source's clear is gated on the ack having meant
+     * something real. Returns null only if the connection dropped before any accounts
+     * frame arrived; a genuinely declined row still arrives as identities-only, not as
+     * null.
+     */
+    suspend fun receiveHandoverAccounts(socket: Socket): AccountsPayload? =
+        withContext(Dispatchers.IO) {
+            val payload = readAccountsStep(socket) ?: return@withContext null
+
+            payload.identities.setlistFmUser?.let { settings.saveMySetlistFmUser(it) }
+            val token = payload.credentials.spotifyRefreshToken
+            if (!token.isNullOrBlank()) {
+                settings.saveHandoverCredentials(token, payload.credentials.spotifyScope)
+            }
+            writeAccountsAck(socket)
+
+            _state.update {
+                it.copy(
+                    mySetlistFmUser = payload.identities.setlistFmUser ?: it.mySetlistFmUser,
+                    spotifyConnected = it.spotifyConnected || !token.isNullOrBlank(),
+                    grantedScope = payload.credentials.spotifyScope ?: it.grantedScope,
+                )
+            }
+            payload
+        }
+
+    /**
+     * Sending device's half — the phone being replaced. Sends [payload], then signs out
+     * *here* only if the receiver's ack genuinely arrives ([mayClearCredentials]): a
+     * dropped connection after the send must never clear a credential that may exist
+     * nowhere else. This is the one call site of a handover-triggered
+     * [SettingsRepository.clearSpotifyAuth] — manual sign-out ([disconnectSpotify]) does
+     * not go through it and is untouched.
+     */
+    suspend fun sendHandoverAccounts(socket: Socket, payload: AccountsPayload): AccountsMove =
+        withContext(Dispatchers.IO) {
+            writeAccountsStep(socket, payload)
+            val step = if (readAccountsAck(socket)) AccountsMove.ACKNOWLEDGED else AccountsMove.SENT
+            if (mayClearCredentials(step)) {
+                settings.clearSpotifyAuth()
+                _state.update { it.copy(spotifyConnected = false, grantedScope = null) }
+            }
+            step
+        }
 
     // --- Friends (peer-to-peer) ---
 
