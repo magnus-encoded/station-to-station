@@ -17,6 +17,13 @@ data class Friend(
     val setlistfm: String,
     val name: String = setlistfm,
     val spotifyId: String? = null,
+    /**
+     * The device identity a **Contact** presented at Exchange (#28), base64
+     * SubjectPublicKeyInfo, ECDSA P-256. Null for a friend added before this field
+     * existed, or from a path that hasn't carried a key yet. What lets a later LAN
+     * beacon (#257) be verified as this specific person rather than a stranger.
+     */
+    val publicKey: String? = null,
 )
 
 /**
@@ -62,7 +69,11 @@ fun friendArrival(incoming: Friend, known: List<Friend>): FriendArrival {
     // have none, so it does not count as a change on its own.
     val sameName = existing.name == incoming.name
     val sameSpotify = incoming.spotifyId == null || existing.spotifyId == incoming.spotifyId
-    return if (sameName && sameSpotify) FriendArrival.Unchanged
+    // A differing key is the one change that matters most: it is what #257 verifies a
+    // LAN beacon against, so a card silently swapping it is exactly the impersonation
+    // case this whole arrival check exists to catch.
+    val sameKey = incoming.publicKey == null || existing.publicKey == incoming.publicKey
+    return if (sameName && sameSpotify && sameKey) FriendArrival.Unchanged
     else FriendArrival.Conflict(existing, incoming)
 }
 
@@ -81,6 +92,7 @@ fun Friend.toShareUri(): Uri = Uri.Builder()
     .appendQueryParameter("u", setlistfm)
     .appendQueryParameter("name", name)
     .apply { spotifyId?.let { appendQueryParameter("sid", it) } }
+    .apply { publicKey?.let { appendQueryParameter("k", it) } }
     .build()
 
 /**
@@ -128,13 +140,14 @@ fun spotifyPlaylistId(input: String): String? =
  * unit test (same reason [io.github.magnusencoded.stationtostation.parseGigLink] was
  * split from its Uri handler), so this is the part the link grammar check can run.
  */
-fun friendFromQuery(u: String?, name: String?, sid: String?): Friend? {
+fun friendFromQuery(u: String?, name: String?, sid: String?, k: String? = null): Friend? {
     val user = u?.trim().orEmpty()
     if (!isPlausibleSetlistFmUser(user)) return null
     return Friend(
         setlistfm = user,
         name = name?.trim()?.ifBlank { null } ?: user,
         spotifyId = sid?.trim()?.ifBlank { null },
+        publicKey = k?.trim()?.ifBlank { null },
     )
 }
 
@@ -169,5 +182,6 @@ fun friendFromUri(uri: Uri): Friend? {
         uri.getQueryParameter("u"),
         uri.getQueryParameter("name"),
         uri.getQueryParameter("sid"),
+        uri.getQueryParameter("k"),
     )
 }

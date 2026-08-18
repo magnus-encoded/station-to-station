@@ -83,7 +83,12 @@ internal fun friendFromCard(card: ProbeCard): Friend? {
     // username goes into a setlist.fm path carrying our API key. See #187, and
     // [isPlausibleSetlistFmUser] for what the rule is and what it deliberately costs.
     val user = card.setlistfm?.trim()?.takeIf { isPlausibleSetlistFmUser(it) } ?: return null
-    return Friend(setlistfm = user, name = card.name.ifBlank { user }, spotifyId = card.spotifyId)
+    return Friend(
+        setlistfm = user,
+        name = card.name.ifBlank { user },
+        spotifyId = card.spotifyId,
+        publicKey = card.publicKey.trim().ifBlank { null },
+    )
 }
 
 /**

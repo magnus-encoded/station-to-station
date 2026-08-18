@@ -7,8 +7,8 @@ import kotlinx.serialization.Serializable
  * offers its timeline (#141).
  *
  * Not **Reconcile**. That word is taken, and taken for a different operation — the
- * pairwise sync between two *Contacts*, which intersects the nights both **Attended**
- * (#28, #102–#104). This is a **handover** between two devices belonging to one
+ * pairwise sync between two *Contacts*, over the whole shared band rather than nights
+ * both **Attended** (#28, #102–#104, #257). This is a **handover** between two devices belonging to one
  * person, so it is a union of everything rather than an intersection of what is
  * shared, and the far end is not a stranger.
  *

@@ -51,6 +51,7 @@ import io.github.magnusencoded.stationtostation.data.AccountsPayload
 import io.github.magnusencoded.stationtostation.data.mayClearCredentials
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangePeer
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangeSession
+import io.github.magnusencoded.stationtostation.data.exchange.contactIdentityPublicKeyBase64
 import io.github.magnusencoded.stationtostation.data.exchange.readAccountsAck
 import io.github.magnusencoded.stationtostation.data.exchange.readAccountsStep
 import io.github.magnusencoded.stationtostation.data.exchange.writeAccountsAck
@@ -78,8 +79,6 @@ import kotlinx.coroutines.withContext
 import java.net.Socket
 import java.time.LocalDate
 import java.time.LocalDateTime
-import java.util.Base64
-import kotlin.random.Random
 
 /** A song with no place yet in the night's recording. 0L is a real time — the first song. */
 const val NOT_STAMPED = -1L
@@ -350,12 +349,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val photos = PhotoRepository(application)
     private val exchange = ExchangeSession(application, viewModelScope)
     private val where = DeviceLocation(application)
-
-    // ponytail: a placeholder key so the BLE card is well-formed, regenerated each launch.
-    // The real Ed25519 keypair that #28 makes a contact's identity belongs to the
-    // relationship layer (#28/#29), not the meeting — the receiver drops it into a Friend
-    // (which has no key field) today. Swap for the keystore identity when contacts persist keys.
-    private val sessionKey = Base64.getEncoder().encodeToString(Random.nextBytes(32))
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -822,7 +815,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Exchange (meeting someone in person) + two-timeline comparison ---
 
-    /** My own card as a followed line, for the Nearby fast path. Blank username = nothing to give. */
+    /**
+     * My own card as a followed line, for the Nearby fast path. Blank username = nothing
+     * to give.
+     *
+     * No public key here: Nearby's endpoint name is capped at 131 bytes total
+     * (`NearbyNameLimitProbe.NEARBY_ENDPOINT_NAME_LIMIT`) with silent overflow, and a
+     * base64 ECDSA P-256 SubjectPublicKeyInfo alone is already ~124 of those. The key
+     * still reaches a Contact — over BLE's [myProbeCard] (ample GATT-read room) or a
+     * shared QR/deep link — both unconstrained by Nearby's advert-sized budget.
+     */
     private fun myCard(): Friend? = _state.value.mySetlistFmUser.trim()
         .ifBlank { null }
         ?.let { Friend(setlistfm = it, name = it) }
@@ -830,7 +832,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     /** The same card as a BLE payload: adds the public key #28 makes the identity. */
     private fun myProbeCard(): ProbeCard? = _state.value.mySetlistFmUser.trim()
         .ifBlank { null }
-        ?.let { ProbeCard(name = it, publicKey = sessionKey, setlistfm = it) }
+        ?.let { ProbeCard(name = it, publicKey = contactIdentityPublicKeyBase64(), setlistfm = it) }
 
     /**
      * Opens the Exchange: start every radio in parallel and collect whoever turns up.

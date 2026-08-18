@@ -9,16 +9,23 @@ import java.nio.charset.StandardCharsets
  *
  * Same deep link the QR fallback and Nearby already carry
  * (`station-to-station://friend?u=…&name=…&sid=…`) with one addition: `k`, the
- * Ed25519 public key that #28 made the identity. Unknown query parameters are
- * ignored by [io.github.magnusencoded.stationtostation.data.friendFromUri], so
- * an old build reading a new card still gets a usable friend.
+ * ECDSA P-256 public key that #28/#257 made the identity (X.509
+ * SubjectPublicKeyInfo, base64 — ~91 bytes in, ~124 chars out). Unknown query
+ * parameters are ignored by
+ * [io.github.magnusencoded.stationtostation.data.friendFromUri], so an old
+ * build reading a new card still gets a usable friend.
  *
  * Plain string building rather than `android.net.Uri` so the size budget — the
  * whole point of the probe — is checkable in a JVM unit test.
+ *
+ * **Not the Nearby fast path's budget.** [ProbeCard] only ever rides a GATT
+ * read (this file) or the QR/deep-link share, both well clear of Nearby's
+ * 131-byte endpoint-name ceiling — see `AppViewModel.myCard()` for why the key
+ * is deliberately absent from the Friend Nearby advertises instead.
  */
 data class ProbeCard(
     val name: String,
-    /** Ed25519 public key, base64. 32 bytes in, 44 chars out. */
+    /** X.509 SubjectPublicKeyInfo, ECDSA P-256, base64. */
     val publicKey: String,
     val setlistfm: String? = null,
     val spotifyId: String? = null,

@@ -92,7 +92,7 @@ never makes them a **Contact**, and a **Contact** need not be on setlist.fm at a
 | **Personal** | Attached, but never sent: on my own **Gig resolution**, held back from everyone. One bit, default off, the only exception the model has. Excluding a *named person* is deliberately not representable — that is the share sheet's job. | private (fine), hidden, secret |
 | **My media** / **Received media** | Whose camera it came from. Always distinguishable — a crowd-sourced entry where you cannot tell what you shot is a worse record, not a richer one. Same instinct as **Amber**. | our photos, the gallery |
 | **Audience** | Who **Received media** reaches: **Contacts** who **Attended** the same **Gig**. Derived from data already held, never a list anyone maintains. Check-in is not the gate — it is one kind of evidence for **Attended**. | recipients, share list, circle, group |
-| **Reconcile** | The pairwise sync between two **Contacts**: intersect the gigs we both **Attended**, exchange what the other is missing. Idempotent, unordered, and **without a time bound** — which is why a **Contact** made years later enriches an old **Gig** with no backfill path to build. | push, sync (fine), publish |
+| **Reconcile** | The pairwise sync between two **Contacts**: exchange whatever's in the shared band that the other is missing — the whole **Audience** tier, not gated by which **Gigs** either side **Attended**. Idempotent, unordered, and **without a time bound** — which is why a **Contact** made years later enriches an old **Gig** with no backfill path to build. | push, sync (fine), publish |
 | **Pointer** | A link into the owner's own cloud (BYOS). What actually crosses the radio; the bytes ride the recipient's internet later. Cross-platform, this is the whole payload. | url (fine), reference |
 | **Thumbnail** | The small copy kept forever. The **durable floor** of a keepsake: full-res is best-effort and a **Pointer** can rot, but the grid of that night still renders in ten years. Exchanged in person on Android; fetched from the cloud on iOS, where the radio is too slow to carry it. | preview, cache |
 
@@ -122,8 +122,8 @@ never makes them a **Contact**, and a **Contact** need not be on setlist.fm at a
 - Zooming moves between **Resolutions**; it never pushes a screen.
 - A **Followed line** grants nothing; only a **Contact** can receive media.
 - **Attach** puts media on a **Gig** and sends it to the **Audience**, unless **Personal**.
-- **Reconcile** runs between **Contacts**, over **Attended** in common — not over what was
-  attached recently, and not over who was checked in at the time.
+- **Reconcile** runs between **Contacts**, over the whole shared band — not over **Attended**
+  in common, not over what was attached recently, and not over who was checked in at the time.
 
 ## Example dialogue
 

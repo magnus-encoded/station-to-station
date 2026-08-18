@@ -38,4 +38,14 @@ class FriendLinkTest {
         assertNull(friendFromQuery(null, "Magnus", null))
         assertNull(friendFromQuery("  ", "Magnus", null))
     }
+
+    @Test fun carriesThePublicKeyWhenPresent() {
+        val friend = Friend(setlistfm = "dizzi90", name = "Magnus", publicKey = "base64-key")
+        assertEquals(friend, friendFromQuery(friend.setlistfm, friend.name, null, friend.publicKey))
+    }
+
+    @Test fun keyDegradesToNullWhenAbsentOrBlank() {
+        assertNull(friendFromQuery("alice", null, null, null)?.publicKey)
+        assertNull(friendFromQuery("alice", null, null, "  ")?.publicKey)
+    }
 }

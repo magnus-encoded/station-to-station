@@ -1,7 +1,9 @@
 package io.github.magnusencoded.stationtostation
 
 import io.github.magnusencoded.stationtostation.ble.PeerHit
+import io.github.magnusencoded.stationtostation.ble.ProbeCard
 import io.github.magnusencoded.stationtostation.data.Friend
+import io.github.magnusencoded.stationtostation.data.exchange.friendFromCard
 import io.github.magnusencoded.stationtostation.data.exchange.mergePeers
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -45,5 +47,15 @@ class ExchangeMergeTest {
     @Test fun repeatedScanResultsForOneDeviceAreOneRow() {
         val merged = mergePeers(emptyList(), listOf(hit("AA:BB", "Ozzy"), hit("AA:BB", "Ozzy")))
         assertEquals(1, merged.size)
+    }
+
+    @Test fun friendFromCardCarriesThePublicKeyThrough() {
+        val card = ProbeCard(name = "Magnus", publicKey = "base64-key", setlistfm = "dizzi90")
+        assertEquals("base64-key", friendFromCard(card)?.publicKey)
+    }
+
+    @Test fun friendFromCardDropsABlankKey() {
+        val card = ProbeCard(name = "Magnus", publicKey = "  ", setlistfm = "dizzi90")
+        assertNull(friendFromCard(card)?.publicKey)
     }
 }
