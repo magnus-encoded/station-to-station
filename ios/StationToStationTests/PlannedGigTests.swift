@@ -138,4 +138,30 @@ final class PlannedGigTests: XCTestCase {
         let cache = await store.load()
         XCTAssertEqual(["g1"], cache.planned().map(\.id))
     }
+
+    // MARK: - The calendar event
+
+    /// The handle the leaf reads as "already added" — EventKit's `eventIdentifier`
+    /// standing in for Android's content URI. Presence is the whole signal; the value
+    /// is opaque to this app either way.
+    func testMarkingTheCalendarRemembersTheEventId() async {
+        let store = TimelineStore(file: tempFile())
+        await store.savePlanned(show("g1"))
+
+        await store.markCalendarAdded(gigId: "g1", eventId: "EVENT-123")
+
+        let cache = await store.load()
+        XCTAssertEqual("EVENT-123", cache.calendarEvents()["g1"])
+    }
+
+    /// A gig with no other record yet (no import, no plan) still gets one minted for
+    /// it — the same `withGig` on-demand rule every other write in this store follows.
+    func testMarkingTheCalendarMintsAGigIfNoneExisted() async {
+        let store = TimelineStore(file: tempFile())
+
+        await store.markCalendarAdded(gigId: "g1", eventId: "EVENT-123")
+
+        let cache = await store.load()
+        XCTAssertEqual("EVENT-123", cache.calendarEvents()["g1"])
+    }
 }

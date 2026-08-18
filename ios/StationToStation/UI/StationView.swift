@@ -52,6 +52,10 @@ struct StationView: View {
     /// has ended and settled into `model.state.zoomedOut`. View-local: it is
     /// visual feedback for a gesture in flight, not app state to persist.
     @State private var dragFraction: CGFloat?
+    /// The paste-a-link entry point for the future edge (#175). A sheet's-worth of
+    /// state, not model state: it exists only while the alert is open.
+    @State private var addingPlanned = false
+    @State private var plannedLink = ""
 
     private var lanes: [Friend] { model.state.friends }
 
@@ -83,7 +87,7 @@ struct StationView: View {
         let s = model.state
         ZStack {
             ground.ignoresSafeArea()
-            if s.timelineShows.isEmpty {
+            if s.timelineShows.isEmpty && s.plannedGigs.isEmpty {
                 empty(loading: s.timelineLoading)
             } else {
                 timeline
@@ -248,19 +252,54 @@ struct StationView: View {
         }
     }
 
-    /// The future edge: the Line runs on above today. Planned Gigs (#31, not yet
-    /// imported on iOS) would hang here as slate hollow rings — never amber.
+    /// The future edge: the Line runs on above today (#175). A gig I hold a ticket for
+    /// hangs here, furthest-future first — the same order the attended rows below use,
+    /// because up is always later and a plan is not an exception to that.
+    ///
+    /// **Simplification from Android's curtain.** Android opens this door by pulling
+    /// down at the top of the list, a custom `NestedScrollConnection` with three
+    /// detents (#175's `PlanningPull`). SwiftUI has no equivalent gesture primitive to
+    /// port faithfully, and the capability the issue actually asks for is "a way to add
+    /// a planned gig", not the drag itself — so this is a plain button that opens an
+    /// alert with a text field instead. Bills (the festival-lineup door) are not ported
+    /// either: the issue's four parts are setlist.fm-link, calendar, maps and time
+    /// state, and a Bill is a different record with no time-state question of its own.
     private var future: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("\u{2191}  THE FUTURE")
                 .font(.system(size: 11, weight: .semibold)).kerning(1.5)
                 .foregroundStyle(slate)
-            Text("the shows ahead")
-                .font(.system(size: 12)).foregroundStyle(faint)
+            HStack {
+                Text("the shows ahead")
+                    .font(.system(size: 12)).foregroundStyle(faint)
+                Spacer()
+                if model.state.planningLoading { ProgressView().tint(faint) }
+                Button { addingPlanned = true } label: {
+                    Image(systemName: "plus.circle").foregroundStyle(slate)
+                }
+                .accessibilityLabel("Add a gig you're going to")
+            }
+            ForEach(model.state.plannedGigs) { gig in
+                PlannedGigRow(setlist: gig)
+                    .contentShape(Rectangle())
+                    .onTapGesture { openGig(gig) }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
         .padding(.bottom, 18)
+        .alert("Add a gig you're going to", isPresented: $addingPlanned) {
+            TextField("setlist.fm link or id", text: $plannedLink)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Button("Add") {
+                model.addPlannedGig(plannedLink)
+                plannedLink = ""
+            }
+            Button("Cancel", role: .cancel) { plannedLink = "" }
+        } message: {
+            Text("Paste the setlist.fm page for the show — its search can't find one that hasn't happened yet.")
+        }
     }
 
     private func openGig(_ show: FmSetlist) {
@@ -442,6 +481,27 @@ struct StationRow: View {
                 + Text("\(theirCount) theirs").foregroundColor(laneColor(max(nodeHost(row, lanes), 0)))
         }
         return t
+    }
+}
+
+/// One night I hold a ticket for, above today (#175). Not woven into `rows` — it isn't
+/// an attended show and has no Lane/Crossing geometry of its own to draw — just the
+/// fact of the gig and `plannedStatus`'s answer to "how far off is it", the same words
+/// `gigStatus` gives an attended row once it has passed.
+private struct PlannedGigRow: View {
+    let setlist: FmSetlist
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(setlist.readableDate() ?? "Unknown date")
+                .font(.system(size: 11, weight: .semibold)).kerning(1).foregroundStyle(faint)
+            Text(setlist.artist?.name ?? "Unknown artist")
+                .font(.system(size: 15, design: .serif)).foregroundStyle(ink)
+            Text(setlist.venueLine()).font(.system(size: 13)).foregroundStyle(muted)
+            Text(plannedStatus(gigDate: setlist.eventDate, now: Date(), songCount: setlist.performed().count))
+                .font(.system(size: 12)).foregroundStyle(slate).padding(.top, 2)
+        }
+        .padding(.vertical, 8)
     }
 }
 

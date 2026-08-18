@@ -56,6 +56,15 @@ struct UiState {
     var sharedWith: Friend?
     // My timeline (the Spine). Facts only — the shape is derived at render time.
     var timelineShows: [FmSetlist] = []
+    /// The future edge: gigs I hold a ticket for, furthest-future first (#175). Kept
+    /// apart from `timelineShows` the same way `showsByFriend` is — a plan is not an
+    /// attended show, and `gigTimeState` is what tells them apart on screen.
+    var plannedGigs: [FmSetlist] = []
+    /// The calendar event made for a planned gig, by gig id — EventKit's
+    /// `eventIdentifier`. Presence is what the leaf reads as "already added".
+    var calendarEventByGig: [String: String] = [:]
+    /// True while `addPlannedGig` is out fetching the setlist.fm record.
+    var planningLoading = false
     /// Friends' attended shows by setlist.fm username, drawn as Lanes when zoomed
     /// out. Kept apart from `timelineShows` (mine) so ownership is never read off
     /// the node holding a gig.
@@ -178,6 +187,76 @@ final class AppModel: ObservableObject {
             await logic.loadSpine(me: me) { spine in
                 state.timelineShows = spine.mine
                 state.festivalNames = spine.festivalNames
+            }
+        }
+        loadPlannedGigs()
+    }
+
+    /// Furthest-future first — the same descending order the attended rows below
+    /// already use: up is always later, and a planned gig is not an exception to that.
+    private func sortedPlanned(_ gigs: [FmSetlist]) -> [FmSetlist] {
+        gigs.sorted { ($0.localDate() ?? .distantPast) > ($1.localDate() ?? .distantPast) }
+    }
+
+    /// The future edge, from disk (#175). Called alongside the Spine at launch, and
+    /// again by every write below so the timeline never shows stale plans.
+    func loadPlannedGigs() {
+        Task {
+            let cache = await timelines.load()
+            state.plannedGigs = sortedPlanned(cache.planned())
+            state.calendarEventByGig = cache.calendarEvents()
+        }
+    }
+
+    /// Adds a gig I'm going to, from whatever was pasted off setlist.fm — the page url
+    /// or the bare id.
+    ///
+    /// Fetched by id, never searched: setlist.fm's search index stops about a day out
+    /// (#29), so a show weeks away cannot be found by artist, venue or date — only
+    /// asked for by the id sitting in the url of the page the user was on.
+    func addPlannedGig(_ linkOrId: String) {
+        guard let id = parseSetlistId(linkOrId) else {
+            state.error = "That doesn't look like a setlist.fm gig link."
+            return
+        }
+        if state.plannedGigs.contains(where: { $0.id == id }) { return }
+        state.planningLoading = true
+        Task {
+            do {
+                let gig = try await setlistFm.setlist(id)
+                await timelines.savePlanned(gig)
+                state.plannedGigs = sortedPlanned(state.plannedGigs.filter { $0.id != gig.id } + [gig])
+                state.planningLoading = false
+            } catch {
+                state.planningLoading = false
+                fail(error)
+            }
+        }
+    }
+
+    /// Forgets a gig I'm not going to after all.
+    func removePlannedGig(_ gigId: String) {
+        state.plannedGigs = state.plannedGigs.filter { $0.id != gigId }
+        Task { await timelines.removePlanned(setlistId: gigId) }
+    }
+
+    /// A calendar event was just made for a planned gig; remember its identifier.
+    /// Presence of it is what a leaf reads as "already added" (#175).
+    func markCalendarAdded(_ gigId: String, eventId: String) {
+        state.calendarEventByGig[gigId] = eventId
+        Task { await timelines.markCalendarAdded(gigId: gigId, eventId: eventId) }
+    }
+
+    /// Bridges the pure `insertCalendarEvent` to state a view can render: EventKit
+    /// itself asks nothing of the model layer, but the result — the id, or the lack of
+    /// one — has to land somewhere the leaf reads. Degrades to the same error banner
+    /// every other failure in this model uses, matching Android's toast.
+    func addToCalendar(_ setlist: FmSetlist) {
+        Task {
+            if let id = await insertCalendarEvent(setlist) {
+                markCalendarAdded(setlist.id, eventId: id)
+            } else {
+                state.error = "Couldn't add this to your calendar."
             }
         }
     }
@@ -413,6 +492,9 @@ final class AppModel: ObservableObject {
         Task {
             guard let fetched = try? await setlistFm.setlist(id) else { return }
             await timelines.savePlanned(fetched)
+            // Keeps the future edge in step with what was just written — without this
+            // an invited-in gig would not appear above tonight until the next launch.
+            state.plannedGigs = sortedPlanned(state.plannedGigs.filter { $0.id != fetched.id } + [fetched])
             state.selectedSetlist = fetched
             loadGigMedia(fetched)
             onOpen()

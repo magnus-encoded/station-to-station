@@ -55,6 +55,7 @@ struct GigView: View {
                         } else {
                             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in songRow(row) }
                         }
+                        plannedActions(show)
                         // The night's grid (#99): what I shot, under what was played.
                         NightGrid()
                         // My own Log (#169), and it is never taken away — this
@@ -142,6 +143,47 @@ struct GigView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 24).padding(.bottom, 16)
+    }
+
+    /// Calendar, maps and "I'm not going" (#175) — only for a gig I actually hold a
+    /// ticket for. The calendar offer stops once the night has passed: a gig that
+    /// already happened has nothing left to put on a calendar, exactly the `planAhead`
+    /// gate Android's leaf uses. Maps has no such gate — a venue is worth finding
+    /// whether the night is ahead or behind.
+    @ViewBuilder
+    private func plannedActions(_ show: FmSetlist) -> some View {
+        if model.state.plannedGigs.contains(where: { $0.id == show.id }) {
+            let timeState = show.eventDate.flatMap { gigTimeState(now: Date(), gigDate: $0) }
+            let calendarEventId = model.state.calendarEventByGig[show.id]
+            let mapsQuery = venueMapsQuery(venueName: show.venue?.name, city: show.venue?.city?.name)
+            VStack(alignment: .leading, spacing: 10) {
+                if timeState != .past {
+                    if calendarEventId != nil {
+                        Label("Added to your calendar", systemImage: "checkmark.circle")
+                            .foregroundStyle(muted)
+                    } else {
+                        Button { model.addToCalendar(show) } label: {
+                            Label("Add to calendar", systemImage: "calendar.badge.plus")
+                        }
+                    }
+                }
+                if let mapsQuery {
+                    Button { openVenueInMaps(mapsQuery) } label: {
+                        Label("Open in Maps", systemImage: "map")
+                    }
+                }
+                Button(role: .destructive) {
+                    model.removePlannedGig(show.id)
+                    nav.pop()
+                } label: {
+                    Text("I'm not going")
+                }
+            }
+            .font(.system(size: 14))
+            .foregroundStyle(ink)
+            .tint(ink)
+            .padding(.horizontal, 24).padding(.top, 14)
+        }
     }
 
     @ViewBuilder

@@ -532,6 +532,18 @@ actor TimelineStore {
         }
     }
 
+    /// Remembers the calendar event made for a planned gig, by its EventKit identifier
+    /// (#175). The counterpart to Android's `markCalendarAdded`, which keeps a content
+    /// URI in the same field — both are just "the handle that proves an event exists".
+    func markCalendarAdded(gigId: String, eventId: String) {
+        writeMerged { cache in
+            var c = cache
+            let id = c.withGig(gigId)
+            c.gigCalendarEvent[id] = eventId
+            return c
+        }
+    }
+
     /// The Reliver's current media for one gig, replacing what was there.
     func saveMedia(setlistId: String, media: [StoredMedia]) {
         writeMerged { cache in

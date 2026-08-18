@@ -71,6 +71,17 @@ targets:
         NSLocationWhenInUseUsageDescription:
           Station to Station checks your location once, only while you're using
           the app, to offer a check-in when you're at a gig you're going to.
+        # The future edge (#175): calendar access is asked for only when you tap "Add
+        # to calendar" on a gig you're going to, never at launch. Both keys are listed
+        # because the deployment target is iOS 16 (see below), which predates iOS 17's
+        # split into full/write-only access — the pre-17 key is what the old API reads,
+        # the new one is what 17+ reads, and only one applies on any given device.
+        NSCalendarsUsageDescription:
+          Station to Station adds a gig you're going to as a calendar event, at your
+          request.
+        NSCalendarsFullAccessUsageDescription:
+          Station to Station adds a gig you're going to as a calendar event, at your
+          request.
         # Baked-in credentials, surfaced to Config via Info.plist.
         SpotifyClientId: $(SPOTIFY_CLIENT_ID)
         SetlistFmApiKey: $(SETLISTFM_API_KEY)
