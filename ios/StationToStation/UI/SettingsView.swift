@@ -75,6 +75,11 @@ struct SettingsView: View {
             Section {
                 Button("Save") { model.saveSettings(apiKey: apiKey, clientId: clientId) }
             }
+
+            // #30 field-test: dev-only screen, not part of the shipped feature set.
+            Section {
+                NavigationLink("GATT card probe (#30 field test)") { BleProbeView() }
+            }
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
