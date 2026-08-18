@@ -121,6 +121,12 @@ android {
         // would see "1.2.7" in the listing. The tag is the release's provenance.
         debug {
             versionNameSuffix = System.getenv("GITHUB_RUN_NUMBER")?.let { ".$it" }
+            // A distinct package id so a debug install coexists with a release/alpha-track
+            // install on the same phone instead of colliding with it — Android refuses to
+            // overwrite a higher versionCode, and Play's version code always outpaces the
+            // CI debug build's. Context.packageName picks this up everywhere already
+            // (FileProvider authority, etc.), so nothing else needs to know.
+            applicationIdSuffix = ".debug"
         }
 
         release {

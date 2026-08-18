@@ -110,22 +110,22 @@ class MainActivity : ComponentActivity() {
      * per phone, drive it:
      *
      *   # host (prints its wifi IP, and a fingerprint when --ez insecure false):
-     *   adb shell am start -n io.github.magnusencoded.stationtostation/.MainActivity \
+     *   adb shell am start -n io.github.magnusencoded.stationtostation.debug/io.github.magnusencoded.stationtostation.MainActivity \
      *     -a io.github.magnusencoded.stationtostation.HANDOVER_DEBUG \
      *     --es role host --es linkKey deadbeef --ez insecure true
      *
      *   # join, once the host is listening (swap --ez insecure and add --es fingerprint
      *   # for the armed pass):
-     *   adb shell am start -n io.github.magnusencoded.stationtostation/.MainActivity \
+     *   adb shell am start -n io.github.magnusencoded.stationtostation.debug/io.github.magnusencoded.stationtostation.MainActivity \
      *     -a io.github.magnusencoded.stationtostation.HANDOVER_DEBUG \
      *     --es role join --es host 192.168.1.23 --es linkKey deadbeef --ez insecure true
      *
      * `adb logcat -s HandoverDebug` on the joining phone shows the result, including the
      * path (in its external files dir) `adb pull` can retrieve the received photo from
-     * for visual reconstruction. The debug build type has no applicationId suffix, so
-     * it is the same package id as any other install of this app — do not run this
-     * against a release build. See the PR description for the full unencrypted-then-armed
-     * procedure this feeds.
+     * for visual reconstruction. The debug build type carries its own `.debug`
+     * applicationId suffix, so it installs alongside any release/alpha-track build
+     * rather than colliding with it. See the PR description for the full
+     * unencrypted-then-armed procedure this feeds.
      */
     private fun handleHandoverDebugIntent(intent: Intent?) {
         if (!io.github.magnusencoded.stationtostation.BuildConfig.DEBUG) return
