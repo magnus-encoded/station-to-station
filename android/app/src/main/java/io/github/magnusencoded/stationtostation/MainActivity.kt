@@ -42,6 +42,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleAuthIntent(intent)
+        handleHandoverDebugIntent(intent)
         setContent {
             AppTheme {
                 AppNavigation(viewModel)
@@ -52,6 +53,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleAuthIntent(intent)
+        handleHandoverDebugIntent(intent)
     }
 
     /**
@@ -88,6 +90,52 @@ class MainActivity : ComponentActivity() {
             "callback" -> viewModel.handleAuthRedirect(uri)
             else -> viewModel.openGigLink(uri)
         }
+    }
+
+    /**
+     * The manual two-device capture rig for #142's own verification procedure — never
+     * app UI, never reachable from a release build. Two `adb shell am start` calls, one
+     * per phone, drive it:
+     *
+     *   # host (prints its wifi IP, and a fingerprint when --ez insecure false):
+     *   adb shell am start -n io.github.magnusencoded.stationtostation/.MainActivity \
+     *     -a io.github.magnusencoded.stationtostation.HANDOVER_DEBUG \
+     *     --es role host --es linkKey deadbeef --ez insecure true
+     *
+     *   # join, once the host is listening (swap --ez insecure and add --es fingerprint
+     *   # for the armed pass):
+     *   adb shell am start -n io.github.magnusencoded.stationtostation/.MainActivity \
+     *     -a io.github.magnusencoded.stationtostation.HANDOVER_DEBUG \
+     *     --es role join --es host 192.168.1.23 --es linkKey deadbeef --ez insecure true
+     *
+     * `adb logcat -s HandoverDebug` on the joining phone shows the result, including the
+     * path (in its external files dir) `adb pull` can retrieve the received photo from
+     * for visual reconstruction. The debug build type has no applicationId suffix, so
+     * it is the same package id as any other install of this app — do not run this
+     * against a release build. See the PR description for the full unencrypted-then-armed
+     * procedure this feeds.
+     */
+    private fun handleHandoverDebugIntent(intent: Intent?) {
+        if (!io.github.magnusencoded.stationtostation.BuildConfig.DEBUG) return
+        if (intent?.action != "io.github.magnusencoded.stationtostation.HANDOVER_DEBUG") return
+        val role = intent.getStringExtra("role")
+        val linkKey = intent.getStringExtra("linkKey") ?: "deadbeef"
+        val insecure = intent.getBooleanExtra("insecure", true)
+        val host = intent.getStringExtra("host")
+        val fingerprint = intent.getStringExtra("fingerprint")
+        val log: (String) -> Unit = { android.util.Log.i("HandoverDebug", it) }
+
+        Thread {
+            runCatching {
+                when (role) {
+                    "host" -> io.github.magnusencoded.stationtostation.data.exchange
+                        .runHandoverDebugHost(applicationContext, linkKey, insecure, log)
+                    "join" -> io.github.magnusencoded.stationtostation.data.exchange
+                        .runHandoverDebugJoin(applicationContext, host!!, linkKey, fingerprint, insecure, log)
+                    else -> log("unknown role '$role' — expected 'host' or 'join'")
+                }
+            }.onFailure { log("handover debug session failed: $it") }
+        }.start()
     }
 }
 
