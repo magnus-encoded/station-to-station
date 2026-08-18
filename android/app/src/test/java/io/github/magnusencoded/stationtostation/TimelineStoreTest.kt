@@ -1,6 +1,7 @@
 package io.github.magnusencoded.stationtostation
 
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
+import io.github.magnusencoded.stationtostation.data.StoredFestival
 import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.StoredPlaylist
@@ -72,6 +73,64 @@ class TimelineStoreTest {
         store.save(festivalNames = mapOf("a" to "Tons of Rock"))
         store.save(shows = mapOf("magnus" to listOf(show("a"))))
         assertEquals(mapOf("a" to "Tons of Rock"), store.load().festivalNames)
+    }
+
+    // --- #166: a Festival gets an identity, and a name filed under the old venue+date
+    // window becomes one, migrated rather than recomputed live -----------------------
+
+    /**
+     * A cache written before #166: a resolved name filed under its cluster's first
+     * show id, next to the two nights that earned it (same venue, four days apart —
+     * the window `groupIntoFestivals` used to draw and no longer does). The migration
+     * replays that old window once, on read, purely to find who the name belongs to.
+     */
+    @Test
+    fun `a name filed under the old venue-window cluster becomes a Festival identity`() = runBlocking {
+        val file = File.createTempFile("timelines", ".json")
+        file.writeText(
+            """{"shows":{"magnus":[""" +
+                """{"id":"a1","eventDate":"25-06-2026","artist":{"name":"Gojira"},"venue":{"name":"Ekebergsletta"}},""" +
+                """{"id":"a2","eventDate":"27-06-2026","artist":{"name":"Ghost"},"venue":{"name":"Ekebergsletta"}}""" +
+                """]},"festivalNames":{"a1":"Tons of Rock"}}"""
+        )
+        val cached = TimelineStore(file).load()
+
+        assertTrue(cached.festivalsMigrated)
+        // The old key survives untouched — an older build restored later still reads it.
+        assertEquals(mapOf("a1" to "Tons of Rock"), cached.festivalNames)
+
+        val identity = cached.festivals.values.single()
+        assertEquals("Tons of Rock", identity.name)
+        assertEquals(StoredFestival.FestivalSource.SCRAPED, identity.source)
+        // Both nights the window would have clustered now carry the identity's id —
+        // not just the one the name happened to be filed under.
+        assertEquals(identity.id, cached.festivalIdByShow["a1"])
+        assertEquals(identity.id, cached.festivalIdByShow["a2"])
+    }
+
+    /** Idempotent, and the flag rather than an empty map is what makes it so — an
+     *  already-migrated cache with nothing left in [TimelineCache.festivalNames] must
+     *  not be mistaken for one that has nothing to migrate. */
+    @Test
+    fun `the festival migration does not run a second time`() = runBlocking {
+        val file = File.createTempFile("timelines", ".json")
+        file.writeText(
+            """{"shows":{"magnus":[{"id":"a1","eventDate":"25-06-2026"}]},""" +
+                """"festivalNames":{"a1":"Tons of Rock"},"festivalsMigrated":true}"""
+        )
+        val cached = TimelineStore(file).load()
+        assertTrue(cached.festivals.isEmpty())
+        assertTrue(cached.festivalIdByShow.isEmpty())
+    }
+
+    @Test
+    fun `festivals and festivalIdByShow round-trip through a save`() = runBlocking {
+        val store = store()
+        val identity = StoredFestival(id = "f1", name = "Piknik i Parken", source = StoredFestival.FestivalSource.AUTHORED)
+        store.save(festivals = mapOf("f1" to identity), festivalIdByShow = mapOf("a" to "f1"))
+        val cached = store.load()
+        assertEquals(identity, cached.festivals["f1"])
+        assertEquals("f1", cached.festivalIdByShow["a"])
     }
 
     private fun playlist(id: String) =

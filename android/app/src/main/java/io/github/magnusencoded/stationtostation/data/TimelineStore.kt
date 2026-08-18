@@ -235,12 +235,75 @@ private fun mimeResolver(context: Context): (String) -> String? =
 /** The id a **Gig** gets the first time it is seen through a setlist.fm id. */
 internal fun gigIdForSetlistId(setlistId: String): String = uuidFrom("gig:$setlistId")
 
+/**
+ * A **Festival**: an identity, not a shape (#166). It exists only when something
+ * knows it — setlist.fm's own festival page, or a **Bill** typed in by hand — and it
+ * is never inferred from a venue string and a date window.
+ *
+ * [id] is local and ours, the same "the identity is ours; the vendors' are
+ * attributes" move #107 made for a **Gig**: [setlistFmSlug] and [mbid] are
+ * enrichment that may land later or never, and storage never moves because of them.
+ *
+ * [rangeFrom]/[rangeTo] are dd-MM-yyyy, the shape setlist.fm sends everywhere else in
+ * this app. Null when the range isn't known — a **Bill** with no dates typed in, or a
+ * scrape that came back empty for that field, per ADR-0004's "every field degrades
+ * independently to null".
+ *
+ * [dayMembership] is per-day membership from the source, date (dd-MM-yyyy) to the
+ * setlist.fm ids that played that day — present only for a scraped identity whose
+ * festival page carried it. `groupIntoFestivals` prefers this over the **Gigs** that
+ * merely carry this identity's [id], because the source's own grouping is evidence
+ * and "which gigs happen to be mine" is not: my attendance decides which nights I
+ * see, never which nights belong to the festival.
+ *
+ * [source] decides who wins on conflict: an authored **Bill** identity is never
+ * overwritten by a scrape, which is why [source] is carried on the record rather
+ * than inferred from which fields are set.
+ */
+@Serializable
+data class StoredFestival(
+    val id: String = "",
+    val name: String = "",
+    val rangeFrom: String? = null,
+    val rangeTo: String? = null,
+    val setlistFmSlug: String? = null,
+    val mbid: String? = null,
+    val source: String = FestivalSource.SCRAPED,
+    val dayMembership: Map<String, List<String>>? = null,
+) {
+    /** Which source wins on conflict; see [source]. A plain string, for [StoredMedia.Kind]'s reason. */
+    object FestivalSource {
+        const val SCRAPED = "scraped"
+        const val AUTHORED = "authored"
+    }
+}
+
+/** The id a scraped **Festival** gets the first time its setlist.fm slug is seen. */
+internal fun festivalIdForSlug(slug: String): String = uuidFrom("festival:$slug")
+
 @Serializable
 data class TimelineCache(
     /** Attended shows by setlist.fm username — mine and every friend's alike. */
     val shows: Map<String, List<FmSetlist>> = emptyMap(),
-    /** Festival name by its cluster's first show id; see AppViewModel.resolveFestivalNames. */
+    /**
+     * Festival name by its cluster's first show id.
+     *
+     * **Dead since #166**, which gave a **Festival** an identity of its own — [festivals]
+     * keyed by an id the app owns, rather than a name filed under a key that moves the
+     * moment the cluster's first show changes. Read once by [withFestivals], never
+     * written again; kept declared so an existing cache still decodes and migrates.
+     */
     val festivalNames: Map<String, String> = emptyMap(),
+    /** Every **Festival** identity this app knows, by [StoredFestival.id]. See #166. */
+    val festivals: Map<String, StoredFestival> = emptyMap(),
+    /**
+     * A **Gig**'s membership of a **Festival**, by the Gig's setlist.fm id — the
+     * fallback `groupIntoFestivals` uses when [StoredFestival.dayMembership] doesn't
+     * already say which nights belong to it.
+     */
+    val festivalIdByShow: Map<String, String> = emptyMap(),
+    /** Whether [withFestivals] has run. See [mediaTierMigrated] for why this is a flag. */
+    val festivalsMigrated: Boolean = false,
     /**
      * The playlists made from a night, by that night's setlist id, oldest first.
      *
@@ -557,12 +620,16 @@ class TimelineStore(
     suspend fun save(
         shows: Map<String, List<FmSetlist>> = emptyMap(),
         festivalNames: Map<String, String> = emptyMap(),
+        festivals: Map<String, StoredFestival> = emptyMap(),
+        festivalIdByShow: Map<String, String> = emptyMap(),
         playlists: Map<String, StoredPlaylist> = emptyMap(),
         attendedTotals: Map<String, Int> = emptyMap(),
     ): Unit = writeMerged { cache ->
         var c = cache.copy(
             shows = cache.shows + shows.filterValues { list -> list.isNotEmpty() },
             festivalNames = cache.festivalNames + festivalNames,
+            festivals = cache.festivals + festivals,
+            festivalIdByShow = cache.festivalIdByShow + festivalIdByShow,
             attendedTotals = cache.attendedTotals + attendedTotals,
         )
         for ((night, made) in playlists) {
@@ -863,7 +930,7 @@ class TimelineStore(
  * minted one — was never built, so no cache in existence contains one.
  */
 internal fun TimelineCache.migrated(mimeOf: ((String) -> String?)? = null): TimelineCache =
-    withGigs().withMedia(mimeOf).withBands()
+    withGigs().withMedia(mimeOf).withBands().withFestivals()
 
 /**
  * #162's upgrade: the night-level grant becomes each item's own bit.
@@ -880,6 +947,72 @@ private fun TimelineCache.withBands(): TimelineCache {
         sharedNights = emptySet(),
         mediaTierMigrated = true,
     )
+}
+
+/**
+ * #166's migration: a name filed under "whichever show happened to be first" becomes
+ * an identity with its own id. [festivalNames] is read once here and never again — see
+ * its own "Dead since #166" note — so this reconstructs the cluster the old venue+date
+ * window would have drawn, purely to find which shows a preserved name belongs to.
+ *
+ * This is the *only* caller of [legacyClusterByVenueWindow]; the live seam
+ * (`groupIntoFestivals` in FestivalScreen.kt) never clusters on venue and date again.
+ */
+private fun TimelineCache.withFestivals(): TimelineCache {
+    if (festivalsMigrated) return this
+    if (festivalNames.isEmpty()) return copy(festivalsMigrated = true)
+    val allShows = (shows.values.flatten() + gigPlanned.values).distinctBy { it.id }
+    val clusters = legacyClusterByVenueWindow(allShows)
+    val newFestivals = mutableMapOf<String, StoredFestival>()
+    val newIdByShow = mutableMapOf<String, String>()
+    for ((firstId, name) in festivalNames) {
+        val cluster = clusters.firstOrNull { it.first().id == firstId } ?: continue
+        val festivalId = uuidFrom("festival:$firstId")
+        newFestivals[festivalId] = StoredFestival(
+            id = festivalId,
+            name = name,
+            source = StoredFestival.FestivalSource.SCRAPED,
+        )
+        cluster.forEach { newIdByShow[it.id] = festivalId }
+    }
+    return copy(
+        festivals = festivals + newFestivals,
+        festivalIdByShow = festivalIdByShow + newIdByShow,
+        festivalsMigrated = true,
+    )
+}
+
+/**
+ * Replays the pre-#166 clustering — same venue, within [LEGACY_FESTIVAL_WINDOW_DAYS] —
+ * so [withFestivals] can find which shows an already-resolved name belongs to. Not the
+ * live grouping rule any more; kept private to this migration only.
+ */
+private fun legacyClusterByVenueWindow(setlists: List<FmSetlist>): List<List<FmSetlist>> {
+    val sorted = setlists.sortedBy { it.localDate() }
+    val clusters = mutableListOf<List<FmSetlist>>()
+    var i = 0
+    while (i < sorted.size) {
+        val cluster = mutableListOf(sorted[i])
+        var j = i + 1
+        while (j < sorted.size && legacySameFestival(cluster.last(), sorted[j])) {
+            cluster.add(sorted[j])
+            j++
+        }
+        clusters.add(cluster)
+        i = j
+    }
+    return clusters
+}
+
+private const val LEGACY_FESTIVAL_WINDOW_DAYS = 4L
+
+private fun legacySameFestival(a: FmSetlist, b: FmSetlist): Boolean {
+    val venueA = a.venue?.name ?: return false
+    val venueB = b.venue?.name ?: return false
+    if (!venueA.equals(venueB, ignoreCase = true)) return false
+    val da = a.localDate() ?: return false
+    val db = b.localDate() ?: return false
+    return kotlin.math.abs(java.time.temporal.ChronoUnit.DAYS.between(da, db)) <= LEGACY_FESTIVAL_WINDOW_DAYS
 }
 
 private fun TimelineCache.withGigs(): TimelineCache {
