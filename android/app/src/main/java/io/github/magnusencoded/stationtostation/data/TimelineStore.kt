@@ -658,6 +658,19 @@ class TimelineStore(
     }
 
     /**
+     * A Contact reconcile's [contactLanding], folded in. Unlike [saveMedia] this adds rather
+     * than replaces — a Contact's offer is never the whole truth for a gig I already have my
+     * own media on — via the same [unionMedia] every device-to-device merge uses, so an item
+     * landing twice (once matched by hash, once later confirmed by id) never duplicates.
+     */
+    suspend fun mergeContactMedia(landing: Map<String, List<StoredMedia>>): Unit = writeMerged { c ->
+        if (landing.isEmpty()) return@writeMerged c
+        var out = c.gigMedia
+        for ((gigId, items) in landing) out = out + (gigId to unionMedia(out[gigId].orEmpty(), items))
+        c.copy(gigMedia = out)
+    }
+
+    /**
      * Where each song starts inside one recording, replacing whatever was there.
      *
      * By media id, not by night: a night with two recordings has two answers, and

@@ -3,8 +3,10 @@ package io.github.magnusencoded.stationtostation
 import io.github.magnusencoded.stationtostation.data.GalleryItem
 import io.github.magnusencoded.stationtostation.data.HandoverManifest
 import io.github.magnusencoded.stationtostation.data.OfferedMedia
+import io.github.magnusencoded.stationtostation.data.StoredGig
 import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.TimelineCache
+import io.github.magnusencoded.stationtostation.data.contactLanding
 import io.github.magnusencoded.stationtostation.data.contactReconcilePlan
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -80,5 +82,56 @@ class ContactReconcileTest {
         val second = contactReconcilePlan(mine, offer, verified = true, gallery = gallery)
 
         assertEquals(first, second)
+    }
+
+    @Test
+    fun `a resolved item lands on the gig sharing its setlistId, not its sender-side gigId`() {
+        val mine = TimelineCache(gigs = mapOf("mine-gig" to StoredGig(id = "mine-gig", setlistId = "sl-1")))
+        val offer = HandoverManifest(
+            timeline = TimelineCache(
+                gigs = mapOf("their-gig" to StoredGig(id = "their-gig", setlistId = "sl-1")),
+                gigMedia = mapOf("their-gig" to listOf(photo("m1"))),
+            ),
+            media = listOf(offered("m1", "h1")),
+        )
+
+        val landing = contactLanding(mine, offer, resolved = mapOf("m1" to "content://gallery/x"))
+
+        assertEquals(1, landing.size)
+        val item = landing.getValue("mine-gig").single()
+        assertEquals("m1", item.id)
+        assertEquals("content://gallery/x", item.ref)
+        assertEquals("their-key", item.from)
+    }
+
+    @Test
+    fun `a night I have no record of attending lands nothing`() {
+        val offer = HandoverManifest(
+            timeline = TimelineCache(
+                gigs = mapOf("their-gig" to StoredGig(id = "their-gig", setlistId = "sl-1")),
+                gigMedia = mapOf("their-gig" to listOf(photo("m1"))),
+            ),
+            media = listOf(offered("m1", "h1")),
+        )
+
+        val landing = contactLanding(TimelineCache(), offer, resolved = mapOf("m1" to "content://gallery/x"))
+
+        assertTrue(landing.isEmpty())
+    }
+
+    @Test
+    fun `an item with no resolved ref yet does not land`() {
+        val mine = TimelineCache(gigs = mapOf("mine-gig" to StoredGig(id = "mine-gig", setlistId = "sl-1")))
+        val offer = HandoverManifest(
+            timeline = TimelineCache(
+                gigs = mapOf("their-gig" to StoredGig(id = "their-gig", setlistId = "sl-1")),
+                gigMedia = mapOf("their-gig" to listOf(photo("m1"))),
+            ),
+            media = listOf(offered("m1", "h1")),
+        )
+
+        val landing = contactLanding(mine, offer, resolved = emptyMap())
+
+        assertTrue(landing.isEmpty())
     }
 }

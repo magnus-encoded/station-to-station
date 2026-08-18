@@ -54,3 +54,29 @@ fun contactReconcilePlan(
 
     return ContactReconcilePlan(held = held, fromGallery = fromGallery, request = request)
 }
+
+/**
+ * The dumb half of [contactReconcilePlan]: turns resolved items into what
+ * [TimelineStore.mergeContactMedia] should write. [resolved] is media id → my own local ref —
+ * [ContactReconcilePlan.fromGallery] entries as soon as the plan exists, [ContactReconcilePlan.request]
+ * entries once their bytes have actually arrived over the wire.
+ *
+ * A received item only lands on a gig I already have, matched by `setlistId` — the one key
+ * that means the same thing on both timelines (#28). Unlike [handoverPlan], this never mints a
+ * new gig: a Contact's offer is narrowed to a shared band already, not a device's own history,
+ * so a night I have no record of attending is not one for their photos to create.
+ */
+fun contactLanding(
+    mine: TimelineCache,
+    offer: HandoverManifest,
+    resolved: Map<String, String>,
+): Map<String, List<StoredMedia>> {
+    val setlistToGigId = mine.gigs.values.mapNotNull { g -> g.setlistId?.let { it to g.id } }.toMap()
+    val attribution = offer.media.associate { it.id to it.from }
+    return offer.timeline.gigMedia.entries.mapNotNull { (theirGigId, items) ->
+        val setlistId = offer.timeline.gigs[theirGigId]?.setlistId ?: return@mapNotNull null
+        val myGigId = setlistToGigId[setlistId] ?: return@mapNotNull null
+        val landed = items.mapNotNull { m -> resolved[m.id]?.let { m.copy(ref = it, from = attribution[m.id] ?: m.from) } }
+        if (landed.isEmpty()) null else myGigId to landed
+    }.toMap()
+}
