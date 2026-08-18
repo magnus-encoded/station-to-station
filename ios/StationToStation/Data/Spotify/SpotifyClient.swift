@@ -4,7 +4,7 @@ import AuthenticationServices
 import UIKit
 
 let spotifyRedirectURI = "station-to-station://callback"
-private let spotifyScopes = "playlist-modify-public playlist-modify-private user-read-private"
+private let spotifyScopes = "playlist-modify-public playlist-modify-private user-read-private ugc-image-upload"
 
 struct AddTracksResult { let added: Int; let refused: [String] }
 
@@ -113,6 +113,12 @@ final class SpotifyClient {
     /// Nil when unknown (logins predating scope persistence).
     func hasPlaylistScopes() -> Bool? {
         settings.grantedScope.map { $0.contains("playlist-modify") }
+    }
+
+    /// Cover upload needs a scope the app did not always ask for, so a login
+    /// made before covers existed can create playlists but not illustrate them.
+    func hasImageUploadScope() -> Bool {
+        settings.grantedScope?.contains("ugc-image-upload") == true
     }
 
     private func requestToken(_ fields: [String: String]) async throws -> TokenResponse {
@@ -243,6 +249,19 @@ final class SpotifyClient {
             throw SpotifyForbidden("\(e.message) | \(await diagnostics(playlistId))")
         }
         return AddTracksResult(added: clean.count, refused: [])
+    }
+
+    /// Sets the playlist cover. Spotify takes the JPEG base64-encoded as the raw
+    /// body under an image/jpeg content type — not multipart, and not wrapped in
+    /// JSON — and answers 202 with nothing in the body.
+    func uploadCover(_ playlistId: String, jpeg: Data) async throws {
+        let body = jpeg.base64EncodedData()
+        _ = try await call {
+            $0.url = URL(string: "https://api.spotify.com/v1/playlists/\(playlistId)/images")!
+            $0.httpMethod = "PUT"
+            $0.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
+            $0.httpBody = body
+        }
     }
 }
 

@@ -111,6 +111,39 @@ enum PhotoLibrary {
         return await requestImage(asset, edgePx: edgePx, allowNetwork: false)
     }
 
+    /// The photo as Spotify wants a cover: a square JPEG small enough that its
+    /// base64 form stays inside the 256 KB the upload endpoint accepts. Base64
+    /// costs a third on top, so the JPEG itself is held well under that.
+    ///
+    /// Twin of Android's `PhotoRepository.coverJpeg` — same edge, same byte
+    /// ceiling, same downscale-until-it-fits loop.
+    static func coverJpeg(assetId: String) async -> Data? {
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetId], options: nil).firstObject,
+              let image = await requestImage(asset, edgePx: coverEdgePx, allowNetwork: true),
+              let square = centerCropSquare(image)
+        else { return nil }
+        var quality: CGFloat = 0.9
+        var data = square.jpegData(compressionQuality: quality)
+        while let d = data, d.count > maxCoverJpegBytes, quality > 0.4 {
+            quality -= 0.1
+            data = square.jpegData(compressionQuality: quality)
+        }
+        guard let data, data.count <= maxCoverJpegBytes else { return nil }
+        return data
+    }
+
+    private static let coverEdgePx = 640
+    private static let maxCoverJpegBytes = 180_000
+
+    private static func centerCropSquare(_ image: UIImage) -> UIImage? {
+        guard let cg = image.cgImage else { return nil }
+        let edge = min(cg.width, cg.height)
+        let x = (cg.width - edge) / 2
+        let y = (cg.height - edge) / 2
+        guard let cropped = cg.cropping(to: CGRect(x: x, y: y, width: edge, height: edge)) else { return nil }
+        return UIImage(cgImage: cropped, scale: image.scale, orientation: image.imageOrientation)
+    }
+
     /// Removing means removing: the record goes, and so do the bytes it owned.
     static func deleteThumbnails(_ mediaId: String) {
         try? FileManager.default.removeItem(at: Thumbnails.gridFile(mediaId))

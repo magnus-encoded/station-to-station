@@ -84,6 +84,15 @@ struct UiState {
     /// A gig a location fix just placed me at, tonight — "Are you here?" (#174).
     /// Nil until `offerCheckIn` finds one; presenting it is the whole of the ask.
     var checkInOffer: FmSetlist?
+    // Cover art (#178): the gig's own attached photos first, then the same-night
+    // gallery match, offered as a playlist cover.
+    var coverCandidateIds: [String] = []
+    var coverLoading = false
+    var coverSearched = false
+    var coverPermissionGranted = false
+    /// nil means Spotify's own album-art collage.
+    var selectedCoverAssetId: String?
+    var coverUploadError: String?
     // Transient banners
     var error: String?
     var notice: String?
@@ -572,6 +581,11 @@ final class AppModel: ObservableObject {
         state.matching = true
         state.playlistName = defaultName
         state.createdPlaylistUrl = nil
+        state.coverCandidateIds = []
+        state.selectedCoverAssetId = nil
+        state.coverSearched = false
+        state.coverUploadError = nil
+        loadCoverCandidates(setlist)
 
         matchTask = Task {
             for (index, match) in matches.enumerated() {
@@ -772,13 +786,72 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // --- Cover art (#178) ---
+
+    /// Offers the gig's own keepsakes first — already chosen for this night, so
+    /// they need no permission and no re-asking — then the gallery's same-night
+    /// match once that permission is granted. The gallery half is silent when
+    /// missing: the confirm screen asks for it instead, so a prompt only ever
+    /// follows a tap.
+    private func loadCoverCandidates(_ setlist: FmSetlist) {
+        guard let date = setlist.eventDate, let window = photoWindow(gigDate: date) else { return }
+        let granted = PhotoLibrary.isAuthorized
+        state.coverPermissionGranted = granted
+        state.coverLoading = true
+        Task {
+            let pinned = state.gigMedia.filter { $0.kind == StoredMedia.Kind.photo }.map(\.ref)
+            let gallery = granted ? await Task.detached { PhotoLibrary.assetsFromNight(window) }.value : []
+            var seen = Set<String>()
+            let candidates = (pinned + gallery).filter { seen.insert($0).inserted }
+            guard state.selectedSetlist?.id == setlist.id else { return }
+            state.coverCandidateIds = candidates
+            state.coverLoading = false
+            state.coverSearched = true
+            // The first photo is the suggestion, so it is the cover until the
+            // picker is swiped somewhere else.
+            state.selectedCoverAssetId = candidates.first
+        }
+    }
+
+    /// The cover the picker has landed on, or nil for Spotify's own collage.
+    func setCover(_ assetId: String?) {
+        if state.selectedCoverAssetId != assetId { state.selectedCoverAssetId = assetId }
+    }
+
+    /// Re-runs the cover search after the gallery permission prompt the picker
+    /// itself triggered — the rest of the confirm screen (matches, playlist name)
+    /// is untouched.
+    func refreshCoverCandidates() {
+        guard let setlist = state.selectedSetlist else { return }
+        loadCoverCandidates(setlist)
+    }
+
+    /// Returns nil on success, or the reason the cover did not make it.
+    private func uploadCover(playlistId: String, assetId: String) async -> String? {
+        guard spotify.hasImageUploadScope() else {
+            return "The cover needs a permission your Spotify login predates. "
+                + "Log out in Settings and log in again to enable playlist covers."
+        }
+        guard let jpeg = await PhotoLibrary.coverJpeg(assetId: assetId) else {
+            return "That photo could not be prepared as a cover."
+        }
+        do {
+            try await spotify.uploadCover(playlistId, jpeg: jpeg)
+            return nil
+        } catch {
+            return "The cover could not be uploaded. \(userMessage(error))"
+        }
+    }
+
     private func findCandidates(_ track: String, _ artist: String) async -> ([SpotifyTrack], String?) {
         do {
-            var results = try await spotify.searchTracks("track:\"\(track)\" artist:\"\(artist)\"")
+            var results = try await spotify.searchTracks("track:\"\(track)\" artist:\"\(artist)\"", limit: 10)
             if results.isEmpty {
-                results = try await spotify.searchTracks("\(track) \(artist)")
+                results = try await spotify.searchTracks("\(track) \(artist)", limit: 10)
             }
-            return (results, nil)
+            // Best-first rather than Spotify-first: the auto-selection below takes
+            // the head of this list, and the picker lists them in this order too.
+            return (rankCandidates(results, track, artist), nil)
         } catch {
             return ([], userMessage(error))
         }
@@ -803,11 +876,19 @@ final class AppModel: ObservableObject {
 
     /// Manual re-search for one song with a user-provided query.
     func researchSong(_ index: Int, _ query: String) {
-        if query.trimmingCharacters(in: .whitespaces).isEmpty { return }
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return }
         updateMatch(index) { $0.loading = true; $0.error = nil }
         Task {
             do {
-                let results = try await spotify.searchTracks(query.trimmingCharacters(in: .whitespaces), limit: 10)
+                let found = try await spotify.searchTracks(trimmed, limit: 10)
+                // Ranked like the automatic search, or searching by hand would be
+                // the one path that still hands you Spotify's karaoke rendition.
+                // The query is the user's, but which recording we mean is still
+                // this song by this artist.
+                let songName = state.matches.indices.contains(index) ? state.matches[index].song.name : trimmed
+                let artist = state.matches.indices.contains(index) ? state.matches[index].searchArtist : ""
+                let results = rankCandidates(found, songName, artist)
                 updateMatch(index) {
                     $0.loading = false
                     $0.candidates = results
@@ -858,11 +939,20 @@ final class AppModel: ObservableObject {
                     // leaving the user with a bare failure and a stray playlist.
                     throw AppError("Playlist \"\(name)\" was created but the songs could not be added. \(userMessage(error))")
                 }
+                // The songs are the point, so a cover that will not upload is
+                // reported next to the success rather than thrown over it.
+                let coverError: String?
+                if let assetId = s.selectedCoverAssetId {
+                    coverError = await uploadCover(playlistId: playlist.id, assetId: assetId)
+                } else {
+                    coverError = nil
+                }
                 state.creatingPlaylist = false
                 state.createdPlaylistUrl = playlist.externalUrls["spotify"]
                 state.createdPlaylistName = name
                 state.createdTrackCount = result.added
                 state.createdRefusedCount = result.refused.count
+                state.coverUploadError = coverError
             } catch {
                 fail(error)
             }

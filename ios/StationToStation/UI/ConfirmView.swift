@@ -40,6 +40,9 @@ struct ConfirmView: View {
                     }
                     .padding(.horizontal)
 
+                    // Without a date there is no window to search the gallery for.
+                    if s.selectedSetlist?.eventDate != nil { CoverPicker() }
+
                     if s.matching {
                         let done = s.matches.filter { !$0.loading }.count
                         ProgressView(value: s.matches.isEmpty ? 0 : Double(done) / Double(s.matches.count))
@@ -92,6 +95,7 @@ struct ConfirmView: View {
                 name: s.createdPlaylistName,
                 trackCount: s.createdTrackCount,
                 refusedCount: s.createdRefusedCount,
+                coverError: s.coverUploadError,
                 url: URL(string: s.createdPlaylistUrl ?? "") ?? URL(string: "https://open.spotify.com")!,
                 onOpen: { openURL(URL(string: s.createdPlaylistUrl ?? "")!) },
                 onDone: { model.dismissCreated(); nav.pop() })
@@ -103,6 +107,7 @@ private struct CreatedSheet: View {
     let name: String
     let trackCount: Int
     let refusedCount: Int
+    let coverError: String?
     let url: URL
     let onOpen: () -> Void
     let onDone: () -> Void
@@ -111,7 +116,8 @@ private struct CreatedSheet: View {
         VStack(spacing: 20) {
             Text("Playlist created").font(.title2).bold()
             Text("\"\(name)\" was created with \(trackCount) songs."
-                 + (refusedCount > 0 ? " \(refusedCount) were refused by Spotify." : ""))
+                 + (refusedCount > 0 ? " \(refusedCount) were refused by Spotify." : "")
+                 + (coverError.map { " \($0)" } ?? ""))
                 .multilineTextAlignment(.center)
             ShareLink(item: url) { Text("Send to a friend").frame(maxWidth: .infinity) }
                 .buttonStyle(.borderedProminent)
@@ -227,4 +233,97 @@ private struct CandidatePicker: View {
 private func formatDuration(_ ms: Int64) -> String {
     let total = ms / 1000
     return String(format: "%d:%02d", total / 60, total % 60)
+}
+
+/// Offers the photos the phone took on the night of the show as the playlist
+/// cover. Gallery access is only ever asked for after a tap here, so opening a
+/// setlist never triggers a permission prompt on its own.
+///
+/// Twin of Android's `CoverPicker` (`ConfirmScreen.kt`), minus the video-frame
+/// scrubber (`VideoFrameDialog`): iOS offers photo covers only for now.
+/// ponytail: video candidates are simply not offered as covers here — add
+/// AVFoundation frame scrubbing (a `VideoFrameDialog` twin) if a Reliver whose
+/// only capture of a night is video actually wants one.
+private struct CoverPicker: View {
+    @EnvironmentObject var model: AppModel
+
+    var body: some View {
+        let s = model.state
+        VStack(spacing: 6) {
+            if !s.coverCandidateIds.isEmpty {
+                TabView(selection: Binding(
+                    get: { s.selectedCoverAssetId },
+                    set: { model.setCover($0) })
+                ) {
+                    // Spotify's own collage is always one swipe left of the
+                    // suggested photo, so it stays reachable however many photos
+                    // follow the suggestion.
+                    VStack {
+                        Image(systemName: "square.grid.2x2").font(.system(size: 32)).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color(.secondarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .tag(Optional<String>.none)
+
+                    ForEach(s.coverCandidateIds, id: \.self) { assetId in
+                        CoverCandidateTile(assetId: assetId).tag(Optional(assetId))
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .automatic))
+                .aspectRatio(1, contentMode: .fit)
+                .frame(maxWidth: 240)
+                .frame(maxWidth: .infinity)
+                Text(s.selectedCoverAssetId == nil
+                     ? "Spotify builds the cover from the album art"
+                     : "Playlist cover — swipe for another photo, or left for Spotify's collage")
+                    .font(.caption).foregroundStyle(.secondary)
+                if !s.coverPermissionGranted {
+                    Button("Find more from your gallery") { requestGalleryAccess() }
+                        .font(.caption)
+                }
+            } else if !s.coverPermissionGranted {
+                Text("Playlist cover").font(.subheadline)
+                Text("Use one of your own photos from the show.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("Find photos from that night") { requestGalleryAccess() }
+                    .font(.caption)
+            } else if s.coverLoading {
+                HStack {
+                    ProgressView()
+                    Text("Looking through your gallery…").font(.caption).foregroundStyle(.secondary)
+                }
+            } else if s.coverSearched {
+                Text("No photos from that night in your gallery — "
+                     + "Spotify will build the cover from the album art.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal)
+    }
+
+    private func requestGalleryAccess() {
+        Task {
+            _ = await PhotoLibrary.authorize()
+            model.refreshCoverCandidates()
+        }
+    }
+}
+
+private struct CoverCandidateTile: View {
+    let assetId: String
+    @State private var image: UIImage?
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(Color(.secondarySystemBackground))
+            if let image {
+                Image(uiImage: image).resizable().scaledToFill()
+            }
+        }
+        .aspectRatio(1, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .clipped()
+        .task { image = await PhotoLibrary.preview(assetId: assetId, edgePx: 512) }
+    }
 }
