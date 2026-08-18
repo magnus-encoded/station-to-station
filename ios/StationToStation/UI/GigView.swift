@@ -73,6 +73,20 @@ struct GigView: View {
                     // what it does.
                     .accessibilityLabel("Back")
             }
+            // The light switch (#180): a visible icon button (Android's is a bare
+            // gesture on the timeline; GigView's swipes are already claimed by
+            // back and the playlist, so a toolbar button is the reversible
+            // choice here). VoiceOver gets the same verb-phrased label Android's
+            // custom action uses rather than the symbol's own name.
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button { model.toggleContactLight() } label: {
+                    Image(systemName: model.state.contactLight ? "lightswitch.on" : "lightswitch.off")
+                }
+                .tint(model.state.contactLight ? amber : faint)
+                .accessibilityLabel(model.state.contactLight
+                    ? "Turn the contact light off"
+                    : "Turn the contact light on, see this night as a Contact does")
+            }
         }
         .toolbarBackground(ground, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
@@ -88,6 +102,11 @@ struct GigView: View {
         // not, so the grammar cannot cost a reader the action.
         .accessibilityAction(named: "Make a Spotify playlist") {
             if !rows.isEmpty { nav.push(.confirm) }
+        }
+        .accessibilityAction(named: model.state.contactLight
+            ? "Turn the contact light off"
+            : "Turn the contact light on, see this night as a Contact does") {
+            model.toggleContactLight()
         }
         // Back is a chevron with no label, and the swipe that also does it is a
         // gesture VoiceOver consumes.

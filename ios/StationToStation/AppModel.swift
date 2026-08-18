@@ -93,6 +93,14 @@ struct UiState {
     /// nil means Spotify's own album-art collage.
     var selectedCoverAssetId: String?
     var coverUploadError: String?
+    /// The light switch (#180): my own Line, drawn as a Contact sees it. Global,
+    /// not persisted, not per-night — the same flag the timeline and the gig
+    /// screen both read, ported term for term from Android's `contactLight`.
+    var contactLight = false
+    /// Inside the light: also show what is being withheld, as placeholders never
+    /// re-rendering the actual content. Reset whenever the light is toggled, so
+    /// it always comes on faithful.
+    var showWithheld = false
     // Transient banners
     var error: String?
     var notice: String?
@@ -214,6 +222,17 @@ final class AppModel: ObservableObject {
     func setZoomedOut(_ v: Bool) {
         if v && state.friends.isEmpty { return }
         state.zoomedOut = v
+    }
+
+    /// Flip the light switch: my own Line, as a Contact sees it. Always comes on
+    /// faithful — withheld items stay hidden until asked for again.
+    func toggleContactLight() {
+        state.contactLight.toggle()
+        state.showWithheld = false
+    }
+
+    func setShowWithheld(_ v: Bool) {
+        state.showWithheld = v
     }
 
     /// Fetches whichever Followed Lanes are stale (missing, empty, or not back

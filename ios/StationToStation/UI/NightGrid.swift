@@ -42,32 +42,61 @@ struct NightGrid: View {
         return .none
     }
 
+    /// What a Contact is actually offered from the shared band — or the whole
+    /// shared band with the light off. Routed through the one rule (#180)
+    /// rather than re-derived: `visibleToContacts` also decides what a
+    /// handover sends. (It excludes received media too, so it lines up with
+    /// `bandsOf(...).shared` exactly when the light is off.)
+    private var visibleShared: [StoredMedia] {
+        model.state.contactLight
+            ? visibleToContacts(model.state.gigMedia)
+            : bandsOf(model.state.gigMedia).shared
+    }
+
+    /// What is being held back, only while the light is on. Never rendered as
+    /// content — a photo I chose not to share does not get shown to prove it
+    /// exists.
+    private var withheld: [StoredMedia] {
+        model.state.contactLight ? withheldFromContacts(model.state.gigMedia) : []
+    }
+
     var body: some View {
         let bands = bandsOf(model.state.gigMedia)
+        let light = model.state.contactLight
         VStack(alignment: .leading, spacing: 20) {
-            if !model.state.gigMediaSuggestions.isEmpty { suggestions }
+            if light { contactLightBanner }
+
+            if !light && !model.state.gigMediaSuggestions.isEmpty { suggestions }
 
             band(
                 title: "SHARED",
-                mine: bands.shared,
-                received: bands.received,
-                empty: "Nothing shared yet.",
+                mine: visibleShared,
+                // Received media never shows to a Contact: passing it on would be
+                // publishing on its sender's behalf (see visibleToContacts).
+                received: light ? [] : bands.received,
+                empty: light ? "Nothing shared from this night." : "Nothing shared yet.",
                 hint: hint,
                 targeted: sharedTargeted,
                 band: .shared
             )
             .onDrop(of: [.text], isTargeted: $sharedTargeted) { drop($0, into: .shared) }
 
-            band(
-                title: "IN THE VAULT",
-                mine: bands.vault,
-                received: [],
-                empty: "Nothing held back.",
-                hint: hint,
-                targeted: vaultTargeted,
-                band: .vault
-            )
-            .onDrop(of: [.text], isTargeted: $vaultTargeted) { drop($0, into: .vault) }
+            // The vault is never a Contact's to see. With the light on it is
+            // replaced by the audit of what is being kept back, not shown empty.
+            if light {
+                if !withheld.isEmpty { withheldAudit }
+            } else {
+                band(
+                    title: "IN THE VAULT",
+                    mine: bands.vault,
+                    received: [],
+                    empty: "Nothing held back.",
+                    hint: hint,
+                    targeted: vaultTargeted,
+                    band: .vault
+                )
+                .onDrop(of: [.text], isTargeted: $vaultTargeted) { drop($0, into: .vault) }
+            }
         }
         .padding(.vertical, 16)
         .sheet(item: $pickingBand) { band in
@@ -93,10 +122,14 @@ struct NightGrid: View {
                     Text(say).font(.system(size: 10)).foregroundStyle(crossed)
                 }
                 Spacer()
-                Button { pickingBand = band } label: {
-                    Label("Add", systemImage: "plus").font(.system(size: 12))
+                // No editing under the light: it is a preview of what a Contact
+                // sees, not a place to change it mid-look.
+                if !model.state.contactLight {
+                    Button { pickingBand = band } label: {
+                        Label("Add", systemImage: "plus").font(.system(size: 12))
+                    }
+                    .tint(amber)
                 }
-                .tint(amber)
             }
             .padding(.horizontal, 24)
 
@@ -119,11 +152,14 @@ struct NightGrid: View {
     private func tile(_ media: StoredMedia, band: Band) -> some View {
         MediaTile(mediaId: media.id, isVideo: media.kind == StoredMedia.Kind.video)
             .contextMenu {
-                Button("Remove", role: .destructive) { model.removeMedia(media) }
+                if !model.state.contactLight {
+                    Button("Remove", role: .destructive) { model.removeMedia(media) }
+                }
             }
             // Received media never drags: its disposition is not mine to set.
+            // Nor does anything drag under the light — it is a look, not a grip.
             .onDrag {
-                guard media.from == nil else { return NSItemProvider() }
+                guard !model.state.contactLight, media.from == nil else { return NSItemProvider() }
                 draggingId = media.id
                 return NSItemProvider(object: media.id as NSString)
             }
@@ -146,6 +182,44 @@ struct NightGrid: View {
         case .none: return nil
         case .gained: return band == .shared ? "let go and this becomes a night you shared" : nil
         case .lost: return band == .shared ? nil : "let go and this stops being a night you shared"
+        }
+    }
+
+    private var contactLightBanner: some View {
+        Text("AS YOUR CONTACTS SEE IT")
+            .font(.system(size: 10, weight: .semibold)).kerning(1.5).foregroundStyle(amber)
+            .padding(.horizontal, 24)
+    }
+
+    /// "They see N of M here", and a tap target to look at what is being kept
+    /// back — as a count and as blank placeholders, never the photo itself.
+    private var withheldAudit: some View {
+        let total = model.state.gigMedia.count
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("They see \(visibleShared.count) of \(total) here.")
+                .font(.system(size: 12)).foregroundStyle(muted)
+                .padding(.horizontal, 24)
+            Button {
+                model.setShowWithheld(!model.state.showWithheld)
+            } label: {
+                Text(model.state.showWithheld
+                     ? "hide the \(withheld.count) you are keeping back"
+                     : "show the \(withheld.count) you are keeping back")
+                    .font(.system(size: 12)).underline()
+            }
+            .tint(muted)
+            .padding(.horizontal, 24)
+
+            if model.state.showWithheld {
+                LazyVGrid(columns: columns, spacing: 4) {
+                    ForEach(withheld, id: \.id) { _ in
+                        Rectangle().fill(raised)
+                            .overlay(RoundedRectangle(cornerRadius: 2).stroke(faint.opacity(0.4), lineWidth: 1))
+                            .aspectRatio(1, contentMode: .fill)
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
         }
     }
 
