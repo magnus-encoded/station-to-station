@@ -94,6 +94,26 @@ enum class Curtain {
     CHECK_EDITS,
 }
 
+/**
+ * What pulling a [Curtain] down actually asks the plumbing to do — the dispatch, kept
+ * pure and separate from the plumbing itself (ADR-0001).
+ *
+ * [Curtain.CHECK_EVENT] has no consumer yet: no "did this event move" endpoint exists,
+ * so it maps to nothing rather than to a fetch pretending to be one. A no-op pull costs
+ * nothing, same as an offline one.
+ */
+enum class CurtainAction {
+    NONE,
+    FETCH_CATALOGUE,
+    FETCH_SETLIST,
+}
+
+fun curtainAction(curtain: Curtain): CurtainAction = when (curtain) {
+    Curtain.CATALOGUE -> CurtainAction.FETCH_CATALOGUE
+    Curtain.FETCH_SETLIST, Curtain.CHECK_EDITS -> CurtainAction.FETCH_SETLIST
+    Curtain.CHECK_EVENT -> CurtainAction.NONE
+}
+
 /** What is possible standing in the room. Nothing here is ever taken away by the clock. */
 data class Room(
     /** Claim that I am here. Never gated on a GPS fix. */

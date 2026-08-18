@@ -4,8 +4,10 @@ import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.ui.Alcove
 import io.github.magnusencoded.stationtostation.ui.Curtain
+import io.github.magnusencoded.stationtostation.ui.CurtainAction
 import io.github.magnusencoded.stationtostation.ui.GigAsKnown
 import io.github.magnusencoded.stationtostation.ui.GigLeaf
+import io.github.magnusencoded.stationtostation.ui.curtainAction
 import io.github.magnusencoded.stationtostation.ui.gigOffers
 import io.github.magnusencoded.stationtostation.ui.nightWindow
 import org.junit.Assert.assertEquals
@@ -250,5 +252,30 @@ class GigOffersTest {
                 assertTrue("capture was taken away: $here -> $then", !here.room.capture || then.room.capture)
             }
         }
+    }
+
+    // --- curtainAction: what pulling the curtain actually asks for (#129) -----
+
+    @Test
+    fun `CATALOGUE dispatches to fetching the catalogue`() {
+        assertEquals(CurtainAction.FETCH_CATALOGUE, curtainAction(Curtain.CATALOGUE))
+    }
+
+    @Test
+    fun `FETCH_SETLIST dispatches to refreshing the setlist`() {
+        assertEquals(CurtainAction.FETCH_SETLIST, curtainAction(Curtain.FETCH_SETLIST))
+    }
+
+    @Test
+    fun `CHECK_EDITS also dispatches to refreshing the setlist, same call as FETCH_SETLIST`() {
+        // A linked record with songs already on it and one still being typed both
+        // resolve to "ask setlist.fm again" — the difference is only in what the
+        // fold expects to learn, not in which endpoint answers.
+        assertEquals(CurtainAction.FETCH_SETLIST, curtainAction(Curtain.CHECK_EDITS))
+    }
+
+    @Test
+    fun `CHECK_EVENT dispatches to nothing — no event-moved endpoint exists yet`() {
+        assertEquals(CurtainAction.NONE, curtainAction(Curtain.CHECK_EVENT))
     }
 }

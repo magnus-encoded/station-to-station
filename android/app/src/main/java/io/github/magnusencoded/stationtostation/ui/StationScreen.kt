@@ -2754,6 +2754,10 @@ fun StationEventScreen(
     val act = setlist?.let { viewModel.actFor(it.id) }
     val localGig = setlist != null && setlist.isLocal()
     val canLog = setlist != null && (checkedIn || localGig)
+    // Whose catalogue to offer when correcting an entry: the night's own setlist.fm
+    // record first, the **Bill** **Act** behind it second. Hoisted above the Log
+    // editor because the pull-to-refresh curtain (below) needs the same answer.
+    val catalogueArtist = setlist?.artist?.mbid?.ifBlank { null } ?: act?.mbid
     // The state of this **Gig**, as known — one value, decided once (#129). Everything
     // on this screen is a rendering of this link's state, and before this each part
     // worked it out again from a different subset and they disagreed.
@@ -2768,10 +2772,22 @@ fun StationEventScreen(
         songCount = setlist?.performed()?.size ?: 0,
         calendarEvent = calendarEventUri,
     )
-    // The phase comes off the same value as the offers, so the two cannot disagree.
-    // The alcove and the curtain are not dispatched from yet: two of the four curtains
-    // want the artist's catalogue, and that client is #125/#126 and not built.
-    val leaf = gigOffers(gigAsKnown, LocalDateTime.now()).phase
+    // The phase and the curtain come off the same value as the offers, so they cannot
+    // disagree. The alcove is still not dispatched from — the swipe's action order is
+    // a separate, deliberately deferred change (#129).
+    val offers = gigOffers(gigAsKnown, LocalDateTime.now())
+    val leaf = offers.phase
+    // What pulling the curtain down asks for, decided by the same fold that draws the
+    // chip — never the same request on a night three weeks away, a night being stood
+    // at, and a night from 1992. The dispatch itself (`curtainAction`) is pure and
+    // tested; only the plumbing it names lives here.
+    val onPullToRefresh: () -> Unit = {
+        when (curtainAction(offers.curtain)) {
+            CurtainAction.FETCH_CATALOGUE -> catalogueArtist?.let(viewModel::fetchCatalogue)
+            CurtainAction.FETCH_SETLIST -> viewModel.refreshSelectedSetlist()
+            CurtainAction.NONE -> {}
+        }
+    }
     // **Publish**: explicit, labelled, and never a side effect of anything else. The
     // clipboard is the entire channel — setlist.fm's form takes no prefill parameters
     // and its Text Field editor takes a whole ordered set in one paste — so the copy
@@ -3129,8 +3145,9 @@ fun StationEventScreen(
         // Pull down to re-fetch: you log the night here, go type the songs in on
         // setlist.fm, and come back to a screen that still says there's no setlist.
         PullToRefreshBox(
-            isRefreshing = state.setlistsLoading,
-            onRefresh = viewModel::refreshSelectedSetlist,
+            isRefreshing = state.setlistsLoading ||
+                (catalogueArtist != null && state.catalogueFetching == catalogueArtist),
+            onRefresh = onPullToRefresh,
             modifier = Modifier.padding(padding).fillMaxSize(),
         ) {
             LazyColumn(
@@ -3381,13 +3398,11 @@ fun StationEventScreen(
                 if (canLog) {
                     item {
                         Spacer(Modifier.height(6.dp))
-                        // Whose catalogue to offer when correcting an entry: the night's
-                        // own setlist.fm record first, the **Bill** **Act** behind it
-                        // second. Only the Act was read before, so a night that arrived
-                        // from setlist.fm — which is most of them — had no catalogue at
-                        // all and fell back to typing the title by hand, which is the
-                        // workflow #126 exists to remove.
-                        val catalogueArtist = setlist.artist?.mbid?.ifBlank { null } ?: act?.mbid
+                        // catalogueArtist is hoisted above (the pull-to-refresh curtain
+                        // needs it too). Only the Act was read before it existed, so a
+                        // night that arrived from setlist.fm — which is most of them —
+                        // had no catalogue at all and fell back to typing the title by
+                        // hand, which is the workflow #126 exists to remove.
                         LogEditor(
                             candidates = act?.candidates.orEmpty(),
                             poolArtist = act?.matchedArtist.orEmpty(),
