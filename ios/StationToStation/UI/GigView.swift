@@ -57,6 +57,10 @@ struct GigView: View {
                         }
                         // The night's grid (#99): what I shot, under what was played.
                         NightGrid()
+                        // My own Log (#169), and it is never taken away — this
+                        // renders on a night's page forever after, same as the
+                        // grid above it.
+                        LogEditor(setlist: show)
                     }
                     .padding(.top, 8)
                 }

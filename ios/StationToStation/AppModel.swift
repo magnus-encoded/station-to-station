@@ -101,6 +101,9 @@ struct UiState {
     /// re-rendering the actual content. Reset whenever the light is toggled, so
     /// it always comes on faithful.
     var showWithheld = false
+    /// The selected night's own **Log** (#169): what I saw, as opposed to what
+    /// setlist.fm publishes. Only the open **Gig**'s, same reasoning as `gigMedia`.
+    var gigLog = StoredLog()
     // Transient banners
     var error: String?
     var notice: String?
@@ -596,6 +599,7 @@ final class AppModel: ObservableObject {
 
         state.selectedSetlist = setlist
         loadGigMedia(setlist)
+        state.gigLog = timelines.log(setlistId: setlist.id)
         state.matches = matches
         state.matching = true
         state.playlistName = defaultName
@@ -860,6 +864,39 @@ final class AppModel: ObservableObject {
         } catch {
             return "The cover could not be uploaded. \(userMessage(error))"
         }
+    }
+
+    // --- The Log: what I saw, as opposed to what setlist.fm publishes (#169) ---
+
+    /// Asserted, never derived: a song I *think* they played never becomes a song
+    /// they played by inaction, so this is a tap, not a diff against a candidate
+    /// pool. Editing songs never touches `closed` — "that was the whole set" is a
+    /// separate, deliberate sentence.
+    func addToLog(_ song: String) { writeLog { $0.adding(song) } }
+
+    func removeFromLog(_ index: Int) { writeLog { $0.removingAt(index) } }
+
+    /// A title replaces entry `index`, and what was written moves beneath it (#126).
+    func correctLogEntry(_ index: Int, title: String) { writeLog { $0.correctingAt(index, title: title) } }
+
+    /// The way back. A wrong correction must not be a one-way door.
+    func restoreLogEntry(_ index: Int) { writeLog { $0.restoringAt(index) } }
+
+    /// The only thing that may **Close** a **Log**, and it is a person saying so.
+    /// setlist.fm has nowhere to keep this bit, so it never leaves the device.
+    func setLogClosed(_ closed: Bool) {
+        writeLog {
+            var log = $0
+            log.closed = closed
+            return log
+        }
+    }
+
+    private func writeLog(_ edit: (StoredLog) -> StoredLog) {
+        guard let setlist = state.selectedSetlist else { return }
+        let updated = edit(state.gigLog)
+        state.gigLog = updated
+        timelines.saveLog(setlistId: setlist.id, log: updated)
     }
 
     private func findCandidates(_ track: String, _ artist: String) async -> ([SpotifyTrack], String?) {
