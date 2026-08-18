@@ -16,6 +16,13 @@ data class ContactReconcilePlan(
     val held: List<String> = emptyList(),
     /** Media id → the reference to my own copy, matched by hash. No bytes cross the wire for these. */
     val fromGallery: Map<String, String> = emptyMap(),
+    /**
+     * Media ids that are already complete: a **Note** is text and a **Verdict**, and both
+     * rode the manifest. There is nothing to fetch, so asking for them would be asking for
+     * zero bytes and then dropping the note when zero bytes arrived — which is what this
+     * did before, on both platforms.
+     */
+    val noBytes: List<String> = emptyList(),
     /** Media ids to ask for. */
     val request: List<String> = emptyList(),
 )
@@ -42,24 +49,33 @@ fun contactReconcilePlan(
     if (!verified) return ContactReconcilePlan()
 
     val mineIds = mine.gigMedia.values.flatten().mapTo(HashSet()) { it.id }
-    val byHash = gallery.associateBy { it.hash }
+    // Empty hashes excluded, which is not tidiness: a **Note** has no bytes and hashes to
+    // nothing, and so does anything the hasher could not read. Without this, every one of
+    // them matches whichever unhashable thing the gallery happened to list first, and a
+    // note lands wearing a photograph's ref.
+    val byHash = gallery.filter { it.hash.isNotEmpty() }.associateBy { it.hash }
 
     val held = ArrayList<String>()
+    val noBytes = ArrayList<String>()
     val request = ArrayList<String>()
     val fromGallery = LinkedHashMap<String, String>()
     for (item in offer.media) when {
         item.id in mineIds -> held += item.id
+        item.kind == StoredMedia.Kind.NOTE -> noBytes += item.id
         else -> byHash[item.hash]?.let { fromGallery[item.id] = it.ref } ?: run { request += item.id }
     }
 
-    return ContactReconcilePlan(held = held, fromGallery = fromGallery, request = request)
+    return ContactReconcilePlan(held = held, fromGallery = fromGallery,
+                                noBytes = noBytes, request = request)
 }
 
 /**
  * The dumb half of [contactReconcilePlan]: turns resolved items into what
  * [TimelineStore.mergeContactMedia] should write. [resolved] is media id → my own local ref —
- * [ContactReconcilePlan.fromGallery] entries as soon as the plan exists, [ContactReconcilePlan.request]
- * entries once their bytes have actually arrived over the wire.
+ * [ContactReconcilePlan.fromGallery] and [ContactReconcilePlan.noBytes] entries as soon as the
+ * plan exists, [ContactReconcilePlan.request] entries once their bytes have actually arrived
+ * over the wire. A **Note**'s ref is the empty string, which is what a note's ref is
+ * everywhere else too.
  *
  * A received item only lands on a gig I already have, matched by `setlistId` — the one key
  * that means the same thing on both timelines (#28). Unlike [handoverPlan], this never mints a

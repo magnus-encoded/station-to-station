@@ -87,6 +87,12 @@ struct ExchangeView: View {
             }
             if let card = await model.myProbeCard() { session.start(card: card) }
             cardURL = await model.myCardURL()
+            // #265: the same screen, a second radio. Only started once a Contact with a
+            // key exists — starting it is what raises the local-network prompt, and
+            // asking a first-time user for a permission with nothing to find would be
+            // asking for nothing. Denial costs only this: BLE, QR and the Pointer path
+            // are untouched, which is why nothing here is reported to the screen.
+            await model.startContactExchange()
         }
         .task {
             try? await Task.sleep(nanoseconds: UInt64(qrOfferAfter * 1_000_000_000))
@@ -94,7 +100,13 @@ struct ExchangeView: View {
             try? await Task.sleep(nanoseconds: UInt64((qrPrimaryAfter - qrOfferAfter) * 1_000_000_000))
             qrPrimaryDue = true
         }
-        .onDisappear { session.stop() }
+        .onDisappear {
+            session.stop()
+            // Both radios stop together. Nothing about #265 outlives this screen: no
+            // background service, no listener left advertising, no exported bytes left
+            // in the outbox.
+            model.stopContactExchange()
+        }
     }
 
     /// The ambient "looking around you" state and the live list.

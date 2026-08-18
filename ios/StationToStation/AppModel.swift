@@ -436,22 +436,82 @@ final class AppModel: ObservableObject {
                       spotifyId: user?.id).shareURL
     }
 
-    /// Stand-in for the Ed25519 identity (#28) until it exists: 32 random bytes,
-    /// base64, fresh per launch — the same thing Android's `sessionKey` is.
-    private let sessionKey = Data((0..<32).map { _ in UInt8.random(in: 0...255) })
-        .base64EncodedString()
-
     /// The same card as a BLE payload: adds the public key #28 makes the identity.
     /// Nil until I've set my username — a blank card is nothing to hand over.
+    ///
+    /// The key was 32 random bytes per launch until #265, a stand-in that read as an
+    /// identity and was not one: a Contact who stored it could never match this device
+    /// again, because the next launch was a different person as far as the key was
+    /// concerned. It is now the durable Secure Enclave identity, which is what makes a
+    /// card exchanged today still recognisable on a WiFi network next month.
+    ///
+    /// **Nil if the keychain refuses, which stops BLE exchange entirely — deliberately.**
+    /// The alternative is handing out a card carrying a throwaway key, and that is the
+    /// precise bug above: the far end persists it, believes it has a Contact, and has one
+    /// that can never be matched again. A pairing that visibly does not happen is
+    /// recoverable; one that appears to work and did not is not.
     func myProbeCard() -> ProbeCard? {
-        guard let me = state.mySetlistFmUser.trimmingCharacters(in: .whitespaces).nilIfBlank
+        guard let me = state.mySetlistFmUser.trimmingCharacters(in: .whitespaces).nilIfBlank,
+              let key = ContactIdentity.publicKeyBase64()
         else { return nil }
-        return ProbeCard(name: me, publicKey: sessionKey, setlistfm: me)
+        return ProbeCard(name: me, publicKey: key, setlistfm: me)
     }
+
+    // MARK: - Reconcile over the same WiFi (#265)
+
+    /// Whether there is anybody worth searching a network for: a **Contact** whose public
+    /// key was actually persisted.
+    ///
+    /// This is the whole of the local-network permission gate. iOS raises that prompt the
+    /// first time a browser or listener starts and offers no separate way to ask, so
+    /// *when discovery starts* is the only lever there is — and a brand-new user pairing
+    /// for the first time should not be asked for a permission that would do nothing.
+    var hasReconcilableContact: Bool {
+        state.friends.contains { $0.publicKey?.nilIfBlank != nil }
+    }
+
+    /// #265's LAN reconcile, screen-scoped: `start`/`stop` sit on `ExchangeView`'s own
+    /// lifecycle, alongside the BLE session it already runs there.
+    ///
+    /// Contact keys are re-read on every session rather than captured at `start` — the
+    /// list is the authority at the moment it is used, which is also what makes removing a
+    /// Contact the whole of revocation (#265).
+    ///
+    /// The `hasReconcilableContact` gate above, by contrast, is only consulted at `start`.
+    /// That is exactly right rather than a gap: every path that adds a Contact pops back to
+    /// the root, so there is no way to gain a first Contact and still be on this screen.
+    private lazy var contactExchange = ContactExchange(
+        contactKeys: { [settings] in settings.friends.compactMap { $0.publicKey?.nilIfBlank } },
+        manifest: { [timelines] in
+            guard let me = ContactIdentity.publicKeyBase64() else { return HandoverManifest() }
+            return await hashedContactManifest(await timelines.load(), me: me)
+        },
+        mine: { [timelines] in await timelines.load() },
+        gallery: { [timelines] in
+            let windows = await timelines.load().gigs.values
+                .compactMap { photoWindow(gigDate: $0.date) }
+            return await PhotoLibrary.galleryItems(dates: windows)
+        },
+        onLanded: { [timelines] landing in await timelines.mergeContactMedia(landing) }
+    )
+
+    func startContactExchange() {
+        if hasReconcilableContact { contactExchange.start() }
+    }
+
+    func stopContactExchange() { contactExchange.stop() }
 
     func addFriend(_ friend: Friend) {
         // De-dupe on setlist.fm username; a re-share updates the display name.
-        let next = state.friends.filter { $0.setlistfm.lowercased() != friend.setlistfm.lowercased() } + [friend]
+        let existing = state.friends.first { $0.setlistfm.lowercased() == friend.setlistfm.lowercased() }
+        var incoming = friend
+        // A key already held is never dropped by a later, thinner way of meeting the same
+        // person. Only a BLE card carries one — a share link, a username typed in, a
+        // playlist collaborator, all arrive without — and replacing the record wholesale
+        // would silently unmake the Contact for #265, permanently: there is no second
+        // moment to collect the key (`CardWire`), only a second exchange.
+        if incoming.publicKey?.nilIfBlank == nil { incoming.publicKey = existing?.publicKey }
+        let next = state.friends.filter { $0.setlistfm.lowercased() != friend.setlistfm.lowercased() } + [incoming]
         settings.saveFriends(next)
         state.friends = next
     }

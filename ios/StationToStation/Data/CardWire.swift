@@ -37,7 +37,12 @@ let exchangeTimeout: TimeInterval = 7
 /// reading a new card still gets a usable friend.
 struct ProbeCard: Equatable {
     var name: String
-    /// Ed25519 public key, base64. 32 bytes in, 44 chars out.
+    /// ECDSA P-256 public key: base64 X.509 SubjectPublicKeyInfo, ~124 chars.
+    ///
+    /// P-256 and not Ed25519, which this said until #265: the Secure Enclave only
+    /// does P-256, and `AndroidKeyStore` only does Ed25519 from API 33, so both
+    /// platforms land on the same curve without either having chosen it freely.
+    /// The wire is unchanged either way — it was always an opaque base64 string.
     var publicKey: String
     var setlistfm: String?
     var spotifyId: String?
@@ -213,5 +218,9 @@ func friendFromCard(_ card: ProbeCard) -> Friend? {
     guard let user = card.setlistfm?.nilIfBlank?.trimmingCharacters(in: .whitespaces).nilIfBlank,
           isPlausibleSetlistFmUser(user)
     else { return nil }
-    return Friend(setlistfm: user, name: card.name.nilIfBlank ?? user, spotifyId: card.spotifyId)
+    // The key is kept, not dropped: it is the only thing a later LAN reconcile has
+    // to check a discovered peer against (#265), and there is no second moment to
+    // collect it — the card is the one time this Contact hands it over.
+    return Friend(setlistfm: user, name: card.name.nilIfBlank ?? user,
+                  spotifyId: card.spotifyId, publicKey: card.publicKey.nilIfBlank)
 }

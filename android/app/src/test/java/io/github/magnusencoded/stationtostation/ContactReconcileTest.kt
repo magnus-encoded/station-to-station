@@ -61,6 +61,54 @@ class ContactReconcileTest {
         assertTrue(plan.request.isEmpty())
     }
 
+    /**
+     * A **Note** is text and a **Verdict**, and both already rode the manifest. Asking for
+     * it would be asking for zero bytes — and then dropping it when zero bytes arrived,
+     * which is exactly what used to happen here and on iOS.
+     */
+    @Test
+    fun `a note needs nothing fetched and is never requested`() {
+        val note = OfferedMedia(id = "n1", gigId = "a", kind = StoredMedia.Kind.NOTE,
+                                from = "their-key", text = "the encore was the point")
+        val offer = HandoverManifest(media = listOf(note, offered("m1", "h1")))
+
+        val plan = contactReconcilePlan(TimelineCache(), offer, verified = true)
+
+        assertEquals(listOf("n1"), plan.noBytes)
+        assertEquals(listOf("m1"), plan.request)
+    }
+
+    /**
+     * The failure a note would otherwise hit first: it hashes to nothing, and so does
+     * anything the hasher could not read. Matching on that empty string hands the note
+     * whichever unhashable thing the gallery listed first — a note wearing a photo's ref.
+     */
+    @Test
+    fun `an empty hash never matches the gallery`() {
+        val offer = HandoverManifest(media = listOf(offered("m1", "")))
+        val gallery = listOf(GalleryItem(ref = "content://gallery/x", hash = ""))
+
+        val plan = contactReconcilePlan(TimelineCache(), offer, verified = true, gallery = gallery)
+
+        assertTrue(plan.fromGallery.isEmpty())
+        assertEquals(listOf("m1"), plan.request)
+    }
+
+    /** `noBytes` is "nothing to fetch", not "always take it again". */
+    @Test
+    fun `a note already held stays held`() {
+        val note = photo("n1").copy(kind = StoredMedia.Kind.NOTE, ref = "")
+        val mine = TimelineCache(gigMedia = mapOf("a" to listOf(note)))
+        val offer = HandoverManifest(media = listOf(
+            OfferedMedia(id = "n1", gigId = "a", kind = StoredMedia.Kind.NOTE, from = "their-key")
+        ))
+
+        val plan = contactReconcilePlan(mine, offer, verified = true)
+
+        assertEquals(listOf("n1"), plan.held)
+        assertTrue(plan.noBytes.isEmpty())
+    }
+
     @Test
     fun `unmatched media is requested`() {
         val offer = HandoverManifest(media = listOf(offered("m1", "h1")))

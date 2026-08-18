@@ -54,15 +54,30 @@ fun runContactSession(
      * [io.github.magnusencoded.stationtostation.data.photos.PhotoRepository.fileProviderRef])
      * needs its own scheme for later ownership checks to recognise it. */
     refForReceivedFile: (File) -> String = { it.toURI().toString() },
+    /** Called with the **Notes** as soon as the manifests have been swapped, before a single
+     * photo moves. Notes are text: they are complete the moment the manifest is, and holding
+     * them hostage to a video transfer that may never finish is the one thing that would make
+     * them *less* reliable than the bytes. Landed again in the return value — [unionMedia] is
+     * keyed by id, so arriving twice is arriving once. */
+    landNotes: (Map<String, List<StoredMedia>>) -> Unit = {},
 ): Map<String, List<StoredMedia>>? {
     mutualContactAuth(socket, isServer, ownCert, privateKey, candidates) ?: return null
 
     val theirManifest = exchangeManifests(socket, isServer, myManifest) ?: return null
     val plan = contactReconcilePlan(mine, theirManifest, verified = true, gallery = gallery)
+
+    // Before the request round, not after it: everything a **Note** needs has already
+    // arrived, and this is the earliest moment it can be written down.
+    if (plan.noBytes.isNotEmpty()) {
+        val notes = contactLanding(mine, theirManifest, plan.noBytes.associateWith { "" })
+        if (notes.isNotEmpty()) landNotes(notes)
+    }
+
     val theirRequest = exchangeRequests(socket, isServer, plan.request)
 
     val theirKinds = theirManifest.media.associate { it.id to it.kind }
     val resolved = LinkedHashMap<String, String>(plan.fromGallery)
+    for (id in plan.noBytes) resolved[id] = ""
     if (isServer) {
         sendRequested(socket, theirRequest, mediaSource)
         resolved += receiveRequested(socket, receivedFile, refForReceivedFile, theirKinds)

@@ -182,4 +182,34 @@ final class CardWireTests: XCTestCase {
         XCTAssertEqual("Magnus Vikan", friend?.name)
         XCTAssertEqual("dizziness", friend?.spotifyId)
     }
+
+    /// The card was always carrying a key and the stored **Friend** was always dropping
+    /// it (#265). There is no second moment to collect it — the exchange is the one time
+    /// this person hands it over — and without it a LAN peer has nothing to be checked
+    /// against, so they could never be recognised again.
+    func testTheCardsPublicKeySurvivesOntoTheStoredFriend() {
+        XCTAssertEqual(card.publicKey, friendFromCard(card)?.publicKey)
+
+        // A key survives a round trip through the wire, not just through the struct.
+        let read = parseProbeCard(String(decoding: card.bytes(), as: UTF8.self))!
+        XCTAssertEqual(card.publicKey, friendFromCard(read)?.publicKey)
+    }
+
+    /// A **Friend** stored before this field existed decodes with no key rather than
+    /// failing to decode — and having no key is a normal state, not a broken record: they
+    /// simply never match a discovered peer.
+    func testAFriendStoredBeforeKeysExistedStillDecodes() {
+        let stored = #"[{"setlistfm":"ozzy","name":"Ozzy"}]"#
+
+        let friends = decodeFriends(stored)
+
+        XCTAssertEqual(["ozzy"], friends.map(\.setlistfm))
+        XCTAssertNil(friends.first?.publicKey)
+    }
+
+    func testAStoredFriendCarriesItsKeyBackOutAgain() {
+        let friend = Friend(setlistfm: "ozzy", name: "Ozzy", publicKey: "a-key")
+
+        XCTAssertEqual("a-key", decodeFriends(encodeFriends([friend])).first?.publicKey)
+    }
 }

@@ -8,11 +8,21 @@ struct Friend: Codable, Identifiable, Hashable {
     let setlistfm: String
     var name: String
     var spotifyId: String?
+    /// Their **Contact** identity: base64 X.509 SubjectPublicKeyInfo over an ECDSA
+    /// P-256 key, as `ProbeCard.publicKey` carried it at Exchange time (#28).
+    ///
+    /// Nil is a normal state, not a broken record: a Friend added from a deep link
+    /// or added before this field existed has no key, and simply never matches a
+    /// LAN peer's challenge (#265). Removing the Friend takes the key with it —
+    /// that is the whole of revocation.
+    var publicKey: String?
 
-    init(setlistfm: String, name: String? = nil, spotifyId: String? = nil) {
+    init(setlistfm: String, name: String? = nil, spotifyId: String? = nil,
+         publicKey: String? = nil) {
         self.setlistfm = setlistfm
         self.name = name?.nilIfBlank ?? setlistfm
         self.spotifyId = spotifyId
+        self.publicKey = publicKey
     }
 
     var id: String { setlistfm }

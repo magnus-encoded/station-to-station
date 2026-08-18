@@ -135,6 +135,12 @@ class ContactExchange(
                 mediaSource = { id -> refById[id]?.let { photos.mediaSource(it) } },
                 receivedFile = { id, kind -> photos.receivedMediaFile(id, kind) },
                 refForReceivedFile = photos::fileProviderRef,
+                // Straight to the timeline: a **Note** has no bytes to fetch and no
+                // thumbnail to cut, so there is nothing between arriving and landing.
+                // Launched rather than awaited so the transfer is not held up by a disk
+                // write, and safe to race the landing below because [writeMerged] is
+                // serialized and [unionMedia] is keyed by id.
+                landNotes = { notes -> scope.launch { onLanded(notes) } },
             )
             if (!landing.isNullOrEmpty()) onLanded(landing)
         }

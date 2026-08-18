@@ -399,6 +399,13 @@ struct TimelineCache: Codable {
     }
 }
 
+/// Both nights' media, the one already here winning any id that appears twice. The twin
+/// of Android's `unionMedia`, and the reason a reconcile can simply re-run: an item that
+/// arrives again is the copy already held, not a second of it.
+func unionMedia(_ kept: [StoredMedia], _ arriving: [StoredMedia]) -> [StoredMedia] {
+    kept + arriving.filter { item in !kept.contains { $0.id == item.id } }
+}
+
 /// An actor, which is the whole of the locking story: `save` is read-modify-write
 /// and several call sites fire independently (my import, the friend lanes, the
 /// festival names). Without serialization two overlapping saves both read the old
@@ -558,6 +565,24 @@ actor TimelineStore {
             var c = cache
             let gigId = c.withGig(setlistId)
             c.gigMedia[gigId] = media
+            return c
+        }
+    }
+
+    /// What a **Contact** just sent over the same WiFi (#265), added to the nights
+    /// it belongs to. The twin of Android's `mergeContactMedia`.
+    ///
+    /// Additive and keyed by media id, which is what makes a reconcile idempotent:
+    /// the same item arriving twice — a second Exchange visit, a re-diff after a
+    /// dropped connection — is the copy already held, not a duplicate. Nothing here
+    /// mints a night; `contactLanding` has already refused anything that would.
+    func mergeContactMedia(_ landing: [String: [StoredMedia]]) {
+        if landing.isEmpty { return }
+        writeMerged { cache in
+            var c = cache
+            for (gigId, items) in landing {
+                c.gigMedia[gigId] = unionMedia(c.gigMedia[gigId] ?? [], items)
+            }
             return c
         }
     }
