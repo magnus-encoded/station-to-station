@@ -15,6 +15,7 @@ import android.webkit.MimeTypeMap
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.exifinterface.media.ExifInterface
+import io.github.magnusencoded.stationtostation.data.StoredMedia
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -395,6 +396,35 @@ class PhotoRepository(private val context: Context) {
         gridThumbFile(mediaId).delete()
         cacheThumbFile(mediaId).delete()
     }
+
+    /**
+     * Where a Contact's landed media (#257) is written to — the same tier and
+     * FileProvider exposure [persistCopy] uses, so [ownsBytes]/[deleteOwnedBytes] treat
+     * a received item identically to a picked photo, deletable the same way.
+     */
+    fun receivedMediaFile(mediaId: String, kind: String): File {
+        val dir = File(context.filesDir, "gig_photos").apply { mkdirs() }
+        val ext = if (kind == StoredMedia.Kind.VIDEO) "mp4" else "jpg"
+        return File(dir, "$mediaId.$ext")
+    }
+
+    /** The FileProvider ref for a file [receivedMediaFile] or [persistCopy] wrote — what a
+     * ref must be for [ownsBytes] to recognise it later. */
+    fun fileProviderRef(file: File): String =
+        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file).toString()
+
+    /**
+     * Length and an open stream for [ref], for #257's [ContactExchange] to send onward —
+     * works the same for a MediaStore gallery ref and an app-owned FileProvider ref,
+     * since both only ever go through [ContentResolver][android.content.ContentResolver],
+     * never a raw file path.
+     */
+    fun mediaSource(ref: String): Pair<Long, java.io.InputStream>? = runCatching {
+        val uri = Uri.parse(ref)
+        val length = context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: return@runCatching null
+        val stream = context.contentResolver.openInputStream(uri) ?: return@runCatching null
+        length to stream
+    }.getOrNull()
 
     /**
      * Whether this app holds the **only** copy of a photo — the one question a

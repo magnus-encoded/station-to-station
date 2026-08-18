@@ -11,6 +11,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 import java.io.File
+import java.io.FileInputStream
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.PrivateKey
@@ -94,8 +95,8 @@ class ContactSessionTest {
                 myManifest = serverManifest,
                 mine = TimelineCache(gigs = mapOf("s-gig" to StoredGig(id = "s-gig", setlistId = "sl-1"))),
                 gallery = emptyList(),
-                mediaFile = { id -> if (id == "server-photo") serverSourceFile else null },
-                receivedFile = { File(tmp, "unused-$it.bin") },
+                mediaSource = { id -> if (id == "server-photo") serverSourceFile.length() to FileInputStream(serverSourceFile) else null },
+                receivedFile = { id, _ -> File(tmp, "unused-$id.bin") },
             )
         }
         serverThread.start()
@@ -109,8 +110,8 @@ class ContactSessionTest {
             myManifest = clientManifest,
             mine = clientMine,
             gallery = emptyList(),
-            mediaFile = { null },
-            receivedFile = { clientReceivedFile },
+            mediaSource = { null },
+            receivedFile = { _, _ -> clientReceivedFile },
         )
         serverThread.join(5000)
         server.close()
@@ -142,8 +143,8 @@ class ContactSessionTest {
                 myManifest = HandoverManifest(),
                 mine = TimelineCache(),
                 gallery = emptyList(),
-                mediaFile = { null },
-                receivedFile = { File.createTempFile("unused", ".bin") },
+                mediaSource = { null },
+                receivedFile = { _, _ -> File.createTempFile("unused", ".bin") },
             )
         }
         serverThread.start()
@@ -157,8 +158,8 @@ class ContactSessionTest {
             myManifest = HandoverManifest(),
             mine = TimelineCache(),
             gallery = emptyList(),
-            mediaFile = { null },
-            receivedFile = { File.createTempFile("unused", ".bin") },
+            mediaSource = { null },
+            receivedFile = { _, _ -> File.createTempFile("unused", ".bin") },
         )
         serverThread.join(5000)
         server.close()
