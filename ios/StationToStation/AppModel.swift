@@ -610,15 +610,27 @@ final class AppModel: ObservableObject {
     /// tiers written before the record exists. Anything whose bytes could not be
     /// read is *not* attached and says so — a record with nothing behind it is the
     /// failure #98 exists to prevent.
-    func attachMedia(assetIds: [String]) {
+    ///
+    /// **Attach asks once** (#171, porting Android's `AttachHandle`): `band` is
+    /// the answer to "shared or vault", named by whichever control the gesture
+    /// landed on. There is no default path into this — every caller names one.
+    func attachMedia(assetIds: [String], to band: Band = .shared) {
         guard let setlist = state.selectedSetlist else { return }
         let had = state.gigMedia
         let wanted = assetIds.filter { id in !had.contains { $0.ref == id } }
         guard !wanted.isEmpty else { return }
         Task {
-            let (fresh, failed) = await PhotoLibrary.attach(assetIds: wanted)
-            if !fresh.isEmpty {
-                let media = had + fresh
+            let (fetched, failed) = await PhotoLibrary.attach(assetIds: wanted)
+            if !fetched.isEmpty {
+                let fresh = fetched.map { item -> StoredMedia in
+                    var m = item
+                    m.personal = (band == .vault)
+                    return m
+                }
+                // Normalised through the bands so a fresh item lands at the end of
+                // its own run rather than after somebody else's media.
+                let split = bandsOf(had + fresh)
+                let media = split.shared + split.received + split.vault
                 state.gigMedia = media
                 await timelines.saveMedia(setlistId: setlist.id, media: media)
                 refreshSuggestions(setlist)
@@ -629,6 +641,22 @@ final class AppModel: ObservableObject {
                     : "Couldn't read \(failed) of those — not attached."
             }
         }
+    }
+
+    /// Moves one of my items into `band`, at the end of its run — the drag
+    /// between bands, and what letting go of it there means (#171, porting
+    /// Android's `moveGigMedia`).
+    ///
+    /// A move between bands *is* the change to its **Personal** bit; there is no
+    /// separate gesture and no night-level grant above it. **Received media** is
+    /// refused by `moveMedia` rather than here: whose disposition it is belongs
+    /// with the rule, not with the caller.
+    func moveMedia(_ mediaId: String, to band: Band) {
+        guard let setlist = state.selectedSetlist else { return }
+        let target = band == .shared ? bandsOf(state.gigMedia).shared.count : bandsOf(state.gigMedia).vault.count
+        let media = StationToStation.moveMedia(state.gigMedia, id: mediaId, to: band, index: target)
+        state.gigMedia = media
+        Task { await timelines.saveMedia(setlistId: setlist.id, media: media) }
     }
 
     /// Removing means removing: the record goes, and so do the bytes it owned.
