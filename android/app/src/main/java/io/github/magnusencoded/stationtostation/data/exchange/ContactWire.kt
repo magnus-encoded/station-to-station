@@ -2,10 +2,12 @@ package io.github.magnusencoded.stationtostation.data.exchange
 
 import java.io.EOFException
 import java.net.Socket
+import java.security.KeyStore
 import java.security.PrivateKey
 import java.security.SecureRandom
 import java.security.cert.Certificate
 import java.security.cert.X509Certificate
+import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 import javax.net.ssl.X509TrustManager
 
@@ -39,10 +41,26 @@ object AcceptAnyTrustManager : X509TrustManager {
     override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
 }
 
-/** Both ends of a Contact reconcile session use the same context: nothing is pinned at
- * the TLS layer, so client and server contexts do not differ the way `HandoverWire`'s do. */
-fun contactSessionContext(): SSLContext =
-    SSLContext.getInstance("TLS").apply { init(null, arrayOf(AcceptAnyTrustManager), SecureRandom()) }
+/**
+ * Both ends of a Contact reconcile session use the same *shape* of context — nothing is
+ * pinned at the TLS layer, so trust doesn't differ the way `HandoverWire`'s client/server
+ * split does — but both ends present [keyStore]'s identity, mutual TLS. That's not
+ * optional: [proveContactIdentity] signs the fingerprint of the certificate *this* socket
+ * presented, and [verifyContactIdentity] on the far end checks it against
+ * `peerCertificates` — the fingerprint has nothing to bind to on either side unless both
+ * sides actually put a certificate on the wire.
+ *
+ * A server socket built from this context additionally needs `setWantClientAuth(true)`
+ * before its handshake, since a plain [javax.net.ssl.SSLServerSocket] does not request a
+ * client certificate on its own.
+ */
+fun contactSessionContext(keyStore: KeyStore, keyPassword: CharArray): SSLContext {
+    val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
+    kmf.init(keyStore, keyPassword)
+    return SSLContext.getInstance("TLS").apply {
+        init(kmf.keyManagers, arrayOf(AcceptAnyTrustManager), SecureRandom())
+    }
+}
 
 /**
  * The proving half: wait for the peer's nonce, then answer with a signature over
@@ -80,6 +98,11 @@ fun verifyContactIdentity(socket: Socket, peerCert: Certificate, candidates: Lis
  *
  * Returns the peer's matched Contact key, or null the moment either round fails to
  * verify — an unrecognised peer, dropped without a reason surfaced back to it.
+ *
+ * A failed verify closes the socket before returning null. Without that, the losing
+ * side's own still-pending verify round blocks on a read the other end — having already
+ * bailed out — will never answer: a real deadlock, not a hypothetical one, since the
+ * server round always finishes first and the client round is what would be left hanging.
  */
 fun mutualContactAuth(
     socket: Socket,
@@ -90,12 +113,13 @@ fun mutualContactAuth(
 ): String? {
     val peerCert = socket.session().peerCertificates[0]
     return if (isServer) {
-        val matched = verifyContactIdentity(socket, peerCert, candidates) ?: return null
+        val matched = verifyContactIdentity(socket, peerCert, candidates)
+            ?: run { socket.close(); return null }
         proveContactIdentity(socket, ownCert, privateKey)
         matched
     } else {
         proveContactIdentity(socket, ownCert, privateKey)
-        verifyContactIdentity(socket, peerCert, candidates)
+        verifyContactIdentity(socket, peerCert, candidates) ?: run { socket.close(); null }
     }
 }
 

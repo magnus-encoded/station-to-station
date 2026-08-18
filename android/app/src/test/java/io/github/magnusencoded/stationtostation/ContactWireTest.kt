@@ -3,7 +3,6 @@ package io.github.magnusencoded.stationtostation
 import io.github.magnusencoded.stationtostation.data.exchange.certFingerprint
 import io.github.magnusencoded.stationtostation.data.exchange.contactSessionContext
 import io.github.magnusencoded.stationtostation.data.exchange.proveContactIdentity
-import io.github.magnusencoded.stationtostation.data.exchange.sslServerContext
 import io.github.magnusencoded.stationtostation.data.exchange.verifyContactIdentity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -52,16 +51,16 @@ class ContactWireTest {
     }
 
     private fun handshake(): Pair<SSLSocket, SSLSocket> {
-        val ks = fixtureKeyStore()
-        val server = sslServerContext(ks, "handover-fixture".toCharArray())
+        val password = "handover-fixture".toCharArray()
+        val server = contactSessionContext(fixtureKeyStore(), password)
             .serverSocketFactory.createServerSocket(0) as SSLServerSocket
         var accepted: SSLSocket? = null
         val serverThread = Thread {
-            accepted = server.accept() as SSLSocket
+            accepted = (server.accept() as SSLSocket).apply { wantClientAuth = true }
             accepted!!.startHandshake()
         }
         serverThread.start()
-        val client = contactSessionContext()
+        val client = contactSessionContext(fixtureKeyStore(), password)
             .socketFactory.createSocket("127.0.0.1", server.localPort) as SSLSocket
         client.startHandshake()
         serverThread.join(5000)
