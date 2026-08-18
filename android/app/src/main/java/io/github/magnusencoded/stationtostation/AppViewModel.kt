@@ -379,7 +379,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         gallery = {
             timelines.load().gigs.values.mapNotNull { it.date.takeIf { d -> d.isNotBlank() } }
                 .distinct()
-                .flatMap { d -> parseFmDate(d)?.let { photos.photosFrom(it) }.orEmpty() }
+                // No cap: photosFrom's default limit=20 is sized for cover-photo picking,
+                // not for reconcile matching — truncating here would send bytes the peer
+                // already has locally just because they fell past position 20.
+                .flatMap { d -> parseFmDate(d)?.let { photos.photosFrom(it, limit = Int.MAX_VALUE) }.orEmpty() }
                 .distinctBy { it.uri }
                 .mapNotNull { p -> photos.mediaHash(p.uri)?.let { GalleryItem(ref = p.uri.toString(), hash = it) } }
         },

@@ -9,10 +9,15 @@ import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.net.InetSocketAddress
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLServerSocket
 import javax.net.ssl.SSLSocket
+
+/** A stalled peer (open TCP, no bytes) must not tie up an IO thread forever. */
+private const val SESSION_TIMEOUT_MS = 15_000
 
 /**
  * One device's whole participation in #257 while the app is in the foreground: advertise
@@ -45,6 +50,21 @@ class ContactExchange(
     private val handled = mutableSetOf<InetSocketAddress>()
     private var running = false
 
+    // Manifest/gallery hashing walks the whole library — computed once per start(), not
+    // once per discovered peer, so several Contacts on the same WiFi don't each trigger
+    // a full re-hash of every photo and video.
+    private val cacheLock = Mutex()
+    private var manifestCache: HandoverManifest? = null
+    private var galleryCache: List<GalleryItem>? = null
+
+    private suspend fun cachedManifest(): HandoverManifest = cacheLock.withLock {
+        manifestCache ?: manifest().also { manifestCache = it }
+    }
+
+    private suspend fun cachedGallery(): List<GalleryItem> = cacheLock.withLock {
+        galleryCache ?: gallery().also { galleryCache = it }
+    }
+
     fun start() {
         if (running) return
         running = true
@@ -72,12 +92,17 @@ class ContactExchange(
         runCatching { server?.close() }
         server = null
         handled.clear()
+        manifestCache = null
+        galleryCache = null
     }
 
     private suspend fun acceptLoop(socket: SSLServerSocket) {
         while (running) {
             val accepted = runCatching {
-                (socket.accept() as SSLSocket).apply { wantClientAuth = true }
+                (socket.accept() as SSLSocket).apply {
+                    wantClientAuth = true
+                    soTimeout = SESSION_TIMEOUT_MS
+                }
             }.getOrNull() ?: break
             scope.launch(Dispatchers.IO) { runSession(accepted, isServer = true) }
         }
@@ -85,7 +110,8 @@ class ContactExchange(
 
     private suspend fun connectTo(address: InetSocketAddress, sessionContext: SSLContext) {
         val socket = runCatching {
-            sessionContext.socketFactory.createSocket(address.address, address.port) as SSLSocket
+            (sessionContext.socketFactory.createSocket(address.address, address.port) as SSLSocket)
+                .apply { soTimeout = SESSION_TIMEOUT_MS }
         }.getOrNull() ?: return
         runSession(socket, isServer = false)
     }
@@ -103,9 +129,9 @@ class ContactExchange(
                 ownCert = ownCert,
                 privateKey = contactIdentityPrivateKey(),
                 candidates = candidates,
-                myManifest = manifest(),
+                myManifest = cachedManifest(),
                 mine = cache,
-                gallery = gallery(),
+                gallery = cachedGallery(),
                 mediaSource = { id -> refById[id]?.let { photos.mediaSource(it) } },
                 receivedFile = { id, kind -> photos.receivedMediaFile(id, kind) },
                 refForReceivedFile = photos::fileProviderRef,
