@@ -17,14 +17,14 @@ on:
     inputs:
       track:
         description: Play track to publish to
-        default: internal
+        default: alpha
         type: choice
         options: [ internal, alpha, beta, production ]
 
 # One place to change when the app graduates. A tag push publishes here; the
 # manual trigger above overrides it per-run without touching this file.
 env:
-  DEFAULT_PUBLISH_TRACK: internal
+  DEFAULT_PUBLISH_TRACK: alpha
 
 jobs:
   bundle:
