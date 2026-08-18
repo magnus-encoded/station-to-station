@@ -163,6 +163,8 @@ struct StationView: View {
             // The converter is not gone — it lives behind search, as on Android.
             Button { nav.push(.search) } label: { Image(systemName: "magnifyingglass") }
             Button { nav.push(.friends) } label: { Image(systemName: "person.2") }
+            Button { nav.push(.programme) } label: { Image(systemName: "clock") }
+                .accessibilityLabel("Festival programme")
             Button { model.refreshTimeline() } label: {
                 if model.state.timelineLoading { ProgressView() }
                 else { Image(systemName: "arrow.clockwise") }
