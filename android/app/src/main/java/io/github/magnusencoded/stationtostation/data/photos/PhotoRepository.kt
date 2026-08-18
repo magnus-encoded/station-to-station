@@ -19,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.security.MessageDigest
 import java.time.LocalDate
 import java.util.UUID
 
@@ -135,6 +136,49 @@ class PhotoRepository(private val context: Context) {
             capturedAtMs(taken, added)
         }
     }.getOrNull()
+
+    /**
+     * The content hash [io.github.magnusencoded.stationtostation.data.OfferedMedia.hash] and
+     * [io.github.magnusencoded.stationtostation.data.GalleryItem.hash] compare (#257) — same
+     * bytes, same hash, is all either field's contract asks for.
+     *
+     * Whole-file SHA-256 for a photo. For a video, only the first 64 KiB plus the byte
+     * count, not a head+tail sample: reading 233 MB to decide whether to send 233 MB is
+     * the wrong trade this exists to avoid, and a head-only sample is still enough entropy
+     * to tell two different videos apart in practice. A deliberate simplification against
+     * a literal head-and-tail scheme — safe only because "the sender's business" is the
+     * actual contract here, not a specific algorithm.
+     */
+    suspend fun mediaHash(uri: Uri): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val digest = MessageDigest.getInstance("SHA-256")
+            if (isVideo(uri)) {
+                val size = context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.SIZE), null, null, null)
+                    ?.use { c -> if (c.moveToFirst()) c.getLong(0) else null } ?: return@runCatching null
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    val head = ByteArray(VIDEO_HASH_SAMPLE_BYTES)
+                    var offset = 0
+                    while (offset < head.size) {
+                        val read = input.read(head, offset, head.size - offset)
+                        if (read < 0) break
+                        offset += read
+                    }
+                    digest.update(head, 0, offset)
+                } ?: return@runCatching null
+                digest.update(size.toString().toByteArray())
+            } else {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    val buffer = ByteArray(8192)
+                    var read = input.read(buffer)
+                    while (read >= 0) {
+                        digest.update(buffer, 0, read)
+                        read = input.read(buffer)
+                    }
+                } ?: return@runCatching null
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        }.getOrNull()
+    }
 
     /**
      * A preview big enough to fill the cover-sized pager. Held in RGB_565: at
@@ -391,6 +435,7 @@ class PhotoRepository(private val context: Context) {
         private const val PREVIEW_PX = 512
         private const val COVER_PX = 640
         private const val MAX_JPEG_BYTES = 180_000
+        private const val VIDEO_HASH_SAMPLE_BYTES = 65_536
 
         /**
          * Android 13 split image reads out of the storage permission, and 14
