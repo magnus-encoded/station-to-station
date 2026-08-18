@@ -77,6 +77,13 @@ struct UiState {
     /// Asset ids the library holds from that night's window and this gig has not
     /// attached — the suggestion the grid offers before the picker is opened.
     var gigMediaSuggestions: [String] = []
+    /// The open **Gig**'s attendance claim (#174/#29) — whether, and how, I'm
+    /// known to have been there. Loaded alongside the gig's media so the header
+    /// badge has something to read.
+    var selectedAttendance: StoredAttendance?
+    /// A gig a location fix just placed me at, tonight — "Are you here?" (#174).
+    /// Nil until `offerCheckIn` finds one; presenting it is the whole of the ask.
+    var checkInOffer: FmSetlist?
     // Transient banners
     var error: String?
     var notice: String?
@@ -98,8 +105,11 @@ final class AppModel: ObservableObject {
     /// The shared half: the sequence and the rules, testable because the plumbing
     /// above is handed in rather than constructed inside it.
     private lazy var logic = TimelineLogic(plumbing: plumbing)
+    private lazy var location = DeviceLocation()
 
     private var matchTask: Task<Void, Never>?
+    /// One-shot per launch: dismissing an offer must not make it reappear (#174).
+    private var askedToCheckIn = false
 
     init() {
         state.setlistFmApiKey = settings.setlistFmApiKey ?? ""
@@ -122,6 +132,11 @@ final class AppModel: ObservableObject {
         if let fixture = UserDefaults.standard.string(forKey: "seedFixture")?.nilIfBlank {
             loadFixture(fixture, open: UserDefaults.standard.bool(forKey: "seedOpen"))
         }
+
+        // Refusing the location prompt is not a dead end and not an error: the
+        // ambient offer just never appears, and the gig's own screen still has
+        // a check-in you can press by hand.
+        location.onAuthorizationChanged = { [weak self] in self?.offerCheckIn() }
     }
 
     func consumeError() { state.error = nil }
@@ -583,11 +598,97 @@ final class AppModel: ObservableObject {
     private func loadGigMedia(_ setlist: FmSetlist) {
         state.gigMedia = []
         state.gigMediaSuggestions = []
+        state.selectedAttendance = nil
         Task {
-            let stored = await timelines.load().media()[setlist.id] ?? []
+            let cache = await timelines.load()
             guard state.selectedSetlist?.id == setlist.id else { return }
-            state.gigMedia = stored
+            state.gigMedia = cache.media()[setlist.id] ?? []
+            state.selectedAttendance = cache.attendance()[setlist.id]
             refreshSuggestions(setlist)
+        }
+    }
+
+    // --- Check-in (#174) ---
+
+    /// True if any gig I know about could be checked into right now on the
+    /// calendar alone. Cheap and pure — it is what decides whether asking for
+    /// the location permission is warranted at all, so the prompt only ever
+    /// appears on a night there is actually something to check into.
+    func checkInDue(now: Date = Date()) async -> Bool {
+        let cache = await timelines.load()
+        let attendance = cache.attendance()
+        return cache.planned().contains { gig in
+            canCheckInManually(gig: gig, now: now) && attendance[gig.id]?.provenance != "checked_in"
+        }
+    }
+
+    func hasLocationPermission() -> Bool { location.hasPermission }
+
+    func requestLocationPermission() { location.requestPermission() }
+
+    /// One fix, once, when the timeline is opened: if it puts me at a gig I'm
+    /// going to tonight, offer to check in. Every failure along the way —
+    /// permission refused, no fix, no coordinates for the venue, too far away —
+    /// is silently no offer. Nothing here is retried, scheduled or run in the
+    /// background.
+    ///
+    /// ponytail: linear over the planned gigs, geocoding only the one that
+    /// passes the city gate. You have a ticket for a handful of nights, not
+    /// thousands.
+    func offerCheckIn() {
+        if askedToCheckIn { return }
+        askedToCheckIn = true
+        Task {
+            guard let fix = await location.currentFix() else { return }
+            let cache = await timelines.load()
+            let attendance = cache.attendance()
+            let candidates = cache.planned().filter { attendance[$0.id]?.provenance != "checked_in" }
+            guard let gig = checkInCandidate(gigs: candidates, now: Date(), where: fix) else { return }
+            guard let venue = await venueCoords(gig, cache: cache) else { return }
+            guard atVenue(where: fix, venue: venue) else { return }
+            state.checkInOffer = gig
+        }
+    }
+
+    func dismissCheckInOffer() { state.checkInOffer = nil }
+
+    /// The venue's coordinates, geocoded once and kept on the attendance record
+    /// — the same fields #29/#174 reserved for it on Android. Nil for a venue
+    /// the geocoder can't place, which costs this gig its prompt and nothing else.
+    private func venueCoords(_ gig: FmSetlist, cache: TimelineCache) async -> (lat: Double, lon: Double)? {
+        if let stored = cache.attendance()[gig.id], let lat = stored.venueLat, let lon = stored.venueLon {
+            return (lat, lon)
+        }
+        guard let query = venueMapsQuery(venueName: gig.venue?.name, city: gig.venue?.city?.name)
+        else { return nil }
+        guard let found = await location.geocodeVenue(
+            [query, gig.venue?.city?.country?.name].compactMap { $0 }.joined(separator: ", ")
+        ) else { return nil }
+        await timelines.saveAttendance(
+            setlistId: gig.id,
+            attendance: StoredAttendance(
+                provenance: cache.attendance()[gig.id]?.provenance ?? "planned",
+                checkedInAt: cache.attendance()[gig.id]?.checkedInAt,
+                venueLat: found.lat, venueLon: found.lon
+            )
+        )
+        return found
+    }
+
+    /// I am here. Sets the provenance the whole issue exists for, with the
+    /// moment it happened — evidence of a different strength than setlist.fm's
+    /// retroactive flag, not a competing record.
+    func checkIn(_ gigId: String) {
+        state.checkInOffer = nil
+        Task {
+            let existing = await timelines.load().attendance()[gigId]
+            let attendance = StoredAttendance(
+                provenance: "checked_in",
+                checkedInAt: Int64(Date().timeIntervalSince1970 * 1000),
+                venueLat: existing?.venueLat, venueLon: existing?.venueLon
+            )
+            await timelines.saveAttendance(setlistId: gigId, attendance: attendance)
+            if state.selectedSetlist?.id == gigId { state.selectedAttendance = attendance }
         }
     }
 

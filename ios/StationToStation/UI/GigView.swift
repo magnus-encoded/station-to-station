@@ -10,6 +10,9 @@ private let raised = Color(red: 0x17 / 255, green: 0x12 / 255, blue: 0x1F / 255)
 private let ink = Color(red: 0xED / 255, green: 0xE9 / 255, blue: 0xF2 / 255)
 private let muted = Color(red: 0x8B / 255, green: 0x82 / 255, blue: 0x99 / 255)
 private let faint = Color(red: 0x5A / 255, green: 0x53 / 255, blue: 0x68 / 255)
+/// Mine. Never "the accent colour" — it means *mine*, at every Resolution
+/// (same mark StationView draws its Spine with).
+private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
 
 /// A row of the night: an encore divider, or a performed song (numbered; a tape
 /// track has no number — it played but is not one of the band's songs).
@@ -92,18 +95,27 @@ struct GigView: View {
     }
 
     private func header(_ show: FmSetlist) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        // A night I'm going to, not one I was at (#175's claim, not `gigPlanned`
+        // membership). Manual check-in (#174) is the only one there is when
+        // location was refused or the venue couldn't be geocoded — same night
+        // window as the ambient offer, no location involved at all.
+        let provenance = model.state.selectedAttendance?.provenance
+        let planned = isPlanned(provenance)
+        let checkedIn = provenance == "checked_in"
+        return VStack(alignment: .leading, spacing: 4) {
             Text(show.readableDate() ?? "Unknown date")
                 .font(.system(size: 11, weight: .semibold)).kerning(1).foregroundStyle(faint)
             Text(show.artist?.name ?? "Unknown artist")
                 .font(.system(size: 26, design: .serif)).foregroundStyle(ink)
             Text(show.venueLine()).font(.system(size: 14)).foregroundStyle(muted)
-            // ponytail: no tags here yet. The self-logged tag this comment used to
-            // wait on is gone from Android too — it labelled the default state and
-            // so said nothing. What replaced it is a "checked in" badge (needs the
-            // attendance provenance the store carries but this model never loads;
-            // #29 is Android-only) and a chip showing the setlist.fm id, or "local"
-            // where the Gig has none. Wire both when an iOS check-in lands.
+            if checkedIn {
+                Text("\u{2713} checked in").font(.system(size: 13)).foregroundStyle(amber)
+                    .padding(.top, 6)
+            } else if planned, canCheckInManually(gig: show, now: Date()) {
+                Text("I'm here — check in").font(.system(size: 13)).foregroundStyle(amber)
+                    .padding(.top, 6)
+                    .onTapGesture { model.checkIn(show.id) }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 24).padding(.bottom, 16)
