@@ -144,6 +144,14 @@ struct StoredMedia: Codable, Equatable {
         static let unknown = "unknown"
     }
 
+    /// A Verdict on the night, carried by the Note it was written on. Down,
+    /// up, double-up, or nil for unset — see `verdict` below.
+    enum Verdict {
+        static let down = "down"
+        static let up = "up"
+        static let doubleUp = "double_up"
+    }
+
     var id: String = ""
     /// `Kind`. A plain string, not an enum, for the reason `provenance` is one.
     var kind: String = Kind.photo

@@ -35,10 +35,17 @@ struct NightGrid: View {
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 3)
 
+    /// A Note has no bytes and an empty `ref` (#170) — every path below that
+    /// resolves a reference has to be handed the visual run instead of the
+    /// night, the same split Android's `gigVisuals` makes.
+    private var visualMedia: [StoredMedia] {
+        model.state.gigMedia.filter { $0.kind != StoredMedia.Kind.note }
+    }
+
     private var hint: ReleaseHint {
         guard let draggingId else { return .none }
-        if sharedTargeted { return hintForMoving(model.state.gigMedia, id: draggingId, to: .shared) }
-        if vaultTargeted { return hintForMoving(model.state.gigMedia, id: draggingId, to: .vault) }
+        if sharedTargeted { return hintForMoving(visualMedia, id: draggingId, to: .shared) }
+        if vaultTargeted { return hintForMoving(visualMedia, id: draggingId, to: .vault) }
         return .none
     }
 
@@ -49,19 +56,19 @@ struct NightGrid: View {
     /// `bandsOf(...).shared` exactly when the light is off.)
     private var visibleShared: [StoredMedia] {
         model.state.contactLight
-            ? visibleToContacts(model.state.gigMedia)
-            : bandsOf(model.state.gigMedia).shared
+            ? visibleToContacts(visualMedia)
+            : bandsOf(visualMedia).shared
     }
 
     /// What is being held back, only while the light is on. Never rendered as
     /// content — a photo I chose not to share does not get shown to prove it
     /// exists.
     private var withheld: [StoredMedia] {
-        model.state.contactLight ? withheldFromContacts(model.state.gigMedia) : []
+        model.state.contactLight ? withheldFromContacts(visualMedia) : []
     }
 
     var body: some View {
-        let bands = bandsOf(model.state.gigMedia)
+        let bands = bandsOf(visualMedia)
         let light = model.state.contactLight
         VStack(alignment: .leading, spacing: 20) {
             if light { contactLightBanner }
@@ -194,7 +201,7 @@ struct NightGrid: View {
     /// "They see N of M here", and a tap target to look at what is being kept
     /// back — as a count and as blank placeholders, never the photo itself.
     private var withheldAudit: some View {
-        let total = model.state.gigMedia.count
+        let total = visualMedia.count
         return VStack(alignment: .leading, spacing: 8) {
             Text("They see \(visibleShared.count) of \(total) here.")
                 .font(.system(size: 12)).foregroundStyle(muted)

@@ -58,6 +58,10 @@ struct GigView: View {
                         plannedActions(show)
                         // The night's grid (#99): what I shot, under what was played.
                         NightGrid()
+                        // A Note is media too (#50, #170): a draft in the vault, a
+                        // letter in the shared band, and the Preamble composed
+                        // above it from what the record already knows.
+                        NightNotes(preamble: gigPreamble(show), senderName: senderName)
                         // My own Log (#169), and it is never taken away — this
                         // renders on a night's page forever after, same as the
                         // grid above it.
@@ -116,6 +120,25 @@ struct GigView: View {
         // Back is a chevron with no label, and the swipe that also does it is a
         // gesture VoiceOver consumes.
         .accessibilityAction(.escape) { nav.pop() }
+    }
+
+    /// The night's own facts, for the Preamble over a Note (#50). Derived on
+    /// every render and never stored: Reconcile has no time bound, so who the
+    /// record knows was here changes, and a frozen sentence would be the app
+    /// putting words in my mouth about an evening it has since learned more
+    /// about.
+    private func gigPreamble(_ show: FmSetlist) -> String {
+        let alsoThere = model.state.friends.filter { f in
+            !f.setlistfm.isEmpty && (model.state.showsByFriend[f.setlistfm] ?? []).contains { $0.id == show.id }
+        }.map(\.name)
+        return preamble(people: alsoThere, venue: show.venue?.name, songCount: show.performed().count)
+    }
+
+    /// A sender is a public key (#28) and a Contact's name lives on the
+    /// friends list under a setlist.fm handle. Nothing joins the two yet, so
+    /// the promise degrades to "someone else" rather than inventing a name.
+    private func senderName(_ key: String) -> String? {
+        model.state.friends.first { $0.setlistfm == key }?.name
     }
 
     private func header(_ show: FmSetlist) -> some View {

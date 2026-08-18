@@ -681,7 +681,12 @@ final class AppModel: ObservableObject {
 
         state.selectedSetlist = setlist
         loadGigMedia(setlist)
-        state.gigLog = timelines.log(setlistId: setlist.id)
+        state.gigLog = StoredLog()
+        Task {
+            let log = await timelines.log(setlistId: setlist.id)
+            guard state.selectedSetlist?.id == setlist.id else { return }
+            state.gigLog = log
+        }
         state.matches = matches
         state.matching = true
         state.playlistName = defaultName
@@ -891,6 +896,75 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Write, edit or clear my Note in one Band (#50, porting Android's
+    /// `setGigNote`).
+    ///
+    /// At most one of mine per band, so this is an upsert keyed by band rather
+    /// than by id: the write-line the finger landed on already said which one
+    /// it means. Two notes in a band would need arranging, arranging would
+    /// need the handle, and the thing being served is one opinion about one
+    /// night.
+    ///
+    /// Emptying it removes it. A note with nothing in it is not something
+    /// anyone wrote, and leaving an empty record behind would make the shared
+    /// band claim a contributor who said nothing — which would turn a night
+    /// green over blank text.
+    func setGigNote(_ band: Band, text: String) {
+        guard let setlist = state.selectedSetlist else { return }
+        let had = state.gigMedia
+        let personal = band == .vault
+        let mine = had.first { $0.kind == StoredMedia.Kind.note && $0.from == nil && $0.personal == personal }
+        let written = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let media: [StoredMedia]
+        if let mine, written.isEmpty {
+            media = had.filter { $0.id != mine.id }
+        } else if let mine {
+            media = had.map { item in
+                guard item.id == mine.id else { return item }
+                var m = item
+                m.text = written
+                return m
+            }
+        } else if written.isEmpty {
+            media = had
+        } else {
+            media = had + [StoredMedia(
+                id: UUID().uuidString.lowercased(),
+                kind: StoredMedia.Kind.note,
+                // When it was written. It is what sorts received notes, and a
+                // note has no camera to ask for anything better.
+                capturedAt: Int64(Date().timeIntervalSince1970 * 1000),
+                personal: personal,
+                text: written
+            )]
+        }
+        state.gigMedia = media
+        Task { await timelines.saveMedia(setlistId: setlist.id, media: media) }
+    }
+
+    /// Set or unset the Verdict on one of my Notes (porting Android's
+    /// `setGigVerdict`).
+    ///
+    /// Tapping the one already set passes nil, because unset has to stay
+    /// reachable — it is a real state, and a night I have stopped having an
+    /// opinion about must not be stuck wearing the one I had.
+    func setGigVerdict(_ noteId: String, verdict: String?) {
+        guard let setlist = state.selectedSetlist else { return }
+        let had = state.gigMedia
+        // Mine only. A received note's verdict is its sender's statement and
+        // is not mine to edit, the same way their photograph is not mine to
+        // reposition.
+        guard had.contains(where: { $0.id == noteId && $0.from == nil }) else { return }
+        let media = had.map { item -> StoredMedia in
+            guard item.id == noteId else { return item }
+            var m = item
+            m.verdict = verdict
+            return m
+        }
+        state.gigMedia = media
+        Task { await timelines.saveMedia(setlistId: setlist.id, media: media) }
+    }
+
     // --- Cover art (#178) ---
 
     /// Offers the gig's own keepsakes first — already chosen for this night, so
@@ -978,7 +1052,7 @@ final class AppModel: ObservableObject {
         guard let setlist = state.selectedSetlist else { return }
         let updated = edit(state.gigLog)
         state.gigLog = updated
-        timelines.saveLog(setlistId: setlist.id, log: updated)
+        Task { await timelines.saveLog(setlistId: setlist.id, log: updated) }
     }
 
     private func findCandidates(_ track: String, _ artist: String) async -> ([SpotifyTrack], String?) {
