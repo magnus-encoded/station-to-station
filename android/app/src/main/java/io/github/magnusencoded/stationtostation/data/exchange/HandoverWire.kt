@@ -1,5 +1,6 @@
 package io.github.magnusencoded.stationtostation.data.exchange
 
+import io.github.magnusencoded.stationtostation.data.AccountsPayload
 import io.github.magnusencoded.stationtostation.data.SealedManifest
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -177,6 +178,41 @@ fun verifyLinkKey(socket: Socket, linkKey: ByteArray): Boolean {
     val answer = readFrame(socket.getInputStream()) ?: return false
     return MessageDigest.isEqual(answer, hmac(linkKey, nonce))
 }
+
+// --- Accounts step (#143) -----------------------------------------------------------
+//
+// Ordering only: this file decides nothing about *whether* accounts move — that is
+// `Accounts.kt`'s `AccountsMove`/`mayClearCredentials`. What belongs here is putting the
+// payload on the wire first, and giving the source a real ack to gate its clear on,
+// exactly as #142 excludes ("Accounts moving rather than copying, specified separately")
+// and #143's own testing decision asks for: driving the two ends over an in-memory pair,
+// no radio required.
+
+/** Source: the first frame of a handover, before the manifest or any item. [payload] is
+ * whichever `Accounts.kt` built — the full thing when accounts were ticked, identities
+ * only when declined (#143 story 11) — this function does not tell those apart. */
+fun writeAccountsStep(socket: Socket, payload: AccountsPayload) =
+    writeFrame(socket.getOutputStream(), wireJson.encodeToString(payload).toByteArray(Charsets.UTF_8))
+
+/** Receiver: null only means the connection dropped before any accounts frame arrived —
+ * a genuinely declined row still arrives as an (identities-only) [AccountsPayload], not
+ * as nothing. Store what arrives, *then* ack: acking is the promise the source's clear
+ * is gated on, so it must not be sent a moment before the payload is durable. */
+fun readAccountsStep(socket: Socket): AccountsPayload? {
+    val frame = readFrame(socket.getInputStream()) ?: return null
+    return wireJson.decodeFromString<AccountsPayload>(frame.toString(Charsets.UTF_8))
+}
+
+private val ACCOUNTS_ACK = "accounts-stored".toByteArray(Charsets.UTF_8)
+
+/** Receiver: send only once [readAccountsStep]'s payload is durably stored. */
+fun writeAccountsAck(socket: Socket) = writeFrame(socket.getOutputStream(), ACCOUNTS_ACK)
+
+/** Source: true only for the exact ack frame, so a dropped connection (null from
+ * [readFrame]) or any other bytes read as "not acknowledged" — the source must keep its
+ * credential ([Accounts.kt]'s `mayClearCredentials`) on anything but a clean true here. */
+fun readAccountsAck(socket: Socket): Boolean =
+    readFrame(socket.getInputStream())?.contentEquals(ACCOUNTS_ACK) == true
 
 // --- Manifest and items ---------------------------------------------------------------
 

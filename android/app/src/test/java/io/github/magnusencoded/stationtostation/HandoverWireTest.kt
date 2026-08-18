@@ -1,15 +1,22 @@
 package io.github.magnusencoded.stationtostation
 
+import io.github.magnusencoded.stationtostation.data.AccountsPayload
+import io.github.magnusencoded.stationtostation.data.Credentials
+import io.github.magnusencoded.stationtostation.data.Identities
 import io.github.magnusencoded.stationtostation.data.SealedManifest
 import io.github.magnusencoded.stationtostation.data.exchange.PinnedTrustManager
 import io.github.magnusencoded.stationtostation.data.exchange.certFingerprint
 import io.github.magnusencoded.stationtostation.data.exchange.copyExactly
 import io.github.magnusencoded.stationtostation.data.exchange.proveLinkKey
+import io.github.magnusencoded.stationtostation.data.exchange.readAccountsAck
+import io.github.magnusencoded.stationtostation.data.exchange.readAccountsStep
 import io.github.magnusencoded.stationtostation.data.exchange.readItemHeader
 import io.github.magnusencoded.stationtostation.data.exchange.readManifest
 import io.github.magnusencoded.stationtostation.data.exchange.sslClientContext
 import io.github.magnusencoded.stationtostation.data.exchange.sslServerContext
 import io.github.magnusencoded.stationtostation.data.exchange.verifyLinkKey
+import io.github.magnusencoded.stationtostation.data.exchange.writeAccountsAck
+import io.github.magnusencoded.stationtostation.data.exchange.writeAccountsStep
 import io.github.magnusencoded.stationtostation.data.exchange.writeEndOfItems
 import io.github.magnusencoded.stationtostation.data.exchange.writeFrame
 import io.github.magnusencoded.stationtostation.data.exchange.writeItem
@@ -251,6 +258,93 @@ class HandoverWireTest {
 
         assertEquals(allItems.map { it.first }.toSet(), union.keys)
         for ((id, bytes) in allItems) assertArrayEquals(bytes, union[id])
+    }
+
+    // --- Accounts step (#143), over the real transport this file tests everything else on ---
+
+    /**
+     * The whole point of "sent first, acked before the clear": the payload arrives, the
+     * receiver stores it durably, and only *then* does the source see a true come back.
+     * `Accounts.kt`'s `mayClearCredentials` is the pure decision; this is the wire event
+     * that is allowed to feed it.
+     */
+    @Test
+    fun `the receiver's ack only arrives after it has the payload, and the source sees it`() {
+        val (server, client) = handshake()
+        val payload = AccountsPayload(
+            identities = Identities(setlistFmUser = "paper-cranes-fan", spotifyAccount = "spotify:user:invented"),
+            credentials = Credentials(spotifyRefreshToken = "invented-refresh-token-not-a-real-one"),
+        )
+        var stored: AccountsPayload? = null
+        val serverThread = Thread {
+            assertTrue(verifyLinkKey(server, linkKey))
+            stored = readAccountsStep(server)
+            // Acking is the promise the payload is durable — this line stands in for
+            // that store, which is why the ack is written only after it.
+            writeAccountsAck(server)
+            server.close()
+        }
+        serverThread.start()
+
+        proveLinkKey(client, linkKey)
+        writeAccountsStep(client, payload)
+        val acked = readAccountsAck(client)
+        serverThread.join(5000)
+        client.close()
+
+        assertEquals(payload, stored)
+        assertTrue("the source must see the ack before it may clear its credential", acked)
+    }
+
+    /**
+     * The atomicity case at the wire level, not just the state-machine level `AccountsTest`
+     * already covers: a connection dropped after the payload but before the ack must read
+     * as "not acknowledged", never as a false positive that would let the source clear a
+     * credential nobody durably holds yet.
+     */
+    @Test
+    fun `a connection dropped after the payload but before the ack reads as unacknowledged`() {
+        val (server, client) = handshake()
+        val payload = AccountsPayload(credentials = Credentials(spotifyRefreshToken = "invented-token-two"))
+        val serverThread = Thread {
+            assertTrue(verifyLinkKey(server, linkKey))
+            readAccountsStep(server)
+            server.close() // dropped before writeAccountsAck — no ack is ever sent
+        }
+        serverThread.start()
+
+        proveLinkKey(client, linkKey)
+        writeAccountsStep(client, payload)
+        val acked = readAccountsAck(client)
+        serverThread.join(5000)
+        client.close()
+
+        assertFalse("a dropped connection must never read as an acknowledgement", acked)
+    }
+
+    /** Declining the row still sends an (identities-only) payload — never nothing — so
+     * the receiver can offer one-tap reconnect (#143 story 11) without a bearer secret. */
+    @Test
+    fun `a declined accounts row still arrives as identities without credentials`() {
+        val (server, client) = handshake()
+        val identitiesOnly = AccountsPayload(identities = Identities(setlistFmUser = "paper-cranes-fan"))
+        var received: AccountsPayload? = null
+        val serverThread = Thread {
+            assertTrue(verifyLinkKey(server, linkKey))
+            received = readAccountsStep(server)
+            writeAccountsAck(server)
+            server.close()
+        }
+        serverThread.start()
+
+        proveLinkKey(client, linkKey)
+        writeAccountsStep(client, identitiesOnly)
+        readAccountsAck(client)
+        serverThread.join(5000)
+        client.close()
+
+        assertEquals("paper-cranes-fan", received?.identities?.setlistFmUser)
+        assertTrue(received?.credentials?.isEmpty == true)
     }
 
     @Test
