@@ -47,7 +47,9 @@ fun contactIdentityPublicKeyBase64(): String {
     return Base64.getEncoder().encodeToString(keyStore.getCertificate(ALIAS).publicKey.encoded)
 }
 
-private fun contactIdentityPrivateKey(): PrivateKey {
+/** The device's persisted identity key, for [mutualContactAuth] to sign with directly —
+ * a reference into AndroidKeyStore, never the raw key material. */
+fun contactIdentityPrivateKey(): PrivateKey {
     val keyStore = keyStore()
     ensureGenerated(keyStore)
     return keyStore.getKey(ALIAS, null) as PrivateKey

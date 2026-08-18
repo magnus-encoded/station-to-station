@@ -49,9 +49,12 @@ import io.github.magnusencoded.stationtostation.ble.ProbeCard
 import io.github.magnusencoded.stationtostation.data.AccountsMove
 import io.github.magnusencoded.stationtostation.data.AccountsPayload
 import io.github.magnusencoded.stationtostation.data.mayClearCredentials
+import io.github.magnusencoded.stationtostation.data.exchange.ContactExchange
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangePeer
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangeSession
 import io.github.magnusencoded.stationtostation.data.exchange.contactIdentityPublicKeyBase64
+import io.github.magnusencoded.stationtostation.data.contactManifest
+import io.github.magnusencoded.stationtostation.data.GalleryItem
 import io.github.magnusencoded.stationtostation.data.exchange.readAccountsAck
 import io.github.magnusencoded.stationtostation.data.exchange.readAccountsStep
 import io.github.magnusencoded.stationtostation.data.exchange.writeAccountsAck
@@ -350,6 +353,39 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val exchange = ExchangeSession(application, viewModelScope)
     private val where = DeviceLocation(application)
 
+    /**
+     * #257's whole LAN reconcile, foreground-scoped: [startContactExchange]/
+     * [stopContactExchange] are meant to sit on [MainActivity]'s onStart/onStop, the
+     * platform's own "is this on screen" edge — no background service, no extra
+     * permission, matching how [exchange] itself only runs with a screen open.
+     */
+    private val contactExchange = ContactExchange(
+        context = application,
+        scope = viewModelScope,
+        photos = photos,
+        contactKeys = { settings.friends.first().mapNotNull { it.publicKey } },
+        manifest = {
+            val cache = timelines.load()
+            val bare = contactManifest(cache, contactIdentityPublicKeyBase64())
+            bare.copy(media = bare.media.map { item ->
+                val ref = cache.gigMedia[item.gigId]?.firstOrNull { it.id == item.id }?.ref
+                val uri = ref?.let { Uri.parse(it) } ?: return@map item
+                item.copy(hash = photos.mediaHash(uri) ?: "", bytes = runCatching {
+                    application.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: 0L
+                }.getOrDefault(0L))
+            })
+        },
+        mine = { timelines.load() },
+        gallery = {
+            timelines.load().gigs.values.mapNotNull { it.date.takeIf { d -> d.isNotBlank() } }
+                .distinct()
+                .flatMap { d -> parseFmDate(d)?.let { photos.photosFrom(it) }.orEmpty() }
+                .distinctBy { it.uri }
+                .mapNotNull { p -> photos.mediaHash(p.uri)?.let { GalleryItem(ref = p.uri.toString(), hash = it) } }
+        },
+        onLanded = { landing -> timelines.mergeContactMedia(landing) },
+    )
+
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
@@ -414,8 +450,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         exchange.onFriendReceived = { friend -> viewModelScope.launch { bringIn(friend) } }
     }
 
+    /** Called from [MainActivity]'s onStart — see [contactExchange]'s doc comment. */
+    fun startContactExchange() = contactExchange.start()
+
+    /** Called from [MainActivity]'s onStop — see [contactExchange]'s doc comment. */
+    fun stopContactExchange() = contactExchange.stop()
+
     override fun onCleared() {
         exchange.stop()
+        contactExchange.stop()
         super.onCleared()
     }
 

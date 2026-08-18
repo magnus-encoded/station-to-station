@@ -56,6 +56,18 @@ class MainActivity : ComponentActivity() {
         handleHandoverDebugIntent(intent)
     }
 
+    /** #257's LAN reconcile runs only while this screen is on screen — see [AppViewModel]'s
+     * contactExchange doc comment for why it's foreground-scoped, not a background service. */
+    override fun onStart() {
+        super.onStart()
+        viewModel.startContactExchange()
+    }
+
+    override fun onStop() {
+        viewModel.stopContactExchange()
+        super.onStop()
+    }
+
     /**
      * Zoom from a keyboard, because a pinch cannot be scripted. `adb shell input` sends
      * one pointer, and writing multitouch straight to the touchscreen is permission
