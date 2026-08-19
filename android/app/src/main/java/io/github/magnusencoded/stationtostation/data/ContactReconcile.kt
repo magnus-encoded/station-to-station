@@ -28,6 +28,25 @@ data class ContactReconcilePlan(
 )
 
 /**
+ * Whether a media id from a peer is safe to use as an identity and, downstream, as a
+ * **filename**.
+ *
+ * A media id is a UUID this app minted at **Attach** (#97) — but an id arriving over the
+ * wire is whatever the far end chose to send, and it reaches
+ * [io.github.magnusencoded.stationtostation.data.photos.PhotoRepository.receivedMediaFile]
+ * as a path component. `File(dir, name)` resolves `..` like any other path, so an id of
+ * `../../…` would write outside the directory it was meant for.
+ *
+ * Checked at the one door every peer-supplied id comes through rather than at each of
+ * those call sites: a check that has to be remembered three times is a check that will be
+ * forgotten once. An allow-list, for the reason `isPlausibleSetlistFmUser` is one — the
+ * interesting characters are the ones nobody thought of. iOS's twin, character for
+ * character, is `isSafeMediaId` in `ContactReconcile.swift`.
+ */
+fun isSafeMediaId(id: String): Boolean =
+    id.isNotEmpty() && id.length <= 64 && id.all { it.isLetterOrDigit() || it == '-' || it == '_' }
+
+/**
  * The LAN reconcile decision. Pure: no radio, no socket, no clock — the same split
  * [handoverPlan] makes, for the same reason.
  *
@@ -60,6 +79,7 @@ fun contactReconcilePlan(
     val request = ArrayList<String>()
     val fromGallery = LinkedHashMap<String, String>()
     for (item in offer.media) when {
+        !isSafeMediaId(item.id) -> Unit
         item.id in mineIds -> held += item.id
         item.kind == StoredMedia.Kind.NOTE -> noBytes += item.id
         else -> byHash[item.hash]?.let { fromGallery[item.id] = it.ref } ?: run { request += item.id }
@@ -92,7 +112,13 @@ fun contactLanding(
     return offer.timeline.gigMedia.entries.mapNotNull { (theirGigId, items) ->
         val setlistId = offer.timeline.gigs[theirGigId]?.setlistId ?: return@mapNotNull null
         val myGigId = setlistToGigId[setlistId] ?: return@mapNotNull null
-        val landed = items.mapNotNull { m -> resolved[m.id]?.let { m.copy(ref = it, from = attribution[m.id] ?: m.from) } }
+        // Re-checked here rather than trusted from the plan: these items come from
+        // `offer.timeline.gigMedia`, a different part of the peer's message than
+        // `offer.media`, and the two could disagree.
+        val landed = items.mapNotNull { m ->
+            if (!isSafeMediaId(m.id)) null
+            else resolved[m.id]?.let { m.copy(ref = it, from = attribution[m.id] ?: m.from) }
+        }
         if (landed.isEmpty()) null else myGigId to landed
     }.toMap()
 }

@@ -53,6 +53,18 @@ object AcceptAnyTrustManager : X509TrustManager {
  * A server socket built from this context additionally needs `setWantClientAuth(true)`
  * before its handshake, since a plain [javax.net.ssl.SSLServerSocket] does not request a
  * client certificate on its own.
+ *
+ * **This is what makes Android↔iOS work at all (#267), and it is load-bearing.** The two
+ * platforms do not present the same kind of certificate and never will: this side hands
+ * over a durable `AndroidKeyStore` one that outlives the app, iOS mints a fresh
+ * per-session one and throws it away when the screen closes. They interoperate only
+ * because **trust never comes from the certificate** — it comes from a signature over
+ * that certificate's fingerprint, made with the Contact key the two swapped in person.
+ *
+ * So: anything that later pins a certificate, remembers one between sessions, or ties one
+ * to the identity key ends interop silently. It would still pass every Android↔Android
+ * test, because on Android both ends present the same durable identity. The same warning
+ * is on iOS's `ContactExchange.parameters`.
  */
 fun contactSessionContext(keyStore: KeyStore, keyPassword: CharArray): SSLContext {
     val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())

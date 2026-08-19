@@ -6,12 +6,14 @@ import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.TimelineCache
 import io.github.magnusencoded.stationtostation.data.contactLanding
 import io.github.magnusencoded.stationtostation.data.contactReconcilePlan
+import io.github.magnusencoded.stationtostation.data.isSafeMediaId
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.io.OutputStream
 import java.net.Socket
 import java.security.PrivateKey
 import java.security.cert.Certificate
@@ -78,18 +80,34 @@ fun runContactSession(
     val theirKinds = theirManifest.media.associate { it.id to it.kind }
     val resolved = LinkedHashMap<String, String>(plan.fromGallery)
     for (id in plan.noBytes) resolved[id] = ""
+    val expected = plan.request.toSet()
     if (isServer) {
         sendRequested(socket, theirRequest, mediaSource)
-        resolved += receiveRequested(socket, receivedFile, refForReceivedFile, theirKinds)
+        resolved += receiveRequested(socket, expected, receivedFile, refForReceivedFile, theirKinds)
     } else {
-        resolved += receiveRequested(socket, receivedFile, refForReceivedFile, theirKinds)
+        resolved += receiveRequested(socket, expected, receivedFile, refForReceivedFile, theirKinds)
         sendRequested(socket, theirRequest, mediaSource)
     }
 
     return contactLanding(mine, theirManifest, resolved)
 }
 
-private val manifestJson = Json { encodeDefaults = true }
+/**
+ * `encodeDefaults` so every field is written even at its default — Swift's `JSONEncoder`
+ * writes every non-nil property already, so this is what makes the two agree.
+ *
+ * `ignoreUnknownKeys` is the interop half (#267), and it is not cosmetic: kotlinx's
+ * default is to *throw* on a key it does not know, which here would surface as a failed
+ * decode, a null manifest, and a reconcile that silently does nothing. iOS's decoder
+ * ignores unknown keys already, so without this the two platforms disagree about what a
+ * newer field means the first time either one adds one.
+ *
+ * The models line up today — every field iOS declares on `HandoverManifest`,
+ * `TimelineCache`, `OfferedMedia`, `StoredMedia` and `StoredGig` exists here, and this
+ * side's extras (`identities`, `festivals`, `bills`, …) all carry defaults. This is so
+ * that staying lined up is not a condition of working at all.
+ */
+private val manifestJson = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
 private fun exchangeManifests(socket: Socket, isServer: Boolean, mine: HandoverManifest): HandoverManifest? {
     fun write() = writeFrame(socket.getOutputStream(), manifestJson.encodeToString(mine).toByteArray(Charsets.UTF_8))
@@ -118,13 +136,37 @@ private fun sendRequested(socket: Socket, ids: List<String>, mediaSource: (Strin
 }
 
 /**
+ * The largest single item worth accepting. Generous against a long video, finite against a
+ * peer that declares a body no disk can hold — an unchecked length here is a device filled
+ * up by someone else's arithmetic. iOS's `maxItemBytes` is the same figure.
+ */
+private const val MAX_ITEM_BYTES = 4L shl 30
+
+/** Where a drained body goes. `OutputStream.nullOutputStream()` is Java 11 and needs
+ * desugaring to be safe across this app's minSdk; two overrides are cheaper than finding
+ * out. */
+private val DISCARD = object : OutputStream() {
+    override fun write(b: Int) = Unit
+    override fun write(b: ByteArray, off: Int, len: Int) = Unit
+}
+
+/**
  * Media id → the local ref its received bytes now live at. Always drains the socket up to
  * the end-of-items marker [sendRequested] writes even when nothing was actually asked
  * for — the marker is unconditional on the sending side, so skipping the read here would
  * leave it sitting unread on a socket meant for more frames afterwards.
+ *
+ * [expected] is what I actually asked for. A header for anything else is drained and
+ * dropped: a sender is free to put whatever it likes on the wire, and "you offered it and
+ * I declined" must not become "you sent it anyway and I stored it".
+ *
+ * `internal` rather than private only so a hostile sender can be pointed at it directly —
+ * [runContactSession] on the far end obeys the request list by construction, so the one
+ * thing worth testing here is not reachable through it.
  */
-private fun receiveRequested(
+internal fun receiveRequested(
     socket: Socket,
+    expected: Set<String>,
     receivedFile: (String, String) -> File,
     refFor: (File) -> String,
     kinds: Map<String, String>,
@@ -132,6 +174,16 @@ private fun receiveRequested(
     val landed = LinkedHashMap<String, String>()
     while (true) {
         val (id, length) = readItemHeader(socket) ?: break
+        // A length outside these bounds is not a bad item, it is a stream that cannot be
+        // walked: a negative one makes the drain below a no-op and leaves the body sitting
+        // where the next header should be, desyncing every frame after it.
+        require(length in 0..MAX_ITEM_BYTES) { "item of $length bytes refused" }
+        if (!isSafeMediaId(id) || id !in expected) {
+            // The bytes are coming whether or not they are wanted, so they are drained
+            // rather than abandoned mid-item.
+            copyExactly(socket.getInputStream(), DISCARD, length)
+            continue
+        }
         val file = receivedFile(id, kinds[id] ?: StoredMedia.Kind.PHOTO)
         file.parentFile?.mkdirs()
         FileOutputStream(file).use { copyExactly(socket.getInputStream(), it, length) }

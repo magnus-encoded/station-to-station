@@ -6,8 +6,12 @@ import io.github.magnusencoded.stationtostation.data.StoredGig
 import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.TimelineCache
 import io.github.magnusencoded.stationtostation.data.exchange.contactSessionContext
+import io.github.magnusencoded.stationtostation.data.exchange.receiveRequested
 import io.github.magnusencoded.stationtostation.data.exchange.runContactSession
+import io.github.magnusencoded.stationtostation.data.exchange.writeEndOfItems
+import io.github.magnusencoded.stationtostation.data.exchange.writeItem
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 import java.io.File
@@ -122,6 +126,51 @@ class ContactSessionTest {
         assertEquals("server-photo", landed.id)
         assertEquals("server photo", clientReceivedFile.readText())
         assertEquals(clientReceivedFile.toURI().toString(), landed.ref)
+    }
+
+    /**
+     * A sender is free to put whatever it likes on the wire (#267). "You offered it and I
+     * declined" must not become "you sent it anyway and I stored it" — and, just as
+     * importantly, dropping an item must not desync the stream: the body still has to be
+     * walked, or the next header lands in the middle of somebody's photograph.
+     *
+     * Driven against [receiveRequested] directly rather than through [runContactSession],
+     * because a well-behaved peer sends exactly what was asked for by construction.
+     */
+    @Test
+    fun `an item nobody asked for is drained and dropped without desyncing the stream`() {
+        val tmp = File.createTempFile("contact-drain", "").apply { delete(); mkdirs() }
+
+        val server = java.net.ServerSocket(0)
+        val sender = Thread {
+            server.accept().use { out ->
+                // Not requested. Not stored — but the bytes are still coming.
+                "unwanted photo".toByteArray().let { writeItem(out, "unasked", it.size.toLong(), it.inputStream()) }
+                // An id that would escape its directory, refused for a second reason.
+                "escape".toByteArray().let { writeItem(out, "../../evil", it.size.toLong(), it.inputStream()) }
+                // Asked for, and arriving after both — it lands only if the drains above
+                // left the stream exactly where the next header begins.
+                "wanted photo".toByteArray().let { writeItem(out, "wanted", it.size.toLong(), it.inputStream()) }
+                writeEndOfItems(out)
+            }
+        }
+        sender.start()
+
+        val landed = java.net.Socket("127.0.0.1", server.localPort).use { receiver ->
+            receiveRequested(
+                socket = receiver,
+                expected = setOf("wanted"),
+                receivedFile = { id, _ -> File(tmp, "$id.bin") },
+                refFor = { it.toURI().toString() },
+                kinds = emptyMap(),
+            )
+        }
+        sender.join(5000)
+        server.close()
+
+        assertEquals(setOf("wanted"), landed.keys)
+        assertEquals("wanted photo", File(tmp, "wanted.bin").readText())
+        assertFalse(File(tmp, "unasked.bin").exists())
     }
 
     @Test

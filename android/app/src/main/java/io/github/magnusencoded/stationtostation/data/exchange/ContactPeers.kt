@@ -31,6 +31,22 @@ class ContactPeers(private val context: Context) {
     private var registrationListener: NsdManager.RegistrationListener? = null
     private var discoveryListener: NsdManager.DiscoveryListener? = null
 
+    /**
+     * What this device actually published, so its own advertisement answering back is not
+     * treated as a peer. mDNS renames on collision, so the name asked for and the name
+     * registered are not always the same string, and only [NsdManager.RegistrationListener.onServiceRegistered]
+     * knows which one this device ended up with.
+     *
+     * Matching against [SERVICE_NAME] instead — which is what this did — is not merely
+     * imprecise, it is fatal for interop (#267): every device that publishes under the
+     * plain unrenamed name, which is exactly what an iPhone with no name collision does,
+     * gets skipped here as if it were us.
+     *
+     * Volatile because the NSD callbacks arrive on the framework's own thread and
+     * [onServiceFound] reads this from wherever discovery is dispatched.
+     */
+    @Volatile private var registeredName: String? = null
+
     /** Advertises this device's reconcile listener at [port]. The instance name is
      * arbitrary — nothing reads it for identity, only the resolved address matters. */
     fun startAdvertising(port: Int) {
@@ -41,7 +57,9 @@ class ContactPeers(private val context: Context) {
             setPort(port)
         }
         val listener = object : NsdManager.RegistrationListener {
-            override fun onServiceRegistered(info: NsdServiceInfo) = Unit
+            override fun onServiceRegistered(info: NsdServiceInfo) {
+                registeredName = info.serviceName
+            }
             override fun onRegistrationFailed(info: NsdServiceInfo, errorCode: Int) {
                 Log.w(TAG, "advertise failed: $errorCode")
                 registrationListener = null
@@ -56,6 +74,7 @@ class ContactPeers(private val context: Context) {
     fun stopAdvertising() {
         registrationListener?.let { runCatching { nsd.unregisterService(it) } }
         registrationListener = null
+        registeredName = null
     }
 
     fun startDiscovery() {
@@ -70,8 +89,12 @@ class ContactPeers(private val context: Context) {
             override fun onDiscoveryStopped(serviceType: String) = Unit
 
             override fun onServiceFound(info: NsdServiceInfo) {
-                // Our own advertisement answering back is not a peer.
-                if (info.serviceName == SERVICE_NAME) return
+                // Our own advertisement answering back is not a peer — matched against the
+                // name mDNS actually gave us, never against the one we asked for. See
+                // [registeredName]. Null until registration lands: dialing ourselves in that
+                // window costs one connection that fails [mutualContactAuth], since this
+                // device's own key is not among its Contacts' keys.
+                if (info.serviceName == registeredName) return
                 nsd.resolveService(info, resolveListener)
             }
 

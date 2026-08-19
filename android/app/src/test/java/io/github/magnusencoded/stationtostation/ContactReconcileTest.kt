@@ -167,6 +167,70 @@ class ContactReconcileTest {
         assertTrue(landing.isEmpty())
     }
 
+    // ---- peer-supplied ids are peer-supplied (#267) ---------------------------------
+    //
+    // A media id is a UUID this app minted at Attach — but an id arriving over the wire is
+    // whatever the far end chose to send, and it reaches `receivedMediaFile` as a path
+    // component. iOS has the same three checks, in the same three places.
+
+    @Test
+    fun `an id that would escape its directory never reaches a plan`() {
+        val offer = HandoverManifest(media = listOf(
+            offered("../../../databases/timeline", "h1"),
+            offered("ok-1", "h2"),
+        ))
+
+        val plan = contactReconcilePlan(TimelineCache(), offer, verified = true)
+
+        assertEquals(listOf("ok-1"), plan.request)
+        assertTrue(plan.held.isEmpty())
+        assertTrue(plan.noBytes.isEmpty())
+    }
+
+    @Test
+    fun `an unsafe id is refused whichever bucket it would have fallen into`() {
+        val evil = "a/b"
+        val mine = TimelineCache(gigMedia = mapOf("a" to listOf(photo(evil))))
+        val offer = HandoverManifest(media = listOf(
+            offered(evil, "h1"),
+            OfferedMedia(id = "..", gigId = "a", kind = StoredMedia.Kind.NOTE, from = "their-key"),
+        ))
+        val gallery = listOf(GalleryItem(ref = "content://gallery/x", hash = "h1"))
+
+        val plan = contactReconcilePlan(mine, offer, verified = true, gallery = gallery)
+
+        // Held, noBytes and fromGallery are all reachable without ever asking for bytes,
+        // and an id that is never allowed to name a file must miss all of them too.
+        assertTrue(plan.held.isEmpty())
+        assertTrue(plan.noBytes.isEmpty())
+        assertTrue(plan.fromGallery.isEmpty())
+        assertTrue(plan.request.isEmpty())
+    }
+
+    /**
+     * Re-checked at the landing rather than trusted from the plan: these items come from
+     * `offer.timeline.gigMedia`, a different part of the peer's message than `offer.media`,
+     * and a peer is free to make the two disagree.
+     */
+    @Test
+    fun `an unsafe id is refused again at the landing`() {
+        val mine = TimelineCache(gigs = mapOf("mine-gig" to StoredGig(id = "mine-gig", setlistId = "sl-1")))
+        val offer = HandoverManifest(
+            timeline = TimelineCache(
+                gigs = mapOf("their-gig" to StoredGig(id = "their-gig", setlistId = "sl-1")),
+                gigMedia = mapOf("their-gig" to listOf(photo("../evil"), photo("m1"))),
+            ),
+            media = listOf(offered("m1", "h1")),
+        )
+
+        val landing = contactLanding(
+            mine, offer,
+            resolved = mapOf("../evil" to "content://gallery/evil", "m1" to "content://gallery/x"),
+        )
+
+        assertEquals(listOf("m1"), landing.getValue("mine-gig").map { it.id })
+    }
+
     @Test
     fun `an item with no resolved ref yet does not land`() {
         val mine = TimelineCache(gigs = mapOf("mine-gig" to StoredGig(id = "mine-gig", setlistId = "sl-1")))

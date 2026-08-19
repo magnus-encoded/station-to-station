@@ -171,6 +171,35 @@ class ContactViewTest {
         assertTrue(plan.request.none { it == "secret" })
     }
 
+    /**
+     * A **Contact** is offered media from a shared night, and a [TimelineCache] carries far
+     * more than that — the Log, attendance and how it was decided, tickets held, playlists
+     * made, every band's shows, my totals. `cache.copy(gigMedia = …)`, which is what this
+     * built, sent all of it because it happened to be in the same class (#267).
+     */
+    @Test
+    fun `a contact's manifest carries only the media and the nights it is offered on`() {
+        val c = cache(
+            shared = setOf("g1"),
+            media = mapOf("g1" to listOf(mine("a")), "g2" to listOf(mine("b", personal = true))),
+        ).copy(
+            shows = mapOf(me to emptyList()),
+            attendedTotals = mapOf(me to 412),
+            playlistsMade = mapOf("sl-1" to emptyList()),
+        )
+
+        val timeline = contactManifest(c, me).timeline
+
+        // The two fields contactLanding reads, and nothing else.
+        assertEquals(setOf("g1"), timeline.gigMedia.keys)
+        // Narrowed too: the full gigs map is the complete list of every night I have ever
+        // attended, which is a different disclosure than the one being made.
+        assertEquals(setOf("g1"), timeline.gigs.keys)
+        assertEquals(TimelineCache().attendedTotals, timeline.attendedTotals)
+        assertEquals(TimelineCache().shows, timeline.shows)
+        assertEquals(TimelineCache().playlistsMade, timeline.playlistsMade)
+    }
+
     /** Absent, not unticked: there is no **Personal** category for a contact at all. */
     @Test
     fun `the Personal categories do not exist for a contact`() {

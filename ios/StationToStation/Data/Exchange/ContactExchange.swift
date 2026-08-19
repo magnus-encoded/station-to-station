@@ -143,6 +143,18 @@ final class ContactExchange {
     ///
     /// Both ends also *present* one, which is not optional: the fingerprint has nothing to
     /// bind to unless there is a certificate on the wire in both directions.
+    ///
+    /// **This is what makes iOS↔Android work at all (#267), and it is load-bearing.** The
+    /// two platforms do not present the same kind of certificate and never will: Android
+    /// hands over a durable `AndroidKeyStore` one that outlives the app, iOS mints a fresh
+    /// per-session one here and throws it away in `stop()`. They interoperate only because
+    /// **trust never comes from the certificate** — it comes from a signature over that
+    /// certificate's fingerprint, made with the Contact key the two swapped in person.
+    ///
+    /// So: anything that later pins a certificate, remembers one between sessions, or ties
+    /// one to the identity key ends interop silently. It would still pass every iOS↔iOS
+    /// test, because on iOS both ends mint the same way. The same warning is on Android's
+    /// `contactSessionContext`.
     private func parameters(_ tls: ContactTlsIdentity) -> NWParameters {
         let options = NWProtocolTLS.Options()
         let security = options.securityProtocolOptions
