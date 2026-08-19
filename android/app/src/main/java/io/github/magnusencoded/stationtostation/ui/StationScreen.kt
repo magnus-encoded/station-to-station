@@ -123,6 +123,7 @@ import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -141,6 +142,8 @@ import io.github.magnusencoded.stationtostation.data.FutureRow
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.isLocal
+import io.github.magnusencoded.stationtostation.data.rankTitles
+import io.github.magnusencoded.stationtostation.data.weaveSetlist
 import io.github.magnusencoded.stationtostation.data.setlistEditEntry
 import io.github.magnusencoded.stationtostation.data.futureRows
 import io.github.magnusencoded.stationtostation.data.postFiling
@@ -196,6 +199,10 @@ private val UnlitField = Color(0xFF1E1B26)
 private val SpotifyGreen = Color(0xFF1DB954)
 private val Slate = Color(0xFF6D7E9B) // the future / a connected-source, a cooler light
 private val Danger = Color(0xFFE08A8A)
+
+/** The wash behind an armed band, in the accent that band is answering with (#268). */
+private val SlateSoft = Color(0x296D7E9B)
+private val CrossedSoft = Color(0x296FBF9C)
 
 private val Serif = FontFamily.Serif
 
@@ -1947,12 +1954,16 @@ private fun GigMediaBands(
                 label = "Shared",
                 mine = bands.shared,
                 received = bands.received,
-                crossed = if (promised == Band.SHARED && hint != ReleaseHint.NONE) {
-                    hint == ReleaseHint.GAINED
-                } else {
-                    // Off the whole night, not the strip: a **Contact** who sent only
-                    // a **Note** is still someone I shared the night with.
-                    all.crossed
+                // What the band *would* hold, not what changes: the outline is a
+                // statement about the collection, so a band already crossed keeps
+                // saying so while you hover over it (#268). Off the whole night, not
+                // the strip — a **Contact** who sent only a **Note** is still someone
+                // I shared the night with.
+                crossed = when {
+                    promised != Band.SHARED -> all.crossed
+                    hint == ReleaseHint.GAINED -> true
+                    hint == ReleaseHint.LOST -> false
+                    else -> all.crossed
                 },
                 say = when {
                     promised != Band.SHARED -> null
@@ -2018,6 +2029,14 @@ private fun GigMediaBands(
         if (!contactLight) {
             Spacer(Modifier.width(10.dp))
             AttachHandle(
+                // The travel is the distance to the bands themselves, so the handle
+                // stops where the thing it is pointing at is rather than at a number
+                // (#268). Measured off the same rects the drop test uses.
+                travel = { at ->
+                    val up = strips[Band.SHARED]?.let { it.center.y - at } ?: -160f
+                    val down = strips[Band.VAULT]?.let { it.center.y - at } ?: 160f
+                    up.coerceAtMost(0f)..down.coerceAtLeast(0f)
+                },
                 onOver = { over = it },
                 onRelease = { band -> over = null; band?.let(onAdd) },
             )
@@ -2033,20 +2052,31 @@ private fun GigMediaBands(
  * whole gesture, so anything it said would be said where nobody can read it. The
  * bands answer instead. A tap does nothing, which reads as the wrong gesture rather
  * than as a broken app — a plus that ignored a tap would read as the second.
+ *
+ * Half a tile wide and a full tile tall: it is a rail the thumb runs along, not a
+ * button, and at tile-square it read as a missing photograph (#268). [travel] answers
+ * how far it may run given where it is resting — the band centres, so it arrives at
+ * the thing it is pointing at instead of stopping at an arbitrary 160px.
  */
 @Composable
 private fun AttachHandle(
+    travel: (restingCentreY: Float) -> ClosedFloatingPointRange<Float>,
     onOver: (Band?) -> Unit,
     onRelease: (Band?) -> Unit,
 ) {
     val commit = with(LocalDensity.current) { 14.dp.toPx() }
     var offsetY by remember { mutableStateOf(0f) }
     var chosen by remember { mutableStateOf<Band?>(null) }
+    // Read off the *outer* box, which never moves — measuring the offset one would
+    // fold the drag back into its own limits.
+    var restingY by remember { mutableStateOf(0f) }
 
     Box(
         Modifier
+            .onGloballyPositioned { restingY = it.boundsInRoot().center.y }
             .offset { IntOffset(0, offsetY.roundToInt()) }
-            .size(GigPhotoSize)
+            .width(GigPhotoSize / 2)
+            .height(GigPhotoSize)
             .clip(RoundedCornerShape(10.dp))
             .background(Raised2)
             .border(1.dp, if (chosen != null) Amber else LineLit, RoundedCornerShape(10.dp))
@@ -2054,7 +2084,7 @@ private fun AttachHandle(
                 detectDragGestures(
                     onDrag = { change, amount ->
                         change.consume()
-                        offsetY = (offsetY + amount.y).coerceIn(-160f, 160f)
+                        offsetY = (offsetY + amount.y).coerceIn(travel(restingY))
                         chosen = when {
                             offsetY < -commit -> Band.SHARED
                             offsetY > commit -> Band.VAULT
@@ -2082,6 +2112,28 @@ private fun AttachHandle(
             fontSize = 26.sp,
         )
     }
+}
+
+/**
+ * What a band outlines itself in, media and prose alike (#268).
+ *
+ * Three colours for three facts, and no colour carries two: **Amber** is the vault
+ * and means *only I can see this*, **Slate** is a shared band holding only mine, and
+ * **Crossed** is a shared band more than one of us is in. The upward gesture can
+ * therefore never light amber, which is the whole point — the direction that spends
+ * something must not be drawn in the colour of the direction that spends nothing.
+ */
+private fun bandAccent(band: Band, crossed: Boolean): Color = when {
+    band == Band.VAULT -> Amber
+    crossed -> Crossed
+    else -> Slate
+}
+
+/** The same three, at the alpha the offer overlay washes the strip with. */
+private fun bandWash(band: Band, crossed: Boolean): Color = when {
+    band == Band.VAULT -> AmberSoft
+    crossed -> CrossedSoft
+    else -> SlateSoft
 }
 
 /**
@@ -2117,6 +2169,13 @@ private fun MediaBand(
     onDragAt: (Offset) -> Unit,
     onDrop: () -> Unit,
 ) {
+    // The band's own colour, and the only thing the offer overlay recolours with.
+    // **Amber is the vault's**, in both states: it means private here and nothing
+    // else, so an upward drag must never reach for it (#268). The shared band answers
+    // Slate while it would hold only mine, and **Crossed** once letting go means more
+    // than one of us is in it.
+    val accent = bandAccent(band, crossed)
+    val wash = bandWash(band, crossed)
     val tilePx = with(LocalDensity.current) { (GigPhotoSize + ItemGap).toPx() }
     // The gesture lives on the strip, never on a tile. A tile leaves the composition
     // the moment it is picked up — that is how the gap opens — and a pointerInput on
@@ -2157,7 +2216,20 @@ private fun MediaBand(
                 Text(say, color = if (crossed) Crossed else Muted, fontSize = 10.sp)
             }
         }
-        Box {
+        // One frame, and the gesture changes *it* rather than adding a second. Two
+        // outlines around one band is what this looked like when the armed state drew
+        // its own: they do not even share a rect, because the strip's own border sits
+        // inside the scroll container and travels with the content (#268).
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp)
+                .border(
+                    if (offering) 2.dp else 1.dp,
+                    accent,
+                    RoundedCornerShape(6.dp),
+                ),
+        ) {
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -2178,14 +2250,11 @@ private fun MediaBand(
                             onDragCancel = onDrop,
                         )
                     }
-                    .padding(horizontal = 20.dp, vertical = 4.dp)
-                    .then(
-                        if (crossed) {
-                            Modifier.border(1.dp, Crossed, RoundedCornerShape(6.dp))
-                        } else {
-                            Modifier
-                        },
-                    ),
+                    // Content padding: it is inside the scroll, so the first tile
+                    // starts clear of the edge and scrolls away under it — and
+                    // [indexUnder] counts from it. The frame is on the Box outside,
+                    // which is the rect that stays still.
+                    .padding(horizontal = 20.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 // Counted over the band without the carried item, so the gap opens
@@ -2193,7 +2262,7 @@ private fun MediaBand(
                 var placed = 0
                 mine.forEach { item ->
                     if (item.id == draggingId) return@forEach
-                    if (slotAt == placed) LandingSlot()
+                    if (slotAt == placed) LandingSlot(accent, wash)
                     MediaTile(
                         item = item,
                         arranging = arranging,
@@ -2205,7 +2274,7 @@ private fun MediaBand(
                     Spacer(Modifier.width(ItemGap))
                     placed++
                 }
-                if (slotAt != null && slotAt >= placed) LandingSlot()
+                if (slotAt != null && slotAt >= placed) LandingSlot(accent, wash)
                 received.forEach { item ->
                     MediaTile(
                         item = item,
@@ -2234,8 +2303,7 @@ private fun MediaBand(
                     Modifier
                         .matchParentSize()
                         .clip(RoundedCornerShape(6.dp))
-                        .background(AmberSoft)
-                        .border(2.dp, Amber, RoundedCornerShape(6.dp)),
+                        .background(wash),
                     contentAlignment = Alignment.Center,
                 ) { Text(offerText, color = Ink, fontSize = 12.sp) }
             }
@@ -2274,6 +2342,9 @@ private fun GigNotes(
             band = Band.SHARED,
             mine = noteBands.shared.firstOrNull(),
             received = noteBands.received,
+            // The prose's own crossing, not the night's: this outline is a statement
+            // about what is written here (#268).
+            crossed = noteBands.crossed,
             // Once per night, over whichever note is uppermost. The same sentence
             // twice is noise, and it is a fact about the night rather than about
             // either band.
@@ -2296,6 +2367,8 @@ private fun GigNotes(
                 // Nothing arrives here. A **Contact**'s note is something they put in
                 // the commons; there is no path by which one lands in my vault.
                 received = emptyList(),
+                // Never — the vault outlines amber whatever it holds.
+                crossed = false,
                 preamble = if (noteBands.shared.isEmpty()) preamble else "",
                 senderName = senderName,
                 editable = true,
@@ -2320,6 +2393,11 @@ private fun GigNotes(
  *
  * The empty line renders on a night nothing was written about, for the same reason
  * the empty vault strip does: a surface nobody can see is a surface nobody finds.
+ *
+ * **The write-line stays on top, and everything written sits under it** — mine, then
+ * anyone else's. It reads backwards for a second and then stops: you come here to
+ * write, and reading what a **Contact** said *after* saying your own piece is the
+ * order that keeps the sentence yours (#268).
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -2327,6 +2405,8 @@ private fun BandNotes(
     band: Band,
     mine: StoredMedia?,
     received: List<StoredMedia>,
+    /** More than one of us in this band's prose — see [bandAccent]. */
+    crossed: Boolean,
     /** The night's own facts. Rendered, never stored — see [preamble]. */
     preamble: String,
     senderName: (String) -> String?,
@@ -2344,7 +2424,38 @@ private fun BandNotes(
     val focus = remember { FocusRequester() }
     LaunchedEffect(editing) { if (editing) focus.requestFocus() }
 
-    Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp)) {
+    // A **Contact** looking at a night nobody wrote about gets no frame around the
+    // nothing. The write-line is what the empty frame is *for*, and there isn't one.
+    if (!editable && mine == null && received.isEmpty()) return
+
+    val accent = bandAccent(band, crossed)
+    // One frame for the whole band, thickening while it is being written in — the
+    // same language the strips use, and for the same reason: a second outline around
+    // the field inside this one is two boundaries drawn for one boundary. It was
+    // Amber besides, which on a shared note is the colour of the other answer (#268).
+    Column(
+        Modifier
+            .padding(start = 20.dp, end = 20.dp, top = 6.dp)
+            .border(if (editing) 2.dp else 1.dp, accent, RoundedCornerShape(6.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    ) {
+        // Always first, whether it opens the field or reopens it over what is
+        // already there. Everything written lands underneath.
+        if (editable && !editing) {
+            Text(
+                when {
+                    mine != null -> "Edit"
+                    band == Band.SHARED -> "Write something to share"
+                    else -> "Write something just for you"
+                },
+                color = if (mine != null) accent else Faint,
+                fontSize = 12.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { draft = mine?.text.orEmpty(); editing = true }
+                    .padding(vertical = 6.dp),
+            )
+        }
         when {
             editing -> {
                 // One field, no toolbar. The phone is the wrong surface for long form
@@ -2364,8 +2475,9 @@ private fun BandNotes(
                         .fillMaxWidth()
                         .heightIn(min = 108.dp)
                         .clip(RoundedCornerShape(6.dp))
+                        // No border of its own: the band's frame is the boundary, and
+                        // the darker ground is enough to say "type here".
                         .background(UnlitField)
-                        .border(1.dp, Amber, RoundedCornerShape(6.dp))
                         .padding(10.dp)
                         .focusRequester(focus),
                 )
@@ -2413,35 +2525,13 @@ private fun BandNotes(
                             onLongClick = { if (editable) onLift(mine.id) },
                         ),
                 )
+                // Editing is the line above now, so this row is the verdict alone.
                 if (editable) {
-                    Row(
-                        Modifier.padding(top = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
+                    Box(Modifier.padding(top = 5.dp)) {
                         VerdictThumbs(mine.verdict, onVerdict)
-                        Spacer(Modifier.weight(1f))
-                        Text(
-                            "edit",
-                            color = Faint,
-                            fontSize = 11.sp,
-                            modifier = Modifier
-                                .clickable { draft = mine.text; editing = true }
-                                .padding(4.dp),
-                        )
                     }
                 }
             }
-
-            editable -> Text(
-                if (band == Band.SHARED) "Write something to share"
-                else "Write something just for you",
-                color = Faint,
-                fontSize = 12.sp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { draft = ""; editing = true }
-                    .padding(vertical = 6.dp),
-            )
         }
 
         received.forEach { note ->
@@ -2462,7 +2552,13 @@ private fun BandNotes(
     }
 }
 
-/** Down, up, up twice — and unset, which is reachable by tapping the one that is set. */
+/**
+ * Down, up, up twice — and unset, which is reachable by tapping the one that is set.
+ *
+ * Choosing one takes the others away: the row is a question while it is open and an
+ * answer once it is closed, and three glyphs left standing beside the chosen one read
+ * as three unmade choices (#268). Tapping what is left reopens the question.
+ */
 @Composable
 private fun VerdictThumbs(current: String?, onVerdict: (String?) -> Unit) {
     Row {
@@ -2470,7 +2566,7 @@ private fun VerdictThumbs(current: String?, onVerdict: (String?) -> Unit) {
             StoredMedia.Verdict.DOWN,
             StoredMedia.Verdict.UP,
             StoredMedia.Verdict.DOUBLE_UP,
-        ).forEach { v ->
+        ).filter { current == null || current == it }.forEach { v ->
             Text(
                 verdictGlyph(v),
                 color = if (current == v) Amber else Faint,
@@ -2490,15 +2586,20 @@ private fun verdictGlyph(verdict: String?): String = when (verdict) {
     else -> ""
 }
 
-/** Where the photograph will land, opened as a real gap in the row. */
+/**
+ * Where the photograph will land, opened as a real gap in the row.
+ *
+ * In the band's own colour, not Amber: it appears mid-drag, and a drag *upward* that
+ * lights amber is saying "private" about the thing you are about to share (#268).
+ */
 @Composable
-private fun LandingSlot() {
+private fun LandingSlot(accent: Color, wash: Color) {
     Box(
         Modifier
             .size(GigPhotoSize)
             .clip(RoundedCornerShape(10.dp))
-            .background(AmberSoft)
-            .border(1.dp, Amber, RoundedCornerShape(10.dp)),
+            .background(wash)
+            .border(1.dp, accent, RoundedCornerShape(10.dp)),
     )
     Spacer(Modifier.width(ItemGap))
 }
@@ -2758,6 +2859,12 @@ fun StationEventScreen(
     // record first, the **Bill** **Act** behind it second. Hoisted above the Log
     // editor because the pull-to-refresh curtain (below) needs the same answer.
     val catalogueArtist = setlist?.artist?.mbid?.ifBlank { null } ?: act?.mbid
+    val catalogue = catalogueArtist?.let { state.catalogueByArtist[it] }.orEmpty()
+    val catalogueLoading = catalogueArtist != null && state.catalogueFetching == catalogueArtist
+    // Which of my **Log**'s entries has its correction panel open, if any. One at a
+    // time: this is a room you are standing in, not a list of forms. It lives here
+    // rather than in the editor because the entries themselves are on the spine now.
+    var correctingLog by remember(setlist?.id) { mutableStateOf<Int?>(null) }
     // The state of this **Gig**, as known — one value, decided once (#129). Everything
     // on this screen is a rendering of this link's state, and before this each part
     // worked it out again from a different subset and they disagreed.
@@ -2889,8 +2996,10 @@ fun StationEventScreen(
                 ) {
                     Text(
                         when (leaf) {
-                            GigLeaf.CAPTURE -> "noting the set — add what they play above"
-                            else -> "your log · add anything you remember above"
+                            // "above" was true when the editor sat over the set. The
+                            // entries are the set now and the way in is under it (#268).
+                            GigLeaf.CAPTURE -> "noting the set — add what they play below"
+                            else -> "your log · add anything you remember below"
                         },
                         color = Faint,
                         fontSize = 12.sp,
@@ -3132,6 +3241,14 @@ fun StationEventScreen(
             )
         }
         val rows = setlist.eventRows()
+        // One list, not two (#268). setlist.fm's record and my **Log** are two
+        // descriptions of the same night, and printing them one under the other made
+        // the reader do the alignment in their head. Woven, a song both hold is a
+        // single line that says so — and neither record is changed by the other,
+        // which is still the rule: this decides reading order and nothing else.
+        val woven = remember(rows, log.songs) {
+            weaveSetlist(rows.map { (it as? EventRow.SongItem)?.song?.name }, log.songs)
+        }
         val canConvert = convertible
         val offsets = viewModel.songOffsets(recordingMedia?.id, setlist.songs().size)
         // Offsets are indexed over every song, tape included; row.number skips tape,
@@ -3392,41 +3509,6 @@ fun StationEventScreen(
                         }
                     }
                 }
-                // My own Log, and it is never taken away. A partial capture you can no
-                // longer correct from inside the app is the exact trap this feature is
-                // built to avoid, so this renders on a night's page forever after.
-                if (canLog) {
-                    item {
-                        Spacer(Modifier.height(6.dp))
-                        // catalogueArtist is hoisted above (the pull-to-refresh curtain
-                        // needs it too). Only the Act was read before it existed, so a
-                        // night that arrived from setlist.fm — which is most of them —
-                        // had no catalogue at all and fell back to typing the title by
-                        // hand, which is the workflow #126 exists to remove.
-                        LogEditor(
-                            candidates = act?.candidates.orEmpty(),
-                            poolArtist = act?.matchedArtist.orEmpty(),
-                            log = log,
-                            // Only once I have written something down. An untouched log
-                            // beside an imported setlist is not a divergence, it is a
-                            // log I have not started — and "setlist.fm has 18, yours has
-                            // 0" the instant you check in is noise, not information.
-                            published = setlist.performed().size
-                                .takeIf { setlist.url != null && log.songs.isNotEmpty() },
-                            onAdd = { viewModel.addToLog(setlist.id, it) },
-                            onRemove = { viewModel.removeFromLog(setlist.id, it) },
-                            onCorrect = { i, title -> viewModel.correctLogEntry(setlist.id, i, title) },
-                            onRestore = { viewModel.restoreLogEntry(setlist.id, it) },
-                            onClosed = { viewModel.setLogClosed(setlist.id, it) },
-                            onDisambiguate = { viewModel.disambiguateAct(setlist.id, it) },
-                            searching = state.billFetching != null,
-                            catalogue = catalogueArtist?.let { state.catalogueByArtist[it] }.orEmpty(),
-                            catalogueLoading = catalogueArtist != null && state.catalogueFetching == catalogueArtist,
-                            onNeedCatalogue = { catalogueArtist?.let(viewModel::fetchCatalogue) },
-                        )
-                        Spacer(Modifier.height(10.dp))
-                    }
-                }
                 if (rows.isEmpty() && !canLog) {
                     item {
                         Text(
@@ -3441,15 +3523,26 @@ fun StationEventScreen(
                         )
                     }
                 }
-                itemsIndexed(rows) { rowIndex, row ->
-                    when (row) {
+                itemsIndexed(woven) { _, line ->
+                    // Mine is an index into the **Log**, and the × and the correction
+                    // panel act on it there — the published row beside it is never
+                    // touched by either.
+                    val logAt = line.logged?.takeIf { canLog }
+                    val remembered = line.logged?.let { log.rememberedAt(it) }
+                    val remove = logAt?.let { j ->
+                        { correctingLog = null; viewModel.removeFromLog(setlist.id, j) }
+                    }
+                    when (val row = line.published?.let { rows[it] }) {
                         is EventRow.Encore -> EncoreLabel()
                         is EventRow.SongItem -> {
-                            val at = offsets.getOrElse(songIndexByRow[rowIndex]) { NOT_STAMPED }
+                            val at = offsets.getOrElse(songIndexByRow[line.published!!]) { NOT_STAMPED }
                             SongRow(
                                 number = row.number,
                                 song = row.song,
                                 offsetMs = at,
+                                mine = line.both,
+                                remembered = remembered,
+                                onRemoveLog = remove,
                                 // Only a stamped song knows where it is in the recording;
                                 // the rest are inert until someone marks them.
                                 onClick = if (at > NOT_STAMPED && recording != null) {
@@ -3457,6 +3550,77 @@ fun StationEventScreen(
                                 } else null,
                             )
                         }
+                        // Only mine. A **Gap** offers no correction: "one I couldn't
+                        // name" is an acknowledged fact, not an invitation to guess.
+                        null -> {
+                            val j = line.logged!!
+                            val title = log.songs[j]
+                            LoggedRow(
+                                title = title,
+                                // Only when nothing was published: then my Log is the
+                                // record of this night and its order is the set's.
+                                number = (j + 1).takeIf { rows.isEmpty() },
+                                remembered = remembered,
+                                onCorrect = if (canLog && title.isNotBlank()) {
+                                    { correctingLog = if (correctingLog == j) null else j }
+                                } else null,
+                                onRemove = remove,
+                            )
+                            if (correctingLog == j) {
+                                LaunchedEffect(j) { catalogueArtist?.let(viewModel::fetchCatalogue) }
+                                val written = log.rememberedAt(j) ?: title
+                                CorrectEntry(
+                                    written = written,
+                                    // Both sources, played first and recorded after,
+                                    // ranked as one list. A song they played tonight
+                                    // and have recorded appears once.
+                                    candidates = rankTitles(
+                                        written,
+                                        (act?.candidates.orEmpty() + catalogue).distinctBy { it.lowercase() },
+                                    ),
+                                    canRestore = log.rememberedAt(j) != null,
+                                    loading = catalogueLoading,
+                                    onPick = {
+                                        correctingLog = null
+                                        viewModel.correctLogEntry(setlist.id, j, it)
+                                    },
+                                    onRestore = {
+                                        correctingLog = null
+                                        viewModel.restoreLogEntry(setlist.id, j)
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+                // My own Log, and it is never taken away. A partial capture you can no
+                // longer correct from inside the app is the exact trap this feature is
+                // built to avoid, so this renders on a night's page forever after.
+                //
+                // **Under the set, not above it.** The entries themselves are on the
+                // spine now (#268), so what is left here is the way in — what to add
+                // and whether the set is complete — and a way in belongs below the
+                // thing it adds to. It also puts the field next to the end of the
+                // list, which is where a song lands when you tap it in.
+                if (canLog) {
+                    item {
+                        Spacer(Modifier.height(6.dp))
+                        LogEditor(
+                            candidates = act?.candidates.orEmpty(),
+                            poolArtist = act?.matchedArtist.orEmpty(),
+                            log = log,
+                            // Only once I have written something down. An untouched log
+                            // beside an imported setlist is not a divergence, it is a
+                            // log I have not started — and "setlist.fm has 18, yours has
+                            // 0" the instant you check in is noise, not information.
+                            published = setlist.performed().size
+                                .takeIf { setlist.url != null && log.songs.isNotEmpty() },
+                            onAdd = { viewModel.addToLog(setlist.id, it) },
+                            onClosed = { viewModel.setLogClosed(setlist.id, it) },
+                            onDisambiguate = { viewModel.disambiguateAct(setlist.id, it) },
+                            searching = state.billFetching != null,
+                        )
+                        Spacer(Modifier.height(10.dp))
                     }
                 }
                 // Last of the night's own material, and after the set on purpose: the
@@ -3639,11 +3803,24 @@ private fun StampRow(
     }
 }
 
+/**
+ * One song on the night's spine.
+ *
+ * [mine] is the overlap: this song is in setlist.fm's record *and* in my **Log**, and
+ * the two records agreeing is the strongest thing a line here can say. It is drawn as
+ * the ring going **Amber** — mine, the same as everywhere else — rather than as a
+ * second copy of the song further down the screen (#268).
+ */
 @Composable
 private fun SongRow(
     number: Int?,
     song: FmSong,
     offsetMs: Long = NOT_STAMPED,
+    mine: Boolean = false,
+    /** The words I wrote before a title replaced them, where there were any. */
+    remembered: String? = null,
+    /** Drops my **Log** entry, leaving setlist.fm's row where it was. */
+    onRemoveLog: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
 ) {
     val cover = song.cover?.name
@@ -3666,21 +3843,31 @@ private fun SongRow(
                     .padding(top = if (number == null) 7.dp else 2.dp)
                     .size(size)
                     .clip(CircleShape)
-                    .background(Raised)
-                    .border(1.5.dp, LineLit, CircleShape),
+                    // The page's own colour, not [Raised]: the line has to pass
+                    // *underneath* the number, and a lighter disc reads as the line
+                    // showing through it (#268).
+                    .background(Ground)
+                    .border(1.5.dp, if (mine) Amber else LineLit, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
                 if (number != null) Text(
                     number.toString(),
-                    color = Faint,
+                    color = if (mine) Amber else Faint,
                     fontSize = 10.sp,
                     // Default font padding pads above the ascent, so a centred digit
-                    // sits high in a circle this small. Drop it and pin the line height
-                    // to the glyph so Center means the digit's centre, not the box's.
+                    // sits high in a circle this small. Dropping it is not enough on
+                    // its own — the line box still carries the font's leading, and
+                    // pinning lineHeight to the glyph size only moved the baseline.
+                    // Trim both ends and centre what is left, which is the one
+                    // arrangement where Center means the digit's centre (#268).
                     lineHeight = 10.sp,
                     textAlign = TextAlign.Center,
                     style = LocalTextStyle.current.copy(
                         platformStyle = PlatformTextStyle(includeFontPadding = false),
+                        lineHeightStyle = LineHeightStyle(
+                            alignment = LineHeightStyle.Alignment.Center,
+                            trim = LineHeightStyle.Trim.Both,
+                        ),
                     ),
                 )
             }
@@ -3689,6 +3876,9 @@ private fun SongRow(
             Text(song.name, color = if (number == null) Muted else Ink, fontSize = 15.sp)
             val note = cover?.let { "$it cover" } ?: "tape".takeIf { song.tape }
             if (note != null) Text(note, color = Faint, fontSize = 11.sp)
+            // What I wrote in the dark, under the title the record settled on. Kept
+            // for the reason it is always kept: it is often *the* memory (#126).
+            if (remembered != null) Text("\"$remembered\"", color = Faint, fontSize = 12.sp)
         }
         // Where this song sits in the night's recording, once someone has marked it.
         if (offsetMs > NOT_STAMPED) {
@@ -3699,6 +3889,93 @@ private fun SongRow(
                 modifier = Modifier.padding(top = 2.dp),
             )
         }
+        if (onRemoveLog != null) RemoveLogEntry(onRemoveLog)
+    }
+}
+
+/**
+ * The × that takes one entry out of my **Log**.
+ *
+ * It never touches setlist.fm's row — on a line both records hold, removing mine
+ * leaves the published song exactly where it was and only puts the ring out.
+ */
+@Composable
+private fun RemoveLogEntry(onRemove: () -> Unit) {
+    Text(
+        "×",
+        color = Faint,
+        fontSize = 20.sp,
+        modifier = Modifier.clickable(onClick = onRemove).padding(horizontal = 10.dp),
+    )
+}
+
+/**
+ * A song only my **Log** has: I wrote it down and setlist.fm's record does not hold it
+ * — either because nobody has published it or because nobody else caught it (#268).
+ *
+ * **A number is a position in a record.** Where setlist.fm has a set, the numbers are
+ * its numbers and mine gets a bare dot instead — the same mark a tape track gets, and
+ * for the same reason: it happened, it is on the line, and it is not one of the
+ * numbered songs. Where there is no published set my **Log** *is* the record of the
+ * night, so [number] is its own position and the running order reads back.
+ */
+@Composable
+private fun LoggedRow(
+    title: String,
+    number: Int?,
+    remembered: String?,
+    onCorrect: (() -> Unit)?,
+    onRemove: (() -> Unit)?,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
+            .then(if (onCorrect != null) Modifier.clickable(onClick = onCorrect) else Modifier)
+            .padding(end = 20.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Box(Modifier.width(50.dp).fillMaxHeight()) {
+            Box(Modifier.align(Alignment.TopCenter).width(2.dp).fillMaxHeight().background(LineCol))
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = if (number == null) 7.dp else 2.dp)
+                    .size(if (number == null) 8.dp else 18.dp)
+                    .clip(CircleShape)
+                    .background(if (number == null && title.isNotBlank()) Amber else Ground)
+                    .border(1.5.dp, Amber, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (number != null) Text(
+                    number.toString(),
+                    color = Amber,
+                    fontSize = 10.sp,
+                    lineHeight = 10.sp,
+                    textAlign = TextAlign.Center,
+                    // The same trimming SongRow needs, and for the same reason (#268).
+                    style = LocalTextStyle.current.copy(
+                        platformStyle = PlatformTextStyle(includeFontPadding = false),
+                        lineHeightStyle = LineHeightStyle(
+                            alignment = LineHeightStyle.Alignment.Center,
+                            trim = LineHeightStyle.Trim.Both,
+                        ),
+                    ),
+                )
+            }
+        }
+        Column(Modifier.weight(1f).padding(top = 1.dp, bottom = 15.dp)) {
+            // A **Gap** is a song that was played and could not be named. It is in the
+            // record on purpose: an acknowledged hole is a true fact, and the same
+            // song silently absent is the record lying about what it knows.
+            Text(
+                title.ifBlank { "— one I couldn't name —" },
+                color = if (title.isBlank()) Faint else Ink,
+                fontSize = 15.sp,
+            )
+            if (remembered != null) Text("\"$remembered\"", color = Faint, fontSize = 12.sp)
+        }
+        if (onRemove != null) RemoveLogEntry(onRemove)
     }
 }
 

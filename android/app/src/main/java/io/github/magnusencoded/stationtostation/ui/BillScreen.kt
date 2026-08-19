@@ -45,7 +45,6 @@ import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.billWhen
 import io.github.magnusencoded.stationtostation.data.nights
 import io.github.magnusencoded.stationtostation.data.parseFmDate
-import io.github.magnusencoded.stationtostation.data.rankTitles
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -486,16 +485,19 @@ fun AddBillDialog(
 }
 
 /**
- * The setlist of a night this app owns: tick off what the artist has been playing,
- * type in what isn't there.
+ * The way into the setlist of a night this app owns: tick off what the artist has
+ * been playing, type in what isn't there, and say whether that was all of it.
  *
  * The pool is a *prompt*, never a claim — nothing enters the record until it is
  * tapped, so "I think they played X" never becomes "they played X" by inaction. An
  * artist with no pool is the ordinary case here, not a failure, so the typing path
  * is always present rather than a fallback.
  *
- * [chosen] is ordered and stays ordered: running order is the payload the setlist.fm
- * paste carries, and it is the only thing distinguishing a song played twice.
+ * **The entries are not here.** They are drawn on the night's own spine, woven
+ * against setlist.fm's record so a song both hold is one line rather than two
+ * (#268) — which is also where they are removed and corrected, because an entry
+ * should be edited where it is read. What is left here is everything that is about
+ * the log rather than in it.
  */
 @Composable
 fun LogEditor(
@@ -506,34 +508,19 @@ fun LogEditor(
     /** How many songs setlist.fm's own record holds, when there is one. */
     published: Int?,
     onAdd: (String) -> Unit,
-    onRemove: (Int) -> Unit,
-    /** A title replaces entry *i*, and what was written moves beneath it (#126). */
-    onCorrect: (Int, String) -> Unit = { _, _ -> },
-    /** The words come back as the entry. */
-    onRestore: (Int) -> Unit = {},
     onClosed: (Boolean) -> Unit,
     /** The typed song, used to find the right namesake instead of being logged. */
     onDisambiguate: (String) -> Unit = {},
     searching: Boolean = false,
-    /**
-     * The artist's own titles from MusicBrainz, for correcting an entry (#126). Separate
-     * from [candidates]: that pool is what setlist.fm has seen them *play*, this is what
-     * they have *recorded*, and for a small act the first is often empty.
-     */
-    catalogue: List<String> = emptyList(),
-    catalogueLoading: Boolean = false,
-    /** Asked only when a correction panel opens, and only once per artist. */
-    onNeedCatalogue: () -> Unit = {},
 ) {
     var typed by remember { mutableStateOf("") }
-    // Which entry's correction panel is open, if any. One at a time: this is a room
-    // you are standing in, not a list of forms.
-    var correcting by remember { mutableStateOf<Int?>(null) }
     val chosen = log.songs
     val remaining = candidates.filterNot { c -> chosen.any { it.equals(c, ignoreCase = true) } }
     Column(Modifier.padding(horizontal = 20.dp)) {
         Text(
-            if (chosen.isEmpty()) "What did they play?" else "Your log of this night",
+            // The heading names what this surface is *for*, and it stopped being the
+            // log itself when the entries moved onto the spine above it (#268).
+            if (chosen.isEmpty()) "What did they play?" else "Anything else they played?",
             fontFamily = Serif,
             fontSize = 16.sp,
             color = Ink,
@@ -545,67 +532,6 @@ fun LogEditor(
             color = Faint,
             fontSize = 11.sp,
         )
-        // The set as it stands, numbered, in the order it was tapped in — which is
-        // the running order, which is the whole payload of the setlist.fm paste. A
-        // song played twice appears twice, and only its position tells them apart.
-        chosen.forEachIndexed { i, song ->
-            Row(
-                Modifier.fillMaxWidth().heightIn(min = ActRowHeight),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("${i + 1}", color = Faint, fontSize = 12.sp, modifier = Modifier.width(24.dp))
-                Column(
-                    Modifier
-                        .weight(1f)
-                        // A **Gap** offers no correction: "one I couldn't name" is an
-                        // acknowledged fact, not an invitation to guess.
-                        .clickable(enabled = song.isNotBlank()) {
-                            correcting = if (correcting == i) null else i
-                        },
-                ) {
-                    // A **Gap** is a song that was played and could not be named. It is
-                    // in the record on purpose: an acknowledged hole is a true fact, and
-                    // the same song silently absent is the record lying about what it
-                    // knows.
-                    Text(
-                        song.ifBlank { "— one I couldn't name —" },
-                        color = if (song.isBlank()) Faint else Ink,
-                        fontSize = 15.sp,
-                    )
-                    // The words that were written before a title replaced them. One row,
-                    // one song, one position — the set order still reads as the set
-                    // order (#126).
-                    log.rememberedAt(i)?.let {
-                        Text("\"$it\"", color = Faint, fontSize = 12.sp)
-                    }
-                }
-                Text(
-                    "×",
-                    color = Faint,
-                    fontSize = 20.sp,
-                    modifier = Modifier
-                        .clickable { correcting = null; onRemove(i) }
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                )
-            }
-            if (correcting == i) {
-                LaunchedEffect(i) { onNeedCatalogue() }
-                val written = log.rememberedAt(i) ?: song
-                CorrectEntry(
-                    written = written,
-                    // Both sources, played first and recorded after, then ranked as one
-                    // list. A song they played tonight and have recorded appears once.
-                    candidates = rankTitles(
-                        written,
-                        (candidates + catalogue).distinctBy { it.lowercase() },
-                    ),
-                    canRestore = log.rememberedAt(i) != null,
-                    loading = catalogueLoading,
-                    onPick = { correcting = null; onCorrect(i, it) },
-                    onRestore = { correcting = null; onRestore(i) },
-                )
-            }
-        }
         Spacer(Modifier.height(10.dp))
         StationField(typed, { typed = it }, "a song they played", imeDone = true)
         // The escape hatch, always present and never a fallback. A pool built from what
@@ -754,7 +680,7 @@ fun LogEditor(
  * ordinary case here, not a failure.
  */
 @Composable
-private fun CorrectEntry(
+internal fun CorrectEntry(
     written: String,
     candidates: List<String>,
     canRestore: Boolean,

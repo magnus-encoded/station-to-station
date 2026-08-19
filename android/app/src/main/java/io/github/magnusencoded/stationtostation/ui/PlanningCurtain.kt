@@ -83,7 +83,7 @@ internal fun armedDoor(progress: Float): PlanningDoor = when {
  * The gap that opens when you pull down past the top of your line: the line keeps going
  * up, into the shows you haven't been to yet — and the three ways in hang in that gap.
  *
- * They reveal from the bottom up as the gap grows, so the first one you can see is the
+ * They reveal from the top down as the gap grows, so the first one you can see is the
  * first one you can reach. The armed one is lit; the others are not. Releasing takes the
  * lit one and nothing else, and releasing with none lit closes the gap.
  */
@@ -100,17 +100,20 @@ internal fun PlanningPull(progress: () -> Float, heightPx: () -> Float) {
             .clipToBounds()
             .alpha((p * 1.8f).coerceIn(0f, 1f)),
         horizontalAlignment = Alignment.CenterHorizontally,
-        // Bottom, so growing the gap reveals upward from the line rather than sliding
-        // the whole block. What you have already read stays where you read it.
-        verticalArrangement = Arrangement.Bottom,
+        // Top, so a door stays where it appeared as the gap keeps growing. Arrangement
+        // only ever distributes *spare* space, and for most of the travel the doors are
+        // taller than the gap — so Bottom did nothing until full pull and then slid the
+        // whole block down. What you have already read stays where you read it.
+        verticalArrangement = Arrangement.Top,
     ) {
         Box(Modifier.width(2.dp).height(20.dp).background(LineCol))
         Spacer(Modifier.height(10.dp))
-        // Import, being the deepest and rarest pull, reveals first — the two doors
-        // reached sooner sit below it, closest to the line.
-        Door("your setlist.fm history", lit = armed == PlanningDoor.Import)
-        Door("a festival lineup", lit = armed == PlanningDoor.Bill)
+        // Shallowest first, because the gap is clipped from the bottom: the order they
+        // appear in has to be the order the pull arms them, or you are choosing a door
+        // that is still hidden (#263).
         Door("a gig you're going to", lit = armed == PlanningDoor.Gig)
+        Door("a festival lineup", lit = armed == PlanningDoor.Bill)
+        Door("your setlist.fm history", lit = armed == PlanningDoor.Import)
         Spacer(Modifier.height(4.dp))
     }
 }
