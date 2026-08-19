@@ -72,6 +72,23 @@ class SetlistWeaveTest {
     }
 
     @Test
+    fun `a song in a different place is in both places, and nothing else moves`() {
+        // The two records disagree about where B and C sat. Neither is edited to agree
+        // with the other, so one of them is printed twice — once where setlist.fm puts
+        // it, once where I do. It is B rather than C because a tie goes to the published
+        // side, which makes the duplicated song the earlier one in the published order.
+        //
+        // The property worth pinning is that the disagreement stays *local*: D, E and F
+        // are still one line each. The index walk this replaced turned a single swap
+        // into a tail of false disagreements all the way to the end of the set.
+        val rows = weaveSetlist(
+            listOf("A", "B", "C", "D", "E", "F"),
+            listOf("A", "C", "B", "D", "E", "F"),
+        )
+        assertEquals(listOf("=0", "p1", "=2", "l2", "=3", "=4", "=5"), sides(rows))
+    }
+
+    @Test
     fun `a song played twice stays two lines`() {
         // Position is the only thing telling two performances of one song apart, and
         // an LCS that collapsed them would lose the second.
