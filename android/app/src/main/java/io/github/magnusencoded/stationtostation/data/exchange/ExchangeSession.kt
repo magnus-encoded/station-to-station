@@ -24,10 +24,13 @@ import kotlinx.coroutines.flow.update
  * that difference lives — the screen sees only a name and an optional `@username`, and
  * must never be able to tell which radio found someone.
  *
- *  - **Nearby** carries the whole card in the advertisement, so [setlistfm] is set on
- *    sight and [connect][ExchangeSession.connect] can add them with nothing over the air.
+ *  - **Nearby** carries a keyless card in the advertisement, so [setlistfm] is set on sight
+ *    and the row can be labelled with a username. The key does not fit an endpoint name
+ *    (#272), so [connect][ExchangeSession.connect] still has to go and get it.
  *  - **BLE** gives only a display name in the scan response; [setlistfm] stays null and
  *    the card is read on tap.
+ *
+ * Either way the tap is a round trip. What differs is how much the row can say first.
  */
 data class ExchangePeer(
     /** Dedup key. See [mergePeers] — a username for a Nearby peer, a device address for BLE. */
@@ -41,10 +44,11 @@ data class ExchangePeer(
 /**
  * The dedup decision, made here and documented where the next person will find it.
  *
- * **The key is a person's identity (#28), but neither radio has it on first sight the
- * same way.** Nearby hands over the whole card — key included — in the advertisement.
- * BLE shows a display name in the scan response and only yields the key after a connect.
- * So the same person can legitimately be two arrivals a second apart.
+ * **The key is a person's identity (#28), and neither radio has it on first sight.** Nearby
+ * hands over a card in the advertisement, but a key does not fit an endpoint name, so that
+ * card is keyless and the connection made on tap is what carries the real one (#272). BLE
+ * shows a display name in the scan response and only yields the key after a connect. So the
+ * same person can legitimately be two arrivals a second apart.
  *
  * **Chosen: never merge across mechanisms on a guessed identity.** A Nearby peer is keyed
  * by the username it already carries; a BLE peer by its (stable, unique) device address.
@@ -142,9 +146,14 @@ class ExchangeSession(private val context: Context, scope: CoroutineScope) {
         if (running) return
         running = true
         this.myCard = myCard
+        // Both radios deliver a card the same way: whoever tapped, the card that arrives
+        // here has a key on it and becomes a contact by one route (#272).
+        nearby.onCardReceived = { written ->
+            friendFromCard(written)?.let { friend -> onFriendReceived?.invoke(friend) }
+        }
         // NearbyPeers.start does its own permission check and reports the failure the
         // whole flow already listens for, so a missing grant surfaces once, not per radio.
-        nearby.start(me)
+        nearby.start(me, myCard)
         if (nearby.hasPermissions()) {
             peripheral = BleCardPeripheral(context, myCard).also {
                 it.onCardWritten = { written ->
@@ -159,6 +168,7 @@ class ExchangeSession(private val context: Context, scope: CoroutineScope) {
     @SuppressLint("MissingPermission")
     fun stop() {
         running = false
+        nearby.onCardReceived = null
         nearby.stop()
         if (hasPermissions()) central.stop()
         peripheral?.let { if (hasPermissions()) it.stop() }
@@ -173,17 +183,24 @@ class ExchangeSession(private val context: Context, scope: CoroutineScope) {
     }
 
     /**
-     * Bring one peer in. Nearby already handed over the whole card, so [onCard] fires at
-     * once — the zero-length middle of "row → connecting → connected". BLE has shown only a
-     * name, so it connects and reads (up to `EXCHANGE_TIMEOUT_MS`), then fires with the
-     * card, or with null on failure so the caller can fall through to the QR offer.
+     * Bring one peer in. Both radios go and fetch the card: Nearby opens a connection and
+     * swaps cards over it, BLE connects and reads. Either fires with the card, or with null
+     * on failure so the caller can fall through to the QR offer.
+     *
+     * **Nearby used to fire at once with the advertised card** — the zero-length middle of
+     * "row → connecting → connected". That card had no key, so the **Exchange** completed
+     * and made nobody a **Contact** (#272). The round trip is what buys the key, and a
+     * failure now adds nobody rather than adding a keyless line that looks like success.
      *
      * MTU negotiation is skipped: #30's eight-run median put the skip path at ~1170ms
      * inside the 2s budget, and the bump costs more setup than the longer read it saves.
      */
     @SuppressLint("MissingPermission")
     fun connect(peer: ExchangePeer, onCard: (Friend?) -> Unit) {
-        peer.nearby?.let { onCard(it); return }
+        peer.nearby?.let { advertised ->
+            nearby.exchangeCards(advertised) { card -> onCard(card?.let(::friendFromCard)) }
+            return
+        }
         val hit = peer.ble ?: run { onCard(null); return }
         central.readCard(hit, negotiateMtu = false, myCard = myCard) { timing ->
             onCard(timing.card?.let(::friendFromCard))

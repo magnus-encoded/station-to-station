@@ -8,17 +8,28 @@ import io.github.magnusencoded.stationtostation.ble.parseProbeCard
 import io.github.magnusencoded.stationtostation.ble.sliceForOffset
 import io.github.magnusencoded.stationtostation.ble.truncateToBytes
 import io.github.magnusencoded.stationtostation.ble.writeAtOffset
+import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.exchange.friendFromCard
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.net.URLEncoder
 
 class CardWireTest {
 
+    /**
+     * A **real** key, not a stub. This fixture used to hold 32 bytes (44 base64 chars) and
+     * every size assertion below ran against it — which is how
+     * [aCardWithARealKeyCannotRideANearbyEndpointName] passed while asserting the opposite
+     * of the truth, and how #272 shipped. An ECDSA P-256 SubjectPublicKeyInfo is 91 bytes:
+     * 124 base64 characters, 132 once URL-encoded, which is over Nearby's whole budget on
+     * its own.
+     */
     private val card = ProbeCard(
         name = "Magnus Vikan",
-        publicKey = "8J+YgPCfmIDwn5iA8J+YgPCfmIDwn5iA8J+YgPCfmIA=", // 32 bytes, base64
+        publicKey = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAESJ5HBSXgpBvTHldadDFDHID2DHFp5nzo" +
+            "W/bIS4g6jqE9CexG0gBprY6tuJMyl4+vpW0LWI4J4QmJybaY2nkiUg==",
         setlistfm = "dizzi90",
         spotifyId = "dizziness",
     )
@@ -38,29 +49,71 @@ class CardWireTest {
         assertNull(parseProbeCard("nonsense"))
     }
 
-    /** #30's premise: the card cannot ride an advertisement, but must fit a sane MTU. */
-    @Test fun cardIsTooBigForAnAdvertAndSmallEnoughForOneMtuRead() {
+    /**
+     * #30's premise, corrected against a real key: the card cannot ride an advertisement,
+     * and it does not fit one ATT read either — so the blob path below is not an edge case,
+     * it is how every card is read.
+     */
+    @Test fun cardIsTooBigForAnAdvertAndTooBigForOneMtuRead() {
         val size = card.bytes().size
         assertTrue("$size bytes should not fit a 31-byte advert", size > 31)
-        assertTrue("$size bytes should fit one 185-byte ATT read", size <= 185)
+        assertTrue(
+            "$size bytes fits one 185-byte read — check the fixture is still a real key",
+            size > 185,
+        )
     }
 
     /**
-     * The finding #30 scope item 4 asks for, pinned so a later field cannot quietly
-     * push the card past it: Nearby's endpoint name tops out at 131 bytes and
-     * overflow is silent — no error, just a truncated name at the other end.
+     * **Why the key rides a connection and not an advertisement (#272).**
+     *
+     * Nearby's endpoint name tops out at 131 bytes and overflow is silent — no error, just
+     * a truncated name over Bluetooth Classic or a dropped advertisement over BLE. A card
+     * carrying a real P-256 key is nowhere near fitting: the URL-encoded key alone is over
+     * the whole budget.
+     *
+     * This assertion used to say the opposite, and passed, because the fixture key was a
+     * 32-byte stub. That is exactly how #272 shipped — an Android↔Android **Exchange** that
+     * completed with no key and made nobody a **Contact**.
      */
-    @Test fun cardWithAKeyStillFitsANearbyEndpointName() {
+    @Test fun aCardWithARealKeyCannotRideANearbyEndpointName() {
         val size = card.bytes().size
         assertTrue(
-            "$size bytes exceeds Nearby's $NearbyNameLimitProbe.NEARBY_ENDPOINT_NAME_LIMIT-byte endpoint name; " +
-                "the Android fast path would need connect-and-read too",
-            size <= NearbyNameLimitProbe.NEARBY_ENDPOINT_NAME_LIMIT,
+            "$size bytes now fits Nearby's ${NearbyNameLimitProbe.NEARBY_ENDPOINT_NAME_LIMIT}-byte " +
+                "endpoint name; if that is real, the fixture key is not",
+            size > NearbyNameLimitProbe.NEARBY_ENDPOINT_NAME_LIMIT,
         )
-        // …but only just. A long display name is enough to blow it.
-        val chatty = card.copy(name = "Magnus Vikan (Station to Station)")
-        assertTrue(chatty.bytes().size > NearbyNameLimitProbe.NEARBY_ENDPOINT_NAME_LIMIT)
+        val urlEncodedKey = URLEncoder.encode(card.publicKey, "UTF-8").length
+        assertTrue(
+            "the key alone is $urlEncodedKey bytes, which should already blow the budget",
+            urlEncodedKey > NearbyNameLimitProbe.NEARBY_ENDPOINT_NAME_LIMIT,
+        )
     }
+
+    /**
+     * What Nearby *does* advertise: the keyless share URI, which is only a claim that a card
+     * exists here. It has to fit with room to spare, because a display name is user-typed
+     * and a name that overflows makes its owner silently invisible.
+     */
+    @Test fun theKeylessAdvertisedCardFitsWithHeadroom() {
+        val advertised = Friend(setlistfm = "dizzi90", name = "Magnus Vikan", spotifyId = "dizziness")
+        val size = shareUriLength(advertised)
+        assertTrue(
+            "$size bytes leaves no room for a longer display name",
+            size <= NearbyNameLimitProbe.NEARBY_ENDPOINT_NAME_LIMIT - 40,
+        )
+    }
+
+    /**
+     * The string `toShareUri` builds, without android.net.Uri (not available in a JVM test).
+     * A close approximation rather than the exact bytes: `Uri.Builder` percent-encodes a
+     * space where `URLEncoder` writes `+`, so the real name is a little longer. That is part
+     * of why the assertion above demands headroom rather than a bare fit.
+     */
+    private fun shareUriLength(f: Friend): Int = buildString {
+        append("station-to-station://friend?u=").append(URLEncoder.encode(f.setlistfm, "UTF-8"))
+        append("&name=").append(URLEncoder.encode(f.name, "UTF-8"))
+        f.spotifyId?.let { append("&sid=").append(URLEncoder.encode(it, "UTF-8")) }
+    }.toByteArray(Charsets.UTF_8).size
 
     /**
      * #30: with the MTU bump skipped, the platform reads a card longer than one ATT
