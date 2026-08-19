@@ -168,7 +168,12 @@ const MEDIA = (() => {
     };
   });
 })();
-const SPAN = MEDIA[MEDIA.length - 1].at;
+// Placement runs the full range of the night's own media: the earliest capture
+// sits at the start, the latest at the end. Not zero-based — a night whose first
+// photo is an hour in should not leave an hour of empty spine in front of it.
+const FIRST_AT = MEDIA[0].at;
+const LAST_AT = MEDIA[MEDIA.length - 1].at;
+const SPAN = Math.max(1, LAST_AT - FIRST_AT);
 const DEPTH = 260;               // z-units between song markers
 const TOTAL = SONGS.length * DEPTH;
 
@@ -180,11 +185,18 @@ const TOTAL = SONGS.length * DEPTH;
 const MIN_GAP = 150;
 (() => {
   const lastZ = { mine: -1e9, their: -1e9 };
+  let anyZ = -1e9;
   MEDIA.forEach(m => {
-    const raw = (m.at / SPAN) * (TOTAL - DEPTH) + DEPTH * 0.5;
+    const raw = ((m.at - FIRST_AT) / SPAN) * (TOTAL - DEPTH) + DEPTH * 0.5;
     const side = m.mine ? "mine" : "their";
-    m.z = Math.max(raw, lastZ[side] + MIN_GAP);
+    // Two constraints, both needed. Same flank: a full gap, or they stack and
+    // can't be picked. Any flank: never earlier than the photo before it —
+    // opposite flanks don't occlude, so they need order but not distance.
+    // Without the second, a one-sided burst pushes its neighbour past photos
+    // taken after it, and the walk stops being chronological.
+    m.z = Math.max(raw, lastZ[side] + MIN_GAP, anyZ);
     lastZ[side] = m.z;
+    anyZ = m.z;
   });
 })();
 // Where the night's content actually ends, once bursts have been spread out.
