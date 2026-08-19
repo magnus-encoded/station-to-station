@@ -23,6 +23,7 @@ import com.google.android.gms.nearby.connection.PayloadTransferUpdate
 import com.google.android.gms.nearby.connection.Strategy
 import io.github.magnusencoded.stationtostation.ble.EXCHANGE_TIMEOUT_MS
 import io.github.magnusencoded.stationtostation.ble.ProbeCard
+import io.github.magnusencoded.stationtostation.ble.fitsAnEndpointName
 import io.github.magnusencoded.stationtostation.ble.parseProbeCard
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.friendFromUri
@@ -90,6 +91,17 @@ class NearbyPeers(private val context: Context) {
     /** In-flight taps, by endpoint id. Removing one is what makes its result fire once. */
     private val pending = mutableMapOf<String, (ProbeCard?) -> Unit>()
 
+    /**
+     * Each in-flight tap's giving-up timer, held so [deliver] can cancel it.
+     *
+     * Kept rather than fired-and-forgotten because the timer is keyed to the endpoint and a
+     * person can be tapped twice: `connectWith` deliberately leaves the radios running after
+     * a failed tap so the QR offer stays reachable, so "tap, fail fast, tap again" is the
+     * ordinary retry. Without this the first tap's timer fires seven seconds later into the
+     * *second* tap's callback and reports a failure that did not happen.
+     */
+    private val timeouts = mutableMapOf<String, Runnable>()
+
     private val handler = Handler(Looper.getMainLooper())
 
     /**
@@ -133,6 +145,18 @@ class NearbyPeers(private val context: Context) {
             _failure.update { "Bluetooth and nearby-device permission are needed to find people." }
             return
         }
+        // Keyless by construction — see `AppViewModel.myCard()`. The key rides the
+        // connection instead (#272); a name carrying one would silently overflow.
+        val advertisement = me.toShareUri().toString()
+        if (!fitsAnEndpointName(advertisement)) {
+            // Refused rather than sent. Nearby does not report an over-long name: over
+            // Bluetooth Classic it truncates, over BLE it drops the advertisement, so the
+            // owner is simply invisible with nothing to read. Being invisible *and* silent
+            // is #272's whole failure mode, so this says so instead. BLE and QR still work.
+            running = false
+            _failure.update { "Your setlist.fm username is too long to announce nearby. BLE and the QR card still work." }
+            return
+        }
         running = true
         this.myCard = myCard
 
@@ -141,9 +165,7 @@ class NearbyPeers(private val context: Context) {
         val strategy = Strategy.P2P_CLUSTER
         connections
             .startAdvertising(
-                // Keyless by construction — see `AppViewModel.myCard()`. The key rides the
-                // connection instead (#272); a name carrying one would silently overflow.
-                me.toShareUri().toString(),
+                advertisement,
                 SERVICE_ID,
                 lifecycle,
                 AdvertisingOptions.Builder().setStrategy(strategy).build(),
@@ -164,6 +186,7 @@ class NearbyPeers(private val context: Context) {
         // reaches them, and a handful of connections bounded by one screen costs nothing.
         connections.stopAllEndpoints()
         handler.removeCallbacksAndMessages(null)
+        timeouts.clear()
         pending.keys.toList().forEach { deliver(it, null) }
         endpoints.clear()
         _peers.update { emptyList() }
@@ -194,7 +217,9 @@ class NearbyPeers(private val context: Context) {
         // leave the screen saying "Connecting with …" forever.
         if (pending.containsKey(endpointId)) return
         pending[endpointId] = onCard
-        handler.postDelayed({ deliver(endpointId, null) }, EXCHANGE_TIMEOUT_MS)
+        val timeout = Runnable { deliver(endpointId, null) }
+        timeouts[endpointId] = timeout
+        handler.postDelayed(timeout, EXCHANGE_TIMEOUT_MS)
         connections
             .requestConnection(me.name, endpointId, lifecycle)
             .addOnFailureListener { e ->
@@ -264,6 +289,7 @@ class NearbyPeers(private val context: Context) {
      * this without racing.
      */
     private fun deliver(endpointId: String, card: ProbeCard?) {
+        timeouts.remove(endpointId)?.let(handler::removeCallbacks)
         val waiting = pending.remove(endpointId)
         when {
             waiting != null -> waiting(card)

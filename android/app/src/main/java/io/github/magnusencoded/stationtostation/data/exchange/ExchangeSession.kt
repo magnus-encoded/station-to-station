@@ -116,9 +116,13 @@ class ExchangeSession(private val context: Context, scope: CoroutineScope) {
     private var myCard: ProbeCard? = null
 
     /**
-     * Someone wrote their card to us over BLE (#87) — the other half of an Exchange the
-     * peer tapped. Treated exactly as a tapped card: being on this screen and advertising
-     * *is* the consent, so it is added, not prompted. Fires on a binder thread.
+     * Someone sent their card to us — the other half of an **Exchange** the peer tapped.
+     * Treated exactly as a tapped card: being on this screen and advertising *is* the
+     * consent, so it is added, not prompted.
+     *
+     * **Fires on a binder thread (a BLE write) or the main thread (a Nearby payload), and
+     * a consumer must not assume either.** Two feeders since #272; the thread is whatever
+     * the radio that reached us dispatches on.
      */
     var onFriendReceived: ((Friend) -> Unit)? = null
 

@@ -70,6 +70,22 @@ fun parseProbeCard(payload: String): ProbeCard? {
  */
 const val SCAN_RESPONSE_NAME_BUDGET = 27
 
+/**
+ * Whether [advertisement] fits Nearby's endpoint name.
+ *
+ * Checked rather than trusted, and **not** truncated the way a scan-response name is: a
+ * cut-off URI does not parse, so half a card is no card. The caller's only useful move is
+ * to refuse and say so, because Nearby reports nothing — over Bluetooth Classic the name is
+ * silently truncated, over BLE the advertisement is silently dropped, and either way the
+ * owner is invisible with no diagnostic. That is #272's failure mode, so it is worth a
+ * check even though the string is ours: `AppViewModel.myCard()` uses the setlist.fm
+ * username for both `u` and `name`, and [isPlausibleSetlistFmUser] admits 64 characters of
+ * any script, which is enough to overflow on a name nobody would call invalid.
+ */
+fun fitsAnEndpointName(advertisement: String): Boolean =
+    advertisement.toByteArray(StandardCharsets.UTF_8).size <=
+        NearbyNameLimitProbe.NEARBY_ENDPOINT_NAME_LIMIT
+
 /** Longest prefix of [name] whose UTF-8 encoding fits in [budget] bytes. */
 fun truncateToBytes(name: String, budget: Int = SCAN_RESPONSE_NAME_BUDGET): String {
     var end = name.length

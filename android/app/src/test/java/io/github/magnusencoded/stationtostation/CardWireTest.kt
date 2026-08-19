@@ -4,13 +4,16 @@ import io.github.magnusencoded.stationtostation.ble.CARD_WRITE_CHARACTERISTIC_UU
 import io.github.magnusencoded.stationtostation.ble.NearbyNameLimitProbe
 import io.github.magnusencoded.stationtostation.ble.ProbeCard
 import io.github.magnusencoded.stationtostation.ble.SCAN_RESPONSE_NAME_BUDGET
+import io.github.magnusencoded.stationtostation.ble.fitsAnEndpointName
 import io.github.magnusencoded.stationtostation.ble.parseProbeCard
 import io.github.magnusencoded.stationtostation.ble.sliceForOffset
 import io.github.magnusencoded.stationtostation.ble.truncateToBytes
 import io.github.magnusencoded.stationtostation.ble.writeAtOffset
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.exchange.friendFromCard
+import io.github.magnusencoded.stationtostation.data.isPlausibleSetlistFmUser
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -91,8 +94,7 @@ class CardWireTest {
 
     /**
      * What Nearby *does* advertise: the keyless share URI, which is only a claim that a card
-     * exists here. It has to fit with room to spare, because a display name is user-typed
-     * and a name that overflows makes its owner silently invisible.
+     * exists here. An ordinary card fits with room to spare.
      */
     @Test fun theKeylessAdvertisedCardFitsWithHeadroom() {
         val advertised = Friend(setlistfm = "dizzi90", name = "Magnus Vikan", spotifyId = "dizziness")
@@ -104,16 +106,55 @@ class CardWireTest {
     }
 
     /**
+     * …but "an ordinary card fits" is not the same claim as "our cards fit", and the earlier
+     * version of this suite only made the first one.
+     *
+     * `AppViewModel.myCard()` advertises `Friend(setlistfm = it, name = it)`, so the username
+     * is carried twice and the URI costs `36 + 2N` bytes for an N-character ASCII handle.
+     * [isPlausibleSetlistFmUser] admits 64 characters of any script, so a username nobody
+     * would call invalid overflows — and an overflow is silent, which is #272 again. Hence
+     * [fitsAnEndpointName], which refuses instead of vanishing.
+     */
+    @Test fun aLongButValidUsernameIsRefusedRatherThanSilentlyDropped() {
+        val longest = "a".repeat(64)
+        assertTrue("64 characters is a username we accept", isPlausibleSetlistFmUser(longest))
+        assertFalse(
+            "a 64-character handle should not fit an endpoint name",
+            fitsAnEndpointName(shareUri(Friend(setlistfm = longest, name = longest))),
+        )
+        // The boundary: two bytes per extra character, so 48 is where it goes over.
+        assertTrue(fitsAnEndpointName(shareUri(Friend(setlistfm = "a".repeat(47), name = "a".repeat(47)))))
+        assertFalse(fitsAnEndpointName(shareUri(Friend(setlistfm = "a".repeat(48), name = "a".repeat(48)))))
+    }
+
+    /**
+     * Non-Latin usernames are deliberately admitted — the allow-list excludes URL syntax,
+     * not scripts — and they cost far more than a byte each: a Cyrillic character is two
+     * UTF-8 bytes, which is six characters once percent-encoded. A rule that counted
+     * characters rather than bytes would miss this entirely.
+     */
+    @Test fun aNonLatinUsernameOverflowsSoonerBecauseTheBudgetIsBytes() {
+        val cyrillic = "магнус".repeat(3) // 18 characters, well inside the 64-char rule
+        assertTrue(isPlausibleSetlistFmUser(cyrillic))
+        assertFalse(
+            "18 non-Latin characters encode past the byte budget",
+            fitsAnEndpointName(shareUri(Friend(setlistfm = cyrillic, name = cyrillic))),
+        )
+    }
+
+    /**
      * The string `toShareUri` builds, without android.net.Uri (not available in a JVM test).
      * A close approximation rather than the exact bytes: `Uri.Builder` percent-encodes a
      * space where `URLEncoder` writes `+`, so the real name is a little longer. That is part
-     * of why the assertion above demands headroom rather than a bare fit.
+     * of why the ordinary-card assertion demands headroom rather than a bare fit.
      */
-    private fun shareUriLength(f: Friend): Int = buildString {
+    private fun shareUri(f: Friend): String = buildString {
         append("station-to-station://friend?u=").append(URLEncoder.encode(f.setlistfm, "UTF-8"))
         append("&name=").append(URLEncoder.encode(f.name, "UTF-8"))
         f.spotifyId?.let { append("&sid=").append(URLEncoder.encode(it, "UTF-8")) }
-    }.toByteArray(Charsets.UTF_8).size
+    }
+
+    private fun shareUriLength(f: Friend): Int = shareUri(f).toByteArray(Charsets.UTF_8).size
 
     /**
      * #30: with the MTU bump skipped, the platform reads a card longer than one ATT
