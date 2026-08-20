@@ -1166,9 +1166,22 @@ private fun FriendOverwriteDialog(
         ) {
             Text("Change this contact?", fontFamily = Serif, fontSize = 19.sp, color = Ink)
             Spacer(Modifier.height(6.dp))
+            // A changed key is a changed phone, and that is how the question is asked:
+            // someone who bought a handset recognises it immediately, and someone who did
+            // not has just been shown an attack. Cryptography is not a thing to ask a
+            // person about. A first key never lands here — that is a promotion (#188).
+            val keyChanged = conflict.existing.publicKey != null &&
+                conflict.incoming.publicKey != null &&
+                conflict.existing.publicKey != conflict.incoming.publicKey
             Text(
-                "A card for @${conflict.existing.setlistfm} says something different " +
-                    "from what you have.",
+                if (keyChanged) {
+                    "${conflict.existing.name} (@${conflict.existing.setlistfm}) seems to " +
+                        "be on a different phone than last time you saw them. Confirm you " +
+                        "still want to share."
+                } else {
+                    "A card for @${conflict.existing.setlistfm} says something different " +
+                        "from what you have."
+                },
                 color = Muted,
                 fontSize = 13.sp,
             )

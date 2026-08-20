@@ -128,6 +128,29 @@ private struct BannersModifier: ViewModifier {
             } message: {
                 Text(model.state.notice ?? "")
             }
+            // The one question a handed-over card has to ask (#188): it names someone I
+            // already hold and says something different about them. Mounted here with the
+            // banners rather than on the Exchange screen, because a card arrives through
+            // four doors — a link, a QR scan, a radio, a typed username — and a link can
+            // land while any screen is up. Cancel is the default and the dismissal, so
+            // doing nothing is never an accidental yes. Two labelled buttons, which is
+            // what VoiceOver announces.
+            .alert("Change this contact?", isPresented: Binding(
+                get: { model.state.friendConflict != nil },
+                set: { if !$0 { model.dismissFriendOverwrite() } }
+            ), presenting: model.state.friendConflict) { _ in
+                Button("Keep mine", role: .cancel) { model.dismissFriendOverwrite() }
+                Button("Use the card") { model.confirmFriendOverwrite() }
+            } message: { conflict in
+                Text(conflict.keyChanged
+                     ? "\(conflict.existing.name) (@\(conflict.existing.setlistfm)) seems to be "
+                       + "on a different phone than last time you saw them. Confirm you still "
+                       + "want to share."
+                     : "A card for @\(conflict.existing.setlistfm) says something different from "
+                       + "what you have.\n\nNow: \(conflict.existing.name)\n"
+                       + "Card: \(conflict.incoming.name)\n\nTheir timeline does not change "
+                       + "either way — only the name you see against it.")
+            }
     }
 }
 

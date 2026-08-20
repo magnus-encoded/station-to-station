@@ -99,4 +99,66 @@ class FriendArrivalTest {
 
         assertEquals(FriendArrival.Unchanged, friendArrival(card, known))
     }
+
+    // --- The first key: a **Followed line** becoming a **Contact** (#188) ---
+    //
+    // The ordinary path, not a rare one: someone added from a link or a scanned code,
+    // met in person, their card arriving over the radio with a key on it. Asking here
+    // would ask whether they are on a different phone than a phone never seen.
+
+    @Test
+    fun `a first key for someone I follow is a promotion and not a question`() {
+        val card = Friend(setlistfm = "ozzy", name = "Ozzy", spotifyId = "s-ozzy", publicKey = "k-ozzy")
+
+        assertEquals(FriendArrival.Promotion(card), friendArrival(card, known))
+    }
+
+    /** The card handed over in person outranks the name a link guessed. */
+    @Test
+    fun `a promotion carries the card's display name without asking`() {
+        val card = Friend(setlistfm = "ozzy", name = "Ozzy Osbourne", spotifyId = "s-real", publicKey = "k-ozzy")
+
+        assertEquals(FriendArrival.Promotion(card), friendArrival(card, known))
+    }
+
+    @Test
+    fun `a different key for a contact I hold asks first`() {
+        val keyed = listOf(Friend(setlistfm = "ozzy", name = "Ozzy", publicKey = "k-ozzy"))
+        val card = Friend(setlistfm = "ozzy", name = "Ozzy", publicKey = "k-someone-else")
+
+        assertEquals(FriendArrival.Conflict(keyed[0], card), friendArrival(card, keyed))
+    }
+
+    /**
+     * The key is collected in one moment and there is no second chance to collect it —
+     * only a second **Exchange**. A link, a typed username or a playlist collaborator
+     * must never propose unmaking a **Contact**.
+     */
+    @Test
+    fun `a card with no key does not propose clearing a key I hold`() {
+        val keyed = listOf(Friend(setlistfm = "ozzy", name = "Ozzy", publicKey = "k-ozzy"))
+        val card = Friend(setlistfm = "ozzy", name = "Ozzy")
+
+        assertEquals(FriendArrival.Unchanged, friendArrival(card, keyed))
+    }
+
+    @Test
+    fun `the same key and nothing else new is unchanged`() {
+        val keyed = listOf(Friend(setlistfm = "ozzy", name = "Ozzy", spotifyId = "s-ozzy", publicKey = "k-ozzy"))
+        val card = Friend(setlistfm = "ozzy", name = "Ozzy", spotifyId = "s-ozzy", publicKey = "k-ozzy")
+
+        assertEquals(FriendArrival.Unchanged, friendArrival(card, keyed))
+    }
+
+    /** Meeting one person I follow says nothing about the others. */
+    @Test
+    fun `a promotion touches only the person it names`() {
+        val card = Friend(setlistfm = "ozzy", name = "Ozzy", spotifyId = "s-ozzy", publicKey = "k-ozzy")
+
+        assertEquals(FriendArrival.Promotion(card), friendArrival(card, known))
+        assertEquals(
+            FriendArrival.Promotion(Friend(setlistfm = "lemmy", name = "Lemmy", publicKey = "k-lemmy")),
+            friendArrival(Friend(setlistfm = "lemmy", name = "Lemmy", publicKey = "k-lemmy"), known),
+        )
+    }
 }

@@ -1003,6 +1003,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         when (val arrival = friendArrival(friend, _state.value.friends)) {
             is FriendArrival.Unchanged -> Unit
             is FriendArrival.New -> writeFriend(arrival.friend)
+            // A **Followed line** becoming a **Contact**. Written as silently as a new
+            // one: there was no key held, so nothing is being overwritten.
+            is FriendArrival.Promotion -> writeFriend(arrival.friend)
             is FriendArrival.Conflict ->
                 _state.update { it.copy(friendConflict = arrival) }
         }
@@ -1020,7 +1023,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun writeFriend(friend: Friend) {
         val current = _state.value.friends
         // De-dupe on setlist.fm username — the identity the list has always used.
-        val next = current.filterNot { it.setlistfm.equals(friend.setlistfm, ignoreCase = true) } + friend
+        val held = current.firstOrNull { it.setlistfm.equals(friend.setlistfm, ignoreCase = true) }
+        // A key already held is never dropped by a later, thinner way of meeting the same
+        // person (#188). Only the radio carries a key — a link, a QR scan, a typed
+        // username and a playlist collaborator all arrive without one — so writing the
+        // card wholesale would silently unmake the **Contact**, permanently: the key is
+        // collected in one moment and there is no second chance to collect it, only a
+        // second **Exchange**. iOS has always done this; Android dropped it on a
+        // confirmed overwrite from a keyless card.
+        val incoming =
+            if (friend.publicKey.isNullOrBlank()) friend.copy(publicKey = held?.publicKey) else friend
+        val next = current.filterNot { it.setlistfm.equals(friend.setlistfm, ignoreCase = true) } + incoming
         settings.saveFriends(next)
         _state.update { it.copy(friends = next) }
     }

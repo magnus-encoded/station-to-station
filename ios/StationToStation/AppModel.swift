@@ -53,6 +53,9 @@ struct UiState {
     // Friends (peer-to-peer, on-device)
     var mySetlistFmUser = ""
     var friends: [Friend] = []
+    /// A card that would change a **Contact** already held, waiting on the one question
+    /// this app asks (#188). Nothing is written and nothing is persisted while it stands.
+    var friendConflict: FriendConflict?
     var sharedWith: Friend?
     // My timeline (the Spine). Facts only — the shape is derived at render time.
     var timelineShows: [FmSetlist] = []
@@ -623,7 +626,36 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// A card handed to me. Writes into an empty space, promotes a **Followed line** the
+    /// moment a key arrives, and **asks before changing a contact I already hold** (#188).
+    ///
+    /// Every route in comes through here — a deep link, a QR scan, a BLE write, a typed
+    /// username, a playlist collaborator — so the question is answered once rather than
+    /// at each door. Android decides it with the same function over the same four cases.
     func addFriend(_ friend: Friend) {
+        switch friendArrival(friend, known: state.friends) {
+        case .unchanged: break
+        case .new(let f): writeFriend(f)
+        // A **Followed line** becoming a **Contact**. Written as silently as a new one:
+        // there was no key held, so nothing is being overwritten.
+        case .promotion(let f): writeFriend(f)
+        case .conflict(let existing, let incoming):
+            state.friendConflict = FriendConflict(existing: existing, incoming: incoming)
+        }
+    }
+
+    /// The confirmed overwrite, and the only thing the prompt can do besides nothing.
+    func confirmFriendOverwrite() {
+        guard let pending = state.friendConflict else { return }
+        state.friendConflict = nil
+        writeFriend(pending.incoming)
+    }
+
+    /// Cancel: the held record is left exactly as it was. Also what dismissing does, so
+    /// doing nothing can never be an accidental yes.
+    func dismissFriendOverwrite() { state.friendConflict = nil }
+
+    private func writeFriend(_ friend: Friend) {
         // De-dupe on setlist.fm username; a re-share updates the display name.
         let existing = state.friends.first { $0.setlistfm.lowercased() == friend.setlistfm.lowercased() }
         var incoming = friend

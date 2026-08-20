@@ -26,6 +26,7 @@ Issues elsewhere may be edited freely; this rule is for `docs/adr/` only.
 | [0004](0004-best-effort-enrichment.md) | Best-effort enrichment, and the scoped invariant | accepted |
 | [0005](0005-a-revocable-cache-clause-disqualifies-a-source.md) | A revocable cache clause disqualifies a data source | accepted |
 | [0006](0006-the-corridor-is-the-navigability-test.md) | The corridor is the navigability test | accepted |
+| [0016](0016-presence-is-the-authentication.md) | Presence is the authentication, so the radio is not verified | accepted |
 
 ## Who it is for
 
@@ -52,7 +53,8 @@ the tensions live *between* the ADRs and no single one holds them.
 
 0003 first if you are new: most of the rest sits on it, and 0004 follows from it directly. 0001
 governs day-to-day code structure and 0006 governs anything that adds navigation. 0002 and 0005 are
-narrower and can be read when you touch dates or data sources. The persona ADRs are reference rather
+narrower and can be read when you touch dates or data sources. 0016 before touching anything that
+hands over a **Card** — a radio, a link, a code — or before proposing a handshake for one. The persona ADRs are reference rather
 than reading: consult the ones a piece of work touches.
 
 ## Related

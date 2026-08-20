@@ -79,11 +79,7 @@ struct ExchangeView: View {
             // The peer tapped, not me: their card arrived over the write
             // characteristic, and it lands exactly where a tap lands.
             session.onFriendReceived = { friend in
-                Task { @MainActor in
-                    model.addFriend(friend)
-                    model.setZoomedOut(true)
-                    nav.popToRoot()
-                }
+                Task { @MainActor in land(friend) }
             }
             if let card = await model.myProbeCard() { session.start(card: card) }
             cardURL = await model.myCardURL()
@@ -181,9 +177,7 @@ struct ExchangeView: View {
                     showCode = true
                     return
                 }
-                model.addFriend(friend)
-                model.setZoomedOut(true)
-                nav.popToRoot()
+                land(friend)
             }
         }
     }
@@ -191,7 +185,21 @@ struct ExchangeView: View {
     @MainActor
     private func addScanned(_ scanned: String) {
         guard let url = URL(string: scanned), let friend = friendFromURL(url) else { return }
+        // A scanned code carries no key, so this can only ever make a **Followed line**.
+        land(friend)
+    }
+
+    /// The landing an Exchange ends on, whichever door the card came through: persist,
+    /// open the weave, and leave the screen — holding a card is the end of looking.
+    ///
+    /// A card that would change someone already held has written nothing and left a
+    /// question standing (#188). Landing anyway would report a swap that did not happen,
+    /// and leaving the screen stops both radios mid-**Exchange** — which is exactly what
+    /// a hostile write wants. The row stays, so the same person can be tapped again.
+    @MainActor
+    private func land(_ friend: Friend) {
         model.addFriend(friend)
+        guard model.state.friendConflict == nil else { return }
         model.setZoomedOut(true)
         nav.popToRoot()
     }
