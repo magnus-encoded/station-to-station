@@ -146,7 +146,12 @@ class BleCardPeripheral(private val context: Context, private var card: ProbeCar
 
     /**
      * A peer wrote their card to us (#87). Fires on a binder thread; the session hops.
-     * Being in the Exchange is the consent, so there is nothing to prompt.
+     *
+     * Being in the Exchange is the consent, so there is nothing to prompt, and the
+     * sender is not verified: the write is accepted from any radio in range, but only
+     * while this screen is open. **That is a decision, not an oversight — ADR-0016**,
+     * which also states what it does not cover. What bounds an unverified card is what
+     * it is allowed to *do*: `friendArrival` lets it add, never silently rewrite (#188).
      */
     var onCardWritten: ((ProbeCard) -> Unit)? = null
 

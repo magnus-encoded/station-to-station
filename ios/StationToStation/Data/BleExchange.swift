@@ -26,6 +26,11 @@ final class BleCardPeripheral: NSObject, CBPeripheralManagerDelegate {
 
     /// A peer wrote their card to us. Being in the Exchange is the consent, so there
     /// is nothing to prompt — this lands exactly where a tapped card lands.
+    ///
+    /// The sender is not verified, and that is a decision rather than an oversight:
+    /// **ADR-0016**, which also states what it does not cover. What bounds an unverified
+    /// card is what it is allowed to *do* — `friendArrival` lets it add or promote,
+    /// never silently rewrite a **Contact** already held (#188).
     var onCardWritten: ((ProbeCard) -> Void)?
 
     /// Accumulated write payload per central — a long write arrives in pieces.

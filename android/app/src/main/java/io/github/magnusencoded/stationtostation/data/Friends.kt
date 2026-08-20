@@ -55,6 +55,27 @@ sealed interface FriendArrival {
      */
     data object Unchanged : FriendArrival
 
+    /**
+     * Already held **without a key**, and the card brings one. **This is the Exchange.**
+     *
+     * The moment a **Followed line** becomes a **Contact**: the person was already on
+     * screen — from a link, a QR scan, a typed username — and standing next to them is
+     * what adds the key. Nothing is overwritten, because a **Followed line** grants
+     * nothing and there was no trust there to overwrite.
+     *
+     * A distinct outcome rather than a special case of [New], because holding a key is
+     * what *makes* a **Contact**: it is a change of kind, not a change of field.
+     *
+     * The card is taken **whole**, not merged with the record already held. The card
+     * presented in person is more authoritative than anything a link guessed, and a
+     * merge would leave a display name from an untrusted source attached to a
+     * now-trusted identity. So a promotion never asks about the name — which is the
+     * false positive this case exists to remove: without it, the ordinary first
+     * **Exchange** with someone you already follow would ask whether they have a
+     * different phone, about a phone you have never seen.
+     */
+    data class Promotion(val friend: Friend) : FriendArrival
+
     /** Already held, and the card differs. The one case that asks. */
     data class Conflict(val existing: Friend, val incoming: Friend) : FriendArrival
 }
@@ -66,6 +87,12 @@ sealed interface FriendArrival {
 fun friendArrival(incoming: Friend, known: List<Friend>): FriendArrival {
     val existing = known.firstOrNull { it.setlistfm.equals(incoming.setlistfm, ignoreCase = true) }
         ?: return FriendArrival.New(incoming)
+    // A first key is a promotion, not a change: nothing is being overwritten, because a
+    // **Followed line** held no key to overwrite. Checked before anything else, so a name
+    // or Spotify id arriving alongside that first key rides in with it unasked.
+    if (existing.publicKey.isNullOrBlank() && !incoming.publicKey.isNullOrBlank()) {
+        return FriendArrival.Promotion(incoming)
+    }
     // The username is the identity and cannot differ here; only what the card *says*
     // about that identity can. A card carrying no Spotify id is not a claim that they
     // have none, so it does not count as a change on its own.
@@ -74,7 +101,7 @@ fun friendArrival(incoming: Friend, known: List<Friend>): FriendArrival {
     // A differing key is the one change that matters most: it is what #257 verifies a
     // LAN beacon against, so a card silently swapping it is exactly the impersonation
     // case this whole arrival check exists to catch.
-    val sameKey = incoming.publicKey == null || existing.publicKey == incoming.publicKey
+    val sameKey = incoming.publicKey.isNullOrBlank() || existing.publicKey == incoming.publicKey
     return if (sameName && sameSpotify && sameKey) FriendArrival.Unchanged
     else FriendArrival.Conflict(existing, incoming)
 }
