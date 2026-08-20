@@ -131,6 +131,11 @@ struct StationView: View {
         // Swipe the timeline left to start connecting with someone nearby — the
         // "act on this level" gesture, people axis.
         .swipeLeft { nav.push(.exchange) }
+        // Back out (#176). A Festival uncollapsed in place is a rung like any other,
+        // and Back out has no per-screen exception — so swiping right here collapses
+        // what is open rather than doing nothing. With nothing open this is the
+        // outermost rung, where Pinch replaces Back out, so the gesture is a no-op.
+        .swipeRight { withAnimation(.easeInOut(duration: 0.2)) { model.backOutOfFestivals() } }
         // The same two moves for VoiceOver, which takes the flick and the pinch for
         // itself. A gesture is the whole of how this screen changes Resolution, so
         // without these the other lines are not awkward to reach — they are absent.
