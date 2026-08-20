@@ -231,7 +231,27 @@ final class ContactExchange {
 /// Waits for the handshake and hands back the certificate the *peer* presented — the one
 /// they signed the fingerprint of on their side. Nil if the connection never came up.
 private func ready(_ connection: NWConnection) async -> Data? {
-    let established = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+    guard await awaitReady(connection),
+          let metadata = connection.metadata(definition: NWProtocolTLS.definition)
+            as? NWProtocolTLS.Metadata
+    else { return nil }
+
+    var leaf: Data?
+    _ = sec_protocol_metadata_access_peer_certificate_chain(metadata.securityProtocolMetadata) { certificate in
+        // The chain is walked leaf-first and there is only ever one here — a self-signed
+        // session certificate has nothing to chain to.
+        if leaf == nil {
+            leaf = SecCertificateCopyData(sec_certificate_copy_ref(certificate).takeRetainedValue()) as Data
+        }
+    }
+    return leaf
+}
+
+/// Did the connection come up? Shared with `HandoverExchange`, which cannot ask for a peer
+/// certificate at all on its source side — a handover requests none, because the joining
+/// phone proves itself with the link key rather than with a certificate.
+func awaitReady(_ connection: NWConnection) async -> Bool {
+    await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
         let answered = OneShot()
         connection.stateUpdateHandler = { state in
             switch state {
@@ -252,20 +272,6 @@ private func ready(_ connection: NWConnection) async -> Data? {
         }
         connection.start(queue: .global(qos: .utility))
     }
-    guard established,
-          let metadata = connection.metadata(definition: NWProtocolTLS.definition)
-            as? NWProtocolTLS.Metadata
-    else { return nil }
-
-    var leaf: Data?
-    _ = sec_protocol_metadata_access_peer_certificate_chain(metadata.securityProtocolMetadata) { certificate in
-        // The chain is walked leaf-first and there is only ever one here — a self-signed
-        // session certificate has nothing to chain to.
-        if leaf == nil {
-            leaf = SecCertificateCopyData(sec_certificate_copy_ref(certificate).takeRetainedValue()) as Data
-        }
-    }
-    return leaf
 }
 
 /// A continuation resumed twice is a crash, and a state handler can fire again.

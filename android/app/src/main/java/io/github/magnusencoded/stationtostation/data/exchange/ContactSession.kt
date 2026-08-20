@@ -170,6 +170,18 @@ internal fun receiveRequested(
     receivedFile: (String, String) -> File,
     refFor: (File) -> String,
     kinds: Map<String, String>,
+    /** Each chunk as it arrives — a progress bar's numbers (#142 story 14). */
+    onBytes: (Int) -> Unit = {},
+    /**
+     * Each item the moment its last declared byte has arrived, id and local ref.
+     *
+     * The return value is the same information, and for a session that runs to the end it
+     * is the easier one to use. This exists for the session that does *not*: a cancelled or
+     * dropped transfer leaves through an exception, taking the return value with it, and
+     * what already landed is exactly what a coherent smaller library is made of (#142
+     * stories 13 and 16).
+     */
+    onItem: (id: String, ref: String) -> Unit = { _, _ -> },
 ): Map<String, String> {
     val landed = LinkedHashMap<String, String>()
     while (true) {
@@ -181,13 +193,15 @@ internal fun receiveRequested(
         if (!isSafeMediaId(id) || id !in expected) {
             // The bytes are coming whether or not they are wanted, so they are drained
             // rather than abandoned mid-item.
-            copyExactly(socket.getInputStream(), DISCARD, length)
+            copyExactly(socket.getInputStream(), DISCARD, length, onBytes = onBytes)
             continue
         }
         val file = receivedFile(id, kinds[id] ?: StoredMedia.Kind.PHOTO)
         file.parentFile?.mkdirs()
-        FileOutputStream(file).use { copyExactly(socket.getInputStream(), it, length) }
-        landed[id] = refFor(file)
+        FileOutputStream(file).use { copyExactly(socket.getInputStream(), it, length, onBytes = onBytes) }
+        val ref = refFor(file)
+        landed[id] = ref
+        onItem(id, ref)
     }
     return landed
 }

@@ -76,6 +76,12 @@ struct SettingsView: View {
                 Button("Save") { model.saveSettings(apiKey: apiKey, clientId: clientId) }
             }
 
+            // The whole of #142 from this side: one deliberate act, on the phone
+            // being replaced, that never runs by itself.
+            Section {
+                NavigationLink("Move to a new phone") { HandoverView() }
+            }
+
             // #30 field-test: dev-only screen, not part of the shipped feature set.
             Section {
                 NavigationLink("GATT card probe (#30 field test)") { BleProbeView() }

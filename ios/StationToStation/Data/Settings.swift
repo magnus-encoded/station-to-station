@@ -98,6 +98,18 @@ final class Settings {
         if let scope, !scope.isEmpty { KeychainStore.set(scope, for: Key.scope) }
     }
 
+    /// A Spotify credential that arrived from my own other phone (#142/#143), stored
+    /// where every other bearer secret is stored.
+    ///
+    /// Deliberately *not* `saveTokens`: there is no access token in a handover and no
+    /// expiry to write, and inventing one would mean claiming a token this device does
+    /// not hold. The refresh token is enough to mint an access token on first use, which
+    /// is the whole point of moving it.
+    func saveHandoverCredentials(refresh: String, scope: String?) {
+        KeychainStore.set(refresh, for: Key.refreshToken)
+        if let scope, !scope.isEmpty { KeychainStore.set(scope, for: Key.scope) }
+    }
+
     var grantedScope: String? {
         migrateFromDefaults()
         return KeychainStore.string(Key.scope)

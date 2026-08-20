@@ -671,6 +671,19 @@ class TimelineStore(
     }
 
     /**
+     * A device handover's union, written (#142). Unlike [mergeContactMedia] this is the
+     * whole timeline rather than media alone: [HandoverPlan.merged] already *is* the two
+     * devices combined — nights, **Log**, attendance, playlists — so all that is left is
+     * putting it down.
+     *
+     * [plan] is a function rather than a plan, and runs inside the write lock against the
+     * cache as it stands at that instant. A 4.6 GB transfer takes long enough for this
+     * device's own timeline to have moved on, and writing a union computed against a cache
+     * read before all that would silently discard whatever landed in between.
+     */
+    suspend fun applyHandover(plan: (TimelineCache) -> HandoverPlan): Unit = writeMerged { plan(it).merged }
+
+    /**
      * Where each song starts inside one recording, replacing whatever was there.
      *
      * By media id, not by night: a night with two recordings has two answers, and

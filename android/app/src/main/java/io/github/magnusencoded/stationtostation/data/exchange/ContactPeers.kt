@@ -1,6 +1,7 @@
 package io.github.magnusencoded.stationtostation.data.exchange
 
 import android.content.Context
+import android.net.ConnectivityManager
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.util.Log
@@ -8,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import java.net.Inet4Address
 import java.net.InetSocketAddress
 
 /**
@@ -20,6 +22,24 @@ import java.net.InetSocketAddress
  * discovered address is just somewhere to open a TLS socket; [mutualContactAuth] is what
  * turns "something answered" into "a known Contact answered", over on [ContactSession].
  */
+/**
+ * This device's own address on whatever network it is standing in, for the one case that
+ * has no discovery to lean on: a handover's QR has to say *where* (#142), and it is
+ * generated before anyone is listening for a beacon.
+ *
+ * `ConnectivityManager` rather than `WifiManager.connectionInfo`, which is deprecated and
+ * wifi-only — a handover over a phone's hotspot or an ethernet dongle is the same
+ * transfer. Null when there is no non-loopback IPv4 address to name, which is a real
+ * answer: there is no local link to hand over across.
+ */
+internal fun localLinkAddress(context: Context): String? {
+    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return null
+    val links = cm.getLinkProperties(cm.activeNetwork)?.linkAddresses ?: return null
+    return links.map { it.address }
+        .firstOrNull { it is Inet4Address && !it.isLoopbackAddress && !it.isAnyLocalAddress }
+        ?.hostAddress
+}
+
 class ContactPeers(private val context: Context) {
 
     private val nsd = context.getSystemService(Context.NSD_SERVICE) as NsdManager

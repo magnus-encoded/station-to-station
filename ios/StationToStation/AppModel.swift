@@ -113,9 +113,25 @@ struct UiState {
     /// The selected night's own **Log** (#169): what I saw, as opposed to what
     /// setlist.fm publishes. Only the open **Gig**'s, same reasoning as `gigMedia`.
     var gigLog = StoredLog()
+    /// The handover screen's whole state (#142). Nil `role` means no handover is
+    /// running, which is also what the screen reads to know whether to exist.
+    var handover = HandoverUi()
     // Transient banners
     var error: String?
     var notice: String?
+}
+
+/// Which end of a handover this phone is. The screen shows two quite different things:
+/// the source picks what to send and shows a code, the receiver only watches.
+enum HandoverRole { case source, receiver }
+
+struct HandoverUi {
+    var role: HandoverRole?
+    /// The invite as a URI, once the listener is up — this is what the QR draws.
+    var inviteUri: String?
+    var progress = HandoverProgress()
+    var receipt: HandoverReceipt?
+    var error: String?
 }
 
 @MainActor
@@ -500,6 +516,112 @@ final class AppModel: ObservableObject {
     }
 
     func stopContactExchange() { contactExchange.stop() }
+
+    // MARK: - Moving to a new phone (#142)
+
+    private lazy var handoverExchange = HandoverExchange()
+
+    /// Media id → the asset id its bytes live under, filled in when the manifest is built
+    /// and read when the far end asks for an item. Held rather than re-derived per item:
+    /// the alternative is loading the whole cache once per requested photograph.
+    private var handoverRefs: [String: String] = [:]
+
+    /// The old phone: listen, show the code, and hand over exactly what was ticked.
+    ///
+    /// The manifest is built *after* somebody connects rather than before the code is
+    /// shown, because hashing the library walks every keepsake — the code should be on
+    /// screen while that happens, not after it.
+    func offerHandover(_ allow: Set<String>) {
+        state.handover = HandoverUi(role: .source)
+        let identities = Identities(setlistFmUser: settings.mySetlistFmUser)
+        handoverExchange.offer(
+            manifest: { [timelines, weak self] in
+                let cache = await timelines.load()
+                var refs: [String: String] = [:]
+                for item in cache.gigMedia.values.flatMap({ $0 }) { refs[item.id] = item.ref }
+                await self?.rememberHandoverRefs(refs)
+                return await hashedDeviceManifest(cache, allow: allow, identities: identities)
+            },
+            identities: identities,
+            mediaSource: { [weak self] id in
+                guard let self, let ref = await self.handoverRef(id) else { return nil }
+                return await PhotoLibrary.reconcileExport(assetId: ref, mediaId: id)
+            },
+            invite: { [weak self] uri in self?.state.handover.inviteUri = uri },
+            progress: { [weak self] p in self?.state.handover.progress = p },
+            finished: { [weak self] receipt, trouble in
+                self?.state.handover.receipt = receipt
+                self?.state.handover.error = trouble
+            }
+        )
+    }
+
+    /// The new phone, from the code the old one is showing. A link that is not a handover
+    /// invite is not this screen's business and is left alone.
+    func joinHandover(_ url: URL) {
+        guard let invite = parseHandoverInvite(url.absoluteString) else { return }
+        state.handover = HandoverUi(role: .receiver)
+        handoverExchange.join(
+            invite,
+            mine: { [timelines] in await timelines.load() },
+            gallery: { [timelines] in
+                let windows = await timelines.load().gigs.values
+                    .compactMap { photoWindow(gigDate: $0.date) }
+                return await PhotoLibrary.galleryItems(dates: windows)
+            },
+            storeAccounts: { [weak self] payload in await self?.storeHandoverAccounts(payload) },
+            apply: { [timelines] replan in
+                let written = await timelines.applyHandover(replan)
+                // The grid draws from the durable thumbnail tier and never from `ref`
+                // (#98), so an item that skipped this would land as a blank cell. Both
+                // ways an item can land need it: bytes that came over the wire, and a
+                // hash match resolved against my own library under the sender's media id.
+                for (id, ref) in written.fromGallery where !ref.isEmpty {
+                    await PhotoLibrary.writeReconcileTiers(mediaId: id, ref: ref)
+                }
+            },
+            progress: { [weak self] p in self?.state.handover.progress = p },
+            finished: { [weak self] receipt, trouble in
+                self?.state.handover.receipt = receipt
+                self?.state.handover.error = trouble
+                self?.loadTimeline()
+            }
+        )
+    }
+
+    /// Stops whatever is running. Cancelling is closing the connection — see
+    /// `HandoverExchange` — and what already landed stays landed.
+    func cancelHandover() {
+        handoverExchange.stop()
+        if state.handover.receipt == nil && state.handover.error == nil {
+            state.handover.error = "The transfer was stopped. What arrived was kept."
+        }
+    }
+
+    /// Leaves the screen: the session first, then the state the screen exists for.
+    func dismissHandover() {
+        handoverExchange.stop()
+        handoverRefs = [:]
+        state.handover = HandoverUi()
+    }
+
+    private func rememberHandoverRefs(_ refs: [String: String]) { handoverRefs = refs }
+
+    private func handoverRef(_ id: String) -> String? { handoverRefs[id]?.nilIfBlank }
+
+    /// The receiving half of the accounts step. Stored *before* the ack goes back, which
+    /// is what the source's own sign-out is gated on — see `HandoverExchange.join`.
+    private func storeHandoverAccounts(_ payload: AccountsPayload) async {
+        if let user = payload.identities.setlistFmUser?.nilIfBlank {
+            settings.saveMySetlistFmUser(user)
+            state.mySetlistFmUser = user
+        }
+        if let token = payload.credentials.spotifyRefreshToken?.nilIfBlank {
+            settings.saveHandoverCredentials(refresh: token, scope: payload.credentials.spotifyScope)
+            state.spotifyConnected = true
+            state.grantedScope = payload.credentials.spotifyScope ?? state.grantedScope
+        }
+    }
 
     func addFriend(_ friend: Friend) {
         // De-dupe on setlist.fm username; a re-share updates the display name.

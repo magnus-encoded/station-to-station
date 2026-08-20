@@ -50,6 +50,7 @@ fun SettingsScreen(
     viewModel: AppViewModel,
     onBack: () -> Unit,
     onOpenBleProbe: () -> Unit = {},
+    onOpenHandover: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -244,6 +245,15 @@ fun SettingsScreen(
             Spacer(Modifier.height(24.dp))
             HorizontalDivider()
             Spacer(Modifier.height(24.dp))
+
+            // Moving to a new phone lives here rather than on the Exchange screen: that
+            // screen is for meeting *people*, and this is the same person's second device.
+            OutlinedButton(
+                onClick = onOpenHandover,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Move to a new phone") }
+
+            Spacer(Modifier.height(12.dp))
 
             // #30 field-test: dev-only screen, not part of the shipped feature set.
             OutlinedButton(

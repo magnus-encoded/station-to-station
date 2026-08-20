@@ -9,6 +9,7 @@ import io.github.magnusencoded.stationtostation.data.StoredGig
 import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.TimelineCache
+import io.github.magnusencoded.stationtostation.data.deviceManifest
 import io.github.magnusencoded.stationtostation.data.handoverPlan
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -333,5 +334,103 @@ class HandoverTest {
         // And what already arrived is coherent on its own: a cancelled transfer leaves a
         // smaller library, never a corrupt one.
         assertEquals(listOf("m1"), resumed.merged.gigMedia["a"]?.map { it.id })
+    }
+
+    @Test
+    fun `the tick list is applied when the manifest is built, not when it is read`() {
+        val cache = TimelineCache(
+            gigs = mapOf("a" to gig("a", setlistId = "s1")),
+            gigMedia = mapOf(
+                "a" to listOf(
+                    photo("shared"),
+                    photo("vaulted", personal = true),
+                ),
+            ),
+        )
+
+        val withVault = deviceManifest(cache, all)
+        assertEquals(listOf("shared", "vaulted"), withVault.media.map { it.id })
+
+        // The vault unticked: the item is not filtered downstream, it never enters the
+        // manifest — so no receiver-side rule can forget to keep it out.
+        val withoutVault = deviceManifest(cache, setOf(CATEGORY_SETLISTS, StoredMedia.Kind.PHOTO))
+        assertEquals(listOf("shared"), withoutVault.media.map { it.id })
+        assertEquals(listOf("shared"), withoutVault.timeline.gigMedia.getValue("a").map { it.id })
+    }
+
+    @Test
+    fun `a Note rides the manifest and is never asked for as bytes`() {
+        val theirs = TimelineCache(
+            gigs = mapOf("a" to gig("a", setlistId = "s1")),
+            gigMedia = mapOf(
+                "a" to listOf(
+                    StoredMedia(id = "n1", kind = StoredMedia.Kind.NOTE, ref = "", text = "the encore was the whole point"),
+                ),
+            ),
+        )
+        val offer = HandoverManifest(
+            timeline = theirs,
+            media = listOf(OfferedMedia(id = "n1", gigId = "a", kind = StoredMedia.Kind.NOTE, text = "the encore was the whole point")),
+        )
+
+        val plan = handoverPlan(
+            TimelineCache(gigs = mapOf("a" to gig("a", setlistId = "s1"))),
+            offer,
+            all + StoredMedia.Kind.NOTE,
+            verified = true,
+        )
+
+        // Asking for it would be asking for zero bytes and then dropping the note when
+        // zero bytes arrived.
+        assertTrue(plan.request.isEmpty())
+        val landed = plan.merged.gigMedia.getValue("a").single()
+        assertEquals("n1", landed.id)
+        assertEquals("the encore was the whole point", landed.text)
+    }
+
+    @Test
+    fun `the second pass attaches what arrived, and only what arrived`() {
+        val theirs = TimelineCache(
+            gigs = mapOf("a" to gig("a", setlistId = "s1")),
+            gigMedia = mapOf("a" to listOf(photo("m1"), photo("m2"))),
+        )
+        val offer = HandoverManifest(
+            timeline = theirs,
+            media = listOf(offered("m1", "a", "h1"), offered("m2", "a", "h2")),
+        )
+        val mine = TimelineCache(gigs = mapOf("a" to gig("a", setlistId = "s1")))
+
+        val first = handoverPlan(mine, offer, all, verified = true)
+        assertEquals(listOf("m1", "m2"), first.request)
+
+        // The transfer was stopped after one item.
+        val second = handoverPlan(mine, offer, all, verified = true, received = mapOf("m1" to "content://mine/landed-m1"))
+
+        assertEquals(listOf("m2"), second.request)
+        val landed = second.merged.gigMedia.getValue("a").single()
+        assertEquals("m1", landed.id)
+        assertEquals("content://mine/landed-m1", landed.ref)
+    }
+
+    @Test
+    fun `an unhashable gallery item matches nothing`() {
+        val theirs = TimelineCache(
+            gigs = mapOf("a" to gig("a", setlistId = "s1")),
+            gigMedia = mapOf("a" to listOf(photo("m1"))),
+        )
+        val offer = HandoverManifest(timeline = theirs, media = listOf(offered("m1", "a", hash = "")))
+
+        // A gallery entry the hasher could not read is not a match for an offer the
+        // hasher could not read either — that pair would land a photograph wearing an
+        // unrelated file's ref.
+        val plan = handoverPlan(
+            TimelineCache(gigs = mapOf("a" to gig("a", setlistId = "s1"))),
+            offer,
+            all,
+            verified = true,
+            gallery = listOf(GalleryItem(ref = "content://mine/unreadable", hash = "")),
+        )
+
+        assertEquals(listOf("m1"), plan.request)
     }
 }

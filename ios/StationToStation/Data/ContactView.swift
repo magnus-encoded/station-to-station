@@ -41,6 +41,32 @@ func contactMedia(_ media: [String: [StoredMedia]]) -> [String: [StoredMedia]] {
     media.mapValues(visibleToContacts)
 }
 
+/// What the source may offer, by far end. Ported from Android's `categoriesFor`.
+///
+/// **The Personal categories are absent for a Contact, not merely unticked.** An
+/// invariant rather than a UI safety measure: there is no box to mis-tap and no path
+/// where a **Personal** item is one boolean away from leaving. Sending one to a Contact
+/// requires making it not Personal first, which is an explicit act on that item.
+///
+/// Android's set has one more row for its own other device: `accounts`, the credential
+/// move of #143. It is absent here on both sides because iOS has no credential move to
+/// offer — a handover from this phone carries `Identities` and never a bearer secret. A
+/// credential arriving *from* an Android source is still stored (see `HandoverSession`);
+/// what is missing is this device's ability to send one.
+func categoriesFor(contact: Bool) -> Set<String> {
+    let shared: Set<String> = [
+        categorySetlists, StoredMedia.Kind.photo, StoredMedia.Kind.video, StoredMedia.Kind.note,
+    ]
+    if contact { return shared }
+    return shared.union([
+        categoryOf(kind: StoredMedia.Kind.photo, personal: true),
+        categoryOf(kind: StoredMedia.Kind.video, personal: true),
+        // A draft I never dragged up. It reaches my own other device and nobody else,
+        // which is what keeps privacy from costing me the material I write from (#50).
+        categoryOf(kind: StoredMedia.Kind.note, personal: true),
+    ])
+}
+
 /// The manifest a **Contact** is offered (#265), ported from Android's `contactManifest`.
 ///
 /// **Exclusion happens here, at construction.** A **Personal** item never enters a

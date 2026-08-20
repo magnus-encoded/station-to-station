@@ -141,10 +141,6 @@ fun runHandoverDebugJoin(
     log("join session done")
 }
 
-private fun encodeHex(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it) }
-
-private fun decodeHex(hex: String): ByteArray {
-    val clean = hex.trim()
-    require(clean.length % 2 == 0) { "hex string must have an even length" }
-    return ByteArray(clean.length / 2) { i -> clean.substring(i * 2, i * 2 + 2).toInt(16).toByte() }
-}
+/** The invite's own hex, shared with [HandoverInvite] rather than written twice. */
+private fun decodeHex(hex: String): ByteArray =
+    requireNotNull(decodeHexOrNull(hex)) { "not hex: '$hex'" }

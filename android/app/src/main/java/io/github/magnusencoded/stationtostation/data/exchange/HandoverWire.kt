@@ -58,7 +58,11 @@ import javax.net.ssl.X509TrustManager
  * plain JVM sockets over loopback, no radio and no device required.
  */
 
-private val wireJson = Json { encodeDefaults = true }
+// ignoreUnknownKeys, because the two ends of a handover are two *installs*, and the older
+// one has to survive a frame from the newer one that carries a field it has never heard of.
+// Without it, adding one optional field anywhere turns every cross-version transfer into a
+// dropped connection.
+private val wireJson = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
 /** SHA-256 of the DER encoding — what the QR carries and what the client pins against. */
 fun certFingerprint(cert: Certificate): ByteArray =
@@ -139,14 +143,26 @@ fun readFrame(inp: InputStream): ByteArray? {
 }
 
 /** Copies exactly [length] bytes — no more, no less — so a short body is a hard error
- * rather than a silently truncated item. */
-fun copyExactly(inp: InputStream, out: OutputStream, length: Long, bufferSize: Int = 64 * 1024) {
+ * rather than a silently truncated item.
+ *
+ * [onBytes] is called with each chunk as it moves, which is where a progress bar gets its
+ * numbers (#142 story 14). Cancellation is not a flag checked here: the caller closes the
+ * socket, and this loop dies on the next read, because a blocking socket read is not
+ * interruptible by anything gentler. */
+fun copyExactly(
+    inp: InputStream,
+    out: OutputStream,
+    length: Long,
+    bufferSize: Int = 64 * 1024,
+    onBytes: (Int) -> Unit = {},
+) {
     val buf = ByteArray(bufferSize)
     var remaining = length
     while (remaining > 0) {
         val n = inp.read(buf, 0, minOf(buf.size.toLong(), remaining).toInt())
         if (n < 0) throw EOFException("connection closed after ${length - remaining} of $length bytes")
         out.write(buf, 0, n)
+        onBytes(n)
         remaining -= n
     }
 }
@@ -200,7 +216,8 @@ fun writeAccountsStep(socket: Socket, payload: AccountsPayload) =
  * is gated on, so it must not be sent a moment before the payload is durable. */
 fun readAccountsStep(socket: Socket): AccountsPayload? {
     val frame = readFrame(socket.getInputStream()) ?: return null
-    return wireJson.decodeFromString<AccountsPayload>(frame.toString(Charsets.UTF_8))
+    return runCatching { wireJson.decodeFromString<AccountsPayload>(frame.toString(Charsets.UTF_8)) }
+        .getOrNull()
 }
 
 private val ACCOUNTS_ACK = "accounts-stored".toByteArray(Charsets.UTF_8)
@@ -231,9 +248,9 @@ fun readManifest(socket: Socket): SealedManifest? {
  * One item, streamed straight from [body] to the socket at its declared [length] — the
  * sender never holds the whole file in memory, which matters at 4.6 GB.
  */
-fun writeItem(socket: Socket, id: String, length: Long, body: InputStream) {
+fun writeItem(socket: Socket, id: String, length: Long, body: InputStream, onBytes: (Int) -> Unit = {}) {
     writeFrame(socket.getOutputStream(), wireJson.encodeToString(ItemHeader(id, length)).toByteArray(Charsets.UTF_8))
-    copyExactly(body, socket.getOutputStream(), length)
+    copyExactly(body, socket.getOutputStream(), length, onBytes = onBytes)
 }
 
 /** Marker frame: no more items are coming, sent in place of an [ItemHeader]. Explicit
@@ -243,6 +260,56 @@ fun writeItem(socket: Socket, id: String, length: Long, body: InputStream) {
 private val END_OF_ITEMS = ByteArray(0)
 
 fun writeEndOfItems(socket: Socket) = writeFrame(socket.getOutputStream(), END_OF_ITEMS)
+
+/**
+ * The receiver's ask, sent once the manifest has verified and the plan is computed: the
+ * ids whose bytes it does not already hold. The wire carries this list, it does not
+ * decide it — `handoverPlan` did that, on the receiving side, where the gallery it
+ * matches against lives.
+ */
+fun writeRequest(socket: Socket, ids: List<String>) =
+    writeFrame(socket.getOutputStream(), wireJson.encodeToString(ids).toByteArray(Charsets.UTF_8))
+
+/** Empty on a dropped connection or an unreadable list — both mean "send nothing", which
+ * is the safe direction: no bytes move that were not asked for. */
+fun readRequest(socket: Socket): List<String> {
+    val frame = readFrame(socket.getInputStream()) ?: return emptyList()
+    return runCatching { wireJson.decodeFromString<List<String>>(frame.toString(Charsets.UTF_8)) }
+        .getOrDefault(emptyList())
+}
+
+/**
+ * The plain receipt (#142 story 12): what actually landed, counted by the receiver and
+ * sent back so **both** phones can say the same thing about the transfer. A deliberate
+ * act deserves a visible outcome, and the source is the phone the person is usually
+ * holding.
+ *
+ * [countMismatch] is the one field that is not a tally but a verdict: the manifest's own
+ * per-category counts, sealed inside the tag, disagreed with the items it listed.
+ */
+@Serializable
+data class HandoverReceipt(
+    val landed: Int = 0,
+    val bytes: Long = 0L,
+    val held: Int = 0,
+    val fromGallery: Int = 0,
+    val withheld: Int = 0,
+    val refused: Int = 0,
+    val requested: Int = 0,
+    val countMismatch: Boolean = false,
+    /** Empty when it went through; otherwise what went wrong, in the receiver's words. */
+    val trouble: String = "",
+)
+
+fun writeReceipt(socket: Socket, receipt: HandoverReceipt) =
+    writeFrame(socket.getOutputStream(), wireJson.encodeToString(receipt).toByteArray(Charsets.UTF_8))
+
+/** Null if the receiver hung up before sending one — the source then knows only what it
+ * sent, which is exactly the honest thing to show. */
+fun readReceipt(socket: Socket): HandoverReceipt? {
+    val frame = readFrame(socket.getInputStream()) ?: return null
+    return runCatching { wireJson.decodeFromString<HandoverReceipt>(frame.toString(Charsets.UTF_8)) }.getOrNull()
+}
 
 /**
  * Blocks for the next item header, then hands the caller the id and declared length and

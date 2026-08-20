@@ -75,7 +75,7 @@ final class ContactReconcileTests: XCTestCase {
         XCTAssertEqual(["m1"], plan.request)
     }
 
-    /// A video hashes to nothing on this platform (see `PhotoLibrary.mediaHash`), so an
+    /// A video hashes to nothing on this platform (see `PhotoLibrary.mediaFingerprint`), so an
     /// empty hash must never be treated as a match — every empty-hashed item would
     /// otherwise resolve to whichever unhashable thing the gallery listed first.
     func testAnEmptyHashNeverMatchesTheGallery() {

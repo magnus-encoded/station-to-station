@@ -285,7 +285,8 @@ private struct Radar: View {
 }
 
 /// CoreImage does QR codes; no dependency needed for either half of the fallback.
-private func qrImage(_ text: String) -> UIImage? {
+/// Shared with the handover screen, which shows one for a quite different reason.
+func qrImage(_ text: String) -> UIImage? {
     let filter = CIFilter.qrCodeGenerator()
     filter.message = Data(text.utf8)
     guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)),

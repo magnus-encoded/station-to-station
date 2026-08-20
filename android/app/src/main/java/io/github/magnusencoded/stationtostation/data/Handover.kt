@@ -128,7 +128,11 @@ data class GalleryItem(val ref: String, val hash: String)
  */
 data class HandoverPlan(
     val merged: TimelineCache = TimelineCache(),
-    /** Media id → the reference to my own copy. No bytes cross the wire for these. */
+    /**
+     * Media id → a reference that already resolves here, so no bytes need to cross the
+     * wire for it: my own gallery's copy matched by hash, the empty ref a **Note** has
+     * everywhere, or — on the second pass — where this session's bytes just landed.
+     */
     val fromGallery: Map<String, String> = emptyMap(),
     /** Media ids to ask for. */
     val request: List<String> = emptyList(),
@@ -175,6 +179,17 @@ fun handoverPlan(
     verified: Boolean,
     refusedHashes: Set<String> = emptySet(),
     gallery: List<GalleryItem> = emptyList(),
+    /**
+     * Media id → the local ref its bytes have *already* landed at, for a second pass over
+     * the same offer once the transfer has run (#142).
+     *
+     * The plan is computed twice on purpose rather than mutated: once before the transfer,
+     * where it says what to ask for, and once after, where the items that arrived are no
+     * longer requests but resolvable local refs. Same function, same inputs plus what
+     * turned up — so the union that gets written is the one this function decided, and a
+     * cancelled transfer's smaller [received] simply yields a smaller union.
+     */
+    received: Map<String, String> = emptyMap(),
 ): HandoverPlan {
     if (!verified) return HandoverPlan()
 
@@ -182,7 +197,11 @@ fun handoverPlan(
     val (gigs, rename) = mine.absorbingGigs(offer.timeline, facts)
 
     val mineIds = mine.gigMedia.values.flatten().mapTo(HashSet()) { it.id }
-    val byHash = gallery.associateBy { it.hash }
+    // Empty hashes excluded: a **Note** hashes to nothing and so does anything the hasher
+    // could not read, and without this every one of them matches whichever unhashable
+    // thing the gallery listed first — landing a note wearing a photograph's ref. The
+    // same rule, for the same reason, as `contactReconcilePlan`'s.
+    val byHash = gallery.filter { it.hash.isNotEmpty() }.associateBy { it.hash }
 
     val held = ArrayList<String>()
     val withheld = ArrayList<String>()
@@ -190,13 +209,19 @@ fun handoverPlan(
     val request = ArrayList<String>()
     val fromGallery = LinkedHashMap<String, String>()
     for (item in offer.media) when {
-        item.hash in refusedHashes -> refused += item.id
+        item.hash.isNotEmpty() && item.hash in refusedHashes -> refused += item.id
         item.category !in allow -> withheld += item.id
         // A photo whose night did not come across has nowhere to hang. One rule, and
         // it covers both a source that offered media without setlists and a manifest
         // naming a gig it did not send.
         rename[item.gigId] == null -> withheld += item.id
         item.id in mineIds -> held += item.id
+        // Already arrived, this session. Resolvable locally now, whatever it was before.
+        received[item.id] != null -> fromGallery[item.id] = received.getValue(item.id)
+        // A **Note** is complete the moment the manifest is: text and a **Verdict**, no
+        // bytes to fetch. Asking for it would be asking for zero bytes and then dropping
+        // the note when zero bytes arrived.
+        item.kind == StoredMedia.Kind.NOTE -> fromGallery[item.id] = ""
         else -> {
             val match = byHash[item.hash]
             if (match != null) fromGallery[item.id] = match.ref else request += item.id
@@ -233,6 +258,56 @@ fun handoverPlan(
         unkeyed = offer.timeline.gigs.values
             .filter { it.setlistId == null && !mine.gigs.containsKey(it.id) }
             .map { it.id },
+    )
+}
+
+/**
+ * What this device offers its own other phone: the timeline, and every media item whose
+ * category the source ticked.
+ *
+ * The mirror of [contactManifest] and deliberately not the same function. That one
+ * narrows to the shared band and rewrites attribution; this one offers **Personal**
+ * alongside everything else when the box is ticked, and leaves [StoredMedia.from]
+ * exactly as it stands — a **Contact**'s photograph stays theirs on the new phone too.
+ *
+ * **The tick list is applied here, at construction**, for the same reason the Personal
+ * categories are absent from a Contact's manifest rather than unticked: an item the
+ * source did not offer never reaches the wire at all, so no receiver-side filter can
+ * forget to apply. [handoverPlan]'s own `allow` is then the receiver restating what
+ * arrived, not a second chance to keep something out.
+ *
+ * [OfferedMedia.hash] and [OfferedMedia.bytes] are left at their defaults: reading files
+ * is the device layer's business (see `AppViewModel`), not this function's.
+ */
+fun deviceManifest(
+    cache: TimelineCache,
+    allow: Set<String>,
+    identities: Identities = Identities(),
+): HandoverManifest {
+    val media = cache.gigMedia
+        .mapValues { (_, items) -> items.filter { categoryOf(it.kind, it.personal) in allow } }
+        .filterValues { it.isNotEmpty() }
+    return HandoverManifest(
+        // Facts unticked means media only: the nights themselves are still named, because
+        // an item whose gig the receiver cannot find has nowhere to hang, but nothing else
+        // of the timeline — no **Log**, no attendance, no playlists — travels.
+        timeline = if (CATEGORY_SETLISTS in allow) cache.copy(gigMedia = media)
+        else TimelineCache(gigMedia = media, gigs = cache.gigs.filterKeys { it in media }),
+        media = media.flatMap { (gigId, items) ->
+            items.map {
+                OfferedMedia(
+                    id = it.id,
+                    gigId = gigId,
+                    kind = it.kind,
+                    capturedAt = it.capturedAt,
+                    personal = it.personal,
+                    from = it.from,
+                    text = it.text,
+                    verdict = it.verdict,
+                )
+            }
+        },
+        identities = identities,
     )
 }
 

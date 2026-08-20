@@ -2,16 +2,46 @@ import Foundation
 
 /// The manifest envelope, ported from Android's `data/Handover.kt` (#142/#257).
 ///
-/// **Only the envelope.** Android's file also holds `handoverPlan` — the union of one
-/// person's whole timeline across their own devices — and that is not here, because
-/// nothing on iOS does a device handover yet (#142 is unported). What #265 needs is the
-/// wire shape a **Contact** reconcile describes itself with, and the two must not be
-/// merged: a handover is a union of everything, a reconcile is the shared band only.
+/// The decision made *about* one of these — the union of one person's whole timeline
+/// across their own devices — is `HandoverPlan.swift`, and the two must not be confused
+/// with a **Contact** reconcile (`ContactReconcile.swift`): a handover is a union of
+/// everything between two of my own devices, a reconcile is the shared band between two
+/// people.
 ///
-/// Field for field with Android's, including the ones iOS never sets, because this is
-/// the format two phones agree on rather than a struct one of them finds convenient.
-/// `identities` is the one field deliberately absent — it carries the accounts step of
-/// #143, which no Contact path touches, and both platforms default it when missing.
+/// Field for field with Android's, including the ones a Contact path never sets, because
+/// this is the format two phones agree on rather than a struct one of them finds
+/// convenient.
+
+/// A **Gig**'s facts, media, logs and attendance: the timeline itself.
+let categorySetlists = "setlists"
+
+/// What the source ticked. Media splits four ways rather than two, because **Personal**
+/// and shared media are separate boxes on the source side: sending everything you ever
+/// marked personal must be a distinct act from sending your photos.
+func categoryOf(kind: String, personal: Bool) -> String {
+    personal ? "personal_\(kind)" : kind
+}
+
+/// Which setlist.fm user and which Spotify account this is. **Records, not secrets**
+/// (#143), so they travel with the records whether or not accounts are being moved — the
+/// new phone knowing who it is costs nothing in blast radius.
+///
+/// There is deliberately no field here for a credential, and there must never be one.
+struct Identities: Codable, Equatable {
+    var setlistFmUser: String?
+    var spotifyAccount: String?
+
+    init(setlistFmUser: String? = nil, spotifyAccount: String? = nil) {
+        self.setlistFmUser = setlistFmUser
+        self.spotifyAccount = spotifyAccount
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        setlistFmUser = (try? c.decodeIfPresent(String.self, forKey: .setlistFmUser)) ?? nil
+        spotifyAccount = (try? c.decodeIfPresent(String.self, forKey: .spotifyAccount)) ?? nil
+    }
+}
 
 /// One photo, video or note the source is offering.
 ///
@@ -36,6 +66,8 @@ struct OfferedMedia: Codable, Equatable {
     /// because it has no bytes to fetch in a second phase.
     var text: String = ""
     var verdict: String?
+
+    var category: String { categoryOf(kind: kind, personal: personal) }
 
     init(id: String = "", gigId: String = "", kind: String = StoredMedia.Kind.photo,
          hash: String = "", bytes: Int64 = 0, capturedAt: Int64? = nil,
@@ -75,15 +107,18 @@ struct OfferedMedia: Codable, Equatable {
 struct HandoverManifest: Codable {
     var timeline: TimelineCache = TimelineCache()
     var media: [OfferedMedia] = []
-    /// Declared per category by the source, so a truncated item list is visible rather
-    /// than looking like a smaller library. Carried, not yet checked on this platform.
+    /// Declared per category by the source, sealed with everything else, so a truncated
+    /// item list is visible rather than looking like a smaller library.
     var counts: [String: Int] = [:]
+    /// Who I am — see `Identities`. Empty on a Contact manifest, which never carries one.
+    var identities: Identities = Identities()
 
     init(timeline: TimelineCache = TimelineCache(), media: [OfferedMedia] = [],
-         counts: [String: Int] = [:]) {
+         counts: [String: Int] = [:], identities: Identities = Identities()) {
         self.timeline = timeline
         self.media = media
         self.counts = counts
+        self.identities = identities
     }
 
     init(from decoder: Decoder) throws {
@@ -91,6 +126,7 @@ struct HandoverManifest: Codable {
         timeline = (try? c.decodeIfPresent(TimelineCache.self, forKey: .timeline)) ?? nil ?? TimelineCache()
         media = (try? c.decodeIfPresent([OfferedMedia].self, forKey: .media)) ?? nil ?? []
         counts = (try? c.decodeIfPresent([String: Int].self, forKey: .counts)) ?? nil ?? [:]
+        identities = (try? c.decodeIfPresent(Identities.self, forKey: .identities)) ?? nil ?? Identities()
     }
 }
 

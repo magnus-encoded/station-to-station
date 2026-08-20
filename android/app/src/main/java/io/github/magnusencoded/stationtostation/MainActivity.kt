@@ -17,7 +17,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -29,11 +32,13 @@ import io.github.magnusencoded.stationtostation.ui.SearchScreen
 import io.github.magnusencoded.stationtostation.ui.SetlistsScreen
 import io.github.magnusencoded.stationtostation.ui.ExchangeScreen
 import io.github.magnusencoded.stationtostation.ui.FriendTimelineScreen
+import io.github.magnusencoded.stationtostation.ui.HandoverScreen
 import io.github.magnusencoded.stationtostation.ui.ImportScreen
 import io.github.magnusencoded.stationtostation.ui.SettingsScreen
 import io.github.magnusencoded.stationtostation.ui.SplashScreen
 import io.github.magnusencoded.stationtostation.ui.StationEventScreen
 import io.github.magnusencoded.stationtostation.ui.StationTimelineScreen
+import kotlinx.coroutines.flow.map
 
 class MainActivity : ComponentActivity() {
 
@@ -54,18 +59,6 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         handleAuthIntent(intent)
         handleHandoverDebugIntent(intent)
-    }
-
-    /** #257's LAN reconcile runs only while this screen is on screen — see [AppViewModel]'s
-     * contactExchange doc comment for why it's foreground-scoped, not a background service. */
-    override fun onStart() {
-        super.onStart()
-        viewModel.startContactExchange()
-    }
-
-    override fun onStop() {
-        viewModel.stopContactExchange()
-        super.onStop()
     }
 
     /**
@@ -98,6 +91,10 @@ class MainActivity : ComponentActivity() {
         if (uri.scheme != "station-to-station" && uri.scheme != "setlist2spotify") return
         when (uri.authority) {
             "friend" -> viewModel.handleFriendLink(uri)
+            // The other phone's QR, read by whatever camera app the person pointed at it
+            // — the same trick a friend card uses, and the reason there is no in-app
+            // scanner and no camera permission on the receiving side (#142).
+            "handover" -> viewModel.joinHandover(uri)
             "gig" -> viewModel.handleGigInvite(uri)
             "callback" -> viewModel.handleAuthRedirect(uri)
             else -> viewModel.openGigLink(uri)
@@ -166,6 +163,13 @@ fun AppTheme(content: @Composable () -> Unit) {
 @Composable
 fun AppNavigation(viewModel: AppViewModel) {
     val navController = rememberNavController()
+    // A handover can begin from outside any screen: the QR is read by the phone's camera
+    // app, which opens the deep link, which starts the receiving side. Whatever was on
+    // screen, that is the thing to be looking at.
+    val handoverRole by viewModel.state.map { it.handover.role }.collectAsStateWithLifecycle(null)
+    LaunchedEffect(handoverRole) {
+        if (handoverRole != null) navController.navigate("handover") { launchSingleTop = true }
+    }
     // Every move follows the gesture that caused it: going deeper comes in from the
     // right while the screen behind it eases left, and coming back reverses exactly
     // that. Without this the swipe-to-convert cut straight to the next screen, which
@@ -271,6 +275,16 @@ fun AppNavigation(viewModel: AppViewModel) {
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
                 onOpenBleProbe = { navController.navigate("bleprobe") },
+                onOpenHandover = { navController.navigate("handover") },
+            )
+        }
+        composable("handover") {
+            HandoverScreen(
+                viewModel = viewModel,
+                onDone = {
+                    viewModel.dismissHandover()
+                    navController.popBackStack()
+                },
             )
         }
         composable("bleprobe") {

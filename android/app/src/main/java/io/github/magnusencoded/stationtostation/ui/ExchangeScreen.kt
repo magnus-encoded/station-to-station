@@ -113,8 +113,19 @@ fun ExchangeScreen(
     LaunchedEffect(Unit) {
         permissionLauncher.launch(viewModel.exchangePermissions().toTypedArray())
     }
-    // Being discoverable is opted into by standing here, not a background state.
-    DisposableEffect(Unit) { onDispose { viewModel.stopExchange() } }
+    // Being discoverable is opted into by standing here, not a background state — and
+    // that goes for #257's LAN reconcile too, which is this screen's fourth radio rather
+    // than a service: it starts when the screen appears and is gone when it does. It used
+    // to sit on the activity's onStart/onEnd, which made the phone discoverable on the
+    // network for as long as the app was merely open — an app-foreground-wide trigger,
+    // which is exactly what #257 excludes.
+    DisposableEffect(Unit) {
+        viewModel.startContactExchange()
+        onDispose {
+            viewModel.stopExchange()
+            viewModel.stopContactExchange()
+        }
+    }
     // Whoever tapped, both phones leave for the woven view once the swap lands.
     LaunchedEffect(state.justConnected) { if (state.justConnected) onConnected() }
 
@@ -476,7 +487,7 @@ fun FriendTimelineScreen(
 
 /** Encodes text as a QR bitmap. The friend deep link is registered, so any camera app that
  *  reads this opens Station to Station and adds the card's owner. */
-private fun qrBitmap(content: String, sizePx: Int): Bitmap {
+internal fun qrBitmap(content: String, sizePx: Int): Bitmap {
     val matrix = MultiFormatWriter().encode(content, BarcodeFormat.QR_CODE, sizePx, sizePx)
     val pixels = IntArray(sizePx * sizePx)
     for (y in 0 until sizePx) {

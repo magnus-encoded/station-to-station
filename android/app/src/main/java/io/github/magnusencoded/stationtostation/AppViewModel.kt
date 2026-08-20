@@ -33,6 +33,7 @@ import io.github.magnusencoded.stationtostation.data.playsSong
 import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.StoredPlaylist
 import io.github.magnusencoded.stationtostation.data.TimelineLogic
+import io.github.magnusencoded.stationtostation.data.TimelineCache
 import io.github.magnusencoded.stationtostation.data.TimelineStore
 import io.github.magnusencoded.stationtostation.data.friendFromUri
 import io.github.magnusencoded.stationtostation.data.gigIdFromInvite
@@ -48,7 +49,28 @@ import io.github.magnusencoded.stationtostation.ui.venueMapsQuery
 import io.github.magnusencoded.stationtostation.ble.ProbeCard
 import io.github.magnusencoded.stationtostation.data.AccountsMove
 import io.github.magnusencoded.stationtostation.data.AccountsPayload
+import io.github.magnusencoded.stationtostation.data.CATEGORY_ACCOUNTS
+import io.github.magnusencoded.stationtostation.data.Credentials
+import io.github.magnusencoded.stationtostation.data.HandoverManifest
+import io.github.magnusencoded.stationtostation.data.Identities
+import io.github.magnusencoded.stationtostation.data.categoriesFor
+import io.github.magnusencoded.stationtostation.data.deviceManifest
+import io.github.magnusencoded.stationtostation.data.identitiesOnly
 import io.github.magnusencoded.stationtostation.data.mayClearCredentials
+import io.github.magnusencoded.stationtostation.data.exchange.HandoverInvite
+import io.github.magnusencoded.stationtostation.data.exchange.HandoverPhase
+import io.github.magnusencoded.stationtostation.data.exchange.HandoverProgress
+import io.github.magnusencoded.stationtostation.data.exchange.HandoverReceipt
+import io.github.magnusencoded.stationtostation.data.exchange.certFingerprint
+import io.github.magnusencoded.stationtostation.data.exchange.forgetHandoverIdentity
+import io.github.magnusencoded.stationtostation.data.exchange.generateHandoverIdentity
+import io.github.magnusencoded.stationtostation.data.exchange.localLinkAddress
+import io.github.magnusencoded.stationtostation.data.exchange.parseHandoverInvite
+import io.github.magnusencoded.stationtostation.data.exchange.runHandoverReceiver
+import io.github.magnusencoded.stationtostation.data.exchange.runHandoverSource
+import io.github.magnusencoded.stationtostation.data.exchange.sslClientContext
+import io.github.magnusencoded.stationtostation.data.exchange.sslServerContext
+import io.github.magnusencoded.stationtostation.data.exchange.toUri
 import io.github.magnusencoded.stationtostation.data.exchange.ContactExchange
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangePeer
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangeSession
@@ -69,6 +91,10 @@ import io.github.magnusencoded.stationtostation.data.setlistfm.parseSetlistId
 import io.github.magnusencoded.stationtostation.data.spotify.SpotifyClient
 import io.github.magnusencoded.stationtostation.data.spotify.SpotifyTrack
 import io.github.magnusencoded.stationtostation.data.spotify.rankCandidates
+import java.io.Closeable
+import java.security.SecureRandom
+import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -321,6 +347,8 @@ data class UiState(
     val linkedGigAs: GigLink? = null,
     /** Set when the playlist was made but its cover could not be uploaded. */
     val coverUploadError: String? = null,
+    /** The device handover on screen, if one is running or has just finished (#142). */
+    val handover: HandoverUi = HandoverUi(),
     // Transient error surfaced as a snackbar
     val error: String? = null,
     // Transient non-error notice (e.g. "Added a friend from that playlist")
@@ -328,6 +356,27 @@ data class UiState(
     // True once the splash has been passed (Spotify login or skip).
     val onboarded: Boolean = false,
 )
+
+/**
+ * One handover, as the screen sees it (#142). Which side of it this phone is on, the code
+ * to show while waiting, how far it has got, and what it ended up being.
+ *
+ * [receipt] and [error] are the two ways it ends and they are not the same thing: a
+ * receipt with `trouble` set is a transfer that stopped early and still landed what it
+ * landed, while [error] is never having got as far as a transfer at all.
+ */
+data class HandoverUi(
+    val role: HandoverRole? = null,
+    /** The source's QR content: where to connect, what to pin, and the session's key. */
+    val inviteUri: String? = null,
+    val progress: HandoverProgress = HandoverProgress(),
+    val receipt: HandoverReceipt? = null,
+    val error: String? = null,
+) {
+    val running: Boolean get() = role != null && receipt == null && error == null
+}
+
+enum class HandoverRole { SOURCE, RECEIVER }
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -354,10 +403,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val where = DeviceLocation(application)
 
     /**
-     * #257's whole LAN reconcile, foreground-scoped: [startContactExchange]/
-     * [stopContactExchange] are meant to sit on [MainActivity]'s onStart/onStop, the
-     * platform's own "is this on screen" edge — no background service, no extra
-     * permission, matching how [exchange] itself only runs with a screen open.
+     * #257's whole LAN reconcile, scoped to the Exchange screen:
+     * [startContactExchange]/[stopContactExchange] sit on that screen's
+     * `DisposableEffect`, alongside the Nearby/BLE radios it already starts and stops —
+     * no background service, no extra permission, and no advertising on the network for
+     * as long as the app merely happens to be open.
      */
     private val contactExchange = ContactExchange(
         context = application,
@@ -366,26 +416,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         contactKeys = { settings.friends.first().mapNotNull { it.publicKey } },
         manifest = {
             val cache = timelines.load()
-            val bare = contactManifest(cache, contactIdentityPublicKeyBase64())
-            bare.copy(media = bare.media.map { item ->
-                val ref = cache.gigMedia[item.gigId]?.firstOrNull { it.id == item.id }?.ref
-                val uri = ref?.let { Uri.parse(it) } ?: return@map item
-                item.copy(hash = photos.mediaHash(uri) ?: "", bytes = runCatching {
-                    application.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: 0L
-                }.getOrDefault(0L))
-            })
+            hashedManifest(contactManifest(cache, contactIdentityPublicKeyBase64()), cache)
         },
         mine = { timelines.load() },
-        gallery = {
-            timelines.load().gigs.values.mapNotNull { it.date.takeIf { d -> d.isNotBlank() } }
-                .distinct()
-                // No cap: photosFrom's default limit=20 is sized for cover-photo picking,
-                // not for reconcile matching — truncating here would send bytes the peer
-                // already has locally just because they fell past position 20.
-                .flatMap { d -> parseFmDate(d)?.let { photos.photosFrom(it, limit = Int.MAX_VALUE) }.orEmpty() }
-                .distinctBy { it.uri }
-                .mapNotNull { p -> photos.mediaHash(p.uri)?.let { GalleryItem(ref = p.uri.toString(), hash = it) } }
-        },
+        gallery = { galleryForMatching(timelines.load()) },
         onLanded = { landing -> timelines.mergeContactMedia(landing) },
     )
 
@@ -453,10 +487,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         exchange.onFriendReceived = { friend -> viewModelScope.launch { bringIn(friend) } }
     }
 
-    /** Called from [MainActivity]'s onStart — see [contactExchange]'s doc comment. */
-    fun startContactExchange() = contactExchange.start()
+    /**
+     * Called when the Exchange screen appears — see [contactExchange]'s doc comment.
+     *
+     * Only once there is a **Contact** with a key to search for: a first-time user has
+     * nobody to reconcile with, and lighting up a radio to look for them is asking the
+     * network a question with no possible answer. iOS gates the same call for a sharper
+     * reason — starting it is what raises the local-network permission prompt there.
+     */
+    fun startContactExchange() {
+        if (_state.value.friends.any { !it.publicKey.isNullOrBlank() }) contactExchange.start()
+    }
 
-    /** Called from [MainActivity]'s onStop — see [contactExchange]'s doc comment. */
+    /** Called when the Exchange screen goes away — see [contactExchange]'s doc comment. */
     fun stopContactExchange() = contactExchange.stop()
 
     override fun onCleared() {
@@ -674,12 +717,239 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         withContext(Dispatchers.IO) {
             writeAccountsStep(socket, payload)
             val step = if (readAccountsAck(socket)) AccountsMove.ACKNOWLEDGED else AccountsMove.SENT
-            if (mayClearCredentials(step)) {
+            // The payload, not the step, decides whether there is anything to let go of:
+            // an identities-only frame (the accounts row unticked, #143 story 11) travels
+            // and is acked exactly like a full one, and signing out on that ack would move
+            // an account nobody asked to move.
+            if (mayClearCredentials(step) && !payload.credentials.spotifyRefreshToken.isNullOrBlank()) {
                 settings.clearSpotifyAuth()
                 _state.update { it.copy(spotifyConnected = false, grantedScope = null) }
             }
             step
         }
+
+    // --- Device handover, the session itself (#142) ----------------------------------
+    //
+    // The two ends of one transfer, each a single job holding a single socket. Everything
+    // decidable inside them lives in `HandoverSession.kt` and is tested over a loopback
+    // pair; what is here is the device half — a real certificate from `AndroidKeyStore`, a
+    // real TLS socket, the real gallery and the real store.
+
+    private var handoverJob: Job? = null
+
+    /** Closed by [cancelHandover]. A blocking socket read cannot be interrupted by a flag,
+     * so cancelling is closing the socket out from under it — see `HandoverSession`. */
+    @Volatile private var handoverCloseables: List<Closeable> = emptyList()
+
+    private fun handoverUi(update: (HandoverUi) -> HandoverUi) =
+        _state.update { it.copy(handover = update(it.handover)) }
+
+    /**
+     * The old phone. Generates a session identity, listens, and puts the invite on screen
+     * as a QR: where to connect, the fingerprint to pin, and the link key that proves the
+     * other phone read *this* screen. Serves exactly one joining device and then stops.
+     *
+     * [allow] is the tick list, applied to the manifest at construction — see
+     * [deviceManifest]. Nothing outside it reaches the wire.
+     */
+    fun offerHandover(allow: Set<String>) {
+        // Not just a cancel: the previous session may be parked on a blocking accept, and
+        // overwriting `handoverCloseables` below would drop the only reference to it.
+        endHandover()
+        handoverUi { HandoverUi(role = HandoverRole.SOURCE) }
+        val sessionId = UUID.randomUUID().toString().take(8)
+        handoverJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // Asked before anything is bound: there is nothing to put in the QR
+                // without it, and a socket opened first would be one the throw below
+                // leaves bound with nothing holding a reference to close it.
+                val host = localLinkAddress(getApplication())
+                    ?: throw IllegalStateException("this phone is not on a network to hand over across")
+                val (cert, keyStore) = generateHandoverIdentity(sessionId)
+                val linkKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
+                val server = sslServerContext(keyStore, CharArray(0)).serverSocketFactory.createServerSocket(0)
+                handoverCloseables = listOf(server)
+                handoverUi {
+                    it.copy(
+                        inviteUri = HandoverInvite(host, server.localPort, certFingerprint(cert), linkKey).toUri(),
+                    )
+                }
+                server.use { listening ->
+                    val socket = listening.accept()
+                    handoverCloseables = listOf(server, socket)
+                    socket.use { live ->
+                        val cache = timelines.load()
+                        val manifest = hashedManifest(deviceManifest(cache, allow, myIdentities()), cache)
+                        val payload = accountsPayload(allow)
+                        val refById = cache.gigMedia.values.flatten().associate { it.id to it.ref }
+                        val receipt = runHandoverSource(
+                            socket = live,
+                            linkKey = linkKey,
+                            allow = allow,
+                            manifest = manifest,
+                            accounts = { s -> sendHandoverAccounts(s, payload) },
+                            mediaSource = { id -> refById[id]?.let { photos.mediaSource(it) } },
+                            onProgress = { p -> handoverUi { it.copy(progress = p) } },
+                        )
+                        handoverUi {
+                            if (receipt == null) it.copy(error = "That phone could not prove it read this code.")
+                            else it.copy(receipt = receipt)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                handoverUi { it.copy(error = it.error ?: handoverTrouble(e)) }
+            } finally {
+                handoverCloseables = emptyList()
+                runCatching { forgetHandoverIdentity(sessionId) }
+            }
+        }
+    }
+
+    /**
+     * The new phone, arriving from the QR's deep link. Connects, pinning the exact
+     * certificate the code named, and takes whatever the old phone approved.
+     *
+     * A link that is not a handover invite is simply not one: null, no error, nothing
+     * started — [MainActivity] hands every `station-to-station://handover` link here and
+     * a malformed one is indistinguishable from a mistyped anything else.
+     */
+    fun joinHandover(uri: Uri) {
+        val invite = parseHandoverInvite(uri.toString()) ?: return
+        endHandover()
+        handoverUi { HandoverUi(role = HandoverRole.RECEIVER) }
+        handoverJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val socket = sslClientContext(invite.fingerprint).socketFactory
+                    .createSocket(invite.host, invite.port)
+                handoverCloseables = listOf(socket)
+                socket.use { live ->
+                    val cache = timelines.load()
+                    val receipt = runHandoverReceiver(
+                        socket = live,
+                        linkKey = invite.linkKey,
+                        accounts = { s -> receiveHandoverAccounts(s) },
+                        mine = cache,
+                        gallery = galleryForMatching(cache),
+                        receivedFile = { id, kind -> photos.receivedMediaFile(id, kind) },
+                        refForReceivedFile = photos::fileProviderRef,
+                        apply = { replan -> timelines.applyHandover(replan) },
+                        onProgress = { p -> handoverUi { it.copy(progress = p) } },
+                    )
+                    handoverUi {
+                        if (receipt == null) it.copy(error = "That transfer did not verify, so nothing was written.")
+                        else it.copy(receipt = receipt)
+                    }
+                }
+                restoreTimelines()
+            } catch (e: Exception) {
+                handoverUi { it.copy(error = it.error ?: handoverTrouble(e)) }
+            } finally {
+                handoverCloseables = emptyList()
+            }
+        }
+    }
+
+    /**
+     * The one way a handover session ends: **close, then cancel**.
+     *
+     * That order is the whole of it. A blocking `accept()` or socket read cannot be
+     * interrupted by cancelling the job — the coroutine is parked in a native call — so a
+     * cancel on its own leaves a bound port, an IO thread and an un-forgotten
+     * `AndroidKeyStore` identity behind, and leaves a phone that already read the QR able
+     * to complete the whole transfer against a screen nobody is looking at. Closing the
+     * socket is what makes the parked read throw and the coroutine's own `finally` run.
+     */
+    private fun endHandover() {
+        handoverCloseables.forEach { runCatching { it.close() } }
+        handoverCloseables = emptyList()
+        handoverJob?.cancel()
+        handoverJob = null
+    }
+
+    /** Starting is not a commitment (#142 story 15). What already arrived stays. */
+    fun cancelHandover() {
+        endHandover()
+        handoverUi {
+            if (it.receipt != null) it else it.copy(
+                progress = it.progress.copy(phase = HandoverPhase.FAILED),
+                error = "Stopped. Anything that had already arrived is on this phone.",
+            )
+        }
+    }
+
+    /**
+     * Leaves the handover screen's state behind, once it has been read — and takes the
+     * session with it, because this is also what a *back gesture* off the screen calls
+     * (see `HandoverScreen`'s `DisposableEffect`). Leaving the screen with a listener
+     * still up would mean a transfer completing behind it.
+     */
+    fun dismissHandover() {
+        endHandover()
+        handoverUi { HandoverUi() }
+    }
+
+    /** A dropped wifi, a refused certificate and a closed socket all read the same from
+     * here, and naming the exception at the user is not information. */
+    private fun handoverTrouble(e: Exception): String = when (e) {
+        is CancellationException -> throw e
+        else -> "The connection to the other phone failed."
+    }
+
+    /**
+     * The bytes and content hash of everything a manifest offers, filled in from real
+     * storage — the one part of building a manifest that has to read files, which is why
+     * the pure builders ([deviceManifest], [contactManifest]) leave both at their defaults.
+     *
+     * Shared by both far ends on purpose: a Contact's offer and my own other phone's are
+     * the same shape, and hashing them two different ways is how the same photograph ends
+     * up looking like two different files.
+     */
+    private suspend fun hashedManifest(bare: HandoverManifest, cache: TimelineCache): HandoverManifest =
+        bare.copy(media = bare.media.map { item ->
+            val ref = cache.gigMedia[item.gigId]?.firstOrNull { it.id == item.id }?.ref
+            val uri = ref?.takeIf { it.isNotBlank() }?.let { Uri.parse(it) } ?: return@map item
+            item.copy(hash = photos.mediaHash(uri) ?: "", bytes = runCatching {
+                getApplication<Application>().contentResolver
+                    .openAssetFileDescriptor(uri, "r")?.use { it.length } ?: 0L
+            }.getOrDefault(0L))
+        })
+
+    /**
+     * My own gallery, narrowed to the nights I have records of, hashed — the candidates an
+     * incoming offer is matched against so that a photograph already on this phone is
+     * never sent over the wire a second time.
+     */
+    private suspend fun galleryForMatching(cache: TimelineCache): List<GalleryItem> =
+        cache.gigs.values.mapNotNull { it.date.takeIf { d -> d.isNotBlank() } }
+            .distinct()
+            // No cap: photosFrom's default limit=20 is sized for cover-photo picking,
+            // not for reconcile matching — truncating here would send bytes the peer
+            // already has locally just because they fell past position 20.
+            .flatMap { d -> parseFmDate(d)?.let { photos.photosFrom(it, limit = Int.MAX_VALUE) }.orEmpty() }
+            .distinctBy { it.uri }
+            .mapNotNull { p -> photos.mediaHash(p.uri)?.let { GalleryItem(ref = p.uri.toString(), hash = it) } }
+
+    private suspend fun myIdentities(): Identities {
+        val user = runCatching { spotify.currentUser() }.getOrNull()
+        return Identities(
+            setlistFmUser = _state.value.mySetlistFmUser.trim().ifBlank { null },
+            spotifyAccount = user?.id,
+        )
+    }
+
+    /** Credentials only when the row was ticked; identities travel either way (#143). */
+    private suspend fun accountsPayload(allow: Set<String>): AccountsPayload {
+        val identities = myIdentities()
+        if (CATEGORY_ACCOUNTS !in allow) return identitiesOnly(identities)
+        return AccountsPayload(
+            identities = identities,
+            credentials = Credentials(
+                spotifyRefreshToken = settings.refreshTokenValue(),
+                spotifyScope = settings.grantedScope(),
+            ),
+        )
+    }
 
     // --- Friends (peer-to-peer) ---
 

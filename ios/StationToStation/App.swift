@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum Route: Hashable { case friends, setlists, confirm, settings, station, search, gig, exchange, programme }
+enum Route: Hashable { case friends, setlists, confirm, settings, station, search, gig, exchange, programme, handover }
 
 @MainActor
 final class Nav: ObservableObject {
@@ -34,6 +34,7 @@ struct StationToStationApp: App {
                         case .gig: GigView()
                         case .exchange: ExchangeView()
                         case .programme: ProgrammeView()
+                        case .handover: HandoverView()
                         }
                     }
             }
@@ -59,6 +60,21 @@ struct StationToStationApp: App {
                 }
                 // An invite a contact sent, opening the night it names (#179). Until
                 // this, every invite an Android phone shared was dead on arrival here.
+                // The old phone's code (#142). It carries the address, the certificate
+                // to pin and the key for the transfer, which is why any camera can open
+                // it and only the phone that read it can join.
+                if url.host == "handover" {
+                    // Parsed here rather than trusting the host alone: a truncated or
+                    // hand-typed link would otherwise land the reader on the *source*
+                    // side's tick list — this phone offering to hand itself over, from a
+                    // link that asked it to receive. A link that is not an invite is not
+                    // a navigation.
+                    guard parseHandoverInvite(url.absoluteString) != nil else { return }
+                    model.joinHandover(url)
+                    nav.popToRoot()
+                    nav.push(.handover)
+                    return
+                }
                 if url.host == "gig" {
                     model.handleGigInvite(url) { nav.popToRoot(); nav.push(.gig) }
                     return

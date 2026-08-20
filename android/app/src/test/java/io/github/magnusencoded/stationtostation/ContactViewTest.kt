@@ -219,13 +219,14 @@ class ContactViewTest {
         assertEquals(listOf(me), manifest.media.map { it.from })
 
         // Resolved from the receiver's own gallery rather than sent — and the record
-        // that lands still says whose camera it came from.
+        // that lands still says whose camera it came from. The match is by hash and
+        // only by hash: two items that were never hashed are not the same picture.
         val plan = handoverPlan(
             mine = TimelineCache(gigs = manifest.timeline.gigs),
-            offer = manifest,
+            offer = manifest.copy(media = manifest.media.map { it.copy(hash = "same-bytes") }),
             allow = categoriesFor(contact = true),
             verified = true,
-            gallery = listOf(GalleryItem(ref = "content://mine/copy", hash = "")),
+            gallery = listOf(GalleryItem(ref = "content://mine/copy", hash = "same-bytes")),
         )
         assertEquals(mapOf("a" to "content://mine/copy"), plan.fromGallery)
         assertEquals(me, plan.merged.gigMedia["g1"]?.single()?.from)

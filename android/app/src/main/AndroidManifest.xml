@@ -82,6 +82,7 @@
                    station-to-station://callback         Spotify OAuth redirect
                    station-to-station://friend?u=…&sid=…&name=…   friend card exchange
                    station-to-station://gig?id=…         a gig invite from a contact
+                   station-to-station://handover?h=…&amp;p=…&amp;f=…&amp;k=…  the old phone's QR
                    station-to-station://<gig>            the setlist itself
                    station-to-station://<user>/<gig>     that line, scrolled to the gig
                    station-to-station://Friends/<gig>    the woven view, scrolled to it -->

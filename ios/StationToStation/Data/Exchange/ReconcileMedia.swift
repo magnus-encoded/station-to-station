@@ -24,27 +24,31 @@ extension PhotoLibrary {
     /// Android's own comment says to avoid. So a video simply never matches from the
     /// gallery and always transfers. Upgrade path if that bites: read the first 64 KiB and
     /// use `AVURLAsset`'s `.totalFileSize` for the length.
-    static func mediaHash(assetId: String) async -> String? {
+    static func mediaFingerprint(assetId: String) async -> (hash: String, bytes: Int64)? {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetId], options: nil).firstObject,
               asset.mediaType == .image,
               let resource = originalResource(asset)
         else { return nil }
 
         var digest = SHA256()
+        var length: Int64 = 0
         let options = PHAssetResourceRequestOptions()
         options.isNetworkAccessAllowed = true
         let ok = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             let answered = ReconcileOnce()
             PHAssetResourceManager.default().requestData(
                 for: resource, options: options,
-                dataReceivedHandler: { digest.update(data: $0) },
+                dataReceivedHandler: { digest.update(data: $0); length += Int64($0.count) },
                 completionHandler: { error in
                     if answered.claim() { continuation.resume(returning: error == nil) }
                 }
             )
         }
         guard ok else { return nil }
-        return digest.finalize().map { String(format: "%02x", $0) }.joined()
+        // The byte count falls out of the same pass: we streamed the whole original to hash
+        // it, so counting it costs nothing, and it is what lets a receiver draw a progress
+        // bar against a total committed up front rather than one that grows as it goes.
+        return (digest.finalize().map { String(format: "%02x", $0) }.joined(), length)
     }
 
     /// My own library, from the nights I have records of, ready for the plan to match a
@@ -65,8 +69,8 @@ extension PhotoLibrary {
         }
         var items: [GalleryItem] = []
         for id in assetIds {
-            if let hash = await mediaHash(assetId: id) {
-                items.append(GalleryItem(ref: id, hash: hash))
+            if let fingerprint = await mediaFingerprint(assetId: id) {
+                items.append(GalleryItem(ref: id, hash: fingerprint.hash))
             }
         }
         return items
@@ -188,20 +192,37 @@ extension PhotoLibrary {
 /// only field that needs the bytes, and it is what lets the far end recognise a photo it
 /// already holds under a different id instead of pulling it across the room again.
 ///
-/// `bytes` is deliberately left at zero, unlike Android's. MediaStore hands Android a
-/// size for free; PhotoKit has no supported way to ask for one without reading the file,
-/// and nothing reads this field — the real length rides each item's own header, where a
-/// receiver actually needs it.
+/// `bytes` is filled in for whatever `mediaFingerprint` could read — that is, photos. A
+/// video is not hashed (see the ponytail note there) and so carries a zero, which is why
+/// every consumer of this total treats it as a floor rather than a promise: the real length
+/// rides each item's own header, where a receiver actually needs it.
+/// The same hashing over the manifest a **device handover** offers (#142).
+///
+/// Two functions rather than one with a flag, because the manifests they hash are two
+/// different disclosures — `contactManifest` narrows to the shared band and rewrites
+/// attribution, `deviceManifest` applies the source's tick list and leaves attribution
+/// alone — and the hashing is the only part they share.
+func hashedDeviceManifest(_ cache: TimelineCache, allow: Set<String>,
+                          identities: Identities) async -> HandoverManifest {
+    await hashing(deviceManifest(cache, allow: allow, identities: identities), cache)
+}
+
 func hashedContactManifest(_ cache: TimelineCache, me: String) async -> HandoverManifest {
-    var manifest = contactManifest(cache, me: me)
+    await hashing(contactManifest(cache, me: me), cache)
+}
+
+private func hashing(_ offered: HandoverManifest, _ cache: TimelineCache) async -> HandoverManifest {
+    var manifest = offered
     var refById: [String: String] = [:]
     for items in cache.gigMedia.values {
         for item in items { refById[item.id] = item.ref }
     }
     var hashed: [OfferedMedia] = []
     for var item in manifest.media {
-        if let ref = refById[item.id]?.nilIfBlank {
-            item.hash = await PhotoLibrary.mediaHash(assetId: ref) ?? ""
+        if let ref = refById[item.id]?.nilIfBlank,
+           let fingerprint = await PhotoLibrary.mediaFingerprint(assetId: ref) {
+            item.hash = fingerprint.hash
+            item.bytes = fingerprint.bytes
         }
         hashed.append(item)
     }
