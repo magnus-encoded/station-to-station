@@ -115,7 +115,7 @@ class ContactPeers(private val context: Context) {
                 // window costs one connection that fails [mutualContactAuth], since this
                 // device's own key is not among its Contacts' keys.
                 if (info.serviceName == registeredName) return
-                nsd.resolveService(info, resolveListener)
+                nsd.resolveService(info, resolveListener())
             }
 
             // Deliberately empty, same reasoning as NearbyPeers.onEndpointLost: an
@@ -133,7 +133,21 @@ class ContactPeers(private val context: Context) {
         _peers.update { emptyList() }
     }
 
-    private val resolveListener = object : NsdManager.ResolveListener {
+    /**
+     * A **fresh listener per resolve**, which is the whole of the fix for #287.
+     *
+     * `NsdManager` allows a `ResolveListener` instance to be in flight for at most one
+     * resolve at a time, and throws `IllegalArgumentException: listener already in use`
+     * out of `onServiceFound` — on the framework's own callback thread, so it is an
+     * uncaught crash rather than a resolve that failed. One shared listener is fine
+     * with a single peer, because nothing overlaps; the second device on the network is
+     * what finds it.
+     *
+     * Nothing needs cleaning up after: the object closes over nothing but [_peers], and
+     * the framework releases it on either terminal callback. API 34's
+     * `registerServiceInfoCallback` lifts the restriction, but this app is minSdk 26.
+     */
+    private fun resolveListener() = object : NsdManager.ResolveListener {
         override fun onResolveFailed(info: NsdServiceInfo, errorCode: Int) = Unit
         override fun onServiceResolved(info: NsdServiceInfo) {
             val address = InetSocketAddress(info.host, info.port)
