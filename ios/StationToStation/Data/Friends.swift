@@ -28,6 +28,9 @@ struct Friend: Codable, Identifiable, Hashable {
     var id: String { setlistfm }
 
     /// The link a user shares so a friend's app can add them with one tap.
+    ///
+    /// Never carries the key — see `friendFromURL`. A link can only make a
+    /// **Followed line**; the key rides the radio (#271).
     var shareURL: URL {
         var c = URLComponents()
         c.scheme = "station-to-station"
@@ -108,6 +111,12 @@ func friendFromURL(_ url: URL) -> Friend? {
         c.queryItems?.first { $0.name == n }?.value?.trimmingCharacters(in: .whitespaces).nilIfBlank
     }
     guard let user = param("u"), isPlausibleSetlistFmUser(user) else { return nil }
+    // No key is read, deliberately (#271): holding one is what makes a **Contact**, and a
+    // **Contact** is not addable remotely — the authentication is that two people stood
+    // together. A link arrives from any web page, chat message or installed app, so a `k`
+    // parameter would mint a **Contact** at a distance and let it **Reconcile** over LAN
+    // (#257) for media of mine. A link makes a **Followed line**; promotion is #188's
+    // arrival case, over the radio, in person. Do not add it back as a convenience.
     return Friend(setlistfm: user, name: param("name"), spotifyId: param("sid"))
 }
 

@@ -22,6 +22,8 @@ data class Friend(
      * SubjectPublicKeyInfo, ECDSA P-256. Null for a friend added before this field
      * existed, or from a path that hasn't carried a key yet. What lets a later LAN
      * beacon (#257) be verified as this specific person rather than a stranger.
+     *
+     * Only the radio fills this in. A link or QR code never can (#271).
      */
     val publicKey: String? = null,
 )
@@ -85,14 +87,18 @@ fun decodeFriends(stored: String?): List<Friend> =
     if (stored.isNullOrBlank()) emptyList()
     else runCatching { friendsJson.decodeFromString<List<Friend>>(stored) }.getOrDefault(emptyList())
 
-/** The link a user shares so a friend's app can add them with one tap. */
+/**
+ * The link a user shares so a friend's app can add them with one tap.
+ *
+ * **No key, ever** — see [friendFromQuery]. A link can only ever make a **Followed
+ * line**; the key rides the radio (#271).
+ */
 fun Friend.toShareUri(): Uri = Uri.Builder()
     .scheme("station-to-station")
     .authority("friend")
     .appendQueryParameter("u", setlistfm)
     .appendQueryParameter("name", name)
     .apply { spotifyId?.let { appendQueryParameter("sid", it) } }
-    .apply { publicKey?.let { appendQueryParameter("k", it) } }
     .build()
 
 /**
@@ -139,15 +145,24 @@ fun spotifyPlaylistId(input: String): String? =
  * directly rather than a `Uri` — android.net.Uri can't be constructed in a plain JVM
  * unit test (same reason [io.github.magnusencoded.stationtostation.parseGigLink] was
  * split from its Uri handler), so this is the part the link grammar check can run.
+ *
+ * **A link never carries a key, and this is the door that refuses it (#271).** Holding a
+ * key is what makes a **Contact**, and a **Contact** is not addable remotely — ever: the
+ * authentication is that two people stood together and ran an **Exchange**. A link comes
+ * from any web page, any chat message, any other installed app, so a `k` parameter here
+ * would let a crafted link mint a **Contact** at a distance and then **Reconcile** over
+ * LAN (#257) for media of mine. A link produces a **Followed line** and nothing more;
+ * promotion to **Contact** is #188's arrival case, over the radio, in person.
+ *
+ * Do not re-add the parameter as a convenience. iOS's parser refuses it at the same door.
  */
-fun friendFromQuery(u: String?, name: String?, sid: String?, k: String? = null): Friend? {
+fun friendFromQuery(u: String?, name: String?, sid: String?): Friend? {
     val user = u?.trim().orEmpty()
     if (!isPlausibleSetlistFmUser(user)) return null
     return Friend(
         setlistfm = user,
         name = name?.trim()?.ifBlank { null } ?: user,
         spotifyId = sid?.trim()?.ifBlank { null },
-        publicKey = k?.trim()?.ifBlank { null },
     )
 }
 
@@ -178,10 +193,10 @@ private val SETLISTFM_USER = Regex("""[\p{L}\p{N}._-]+""")
 /** Parses a `station-to-station://friend?...` link. Null if it isn't one / has no username. */
 fun friendFromUri(uri: Uri): Friend? {
     if (uri.authority != "friend") return null
+    // No `k` read here — a link cannot carry identity (#271, see [friendFromQuery]).
     return friendFromQuery(
         uri.getQueryParameter("u"),
         uri.getQueryParameter("name"),
         uri.getQueryParameter("sid"),
-        uri.getQueryParameter("k"),
     )
 }
