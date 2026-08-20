@@ -13,12 +13,14 @@ import io.github.magnusencoded.stationtostation.ui.TimelineNode
 import io.github.magnusencoded.stationtostation.ui.WovenRow
 import io.github.magnusencoded.stationtostation.ui.crossingX
 import io.github.magnusencoded.stationtostation.ui.hostLane
+import io.github.magnusencoded.stationtostation.ui.laneColours
 import io.github.magnusencoded.stationtostation.ui.laneStep
 import io.github.magnusencoded.stationtostation.ui.laneXf
 import io.github.magnusencoded.stationtostation.ui.linesAt
 import io.github.magnusencoded.stationtostation.ui.nodeHost
 import io.github.magnusencoded.stationtostation.ui.rowGeometry
 import io.github.magnusencoded.stationtostation.ui.stripWidth
+import io.github.magnusencoded.stationtostation.ui.visibleLanes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -38,9 +40,13 @@ class LaneGeometryTest {
 
     private val ozzy = Friend(setlistfm = "Ozzy", name = "Ozzy")
     private val lemmy = Friend(setlistfm = "Lemmy", name = "Lemmy")
+    private val dio = Friend(setlistfm = "Dio", name = "Dio")
 
     /** Lane 0 is nearest my spine and belongs to the most recently added friend. */
     private val lanes = listOf(ozzy, lemmy)
+
+    /** Enough people for hiding a middle one to have somewhere to re-pack from. */
+    private val three = listOf(ozzy, lemmy, dio)
 
     private fun row(mine: Boolean, vararg present: Friend) = WovenRow(
         node = TimelineNode.Concert(FmSetlist(id = "n", artist = FmArtist(name = "A"))),
@@ -148,7 +154,8 @@ class LaneGeometryTest {
         laneWidth: Dp = fullyOpen,
         height: Dp = ordinary,
         over: List<Friend> = lanes,
-    ) = rowGeometry(row, next, over, laneWidth, height)
+        colours: List<Int> = over.indices.toList(),
+    ) = rowGeometry(row, next, over, laneWidth, height, colours)
 
     private fun List<DrawnLine>.line(i: Int) = firstOrNull { it.line == i }
     private fun List<DrawnLine>.at(i: Int) = line(i) ?: error("line $i was not drawn")
@@ -252,8 +259,6 @@ class LaneGeometryTest {
      */
     @Test
     fun `stroke weight says how many walk the stretch together`() {
-        val dio = Friend(setlistfm = "Dio", name = "Dio")
-        val three = listOf(ozzy, lemmy, dio)
         fun spineWidth(vararg with: Friend) =
             drawn(row(mine = true, *with), over = three).at(Spine).width.value
 
@@ -429,5 +434,156 @@ class LaneGeometryTest {
         assertNotNull(kvelertak.line(1))
         assertEquals(LineColour.Rail(0), kvelertak.at(0).colour) // Lemmy, alone on lane 0
         assertEquals(LineColour.Absent, kvelertak.at(1).colour) // Ozzy, past a night he missed
+    }
+
+    // --- Hiding a Line (#266) ---
+    //
+    // Tapping a name in the legend is nothing more than a shorter lane list, so every
+    // assertion below is the same `rowGeometry` call with fewer people in it. The
+    // strip's width follows the visible count, exactly as the screen's animation does.
+
+    private fun hiding(vararg who: Friend) = who.map { it.setlistfm }.toSet()
+
+    private fun drawnHiding(
+        row: WovenRow,
+        next: WovenRow? = null,
+        over: List<Friend> = three,
+        hidden: Set<String> = emptySet(),
+    ): List<DrawnLine> {
+        val shown = visibleLanes(over, hidden)
+        return rowGeometry(
+            row, next, shown, stripWidth(shown.size), ordinary, laneColours(over, hidden),
+        )
+    }
+
+    /** The seam itself: who is left, and which colour each of them keeps. */
+    @Test
+    fun `the filter is one shorter list plus the colours it left behind`() {
+        assertEquals(three, visibleLanes(three, emptySet()))
+        assertEquals(listOf(0, 1, 2), laneColours(three, emptySet()))
+
+        assertEquals(listOf(ozzy, dio), visibleLanes(three, hiding(lemmy)))
+        assertEquals(listOf(0, 2), laneColours(three, hiding(lemmy)))
+
+        // Someone who is not a Followed line at all cannot hide anyone.
+        assertEquals(three, visibleLanes(three, setOf("Nobody")))
+    }
+
+    /** Gone, not dimmed: the strip has to actually get quieter. */
+    @Test
+    fun `a hidden Line is not drawn at all`() {
+        val night = row(mine = true, ozzy, lemmy)
+        assertEquals(listOf(Spine, 0, 1, 2), drawnHiding(night).map { it.line })
+        assertEquals(listOf(Spine, 0, 1), drawnHiding(night, hidden = hiding(lemmy)).map { it.line })
+    }
+
+    /** Hiding buys horizontal room; it does not leave an empty column. */
+    @Test
+    fun `the remaining Lanes close up the gap`() {
+        val alone = row(mine = true) // everyone in their own lane
+        val step = laneStep(2)
+        val packed = drawnHiding(alone, hidden = hiding(lemmy))
+
+        assertDp(laneXf(0, step).value, packed.at(0).x) // Ozzy, where he was
+        assertDp(laneXf(1, step).value, packed.at(1).x) // Dio, moved in from lane 2
+        assertNull(packed.line(2))
+    }
+
+    /**
+     * The one thing the seam does not give for free, and so the assertion this whole
+     * change rests on: re-packing moves a **Lane**, and **Lane colour** must not follow
+     * it — a colour you have learned means one person keeps meaning that person.
+     */
+    @Test
+    fun `hiding someone does not recolour anyone else`() {
+        val night = row(mine = false, dio) // Dio out alone, on his own lane
+        assertEquals(LineColour.Rail(2), drawnHiding(night).at(2).colour)
+
+        // Hide the lane inside his: he is drawn one step in and keeps his own colour.
+        val packed = drawnHiding(night, hidden = hiding(lemmy))
+        assertEquals(LineColour.Rail(2), packed.at(1).colour)
+        // And the one who did not move is untouched either.
+        assertEquals(LineColour.Rail(0), drawnHiding(row(mine = false, ozzy)).at(0).colour)
+        assertEquals(
+            LineColour.Rail(0),
+            drawnHiding(row(mine = false, ozzy), hidden = hiding(lemmy)).at(0).colour,
+        )
+    }
+
+    /** A Crossing with someone left is still a Crossing — one person lighter. */
+    @Test
+    fun `hiding one of two at a Crossing leaves it a Crossing`() {
+        val night = row(mine = true, ozzy, lemmy)
+        val all = drawnHiding(night).at(Spine)
+        assertEquals(3, all.people)
+        assertEquals(LineColour.Meeting, all.colour)
+
+        val one = drawnHiding(night, hidden = hiding(lemmy)).at(Spine)
+        assertEquals(2, one.people)
+        assertEquals(LineColour.Meeting, one.colour)
+        assertEquals(3.2f, one.width.value, 0.01f)
+    }
+
+    /** Green with nobody visible to have met is the thing this must never draw. */
+    @Test
+    fun `hiding everyone at a Crossing returns the stretch to Amber`() {
+        val night = row(mine = true, ozzy, lemmy)
+        val mineAlone = drawnHiding(night, hidden = hiding(ozzy, lemmy)).at(Spine)
+        assertEquals(1, mineAlone.people)
+        assertEquals(LineColour.Mine(present = true), mineAlone.colour)
+        assertEquals(2.0f, mineAlone.width.value, 0.01f)
+    }
+
+    /** Hiding a stranger to a night changes that night only by the packing. */
+    @Test
+    fun `hiding someone who was not there changes nothing else about the row`() {
+        val night = row(mine = true, ozzy) // Dio was not at this one
+        val before = drawnHiding(night)
+        val after = drawnHiding(night, hidden = hiding(dio))
+
+        assertEquals(before.at(Spine), after.at(Spine))
+        assertEquals(before.at(0), after.at(0)) // Ozzy, merged onto my spine
+        assertEquals(before.at(1), after.at(1)) // Lemmy, in a lane the step did not move
+        assertNull(after.line(2))
+    }
+
+    /** The filter's extreme is a state I already recognise: My timeline. */
+    @Test
+    fun `hiding everyone yields exactly the single-line geometry`() {
+        val night = row(mine = true, ozzy, lemmy, dio)
+        assertEquals(
+            rowGeometry(row(mine = true), null, emptyList(), 0.dp, ordinary),
+            drawnHiding(night, hidden = hiding(ozzy, lemmy, dio)),
+        )
+    }
+
+    /**
+     * The counts describe the picture, so they follow the filter without anyone
+     * recomputing them: the same weave, one friend shorter.
+     */
+    @Test
+    fun `the weave's rows and counts follow the shorter friend list`() {
+        val (all, _) = WeaveFixture.load("three-lines-tons-of-rock")
+        val (withoutLemmy, _) = WeaveFixture.load("three-lines-tons-of-rock", hiding(lemmy))
+        val (nobody, _) = WeaveFixture.load("three-lines-tons-of-rock", hiding(lemmy, ozzy))
+
+        // A night only Lemmy was at is a row; hide Lemmy and there is no such night.
+        assertEquals(listOf("c-m0-0", "f-w1", "c-t0-0"), all.map { it.key })
+        assertEquals(listOf("c-m0-0", "f-w1"), withoutLemmy.map { it.key })
+
+        // Tons of Rock: with Lemmy gone the only visible company is Ozzy, who was at
+        // the one night of it I was at — so nothing is "theirs" there any more.
+        val festival = withoutLemmy.first { it.key == "f-w1" }
+        assertEquals(listOf("Ozzy"), festival.others.map { it.setlistfm })
+        assertEquals(1, festival.sharedCount)
+        assertEquals(0, festival.theirsCount)
+
+        // And with everybody hidden it is my own timeline, counts and all.
+        assertEquals(listOf("c-m0-0", "f-w1"), nobody.map { it.key })
+        nobody.forEach {
+            assertTrue(it.others.isEmpty())
+            assertEquals(0, it.sharedCount)
+            assertEquals(0, it.theirsCount)
+        }
     }
 }
