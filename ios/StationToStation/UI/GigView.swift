@@ -3,7 +3,12 @@ import SwiftUI
 // The Gig resolution: one night. Its real setlist as a spine, encores marked, and
 // the playlist conversion still here (iOS already had it; #52 keeps it) — on
 // swipe-left, the "act on this level" gesture, not a control. Reached by tapping
-// a Gig Node on the Timeline. Which action is offered is #177's question.
+// a Gig Node on the Timeline.
+//
+// What this Room offers and what sits in its Alcove is one value, decided once by
+// `gigOffers` (#177) and read by every part of the screen. Before this each part
+// worked it out again from a different subset: the playlist was offered mid-set,
+// on a night three weeks away, and on a night whose record holds nothing.
 
 private let ground = Color(red: 0x0E / 255, green: 0x0B / 255, blue: 0x14 / 255)
 private let raised = Color(red: 0x17 / 255, green: 0x12 / 255, blue: 0x1F / 255)
@@ -42,12 +47,13 @@ struct GigView: View {
     var body: some View {
         let show = model.state.selectedSetlist
         let rows = show.map(eventRows) ?? []
+        let offers = show.map { roomOffers(for: $0) }
         ZStack {
             ground.ignoresSafeArea()
             if let show {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        header(show)
+                        header(show, offers?.room)
                         if rows.isEmpty {
                             Text("No setlist was logged for this night on setlist.fm.")
                                 .font(.system(size: 13)).foregroundStyle(muted)
@@ -55,7 +61,7 @@ struct GigView: View {
                         } else {
                             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in songRow(row) }
                         }
-                        plannedActions(show)
+                        plannedActions(show, offers?.alcove)
                         // The night's grid (#99): what I shot, under what was played.
                         NightGrid()
                         // A Note is media too (#50, #170): a draft in the vault, a
@@ -103,14 +109,16 @@ struct GigView: View {
         .navigationBarBackButtonHidden(true)
         .navigationBarTitleDisplayMode(.inline)
         .swipeBack(nav)
-        // Act on this level: the playlist. Nothing to convert on a night nobody
-        // logged, so an empty setlist offers nothing rather than an empty screen.
-        .swipeLeft { if !rows.isEmpty { nav.push(.confirm) } }
+        // Act on this level: the Alcove, one step Inner. It holds exactly one thing
+        // and it may be empty — empty while the band plays, and empty on a night
+        // whose record nobody has filled in, where the playlist would convert
+        // nothing. The playlist is what remains once the night is recorded.
+        .swipeLeft { if offers?.alcove == .spotify { nav.push(.confirm) } }
         // The same move for VoiceOver, which takes the flick for itself. This used
         // to be a button, and the button was reachable; the gesture on its own is
         // not, so the grammar cannot cost a reader the action.
         .accessibilityAction(named: "Make a Spotify playlist") {
-            if !rows.isEmpty { nav.push(.confirm) }
+            if offers?.alcove == .spotify { nav.push(.confirm) }
         }
         .accessibilityAction(named: model.state.contactLight
             ? "Turn the contact light off"
@@ -141,14 +149,31 @@ struct GigView: View {
         model.state.friends.first { $0.setlistfm == key }?.name
     }
 
-    private func header(_ show: FmSetlist) -> some View {
-        // A night I'm going to, not one I was at (#175's claim, not `gigPlanned`
-        // membership). Manual check-in (#174) is the only one there is when
-        // location was refused or the venue couldn't be geocoded — same night
-        // window as the ambient offer, no location involved at all.
-        let provenance = model.state.selectedAttendance?.provenance
-        let planned = isPlanned(provenance)
-        let checkedIn = provenance == "checked_in"
+    /// The state of this night, as known — one value, decided once (#177).
+    ///
+    /// An editor nobody has typed in is not a **Log**: `state.gigLog` always holds
+    /// something so there is a thing to render, and the decision needs the difference
+    /// between "never started" and "started and still open".
+    private func roomOffers(for show: FmSetlist) -> GigOffers {
+        let log = model.state.gigLog
+        return gigOffers(
+            GigAsKnown(
+                window: show.eventDate.flatMap { nightWindow(gigDate: $0) },
+                provenance: model.state.selectedAttendance?.provenance,
+                log: log.songs.isEmpty && !log.closed ? nil : log,
+                setlistId: show.id,
+                songCount: show.performed().count,
+                calendarEvent: model.state.calendarEventByGig[show.id]
+            ),
+            now: Date()
+        )
+    }
+
+    private func header(_ show: FmSetlist, _ room: Room?) -> some View {
+        // Manual check-in (#174) is the only one there is when location was refused
+        // or the venue couldn't be geocoded — the **Room**'s own offer, the same
+        // night window the ambient one draws, no location involved at all.
+        let checkedIn = model.state.selectedAttendance?.provenance == "checked_in"
         return VStack(alignment: .leading, spacing: 4) {
             Text(show.readableDate() ?? "Unknown date")
                 .font(.system(size: 11, weight: .semibold)).kerning(1).foregroundStyle(faint)
@@ -158,7 +183,7 @@ struct GigView: View {
             if checkedIn {
                 Text("\u{2713} checked in").font(.system(size: 13)).foregroundStyle(amber)
                     .padding(.top, 6)
-            } else if planned, canCheckInManually(gig: show, now: Date()) {
+            } else if room?.checkIn == true {
                 Text("I'm here — check in").font(.system(size: 13)).foregroundStyle(amber)
                     .padding(.top, 6)
                     .onTapGesture { model.checkIn(show.id) }
@@ -169,25 +194,24 @@ struct GigView: View {
     }
 
     /// Calendar, maps and "I'm not going" (#175) — only for a gig I actually hold a
-    /// ticket for. The calendar offer stops once the night has passed: a gig that
-    /// already happened has nothing left to put on a calendar, exactly the `planAhead`
-    /// gate Android's leaf uses. Maps has no such gate — a venue is worth finding
-    /// whether the night is ahead or behind.
+    /// ticket for. Which of the two calendar words is showing, and whether either is,
+    /// comes from the **Alcove**: a gig that already happened, or one being stood at,
+    /// has nothing left to put on a calendar. Maps and "I'm not going" have no such
+    /// gate — a venue is worth finding whether the night is ahead or behind.
     @ViewBuilder
-    private func plannedActions(_ show: FmSetlist) -> some View {
+    private func plannedActions(_ show: FmSetlist, _ alcove: Alcove?) -> some View {
         if model.state.plannedGigs.contains(where: { $0.id == show.id }) {
-            let timeState = show.eventDate.flatMap { gigTimeState(now: Date(), gigDate: $0) }
-            let calendarEventId = model.state.calendarEventByGig[show.id]
             let mapsQuery = venueMapsQuery(venueName: show.venue?.name, city: show.venue?.city?.name)
             VStack(alignment: .leading, spacing: 10) {
-                if timeState != .past {
-                    if calendarEventId != nil {
-                        Label("Added to your calendar", systemImage: "checkmark.circle")
-                            .foregroundStyle(muted)
-                    } else {
-                        Button { model.addToCalendar(show) } label: {
-                            Label("Add to calendar", systemImage: "calendar.badge.plus")
-                        }
+                // The entry already made is the thing to open — it holds the location
+                // and does maps better — but opening it is Android's move and iOS has
+                // no door to it yet, so here it stays the word that it was made.
+                if alcove == .openCalendar {
+                    Label("Added to your calendar", systemImage: "checkmark.circle")
+                        .foregroundStyle(muted)
+                } else if alcove == .addToCalendar {
+                    Button { model.addToCalendar(show) } label: {
+                        Label("Add to calendar", systemImage: "calendar.badge.plus")
                     }
                 }
                 if let mapsQuery {

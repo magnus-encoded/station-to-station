@@ -11,9 +11,9 @@ import Foundation
 /// are read the same way and a device on a non-Gregorian calendar cannot change what a
 /// night means.
 ///
-/// `GigLeaf` and `nightWindow` are **not** here. They are the finer fold about what a
-/// **Gig** offers, which #177 owns and which Android has built but does not yet render
-/// (#129) — porting an unrendered fold would be guessing at its shape.
+/// `GigLeaf` and `nightWindow` are here now (#177): the finer fold about what a **Gig**
+/// offers is rendered on both platforms, so its shape is no longer a guess. What it
+/// decides lives in `GigOffers.swift`; only the clock is here.
 
 /// How many days out "approaching" starts counting down from.
 let approachingDays = 7
@@ -53,16 +53,56 @@ func gigDay(_ gigDate: String, calendar: Calendar = .current) -> Date? {
     return parser.date(from: gigDate)
 }
 
-/// Is `gigDate` happening now? False for every past night.
+/// When a **Gig** counts as still going on, as coarse or as fine as the caller knows.
 ///
-/// The window `gigTimeState` reuses to draw its day-of/past line, so the two cannot
-/// drift apart — the same reason Android shares `withinCheckInWindow` between them.
-func withinCheckInWindow(now: Date, gigDate: String, calendar: Calendar = .current) -> Bool {
+/// A window rather than an instant, and given to `gigLeaf` rather than computed by it,
+/// because precision here is entirely a property of the *source*. A festival announces no
+/// set times at all, so the honest window is the night, closing at `nightEndsHour` the
+/// next morning. Half-open: 06:00 sharp is already the next day, which is the line
+/// `gigTimeState` has always drawn.
+///
+/// The one window on this platform. `withinCheckInWindow`, the time state's day-of/past
+/// line and the **Room**'s check-in all read it, because two windows that can disagree
+/// eventually will.
+func nightWindow(gigDate: String, calendar: Calendar = .current) -> Range<Date>? {
     guard let day = gigDay(gigDate, calendar: calendar),
           let nextDay = calendar.date(byAdding: .day, value: 1, to: day),
           let ends = calendar.date(bySettingHour: nightEndsHour, minute: 0, second: 0, of: nextDay)
-    else { return false }
-    return now >= day && now < ends
+    else { return nil }
+    return day..<ends
+}
+
+/// Is `gigDate` happening now? False for every past night.
+func withinCheckInWindow(now: Date, gigDate: String, calendar: Calendar = .current) -> Bool {
+    nightWindow(gigDate: gigDate, calendar: calendar)?.contains(now) == true
+}
+
+/// What a **Gig**'s **Room** *offers first*, on the clock — the same rule as
+/// `gigTimeState` and #55, one step finer, and it governs **primacy only**.
+///
+/// Read that last part as a hard rule: time decides which action is the headline, never
+/// what remains possible. My own **Log** is editable forever — remembering a song three
+/// days later, or three years later, must cost nothing — so `publish` does not take the
+/// editor away, it just stops leading with it.
+enum GigLeaf {
+    /// Still ahead: the calendar, the invite, the map. Nothing has been played.
+    case plan
+    /// It is happening: note what they play. Publishing is not the headline mid-set.
+    case capture
+    /// Over: hand it to setlist.fm. The **Log** stays editable underneath.
+    case publish
+}
+
+/// The leaf, from a window and a claim.
+///
+/// `checkedIn` widens the opening edge and nothing else: standing there before the listed
+/// start is the strongest evidence the thing has begun, which is the same instinct
+/// `showsMediaBlock` already encodes. An undated **Gig** has no clock to follow, so it
+/// keeps the plan-ahead actions.
+func gigLeaf(now: Date, window: Range<Date>?, checkedIn: Bool = false) -> GigLeaf {
+    guard let window else { return .plan }
+    if now >= window.upperBound { return .publish }
+    return checkedIn || now >= window.lowerBound ? .capture : .plan
 }
 
 /// Whole days from `now`'s date to the gig's, ignoring the time of day — Android's
