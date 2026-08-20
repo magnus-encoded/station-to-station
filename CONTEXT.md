@@ -17,6 +17,7 @@ these words exactly; if a new concept appears, name it here **before** building 
 | **Crossing** | The single **Node** for a night two people were both at. There is exactly one — never one node each joined by a rung, which reads as two concerts. | merge point, shared node (acceptable informally), intersection |
 | **Joined** | The state of two **Lines** after a **Crossing**: they are one line, in the meeting's colour, and stay joined through a run of shared nights until one of them wasn't there. | merged (fine), braided, woven |
 | **Parting** | Where a **Joined** run ends because only one of them was at the next thing. The visitor draws its own way back to its **Lane**; my **Line** does not move. | split, diverge, unmerge |
+| **Hidden** | A **Line** tapped out of the legend at **Timelines resolution**: it is not drawn, it takes no **Lane**, and it is in no **Crossing** and no count. Tapping the name again brings it back, and the name stays in the legend struck through either way — a name you cannot see is a name you cannot restore. A reading aid and *nothing about the person*: not stored, not sent, and their **Gig resolution**, their media and **Reconcile** are untouched. **Lane colour** does not follow the re-pack. | filtered, muted, removed, unfollowed, blocked |
 
 ## Resolutions (the zoom ladder)
 

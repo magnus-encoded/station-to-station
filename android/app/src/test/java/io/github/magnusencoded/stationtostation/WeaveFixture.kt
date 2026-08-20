@@ -2,6 +2,7 @@ package io.github.magnusencoded.stationtostation
 
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.ui.WovenRow
+import io.github.magnusencoded.stationtostation.ui.visibleLanes
 import io.github.magnusencoded.stationtostation.ui.weaveTimelines
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import kotlinx.serialization.Serializable
@@ -35,14 +36,20 @@ internal object WeaveFixture {
             .firstOrNull { it.isDirectory }
             ?: error("fixtures/weave not found above ${File("").absolutePath}")
 
-    fun load(case: String): Pair<List<WovenRow>, List<Friend>> {
+    /**
+     * [hide] is the **Timelines** filter (#266) applied where the app applies it: a
+     * shorter friend list into the weave, and nothing else. What comes back is what a
+     * timeline with those people tapped out of the legend actually holds.
+     */
+    fun load(case: String, hide: Set<String> = emptySet()): Pair<List<WovenRow>, List<Friend>> {
         val doc = json.decodeFromString<Doc>(File(dir(), "$case/timelines.json").readText())
+        val friends = visibleLanes(doc.friends, hide)
         val rows = weaveTimelines(
             mine = doc.shows[doc.me].orEmpty(),
             festivalNames = doc.festivalNames,
-            friends = doc.friends,
+            friends = friends,
             theirs = doc.shows - doc.me,
         )
-        return rows to doc.friends
+        return rows to friends
     }
 }

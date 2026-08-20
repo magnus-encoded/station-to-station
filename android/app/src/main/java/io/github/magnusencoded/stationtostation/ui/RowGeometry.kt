@@ -73,8 +73,14 @@ internal sealed interface LineColour {
     /** My own **Spine**. Dimmer on a night I wasn't at. */
     data class Mine(val present: Boolean) : LineColour
 
-    /** A friend's **Lane**, by lane index. */
-    data class Rail(val lane: Int) : LineColour
+    /**
+     * A friend's **Lane**, by *colour* index — which is their position in the
+     * unfiltered lane list, not the lane they are drawn on. The two are the same
+     * until someone is hidden; after that the drawn lanes re-pack inward and the
+     * colours must not follow them, or hiding one person recolours everyone
+     * outside them and a colour you have learned stops meaning a person (#266).
+     */
+    data class Rail(val colourIndex: Int) : LineColour
 
     /** A **Line** running past a night nobody on it attended. */
     data object Absent : LineColour
@@ -108,6 +114,12 @@ internal val SpineLineX = SpineX + 1.dp
  *
  * A **Lane** that has not slid into view yet is absent from the result: the strip does
  * not stroke lines nobody can see.
+ *
+ * [lanes] is the *visible* lane list ([visibleLanes]), so hiding a person is nothing
+ * more than a shorter list — they take no **Lane**, notch no **Node** and are counted
+ * into no **Crossing**, with no case written for it anywhere below. [colours] is the
+ * other half: the colour index each visible lane keeps, from [laneColours]. Empty
+ * means "nobody is hidden", where drawn index and colour index are the same thing.
  */
 internal fun rowGeometry(
     row: WovenRow,
@@ -115,6 +127,7 @@ internal fun rowGeometry(
     lanes: List<Friend>,
     laneWidth: Dp,
     rowHeight: Dp,
+    colours: List<Int> = emptyList(),
 ): List<DrawnLine> {
     val step = laneStep(lanes.size)
     val strip = stripWidth(lanes.size)
@@ -135,6 +148,10 @@ internal fun rowGeometry(
     // special in that its own lane is the spine — so it never slides, and a crossing I
     // was at happens where I already am.
     val lines = listOf(Spine) + lanes.indices
+
+    // Which colour a drawn lane carries. The one place the two indices are told
+    // apart; everything else in this function is geometry and uses the drawn one.
+    fun colourOf(line: Int) = colours.getOrElse(line) { line }
 
     fun slideOf(line: Int) = if (line == Spine) 1f else (open - line).coerceIn(0f, 1f)
     fun xOf(offset: Int, line: Int): Dp = SpineLineX + (laneXf(offset, step) - SpineLineX) * slideOf(line)
@@ -183,10 +200,10 @@ internal fun rowGeometry(
             bendLen = minOf((rowHeight - nodeY - gap) * 0.8f, EdgeBend).coerceAtLeast(0.dp),
             present = here,
             people = people,
-            colour = roleOf(people, here, line),
+            colour = roleOf(people, here, line, colourOf(line)),
             width = widthOf(people),
             peopleAhead = ahead,
-            colourAhead = roleOf(ahead, here, line),
+            colourAhead = roleOf(ahead, here, line, colourOf(line)),
             widthAhead = widthOf(ahead),
         )
     }
@@ -198,10 +215,10 @@ internal fun rowGeometry(
  * it is alone again and takes its own colour back. Green comes from the *count*, so a
  * **Crossing** between two friends is green without me being one of them.
  */
-private fun roleOf(people: Int, present: Boolean, line: Int): LineColour = when {
+private fun roleOf(people: Int, present: Boolean, line: Int, colourIndex: Int): LineColour = when {
     people > 1 -> LineColour.Meeting
     line == Spine -> LineColour.Mine(present)
-    present -> LineColour.Rail(line)
+    present -> LineColour.Rail(colourIndex)
     else -> LineColour.Absent
 }
 

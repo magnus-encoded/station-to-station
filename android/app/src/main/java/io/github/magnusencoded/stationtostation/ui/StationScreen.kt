@@ -30,6 +30,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -111,8 +112,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
@@ -125,6 +128,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -405,7 +409,15 @@ fun StationTimelineScreen(
                     // is the same instance before and after, so remember() below could
                     // never see it change and the rows never rebuilt.
                     val expanded = state.openFestivals
-                    val lanes = remember(state.friends) { state.friends.reversed() }
+                    // The legend keeps the whole list — it has to offer a hidden person
+                    // back — and everything that draws reads the filtered one. #266.
+                    val allLanes = remember(state.friends) { state.friends.reversed() }
+                    val lanes = remember(allLanes, state.hiddenLines) {
+                        visibleLanes(allLanes, state.hiddenLines)
+                    }
+                    val colours = remember(allLanes, state.hiddenLines) {
+                        laneColours(allLanes, state.hiddenLines)
+                    }
                     // Springy rather than timed: the other lines settle into place like
                     // something physical arriving, instead of a panel sliding.
                     val laneWidth by animateDpAsState(
@@ -523,7 +535,13 @@ fun StationTimelineScreen(
                         // Whose line is whose, only while more than one is showing.
                         // Scrolls sideways: the key is the one thing that grows without
                         // limit as friends are added, and it must not push the line off.
-                        if (laneWidth > 0.dp) {
+                        //
+                        // Also the filter: tapping a name hides that line and tapping it
+                        // again brings it back, so the control sits where the names
+                        // already are rather than on a screen of its own. Shown while
+                        // zoomed out even with everyone hidden — a name you cannot see
+                        // is a name you cannot restore (#266).
+                        if (zoomedOut || laneWidth > 0.dp) {
                             Row(
                                 Modifier
                                     .horizontalScroll(rememberScrollState())
@@ -531,9 +549,14 @@ fun StationTimelineScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 LaneKey(Amber, "You")
-                                lanes.forEachIndexed { i, friend ->
+                                allLanes.forEachIndexed { i, friend ->
                                     Spacer(Modifier.width(14.dp))
-                                    LaneKey(railColor(i), friend.name)
+                                    LaneKey(
+                                        color = railColor(i),
+                                        label = friend.name,
+                                        hidden = friend.setlistfm in state.hiddenLines,
+                                        onToggle = { viewModel.toggleLineHidden(friend.setlistfm) },
+                                    )
                                 }
                             }
                         }
@@ -555,7 +578,7 @@ fun StationTimelineScreen(
                                 expanded = expanded,
                             )
                         }
-                        LaunchedEffect(rows, lanes) { logWovenRows(rows, lanes) }
+                        LaunchedEffect(rows, lanes) { logWovenRows(rows, lanes, colours) }
                         // Everything above today, in one date-ordered list — furthest
                         // out first, the same descending order the attended rows use.
                         // Hoisted out of the LazyColumn because the deep-link scroll
@@ -790,7 +813,7 @@ fun StationTimelineScreen(
                             itemsIndexed(rows, key = { _, row -> row.key }) { index, row ->
                                 val isFirst = index == 0
                                 val rails: @Composable () -> Unit =
-                                    { PeopleRails(row, rows.getOrNull(index + 1), lanes, laneWidth) }
+                                    { PeopleRails(row, rows.getOrNull(index + 1), lanes, laneWidth, colours) }
                                 val nodeX = crossingX(row, lanes, laneWidth)
                                 when (val node = row.node) {
                                     is TimelineNode.Concert -> {
@@ -838,8 +861,10 @@ fun StationTimelineScreen(
                                         theirCount = row.theirsCount,
                                         // Company has a colour of its own — a night two
                                         // friends shared is nobody's lane colour either.
+                                        // …and the lane colour is the host's *stable* one,
+                                        // so hiding someone never repaints this (#266).
                                         theirColor = if (row.others.size > 1) Crossed
-                                        else railColor(nodeHost(row, lanes).coerceAtLeast(0)),
+                                        else railColor(colours.getOrElse(nodeHost(row, lanes)) { 0 }),
                                         unlit = state.contactLight,
                                         rails = rails,
                                         onClick = {
@@ -1537,11 +1562,35 @@ internal fun TimelineItem(
 }
 
 @Composable
-private fun LaneKey(color: Color, label: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.width(3.dp).height(12.dp).background(color))
+private fun LaneKey(
+    color: Color,
+    label: String,
+    hidden: Boolean = false,
+    onToggle: (() -> Unit)? = null,
+) {
+    Row(
+        Modifier
+            .then(
+                // A real toggle rather than a tap handler, so a switch or keyboard user
+                // gets the control and TalkBack says which way it is before they use it.
+                if (onToggle == null) Modifier
+                else Modifier
+                    .toggleable(value = !hidden, role = Role.Switch) { onToggle() }
+                    .semantics { stateDescription = if (hidden) "hidden" else "shown" },
+            )
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Hidden is said twice over: the swatch goes out and the name is struck
+        // through, so the state survives a colour the reader cannot discriminate.
+        Box(Modifier.width(3.dp).height(12.dp).background(if (hidden) Faint else color))
         Spacer(Modifier.width(5.dp))
-        Text(label, color = Muted, fontSize = 11.sp)
+        Text(
+            label,
+            color = if (hidden) Faint else Muted,
+            fontSize = 11.sp,
+            textDecoration = if (hidden) TextDecoration.LineThrough else null,
+        )
     }
 }
 
@@ -1567,6 +1616,37 @@ internal fun stripWidth(count: Int): Dp = laneStep(count) * count
 
 /** My own line. Not a lane: it is the fixed thing every lane is measured against. */
 internal const val Spine = -1
+
+/**
+ * The **Lanes** actually drawn: everyone in lane order, minus the people tapped out of
+ * the legend. [hidden] holds setlist.fm usernames, the same key the friends list itself
+ * de-duplicates on.
+ *
+ * **The one place hiding is applied** (#266). Every consumer of the lane list — the
+ * weave that builds the rows, [rowGeometry], [nodeHost], [crossingX] and the dump — is
+ * handed this list, so none of them learns that filtering exists and none of them can
+ * disagree about who is on screen. A hidden person is not in a row's other-attendees,
+ * so they place no **Line**, count into no **Crossing**, and drop out of a **Festival**'s
+ * **Together** and **Theirs** by construction rather than by a second subtraction.
+ *
+ * A reading aid and nothing else: it is not stored, nothing is sent, and it says
+ * nothing about the relationship — a hidden **Contact**'s **Gig resolution**, media and
+ * **Reconcile** are untouched, because none of them reads a lane list.
+ */
+internal fun visibleLanes(lanes: List<Friend>, hidden: Set<String>): List<Friend> =
+    if (hidden.isEmpty()) lanes else laneColours(lanes, hidden).map(lanes::get)
+
+/**
+ * The colour index each visible **Lane** keeps: its position in the *unfiltered* list.
+ *
+ * The one thing the seam above does not give for free. **Lane colour** is taken from an
+ * index, and the drawn index re-packs when someone is hidden — so without this, hiding
+ * one person repaints everyone outside them and a colour you have learned to read stops
+ * meaning a person. Kept here rather than in the canvas so "hiding does not recolour
+ * anyone" is assertable with no canvas and no device.
+ */
+internal fun laneColours(lanes: List<Friend>, hidden: Set<String>): List<Int> =
+    lanes.indices.filterNot { lanes[it].setlistfm in hidden }
 
 /**
  * A line index in points. [Spine] is -1, so lane 0 sits one step out from my spine.
@@ -1667,7 +1747,11 @@ private val DumpRowHeight = 96.dp
  * fully open strip — so a picture that looks wrong converts into a failing test by
  * copying numbers out of this log.
  */
-internal fun logWovenRows(rows: List<WovenRow>, lanes: List<Friend>) {
+internal fun logWovenRows(
+    rows: List<WovenRow>,
+    lanes: List<Friend>,
+    colours: List<Int> = emptyList(),
+) {
     if (!BuildConfig.DEBUG) return
     val laneWidth = stripWidth(lanes.size)
     Log.d(
@@ -1689,7 +1773,7 @@ internal fun logWovenRows(rows: List<WovenRow>, lanes: List<Friend>) {
                 "here=${row.showsHereByFriends.size} " +
                 "host=${nodeHost(row, lanes)} $where key=${row.key}",
         )
-        rowGeometry(row, rows.getOrNull(i + 1), lanes, laneWidth, DumpRowHeight).forEach { d ->
+        rowGeometry(row, rows.getOrNull(i + 1), lanes, laneWidth, DumpRowHeight, colours).forEach { d ->
             Log.d(
                 "Woven",
                 "    ${lineLabel(d.line, lanes)} x=${d.x.value}→${d.toX.value} " +
@@ -1706,7 +1790,7 @@ internal fun logWovenRows(rows: List<WovenRow>, lanes: List<Friend>) {
 private fun LineColour.paint(): Color = when (this) {
     LineColour.Meeting -> Crossed
     is LineColour.Mine -> Amber.copy(alpha = if (present) 0.85f else 0.4f)
-    is LineColour.Rail -> railColor(lane)
+    is LineColour.Rail -> railColor(colourIndex)
     LineColour.Absent -> LineCol
 }
 
@@ -1722,14 +1806,14 @@ internal fun PeopleRails(
     next: WovenRow?,
     friends: List<Friend>,
     laneWidth: Dp,
+    colours: List<Int> = emptyList(),
 ) {
     if (laneWidth <= 0.dp || friends.isEmpty()) return
     Canvas(Modifier.fillMaxSize()) {
         val h = size.height
-        val drawn = rowGeometry(row, next, friends, laneWidth, h.toDp())
+        val drawn = rowGeometry(row, next, friends, laneWidth, h.toDp(), colours)
         val ring = Stroke(width = 2.dp.toPx())
         val nodeAt = nodeHost(row, friends)
-        val joined = linesAt(row, friends).size > 1
 
         drawn.forEach { d ->
             val x = d.x.toPx()
@@ -1767,8 +1851,11 @@ internal fun PeopleRails(
             val drawsNode = d.present && !row.mine && row.node !is TimelineNode.Festival &&
                 d.line == nodeAt
             if (drawsNode) {
+                // The role this line already carries, not a second colour decision:
+                // company here *is* people > 1, and the lane's colour is its stable
+                // one, which a drawn index stops being once anyone is hidden (#266).
                 drawCircle(
-                    if (joined) Crossed else railColor(d.line),
+                    d.colour.paint(),
                     6.dp.toPx(),
                     Offset(x, nodeY),
                     style = ring,
