@@ -1,6 +1,7 @@
 package io.github.magnusencoded.stationtostation
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
@@ -20,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -38,6 +40,7 @@ import io.github.magnusencoded.stationtostation.ui.SettingsScreen
 import io.github.magnusencoded.stationtostation.ui.SplashScreen
 import io.github.magnusencoded.stationtostation.ui.StationEventScreen
 import io.github.magnusencoded.stationtostation.ui.StationTimelineScreen
+import io.github.magnusencoded.stationtostation.ui.flyover.GigFlyoverScreen
 import kotlinx.coroutines.flow.map
 
 class MainActivity : ComponentActivity() {
@@ -235,11 +238,27 @@ fun AppNavigation(viewModel: AppViewModel) {
             )
         }
         composable("event") {
-            StationEventScreen(
-                viewModel = viewModel,
-                onBack = { navController.popBackStack() },
-                onConvert = { navController.navigate("confirm") },
-            )
+            // **The flyover replaces the landscape view** (#278). Not a second mode and
+            // not a re-layout of the room: turned sideways, a night is a read-only walk
+            // down its own spine, and the room's editing surfaces are absent because
+            // typing here is bad regardless — the IME takes two thirds of 411dp.
+            //
+            // Branched at the destination rather than inside the room, so neither screen
+            // carries a modifier the other has to read around. Rotating recreates the
+            // activity and the back stack is restored, so the night stays open across
+            // the turn.
+            if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+                GigFlyoverScreen(
+                    viewModel = viewModel,
+                    onBack = { navController.popBackStack() },
+                )
+            } else {
+                StationEventScreen(
+                    viewModel = viewModel,
+                    onBack = { navController.popBackStack() },
+                    onConvert = { navController.navigate("confirm") },
+                )
+            }
         }
         composable("search") {
             SearchScreen(

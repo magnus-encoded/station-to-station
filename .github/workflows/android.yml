@@ -45,3 +45,20 @@ jobs:
         with:
           name: app-debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      # The same code non-debuggable. Costs about a minute a run, and buys the only
+      # artifact a performance number may be taken from — see docs/measuring-on-device.md.
+      # Built every time rather than on demand: an artifact that is usually absent is one
+      # nobody reaches for, and "why is there no APK on this run" is its own detour.
+      - name: Build measure APK
+        working-directory: android
+        env:
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+          SETLISTFM_API_KEY: ${{ secrets.SETLISTFM_API_KEY }}
+        run: ./gradlew --no-daemon assembleMeasure
+
+      - name: Upload measure APK artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-measure
+          path: android/app/build/outputs/apk/measure/app-measure.apk

@@ -129,6 +129,30 @@ android {
             applicationIdSuffix = ".debug"
         }
 
+        // The debug loop's artifact with exactly one flag moved: the only build a
+        // performance number may be read off (docs/measuring-on-device.md, which asks
+        // for precisely this second artifact when performance stops being an
+        // impression and becomes a question).
+        //
+        // Deliberately not `release`: that one carries the upload key and a versionCode
+        // meant for Play, so comparing against it would move three things at once. This
+        // keeps the debug package id and the committed debug key, so it installs
+        // straight over a debug build without wiping data — and `-measure` in the
+        // version on screen is how you tell which of the two is on the phone.
+        //
+        // Note what moving the flag costs, per the same doc: BuildConfig.DEBUG follows
+        // isDebuggable and not the build type's name, so the Woven geometry dump is off
+        // here. That is the price of a real number, not a bug to chase.
+        create("measure") {
+            initWith(getByName("debug"))
+            isDebuggable = false
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "${System.getenv("GITHUB_RUN_NUMBER")?.let { ".$it" } ?: ""}-measure"
+            // A build type other than `debug` is unsigned unless told otherwise, and an
+            // unsigned APK does not install.
+            signingConfig = signingConfigs.getByName("debug")
+        }
+
         release {
             isMinifyEnabled = false
             signingConfigs.findByName("release")?.let { signingConfig = it }

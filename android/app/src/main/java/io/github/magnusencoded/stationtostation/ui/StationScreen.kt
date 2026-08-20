@@ -2679,7 +2679,7 @@ private fun VerdictThumbs(current: String?, onVerdict: (String?) -> Unit) {
     }
 }
 
-private fun verdictGlyph(verdict: String?): String = when (verdict) {
+internal fun verdictGlyph(verdict: String?): String = when (verdict) {
     StoredMedia.Verdict.DOWN -> "👎"
     StoredMedia.Verdict.UP -> "👍"
     StoredMedia.Verdict.DOUBLE_UP -> "👍👍"
