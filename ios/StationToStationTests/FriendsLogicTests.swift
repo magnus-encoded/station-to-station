@@ -65,6 +65,19 @@ final class FriendsLogicTests: XCTestCase {
         XCTAssertNil(parsed?.spotifyId)
     }
 
+    /// #271: a link cannot make a **Contact**. Holding a key is what makes one, and a
+    /// **Contact** is not addable remotely — so a crafted `k` on the link is dropped and
+    /// the **Card** arrives keyless, a **Followed line** and nothing more. iOS already
+    /// behaved this way and nothing pinned it, which is how Android drifted; this is the
+    /// regression lock, mirroring `FriendLinkTest.aLinkNeverCarriesAKey`.
+    func testFriendLinkNeverCarriesAKey() {
+        let url = URL(string: "station-to-station://friend?u=dizzi90&name=Magnus&sid=dizziness&k=base64-key")!
+        let parsed = friendFromURL(url)
+        // Narrow refusal: the key is gone, the rest of the link still arrives.
+        XCTAssertEqual(Friend(setlistfm: "dizzi90", name: "Magnus", spotifyId: "dizziness"), parsed)
+        XCTAssertNil(parsed?.publicKey)
+    }
+
     // #79: links shared before the station-to-station rename must still resolve.
     func testFriendLinkResolvesOnTheLegacyScheme() {
         let url = URL(string: "setlist2spotify://friend?u=magnus.vikan&name=Magnus&sid=dizzi")!

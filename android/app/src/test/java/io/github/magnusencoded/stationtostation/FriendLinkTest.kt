@@ -39,13 +39,28 @@ class FriendLinkTest {
         assertNull(friendFromQuery("  ", "Magnus", null))
     }
 
-    @Test fun carriesThePublicKeyWhenPresent() {
-        val friend = Friend(setlistfm = "dizzi90", name = "Magnus", publicKey = "base64-key")
-        assertEquals(friend, friendFromQuery(friend.setlistfm, friend.name, null, friend.publicKey))
-    }
+    /**
+     * #271: a link cannot make a **Contact**. Holding a key is what makes one, and a
+     * **Contact** is not addable remotely — so the parser takes no key at all and the
+     * **Card** it hands back has none. The refusal is narrow: the rest of the link
+     * still arrives, so this is a door closed rather than a parser that stopped working.
+     *
+     * The signature is the enforcement — a `k` argument cannot be passed because there
+     * is nowhere to pass it. The reflection line is what fails if someone adds one back
+     * as a convenience: an added parameter (default or not) leaves the three-argument
+     * form compiling and every value assertion below still green.
+     */
+    @Test fun aLinkNeverCarriesAKey() {
+        val card = friendFromQuery("dizzi90", "Magnus", "dizziness")
+        assertEquals(Friend(setlistfm = "dizzi90", name = "Magnus", spotifyId = "dizziness"), card)
+        assertNull(card?.publicKey)
 
-    @Test fun keyDegradesToNullWhenAbsentOrBlank() {
-        assertNull(friendFromQuery("alice", null, null, null)?.publicKey)
-        assertNull(friendFromQuery("alice", null, null, "  ")?.publicKey)
+        val parser = Class.forName("io.github.magnusencoded.stationtostation.data.FriendsKt")
+            .declaredMethods.single { it.name == "friendFromQuery" }
+        assertEquals(
+            "friendFromQuery takes u/name/sid and nothing else — see #271",
+            3,
+            parser.parameterCount,
+        )
     }
 }
