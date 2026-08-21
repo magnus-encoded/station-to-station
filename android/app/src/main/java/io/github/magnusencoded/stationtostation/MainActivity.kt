@@ -20,6 +20,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -169,7 +170,13 @@ fun AppNavigation(viewModel: AppViewModel) {
     // A handover can begin from outside any screen: the QR is read by the phone's camera
     // app, which opens the deep link, which starts the receiving side. Whatever was on
     // screen, that is the thing to be looking at.
-    val handoverRole by viewModel.state.map { it.handover.role }.collectAsStateWithLifecycle(null)
+    //
+    // Remembered, because mapping in the composition builds a new Flow on every
+    // recomposition — each one restarting the collection from null, which flaps the
+    // LaunchedEffect key below and re-navigates. launchSingleTop hid it; it was never
+    // the guard.
+    val handoverRole by remember(viewModel) { viewModel.state.map { it.handover.role } }
+        .collectAsStateWithLifecycle(null)
     LaunchedEffect(handoverRole) {
         if (handoverRole != null) navController.navigate("handover") { launchSingleTop = true }
     }
