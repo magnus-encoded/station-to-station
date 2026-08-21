@@ -1,0 +1,151 @@
+name: SlopGuard
+
+# Tags only. The analyzers drive a full test-with-coverage run on both platforms —
+# far too slow to hang off every push, and "what did we ship" is the question a
+# CRAP score actually answers.
+#
+# Nothing here can fail a release. slopguard-swift and slopguard-kotlin are both
+# alpha (v0.1.x, schema still moving), so every step that touches them ends in a
+# `|| echo "::warning::"` and the report is treated as absent if it isn't valid
+# JSON. A broken analyzer costs a warning annotation, never a red tag.
+on:
+  push:
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  kotlin:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      # slopguard-kotlin runs the project's own `./gradlew` to get coverage, so the
+      # flag has to be on the build it invokes — but putting it in app/build.gradle.kts
+      # would put an AGP API the release build depends on behind an alpha tool's
+      # requirements. An init script in ~/.gradle/init.d applies to this runner only:
+      # if AGP ever drops `enableUnitTestCoverage`, the slopguard job warns and the
+      # release workflow never notices.
+      - name: Enable AGP unit-test coverage for this runner
+        run: |
+          mkdir -p ~/.gradle/init.d
+          cat > ~/.gradle/init.d/slopguard-coverage.gradle <<'EOF'
+          allprojects {
+              plugins.withId("com.android.application") {
+                  android.buildTypes.debug.enableUnitTestCoverage = true
+              }
+          }
+          EOF
+
+      - name: Build slopguard-kotlin
+        run: |
+          git clone --depth 1 https://github.com/JeevanThandi/slopguard-kotlin.git "$RUNNER_TEMP/slopguard-kotlin"
+          cd "$RUNNER_TEMP/slopguard-kotlin"
+          ./gradlew --no-daemon :app:installDist \
+            || echo "::warning::slopguard-kotlin failed to build; skipping the Kotlin CRAP report"
+
+      - name: Analyze
+        working-directory: android
+        env:
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+          SETLISTFM_API_KEY: ${{ secrets.SETLISTFM_API_KEY }}
+        run: |
+          bin="$RUNNER_TEMP/slopguard-kotlin/app/build/install/slopguard-kotlin/bin/slopguard-kotlin"
+          [ -x "$bin" ] || { echo "::warning::no slopguard-kotlin binary; skipping"; exit 0; }
+          # AGP writes its native JaCoCo XML under build/reports/coverage, which
+          # slopguard-kotlin's report finder already scans.
+          "$bin" analyze --path app/src/main/java \
+            --coverage-tool jacoco \
+            --gradle-test-task testDebugUnitTest \
+            --gradle-report-task createDebugUnitTestCoverageReport \
+            --json --quiet > "$RUNNER_TEMP/slopguard-kotlin.json" \
+            || echo "::warning::slopguard-kotlin analysis failed; see the step log"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: slopguard-kotlin-report
+          path: ${{ runner.temp }}/slopguard-kotlin.json
+          if-no-files-found: ignore
+
+      - name: File review issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          report="$RUNNER_TEMP/slopguard-kotlin.json"
+          jq -e '.methods' "$report" >/dev/null 2>&1 \
+            || { echo "::warning::no usable slopguard-kotlin report; no issues filed"; exit 0; }
+          tools/slopguard_issues.sh "$report" kotlin "$GITHUB_REF_NAME"
+
+  swift:
+    runs-on: macos-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v7
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      # The published binary rather than a source build: slopguard-swift pulls in
+      # swift-syntax, and compiling that costs more than the analysis it enables.
+      - name: Install slopguard-swift
+        run: |
+          gh release download --repo JeevanThandi/SlopGuard-Swift \
+            --pattern '*macos-universal.tar.gz' --dir "$RUNNER_TEMP" \
+            && tar xzf "$RUNNER_TEMP"/*macos-universal.tar.gz -C "$RUNNER_TEMP" \
+            || echo "::warning::could not install slopguard-swift; skipping the Swift CRAP report"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Select an available iOS Simulator
+        id: sim
+        run: |
+          udid=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $2; exit}')
+          echo "Using simulator $udid"
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+
+      - name: Analyze
+        working-directory: ios
+        run: |
+          bin=$(find "$RUNNER_TEMP" -maxdepth 3 -name slopguard-swift -type f -perm +111 | head -1)
+          [ -n "$bin" ] || { echo "::warning::no slopguard-swift binary; skipping"; exit 0; }
+          "$bin" analyze --path StationToStation \
+            --scheme StationToStation \
+            --destination "id=${{ steps.sim.outputs.udid }}" \
+            --json --quiet > "$RUNNER_TEMP/slopguard-swift.json" \
+            || echo "::warning::slopguard-swift analysis failed; see the step log"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: slopguard-swift-report
+          path: ${{ runner.temp }}/slopguard-swift.json
+          if-no-files-found: ignore
+
+      - name: File review issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          report="$RUNNER_TEMP/slopguard-swift.json"
+          jq -e '.methods' "$report" >/dev/null 2>&1 \
+            || { echo "::warning::no usable slopguard-swift report; no issues filed"; exit 0; }
+          tools/slopguard_issues.sh "$report" swift "$GITHUB_REF_NAME"
