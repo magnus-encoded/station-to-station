@@ -25,7 +25,7 @@ Issues elsewhere may be edited freely; this rule is for `docs/adr/` only.
 | [0003](0003-no-backend-for-the-social-layer.md) | No backend for the social layer | accepted |
 | [0004](0004-best-effort-enrichment.md) | Best-effort enrichment, and the scoped invariant | accepted |
 | [0005](0005-a-revocable-cache-clause-disqualifies-a-source.md) | A revocable cache clause disqualifies a data source | accepted |
-| [0006](0006-the-corridor-is-the-navigability-test.md) | The corridor is the navigability test | accepted |
+| [0006](0006-the-corridor-is-the-navigability-test.md) | The corridor is the navigability test | accepted; ~~binds navigation~~ **binds topology** (amended 2026-08-25) |
 | [0016](0016-presence-is-the-authentication.md) | Presence is the authentication, so the radio is not verified | accepted |
 | [0017](0017-platform-native-at-both-faces.md) | Platform-native at both faces, identical in between | accepted |
 
@@ -53,7 +53,8 @@ the tensions live *between* the ADRs and no single one holds them.
 ## Reading order
 
 0003 first if you are new: most of the rest sits on it, and 0004 follows from it directly. 0001
-governs day-to-day code structure and 0006 governs anything that adds navigation. 0002 and 0005 are
+governs day-to-day code structure and 0006 governs anything that adds a place or a route between
+places — its topology, not the control that carries you. 0002 and 0005 are
 narrower and can be read when you touch dates or data sources. 0016 before touching anything that
 hands over a **Card** — a radio, a link, a code — or before proposing a handshake for one. 0017 before
 touching UI on either platform, with 0001 and 0006 beside it: the three together are the parity model,
