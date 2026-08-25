@@ -201,7 +201,7 @@ dependencies {
     implementation("androidx.exifinterface:exifinterface:1.4.2")
 
     implementation("com.squareup.okhttp3:okhttp:5.5.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     // Encodes the friend card as a QR the other phone's camera can open — the
     // deep link is already registered, so no in-app scanner is needed.
