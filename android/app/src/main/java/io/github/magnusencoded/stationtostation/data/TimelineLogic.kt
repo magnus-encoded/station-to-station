@@ -6,6 +6,7 @@ import io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmClient
 import io.github.magnusencoded.stationtostation.ui.NIGHT_ENDS
 import io.github.magnusencoded.stationtostation.ui.TimelineNode
 import io.github.magnusencoded.stationtostation.ui.groupIntoFestivals
+import java.time.LocalDateTime
 import java.util.Locale
 
 /**
@@ -199,6 +200,23 @@ private fun ScrapedFestival.toStoredFestival(): StoredFestival? {
  */
 private fun playedLast(time: String): String =
     if (time < NIGHT_ENDS.toString()) "~$time" else time
+
+/**
+ * When a **Gig** was scheduled to go on, or null — which is most of the line.
+ *
+ * The second rung of the walk's running order (#313) had no source until now: the
+ * composer carries a `startsAt` per **Gig**, `FmSetlist` has no set time at all, and
+ * the **Programme** was the only record that did. #166's festival-page parse is the
+ * missing one — [StoredFestival.setTimes] is what that scrape found, and it is the
+ * same evidence the headliner ladder already reads.
+ *
+ * Null where the page published no time, or where the night has no date to hang one
+ * on. The ladder degrades on its own from there, to the order the source gave.
+ */
+fun scheduledStart(setlist: FmSetlist, festivals: Festivals): LocalDateTime? {
+    val hhmm = festivals.of(setlist.id)?.setTimes?.get(setlist.id) ?: return null
+    return setlist.localDate()?.let { setTimeOnNight(it, hhmm) }
+}
 
 class TimelineLogic(private val plumbing: TimelinePlumbing) {
 

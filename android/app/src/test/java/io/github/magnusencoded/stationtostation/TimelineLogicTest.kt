@@ -6,6 +6,7 @@ import io.github.magnusencoded.stationtostation.data.LoadedSpine
 import io.github.magnusencoded.stationtostation.data.StoredFestival
 import io.github.magnusencoded.stationtostation.data.TimelineLogic
 import io.github.magnusencoded.stationtostation.data.TimelinePlumbing
+import io.github.magnusencoded.stationtostation.data.scheduledStart
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.ScrapedFestival
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
@@ -13,8 +14,10 @@ import io.github.magnusencoded.stationtostation.data.setlistfm.FmVenue
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDateTime
 
 /**
  * The logic layer above the plumbing (ADR-0001). Case for case with iOS's
@@ -173,6 +176,56 @@ class TimelineLogicTest {
     fun `a name with nothing known is just Setlist`() {
         val gig = FmSetlist(id = "a")
         assertEquals("Setlist", TimelineLogic.playlistName(gig, listOf(gig), Festivals()))
+    }
+
+    // --- The set times the walk asks for ---
+    //
+    // #313's running order has a rung for "the scheduled set time, where the record has
+    // one", and until now nothing supplied it: `FmSetlist` carries no set time and the
+    // **Programme** was the only record that did. The festival page is the other one.
+
+    /** The identity as it comes back with set times on it. See [scraped]. */
+    private fun withSetTimes(shows: List<FmSetlist>, times: Map<String, String>) = Festivals(
+        byId = mapOf(
+            "tor" to StoredFestival(id = "tor", name = "Tons of Rock 2026", setTimes = times),
+        ),
+        idByShow = shows.associate { it.id to "tor" },
+    )
+
+    @Test
+    fun `a set time the festival page published is the gig's start`() {
+        val mine = oneEvening() // both on 25-06-2026
+        val festivals = withSetTimes(mine, mapOf("a" to "19:30", "b" to "22:00"))
+        assertEquals(
+            LocalDateTime.of(2026, 6, 25, 19, 30),
+            scheduledStart(mine[0], festivals),
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 6, 25, 22, 0),
+            scheduledStart(mine[1], festivals),
+        )
+    }
+
+    @Test
+    fun `a set after midnight closes its own night rather than opening it`() {
+        // The same boundary the headliner ladder draws, and for the same reason: a
+        // 00:30 slot handed to the walk as 00:30 on the 25th would open the evening.
+        val mine = oneEvening()
+        val festivals = withSetTimes(mine, mapOf("b" to "00:30"))
+        assertEquals(
+            LocalDateTime.of(2026, 6, 26, 0, 30),
+            scheduledStart(mine[1], festivals),
+        )
+    }
+
+    @Test
+    fun `a night with no published set time has no start`() {
+        // Most of the line. The rung is empty and the order falls through to the next
+        // one, which is what "degrades rather than blocks" means here.
+        val mine = oneEvening()
+        assertNull(scheduledStart(mine[0], withSetTimes(mine, emptyMap())))
+        // And a night at no festival at all has nowhere for one to come from.
+        assertNull(scheduledStart(mine[0], Festivals()))
     }
 
     // --- The sequence ---
