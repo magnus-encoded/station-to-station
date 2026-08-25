@@ -174,7 +174,10 @@ fun FriendsScreen(
                         supportingContent = { Text("@${friend.setlistfm}") },
                         trailingContent = {
                             IconButton(onClick = { viewModel.removeFriend(friend) }) {
-                                Icon(Icons.Default.Delete, contentDescription = "Remove friend")
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Remove ${friend.name}",
+                                )
                             }
                         },
                         modifier = Modifier.clickable {

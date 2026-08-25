@@ -73,6 +73,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -113,7 +114,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Dp
@@ -1263,7 +1267,8 @@ private fun EmptyTimeline(onAdd: () -> Unit, onPlan: () -> Unit, onAddByHand: ()
                 .clip(CircleShape)
                 .background(AmberSoft)
                 .border(1.5.dp, Amber, CircleShape)
-                .clickable(onClick = onAdd),
+                .clickable(onClick = onAdd)
+                .semantics { contentDescription = "Add your first show" },
             contentAlignment = Alignment.Center,
         ) { Text("+", color = Amber, fontSize = 28.sp) }
         Box(Modifier.width(2.dp).height(30.dp).background(LineCol))
@@ -2667,12 +2672,18 @@ private fun VerdictThumbs(current: String?, onVerdict: (String?) -> Unit) {
             StoredMedia.Verdict.UP,
             StoredMedia.Verdict.DOUBLE_UP,
         ).filter { current == null || current == it }.forEach { v ->
+            val selected = current == v
             Text(
                 verdictGlyph(v),
-                color = if (current == v) Amber else Faint,
+                color = if (selected) Amber else Faint,
                 fontSize = 15.sp,
                 modifier = Modifier
-                    .clickable { onVerdict(if (current == v) null else v) }
+                    .clickable { onVerdict(if (selected) null else v) }
+                    .semantics {
+                        contentDescription = verdictLabel(v)
+                        this.selected = selected
+                        role = Role.Button
+                    }
                     .padding(end = 10.dp, top = 2.dp, bottom = 2.dp),
             )
         }
@@ -2684,6 +2695,13 @@ internal fun verdictGlyph(verdict: String?): String = when (verdict) {
     StoredMedia.Verdict.UP -> "👍"
     StoredMedia.Verdict.DOUBLE_UP -> "👍👍"
     else -> ""
+}
+
+private fun verdictLabel(verdict: String?): String = when (verdict) {
+    StoredMedia.Verdict.DOWN -> "Rate down"
+    StoredMedia.Verdict.UP -> "Rate up"
+    StoredMedia.Verdict.DOUBLE_UP -> "Rate up twice"
+    else -> "Rate"
 }
 
 /**
@@ -2748,18 +2766,26 @@ private fun MediaTile(
                 Modifier
                     .align(Alignment.TopEnd)
                     .padding(3.dp)
-                    .size(20.dp)
-                    .clip(CircleShape)
-                    .background(Danger)
+                    // The visible chip stays 20dp, but the tap target itself is
+                    // padded out to the 48dp minimum so it's actually reachable.
+                    .minimumInteractiveComponentSize()
                     .clickable { onRemove(item) },
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    Icons.Filled.Close,
-                    contentDescription = "Remove",
-                    tint = Color.White,
-                    modifier = Modifier.size(13.dp),
-                )
+                Box(
+                    Modifier
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .background(Danger),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "Remove",
+                        tint = Color.White,
+                        modifier = Modifier.size(13.dp),
+                    )
+                }
             }
         }
     }
@@ -4005,7 +4031,10 @@ private fun RemoveLogEntry(onRemove: () -> Unit) {
         "×",
         color = Faint,
         fontSize = 20.sp,
-        modifier = Modifier.clickable(onClick = onRemove).padding(horizontal = 10.dp),
+        modifier = Modifier
+            .clickable(onClick = onRemove)
+            .semantics { contentDescription = "Remove" }
+            .padding(horizontal = 10.dp),
     )
 }
 

@@ -59,6 +59,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -78,6 +79,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -265,7 +271,11 @@ private fun ConfirmScreenContent(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                Switch(checked = state.playlistPublic, onCheckedChange = viewModel::setPlaylistPublic)
+                Switch(
+                    checked = state.playlistPublic,
+                    onCheckedChange = viewModel::setPlaylistPublic,
+                    modifier = Modifier.semantics { contentDescription = "Public playlist" },
+                )
             }
             Spacer(Modifier.height(8.dp))
             // Without a date there is no window to search the gallery for.
@@ -630,15 +640,30 @@ private fun SongMatchRow(
                     Modifier
                         .align(Alignment.TopCenter)
                         .padding(top = 2.dp)
-                        .size(18.dp)
-                        .clip(CircleShape)
-                        .background(if (on) SpotifyGreen else Raised)
-                        .border(1.5.dp, nodeColor, CircleShape)
-                        .clickable(enabled = match.selected != null, onClick = onToggleIncluded),
+                        .minimumInteractiveComponentSize()
+                        .clickable(enabled = match.selected != null, onClick = onToggleIncluded)
+                        .semantics {
+                            contentDescription = when {
+                                match.selected == null -> "No Spotify match — ${match.song.name}"
+                                on -> "Included in playlist — ${match.song.name}"
+                                else -> "Not included in playlist — ${match.song.name}"
+                            }
+                            this.selected = on
+                            role = Role.Button
+                        },
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (number != null) {
-                        Text(number.toString(), color = OnGreen, fontSize = 10.sp)
+                    Box(
+                        Modifier
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .background(if (on) SpotifyGreen else Raised)
+                            .border(1.5.dp, nodeColor, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (number != null) {
+                            Text(number.toString(), color = OnGreen, fontSize = 10.sp)
+                        }
                     }
                 }
             }

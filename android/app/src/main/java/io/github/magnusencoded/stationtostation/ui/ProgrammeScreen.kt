@@ -36,6 +36,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -240,6 +245,10 @@ private fun DayChip(day: LocalDate, selected: Boolean, onClick: () -> Unit) {
             .background(if (selected) Amber else Color.Transparent)
             .border(1.dp, if (selected) Amber else ChipEdge, RoundedCornerShape(4.dp))
             .clickable(onClick = onClick)
+            .semantics {
+                this.selected = selected
+                role = Role.Tab
+            }
             .padding(horizontal = 12.dp, vertical = 7.dp),
     )
 }
@@ -265,6 +274,7 @@ private fun ActRow(act: ProgrammeAct, all: List<ProgrammeAct>, accent: Color) {
             .clip(RoundedCornerShape(6.dp))
             .background(Raised)
             .clickable { open = !open }
+            .semantics { stateDescription = if (open) "expanded" else "collapsed" }
             .padding(horizontal = 14.dp, vertical = 11.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
