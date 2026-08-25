@@ -16,10 +16,19 @@ One directory per case:
   Both are ignored by the store's own parser, so each file still loads as a plain
   `TimelineCache` — the test asserts exactly that.
 
+  A **Festival** is an identity, never a shape (#166): `festivals` holds the identities
+  the app knows and `festivalIdByShow` says which **Gigs** carry one. Nothing else
+  gathers nights together — two nights at one venue with no identity are two **Nodes**.
+
 - `expected.json` — the rows the weave must produce, newest first. Per row:
-  - `key` — the row's identity (`c-<setlist id>-<depth>`, `f-<first show id>`).
-  - `node` — `gig` or `festival`.
-  - `title` — the artist, or the **Festival name**.
+  - `key` — the row's identity (`c-<setlist id>-<depth>`, `s-<first show id>` for a
+    **Section**, `f-<festival id>` for a **Festival** — the id the app owns, so
+    correcting a venue typo or adopting a setlist never moves it).
+  - `node` — `gig`, `section`, or `festival`. A **Section** is several **Gigs** on one
+    date at one venue; a **Festival** is a **Section** something knows the name of.
+  - `title` — the artist; the **Festival name**; or, for a **Section**, the headliner
+    and its supports ("Devin Townsend (Haken)"), computed from the acts at read time
+    and never the venue.
   - `ownership` — `mine`, `theirs`, or `together`. **Together** means a **Gig** on both
     lists: a **Festival** that merely **Absorbs** a friend's cluster is `mine`, not
     `together`, however much of their run it swallowed.

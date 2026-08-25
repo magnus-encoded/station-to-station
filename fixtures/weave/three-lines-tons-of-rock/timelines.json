@@ -54,5 +54,8 @@
       }
     ]
   },
-  "festivalNames": { "w1": "Tons of Rock 2026" }
+  "festivals": {
+    "tor2026": { "id": "tor2026", "name": "Tons of Rock 2026", "source": "scraped" }
+  },
+  "festivalIdByShow": { "w1": "tor2026", "a2": "tor2026", "b2": "tor2026" }
 }
