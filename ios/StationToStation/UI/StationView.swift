@@ -37,6 +37,33 @@ private let laneColors: [Color] = [
 ]
 private func laneColor(_ index: Int) -> Color { laneColors[((index % laneColors.count) + laneColors.count) % laneColors.count] }
 
+/// Fires `recompute` whenever any of the woven Timeline's real inputs settle to a new
+/// value — never on the live pinch drag, which has no business here (see `rows` on
+/// `StationView`, #308). Grouped into one ViewModifier rather than chained straight
+/// onto `body`: six back-to-back `.onChange(of:)` calls of six different types blew
+/// the type-checker's budget on this already-long modifier chain.
+private struct RowsRecomputeModifier: ViewModifier {
+    let zoomedOut: Bool
+    let expandedFestivals: Set<String>
+    let lanes: [Friend]
+    let festivalNames: [String: String]
+    /// `FmSetlist` isn't `Equatable`, so its id stands in — cheap to derive and
+    /// enough to know the underlying shows actually changed.
+    let showIds: [String]
+    let friendShowIds: [String: [String]]
+    let recompute: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: zoomedOut) { _ in recompute() }
+            .onChange(of: expandedFestivals) { _ in recompute() }
+            .onChange(of: lanes) { _ in recompute() }
+            .onChange(of: festivalNames) { _ in recompute() }
+            .onChange(of: showIds) { _ in recompute() }
+            .onChange(of: friendShowIds) { _ in recompute() }
+    }
+}
+
 // --- Lane geometry lives in Timeline.swift ---
 //
 // It used to be written twice: a tested copy in the model layer deciding the Node's
@@ -59,16 +86,25 @@ struct StationView: View {
 
     private var lanes: [Friend] { model.state.friends }
 
-    /// Open enough to show Lanes, whether settled or mid-pinch.
+    /// Open enough to show Lanes, whether settled or mid-pinch. Only feeds cheap
+    /// UI (the loading spinner) — never the weave, see `rows` below.
     private var showingLanes: Bool { model.state.zoomedOut || (dragFraction ?? 0) > 0 }
 
-    private var rows: [WovenRow] {
+    /// Cached so a live pinch (`dragFraction`, which updates every gesture
+    /// frame) never re-triggers the weave: it only ever drives `laneWidth`'s
+    /// geometry below. `weaveTimelines` recomputes only when `recomputeRows`
+    /// is actually called, from `.onChange` of the settled inputs it reads —
+    /// same reason Android's `remember(...)` on this call is keyed on
+    /// `zoomedOut`, never on the live drag value (#308).
+    @State private var rows: [WovenRow] = []
+
+    private func recomputeRows() {
         let s = model.state
-        return weaveTimelines(
+        rows = weaveTimelines(
             mine: s.timelineShows,
             festivalNames: s.festivalNames,
-            friends: showingLanes ? lanes : [],
-            theirs: showingLanes ? s.showsByFriend : [:],
+            friends: s.zoomedOut ? lanes : [],
+            theirs: s.zoomedOut ? s.showsByFriend : [:],
             expanded: s.expandedFestivals
         )
     }
@@ -143,12 +179,29 @@ struct StationView: View {
             guard !lanes.isEmpty else { return }
             withAnimation(.spring()) { model.setZoomedOut(!model.state.zoomedOut) }
         }
-        .onAppear { model.loadTimeline() }
+        .onAppear {
+            model.loadTimeline()
+            recomputeRows()
+        }
         // Fetch friends' Lanes when the strip opens, not at launch — a
         // Resolution never opened shouldn't spend setlist.fm's budget.
         .onChange(of: model.state.zoomedOut) { open in
             if open { model.loadFriendTimelines() }
         }
+        // One modifier, not six chained `.onChange`s: that many distinct
+        // `Equatable` types stacked in a single `body` expression blew the
+        // type-checker's budget ("unable to type-check ... in reasonable
+        // time"). A dedicated ViewModifier gives it one concrete type to
+        // resolve instead of six nested opaque ones.
+        .modifier(RowsRecomputeModifier(
+            zoomedOut: model.state.zoomedOut,
+            expandedFestivals: model.state.expandedFestivals,
+            lanes: lanes,
+            festivalNames: model.state.festivalNames,
+            showIds: model.state.timelineShows.map(\.id),
+            friendShowIds: model.state.showsByFriend.mapValues { $0.map(\.id) },
+            recompute: recomputeRows
+        ))
         // Check-in (#174): opening the timeline takes one fix and compares it
         // against what's already known. Foreground, one-shot, nothing
         // scheduled. The permission is only ever asked for on a night there is
