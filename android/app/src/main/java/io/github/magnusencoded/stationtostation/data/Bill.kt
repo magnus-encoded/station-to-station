@@ -10,7 +10,6 @@ import io.github.magnusencoded.stationtostation.ui.NIGHT_ENDS
 import io.github.magnusencoded.stationtostation.ui.TimelineNode
 import io.github.magnusencoded.stationtostation.ui.groupIntoFestivals
 import io.github.magnusencoded.stationtostation.ui.isPlanned
-import io.github.magnusencoded.stationtostation.ui.shows
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -26,9 +25,10 @@ import java.util.Locale
  * festival. What *is* knowable in advance is the name, the venue, the date range
  * and the list of names. That is exactly the shape of this record.
  *
- * A **Bill** is not a list of planned gigs. `groupIntoFestivals` clusters on venue
- * *and date*, so an undated act cannot cluster with anything; and a planned gig
- * renders as a night you hold a ticket for, which an act on a hedged lineup is not.
+ * A **Bill** is not a list of planned gigs. `groupIntoFestivals` groups on a **Festival**
+ * identity or on one date at one venue, so an undated act can join neither; and a
+ * planned gig renders as a night you hold a ticket for, which an act on a hedged
+ * lineup is not.
  * Inventing a day per act so the existing machinery would work is precisely the
  * fabrication the record must not commit.
  *
@@ -42,8 +42,8 @@ import java.util.Locale
  * Nothing was lost by stopping: a **Gig** an **Act** became is drawn *inside* its
  * **Bill**, and every `groupIntoFestivals` call site is fed either attended setlist.fm
  * shows or the planned lane, which excludes a **Bill**'s own **Gigs**. So the venue
- * string was never what clustered these nights, and `festivalName()`'s fallback never
- * saw them.
+ * string was never what gathered these nights, and the venue fallback that used to name
+ * a cluster — gone since #166 — never saw them.
  */
 @Serializable
 data class StoredBill(
@@ -172,7 +172,7 @@ sealed interface FutureRow {
             // out, which is this same bug one step smaller.
             is OnBill -> parseFmDate(bill.from) ?: parseFmDate(bill.to)
             // Same rule for a cluster: the night it opens, not the night it ends.
-            is Ticket -> node.shows().mapNotNull { it.localDate() }.minOrNull()
+            is Ticket -> node.shows.mapNotNull { it.localDate() }.minOrNull()
         }
 }
 
@@ -185,9 +185,9 @@ sealed interface FutureRow {
  * that map — it is the only home of the `FmSetlist` for a **Gig** with no import
  * behind it — so membership made every night I ever planned a plan forever.
  *
- * Planned gigs cluster into **Festivals** exactly as attended ones do, through the
- * one [groupIntoFestivals] both lanes now call. [festivalNames] is the scraped name
- * by cluster-first id; the venue stands in until one lands.
+ * Planned gigs go through the one [groupIntoFestivals] both lanes call, so two tickets
+ * for one night at one venue are one **Section** above today exactly as they would be
+ * below it. [festivals] are the identities: without one, nothing groups (#166).
  *
  * A **Bill** is not folded into that grouping. It is its own kind of node with its
  * own lineup, which is why it arrives here as a separate argument.
@@ -200,9 +200,9 @@ fun futureRows(
     bills: List<StoredBill>,
     tickets: List<FmSetlist>,
     attendance: Map<String, StoredAttendance>,
-    festivalNames: Map<String, String> = emptyMap(),
+    festivals: Festivals = Festivals(),
 ): List<FutureRow> {
-    val nodes = groupIntoFestivals(plannedLane(tickets, attendance), festivalNames)
+    val nodes = groupIntoFestivals(plannedLane(tickets, attendance), festivals)
     return (bills.map(FutureRow::OnBill) + nodes.map(FutureRow::Ticket))
         .sortedWith(compareByDescending(nullsFirst<LocalDate>()) { it.date })
 }
@@ -210,11 +210,9 @@ fun futureRows(
 /**
  * The nights the future lane is made of: still a plan, newest first.
  *
- * Date-ordered because [groupIntoFestivals] clusters *adjacent* shows and
- * `gigPlanned`'s own order is whatever they happened to be added in. Its own
- * function because the name resolver has to group the exact same list — a cluster's
- * name is filed under its *first* show, so a different input order files it under a
- * key the lane never looks up.
+ * Date-ordered because the lane is drawn newest first and `gigPlanned`'s own order is
+ * whatever they happened to be added in. Its own function because the identity
+ * resolver has to see the exact same list the lane does.
  */
 fun plannedLane(
     gigs: List<FmSetlist>,
