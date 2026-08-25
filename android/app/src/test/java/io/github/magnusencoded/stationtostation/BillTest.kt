@@ -31,7 +31,6 @@ import io.github.magnusencoded.stationtostation.data.setlistfm.FmSets
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSong
 import io.github.magnusencoded.stationtostation.ui.GigLeaf
 import io.github.magnusencoded.stationtostation.ui.TimelineNode
-import io.github.magnusencoded.stationtostation.ui.shows
 import io.github.magnusencoded.stationtostation.ui.gigLeaf
 import io.github.magnusencoded.stationtostation.ui.nightWindow
 import org.junit.Assert.assertEquals
