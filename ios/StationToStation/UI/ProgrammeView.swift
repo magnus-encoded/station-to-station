@@ -100,11 +100,6 @@ struct ProgrammeView: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button { nav.pop() } label: { Image(systemName: "chevron.left") }
-                    .tint(faint)
-                    .accessibilityLabel("Back")
-            }
             ToolbarItem(placement: .principal) {
                 Text("Øya 2026").font(.system(size: 16, design: .serif)).foregroundStyle(ink)
             }
@@ -112,9 +107,7 @@ struct ProgrammeView: View {
         .toolbarBackground(ground, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
-        .navigationBarBackButtonHidden(true)
         .navigationBarTitleDisplayMode(.inline)
-        .swipeBack(nav)
         // Opens on the night you are actually standing in. Before the festival
         // that is the first day, after it the last — never an empty screen.
         .onAppear { if day == nil { day = openingDay(days) } }
