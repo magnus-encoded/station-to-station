@@ -205,7 +205,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     // Encodes the friend card as a QR the other phone's camera can open — the
     // deep link is already registered, so no in-app scanner is needed.
-    implementation("com.google.zxing:core:3.5.3")
+    implementation("com.google.zxing:core:3.5.4")
     // Android-to-Android discovery and the card swap. Raw GATT is still coming for
     // iOS interop (#13/#18) — Nearby is the Android-only fast path, not a
     // replacement for it.
