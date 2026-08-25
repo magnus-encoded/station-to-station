@@ -22,7 +22,9 @@ Three changes have already demoted parts of that schema from *precondition* to *
 - **The Log** (#121) — "the app is the source of truth about what was observed and setlist.fm is a
   publication target". Songs stopped needing their record to exist.
 
-Identity: done. Songs: done. **Time is the one that was never carried through.**
+~~Identity: done. Songs: done. **Time is the one that was never carried through.**~~
+**Identity: done. Songs: done. Time: this ADR. Festivalhood: #166, the fifth** (amended 2026-08-25 —
+see the amendment below).
 
 `FmSetlist.eventDate` is a `dd-MM-yyyy` string and `localGigSetlist` must supply one, which is why
 `markActPlayed` calls `billNight(now)` (`AppViewModel.kt:1262`). Not because the night is known — because
@@ -124,6 +126,36 @@ against recording the festival as the venue, so the venue component is a real ve
   and re-derives that by itself if the artist is added upstream later; nothing is stranded by an old
   decision. The app never nags about it: editing MusicBrainz is desk work, not something to prompt for
   while taking notes at a gig (see `docs/personas.md`, the Journalist).
+
+## Amendment (2026-08-25): festivalhood is the fifth demotion
+
+**What changed.** The Context lists three demotions from *precondition* to *attribute* and names time
+as the last one outstanding. There is a fifth, landed by #166: **festivalhood**.
+
+Before it, a **Festival** was a precondition of a shape. The app inferred one from `FmSetlist` alone —
+same venue, within a four-day window — and a cluster that matched *was* a festival, labelled with its
+venue when no name had resolved. Nothing had told the app that any of those nights were a festival;
+the schema's own fields decided it. That is exactly the pattern this ADR names: a fact about the world
+arriving free with using setlist.fm's model as ours.
+
+Now a **Festival** is a `StoredFestival` — an identity the app owns, minted by `uuidFrom`, carrying
+the vendors' keys (`setlistFmSlug`, `mbid`) beside it as enrichment the way a **Gig** has carried its
+setlist.fm id since #107. A run of nights is a festival when a source *says so*, and otherwise it is a
+**Section**: several shows on one evening, named from its own acts. Two nights at one venue with
+nothing that knows what they were are now two **Nodes**, which is the smaller true thing.
+
+**What made it change.** A headline show with support is indistinguishable, in the data, from one day
+of a festival — so the inference could not be made correct, only made quieter. It drew a room on the
+Line as though it were an event, and the only fix is evidence: ask a source that knows, and take *no*
+for a durable answer.
+
+**What it costs.** The same thing every demotion here costs. Where a shape used to be free, the fact
+now has to be learned and stored, and the record has to be honest when it has not been: a **Section**
+is what an unidentified evening stays, and no process turns it into a **Festival** on its own. That is
+this ADR's own rule about sharpening, applied to a second axis.
+
+**Related:** ADR-0004 (each field of a scraped identity degrades to null independently), ADR-0017 (the
+grouping rule is the identical in-between, so both builds assert it case for case).
 
 ## Resolved by the persona review
 
