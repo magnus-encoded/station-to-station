@@ -34,9 +34,11 @@ final class StationSnapshotTests: XCTestCase {
 
         let mine = cache.shows[me] ?? []
         // Open every festival so the member-gig indentation is in the picture too.
-        let collapsed = weaveTimelines(mine: mine, festivalNames: cache.festivalNames)
-        let expanded = Set(collapsed.filter { $0.node.isFestival }.map(\.key))
-        let rows = weaveTimelines(mine: mine, festivalNames: cache.festivalNames, expanded: expanded)
+        let collapsed = weaveTimelines(mine: mine, festivals: cache.festivalIdentities())
+        let expanded = Set(collapsed.filter { $0.node.isSeveral }.map(\.key))
+        let rows = weaveTimelines(
+            mine: mine, festivals: cache.festivalIdentities(), expanded: expanded
+        )
 
         // Render the rows directly (my own line, laneWidth 0). ImageRenderer can't
         // draw a ScrollView/LazyVStack, but a plain column of StationRow reproduces

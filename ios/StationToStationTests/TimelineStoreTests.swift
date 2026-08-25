@@ -73,12 +73,38 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual(["a"], loaded.shows["Ozzy"]?.map(\.id))
     }
 
-    func testFestivalNamesAccumulateAcrossSaves() async {
+    /// Asked and answered are different facts: an evening with no festival behind it
+    /// must be remembered as asked, or every launch re-asks the whole timeline.
+    func testFestivalsAskedAccumulatesAcrossSaves() async {
         let s = store()
-        await s.save(festivalNames: ["a": "Tons of Rock"])
-        await s.save(shows: ["magnus": [show("a")]])
+        await s.save(festivalsAsked: ["a"])
+        await s.save(festivalsAsked: ["b"])
         let loaded = await s.load()
-        XCTAssertEqual(["a": "Tons of Rock"], loaded.festivalNames)
+        XCTAssertEqual(Set(["a", "b"]), loaded.festivalsAsked)
+    }
+
+    func testAnAuthoredIdentitySurvivesAScrapedOneArrivingLater() async {
+        let s = store()
+        let mine = StoredFestival(
+            id: "f1", name: "Piknik i Parken", source: StoredFestival.FestivalSource.authored
+        )
+        await s.save(festivals: ["f1": mine])
+        await s.save(festivals: ["f1": StoredFestival(
+            id: "f1", name: "PiP", source: StoredFestival.FestivalSource.scraped
+        )])
+        let loaded = await s.load()
+        XCTAssertEqual(mine, loaded.festivals["f1"])
+    }
+
+    func testFestivalsAndFestivalIdByShowRoundTripThroughASave() async {
+        let s = store()
+        let identity = StoredFestival(
+            id: "f1", name: "Piknik i Parken", source: StoredFestival.FestivalSource.authored
+        )
+        await s.save(festivals: ["f1": identity], festivalIdByShow: ["a": "f1"])
+        let loaded = await s.load()
+        XCTAssertEqual(identity, loaded.festivals["f1"])
+        XCTAssertEqual("f1", loaded.festivalIdByShow["a"])
     }
 
     func testANightRemembersThePlaylistItBecame() async {
@@ -190,7 +216,12 @@ final class TimelineStoreTests: XCTestCase {
         {"id":"a2","eventDate":"24-06-2026","artist":{"mbid":"m2","name":"Ghost"},\
         "venue":{"name":"Ekebergsletta","city":{"name":"Oslo","country":{"name":"Norway"}}},\
         "sets":{"set":[]},"url":null,"info":"First show in Norway"}]},\
-        "festivalNames":{"a1":"Tons of Rock 2026"},"playlistsMade":{},"attendedTotals":{"dizzi90":169},\
+        "festivalNames":{"a1":"Tons of Rock 2026"},"festivalsMigrated":true,\
+        "festivals":{"tor":{"id":"tor","name":"Tons of Rock 2026","rangeFrom":"24-06-2026",\
+        "rangeTo":"27-06-2026","setlistFmSlug":"tons-of-rock-2026-6bd52ece","mbid":null,\
+        "source":"scraped","dayMembership":null,"setTimes":null}},\
+        "festivalIdByShow":{"a1":"tor","a2":"tor"},"festivalsAsked":["a1","a2"],\
+        "playlistsMade":{},"attendedTotals":{"dizzi90":169},\
         "photosBySetlist":{"a1":["content://media/external/images/media/42"]},\
         "songOffsetsBySetlist":{"a1":[0,214000,-1]}}
         """)
@@ -198,19 +229,25 @@ final class TimelineStoreTests: XCTestCase {
 
         XCTAssertEqual(["a1", "a2"], cache.shows["dizzi90"]?.map(\.id))
         XCTAssertEqual(169, cache.attendedTotals["dizzi90"])
+        // Dead since #166 but still written by Android, so still carried here.
         XCTAssertEqual("Tons of Rock 2026", cache.festivalNames["a1"])
+        XCTAssertEqual("Tons of Rock 2026", cache.festivals["tor"]?.name)
         // No video among that night's media, so the stamps stay in the dead key
         // rather than being guessed onto a photo. See the one-video rule below.
         XCTAssertEqual([0, 214_000, -1], cache.songOffsetsBySetlist["a1"])
 
-        // The same two shows, grouped by this platform's rules: one festival,
-        // named by the resolved festival name rather than the venue.
-        let rows = weaveTimelines(mine: cache.shows["dizzi90"] ?? [], festivalNames: cache.festivalNames)
+        // The same two shows, grouped by this platform's rules: one **Festival**,
+        // because the identity Android stored says both nights are that festival.
+        // Without it they would be two nights at one address (#166) — which is the
+        // whole reason the identity, and not the name, crosses between the builds.
+        let rows = weaveTimelines(
+            mine: cache.shows["dizzi90"] ?? [], festivals: cache.festivalIdentities()
+        )
         XCTAssertEqual(1, rows.count)
-        guard case .festival(let name, let shows) = rows[0].node else {
+        guard case .festival(let identity, let shows) = rows[0].node else {
             return XCTFail("expected one festival node")
         }
-        XCTAssertEqual("Tons of Rock 2026", name)
+        XCTAssertEqual("Tons of Rock 2026", identity.name)
         XCTAssertEqual(2, shows.count)
         XCTAssertEqual("Flying Whales", shows[0].performed().first?.name)
         XCTAssertEqual("Ekebergsletta, Oslo, Norway", shows[0].venueLine())
@@ -311,7 +348,8 @@ final class TimelineStoreTests: XCTestCase {
             // gigLogs joined the list in #169: iOS now models the Log rather than
             // carrying it blind, so it writes the key itself instead of only echoing
             // one it found. Android reads an absent or empty map the same way.
-            ["attendanceByGig", "attendedTotals", "calendarEventByGig", "festivalNames",
+            ["attendanceByGig", "attendedTotals", "calendarEventByGig", "festivalIdByShow",
+             "festivalNames", "festivals", "festivalsAsked",
              "gigAttendance", "gigCalendarEvent", "gigLogs", "gigMedia", "gigPhotos", "gigPlanned",
              "gigPlaylists", "gigSongOffsets", "gigs", "photosBySetlist", "plannedShows", "playlistsMade",
              "shows", "songOffsetsBySetlist"],

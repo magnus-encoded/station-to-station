@@ -46,7 +46,7 @@ enum WeaveFixture {
         let lanes = input.friends ?? []
         let rows = weaveTimelines(
             mine: cache.shows[input.me] ?? [],
-            festivalNames: cache.festivalNames,
+            festivals: cache.festivalIdentities(),
             friends: lanes,
             theirs: cache.shows.filter { $0.key != input.me }
         )

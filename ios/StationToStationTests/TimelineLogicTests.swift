@@ -20,16 +20,19 @@ final class TimelineLogicTests: XCTestCase {
     private final class FakePlumbing: TimelinePlumbing {
         var seeded: LoadedSpine?
         var stored: LoadedSpine?
-        /// Festival name by setlist page url; a url that isn't here fails the
-        /// scrape, which is the silent case.
-        var festivalNames: [String: String] = [:]
+        /// What the scrape of a setlist page finds, by url. A url that isn't here is
+        /// a night at no festival — the common answer, and the one that must be
+        /// remembered rather than asked again.
+        var festivals: [String: ScrapedFestival] = [:]
         /// Pages of an Attended list by username, in page order.
         var pages: [String: [(shows: [FmSetlist], total: Int)]] = [:]
 
         /// What was asked of the device, in order. A call-order rule is exactly
         /// what a pure function could not express, so it is asserted directly.
-        private(set) var calls: [String] = []
-        private(set) var savedFestivalNames: [String: String] = [:]
+        var calls: [String] = []
+        private(set) var savedFestivals: [String: StoredFestival] = [:]
+        private(set) var savedMembership: [String: String] = [:]
+        private(set) var savedAsked: Set<String> = []
 
         func seededSpine() async -> LoadedSpine? {
             calls.append("seededSpine")
@@ -48,14 +51,20 @@ final class TimelineLogicTests: XCTestCase {
             return all[page - 1]
         }
 
-        func festivalName(setlistURL: String) async -> String? {
-            calls.append("festivalName(\(setlistURL))")
-            return festivalNames[setlistURL]
+        func festivalAt(setlistURL: String) async -> ScrapedFestival? {
+            calls.append("festivalAt(\(setlistURL))")
+            return festivals[setlistURL]
         }
 
-        func saveFestivalNames(_ names: [String: String]) async {
-            calls.append("saveFestivalNames")
-            savedFestivalNames.merge(names) { _, new in new }
+        func saveFestivals(
+            _ festivals: [String: StoredFestival],
+            idByShow: [String: String],
+            asked: Set<String>
+        ) async {
+            calls.append("saveFestivals")
+            savedFestivals.merge(festivals) { _, new in new }
+            savedMembership.merge(idByShow) { _, new in new }
+            savedAsked.formUnion(asked)
         }
     }
 
@@ -75,10 +84,33 @@ final class TimelineLogicTests: XCTestCase {
         )
     }
 
-    /// Two nights at one venue: a **Festival**, as `groupIntoFestivals` sees it.
-    private func festivalShows() -> [FmSetlist] {
-        [show("a", "26-06-2026", venue: "Ekebergsletta"),
-         show("b", "25-06-2026", venue: "Ekebergsletta")]
+    /// Two acts at one venue on one night: a **Section**, and the one shape the
+    /// resolver asks setlist.fm about. Two *nights* would be two **Nodes** and would
+    /// never be asked about at all (#166).
+    private func oneEvening() -> [FmSetlist] {
+        [show("a", "25-06-2026", venue: "Ekebergsletta"),
+         show("b", "25-06-2026", venue: "Ekebergsletta", artist: "Gojira")]
+    }
+
+    /// The identity that evening turns out to have, as the scrape hands it over.
+    private func scraped() -> ScrapedFestival {
+        ScrapedFestival(
+            name: "Tons of Rock 2026",
+            slug: "tons-of-rock-2026-6bd52ece",
+            rangeFrom: "24-06-2026",
+            rangeTo: "27-06-2026"
+        )
+    }
+
+    /// The same identity, as everything downstream of the resolver holds it. The id is
+    /// the app's own and any stable string will do — that it is minted from the slug is
+    /// the store's business, not this layer's.
+    private func identified(_ shows: [FmSetlist], asked: Set<String> = []) -> Festivals {
+        Festivals(
+            byId: ["tor": StoredFestival(id: "tor", name: "Tons of Rock 2026")],
+            idByShow: Dictionary(uniqueKeysWithValues: shows.map { ($0.id, "tor") }),
+            asked: asked
+        )
     }
 
     // MARK: - The playlist name
@@ -91,79 +123,154 @@ final class TimelineLogicTests: XCTestCase {
         let gig = show("a", "25-06-2026", venue: "Rockefeller")
         XCTAssertEqual(
             "2026 – The Warning – Rockefeller",
-            TimelineLogic.playlistName(for: gig, mine: [gig], festivalNames: [:])
+            TimelineLogic.playlistName(for: gig, mine: [gig], festivals: Festivals())
         )
     }
 
     func testAFestivalIsNamedByItsFestivalNameWithTheYearStripped() {
         // The year already leads, so "Tons of Rock 2026" must not repeat it.
-        let mine = festivalShows()
+        let mine = oneEvening()
         XCTAssertEqual(
             "2026 – The Warning – Tons of Rock",
-            TimelineLogic.playlistName(
-                for: mine[1], mine: mine, festivalNames: [mine[0].id: "Tons of Rock 2026"]
-            )
+            TimelineLogic.playlistName(for: mine[0], mine: mine, festivals: identified(mine))
         )
     }
 
-    func testAFestivalWithNoResolvedNameFallsBackToItsVenue() {
-        let mine = festivalShows()
+    func testAnEveningWithNoIdentityIsNamedByItsRoom() {
+        // Which is right *here* and nowhere else: a playlist title says where the
+        // night was, and a room is a true answer to that. It is the **Node**'s label
+        // that must never be a venue — see billedAs.
+        let mine = oneEvening()
         XCTAssertEqual(
             "2026 – The Warning – Ekebergsletta",
-            TimelineLogic.playlistName(for: mine[0], mine: mine, festivalNames: [:])
+            TimelineLogic.playlistName(for: mine[0], mine: mine, festivals: Festivals())
         )
     }
 
     func testANameWithNothingKnownIsJustSetlist() {
         let gig = FmSetlist(id: "a")
-        XCTAssertEqual("Setlist", TimelineLogic.playlistName(for: gig, mine: [gig], festivalNames: [:]))
+        XCTAssertEqual(
+            "Setlist",
+            TimelineLogic.playlistName(for: gig, mine: [gig], festivals: Festivals())
+        )
     }
 
     // MARK: - The sequence
     //
-    // Load, then retry the Festival names, then save them. A call-order rule, and
-    // the reason this layer is allowed to call plumbing at all.
+    // Load, then ask about the evenings nothing has identified, then save the answers.
+    // A call-order rule, and the reason this layer is allowed to call plumbing at all.
 
-    func testUnresolvedFestivalNamesAreRetriedOnLoad() async {
-        let mine = festivalShows()
+    func testAnUnidentifiedEveningIsAskedAboutOnLoad() async {
+        let mine = oneEvening()
         let fake = FakePlumbing()
         fake.stored = LoadedSpine(me: "magnus", mine: mine)
-        fake.festivalNames = [mine[0].url!: "Tons of Rock 2026"]
+        fake.festivals = [mine[0].url!: scraped()]
 
         var emitted: [LoadedSpine] = []
         await TimelineLogic(plumbing: fake).loadSpine(me: "magnus") { emitted.append($0) }
 
-        // Twice: the cached Spine has to be on screen before any network is, so
-        // the names cannot be awaited before the first hand-over.
+        // Twice: the cached Spine has to be on screen before any network is, so the
+        // identities cannot be awaited before the first hand-over.
         XCTAssertEqual(2, emitted.count)
-        XCTAssertTrue(emitted[0].festivalNames.isEmpty)
-        XCTAssertEqual("Tons of Rock 2026", emitted[1].festivalNames[mine[0].id])
-        // Paid once: a Festival name costs a fetch each.
-        XCTAssertEqual(["Tons of Rock 2026"], Array(fake.savedFestivalNames.values))
+        XCTAssertTrue(emitted[0].festivals.isEmpty)
+        XCTAssertEqual("Tons of Rock 2026", emitted[1].festivals.of("a")?.name)
+        // The range is the festival's own, not the nights I happened to attend.
+        XCTAssertEqual("24-06-2026", emitted[1].festivals.of("a")?.rangeFrom)
+        // Paid once: an identity costs a fetch, so it is saved the moment it lands.
+        XCTAssertEqual(["Tons of Rock 2026"], fake.savedFestivals.values.map(\.name))
     }
 
-    func testAFestivalNameAlreadyKnownIsNotFetchedAgain() async {
-        let mine = festivalShows()
+    func testAnEveningAlreadyIdentifiedIsNotAskedAboutAgain() async {
+        let mine = oneEvening()
         let fake = FakePlumbing()
-        fake.stored = LoadedSpine(me: "magnus", mine: mine, festivalNames: [mine[0].id: "Tons of Rock 2026"])
+        fake.stored = LoadedSpine(me: "magnus", mine: mine, festivals: identified(mine))
 
         var emitted: [LoadedSpine] = []
         await TimelineLogic(plumbing: fake).loadSpine(me: "magnus") { emitted.append($0) }
 
         XCTAssertEqual(1, emitted.count)
-        XCTAssertFalse(fake.calls.contains { $0.hasPrefix("festivalName") })
+        XCTAssertFalse(fake.calls.contains { $0.hasPrefix("festivalAt") })
     }
 
-    func testAFailedScrapeLeavesTheVenueStandingAndSavesNothing() async {
+    func testANightAtNoFestivalIsAskedAboutOnceEver() async {
+        // The Sentrum Scene case: a headline show with support looks exactly like a
+        // festival day in the data, so it has to be asked about — and "no festival"
+        // is a real answer worth keeping. 44 nights on the line are shaped like that
+        // one, and re-asking on every launch is 44 fetches for nothing.
+        let mine = oneEvening()
         let fake = FakePlumbing()
-        fake.stored = LoadedSpine(me: "magnus", mine: festivalShows())
-        // No entry in `festivalNames`: the scrape came back with nothing.
+        let logic = TimelineLogic(plumbing: fake)
 
-        var emitted: [LoadedSpine] = []
-        await TimelineLogic(plumbing: fake).loadSpine(me: "magnus") { emitted.append($0) }
+        let first = await logic.resolveFestivals(mine: mine, known: Festivals())
+        XCTAssertTrue(first.isEmpty)
+        // The evening, not the act: one page answers for the whole night.
+        XCTAssertEqual(Set(["a", "b"]), fake.savedAsked)
 
-        XCTAssertEqual(1, emitted.count)
-        XCTAssertTrue(fake.savedFestivalNames.isEmpty)
+        fake.calls.removeAll()
+        _ = await logic.resolveFestivals(mine: mine, known: first)
+        XCTAssertFalse(fake.calls.contains { $0.hasPrefix("festivalAt") })
+    }
+
+    func testTwoNightsAtOneVenueAreNeverAskedAboutAtAll() async {
+        // They are two Nodes now. Nothing on the Line claims they are one thing, so
+        // there is nothing to look up: the four-day window is gone from the seam and
+        // from what it costs.
+        let mine = [
+            show("a", "26-06-2026", venue: "Ekebergsletta"),
+            show("b", "25-06-2026", venue: "Ekebergsletta"),
+        ]
+        let fake = FakePlumbing()
+        _ = await TimelineLogic(plumbing: fake).resolveFestivals(mine: mine, known: Festivals())
+        XCTAssertTrue(fake.calls.isEmpty)
+    }
+
+    func testTheSourcesOwnDayGroupingDecidesMembershipNotMyAttendance() async {
+        // I went for one day; the festival did not become one day long, and the acts
+        // I did not see still belong to it.
+        let mine = oneEvening()
+        let fake = FakePlumbing()
+        var page = scraped()
+        page.dayMembership = ["26-06-2026": ["elsewhere"]]
+        fake.festivals = [mine[0].url!: page]
+
+        let found = await TimelineLogic(plumbing: fake)
+            .resolveFestivals(mine: mine, known: Festivals())
+        XCTAssertEqual("Tons of Rock 2026", found.of("elsewhere")?.name)
+        XCTAssertEqual(found.of("a")?.id, found.of("elsewhere")?.id)
+    }
+
+    func testAMultiDayFestivalCostsOneFetchNotOnePerDay() async {
+        // Three days at one venue arrive here as three Sections, because the candidates
+        // are decided before anything has been asked. The first day's page names the
+        // other two, so asking about them again would buy the same bytes twice more —
+        // and each ask is two fetches, the setlist page and the festival page behind it.
+        let mine = [
+            show("thu1", "26-06-2026", venue: "Ekebergsletta"),
+            show("thu2", "26-06-2026", venue: "Ekebergsletta", artist: "Gojira"),
+            show("wed1", "25-06-2026", venue: "Ekebergsletta"),
+            show("wed2", "25-06-2026", venue: "Ekebergsletta", artist: "Gojira"),
+            show("tue1", "24-06-2026", venue: "Ekebergsletta"),
+            show("tue2", "24-06-2026", venue: "Ekebergsletta", artist: "Gojira"),
+        ]
+        let fake = FakePlumbing()
+        var page = scraped()
+        page.dayMembership = [
+            "26-06-2026": ["thu1", "thu2"],
+            "25-06-2026": ["wed1", "wed2"],
+            "24-06-2026": ["tue1", "tue2"],
+        ]
+        fake.festivals = [mine[0].url!: page]
+
+        let found = await TimelineLogic(plumbing: fake)
+            .resolveFestivals(mine: mine, known: Festivals())
+
+        XCTAssertEqual(1, fake.calls.filter { $0.hasPrefix("festivalAt") }.count)
+        // And it answered for the whole run, not only the night it was asked about.
+        XCTAssertEqual(
+            Set(["Tons of Rock 2026"]),
+            Set(mine.compactMap { found.of($0.id)?.name })
+        )
+        XCTAssertEqual(6, mine.filter { found.of($0.id) != nil }.count)
     }
 
     func testASeededFixtureIsTheSpineAndTheStoreIsNeverRead() async {

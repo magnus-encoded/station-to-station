@@ -338,11 +338,7 @@ final class DeviceTimelinePlumbing: TimelinePlumbing {
             // night rendered as mine-only instead of Joined. Only friends are ever read
             // out of this map, so carrying my own key costs nothing. Ported with Android.
             byFriend: cache.shows,
-            festivals: Festivals(
-                byId: cache.festivals,
-                idByShow: cache.festivalIdByShow,
-                asked: cache.festivalsAsked
-            )
+            festivals: cache.festivalIdentities()
         )
     }
 

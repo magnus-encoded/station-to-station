@@ -318,6 +318,13 @@ struct StoredFestival: Codable, Equatable {
     }
 }
 
+extension TimelineCache {
+    /// The identities as the timeline reads them. See `Festivals`.
+    func festivalIdentities() -> Festivals {
+        Festivals(byId: festivals, idByShow: festivalIdByShow, asked: festivalsAsked)
+    }
+}
+
 /// The id a scraped **Festival** gets the first time its setlist.fm slug is seen.
 func festivalIdForSlug(_ slug: String) -> String { uuidFrom("festival:\(slug)") }
 
