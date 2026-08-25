@@ -95,7 +95,7 @@ data class FlyoverCover(
  * [media] is what the caller decided is visible — the **Room** narrows it under the
  * contact light, and the walk must not widen it again.
  */
-data class FlyoverGig(
+internal data class FlyoverGig(
     val id: String,
     /** What its **Cover** says. */
     val billboard: FlyoverBillboard,
@@ -194,7 +194,7 @@ data class FlyoverNight(
  * that two strangers are still two colours. Their name degrades to nothing rather than
  * being invented — the room already answers "someone else" the same way.
  */
-fun flyoverPeople(gigs: List<FlyoverGig>, friends: List<Friend>): List<FlyoverPerson> {
+internal fun flyoverPeople(gigs: List<FlyoverGig>, friends: List<Friend>): List<FlyoverPerson> {
     val gaveAt = mutableMapOf<String, MutableSet<String>>()
     val cast = LinkedHashSet<String>()
     for (gig in gigs) {
