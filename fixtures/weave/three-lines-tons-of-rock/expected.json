@@ -6,7 +6,7 @@
       "hosts": { "Lemmy": "lane1", "Ozzy": "lane2" }
     },
     {
-      "key": "f-w1", "date": "2026-06-25", "node": "festival", "title": "Tons of Rock 2026",
+      "key": "f-tor2026", "date": "2026-06-25", "node": "festival", "title": "Tons of Rock 2026",
       "ownership": "together",
       "with": ["Lemmy", "Ozzy"], "together": 1, "theirs": 2,
       "hosts": { "Lemmy": "spine", "Ozzy": "spine" }

@@ -1,9 +1,15 @@
 {
   "rows": [
     {
-      "key": "f-d1", "date": "2026-05-16", "node": "festival", "title": "Refused (Viagra Boys)",
+      "key": "c-d1-0", "date": "2026-05-16", "node": "gig", "title": "Refused",
       "ownership": "theirs",
-      "with": ["Lemmy"], "together": 0, "theirs": 2,
+      "with": ["Lemmy"], "theirs": 1,
+      "hosts": { "Lemmy": "lane1" }
+    },
+    {
+      "key": "c-d2-0", "date": "2026-05-15", "node": "gig", "title": "Viagra Boys",
+      "ownership": "theirs",
+      "with": ["Lemmy"], "theirs": 1,
       "hosts": { "Lemmy": "lane1" }
     },
     {
