@@ -123,6 +123,72 @@ class TimelineStoreTest {
         assertTrue(cached.festivalIdByShow.isEmpty())
     }
 
+    /**
+     * The shape a real device actually wrote. The lane grouped a newest-first list, so
+     * the key is the *newest* show of the cluster — while the migration's replay sorts
+     * ascending. Matching the cluster by its head would migrate nothing at all and lose
+     * every resolved name in the store, silently.
+     */
+    @Test
+    fun `a name keyed by the newest show of its cluster still migrates`() = runBlocking {
+        val file = File.createTempFile("timelines", ".json")
+        file.writeText(
+            """{"shows":{"magnus":[""" +
+                """{"id":"a2","eventDate":"27-06-2026","artist":{"name":"Ghost"},"venue":{"name":"Ekebergsletta"}},""" +
+                """{"id":"a1","eventDate":"25-06-2026","artist":{"name":"Gojira"},"venue":{"name":"Ekebergsletta"}}""" +
+                """]},"festivalNames":{"a2":"Tons of Rock"}}"""
+        )
+        val cached = TimelineStore(file).load()
+
+        val identity = cached.festivals.values.single()
+        assertEquals("Tons of Rock", identity.name)
+        assertEquals(identity.id, cached.festivalIdByShow["a1"])
+        assertEquals(identity.id, cached.festivalIdByShow["a2"])
+    }
+
+    /**
+     * A name whose show is nowhere in the cache cannot say what it named — the venue
+     * and the nights are the only evidence, and they are gone. Dropping it is honest;
+     * filing it under a guessed identity would invent exactly the false Festival #166
+     * is about.
+     */
+    @Test
+    fun `a name whose show is not in the cache is dropped, not guessed at`() = runBlocking {
+        val file = File.createTempFile("timelines", ".json")
+        file.writeText(
+            """{"shows":{"magnus":[{"id":"a1","eventDate":"25-06-2026"}]},""" +
+                """"festivalNames":{"gone":"Tons of Rock"}}"""
+        )
+        val cached = TimelineStore(file).load()
+
+        assertTrue(cached.festivalsMigrated)
+        assertTrue(cached.festivals.isEmpty())
+        assertTrue(cached.festivalIdByShow.isEmpty())
+    }
+
+    /** Asked and answered are different facts: an evening with no festival behind it
+     *  must be remembered as asked, or every launch re-asks the whole timeline. */
+    @Test
+    fun `festivalsAsked accumulates across saves`() = runBlocking {
+        val store = store()
+        store.save(festivalsAsked = setOf("a"))
+        store.save(festivalsAsked = setOf("b"))
+        assertEquals(setOf("a", "b"), store.load().festivalsAsked)
+    }
+
+    @Test
+    fun `an authored identity survives a scraped one arriving later`() = runBlocking {
+        val store = store()
+        val mine = StoredFestival(id = "f1", name = "Piknik i Parken", source = StoredFestival.FestivalSource.AUTHORED)
+        store.save(festivals = mapOf("f1" to mine))
+        store.save(
+            festivals = mapOf(
+                "f1" to StoredFestival(id = "f1", name = "PiP", source = StoredFestival.FestivalSource.SCRAPED),
+            ),
+        )
+        assertEquals(mine, store.load().festivals["f1"])
+    }
+
     @Test
     fun `festivals and festivalIdByShow round-trip through a save`() = runBlocking {
         val store = store()
