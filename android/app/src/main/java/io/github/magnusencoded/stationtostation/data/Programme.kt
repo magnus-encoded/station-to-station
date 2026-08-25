@@ -43,11 +43,21 @@ data class ProgrammeAct(
      * the other direction. Without this an after-midnight act sorts to the front of
      * its own day and clashes with the afternoon.
      */
-    fun startsAt(): LocalDateTime? {
-        val d = runCatching { LocalDate.parse(date) }.getOrNull() ?: return null
-        val t = runCatching { LocalTime.parse(start) }.getOrNull() ?: return null
-        return if (t < NIGHT_ENDS) d.plusDays(1).atTime(t) else d.atTime(t)
-    }
+    fun startsAt(): LocalDateTime? =
+        runCatching { LocalDate.parse(date) }.getOrNull()?.let { setTimeOnNight(it, start) }
+}
+
+/**
+ * An `HH:mm` slot on the night of [date], as a moment — see [ProgrammeAct.startsAt].
+ *
+ * Shared rather than written twice because it is one rule about the record and not
+ * two: a **Festival** page's published set times land in [StoredFestival.setTimes] in
+ * the same shape a programme carries them, and an after-midnight set has to close its
+ * own night in both places or the two disagree about who played last.
+ */
+internal fun setTimeOnNight(date: LocalDate, hhmm: String): LocalDateTime? {
+    val t = runCatching { LocalTime.parse(hhmm) }.getOrNull() ?: return null
+    return if (t < NIGHT_ENDS) date.plusDays(1).atTime(t) else date.atTime(t)
 }
 
 /**

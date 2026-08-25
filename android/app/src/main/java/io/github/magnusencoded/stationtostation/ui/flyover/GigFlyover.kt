@@ -64,6 +64,7 @@ import io.github.magnusencoded.stationtostation.BuildConfig
 import io.github.magnusencoded.stationtostation.MediaThumb
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredLog
+import io.github.magnusencoded.stationtostation.data.scheduledStart
 import io.github.magnusencoded.stationtostation.data.visibleToContacts
 import io.github.magnusencoded.stationtostation.data.weaveSetlist
 import io.github.magnusencoded.stationtostation.ui.EventRow
@@ -136,7 +137,9 @@ fun GigFlyoverScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     // complete being the common case, rather than presence being read off who happened
     // to hand over a photograph.
     LaunchedEffect(Unit) { viewModel.loadFriendTimelines() }
-    val night = remember(media, state.friends, setlist.id, log, state.showsByFriend, checkedIn) {
+    val night = remember(
+        media, state.friends, setlist.id, log, state.showsByFriend, checkedIn, state.festivals,
+    ) {
         val rows = setlist.eventRows()
         flyoverNight(
             // One night is the N=1 case of the run. There is no second composer.
@@ -162,6 +165,11 @@ fun GigFlyoverScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                     ),
                     log = log,
                     date = setlist.localDate(),
+                    // The second rung of the running order, sourced at last (#313): the
+                    // set times #166's festival-page parse found, for the nights that
+                    // are at a festival that published them. Null everywhere else, which
+                    // is most of the line — the ladder falls through to source order.
+                    startsAt = scheduledStart(setlist, state.festivals),
                     attended = state.showsByFriend
                         .filterValues { shows -> shows.any { it.id == setlist.id } }
                         .keys,
