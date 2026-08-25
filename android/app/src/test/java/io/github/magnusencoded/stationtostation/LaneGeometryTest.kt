@@ -162,7 +162,13 @@ class LaneGeometryTest {
     private fun assertDp(expected: Float, actual: Dp) = assertEquals(expected, actual.value, 0.01f)
 
     private fun festivalRow(mine: Boolean, vararg present: Friend) = WovenRow(
-        node = TimelineNode.Festival("Tons of Rock", listOf(FmSetlist(id = "f", artist = FmArtist(name = "A")))),
+        // Geometry asks only whether a node holds several nights, never which kind.
+        node = TimelineNode.Section(
+            listOf(
+                FmSetlist(id = "f1", artist = FmArtist(name = "A")),
+                FmSetlist(id = "f2", artist = FmArtist(name = "B")),
+            ),
+        ),
         mine = mine,
         others = present.toList(),
     )
@@ -568,18 +574,18 @@ class LaneGeometryTest {
         val (nobody, _) = WeaveFixture.load("three-lines-tons-of-rock", hiding(lemmy, ozzy))
 
         // A night only Lemmy was at is a row; hide Lemmy and there is no such night.
-        assertEquals(listOf("c-m0-0", "f-w1", "c-t0-0"), all.map { it.key })
-        assertEquals(listOf("c-m0-0", "f-w1"), withoutLemmy.map { it.key })
+        assertEquals(listOf("c-m0-0", "f-tor2026", "c-t0-0"), all.map { it.key })
+        assertEquals(listOf("c-m0-0", "f-tor2026"), withoutLemmy.map { it.key })
 
         // Tons of Rock: with Lemmy gone the only visible company is Ozzy, who was at
         // the one night of it I was at — so nothing is "theirs" there any more.
-        val festival = withoutLemmy.first { it.key == "f-w1" }
+        val festival = withoutLemmy.first { it.key == "f-tor2026" }
         assertEquals(listOf("Ozzy"), festival.others.map { it.setlistfm })
         assertEquals(1, festival.sharedCount)
         assertEquals(0, festival.theirsCount)
 
         // And with everybody hidden it is my own timeline, counts and all.
-        assertEquals(listOf("c-m0-0", "f-w1"), nobody.map { it.key })
+        assertEquals(listOf("c-m0-0", "f-tor2026"), nobody.map { it.key })
         nobody.forEach {
             assertTrue(it.others.isEmpty())
             assertEquals(0, it.sharedCount)

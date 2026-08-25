@@ -100,7 +100,9 @@ func rowGeometry(
     // rather than together — which is why a per-Line slide exists at all.
     let open = strip <= 0 ? 0 : min(max(laneWidth / strip, 0), 1) * CGFloat(lanes.count)
 
-    let isFestival = row.node.isFestival
+    // The geometry asks how many nights a node stands for, never what kind it is: a
+    // Section and a Festival are one ring of the same size, drawn once (#166).
+    let isFestival = row.node.isSeveral
     let nodeY: CGFloat = isFestival ? 15 : 13
     // The outer radius of whichever Node this row draws. A member gig's smaller ring
     // keeps its proportion by having its own radius, not by scaling the gig's.

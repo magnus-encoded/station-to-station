@@ -412,6 +412,12 @@ private fun TimelineCache.absorbing(
         },
         bills = theirs.bills + bills,
         festivalNames = theirs.festivalNames + festivalNames,
+        // Identities union. This device wins a collision, as everything else here
+        // does — except over an identity the other one *authored*, which no scrape of
+        // mine may overwrite. That is [mergedWith]'s rule, unchanged by the transport.
+        festivals = theirs.festivals.mergedWith(festivals),
+        festivalIdByShow = theirs.festivalIdByShow + festivalIdByShow,
+        festivalsAsked = theirs.festivalsAsked + festivalsAsked,
         attendedTotals = (attendedTotals.keys + theirs.attendedTotals.keys).associateWith { user ->
             maxOf(attendedTotals[user] ?: 0, theirs.attendedTotals[user] ?: 0)
         },

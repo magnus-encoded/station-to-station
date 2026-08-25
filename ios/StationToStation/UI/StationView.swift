@@ -53,7 +53,7 @@ private struct RowsRecomputeModifier: ViewModifier {
     let zoomedOut: Bool
     let expandedFestivals: Set<String>
     let lanes: [Friend]
-    let festivalNames: [String: String]
+    let festivals: Festivals
     /// `FmSetlist` isn't `Equatable`, so its id stands in — cheap to derive and
     /// enough to know the underlying shows actually changed.
     let showIds: [String]
@@ -65,7 +65,7 @@ private struct RowsRecomputeModifier: ViewModifier {
             .onChange(of: zoomedOut) { _ in recompute() }
             .onChange(of: expandedFestivals) { _ in recompute() }
             .onChange(of: lanes) { _ in recompute() }
-            .onChange(of: festivalNames) { _ in recompute() }
+            .onChange(of: festivals) { _ in recompute() }
             .onChange(of: showIds) { _ in recompute() }
             .onChange(of: friendShowIds) { _ in recompute() }
     }
@@ -109,7 +109,7 @@ struct StationView: View {
         let s = model.state
         rows = weaveTimelines(
             mine: s.timelineShows,
-            festivalNames: s.festivalNames,
+            festivals: s.festivals,
             friends: s.zoomedOut ? lanes : [],
             theirs: s.zoomedOut ? s.showsByFriend : [:],
             expanded: s.expandedFestivals
@@ -204,7 +204,7 @@ struct StationView: View {
             zoomedOut: model.state.zoomedOut,
             expandedFestivals: model.state.expandedFestivals,
             lanes: lanes,
-            festivalNames: model.state.festivalNames,
+            festivals: model.state.festivals,
             showIds: model.state.timelineShows.map(\.id),
             friendShowIds: model.state.showsByFriend.mapValues { $0.map(\.id) },
             recompute: recomputeRows
@@ -273,7 +273,7 @@ struct StationView: View {
                         // Brightness carries one extra meaning only: brighter = most recent.
                         highlight: i == 0,
                         onTap: {
-                            if row.node.isFestival { withAnimation(.easeInOut(duration: 0.2)) { model.toggleFestival(row.key) } }
+                            if row.node.isSeveral { withAnimation(.easeInOut(duration: 0.2)) { model.toggleFestival(row.key) } }
                             else if case .concert(let show) = row.node { openGig(show) }
                         }
                     )
@@ -400,7 +400,9 @@ struct StationRow: View {
     let onTap: () -> Void
 
     private var zoomedOut: Bool { laneWidth > 0 }
-    private var isFestival: Bool { row.node.isFestival }
+    /// Several nights on one Node — a **Section** or a **Festival** alike. The
+    /// drawing asks how many, never which kind (#166).
+    private var isFestival: Bool { row.node.isSeveral }
     private var nodeX: CGFloat { crossingX(row, lanes, laneWidth) }
 
     /// The ring's colour. A Crossing (a night I shared) is green — the meeting
@@ -490,14 +492,15 @@ struct StationRow: View {
     @ViewBuilder
     private var content: some View {
         switch row.node {
-        case .festival(let name, let shows):
+        case .section(let shows), .festival(_, let shows):
             VStack(alignment: .leading, spacing: 3) {
-                // Only a node with an identity says FESTIVAL. Without one it says
-                // ONE NIGHT or N NIGHTS — a smaller claim, and a true one.
-                Text(name != nil ? "FESTIVAL" : eveningKicker(shows))
+                // Only a Node with an identity is called a festival. Without one this
+                // is still one evening drawn as one Node — a fact we have — and the
+                // eyebrow says only that (#166).
+                Text(row.node.isIdentified ? "FESTIVAL" : eveningKicker(shows))
                     .font(.system(size: 10, weight: .semibold)).kerning(1.5).foregroundStyle(slate)
                 Text(row.node.label).font(.system(size: 17, design: .serif)).foregroundStyle(ink)
-                Text(festivalDateRange(shows)).font(.system(size: 13)).foregroundStyle(muted)
+                Text(festivalDateRange(row.node)).font(.system(size: 13)).foregroundStyle(muted)
                 festivalCounts(shows).font(.system(size: 12)).padding(.top, 4)
             }
         case .concert(let show):
@@ -587,7 +590,7 @@ private struct PeopleRails: View {
     private func draw(_ ctx: inout GraphicsContext, _ size: CGSize) {
         guard laneWidth > 0, !lanes.isEmpty else { return }
         let h = size.height
-        let isFestival = row.node.isFestival
+        let isFestival = row.node.isSeveral
         let nodeAt = nodeHost(row, lanes)
 
         for d in rowGeometry(row, next, lanes, laneWidth, h) {
@@ -660,8 +663,16 @@ private let dayMonthYear: DateFormatter = {
     return f
 }()
 
-func festivalDateRange(_ shows: [FmSetlist]) -> String {
-    let dates = shows.compactMap { $0.localDate() }.sorted()
+func festivalDateRange(_ node: TimelineNode) -> String {
+    // A **Festival** says its *own* range where the source published one — "Tons of
+    // Rock 2026" is four days whether or not I went to four — and falls back to the
+    // nights on the node when it does not (#166).
+    var dates: [Date] = []
+    if case .festival(let identity, _) = node {
+        dates = [identity.rangeFrom, identity.rangeTo].compactMap { $0.flatMap(parseFmDate) }
+    }
+    if dates.isEmpty { dates = node.shows.compactMap { $0.localDate() } }
+    dates.sort()
     guard let first = dates.first, let last = dates.last else { return "" }
     if first == last { return dayMonthYear.string(from: first) }
     return "\(dayMonth.string(from: first)) \u{2013} \(dayMonthYear.string(from: last))"

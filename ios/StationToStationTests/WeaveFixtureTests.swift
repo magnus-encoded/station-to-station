@@ -82,7 +82,7 @@ final class WeaveFixtureTests: XCTestCase {
             let lanes = input.friends ?? []
             let rows = weaveTimelines(
                 mine: mine,
-                festivalNames: cache.festivalNames,
+                festivals: cache.festivalIdentities(),
                 friends: lanes,
                 theirs: cache.shows.filter { $0.key != input.me }
             )
@@ -90,7 +90,7 @@ final class WeaveFixtureTests: XCTestCase {
             XCTAssertEqual(expected.rows.count, rows.count, "\(name): row count")
             for (want, got) in zip(expected.rows, rows) {
                 XCTAssertEqual(want.key, got.key, "\(name): key")
-                XCTAssertEqual(want.node, got.node.isFestival ? "festival" : "gig", "\(name) \(want.key): node")
+                XCTAssertEqual(want.node, nodeKind(got.node), "\(name) \(want.key): node")
                 XCTAssertEqual(want.title, got.node.label, "\(name) \(want.key): title")
                 XCTAssertEqual(want.ownership, got.ownership.rawValue, "\(name) \(want.key): ownership")
                 XCTAssertEqual(want.with ?? [], got.others.map(\.setlistfm), "\(name) \(want.key): with")
@@ -110,6 +110,17 @@ final class WeaveFixtureTests: XCTestCase {
                                    "\(name) \(want.key): \(who)")
                 }
             }
+        }
+    }
+
+    /// The three kinds the corpus names. **A Section is not a nameless Festival** —
+    /// it is a Node holding several shows that nothing has identified — so the fixture
+    /// distinguishes them and this suite must too.
+    private func nodeKind(_ node: TimelineNode) -> String {
+        switch node {
+        case .festival: return "festival"
+        case .section: return "section"
+        case .concert: return "gig"
         }
     }
 }

@@ -1,6 +1,8 @@
 package io.github.magnusencoded.stationtostation
 
+import io.github.magnusencoded.stationtostation.data.Festivals
 import io.github.magnusencoded.stationtostation.data.Friend
+import io.github.magnusencoded.stationtostation.data.StoredFestival
 import io.github.magnusencoded.stationtostation.ui.WovenRow
 import io.github.magnusencoded.stationtostation.ui.visibleLanes
 import io.github.magnusencoded.stationtostation.ui.weaveTimelines
@@ -24,7 +26,8 @@ internal object WeaveFixture {
         val me: String = "",
         val friends: List<Friend> = emptyList(),
         val shows: Map<String, List<FmSetlist>> = emptyMap(),
-        val festivalNames: Map<String, String> = emptyMap(),
+        val festivals: Map<String, StoredFestival> = emptyMap(),
+        val festivalIdByShow: Map<String, String> = emptyMap(),
     )
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -46,7 +49,7 @@ internal object WeaveFixture {
         val friends = visibleLanes(doc.friends, hide)
         val rows = weaveTimelines(
             mine = doc.shows[doc.me].orEmpty(),
-            festivalNames = doc.festivalNames,
+            festivals = Festivals(doc.festivals, doc.festivalIdByShow),
             friends = friends,
             theirs = doc.shows - doc.me,
         )

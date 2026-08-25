@@ -75,7 +75,9 @@ struct UiState {
     /// The Timelines resolution: the strip of friends' Lanes opened beside my
     /// Spine, in place. Not a screen — pinch toggles it.
     var zoomedOut = false
-    var festivalNames: [String: String] = [:]
+    /// Every **Festival** identity this device knows, and which **Gigs** carry one
+    /// (#166). Nothing infers a Festival; this is the only thing that makes one.
+    var festivals: Festivals = Festivals()
     var timelineLoading = false
     /// Distinguishes "no Lanes yet" from "Lanes arriving" when the strip opens.
     var lanesLoading = false
@@ -205,7 +207,7 @@ final class AppModel: ObservableObject {
         Task {
             await logic.loadSpine(me: me) { spine in
                 state.timelineShows = spine.mine
-                state.festivalNames = spine.festivalNames
+                state.festivals = spine.festivals
             }
         }
         loadPlannedGigs()
@@ -296,7 +298,7 @@ final class AppModel: ObservableObject {
                 state.timelineShows = shows
                 state.timelineLoading = false
                 await timelines.save(shows: [me: shows], attendedTotals: [me: total])
-                resolveFestivalNames()
+                resolveFestivals()
             } catch {
                 state.timelineLoading = false
                 fail(error)
@@ -304,17 +306,17 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Fills in the real **Festival** names for the clusters currently on the
-    /// timeline. The rule itself (which clusters, what counts as unresolved, and
-    /// that the answers are stored) lives in the logic layer; this is the
-    /// after-a-fresh-import caller of it.
-    func resolveFestivalNames() {
+    /// Asks which **Festival**, if any, the unidentified evenings currently on the
+    /// timeline belong to. The rule itself (which evenings are candidates, that "no
+    /// festival" is a real answer worth keeping, and that the answers are stored)
+    /// lives in the logic layer; this is the after-a-fresh-import caller of it.
+    func resolveFestivals() {
         let mine = state.timelineShows
-        let known = state.festivalNames
+        let known = state.festivals
         Task {
-            let found = await logic.resolveFestivalNames(mine: mine, known: known)
-            if found.isEmpty { return }
-            state.festivalNames.merge(found) { _, new in new }
+            let found = await logic.resolveFestivals(mine: mine, known: known)
+            if found == known { return }
+            state.festivals = found
         }
     }
 
@@ -378,17 +380,17 @@ final class AppModel: ObservableObject {
         state.friends = spine.friends
         state.timelineShows = spine.mine
         state.showsByFriend = spine.byFriend
-        state.festivalNames = spine.festivalNames
+        state.festivals = spine.festivals
         // A fixture with Lanes is a Timelines-resolution scenario; one without is
         // My-timeline. Either way the shape is derived, never stored.
         state.zoomedOut = !spine.friends.isEmpty
         state.timelineLoading = false
         let rows = weaveTimelines(
-            mine: state.timelineShows, festivalNames: state.festivalNames,
+            mine: state.timelineShows, festivals: state.festivals,
             friends: spine.friends, theirs: state.showsByFriend
         )
         state.expandedFestivals = open
-            ? Set(rows.filter { $0.node.isFestival }.map(\.key))
+            ? Set(rows.filter { $0.node.isSeveral }.map(\.key))
             : []
     }
 
@@ -890,7 +892,7 @@ final class AppModel: ObservableObject {
         // Year – Artist – Where. The rule itself is the logic layer's, asserted by
         // the same cases on both platforms — it is the one that drifted before.
         let defaultName = TimelineLogic.playlistName(
-            for: setlist, mine: state.timelineShows, festivalNames: state.festivalNames
+            for: setlist, mine: state.timelineShows, festivals: state.festivals
         )
 
         state.selectedSetlist = setlist

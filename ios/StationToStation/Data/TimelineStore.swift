@@ -242,6 +242,164 @@ func uuidFrom(_ name: String) -> String {
 /// The id a **Gig** gets the first time it is seen through a setlist.fm id.
 func gigIdForSetlistId(_ setlistId: String) -> String { uuidFrom("gig:\(setlistId)") }
 
+/// A **Festival**: an identity, not a shape (#166). It exists only when something
+/// knows it — setlist.fm's own festival page, or a **Bill** typed in by hand — and it
+/// is never inferred from a venue string and a date window.
+///
+/// `id` is local and ours, the same "the identity is ours; the vendors' are
+/// attributes" move #107 made for a **Gig**: `setlistFmSlug` and `mbid` are enrichment
+/// that may land later or never, and storage never moves because of them.
+///
+/// `rangeFrom`/`rangeTo` are dd-MM-yyyy, the shape setlist.fm sends everywhere else in
+/// this app. Nil when the range isn't known, per ADR-0004's "every field degrades
+/// independently to nil".
+///
+/// `dayMembership` is per-day membership from the source, date (dd-MM-yyyy) to the
+/// setlist.fm ids that played that day. `groupIntoFestivals` prefers it over the
+/// **Gigs** that merely carry this identity's `id`, because the source's own grouping
+/// is evidence and "which gigs happen to be mine" is not.
+///
+/// `setTimes` is when each act was scheduled to go on, `HH:mm`, by setlist.fm id — the
+/// evidence for who played last, which is what the headliner rule is really asking.
+///
+/// `source` decides who wins on conflict: an authored **Bill** identity is never
+/// overwritten by a scrape. The Swift twin of Android's `StoredFestival`.
+struct StoredFestival: Codable, Equatable {
+    var id: String = ""
+    var name: String = ""
+    var rangeFrom: String?
+    var rangeTo: String?
+    var setlistFmSlug: String?
+    var mbid: String?
+    var source: String = FestivalSource.scraped
+    var dayMembership: [String: [String]]?
+    var setTimes: [String: String]?
+
+    /// Which source wins on conflict. Plain strings, for `StoredMedia.Kind`'s reason:
+    /// a value a newer build writes must cost this field, never the whole cache.
+    enum FestivalSource {
+        static let scraped = "scraped"
+        static let authored = "authored"
+    }
+
+    init(
+        id: String = "", name: String = "",
+        rangeFrom: String? = nil, rangeTo: String? = nil,
+        setlistFmSlug: String? = nil, mbid: String? = nil,
+        source: String = FestivalSource.scraped,
+        dayMembership: [String: [String]]? = nil,
+        setTimes: [String: String]? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.rangeFrom = rangeFrom
+        self.rangeTo = rangeTo
+        self.setlistFmSlug = setlistFmSlug
+        self.mbid = mbid
+        self.source = source
+        self.dayMembership = dayMembership
+        self.setTimes = setTimes
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func str(_ key: CodingKeys) -> String? {
+            (try? c.decodeIfPresent(String.self, forKey: key)) ?? nil
+        }
+        id = str(.id) ?? ""
+        name = str(.name) ?? ""
+        rangeFrom = str(.rangeFrom)
+        rangeTo = str(.rangeTo)
+        setlistFmSlug = str(.setlistFmSlug)
+        mbid = str(.mbid)
+        source = str(.source) ?? FestivalSource.scraped
+        dayMembership = (try? c.decodeIfPresent([String: [String]].self, forKey: .dayMembership)) ?? nil
+        setTimes = (try? c.decodeIfPresent([String: String].self, forKey: .setTimes)) ?? nil
+    }
+}
+
+extension TimelineCache {
+    /// The identities as the timeline reads them. See `Festivals`.
+    func festivalIdentities() -> Festivals {
+        Festivals(byId: festivals, idByShow: festivalIdByShow, asked: festivalsAsked)
+    }
+}
+
+/// The id a scraped **Festival** gets the first time its setlist.fm slug is seen.
+func festivalIdForSlug(_ slug: String) -> String { uuidFrom("festival:\(slug)") }
+
+/// **Precedence: setlist.fm, then the author, and the author wins.** An authored
+/// **Bill** identity is never overwritten by a scrape — what I know beats what was
+/// guessed at upstream — which is a rule about the record and so lives in one place
+/// rather than at each of the seams that merge these.
+func mergedWith(
+    _ kept: [String: StoredFestival],
+    _ found: [String: StoredFestival]
+) -> [String: StoredFestival] {
+    kept.merging(
+        found.filter { kept[$0.key]?.source != StoredFestival.FestivalSource.authored }
+    ) { _, new in new }
+}
+
+/// Every **Festival** identity this device knows, and which **Gigs** carry one.
+///
+/// This is what `groupIntoFestivals` decides with, and it replaces the name map it used
+/// to take (#166). The difference is the whole issue: a name keyed by a cluster's first
+/// show could only ever *label* a shape the app had already inferred, so festivalhood
+/// was arithmetic. An identity is evidence — it came from setlist.fm's own festival
+/// page or from a **Bill** somebody typed — and nothing else makes a **Node** a
+/// **Festival**.
+struct Festivals: Equatable {
+    let byId: [String: StoredFestival]
+    /// Festival id by the **Gig**'s setlist.fm id.
+    let idByShow: [String: String]
+    /// Which **Gigs** have already been asked about. See `TimelineCache.festivalsAsked`.
+    let asked: Set<String>
+
+    /// Which identity each **Gig** belongs to, the source's own day grouping winning
+    /// over membership carried on the Gig: the festival page saying "these played on
+    /// the Thursday" is evidence, and "this is one of the nights I happened to attend"
+    /// is not. My attendance decides which nights I *see*, never which nights belong.
+    ///
+    /// Resolved once here rather than per lookup — `groupIntoFestivals` asks it once
+    /// per **Gig**, which is why Kotlin memoises the same map behind `by lazy`.
+    private let identityOfShow: [String: String]
+
+    init(
+        byId: [String: StoredFestival] = [:],
+        idByShow: [String: String] = [:],
+        asked: Set<String> = []
+    ) {
+        self.byId = byId
+        self.idByShow = idByShow
+        self.asked = asked
+        var resolved = idByShow
+        for festival in byId.values {
+            for ids in (festival.dayMembership ?? [:]).values {
+                for id in ids { resolved[id] = festival.id }
+            }
+        }
+        identityOfShow = resolved
+    }
+
+    /// The identity this **Gig** belongs to, or nil — which is the common answer.
+    func of(_ showId: String) -> StoredFestival? {
+        guard let id = identityOfShow[showId] else { return nil }
+        return byId[id]
+    }
+
+    var isEmpty: Bool { byId.isEmpty }
+
+    /// What was known, plus what has just been learned. See `mergedWith` for who wins.
+    static func + (known: Festivals, found: Festivals) -> Festivals {
+        Festivals(
+            byId: mergedWith(known.byId, found.byId),
+            idByShow: known.idByShow.merging(found.idByShow) { _, new in new },
+            asked: known.asked.union(found.asked)
+        )
+    }
+}
+
 private let videoExtensions: Set<String> = ["mp4", "mov", "m4v", "3gp", "mkv", "webm"]
 private let photoExtensions: Set<String> = ["jpg", "jpeg", "png", "heic", "heif", "webp", "gif"]
 
@@ -265,7 +423,26 @@ struct TimelineCache: Codable {
     /// Attended shows by setlist.fm username — mine and every friend's alike.
     var shows: [String: [FmSetlist]] = [:]
     /// Festival name by its cluster's first show id.
+    ///
+    /// **Dead since #166**, which gave a **Festival** an identity of its own. Never
+    /// read and never written from here again; kept declared so an existing cache
+    /// still decodes, and so a handover from a device still on the old build carries
+    /// it rather than dropping it.
     var festivalNames: [String: String] = [:]
+    /// Every **Festival** identity this app knows, by `StoredFestival.id`. See #166.
+    var festivals: [String: StoredFestival] = [:]
+    /// A **Gig**'s membership of a **Festival**, by the Gig's setlist.fm id — the
+    /// fallback `groupIntoFestivals` uses when `StoredFestival.dayMembership` doesn't
+    /// already say which nights belong to it.
+    var festivalIdByShow: [String: String] = [:]
+    /// The **Gigs** whose setlist.fm page has already been read for a **Festival**
+    /// identity, by setlist.fm id — *asked*, not *answered*.
+    ///
+    /// "There is no festival behind this night" is a correct, final answer and most of
+    /// the line, while "the page could not be reached" is a question still open.
+    /// Without it every multi-act night with no festival costs a page fetch on every
+    /// single launch, forever.
+    var festivalsAsked: Set<String> = []
     /// The playlists made from a night, by that night's setlist id, oldest first.
     /// A list rather than one entry because a playlist url is the thing you send
     /// someone: converting a night twice must not overwrite the link a friend
@@ -347,6 +524,9 @@ struct TimelineCache: Codable {
         }
         shows = map(.shows, [FmSetlist].self)
         festivalNames = map(.festivalNames, String.self)
+        festivals = map(.festivals, StoredFestival.self)
+        festivalIdByShow = map(.festivalIdByShow, String.self)
+        festivalsAsked = Set((try? c.decodeIfPresent([String].self, forKey: .festivalsAsked)) ?? nil ?? [])
         playlistsMade = map(.playlistsMade, [StoredPlaylist].self)
         attendedTotals = map(.attendedTotals, Int.self)
         photosBySetlist = map(.photosBySetlist, [String].self)
@@ -452,14 +632,21 @@ actor TimelineStore {
     /// fetch (one friend's request failed) must not delete their last good copy.
     func save(
         shows: [String: [FmSetlist]] = [:],
-        festivalNames: [String: String] = [:],
+        festivals: [String: StoredFestival] = [:],
+        festivalIdByShow: [String: String] = [:],
+        festivalsAsked: Set<String> = [],
         playlists: [String: StoredPlaylist] = [:],
         attendedTotals: [String: Int] = [:]
     ) {
         writeMerged { cache in
             var c = cache
             c.shows.merge(shows.filter { !$0.value.isEmpty }) { _, new in new }
-            c.festivalNames.merge(festivalNames) { _, new in new }
+            // The author beats the scrape, wherever the two meet — see `mergedWith`.
+            c.festivals = mergedWith(c.festivals, festivals)
+            c.festivalIdByShow.merge(festivalIdByShow) { _, new in new }
+            // Asked accumulates and is never cleared: forgetting a "no festival here"
+            // is what makes 44 multi-act nights cost 44 fetches on the next launch.
+            c.festivalsAsked.formUnion(festivalsAsked)
             c.attendedTotals.merge(attendedTotals) { _, new in new }
             // Appended, never replaced. De-duped on url so recording the same
             // playlist twice is a no-op.

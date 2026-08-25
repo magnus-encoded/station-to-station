@@ -1,6 +1,8 @@
 package io.github.magnusencoded.stationtostation
 
+import io.github.magnusencoded.stationtostation.data.Festivals
 import io.github.magnusencoded.stationtostation.data.Friend
+import io.github.magnusencoded.stationtostation.data.StoredFestival
 import io.github.magnusencoded.stationtostation.data.TimelineCache
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.ui.Spine
@@ -31,7 +33,8 @@ class WeaveFixturesTest {
         /** Lane order, nearest the spine first — the device's friends list, reversed. */
         val friends: List<Friend> = emptyList(),
         val shows: Map<String, List<FmSetlist>> = emptyMap(),
-        val festivalNames: Map<String, String> = emptyMap(),
+        val festivals: Map<String, StoredFestival> = emptyMap(),
+        val festivalIdByShow: Map<String, String> = emptyMap(),
     )
 
     @Serializable
@@ -68,9 +71,13 @@ class WeaveFixturesTest {
     private fun row(r: WovenRow, lanes: List<Friend>) = Row(
         key = r.key,
         date = r.date?.toString(),
-        node = if (r.node is TimelineNode.Festival) "festival" else "gig",
+        node = when (r.node) {
+            is TimelineNode.Festival -> "festival"
+            is TimelineNode.Section -> "section"
+            is TimelineNode.Concert -> "gig"
+        },
         title = when (val n = r.node) {
-            is TimelineNode.Festival -> n.label
+            is TimelineNode.Several -> n.label
             is TimelineNode.Concert -> n.setlist.artist?.name.orEmpty()
         },
         ownership = when {
@@ -105,7 +112,7 @@ class WeaveFixturesTest {
             val expected = json.decodeFromString<Expected>(File(case, "expected.json").readText())
             val rows = weaveTimelines(
                 mine = fixture.shows[fixture.me].orEmpty(),
-                festivalNames = fixture.festivalNames,
+                festivals = Festivals(fixture.festivals, fixture.festivalIdByShow),
                 friends = fixture.friends,
                 theirs = fixture.shows - fixture.me,
             )
