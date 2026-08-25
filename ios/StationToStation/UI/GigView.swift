@@ -80,14 +80,6 @@ struct GigView: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button { nav.pop() } label: { Image(systemName: "chevron.left") }
-                    .tint(faint)
-                    // Without this a reader hears the symbol's own name, "chevron
-                    // left" — a shape, where every other control here is named by
-                    // what it does.
-                    .accessibilityLabel("Back")
-            }
             // The light switch (#180): a visible icon button (Android's is a bare
             // gesture on the timeline; GigView's swipes are already claimed by
             // back and the playlist, so a toolbar button is the reversible
@@ -106,9 +98,7 @@ struct GigView: View {
         .toolbarBackground(ground, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
-        .navigationBarBackButtonHidden(true)
         .navigationBarTitleDisplayMode(.inline)
-        .swipeBack(nav)
         // Act on this level: the Alcove, one step Inner. It holds exactly one thing
         // and it may be empty — empty while the band plays, and empty on a night
         // whose record nobody has filled in, where the playlist would convert
