@@ -13,7 +13,7 @@ these words exactly; if a new concept appears, name it here **before** building 
 | **Spine** | The fixed x-position my own **Line** occupies in every row, at every **Resolution**. Geometry, not a drawing: `SpineX`. | my rail, the main line |
 | **Lane** | The x-position a friend's **Line** occupies when the strip is open. Lane 1 is nearest my **Spine** and belongs to the most recently added friend. | rail, column, track |
 | **Edge** | The stretch of **Line** between two of my own **Nodes**. Shows only someone else attended make my edge *longer*; they never compress my line. | gap, spacing |
-| **Node** | A point on a **Line** marking something that happened: a **Gig**, or a **Festival** standing for many. | dot, marker, stop, station |
+| **Node** | A point on a **Line** marking something that happened: a **Gig**, or a **Section** or **Festival** standing for many. | dot, marker, stop, station |
 | **Crossing** | The single **Node** for a night two people were both at. There is exactly one — never one node each joined by a rung, which reads as two concerts. | merge point, shared node (acceptable informally), intersection |
 | **Joined** | The state of two **Lines** after a **Crossing**: they are one line, in the meeting's colour, and stay joined through a run of shared nights until one of them wasn't there. | merged (fine), braided, woven |
 | **Parting** | Where a **Joined** run ends because only one of them was at the next thing. The visitor draws its own way back to its **Lane**; my **Line** does not move. | split, diverge, unmerge |
@@ -48,9 +48,10 @@ different **Movements** do not.
 | Term | Definition | Aliases to avoid |
 | ---- | ---------- | ---------------- |
 | **Gig** | One artist, one night. The atom of a timeline. The word shown to users when nobody else is on screen ("13 gigs"). | show, concert, event, setlist |
-| **Festival** | Two or more **Gigs** at the same venue within a few days, collapsed into one **Node**. Collapsed by default at every resolution. | cluster (internal only), run, multi-day |
-| **Festival name** | The festival's real name — "Øyafestivalen 2025", not the venue "Tøyenparken". Comes from setlist.fm's festival entity, scraped from the setlist page; the venue name is the fallback. | venue, event name |
-| **Absorb** | What my **Festival** does to a friend's cluster at the same venue and dates: it folds in, marking the festival shared, instead of sitting beside it as a second node. | merge (reserved for lines), group |
+| **Festival** | A **Node** standing for several **Gigs** that a named event says belong together. Festivalhood is an **identity**, never a shape: nothing is ever inferred from a venue and a run of dates. Two nights at one venue with nothing that knows what they were are two **Nodes**. Collapsed by default at every resolution. | cluster (internal only), run, multi-day |
+| **Festival identity** | What makes a **Festival** one: setlist.fm's own festival entity — its key, name, date range and day-by-day lineup — or a **Bill** I authored. Held under a stable local id; a **Gig** carries its membership. Absent it there is no festival, however the nights are shaped. | festival name, event name |
+| **Section** | The **Node** for several **Gigs** in one room on one night with no **Festival identity** behind them — a headline show with support. Billed by its own acts ("Devin Townsend (Haken)"), never by the room, and never spanning two nights. | festival (it is not one), cluster, evening |
+| **Absorb** | What a **Node** of mine does to a friend's: the same **Festival identity**, the same **Gig**, or the same evening in the same room folds in, marking the node shared, instead of sitting beside it as a second node. | merge (reserved for lines), group |
 | **Attended** | On someone's setlist.fm attended list. The *only* thing that makes a **Gig** theirs. | went to, logged |
 | **Bill** | A **Festival** whose **Gigs** don't exist yet: a name, a venue, a date range, and a list of **Acts** with no day each. What a poster tells you before you get there. One **Node**, above today, and it stays one **Node** as its **Acts** are dated. | lineup (fine informally), poster, programme |
 | **Act** | A name on a **Bill**. Not a **Gig** — it has no date, and it may never play. It *becomes* a **Gig** the moment someone standing there says which night it played. | artist, slot, booking |

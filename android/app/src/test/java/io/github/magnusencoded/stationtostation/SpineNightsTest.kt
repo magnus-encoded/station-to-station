@@ -76,8 +76,8 @@ class SpineNightsTest {
 
     @Test
     fun theSpineStaysNewestFirst() {
-        // groupIntoFestivals clusters *adjacent* shows, so an out-of-order insert
-        // would split a festival in two.
+        // The whole timeline reads newest first, and groupIntoFestivals keeps the
+        // order it is given — an out-of-order insert would surface as a jumbled Line.
         val attended = listOf(show("b", "13-08-2026"), show("a", "01-01-2020"))
         val local = listOf(show("c", "14-08-2026"))
 

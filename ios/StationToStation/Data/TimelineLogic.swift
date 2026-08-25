@@ -42,8 +42,8 @@ struct LoadedSpine {
     var mine: [FmSetlist] = []
     /// Every other **Line**, by setlist.fm username.
     var byFriend: [String: [FmSetlist]] = [:]
-    /// **Festival** name by its cluster's first show id.
-    var festivalNames: [String: String] = [:]
+    /// Every **Festival** identity known so far, and which **Gigs** carry one (#166).
+    var festivals: Festivals = Festivals()
 }
 
 // MARK: - The device half
@@ -70,12 +70,45 @@ protocol TimelinePlumbing {
     /// One page of a user's **Attended** list, with the total setlist.fm reports.
     func attendedPage(_ user: String, page: Int) async throws -> (shows: [FmSetlist], total: Int)
 
-    /// The real **Festival** name behind a setlist page, or nil if it can't be had.
-    func festivalName(setlistURL: String) async -> String?
+    /// The **Festival** behind a setlist page, or nil when that night belongs to none
+    /// — which is the common and correct answer, and is what stops it being asked
+    /// again.
+    func festivalAt(setlistURL: String) async -> ScrapedFestival?
 
-    /// Persists resolved **Festival** names. Merge semantics belong to the store,
-    /// which already has them and is already the cross-platform contract.
-    func saveFestivalNames(_ names: [String: String]) async
+    /// Persists resolved **Festival** identities, their membership, and which **Gigs**
+    /// have now been asked about. Merge semantics belong to the store, which already
+    /// has them and is already the cross-platform contract.
+    func saveFestivals(
+        _ festivals: [String: StoredFestival],
+        idByShow: [String: String],
+        asked: Set<String>
+    ) async
+}
+
+/// What was scraped, as an identity this app owns.
+///
+/// **The identity is ours; the vendors' are attributes.** The id is minted from
+/// setlist.fm's slug so that two devices — and the same device twice — agree on it
+/// without asking anyone, but it is *ours*: the slug sits beside it as enrichment, the
+/// way a **Gig** already carries its setlist.fm id since #107, and storage never moves
+/// because a vendor's key changed. A **Bill** you typed has no vendor key at all, which
+/// is exactly why a vendor key cannot be the identity.
+///
+/// Nil when the page gave neither a name nor a slug: an identity with nothing to
+/// identify it is not one.
+private func storedFestival(from scraped: ScrapedFestival) -> StoredFestival? {
+    guard let name = scraped.name?.nilIfBlank else { return nil }
+    let id = festivalIdForSlug(scraped.slug ?? "name:\(name.lowercased())")
+    return StoredFestival(
+        id: id,
+        name: name,
+        rangeFrom: scraped.rangeFrom,
+        rangeTo: scraped.rangeTo,
+        setlistFmSlug: scraped.slug,
+        source: StoredFestival.FestivalSource.scraped,
+        dayMembership: scraped.dayMembership,
+        setTimes: scraped.setTimes
+    )
 }
 
 // MARK: - The rules
@@ -114,41 +147,66 @@ struct TimelineLogic {
         guard var spine = await plumbing.storedSpine(me: me) else { return }
         onSpine(spine)
 
-        // A cached Spine may hold Festivals whose real names were never resolved
+        // A cached Spine may hold evenings whose Festival identity was never resolved
         // — the import failed the scrape, or predates it. Resolving only after a
         // fresh import is what left a reopened app showing venue names.
-        let found = await resolveFestivalNames(mine: spine.mine, known: spine.festivalNames)
-        if found.isEmpty { return }
-        spine.festivalNames.merge(found) { _, new in new }
+        let found = await resolveFestivals(mine: spine.mine, known: spine.festivals)
+        if found == spine.festivals { return }
+        spine.festivals = found
         onSpine(spine)
     }
 
-    /// Fills in the real **Festival** names for the clusters on `mine` — one page
-    /// fetch per Festival, only for ones `known` doesn't already have, and only
-    /// where there is a setlist page to scrape. Failures are silent: the venue
-    /// name stays as the label.
+    /// Asks setlist.fm which **Festival**, if any, the unidentified evenings on `mine`
+    /// belong to, and folds the answers into `known`.
     ///
-    /// Returns what it found, and saves it: a Festival name costs a fetch each,
-    /// so it is paid once.
+    /// **A Section is the candidate, not a run of nights.** Several acts at one venue
+    /// on one date is the shape a festival day has; it is also the shape a headline
+    /// show with support has, and the *only* way to tell them apart is to ask a source
+    /// that knows. So this asks, and takes no for an answer: a night whose page carries
+    /// no festival link is recorded as asked and never asked again, which is what keeps
+    /// 44 multi-act nights from costing 44 fetches every launch.
+    ///
+    /// Nothing here infers. If the page says nothing, the evening stays a **Section**
+    /// for good, and that is the record saying the smaller true thing.
     @discardableResult
-    func resolveFestivalNames(mine: [FmSetlist], known: [String: String]) async -> [String: String] {
-        let firsts = groupIntoFestivals(mine)
-            .compactMap { node -> FmSetlist? in
-                guard node.isFestival, let first = node.shows.first else { return nil }
-                return first
-            }
-            .filter { known[$0.id] == nil && $0.url?.nilIfBlank != nil }
-        if firsts.isEmpty { return [:] }
+    func resolveFestivals(mine: [FmSetlist], known: Festivals) async -> Festivals {
+        let candidates = groupIntoFestivals(mine, known).filter { node in
+            guard case .section(let shows) = node else { return false }
+            return !shows.contains { known.asked.contains($0.id) }
+        }
+        if candidates.isEmpty { return known }
 
-        var found: [String: String] = [:]
-        for show in firsts {
-            if let name = await plumbing.festivalName(setlistURL: show.url!) {
-                found[show.id] = name
+        var identities: [String: StoredFestival] = [:]
+        var idByShow: [String: String] = [:]
+        var asked: Set<String> = []
+        for node in candidates {
+            // **A festival answers for every one of its days at once.** The candidates
+            // were decided before the first fetch, so a three-day festival arrives here
+            // as three Sections — but the first one's `dayMembership` already claimed
+            // the other two, and asking again would buy the same page twice more.
+            if node.shows.contains(where: { idByShow[$0.id] != nil }) { continue }
+            guard let show = node.shows.first(where: { $0.url?.nilIfBlank != nil }),
+                  let url = show.url
+            else { continue }
+            // Only a reply counts as having asked. A fetch that failed in a tunnel is a
+            // question still open, and must be asked again on the next launch.
+            let page = await plumbing.festivalAt(setlistURL: url)
+            // **The evening is asked about, not the Gig.** Every setlist of a festival
+            // carries the same link on its own page, so one page answers for the whole
+            // night — and asking act by act would pay per act for one answer.
+            asked.formUnion(node.shows.map(\.id))
+            guard let page, let identity = storedFestival(from: page) else { continue }
+            identities[identity.id] = identity
+            // The nights the *source* says are the festival's, plus this evening, which
+            // we know is: it is the night whose page carried the link.
+            for show in node.shows { idByShow[show.id] = identity.id }
+            for ids in (identity.dayMembership ?? [:]).values {
+                for id in ids { idByShow[id] = identity.id }
             }
         }
-        if found.isEmpty { return [:] }
-        await plumbing.saveFestivalNames(found)
-        return found
+        if asked.isEmpty { return known }
+        await plumbing.saveFestivals(identities, idByShow: idByShow, asked: asked)
+        return known + Festivals(byId: identities, idByShow: idByShow, asked: asked)
     }
 
     /// The nights `friend` and I were both at: the intersection of two **Attended**
@@ -192,17 +250,20 @@ struct TimelineLogic {
     static func playlistName(
         for setlist: FmSetlist,
         mine: [FmSetlist],
-        festivalNames: [String: String]
+        festivals: Festivals
     ) -> String {
         let artistName = setlist.artist?.name ?? ""
         let year = setlist.year()
-        let festival = groupIntoFestivals(mine, names: festivalNames)
-            .first { node in node.isFestival && node.shows.contains { $0.id == setlist.id } }
+        let festival = groupIntoFestivals(mine, festivals).first { node in
+            guard case .festival = node else { return false }
+            return node.shows.contains { $0.id == setlist.id }
+        }
         let whereName: String?
-        // The identity, not the label: a cluster nobody has named is a run of nights,
+        // The identity, not the label: an evening nobody has named is a **Section**,
         // and its own acts are already the artist half of this name. Falls through to
         // the venue, exactly as a lone show does.
-        if case .festival(let fname?, _)? = festival {
+        if case .festival(let identity, _)? = festival {
+            let fname = identity.name
             whereName = year.map {
                 fname.replacingOccurrences(of: $0, with: "")
                     .trimmingCharacters(in: CharacterSet(charactersIn: " -–"))
@@ -253,7 +314,10 @@ final class DeviceTimelinePlumbing: TimelinePlumbing {
             friends: doc.friends ?? [],
             mine: doc.shows[doc.me] ?? [],
             byFriend: doc.shows.filter { $0.key != doc.me },
-            festivalNames: doc.festivalNames ?? [:]
+            festivals: Festivals(
+                byId: doc.festivals ?? [:],
+                idByShow: doc.festivalIdByShow ?? [:]
+            )
         )
         seeded = spine
         return spine
@@ -265,7 +329,7 @@ final class DeviceTimelinePlumbing: TimelinePlumbing {
         let cache = await store.load()
         // Nothing written yet is nil, not an empty Spine: a first run must leave
         // whatever is already on screen alone rather than blanking it.
-        if cache.shows.isEmpty && cache.festivalNames.isEmpty { return nil }
+        if cache.shows.isEmpty && cache.festivals.isEmpty { return nil }
         return LoadedSpine(
             me: me,
             mine: cache.shows[me] ?? [],
@@ -274,7 +338,7 @@ final class DeviceTimelinePlumbing: TimelinePlumbing {
             // night rendered as mine-only instead of Joined. Only friends are ever read
             // out of this map, so carrying my own key costs nothing. Ported with Android.
             byFriend: cache.shows,
-            festivalNames: cache.festivalNames
+            festivals: cache.festivalIdentities()
         )
     }
 
@@ -283,12 +347,16 @@ final class DeviceTimelinePlumbing: TimelinePlumbing {
         return (resp.setlist, resp.total)
     }
 
-    func festivalName(setlistURL: String) async -> String? {
-        await client.festivalName(setlistURL: setlistURL)
+    func festivalAt(setlistURL: String) async -> ScrapedFestival? {
+        await client.festivalAt(setlistURL: setlistURL)
     }
 
-    func saveFestivalNames(_ names: [String: String]) async {
-        await store.save(festivalNames: names)
+    func saveFestivals(
+        _ festivals: [String: StoredFestival],
+        idByShow: [String: String],
+        asked: Set<String>
+    ) async {
+        await store.save(festivals: festivals, festivalIdByShow: idByShow, festivalsAsked: asked)
     }
 }
 
@@ -299,5 +367,8 @@ private struct FixtureDoc: Decodable {
     var me: String
     var friends: [Friend]?
     var shows: [String: [FmSetlist]]
-    var festivalNames: [String: String]?
+    /// A **Festival** is an identity, never a shape (#166): the identities the app
+    /// knows, and which **Gigs** carry one. Nothing else gathers nights together.
+    var festivals: [String: StoredFestival]?
+    var festivalIdByShow: [String: String]?
 }

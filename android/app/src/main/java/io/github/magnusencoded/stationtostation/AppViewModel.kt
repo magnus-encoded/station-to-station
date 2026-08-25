@@ -11,6 +11,7 @@ import io.github.magnusencoded.stationtostation.data.FriendArrival
 import io.github.magnusencoded.stationtostation.data.friendArrival
 import io.github.magnusencoded.stationtostation.data.DeviceLocation
 import io.github.magnusencoded.stationtostation.data.DeviceTimelinePlumbing
+import io.github.magnusencoded.stationtostation.data.Festivals
 import io.github.magnusencoded.stationtostation.data.LoadedSpine
 import io.github.magnusencoded.stationtostation.data.SettingsRepository
 import io.github.magnusencoded.stationtostation.data.StoredAct
@@ -319,8 +320,11 @@ data class UiState(
      * took put me at one. Null the rest of the time, which is nearly always.
      */
     val checkInOffer: FmSetlist? = null,
-    /** Festival name by the first show id of its cluster; see resolveFestivalNames(). */
-    val festivalNames: Map<String, String> = emptyMap(),
+    /**
+     * Every **Festival** identity this device knows, and which **Gigs** carry one.
+     * Nothing else makes a **Node** a **Festival** (#166); see resolveFestivals().
+     */
+    val festivals: Festivals = Festivals(),
     /** Set by a card swap so the timeline opens with the other lines already showing. */
     val justConnected: Boolean = false,
     /**
@@ -536,7 +540,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val cached = timelines.load()
         // plannedShows counts: a collector with no history but one ticket is a real
         // cold start, and without it here that launch restored nothing at all.
-        if (cached.shows.isEmpty() && cached.festivalNames.isEmpty() &&
+        if (cached.shows.isEmpty() && cached.festivals.isEmpty() &&
             cached.gigPlaylists.isEmpty() && cached.gigPlanned.isEmpty() &&
             // A Bill on its own is a real cold start too: the lineup was entered the
             // night before, and the phone has been to no gigs at all yet.
@@ -588,7 +592,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         // Only adopt a cached spine if nothing has already loaded into it.
         val adopt = mine.isNotEmpty() && it.setlists.isEmpty()
         it.copy(
-            festivalNames = it.festivalNames + spine.festivalNames,
+            festivals = it.festivals + spine.festivals,
             // Every lane but mine: the weave reads friends from here.
             showsByFriend = spine.byFriend,
             setlists = if (adopt) mine else it.setlists,
@@ -1304,24 +1308,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
 
     /**
-     * Fills in the real **Festival** names for the clusters currently on the
-     * timeline. The rule itself — which clusters, what counts as unresolved, and
+     * Asks setlist.fm whether the unidentified evenings on the timeline belong to a
+     * **Festival**. The rule itself — which evenings, what counts as already asked, and
      * that the answers are stored — lives in the logic layer; this is the screen's
      * caller of it.
      */
-    fun resolveFestivalNames() {
+    fun resolveFestivals() {
         val s = _state.value
-        val known = s.festivalNames
         viewModelScope.launch {
-            // Two passes rather than one concatenated list: clusters are runs of
-            // *adjacent* shows, so appending the nights ahead to the nights behind
-            // could invent a cluster straddling today. The future lane grows its own
-            // Festivals now (#134) and they want real names too.
-            val found = logic.resolveFestivalNames(s.setlists, known) +
-                logic.resolveFestivalNames(plannedLane(s.plannedGigs, s.attendanceByGig), known)
-            if (found.isNotEmpty()) {
-                _state.update { it.copy(festivalNames = it.festivalNames + found) }
-            }
+            // Two passes rather than one concatenated list, so a night ahead and a
+            // night behind can never be read as one evening. The future lane grows its
+            // own Sections (#134) and they want identities too.
+            val found = logic.resolveFestivals(s.setlists, s.festivals)
+            val alsoAhead = logic.resolveFestivals(
+                plannedLane(s.plannedGigs, s.attendanceByGig),
+                found,
+            )
+            _state.update { it.copy(festivals = it.festivals + alsoAhead) }
         }
     }
 
@@ -2475,7 +2478,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         // Year – Artist – Where. The rule itself is the logic layer's, asserted by
         // the same cases on both platforms — it is the one that drifted before.
         val defaultName = TimelineLogic.playlistName(
-            setlist, _state.value.setlists, _state.value.festivalNames,
+            setlist, _state.value.setlists, _state.value.festivals,
         )
         _state.update {
             it.copy(
