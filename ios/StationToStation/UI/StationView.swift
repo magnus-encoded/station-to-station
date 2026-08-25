@@ -59,16 +59,25 @@ struct StationView: View {
 
     private var lanes: [Friend] { model.state.friends }
 
-    /// Open enough to show Lanes, whether settled or mid-pinch.
+    /// Open enough to show Lanes, whether settled or mid-pinch. Only feeds cheap
+    /// UI (the loading spinner) — never the weave, see `rows` below.
     private var showingLanes: Bool { model.state.zoomedOut || (dragFraction ?? 0) > 0 }
 
-    private var rows: [WovenRow] {
+    /// Cached so a live pinch (`dragFraction`, which updates every gesture
+    /// frame) never re-triggers the weave: it only ever drives `laneWidth`'s
+    /// geometry below. `weaveTimelines` recomputes only when `recomputeRows`
+    /// is actually called, from `.onChange` of the settled inputs it reads —
+    /// same reason Android's `remember(...)` on this call is keyed on
+    /// `zoomedOut`, never on the live drag value (#308).
+    @State private var rows: [WovenRow] = []
+
+    private func recomputeRows() {
         let s = model.state
-        return weaveTimelines(
+        rows = weaveTimelines(
             mine: s.timelineShows,
             festivalNames: s.festivalNames,
-            friends: showingLanes ? lanes : [],
-            theirs: showingLanes ? s.showsByFriend : [:],
+            friends: s.zoomedOut ? lanes : [],
+            theirs: s.zoomedOut ? s.showsByFriend : [:],
             expanded: s.expandedFestivals
         )
     }
@@ -143,12 +152,24 @@ struct StationView: View {
             guard !lanes.isEmpty else { return }
             withAnimation(.spring()) { model.setZoomedOut(!model.state.zoomedOut) }
         }
-        .onAppear { model.loadTimeline() }
+        .onAppear {
+            model.loadTimeline()
+            recomputeRows()
+        }
         // Fetch friends' Lanes when the strip opens, not at launch — a
         // Resolution never opened shouldn't spend setlist.fm's budget.
         .onChange(of: model.state.zoomedOut) { open in
             if open { model.loadFriendTimelines() }
+            recomputeRows()
         }
+        .onChange(of: model.state.expandedFestivals) { _ in recomputeRows() }
+        // Cheap id-only signatures, not the model's Equatable-less setlist arrays
+        // themselves — the weave only needs to know when the underlying shows
+        // actually changed, not compare them structurally every frame.
+        .onChange(of: model.state.timelineShows.map(\.id)) { _ in recomputeRows() }
+        .onChange(of: model.state.festivalNames) { _ in recomputeRows() }
+        .onChange(of: lanes) { _ in recomputeRows() }
+        .onChange(of: model.state.showsByFriend.mapValues { $0.map(\.id) }) { _ in recomputeRows() }
         // Check-in (#174): opening the timeline takes one fix and compares it
         // against what's already known. Foreground, one-shot, nothing
         // scheduled. The permission is only ever asked for on a night there is
