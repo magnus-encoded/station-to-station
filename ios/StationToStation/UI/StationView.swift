@@ -9,6 +9,13 @@ import SwiftUI
 // live in UBIQUITOUS_LANGUAGE.md and the #22/#23 resolutions. This is the SwiftUI
 // rendering of what weaveTimelines already decides; it is not a port of the
 // Compose widget tree (#12: native, not a port).
+//
+// That slogan is scoped, and the scope is the half that keeps getting dropped.
+// #12 split the two builds by *volatility, not by platform*, and said a grammar
+// that took two issues and several device passes to settle is not to be
+// re-derived. So it licenses SwiftUI idiom in material, shape and control — and
+// never a different answer to what a Crossing is, what Amber means, or where a
+// place lives. ADR-0017 is which half is which; ADR-0006 is the topology.
 
 // --- Nocturnal palette. Amber only ever marks mine-and-happened. ---
 private let ground = Color(red: 0x0E / 255, green: 0x0B / 255, blue: 0x14 / 255)

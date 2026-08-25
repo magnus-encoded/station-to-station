@@ -28,6 +28,21 @@ these words exactly; if a new concept appears, name it here **before** building 
 | **Festival resolution** | A **Festival** uncollapsed **in place**, listing the **Gigs** inside it. Never a screen of its own. | festival screen, festival page |
 | **Gig resolution** | One night: its setlist, its media, the playlist export. | event screen, concert detail |
 
+## Movement
+
+A **Movement** is Grammar and is named here. The **control** that triggers one — which gesture,
+which button, where it sits — is Expression under ADR-0017 and is the platform's to choose, so it is
+deliberately *not* named here. The absence is the rule, not an omission: two builds performing the
+same **Movement** by different gestures agree, and two builds where the same gesture performs
+different **Movements** do not.
+
+| Term | Definition | Aliases to avoid |
+| ---- | ---------- | ---------------- |
+| **Movement** | A change of position or **Resolution** in the corridor. Always one of the three below; a proposal that is none of them is proposing a new place, which is ADR-0006's test. | transition, navigation (ambiguous — it also names the control) |
+| **Outward** | Leaving an **Inner** place for the **Outer** one and arriving back at the position you left. Never a new place, and never a second copy of the one you came from. | back (fine informally), up, dismiss |
+| **Opening the strip** | The **Lanes** appearing beside my **Spine** *in place* at the outermost rung. A change of **Resolution**, so there is no journey and no return journey. | opening the timelines view, zooming to a screen |
+| **Lighting** | A change to how the place you are standing in is shown, coherent at every **Resolution** at once. Needs no destination, and the switch that turned it on turns it off. | mode, filter view, toggling a screen |
+
 ## Events
 
 | Term | Definition | Aliases to avoid |
