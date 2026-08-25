@@ -162,7 +162,13 @@ class LaneGeometryTest {
     private fun assertDp(expected: Float, actual: Dp) = assertEquals(expected, actual.value, 0.01f)
 
     private fun festivalRow(mine: Boolean, vararg present: Friend) = WovenRow(
-        node = TimelineNode.Festival("Tons of Rock", listOf(FmSetlist(id = "f", artist = FmArtist(name = "A")))),
+        // Geometry asks only whether a node holds several nights, never which kind.
+        node = TimelineNode.Section(
+            listOf(
+                FmSetlist(id = "f1", artist = FmArtist(name = "A")),
+                FmSetlist(id = "f2", artist = FmArtist(name = "B")),
+            ),
+        ),
         mine = mine,
         others = present.toList(),
     )

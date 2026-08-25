@@ -135,11 +135,13 @@ internal fun rowGeometry(
     // rather than together — which is why a per-line slide exists at all.
     val open = if (strip <= 0.dp) 0f else (laneWidth / strip).coerceIn(0f, 1f) * lanes.size
 
-    val nodeY = if (row.node is TimelineNode.Festival) 15.dp else 13.dp
+    // The geometry asks how many nights a node stands for, never what kind it is: a
+    // Section and a Festival are one ring of the same size, drawn once (#166).
+    val nodeY = if (row.node is TimelineNode.Several) 15.dp else 13.dp
     // The outer radius of whichever node this row draws. A member gig's smaller ring
     // keeps its proportion by having its own radius, not by scaling the gig's.
     val nodeR = when {
-        row.node is TimelineNode.Festival -> 11.dp
+        row.node is TimelineNode.Several -> 11.dp
         row.depth > 0 -> 5.dp
         else -> 7.dp
     }

@@ -43,14 +43,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.magnusencoded.stationtostation.AppViewModel
+import io.github.magnusencoded.stationtostation.data.Festivals
 import io.github.magnusencoded.stationtostation.data.Friend
+import io.github.magnusencoded.stationtostation.data.StoredFestival
 import io.github.magnusencoded.stationtostation.data.billedAs
+import io.github.magnusencoded.stationtostation.data.parseFmDate
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import kotlin.math.abs
-import java.time.temporal.ChronoUnit
 
 /**
  * The night two lines became one. Neither mine (amber) nor anyone's lane colour —
@@ -71,74 +72,173 @@ private val LineCol = Color(0xFF2E2740)
 private val Slate = Color(0xFF6D7E9B)
 private val Serif = FontFamily.Serif
 
-/** A timeline is a mix of single concerts and festivals (a run of shows at one venue). */
+/**
+ * What one **Node** on the **Line** stands for: a lone **Gig**, an evening of several,
+ * or a **Festival**.
+ *
+ * The three are not three shapes of the same claim. A **Section** says *these
+ * performances were the same night in the same room* — a fact we have, from the date
+ * and the venue we were given. A **Festival** says *this evening was Øyafestivalen
+ * 2025*, which is a claim about what happened and needs a source that knows. #166 is
+ * the fifth application of ADR-0002's thesis: festivalhood is demoted from a shape the
+ * app computes to an identity a **Section** may acquire.
+ */
 sealed interface TimelineNode {
-    data class Concert(val setlist: FmSetlist) : TimelineNode
+    /** The nights this **Node** stands for, one or many. */
+    val shows: List<FmSetlist>
+
+    data class Concert(val setlist: FmSetlist) : TimelineNode {
+        override val shows: List<FmSetlist> get() = listOf(setlist)
+    }
 
     /**
-     * Several shows drawn as one **Node**.
-     *
-     * [name] is the **identity** — the real festival name, from a source that knows —
-     * and it is **null when nothing knows**. It used to fall back to the venue string,
-     * which is the visible half of #166: "Sentrum Scene" is a room, not the name of
-     * anything that happened, and putting it here made the record assert a festival
-     * on the strength of a venue and a date window.
-     *
-     * [label] is what to draw, and it never invents an identity. With no [name] the
-     * evening is named by [billedAs] from its own acts, which is a smaller claim and
-     * a true one.
+     * Several **Gigs** drawn as one **Node** — the two things on the **Line** that are
+     * more than one night, and the only thing the screens need to tell from a
+     * **Concert**. What kind of *more than one* it is stays here, in the seam that
+     * decided it; nothing downstream asks.
      */
-    data class Festival(val name: String?, val shows: List<FmSetlist>) : TimelineNode {
-        val label: String get() = name ?: billedAs(shows)
+    sealed interface Several : TimelineNode {
+        /**
+         * What to draw. **Computed, never stored** — for the **Preamble**'s reason:
+         * **Reconcile** has no time bound, a support act can be corrected upstream
+         * years later, and a stored label would be the record freezing a fact it has
+         * since learned better.
+         */
+        val label: String
 
-        /** Whether anything actually knows this was a festival. See [name]. */
-        val identified: Boolean get() = name != null
+        /** When each act went on, `HH:mm` by setlist.fm id, where a source published it. */
+        val setTimes: Map<String, String> get() = emptyMap()
+
+        /**
+         * The evening as it went: earliest set first, where the source said. Nights
+         * with no published time keep the order they arrived in, after the ones that
+         * have one — a running order is a fact, and the absence of one is not a reason
+         * to invent a different order.
+         *
+         * [also] is what other people were at here and I was not, so opening a node
+         * lists the whole evening rather than my half of it.
+         */
+        fun runningOrder(also: List<FmSetlist> = emptyList()): List<FmSetlist> =
+            (shows + also).distinctBy { it.id }.sortedWith(
+                compareByDescending<FmSetlist> { it.localDate() }
+                    .thenBy { setTimes[it.id] ?: LAST },
+            )
+    }
+
+    /**
+     * One evening: two or more **Gigs** on the same date at the same venue, and nothing
+     * else. It makes no claim about what the evening *was*.
+     *
+     * Named from its own acts — the headliner, then its supports, "Devin Townsend
+     * (Haken)" — because a room is not an event. The venue string used to be the label
+     * whenever the name lookup had not landed, which is the visible half of #166; the
+     * serious half was calling the night a **Festival** at all.
+     *
+     * "Coarse is not incomplete": a **Section** is not a **Festival** missing its
+     * identity, and nothing in the app offers to complete it.
+     */
+    data class Section(override val shows: List<FmSetlist>) : Several {
+        override val label: String get() = billedAs(shows)
+    }
+
+    /**
+     * A **Section** that has an identity — and the identity is the whole of it. It
+     * arrives from setlist.fm's own festival page or from a **Bill** typed in by hand,
+     * and it is never inferred: a run of nights at one venue that nothing has named is
+     * a run of nights.
+     */
+    data class Festival(
+        val identity: StoredFestival,
+        override val shows: List<FmSetlist>,
+    ) : Several {
+        override val label: String get() = identity.name
+        override val setTimes: Map<String, String> get() = identity.setTimes.orEmpty()
     }
 }
 
-/**
- * The festival's real name — "Øyafestivalen 2025", not "Tøyenparken" — resolved from
- * setlist.fm's festival entity and passed in by [AppViewModel.resolveFestivalNames],
- * keyed by the cluster's first show. Null until it lands, and null forever if it never
- * does: an unresolved cluster is a run of nights, not a festival whose name we mislaid.
- */
-private fun festivalName(shows: List<FmSetlist>, names: Map<String, String>): String? =
-    names[shows.first().id]
+/** Sorts after every real `HH:mm` — see [TimelineNode.Several.runningOrder]. */
+private const val LAST = "~"
 
 /**
- * What an unidentified cluster calls itself above its label: "ONE NIGHT" for several
- * acts on one date, "N NIGHTS" for a run. Both are things the data actually says.
+ * What a **Node** of several nights is called wherever it is drawn — the woven spine
+ * and the future lane both, since a node that opens is the same node in either.
+ *
+ * A **Festival** is keyed by the identity's own id, which is the point of it having one
+ * (#166): the key used to be the cluster's first show, so adopting a setlist or
+ * correcting a venue typo moved it and took the row's open state — and, before #256,
+ * its stored name — with it.
+ */
+val TimelineNode.Several.key: String get() = when (this) {
+    is TimelineNode.Section -> "s-${shows.first().id}"
+    is TimelineNode.Festival -> "f-${identity.id}"
+}
+
+/**
+ * What a **Section** calls itself above its label: "ONE NIGHT" for several acts on one
+ * date. Something the data actually says, unlike the word FESTIVAL.
  */
 private fun eveningKicker(shows: List<FmSetlist>): String {
     val nights = shows.mapNotNull { it.localDate() }.distinct().size
     return if (nights <= 1) "ONE NIGHT" else "$nights NIGHTS"
 }
 
-private const val FESTIVAL_WINDOW_DAYS = 4L
+/**
+ * **The one seam: what becomes one Node.** Everything that draws a **Line** — the
+ * **Spine**, every **Lane** beside it, the future lane — comes through here, which is
+ * why the rule can be changed in one place and why nothing downstream needs to know
+ * which kind it got.
+ *
+ * Three rules, and there is no fourth:
+ *
+ * - **An identity supplied for a set of Gigs → a `Festival`.** Membership comes from
+ *   the identity's own day grouping where the source published one, and otherwise from
+ *   the **Gigs** carrying that identity. One night of a four-day festival is still that
+ *   festival: going for one day does not shrink it.
+ * - **Same date, same venue → a `Section`.** One evening, drawn as one **Node**, named
+ *   from its acts.
+ * - **Nothing else groups.** Two nights at one venue with no identity are two
+ *   **Nodes** — a residency, a local haunt, or a coincidence, and the record says the
+ *   true, smaller thing rather than inventing an event that never happened.
+ *
+ * The four-day window that used to make the second decision is gone. It guessed in
+ * both directions: it invented festivals out of a headline show with support, and it
+ * named the real ones after their room whenever the lookup had not landed.
+ *
+ * Nodes come back in the order their first member appears in [setlists], so a
+ * date-ordered list stays date-ordered.
+ */
+fun groupIntoFestivals(
+    setlists: List<FmSetlist>,
+    festivals: Festivals = Festivals(),
+): List<TimelineNode> {
+    val groups = LinkedHashMap<String, MutableList<FmSetlist>>()
+    for (show in setlists) {
+        groups.getOrPut(groupKey(show, festivals)) { mutableListOf() }.add(show)
+    }
+    return groups.values.map { shows ->
+        val identity = festivals.of(shows.first().id)
+        when {
+            identity != null -> TimelineNode.Festival(identity, shows)
+            shows.size >= 2 -> TimelineNode.Section(shows)
+            else -> TimelineNode.Concert(shows.first())
+        }
+    }
+}
 
 /**
- * Groups a date-ordered list of shows into festivals — two or more shows at the
- * same venue within a few days of each other — leaving lone shows as concerts.
- * [names] maps a cluster's first show id to the festival's real name.
+ * What decides that two **Gigs** are the same **Node**: an identity, or one evening in
+ * one room.
+ *
+ * A show missing either half of "which evening" is keyed to itself and groups with
+ * nothing — unknown is not a venue, and it is not a date either, so two nights that
+ * cannot say where or when they were must never land on one **Node** together.
  */
-fun groupIntoFestivals(setlists: List<FmSetlist>, names: Map<String, String> = emptyMap()): List<TimelineNode> {
-    val nodes = mutableListOf<TimelineNode>()
-    var i = 0
-    while (i < setlists.size) {
-        val cluster = mutableListOf(setlists[i])
-        var j = i + 1
-        while (j < setlists.size && sameFestival(cluster.last(), setlists[j])) {
-            cluster.add(setlists[j])
-            j++
-        }
-        if (cluster.size >= 2) {
-            nodes.add(TimelineNode.Festival(festivalName(cluster, names), cluster))
-        } else {
-            nodes.add(TimelineNode.Concert(cluster.first()))
-        }
-        i = j
-    }
-    return nodes
+private fun groupKey(show: FmSetlist, festivals: Festivals): String {
+    festivals.of(show.id)?.let { return "f:${it.id}" }
+    val venue = show.venue?.name?.lowercase(Locale.ROOT)
+    val date = show.localDate()
+    if (venue.isNullOrBlank() || date == null) return "x:${show.id}"
+    return "e:$date|$venue"
 }
 
 /**
@@ -192,16 +292,10 @@ data class WovenRow(
 
     val key: String get() = when (val n = node) {
         is TimelineNode.Concert -> "c-${n.setlist.id}-$depth"
-        is TimelineNode.Festival -> "f-${n.shows.first().id}"
+        is TimelineNode.Several -> n.key
     }
-    val date: LocalDate? get() = when (val n = node) {
-        is TimelineNode.Concert -> n.setlist.localDate()
-        is TimelineNode.Festival -> n.shows.mapNotNull { it.localDate() }.maxOrNull()
-    }
-    val shows: List<FmSetlist> get() = when (val n = node) {
-        is TimelineNode.Concert -> listOf(n.setlist)
-        is TimelineNode.Festival -> n.shows
-    }
+    val date: LocalDate? get() = node.shows.mapNotNull { it.localDate() }.maxOrNull()
+    val shows: List<FmSetlist> get() = node.shows
     val shared: Boolean get() = mine && others.isNotEmpty()
 }
 
@@ -210,20 +304,21 @@ data class WovenRow(
  * shows nobody but a friend attended doesn't compress my line — it just makes the edge
  * between my own nodes longer, which is the whole point of zooming out.
  *
- * A friend's shows are clustered into festivals the same way mine are, and a cluster
- * of theirs that lands at my venue within the same few days is folded into my festival
- * node rather than sitting beside it: one Tons of Rock, marked as shared. Expanding
+ * A friend's shows go through the same [groupIntoFestivals] mine do, and a node of
+ * theirs that [hosts] says is the same thing as one of mine — the same **Festival**
+ * identity, the same **Gig**, or the same evening in the same room — is folded into
+ * mine rather than sitting beside it: one Tons of Rock, marked as shared. Expanding
  * that node ([expanded] holds row keys) lists the individual gigs so the two
- * attendances can be compared inside the festival.
+ * attendances can be compared inside it.
  */
 fun weaveTimelines(
     mine: List<FmSetlist>,
-    festivalNames: Map<String, String>,
+    festivals: Festivals,
     friends: List<Friend>,
     theirs: Map<String, List<FmSetlist>>,
     expanded: Set<String> = emptySet(),
 ): List<WovenRow> {
-    val myNodes = groupIntoFestivals(mine, festivalNames)
+    val myNodes = groupIntoFestivals(mine, festivals)
     // Every node on the spine, mine first so a night I was at always hosts the meeting.
     // A cluster of theirs that no existing host takes becomes a host itself, which is
     // what lets two friends at a gig I missed land on one node instead of one each.
@@ -236,12 +331,12 @@ fun weaveTimelines(
     for (friend in friends) {
         val shows = theirs[friend.setlistfm].orEmpty()
         if (shows.isEmpty()) continue
-        for (node in groupIntoFestivals(shows, festivalNames)) {
+        for (node in groupIntoFestivals(shows, festivals)) {
             val host = hosts.firstOrNull { it.hosts(node) } ?: node.also { hosts.add(it) }
             friendsAt.getOrPut(host) { mutableListOf() }
                 .let { if (it.none { f -> f.setlistfm == friend.setlistfm }) it.add(friend) }
             val here = showsAt.getOrPut(host) { LinkedHashMap() }
-            node.shows().forEach { here.putIfAbsent(it.id, it) }
+            node.shows.forEach { here.putIfAbsent(it.id, it) }
         }
     }
 
@@ -258,13 +353,11 @@ fun weaveTimelines(
     // Open festivals list their gigs underneath, each tagged with who was at that one.
     return rows.flatMap { row ->
         val node = row.node
-        if (node !is TimelineNode.Festival || row.key !in expanded) return@flatMap listOf(row)
+        if (node !is TimelineNode.Several || row.key !in expanded) return@flatMap listOf(row)
         // Whose a gig is comes from my own timeline, never from the node holding it —
         // reading it off node.shows made every gig inside a friend's festival look mine.
         val myIds = mine.map { it.id }.toSet()
-        val inner = (node.shows + row.showsHereByFriends)
-            .distinctBy { it.id }
-            .sortedByDescending { it.localDate() }
+        val inner = node.runningOrder(row.showsHereByFriends)
             .map { show ->
                 WovenRow(
                     node = TimelineNode.Concert(show),
@@ -277,43 +370,46 @@ fun weaveTimelines(
     }
 }
 
-/** The nights a node stands for, one or many — the future lane reads it too (#134). */
-fun TimelineNode.shows(): List<FmSetlist> = when (this) {
-    is TimelineNode.Concert -> listOf(setlist)
-    is TimelineNode.Festival -> shows
+/**
+ * Whether [other]'s node belongs on this one rather than beside it — the same three
+ * facts the grouping seam uses, read across two **Lines** instead of down one, so a
+ * **Crossing** is decided by exactly what makes a **Node**:
+ *
+ * - **the same identity** — their nights at Øyafestivalen 2025 land on my Øya node,
+ *   however few of the days either of us went to;
+ * - **the same Gig** on both lists, which is what **Together** means;
+ * - **the same evening in the same room**, which is the **Section** rule.
+ *
+ * Anything looser — same venue, different nights, an identity nobody supplied — would
+ * mark unshared nights as shared, which is the four-day window #166 removed.
+ */
+private fun TimelineNode.hosts(other: TimelineNode): Boolean =
+    sameIdentity(other) ||
+        shows.any { a -> other.shows.any { b -> a.id == b.id } } ||
+        sameEvening(other)
+
+private fun TimelineNode.sameIdentity(other: TimelineNode): Boolean =
+    this is TimelineNode.Festival && other is TimelineNode.Festival &&
+        identity.id == other.identity.id
+
+/** Every night on both nodes in one room on one date. See [groupKey]. */
+private fun TimelineNode.sameEvening(other: TimelineNode): Boolean {
+    val all = shows + other.shows
+    val date = all.first().localDate() ?: return false
+    val venue = all.first().venue?.name?.takeUnless { it.isBlank() } ?: return false
+    return all.all { it.localDate() == date && venue.equals(it.venue?.name, ignoreCase = true) }
 }
 
 /**
- * Whether [other]'s cluster belongs on this node rather than beside it: my festival
- * absorbing their run at the same venue, or — the case a lone concert used to miss —
- * simply the same gig on both lists. Anything looser (same venue, different nights,
- * neither of us clustering it) would mark unshared nights as shared.
+ * The dates under a **Node**'s label. A **Festival** says its *own* range where the
+ * source published one — "Tons of Rock 2026" is four days whether or not I went to
+ * four — and falls back to the nights on the node when it does not.
  */
-private fun TimelineNode.hosts(other: TimelineNode): Boolean =
-    absorbs(other) || shows().any { a -> other.shows().any { b -> a.id == b.id } }
-
-/** Same venue, overlapping few days — near enough to be the same festival. */
-private fun TimelineNode.absorbs(other: TimelineNode): Boolean {
-    val mineShows = (this as? TimelineNode.Festival)?.shows ?: return false
-    val otherShows = when (other) {
-        is TimelineNode.Festival -> other.shows
-        is TimelineNode.Concert -> listOf(other.setlist)
-    }
-    return otherShows.any { show -> mineShows.any { sameFestival(it, show) } }
-}
-
-/** Two adjacent shows belong together when they share a venue and fall within the window. */
-private fun sameFestival(a: FmSetlist, b: FmSetlist): Boolean {
-    val venueA = a.venue?.name ?: return false
-    val venueB = b.venue?.name ?: return false
-    if (!venueA.equals(venueB, ignoreCase = true)) return false
-    val da = a.localDate() ?: return false
-    val db = b.localDate() ?: return false
-    return abs(ChronoUnit.DAYS.between(da, db)) <= FESTIVAL_WINDOW_DAYS
-}
-
-private fun festivalDateRange(shows: List<FmSetlist>): String {
-    val dates = shows.mapNotNull { it.localDate() }.sorted()
+private fun festivalDateRange(node: TimelineNode.Several): String {
+    val identity = (node as? TimelineNode.Festival)?.identity
+    val from = identity?.rangeFrom?.let(::parseFmDate)
+    val to = identity?.rangeTo?.let(::parseFmDate)
+    val dates = listOfNotNull(from, to).ifEmpty { node.shows.mapNotNull { it.localDate() }.sorted() }
     if (dates.isEmpty()) return ""
     val full = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH)
     val a = dates.first()
@@ -323,14 +419,14 @@ private fun festivalDateRange(shows: List<FmSetlist>): String {
 }
 
 /**
- * A clustered node on the timeline: a venue that hosted several shows over a few days.
- * [gutter] is the strip between my spine and the text where other people's lines are
- * drawn when zoomed out; it is empty and zero-width at the single-timeline resolution,
- * so the row is the same size either way.
+ * A **Node** standing for several nights: one evening of several acts, or a
+ * **Festival**. [laneWidth] is the strip between my spine and the text where other
+ * people's lines are drawn when zoomed out; it is zero-width at the single-timeline
+ * resolution, so the row is the same size either way.
  */
 @Composable
 fun FestivalItem(
-    festival: TimelineNode.Festival,
+    festival: TimelineNode.Several,
     highlight: Boolean,
     onClick: () -> Unit,
     open: Boolean = false,
@@ -390,7 +486,7 @@ fun FestivalItem(
             // still one evening drawn as one Node — which is a fact we have — and the
             // eyebrow says only that (#166).
             Text(
-                if (festival.identified) "FESTIVAL" else eveningKicker(festival.shows),
+                if (festival is TimelineNode.Festival) "FESTIVAL" else eveningKicker(festival.shows),
                 color = Slate,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -399,7 +495,7 @@ fun FestivalItem(
             Spacer(Modifier.height(3.dp))
             Text(festival.label, fontFamily = Serif, fontSize = 17.sp, color = Ink)
             Spacer(Modifier.height(2.dp))
-            Text(festivalDateRange(festival.shows), color = Muted, fontSize = 13.sp)
+            Text(festivalDateRange(festival), color = Muted, fontSize = 13.sp)
             Spacer(Modifier.height(7.dp))
             Text(
                 buildAnnotatedString {
