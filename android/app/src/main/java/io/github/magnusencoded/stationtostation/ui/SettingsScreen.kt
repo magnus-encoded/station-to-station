@@ -37,6 +37,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.magnusencoded.stationtostation.AppViewModel
@@ -237,7 +239,12 @@ fun SettingsScreen(
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
-                        TextButton(onClick = { viewModel.removeFriend(friend) }) { Text("Remove") }
+                        TextButton(
+                            onClick = { viewModel.removeFriend(friend) },
+                            modifier = Modifier.semantics {
+                                contentDescription = "Remove ${friend.name}"
+                            },
+                        ) { Text("Remove") }
                     }
                 }
             }
