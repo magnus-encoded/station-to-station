@@ -37,6 +37,33 @@ private let laneColors: [Color] = [
 ]
 private func laneColor(_ index: Int) -> Color { laneColors[((index % laneColors.count) + laneColors.count) % laneColors.count] }
 
+/// Fires `recompute` whenever any of the woven Timeline's real inputs settle to a new
+/// value — never on the live pinch drag, which has no business here (see `rows` on
+/// `StationView`, #308). Grouped into one ViewModifier rather than chained straight
+/// onto `body`: six back-to-back `.onChange(of:)` calls of six different types blew
+/// the type-checker's budget on this already-long modifier chain.
+private struct RowsRecomputeModifier: ViewModifier {
+    let zoomedOut: Bool
+    let expandedFestivals: Set<String>
+    let lanes: [Friend]
+    let festivalNames: [String: String]
+    /// `FmSetlist` isn't `Equatable`, so its id stands in — cheap to derive and
+    /// enough to know the underlying shows actually changed.
+    let showIds: [String]
+    let friendShowIds: [String: [String]]
+    let recompute: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: zoomedOut) { _ in recompute() }
+            .onChange(of: expandedFestivals) { _ in recompute() }
+            .onChange(of: lanes) { _ in recompute() }
+            .onChange(of: festivalNames) { _ in recompute() }
+            .onChange(of: showIds) { _ in recompute() }
+            .onChange(of: friendShowIds) { _ in recompute() }
+    }
+}
+
 // --- Lane geometry lives in Timeline.swift ---
 //
 // It used to be written twice: a tested copy in the model layer deciding the Node's
@@ -160,16 +187,21 @@ struct StationView: View {
         // Resolution never opened shouldn't spend setlist.fm's budget.
         .onChange(of: model.state.zoomedOut) { open in
             if open { model.loadFriendTimelines() }
-            recomputeRows()
         }
-        .onChange(of: model.state.expandedFestivals) { _ in recomputeRows() }
-        // Cheap id-only signatures, not the model's Equatable-less setlist arrays
-        // themselves — the weave only needs to know when the underlying shows
-        // actually changed, not compare them structurally every frame.
-        .onChange(of: model.state.timelineShows.map(\.id)) { _ in recomputeRows() }
-        .onChange(of: model.state.festivalNames) { _ in recomputeRows() }
-        .onChange(of: lanes) { _ in recomputeRows() }
-        .onChange(of: model.state.showsByFriend.mapValues { $0.map(\.id) }) { _ in recomputeRows() }
+        // One modifier, not six chained `.onChange`s: that many distinct
+        // `Equatable` types stacked in a single `body` expression blew the
+        // type-checker's budget ("unable to type-check ... in reasonable
+        // time"). A dedicated ViewModifier gives it one concrete type to
+        // resolve instead of six nested opaque ones.
+        .modifier(RowsRecomputeModifier(
+            zoomedOut: model.state.zoomedOut,
+            expandedFestivals: model.state.expandedFestivals,
+            lanes: lanes,
+            festivalNames: model.state.festivalNames,
+            showIds: model.state.timelineShows.map(\.id),
+            friendShowIds: model.state.showsByFriend.mapValues { $0.map(\.id) },
+            recompute: recomputeRows
+        ))
         // Check-in (#174): opening the timeline takes one fix and compares it
         // against what's already known. Foreground, one-shot, nothing
         // scheduled. The permission is only ever asked for on a night there is
