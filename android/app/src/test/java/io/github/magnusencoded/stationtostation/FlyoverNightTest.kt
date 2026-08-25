@@ -6,19 +6,33 @@ import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.WovenSong
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSong
 import io.github.magnusencoded.stationtostation.ui.EventRow
+import io.github.magnusencoded.stationtostation.ui.flyover.CoverZ
+import io.github.magnusencoded.stationtostation.ui.flyover.FlyoverBillboard
+import io.github.magnusencoded.stationtostation.ui.flyover.FlyoverGig
+import io.github.magnusencoded.stationtostation.ui.flyover.SongGap
+import io.github.magnusencoded.stationtostation.ui.flyover.StretchGap
+import io.github.magnusencoded.stationtostation.ui.flyover.WallGap
 import io.github.magnusencoded.stationtostation.ui.flyover.flyoverMarkers
+import io.github.magnusencoded.stationtostation.ui.flyover.flyoverNight
 import io.github.magnusencoded.stationtostation.ui.flyover.flyoverNotes
 import io.github.magnusencoded.stationtostation.ui.flyover.flyoverPeople
 import io.github.magnusencoded.stationtostation.ui.flyover.flyoverPhotos
+import io.github.magnusencoded.stationtostation.ui.flyover.runningOrder
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDate
+import java.time.LocalDateTime
 
 /**
- * What the **Flyover** makes of a night (#278): who gets a floor line and in which
- * colour, which flank a photograph takes, what reaches the **Wall**, and what the spine
- * says.
+ * What the **Flyover** makes of a walk (#278, #313): who gets a floor line and in which
+ * colour, which flank a photograph takes, what reaches the **Wall**, what the spine
+ * says — and, when the walk is a run of **Gigs**, where one night stops and the next
+ * one starts.
+ *
+ * Every claim here is about the returned content model and none of them is about the
+ * drawing, which is the whole reason the seam is where it is.
  */
 class FlyoverNightTest {
 
@@ -36,6 +50,31 @@ class FlyoverNightTest {
             from = from,
             personal = personal,
         )
+
+    /**
+     * One **Gig** of a run. [songs] gives it a spine of that many published songs, which
+     * is what its stretch is measured against.
+     */
+    private fun gig(
+        id: String = "gig",
+        media: List<StoredMedia> = emptyList(),
+        songs: Int = 0,
+        date: LocalDate? = null,
+        startsAt: LocalDateTime? = null,
+        attended: Set<String> = emptySet(),
+    ): FlyoverGig {
+        val rows = (1..songs).map { song("$id-$it", it) }
+        return FlyoverGig(
+            id = id,
+            billboard = FlyoverBillboard(title = id),
+            media = media,
+            rows = rows,
+            woven = rows.indices.map { WovenSong(published = it, logged = null) },
+            date = date,
+            startsAt = startsAt,
+            attended = attended,
+        )
+    }
 
     private fun note(id: String, text: String, from: String? = null, personal: Boolean = false, verdict: String? = null) =
         StoredMedia(
@@ -57,7 +96,7 @@ class FlyoverNightTest {
      */
     @Test
     fun `a contact keeps their lane colour`() {
-        val people = flyoverPeople(listOf(photo("p", from = "Lemmy")), friends)
+        val people = flyoverPeople(listOf(gig(media = listOf(photo("p", from = "Lemmy")))), friends)
         assertEquals(1, people.size)
         assertEquals("Lemmy", people[0].name)
         assertEquals(friends.indexOf(lemmy), people[0].colourIndex)
@@ -67,27 +106,63 @@ class FlyoverNightTest {
     @Test
     fun `people come back in lane order`() {
         val people = flyoverPeople(
-            listOf(photo("a", from = "Dio"), photo("b", from = "Ozzy"), photo("c", from = "Lemmy")),
+            listOf(
+                gig(
+                    media = listOf(
+                        photo("a", from = "Dio"),
+                        photo("b", from = "Ozzy"),
+                        photo("c", from = "Lemmy"),
+                    ),
+                ),
+            ),
             friends,
         )
         assertEquals(listOf("Ozzy", "Lemmy", "Dio"), people.map { it.name })
     }
 
     /**
-     * The people on the night are the people whose records it holds. Somebody who was
-     * there and gave nothing has no floor line — a lane under an empty stretch of night
-     * says nothing that the walk doesn't already say.
+     * **Presence is attendance now** (#313), and this is the shipped single-night
+     * behaviour it changes. A **Contact** who stood beside you all evening and lifted no
+     * camera used to have no floor line at all, which told you they were somewhere else.
+     * They have one — and what they gave is the line's weight rather than its existence,
+     * so they are still not mistaken for somebody whose photographs are on the night.
      */
     @Test
-    fun `somebody who gave nothing gets no floor line`() {
-        assertTrue(flyoverPeople(listOf(photo("mine")), friends).isEmpty())
+    fun `somebody who was there and gave nothing still has a line`() {
+        val people = flyoverPeople(
+            listOf(gig(media = listOf(photo("mine")), attended = setOf("Lemmy"))),
+            friends,
+        )
+        assertEquals(listOf("Lemmy"), people.map { it.name })
+        assertTrue("no records of theirs on the night", people[0].gaveAt.isEmpty())
+        assertEquals(friends.indexOf(lemmy), people[0].colourIndex)
+    }
+
+    /** Somebody who was at neither is on the ground nowhere: absence still reads. */
+    @Test
+    fun `somebody who was not there has no line`() {
+        val people = flyoverPeople(listOf(gig(media = listOf(photo("mine")))), friends)
+        assertTrue(people.isEmpty())
+    }
+
+    /**
+     * A photograph from that night is somebody saying they were at it, so a sender is on
+     * the ground whether or not the timeline we hold for them reaches back that far.
+     */
+    @Test
+    fun `giving media is evidence enough of having been there`() {
+        val people = flyoverPeople(listOf(gig(media = listOf(photo("p", from = "Ozzy")))), friends)
+        assertEquals(listOf("Ozzy"), people.map { it.name })
+        assertEquals(setOf("gig"), people[0].gaveAt)
     }
 
     /** Two strangers are still two colours, and neither gets a name invented for them. */
     @Test
     fun `a sender nobody knows still gets their own colour`() {
         val people = flyoverPeople(
-            listOf(photo("a", from = "stranger"), photo("b", from = "other")),
+            listOf(
+                gig(media = listOf(photo("a", from = "stranger"), photo("b", from = "other"))),
+            ),
             friends,
         )
         assertEquals(2, people.size)
@@ -102,7 +177,7 @@ class FlyoverNightTest {
     @Test
     fun `the flank is whose camera it came from`() {
         val media = listOf(photo("mine", at = 0L), photo("theirs", from = "Ozzy", at = 10L))
-        val people = flyoverPeople(media, friends)
+        val people = flyoverPeople(listOf(gig(media = media)), friends)
         val photos = flyoverPhotos(media, people, songCount = 12)
         assertTrue(photos.first { it.id == "mine" }.mine)
         assertTrue(!photos.first { it.id == "theirs" }.mine)
@@ -147,7 +222,7 @@ class FlyoverNightTest {
             note("theirs-ozzy", "o", from = "Ozzy"),
             note("mine-shared", "s"),
         )
-        val notes = flyoverNotes(media, flyoverPeople(media, friends))
+        val notes = flyoverNotes(media, flyoverPeople(listOf(gig(media = media)), friends))
         assertEquals(
             listOf("mine-shared", "mine-vault", "theirs-ozzy", "theirs-dio"),
             notes.map { it.id },
@@ -161,7 +236,7 @@ class FlyoverNightTest {
             note("a", "up", verdict = StoredMedia.Verdict.DOUBLE_UP),
             note("b", "down", from = "Ozzy", verdict = StoredMedia.Verdict.DOWN),
         )
-        val notes = flyoverNotes(media, flyoverPeople(media, friends))
+        val notes = flyoverNotes(media, flyoverPeople(listOf(gig(media = media)), friends))
         assertEquals(StoredMedia.Verdict.DOUBLE_UP, notes.first { it.id == "a" }.verdict)
         assertEquals(StoredMedia.Verdict.DOWN, notes.first { it.id == "b" }.verdict)
     }
@@ -245,5 +320,297 @@ class FlyoverNightTest {
         )
         val gaps = markers.map { it.z }.zipWithNext { a, b -> b - a }
         assertTrue("every gap is the same", gaps.distinct().size == 1)
+    }
+
+    // --- A run of Gigs (#313) ----------------------------------------------
+
+    private val friday = LocalDate.of(2025, 8, 8)
+    private val saturday = LocalDate.of(2025, 8, 9)
+    private val sunday = LocalDate.of(2025, 8, 10)
+
+    /** Two songs each, so every stretch is [SongGap] long and the arithmetic is
+     *  readable: markers at 0 and 260, content ending at 260. */
+    private fun weekend(
+        friAttended: Set<String> = emptySet(),
+        satAttended: Set<String> = emptySet(),
+        sunAttended: Set<String> = emptySet(),
+        friMedia: List<StoredMedia> = emptyList(),
+        satMedia: List<StoredMedia> = emptyList(),
+        sunMedia: List<StoredMedia> = emptyList(),
+    ) = listOf(
+        gig("fri", songs = 2, date = friday, attended = friAttended, media = friMedia),
+        gig("sat", songs = 2, date = saturday, attended = satAttended, media = satMedia),
+        gig("sun", songs = 2, date = sunday, attended = sunAttended, media = sunMedia),
+    )
+
+    /** Where each stretch of [weekend] begins. */
+    private val friAt = 0.0
+    private val satAt = SongGap + StretchGap
+    private val sunAt = satAt + SongGap + StretchGap
+
+    /**
+     * **A one-Gig run is the night it always was.** The feature is built for festivals
+     * and is not allowed to move a single Tuesday by one unit.
+     */
+    @Test
+    fun `a one-gig run is exactly the single night it always was`() {
+        val only = gig(
+            songs = 4,
+            media = listOf(photo("mine", at = 0L), photo("theirs", from = "Ozzy", at = 90L)),
+        )
+        val night = flyoverNight(listOf(only), friends)
+
+        assertEquals(listOf(0.0, 260.0, 520.0, 780.0), night.markers.map { it.z })
+        assertEquals(
+            flyoverPhotos(only.media, night.people, 4).map { it.id to it.z },
+            night.photos.map { it.id to it.z },
+        )
+        assertEquals(1, night.covers.size)
+        assertEquals("gig", night.covers[0].gigId)
+        assertEquals(CoverZ, night.covers[0].z, 0.0)
+        assertEquals(night.contentLength + WallGap, night.wallZ, 0.0)
+    }
+
+    /**
+     * Earliest first, and each stretch laid out as its own night before being offset —
+     * so the spine inside a stretch is that **Gig**'s songs and nothing else's.
+     */
+    @Test
+    fun `the stretches stand one after another in running order`() {
+        val night = flyoverNight(weekend().reversed(), friends)
+
+        assertEquals(listOf("fri", "sat", "sun"), night.covers.mapNotNull { it.gigId })
+        assertEquals(
+            listOf(
+                friAt, friAt + SongGap,
+                satAt, satAt + SongGap,
+                sunAt, sunAt + SongGap,
+            ),
+            night.markers.map { it.z },
+        )
+    }
+
+    /**
+     * **The gap is fixed and belongs to the Cover that introduces the next stretch.**
+     * Three days apart or three hours, it is the same corridor: the walk is a
+     * concatenation and the model makes no claim about how long the real gap was.
+     */
+    @Test
+    fun `the gap between two stretches says nothing about the time between them`() {
+        val close = flyoverNight(
+            listOf(
+                gig("a", songs = 2, date = friday),
+                gig("b", songs = 2, date = friday.plusDays(1)),
+            ),
+            friends,
+        )
+        val distant = flyoverNight(
+            listOf(
+                gig("a", songs = 2, date = friday),
+                gig("b", songs = 2, date = friday.plusYears(3)),
+            ),
+            friends,
+        )
+        assertEquals(close.contentLength, distant.contentLength, 0.0)
+        assertEquals(close.covers.map { it.z }, distant.covers.map { it.z })
+    }
+
+    /** One **Cover** per **Gig**, at the depth its stretch begins. */
+    @Test
+    fun `each gig has exactly one cover where its own stretch starts`() {
+        val night = flyoverNight(weekend(), friends)
+
+        assertEquals(listOf("fri", "sat", "sun"), night.covers.map { it.gigId })
+        assertEquals(
+            listOf(friAt + CoverZ, satAt + CoverZ, sunAt + CoverZ),
+            night.covers.map { it.z },
+        )
+    }
+
+    /** Two billboards at the start: what you are walking, then where it begins. */
+    @Test
+    fun `the run's own billboard stands ahead of the first gig's cover`() {
+        val night = flyoverNight(
+            weekend(),
+            friends,
+            runBillboard = FlyoverBillboard("Øyafestivalen 2025"),
+        )
+
+        assertNull("the run's billboard belongs to no one Gig", night.covers[0].gigId)
+        assertEquals("Øyafestivalen 2025", night.covers[0].billboard.title)
+        assertEquals(CoverZ - StretchGap, night.covers[0].z, 0.0)
+        assertTrue("and it is met first", night.covers[0].z < night.covers[1].z)
+        assertEquals("fri", night.covers[1].gigId)
+    }
+
+    /** **You stop once, at the end** — not once per night. */
+    @Test
+    fun `there is one wall, past the whole run`() {
+        val night = flyoverNight(weekend(), friends)
+
+        assertEquals(sunAt + SongGap, night.contentLength, 0.0)
+        assertEquals(night.contentLength + WallGap, night.wallZ, 0.0)
+        assertTrue(night.markers.all { it.z < night.wallZ })
+        assertTrue(night.covers.all { it.z < night.wallZ })
+    }
+
+    /** A floor line runs under the nights they were at, and leaves shot across the
+     *  ones they were not. */
+    @Test
+    fun `a floor line covers the gigs they attended and no others`() {
+        val night = flyoverNight(
+            weekend(
+                friAttended = setOf("Ozzy", "Lemmy"),
+                satAttended = setOf("Ozzy"),
+                sunAttended = setOf("Ozzy", "Lemmy"),
+            ),
+            friends,
+        )
+        val lemmyLine = night.people.first { it.key == "Lemmy" }
+        assertEquals(
+            listOf(friAt to friAt + SongGap, sunAt to sunAt + SongGap),
+            lemmyLine.spans.map { it.fromZ to it.toZ },
+        )
+    }
+
+    /** One person, whatever the ground does in between: a line that leaves and returns
+     *  is two spans of the same **Contact**, never two contacts. */
+    @Test
+    fun `a line that leaves and returns is still one person`() {
+        val night = flyoverNight(
+            weekend(friAttended = setOf("Lemmy"), sunAttended = setOf("Lemmy")),
+            friends,
+        )
+        assertEquals(1, night.people.count { it.key == "Lemmy" })
+        assertEquals(2, night.people.first { it.key == "Lemmy" }.spans.size)
+    }
+
+    /**
+     * Present throughout is one unbroken span — including across the dark between two
+     * stretches, which belongs to the walk and is not an absence.
+     */
+    @Test
+    fun `a contact present on every night has one unbroken span`() {
+        val night = flyoverNight(
+            weekend(
+                friAttended = setOf("Ozzy"),
+                satAttended = setOf("Ozzy"),
+                sunAttended = setOf("Ozzy"),
+            ),
+            friends,
+        )
+        val line = night.people.first { it.key == "Ozzy" }
+        assertEquals(1, line.spans.size)
+        assertEquals(friAt, line.spans[0].fromZ, 0.0)
+        assertEquals(sunAt + SongGap, line.spans[0].toZ, 0.0)
+    }
+
+    /**
+     * And a night they gave nothing on does not break it (story 17): what they handed
+     * over is the line's weight, so the ground never says somebody was absent when they
+     * were standing beside you.
+     */
+    @Test
+    fun `a night they gave nothing on does not break their line`() {
+        val night = flyoverNight(
+            weekend(
+                friAttended = setOf("Dio"),
+                satAttended = setOf("Dio"),
+                sunAttended = setOf("Dio"),
+                satMedia = listOf(photo("theirs", from = "Dio")),
+            ),
+            friends,
+        )
+        val line = night.people.first { it.key == "Dio" }
+        assertEquals(1, line.spans.size)
+        assertEquals(setOf("sat"), line.gaveAt)
+    }
+
+    // --- The running order, and what it degrades to ------------------------
+
+    /** The first rung: the date. */
+    @Test
+    fun `the running order is the date`() {
+        val order = runningOrder(weekend().reversed())
+        assertEquals(listOf("fri", "sat", "sun"), order.map { it.id })
+    }
+
+    /** The second: a scheduled set time, where the record has one. */
+    @Test
+    fun `set times decide the order inside one date`() {
+        val late = gig("headliner", date = saturday, startsAt = saturday.atTime(22, 0))
+        val early = gig("support", date = saturday, startsAt = saturday.atTime(19, 30))
+        assertEquals(listOf("support", "headliner"), runningOrder(listOf(late, early)).map { it.id })
+    }
+
+    /**
+     * The third, and the weakest: the order the source returned. An evening whose
+     * **Gigs** have no known running order is still walkable, in an order that is
+     * stated rather than guessed.
+     */
+    @Test
+    fun `with no set times the source's own order stands`() {
+        val a = gig("first", date = saturday)
+        val b = gig("second", date = saturday)
+        assertEquals(listOf("first", "second"), runningOrder(listOf(a, b)).map { it.id })
+        assertEquals(listOf("second", "first"), runningOrder(listOf(b, a)).map { it.id })
+    }
+
+    /** An undated night is not evidence of an early one. */
+    @Test
+    fun `a gig the record gives no date for sorts last`() {
+        val dated = gig("dated", date = saturday)
+        val undated = gig("undated")
+        assertEquals(listOf("dated", "undated"), runningOrder(listOf(undated, dated)).map { it.id })
+    }
+
+    // --- What widening the view may not widen ------------------------------
+
+    /** **Personal** is held back on a run exactly as it is on a night. */
+    @Test
+    fun `a held-back photograph is held back the same at N equals one and above`() {
+        val vault = photo("vault", personal = true)
+        val one = flyoverNight(listOf(gig("a", songs = 2, media = listOf(vault))), friends)
+        val many = flyoverNight(
+            listOf(gig("a", songs = 2, media = listOf(vault)), gig("b", songs = 2)),
+            friends,
+        )
+        assertTrue(one.photos.single().personal)
+        assertTrue(many.photos.single { it.id == "vault" }.personal)
+    }
+
+    /**
+     * The contact light narrows in the **Room** and the walk must not widen it again.
+     * The composer is handed what the caller decided is visible and has no second
+     * source to read from, at one **Gig** or five.
+     */
+    @Test
+    fun `the run holds only the media it was given`() {
+        val night = flyoverNight(
+            listOf(
+                gig("a", songs = 2, media = listOf(photo("shown"))),
+                gig("b", songs = 2, media = emptyList()),
+            ),
+            friends,
+        )
+        assertEquals(listOf("shown"), night.photos.map { it.id })
+    }
+
+    /** The **Wall** holds the whole run's notes, mine first, in floor-line order. */
+    @Test
+    fun `the run's notes all reach the one wall`() {
+        val night = flyoverNight(
+            listOf(
+                gig("fri", songs = 2, date = friday, media = listOf(note("n1", "friday"))),
+                gig(
+                    "sat",
+                    songs = 2,
+                    date = saturday,
+                    media = listOf(note("n2", "saturday", from = "Ozzy")),
+                ),
+            ),
+            friends,
+        )
+        assertEquals(listOf("n1", "n2"), night.notes.map { it.id })
     }
 }
