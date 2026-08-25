@@ -8,6 +8,11 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
+import java.net.URI
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 class SetlistFmClient(private val apiKeyProvider: suspend () -> String?) {
 
@@ -90,33 +95,156 @@ class SetlistFmClient(private val apiKeyProvider: suspend () -> String?) {
         )
 
     /**
-     * The festival a setlist belongs to, e.g. "Øyafestivalen 2025" for a show whose
-     * venue is only "Tøyenparken".
+     * The **Festival** a setlist belongs to — the identity, the name, the range, which
+     * acts played which day, and when each of them went on. Null when that night
+     * belongs to no festival, which is the common and correct answer.
      *
      * setlist.fm models festivals as a first-class entity but does not expose them in
-     * the REST API — the name lives only on the setlist's own web page, which links to
-     * `/festival/<year>/<slug>.html`. MusicBrainz has festival events too, and needs no
+     * the REST API. The setlist's own web page links to `/festival/<year>/<slug>.html`,
+     * and that page carries the rest. MusicBrainz has festival events too, and needs no
      * key, but its coverage is patchy (Tons of Rock 2026 is there, Øyafestivalen 2025
      * is not), so it can't be the primary source.
      *
-     * Returns null on anything unexpected — the caller falls back to the venue name.
+     * **Two pages, one per festival, paid once.** #166 assumed the setlist page carried
+     * all four facts; it does not — it carries the identity and the name, and the range,
+     * the day grouping and the set times live on the festival page it links to. The
+     * volume is unchanged in the way that matters: a night is asked about once ever, and
+     * the second fetch only happens for a night that turned out to be at a festival at
+     * all.
+     *
+     * Everything degrades independently, per ADR-0004: a festival page that cannot be
+     * read at all still yields the identity and the name off the setlist page, and a
+     * field the parse does not recognise is null rather than a guess. Nothing about a
+     * **Festival** is required for a **Gig** to render.
      */
-    suspend fun festivalName(setlistUrl: String): String? = withContext(Dispatchers.IO) {
-        runCatching {
-            val request = Request.Builder().url(setlistUrl).header("Accept", "text/html").build()
-            http.newCall(request).execute().use { resp ->
-                if (!resp.isSuccessful) return@use null
-                parseFestivalName(resp.body?.string().orEmpty())
-            }
-        }.getOrNull()
+    suspend fun festivalAt(setlistUrl: String): ScrapedFestival? = withContext(Dispatchers.IO) {
+        val link = html(setlistUrl)?.let(::parseFestivalLink) ?: return@withContext null
+        val page = link.href
+            ?.let { runCatching { URI(setlistUrl).resolve(it).toString() }.getOrNull() }
+            ?.let { html(it) }
+            ?.let(::parseFestivalPage)
+        // The name off the setlist page is the one we came for; the festival page's own
+        // <h1> is a second opinion on it, never a replacement for the identity.
+        link.copy(
+            rangeFrom = page?.rangeFrom,
+            rangeTo = page?.rangeTo,
+            dayMembership = page?.dayMembership,
+            setTimes = page?.setTimes,
+        )
     }
+
+    /** One page, as text. Null on anything at all going wrong — see [festivalAt]. */
+    private fun html(url: String): String? = runCatching {
+        val request = Request.Builder().url(url).header("Accept", "text/html").build()
+        http.newCall(request).execute().use { resp ->
+            if (resp.isSuccessful) resp.body?.string() else null
+        }
+    }.getOrNull()
 }
 
-/** The "played at a festival" link on a setlist page: title="View &lt;name&gt; details". */
-private val FESTIVAL_LINK = Regex("""href="[^"]*?/festival/\d{4}/[^"]+"\s+title="View (.+?) detail""")
+/**
+ * A **Festival** as setlist.fm's pages give it up, every field independently nullable.
+ *
+ * Not a `StoredFestival`: this is what was *read*, and turning it into an identity the
+ * app owns — minting the local id, deciding it is scraped rather than authored — is the
+ * logic layer's job and not the scraper's.
+ */
+data class ScrapedFestival(
+    val name: String? = null,
+    /** e.g. `tons-of-rock-2026-6bd52ece`, out of the href — the vendor's own key. */
+    val slug: String? = null,
+    /** Where the festival page is, relative to the setlist page. */
+    val href: String? = null,
+    /** dd-MM-yyyy, the shape setlist.fm sends everywhere else in this app. */
+    val rangeFrom: String? = null,
+    val rangeTo: String? = null,
+    /** dd-MM-yyyy to the setlist.fm ids the source says played that day. */
+    val dayMembership: Map<String, List<String>>? = null,
+    /** Setlist.fm id to `HH:mm`, for the acts whose start time was published. */
+    val setTimes: Map<String, String>? = null,
+)
 
-internal fun parseFestivalName(html: String): String? =
-    FESTIVAL_LINK.find(html)?.groupValues?.get(1)?.trim()?.takeUnless { it.isEmpty() }
+/** The "played at a festival" link on a setlist page: title="View &lt;name&gt; details". */
+private val FESTIVAL_LINK =
+    Regex("""href="([^"]*?/festival/\d{4}/([^"/]+)\.html)"\s+title="View (.+?) detail""")
+
+/**
+ * The identity and the name, off the setlist page. Null when the page carries no
+ * festival link at all, which is what "this was not a festival" looks like.
+ */
+internal fun parseFestivalLink(html: String): ScrapedFestival? {
+    val m = FESTIVAL_LINK.find(html) ?: return null
+    return ScrapedFestival(
+        name = m.groupValues[3].trim().takeUnless { it.isEmpty() },
+        slug = m.groupValues[2].takeUnless { it.isEmpty() },
+        href = m.groupValues[1].takeUnless { it.isEmpty() },
+    )
+}
+
+/** Kept for the one fact the label used to be: see [parseFestivalLink]. */
+internal fun parseFestivalName(html: String): String? = parseFestivalLink(html)?.name
+
+// --- The festival page ------------------------------------------------------------
+//
+// Three facts and three shapes, each read on its own so that a redesign upstream costs
+// the field it touched and never the night. Verified against the real page on
+// 2026-08-25.
+
+/** `<div class="condensed dateBlock dtstart">…<span class="value-title" title="2026-06-24">`. */
+private val DTSTART = Regex("""dateBlock dtstart.{0,400}?value-title" title="(\d{4}-\d{2}-\d{2})"""", RegexOption.DOT_MATCHES_ALL)
+
+/** The human range beside it: `<span>Wed June 24, 2026 - Sat June 27, 2026</span>`. */
+private val RANGE = Regex("""<span>\w{3} (\w+ \d{1,2}, \d{4}) - \w{3} (\w+ \d{1,2}, \d{4})</span>""")
+
+/** `<p class="…GroupedVenueDayBySubVenue-eventDate …">Wednesday, June 24, 2026</p>`. */
+private const val DAY_HEADING = "GroupedVenueDayBySubVenue-eventDate"
+private val DAY_DATE = Regex("""^[^>]*>([^<]+)<""")
+
+/** One act's row on the day's list, with the scheduled start where there is one. */
+private const val DAY_ITEM = "FestivalSetlistListItem-root"
+private val ITEM_TIME = Regex("""scheduledStart.{0,600}?<p[^>]*>([^<]+)</p>""", RegexOption.DOT_MATCHES_ALL)
+private val ITEM_SETLIST = Regex("""/setlist/[^"]*?-([0-9a-f]{5,10})\.html""")
+
+private val PAGE_DAY = DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy", Locale.ENGLISH)
+private val PAGE_RANGE = DateTimeFormatter.ofPattern("MMMM d, yyyy", Locale.ENGLISH)
+private val FM_DATE = DateTimeFormatter.ofPattern("dd-MM-yyyy", Locale.ENGLISH)
+private val PAGE_TIME = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
+
+/**
+ * The range, the day grouping and the set times off a festival page. Every field is
+ * whatever could be read and null otherwise — a page shaped wrong yields nothing rather
+ * than nonsense, and one unreadable field never takes the others with it.
+ */
+internal fun parseFestivalPage(html: String): ScrapedFestival {
+    val range = RANGE.find(html)
+    val days = mutableMapOf<String, List<String>>()
+    val times = mutableMapOf<String, String>()
+    for (chunk in html.split(DAY_HEADING).drop(1)) {
+        val date = DAY_DATE.find(chunk)?.groupValues?.get(1)?.let { fmDate(it, PAGE_DAY) }
+        val ids = mutableListOf<String>()
+        for (item in chunk.split(DAY_ITEM).drop(1)) {
+            val id = ITEM_SETLIST.find(item)?.groupValues?.get(1) ?: continue
+            ids += id
+            ITEM_TIME.find(item)?.groupValues?.get(1)?.let(::pageTime)?.let { times[id] = it }
+        }
+        if (date != null && ids.isNotEmpty()) days[date] = ids
+    }
+    return ScrapedFestival(
+        rangeFrom = DTSTART.find(html)?.groupValues?.get(1)?.let { fmDate(it, DateTimeFormatter.ISO_LOCAL_DATE) }
+            ?: range?.groupValues?.get(1)?.let { fmDate(it, PAGE_RANGE) },
+        rangeTo = range?.groupValues?.get(2)?.let { fmDate(it, PAGE_RANGE) },
+        dayMembership = days.ifEmpty { null },
+        setTimes = times.ifEmpty { null },
+    )
+}
+
+/** A date the page wrote its way, in the one shape this app stores dates in. */
+private fun fmDate(text: String, format: DateTimeFormatter): String? =
+    runCatching { LocalDate.parse(text.trim(), format).format(FM_DATE) }.getOrNull()
+
+/** "2:00 pm" as "14:00", so the latest set time is also the largest string. */
+private fun pageTime(text: String): String? =
+    runCatching { LocalTime.parse(text.trim().uppercase(Locale.ENGLISH), PAGE_TIME).toString() }.getOrNull()
 
 /**
  * The id at the end of a setlist page's url. Only `/setlist/` and `/upcoming/` count:
