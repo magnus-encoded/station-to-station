@@ -62,11 +62,51 @@ journey.
 - **The Alcove is a single slot, so it forces a choice.** A room offers one destination opposite the
   door — the calendar before a night, the Spotify terminal after it. Two things competing for the
   alcove is a signal that the state model is wrong, not that the alcove should hold two things.
-- **It generalises to the iOS build.** The grammar is shared logic in the ADR-0001 sense; a platform
-  may not resolve a navigation question differently, because the corridor is the same corridor.
+- **It generalises to the iOS build.** The grammar is shared logic in the ADR-0001 sense; ~~a platform
+  may not resolve a navigation question differently, because the corridor is the same corridor.~~
+  **a platform may not resolve a question of *topology* differently, because the corridor is the same
+  corridor — but the control that moves you along it is the platform's to choose** (narrowed
+  2026-08-25, see the amendment below and ADR-0017).
+
+## Amendment (2026-08-25): the corridor binds topology, not the vehicle
+
+**What changed.** The last consequence claimed navigation whole. It is narrowed to the corridor's
+**topology** — what places exist, how they connect, that there is one of each, that leaving a room
+returns you where you stood. The **vehicle** — which control or gesture moves you along that
+topology — is Expression under ADR-0017 and is the platform's to choose.
+
+**What made it change.** Two things, in order.
+
+The corridor's force comes from spatial cognition rather than from convention, which is what made the
+strong claim look right: a mental map is deeper than any OS's habits, so it seemed to follow that the
+whole of navigation travels between platforms. But the spatial system supplies the machinery to
+*build* a map of an environment, not a prior about which gesture pops a room. What must be identical
+is therefore the map. The vehicle is indifferent to it.
+
+Then the strong reading was found doing damage. `ios/StationToStation/UI/SwipeBack.swift` hid the
+system back button behind custom chevrons — which disabled the interactive edge-pop — and hand-rolled
+a threshold replacement with no interactive tracking and no cancel. That is not a defence of the
+corridor: the system gesture *implements* the topology, and better, because tracking renders the
+spatial relationship between two places while you move between them, where a threshold pop is a
+teleport. The strong claim was used to justify a version of the corridor that is worse at being a
+corridor.
+
+**What this does not change.** *One place for each place*, *state is not location*, and *a
+**Resolution** is not a screen* are all topology and all still bind both platforms. So does *a gesture
+means one thing at each **Resolution*** — that is a consistency rule *within* a platform, and it never
+required the two platforms to pick the same gesture. The worked example above stands: the contact's-eye
+view is a light and not a place on both builds. Which control turns that light on is now Expression,
+and where a build offers a second switch for one light, it is *one place for each place* that decides
+it — not this bullet.
+
+**What the strong version was doing, and still does.** It was not idle. It rejects "add a settings
+screen for it", second copies of a room, and gestures that mean two things at one **Resolution** —
+and every one of those fails the *topology* test, not the vehicle test. The narrowing costs the model
+nothing it was actually being used for.
 
 ## Related
 
+- ADR-0017 — Grammar and Expression; this amendment is its first application.
 - `CONTEXT.md` — **Outer**, **Inner**, **Resolution**, **Room**, **Alcove**, **Curtain**, **Window**.
 - ADR-0001 — the grammar is shared logic, not per-platform plumbing.
 - #145 — the worked example above.
