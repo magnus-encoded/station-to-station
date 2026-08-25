@@ -128,31 +128,51 @@ fun GigFlyoverScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     val media = if (state.contactLight) visibleToContacts(held) else held
     val log = state.logsByGig[setlist.id] ?: StoredLog()
 
-    val night = remember(media, state.friends, setlist.id, log) {
+    val checkedIn = state.attendanceByGig[setlist.id]?.provenance ==
+        StoredAttendance.Provenance.CHECKED_IN
+
+    // Who else was here. A floor line means **attended** now (#313), and the woven
+    // timelines are where that is known — so the lanes are asked for, cached-and-
+    // complete being the common case, rather than presence being read off who happened
+    // to hand over a photograph.
+    LaunchedEffect(Unit) { viewModel.loadFriendTimelines() }
+    val night = remember(media, state.friends, setlist.id, log, state.showsByFriend, checkedIn) {
         val rows = setlist.eventRows()
         flyoverNight(
-            media = media,
+            // One night is the N=1 case of the run. There is no second composer.
+            gigs = listOf(
+                FlyoverGig(
+                    id = setlist.id,
+                    billboard = FlyoverBillboard(
+                        title = setlist.artist?.name ?: "Unknown artist",
+                        where = listOfNotNull(setlist.venueLine(), setlist.readableDate())
+                            .joinToString(" · "),
+                        chips = buildList {
+                            val performed = setlist.performed().size
+                            if (performed > 0) add("$performed songs")
+                            setlist.tour?.name?.let { add(it) }
+                            if (checkedIn) add("checked in")
+                        },
+                    ),
+                    media = media,
+                    rows = rows,
+                    woven = weaveSetlist(
+                        rows.map { (it as? EventRow.SongItem)?.song?.name },
+                        log.songs,
+                    ),
+                    log = log,
+                    date = setlist.localDate(),
+                    attended = state.showsByFriend
+                        .filterValues { shows -> shows.any { it.id == setlist.id } }
+                        .keys,
+                ),
+            ),
             friends = state.friends,
-            rows = rows,
-            woven = weaveSetlist(rows.map { (it as? EventRow.SongItem)?.song?.name }, log.songs),
-            log = log,
         )
     }
 
     Flyover(
         night = night,
-        title = setlist.artist?.name ?: "Unknown artist",
-        where = listOfNotNull(setlist.venueLine(), setlist.readableDate()).joinToString(" · "),
-        chips = buildList {
-            val performed = setlist.performed().size
-            if (performed > 0) add("$performed songs")
-            setlist.tour?.name?.let { add(it) }
-            if (state.attendanceByGig[setlist.id]?.provenance ==
-                StoredAttendance.Provenance.CHECKED_IN
-            ) {
-                add("checked in")
-            }
-        },
         loadThumb = viewModel::photoPreview,
         loadFull = viewModel::fullPhoto,
         onBack = onBack,
@@ -167,9 +187,6 @@ fun GigFlyoverScreen(viewModel: AppViewModel, onBack: () -> Unit) {
 @Composable
 internal fun Flyover(
     night: FlyoverNight,
-    title: String,
-    where: String,
-    chips: List<String>,
     loadThumb: suspend (Uri) -> MediaThumb,
     loadFull: suspend (Uri) -> android.graphics.Bitmap?,
     onBack: () -> Unit,
@@ -302,15 +319,20 @@ internal fun Flyover(
                 lit = photo.id == (if (photo.mine) litMine else litTheirs),
             )
         }
-        Cover(
-            title = title,
-            where = where,
-            chips = chips,
-            people = night.people,
-            travel = travel,
-            frame = frame,
-            density = density,
-        )
+        // The **Covers**, at the depths the composer gave them, furthest first like
+        // everything else on the walk — the composer hands them back in walking order,
+        // so reversed is back-to-front. The key to the ground stands on the first
+        // billboard only, the run's if it has one and otherwise the one **Gig**'s,
+        // because the cast belongs to the walk and not to each night of it.
+        night.covers.asReversed().forEach { cover ->
+            Cover(
+                cover = cover,
+                people = if (cover === night.covers.first()) night.people else emptyList(),
+                travel = travel,
+                frame = frame,
+                density = density,
+            )
+        }
         // Whose the lit photograph is, said once, unscaled — the outline carries the
         // colour and this carries the name, and neither has to be read off a caption
         // rushing past at an angle.
@@ -435,7 +457,14 @@ private fun BoxScope.Floor(night: FlyoverNight, travel: Travel, frame: IntSize, 
         }
         floorRun(-FlankX, Amber, 3.0)
         night.people.forEachIndexed { i, person ->
-            floorRun(floorLineX(i, night.people.size), railColor(person.colourIndex), 2.0)
+            // A line means they were there. Whether they also handed over photographs
+            // is its weight — a thin line is somebody who stood beside you and took
+            // nothing, which is not the same as somebody who was not there at all.
+            floorRun(
+                floorLineX(i, night.people.size),
+                railColor(person.colourIndex),
+                if (person.gaveAt.isEmpty()) 1.0 else 2.0,
+            )
         }
     }
 }
@@ -602,22 +631,20 @@ private fun FlankPhoto(
  */
 @Composable
 private fun BoxScope.Cover(
-    title: String,
-    where: String,
-    chips: List<String>,
+    cover: FlyoverCover,
     people: List<FlyoverPerson>,
     travel: Travel,
     frame: IntSize,
     density: Float,
 ) {
-    Panel(travel = travel, frame = frame, density = density, z = CoverZ, onHeight = {}) {
-        Text(title, color = Ink, fontFamily = FontFamily.Serif, fontSize = 30.sp)
+    Panel(travel = travel, frame = frame, density = density, z = cover.z, onHeight = {}) {
+        Text(cover.billboard.title, color = Ink, fontFamily = FontFamily.Serif, fontSize = 30.sp)
         Spacer(Modifier.height(6.dp))
-        Text(where, color = Muted, fontSize = 14.sp)
-        if (chips.isNotEmpty()) {
+        Text(cover.billboard.where, color = Muted, fontSize = 14.sp)
+        if (cover.billboard.chips.isNotEmpty()) {
             Spacer(Modifier.height(14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                chips.take(3).forEach { chip ->
+                cover.billboard.chips.take(3).forEach { chip ->
                     Text(
                         chip,
                         color = Muted,
@@ -629,28 +656,33 @@ private fun BoxScope.Cover(
                 }
             }
         }
-        Spacer(Modifier.height(16.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("you", color = Amber, fontSize = 12.sp)
-            Row {
-                // Three names fit and twelve do not, so the key says how many it is not
-                // showing rather than running off the panel. The floor answers the same
-                // question in the same order for anyone who wants to count.
-                people.take(CoverNames).forEachIndexed { i, person ->
-                    if (i > 0) Text(" · ", color = LineCol, fontSize = 12.sp)
-                    Text(
-                        person.name.ifBlank { "someone else" },
-                        color = railColor(person.colourIndex),
-                        fontSize = 12.sp,
-                    )
-                }
-                if (people.size > CoverNames) {
-                    Text("  +${people.size - CoverNames}", color = Faint, fontSize = 12.sp)
+        // The key stands on one billboard only, so a run states its cast once rather
+        // than repeating it on every night's **Cover**. A **Cover** given nobody is a
+        // **Gig**'s inside a run, and says nothing about the ground.
+        if (people.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("you", color = Amber, fontSize = 12.sp)
+                Row {
+                    // Three names fit and twelve do not, so the key says how many it is
+                    // not showing rather than running off the panel. The floor answers
+                    // the same question in the same order for anyone who wants to count.
+                    people.take(CoverNames).forEachIndexed { i, person ->
+                        if (i > 0) Text(" · ", color = LineCol, fontSize = 12.sp)
+                        Text(
+                            person.name.ifBlank { "someone else" },
+                            color = railColor(person.colourIndex),
+                            fontSize = 12.sp,
+                        )
+                    }
+                    if (people.size > CoverNames) {
+                        Text("  +${people.size - CoverNames}", color = Faint, fontSize = 12.sp)
+                    }
                 }
             }
+            Spacer(Modifier.height(14.dp))
+            Text("drag up to walk the night", color = Faint, fontSize = 12.sp)
         }
-        Spacer(Modifier.height(14.dp))
-        Text("drag up to walk the night", color = Faint, fontSize = 12.sp)
     }
 }
 
