@@ -98,11 +98,16 @@ plausible-sounding ones.
   place for each place, state is not location, a **Resolution** is not a screen — is Grammar and
   binds both platforms. Its vehicle claims — which gesture, where the switch sits — are Expression
   and do not. Filed as a dated amendment to 0006, not a rewrite.
-- **`SwipeBack.swift`, `SwipeBack.kt` and the custom chevrons are defects under this ADR.** The
-  system back gesture does not violate the corridor; it *implements* it, and better — interactive
-  tracking renders the spatial relationship between two places while you move between them, where a
-  threshold pop is a teleport. The platform answer is stronger on our own criterion here, not merely
-  cheaper.
+- **`SwipeBack.swift` and the custom chevrons on `GigView` and `ProgrammeView` are defects under this
+  ADR.** `NavigationStack` already implements **Outward**, and better — interactive tracking renders
+  the spatial relationship between two places while you move between them, where a threshold pop is a
+  teleport. `.navigationBarBackButtonHidden(true)` disabled it and `swipeBack` was hand-rolled to
+  cover the loss. The platform answer is stronger on our own criterion here, not merely cheaper.
+- **`SwipeBack.kt` is not the same case.** Android's system back is handled by Navigation Compose and
+  was never disabled, so `swipeRightToBack` is an *additional* control for **Outward** rather than a
+  replacement for one the app broke. That is Expression, and permitted. It stays a smell under
+  ADR-0006 — two routes to the same thing — and the custom route gives up predictive back's peek, so
+  it is worth revisiting. It is not a boundary crossing.
 - **Grammar still has no executable check, and this ADR does not close that hole.** It is the same
   absence that produced the drift, and prose that drifted once will drift again. #35's iOS CI
   screenshots are the nearest existing lever.
