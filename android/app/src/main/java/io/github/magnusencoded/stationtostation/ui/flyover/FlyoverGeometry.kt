@@ -263,6 +263,23 @@ const val CoverZ = -420.0
  */
 const val WallGap = 1220.0
 
+/**
+ * The dark between one **Gig**'s stretch and the next, when the walk is a run of them
+ * (#313).
+ *
+ * **A fixed interval, belonging to the Cover that introduces the next stretch.** It is
+ * not derived from the hours or days between the two nights, and nothing anywhere in
+ * the model records how long that real gap was: the walk is a concatenation, not
+ * continuous time, and a corridor scaled to a night's sleep would be a claim the record
+ * cannot support.
+ *
+ * The same number as [WallGap] for the same reason — longer than [NearCull], so the
+ * last night's encore burst has finished streaming past you before the next **Cover**
+ * is in front of you. Also how far ahead of the first **Gig**'s **Cover** the run's own
+ * billboard stands, so the two are read one after the other rather than together.
+ */
+const val StretchGap = WallGap
+
 /** How far short of the **Wall** you stop, at the least. Billboard distance: close
  *  enough that it dominates the frame and the notes are read, not squinted at. */
 const val WallStopMin = 110.0
