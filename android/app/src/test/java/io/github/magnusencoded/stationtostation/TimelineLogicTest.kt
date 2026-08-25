@@ -266,6 +266,41 @@ class TimelineLogicTest {
     }
 
     @Test
+    fun `a multi-day festival costs one fetch, not one per day`() = runBlocking {
+        // Three days at one venue arrive here as three Sections, because the candidates
+        // are decided before anything has been asked. The first day's page names the
+        // other two, so asking about them again would buy the same bytes twice more —
+        // and each ask is two fetches, the setlist page and the festival page behind it.
+        val mine = listOf(
+            show("thu1", "26-06-2026", venue = "Ekebergsletta"),
+            show("thu2", "26-06-2026", venue = "Ekebergsletta", artist = "Gojira"),
+            show("wed1", "25-06-2026", venue = "Ekebergsletta"),
+            show("wed2", "25-06-2026", venue = "Ekebergsletta", artist = "Gojira"),
+            show("tue1", "24-06-2026", venue = "Ekebergsletta"),
+            show("tue2", "24-06-2026", venue = "Ekebergsletta", artist = "Gojira"),
+        )
+        val fake = FakePlumbing()
+        fake.festivals = mapOf(
+            mine[0].url!! to scraped().copy(
+                dayMembership = mapOf(
+                    "26-06-2026" to listOf("thu1", "thu2"),
+                    "25-06-2026" to listOf("wed1", "wed2"),
+                    "24-06-2026" to listOf("tue1", "tue2"),
+                ),
+            ),
+        )
+
+        val found = TimelineLogic(fake).resolveFestivals(mine, Festivals())
+
+        assertEquals(1, fake.calls.count { it.startsWith("festivalAt") })
+        // And it answered for the whole run, not only the night it was asked about.
+        assertEquals(
+            listOf("Tons of Rock 2026"),
+            mine.map { found.of(it.id)?.name }.distinct(),
+        )
+    }
+
+    @Test
     fun `a seeded fixture is the spine and the store is never read`() = runBlocking {
         val fake = FakePlumbing()
         fake.seeded = LoadedSpine(me = "dizzi90", mine = listOf(show("fixture")))
