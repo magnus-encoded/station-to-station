@@ -100,31 +100,48 @@ final class SetlistFmClient {
         return (all, total)
     }
 
-    /// The **Festival** a setlist belongs to — the identity and the name. Nil when
-    /// that night belongs to no festival, which is the common and correct answer.
+    /// The **Festival** a setlist belongs to — the identity, the name, the range, which
+    /// acts played which day, and when each of them went on. Nil when that night
+    /// belongs to no festival, which is the common and correct answer.
     ///
     /// setlist.fm models festivals as a first-class entity but does not expose them in
-    /// the REST API. The setlist's own web page links to `/festival/<year>/<slug>.html`
-    /// and the slug in that href is the vendor's own key — the same across every act
-    /// and every year's edition — which is what a stored identity is derived from.
-    /// MusicBrainz has festival events too and needs no key, but its coverage is
-    /// patchy, so it can't be the primary source.
+    /// the REST API. The setlist's own web page links to `/festival/<year>/<slug>.html`,
+    /// and that page carries the rest. MusicBrainz has festival events too and needs no
+    /// key, but its coverage is patchy, so it can't be the primary source.
     ///
-    /// **ponytail: the setlist page only.** Android follows the link and reads the
-    /// range, the day grouping and the set times off the festival page as well. Here
-    /// those three come back nil, which is exactly what ADR-0004 asks of a field that
-    /// could not be read — an identity still lands, a **Node** still says
-    /// "Øyafestivalen 2025", and membership falls back to the **Gigs** carrying the
-    /// id. Port `parseFestivalPage` when this side needs the running order too.
+    /// **Two pages, one per festival, paid once.** The volume is unchanged in the way
+    /// that matters: a night is asked about once ever, and the second fetch only
+    /// happens for a night that turned out to be at a festival at all.
+    ///
+    /// Everything degrades independently, per ADR-0004: a festival page that cannot be
+    /// read at all still yields the identity and the name off the setlist page.
+    /// Term for term with Android's `festivalAt`.
     func festivalAt(setlistURL: String) async -> ScrapedFestival? {
-        guard let url = URL(string: setlistURL) else { return nil }
-        // Same IPv4 forcing as the API — the setlist.fm website is behind the same
-        // CloudFront. Best-effort: any failure leaves the question open.
-        guard let resp = try? await IPv4Https.get(url: url, headers: ["Accept": "text/html"]),
-              (200...299).contains(resp.status),
-              let html = String(data: resp.body, encoding: .utf8)
+        guard let setlistHtml = await html(setlistURL),
+              var found = parseFestivalLink(setlistHtml)
         else { return nil }
-        return parseFestivalLink(html)
+        guard let href = found.href,
+              let pageURL = URL(string: href, relativeTo: URL(string: setlistURL))?.absoluteURL,
+              let pageHtml = await html(pageURL.absoluteString)
+        else { return found }
+        // The name off the setlist page is the one we came for; the festival page's own
+        // <h1> is a second opinion on it, never a replacement for the identity.
+        let page = parseFestivalPage(pageHtml)
+        found.rangeFrom = page.rangeFrom
+        found.rangeTo = page.rangeTo
+        found.dayMembership = page.dayMembership
+        found.setTimes = page.setTimes
+        return found
+    }
+
+    /// One page, as text. Nil on anything at all going wrong — see `festivalAt`. Same
+    /// IPv4 forcing as the API: the setlist.fm website is behind the same CloudFront.
+    private func html(_ urlString: String) async -> String? {
+        guard let url = URL(string: urlString),
+              let resp = try? await IPv4Https.get(url: url, headers: ["Accept": "text/html"]),
+              (200...299).contains(resp.status)
+        else { return nil }
+        return String(data: resp.body, encoding: .utf8)
     }
 }
 
@@ -165,3 +182,90 @@ func parseFestivalLink(_ html: String) -> ScrapedFestival? {
 
 /// Kept for the one fact the label used to be: see `parseFestivalLink`.
 func parseFestivalName(_ html: String) -> String? { parseFestivalLink(html)?.name }
+
+// MARK: - The festival page
+//
+// Three facts and three shapes, each read on its own so that a redesign upstream costs
+// the field it touched and never the night. A pure function over a string: it holds
+// nothing and touches no device, which is why it lives at the logic layer under
+// ADR-0001 and is asserted by the same cases as Android's `parseFestivalPage`.
+
+/// `<div class="condensed dateBlock dtstart">…<span class="value-title" title="2026-06-24">`.
+private let dtStart =
+    try! Regex(#"(?s)dateBlock dtstart.{0,400}?value-title" title="(\d{4}-\d{2}-\d{2})""#)
+
+/// The human range beside it: `<span>Wed June 24, 2026 - Sat June 27, 2026</span>`.
+private let pageRangeSpan =
+    try! Regex(#"<span>\w{3} (\w+ \d{1,2}, \d{4}) - \w{3} (\w+ \d{1,2}, \d{4})</span>"#)
+
+/// `<p class="…GroupedVenueDayBySubVenue-eventDate …">Wednesday, June 24, 2026</p>`.
+private let dayHeading = "GroupedVenueDayBySubVenue-eventDate"
+private let dayDate = try! Regex(#"^[^>]*>([^<]+)<"#)
+
+/// One act's row on the day's list, with the scheduled start where there is one.
+private let dayItem = "FestivalSetlistListItem-root"
+private let itemTime = try! Regex(#"(?s)scheduledStart.{0,600}?<p[^>]*>([^<]+)</p>"#)
+private let itemSetlist = try! Regex(#"/setlist/[^"]*?-([0-9a-f]{5,10})\.html"#)
+
+private let pageDayFormat = fmFormatter("EEEE, MMMM d, yyyy")
+private let pageRangeFormat = fmFormatter("MMMM d, yyyy")
+private let fmDateFormat = fmFormatter("dd-MM-yyyy")
+private let pageTimeFormat = fmFormatter("h:mm a")
+private let twentyFourHour = fmFormatter("HH:mm")
+
+/// The range, the day grouping and the set times off a festival page. Every field is
+/// whatever could be read and nil otherwise — a page shaped wrong yields nothing rather
+/// than nonsense, and one unreadable field never takes the others with it.
+func parseFestivalPage(_ html: String) -> ScrapedFestival {
+    let range = html.firstMatch(of: pageRangeSpan)
+    var days: [String: [String]] = [:]
+    var times: [String: String] = [:]
+    for chunk in html.components(separatedBy: dayHeading).dropFirst() {
+        let date = chunk.firstMatch(of: dayDate)
+            .flatMap { group($0, 1) }
+            .flatMap { fmDate($0, pageDayFormat) }
+        var ids: [String] = []
+        for item in chunk.components(separatedBy: dayItem).dropFirst() {
+            guard let m = item.firstMatch(of: itemSetlist), let id = group(m, 1) else { continue }
+            ids.append(id)
+            if let text = item.firstMatch(of: itemTime).flatMap({ group($0, 1) }),
+               let time = pageTime(text) {
+                times[id] = time
+            }
+        }
+        if let date, !ids.isEmpty { days[date] = ids }
+    }
+    let iso = html.firstMatch(of: dtStart)
+        .flatMap { group($0, 1) }
+        .flatMap { isoDay.date(from: $0) }
+        .map { fmDateFormat.string(from: $0) }
+    return ScrapedFestival(
+        rangeFrom: iso ?? range.flatMap { group($0, 1) }.flatMap { fmDate($0, pageRangeFormat) },
+        rangeTo: range.flatMap { group($0, 2) }.flatMap { fmDate($0, pageRangeFormat) },
+        dayMembership: days.isEmpty ? nil : days,
+        setTimes: times.isEmpty ? nil : times
+    )
+}
+
+private let isoDay = fmFormatter("yyyy-MM-dd")
+
+/// One capture group of a match built from a runtime pattern, as a plain String.
+private func group(_ match: Regex<AnyRegexOutput>.Match, _ i: Int) -> String? {
+    guard let s = match.output[i].substring else { return nil }
+    return String(s).nilIfBlank
+}
+
+/// A date the page wrote its way, in the one shape this app stores dates in.
+private func fmDate(_ text: String, _ format: DateFormatter) -> String? {
+    guard let d = format.date(from: text.trimmingCharacters(in: .whitespacesAndNewlines))
+    else { return nil }
+    return fmDateFormat.string(from: d)
+}
+
+/// "2:00 pm" as "14:00", so the latest set time is also the largest string. Uppercased
+/// because `en_US_POSIX` spells its day-period symbols AM and PM and parses strictly.
+private func pageTime(_ text: String) -> String? {
+    let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    guard let d = pageTimeFormat.date(from: cleaned) else { return nil }
+    return twentyFourHour.string(from: d)
+}

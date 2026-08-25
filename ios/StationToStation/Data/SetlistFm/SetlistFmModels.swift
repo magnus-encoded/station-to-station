@@ -27,7 +27,7 @@ struct SetlistsResponse: Decodable {
 /// setlist.fm sends the event date as dd-MM-yyyy. Fixed locale and UTC so a
 /// phone's region can't change which day a gig lands on, and so the day
 /// arithmetic behind festival clustering never meets a DST jump.
-private func fmFormatter(_ pattern: String) -> DateFormatter {
+func fmFormatter(_ pattern: String) -> DateFormatter {
     let f = DateFormatter()
     f.locale = Locale(identifier: "en_US_POSIX")
     f.timeZone = TimeZone(secondsFromGMT: 0)
