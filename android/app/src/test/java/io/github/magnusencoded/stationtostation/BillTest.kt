@@ -1,6 +1,8 @@
 package io.github.magnusencoded.stationtostation
 
 import io.github.magnusencoded.stationtostation.data.BillWhen
+import io.github.magnusencoded.stationtostation.data.Festivals
+import io.github.magnusencoded.stationtostation.data.StoredFestival
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredBill
 import io.github.magnusencoded.stationtostation.data.StoredLog
@@ -241,14 +243,14 @@ class BillTest {
     }
 
     @Test
-    fun `two acts on the same night at one venue are a festival's worth of gigs`() {
+    fun `two acts on the same night at one venue are one evening's worth of gigs`() {
         // The payoff of dating acts rather than inventing dates: once they are real
-        // nights they cluster on venue and date exactly like any other run of shows.
-        val a = localGigSetlist("a", "Nord&Nord", LocalDate.of(2026, 8, 6), "Nordlys Fields 2026", "")
-        val b = localGigSetlist("b", "Halden Drift", LocalDate.of(2026, 8, 8), "Nordlys Fields 2026", "")
+        // nights they group by venue and date exactly like any other pair of shows.
+        val a = localGigSetlist("a", "Nord&Nord", LocalDate.of(2026, 8, 6), "Nordlys Fields", "")
+        val b = localGigSetlist("b", "Halden Drift", LocalDate.of(2026, 8, 6), "Nordlys Fields", "")
         val nodes = io.github.magnusencoded.stationtostation.ui.groupIntoFestivals(listOf(b, a))
         assertEquals(1, nodes.size)
-        assertTrue(nodes.first() is io.github.magnusencoded.stationtostation.ui.TimelineNode.Festival)
+        assertTrue(nodes.first() is io.github.magnusencoded.stationtostation.ui.TimelineNode.Section)
     }
 
     // --- The Log: what I saw, and what it admits about itself --------------------
@@ -510,36 +512,36 @@ class BillTest {
         localGigSetlist("tf", "Tin Funeral", LocalDate.of(2026, 8, 13), "Hollowmoor Park", "Vardhavn")
 
     @Test
-    fun `two planned gigs at one venue on one night are one festival, not two nodes`() {
+    fun `two planned gigs at one venue on one night are one Section, not two nodes`() {
         val rows = futureRows(emptyList(), listOf(marbleQuiet, tinFuneral), planned("mq", "tf"))
         assertEquals(1, rows.size)
         val node = (rows.single() as FutureRow.Ticket).node
-        assertTrue(node is TimelineNode.Festival)
-        assertEquals(
-            setOf("mq", "tf"),
-            (node as TimelineNode.Festival).shows.map { it.id }.toSet(),
-        )
+        assertTrue(node is TimelineNode.Section)
+        assertEquals(setOf("mq", "tf"), node.shows.map { it.id }.toSet())
     }
 
     @Test
-    fun `a planned festival takes the scraped name, and its own acts otherwise`() {
+    fun `a planned evening takes an identity where there is one, and its acts otherwise`() {
         // Unnamed, the evening is billed by who is playing it. It is not called
         // "Hollowmoor Park": a room is not the name of an event (#166), and the
         // venue fallback that used to sit here is the claim that bug was about.
         val plain = futureRows(emptyList(), listOf(marbleQuiet, tinFuneral), planned("mq", "tf"))
         assertEquals("Marble Quiet (Tin Funeral)", festivalNameOf(plain.single()))
-        assertFalse((plain.single() as FutureRow.Ticket).node.let { it as TimelineNode.Festival }.identified)
+        assertTrue((plain.single() as FutureRow.Ticket).node is TimelineNode.Section)
 
-        // Keyed by the cluster's first show, which is the newest — same order the
-        // lane groups in, so the resolver and the lane agree on the key.
-        val first = (plain.single() as FutureRow.Ticket).node.shows().first().id
+        // An identity is the whole difference: nothing about the two shows changed,
+        // only what is known about the evening they belong to.
         val named = futureRows(
             emptyList(),
             listOf(marbleQuiet, tinFuneral),
             planned("mq", "tf"),
-            festivalNames = mapOf(first to "Hollowmoor Sound 2026"),
+            festivals = Festivals(
+                byId = mapOf("hm26" to StoredFestival(id = "hm26", name = "Hollowmoor Sound 2026")),
+                idByShow = mapOf("mq" to "hm26", "tf" to "hm26"),
+            ),
         )
         assertEquals("Hollowmoor Sound 2026", festivalNameOf(named.single()))
+        assertTrue((named.single() as FutureRow.Ticket).node is TimelineNode.Festival)
     }
 
     @Test
@@ -581,7 +583,7 @@ class BillTest {
     }
 
     private fun festivalNameOf(row: FutureRow): String =
-        ((row as FutureRow.Ticket).node as TimelineNode.Festival).label
+        ((row as FutureRow.Ticket).node as TimelineNode.Several).label
 
     // --- A poster names the festival, never the room (#128) ---------------------
 

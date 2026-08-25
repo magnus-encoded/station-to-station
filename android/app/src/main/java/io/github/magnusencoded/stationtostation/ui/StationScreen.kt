@@ -565,18 +565,18 @@ fun StationTimelineScreen(
                             }
                         }
                         PlanningPull(progress = { pull.value / pullMax }, heightPx = { pull.value })
-                        // Planned nights cluster into Festivals too, so adding one can
-                        // create a cluster whose name has never been looked up (#134).
+                        // Planned nights become Sections too, so adding one can create an
+                        // evening nothing has been asked about yet (#134).
                         LaunchedEffect(state.setlists, state.plannedGigs) {
-                            viewModel.resolveFestivalNames()
+                            viewModel.resolveFestivals()
                         }
                         LaunchedEffect(zoomedOut) { if (zoomedOut) viewModel.loadFriendTimelines() }
                         val rows = remember(
-                            state.setlists, state.festivalNames, lanes, state.showsByFriend, zoomedOut, expanded,
+                            state.setlists, state.festivals, lanes, state.showsByFriend, zoomedOut, expanded,
                         ) {
                             weaveTimelines(
                                 mine = state.setlists,
-                                festivalNames = state.festivalNames,
+                                festivals = state.festivals,
                                 friends = if (zoomedOut) lanes else emptyList(),
                                 theirs = if (zoomedOut) state.showsByFriend else emptyMap(),
                                 expanded = expanded,
@@ -588,7 +588,7 @@ fun StationTimelineScreen(
                         // Hoisted out of the LazyColumn because the deep-link scroll
                         // below counts it too, and the two must not drift.
                         val future = remember(
-                            state.bills, state.plannedGigs, state.attendanceByGig, state.festivalNames,
+                            state.bills, state.plannedGigs, state.attendanceByGig, state.festivals,
                         ) {
                             val billGigs =
                                 state.bills.flatMap { b -> b.acts.mapNotNull { it.gigId } }.toSet()
@@ -596,7 +596,7 @@ fun StationTimelineScreen(
                                 bills = state.bills,
                                 tickets = state.plannedGigs.filterNot { it.id in billGigs },
                                 attendance = state.attendanceByGig,
-                                festivalNames = state.festivalNames,
+                                festivals = state.festivals,
                             )
                         }
 
@@ -627,7 +627,7 @@ fun StationTimelineScreen(
                             if (at < 0) return@LaunchedEffect
                             val row = rows[at]
                             val insideClosedFestival =
-                                row.node is TimelineNode.Festival && row.key !in expanded
+                                row.node is TimelineNode.Several && row.key !in expanded
                             if (insideClosedFestival) {
                                 viewModel.openFestival(row.key)
                                 return@LaunchedEffect
@@ -739,7 +739,7 @@ fun StationTimelineScreen(
                                         is FutureRow.OnBill -> "bill-${row.bill.id}"
                                         is FutureRow.Ticket -> when (val n = row.node) {
                                             is TimelineNode.Concert -> "planned-${n.setlist.id}"
-                                            is TimelineNode.Festival -> "f-${n.shows.first().id}"
+                                            is TimelineNode.Several -> n.key
                                         }
                                     }
                                 },
@@ -780,12 +780,12 @@ fun StationTimelineScreen(
                                             },
                                         )
 
-                                        // Opens in place, like every other festival. It
-                                        // has to open: collapsing two planned nights into
-                                        // one node with no way back in would take away
-                                        // the only handle each of them had.
-                                        is TimelineNode.Festival -> {
-                                            val key = "f-${node.shows.first().id}"
+                                        // Opens in place, like every other node holding
+                                        // several nights. It has to open: collapsing two
+                                        // planned nights into one node with no way back
+                                        // in would take away the only handle each had.
+                                        is TimelineNode.Several -> {
+                                            val key = node.key
                                             Column {
                                                 FestivalItem(
                                                     festival = node,
@@ -854,7 +854,7 @@ fun StationTimelineScreen(
 
                                     // A festival opens where it stands rather than pushing
                                     // you into a screen of its own.
-                                    is TimelineNode.Festival -> FestivalItem(
+                                    is TimelineNode.Several -> FestivalItem(
                                         festival = node,
                                         highlight = isFirst,
                                         open = row.key in expanded,
@@ -1753,6 +1753,17 @@ internal fun crossingX(
 private val DumpRowHeight = 96.dp
 
 /**
+ * What a **Node** is, in the log's own vocabulary. The three are a real distinction —
+ * a **Section** claims one evening in one room, a **Festival** claims an identity — and
+ * a dump that flattened them would hide exactly the bug #166 fixed.
+ */
+private fun nodeKind(node: TimelineNode): String = when (node) {
+    is TimelineNode.Concert -> "gig"
+    is TimelineNode.Section -> "section"
+    is TimelineNode.Festival -> "festival"
+}
+
+/**
  * The woven spine as facts rather than pixels: `adb logcat -s Woven`.
  *
  * Every rule in this file is visual, and the only way to check one has been to read
@@ -1785,7 +1796,7 @@ internal fun logWovenRows(
         Log.d(
             "Woven",
             "${row.date} d${row.depth} ${if (row.mine) "mine" else "theirs"} " +
-                "node=${if (row.node is TimelineNode.Festival) "festival" else "gig"} " +
+                "node=${nodeKind(row.node)} " +
                 "with=[${row.others.joinToString(",") { it.setlistfm }}] " +
                 "together=${row.sharedCount} theirs=${row.theirsCount} " +
                 "here=${row.showsHereByFriends.size} " +
@@ -1866,7 +1877,7 @@ internal fun PeopleRails(
             // One node per night, drawn once by the innermost line that was there.
             // My own rows and festivals draw their own, so this only fills the gap
             // for a gig of theirs.
-            val drawsNode = d.present && !row.mine && row.node !is TimelineNode.Festival &&
+            val drawsNode = d.present && !row.mine && row.node !is TimelineNode.Several &&
                 d.line == nodeAt
             if (drawsNode) {
                 // The role this line already carries, not a second colour decision:

@@ -1,9 +1,12 @@
 package io.github.magnusencoded.stationtostation.data
 
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
+import io.github.magnusencoded.stationtostation.data.setlistfm.ScrapedFestival
 import io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmClient
+import io.github.magnusencoded.stationtostation.ui.NIGHT_ENDS
 import io.github.magnusencoded.stationtostation.ui.TimelineNode
 import io.github.magnusencoded.stationtostation.ui.groupIntoFestivals
+import java.util.Locale
 
 /**
  * The rules and the sequence that drive the Timeline's Spine — ADR-0001's logic
@@ -55,8 +58,8 @@ data class LoadedSpine(
     val mine: List<FmSetlist> = emptyList(),
     /** Every other **Line**, by setlist.fm username. */
     val byFriend: Map<String, List<FmSetlist>> = emptyMap(),
-    /** **Festival** name by its cluster's first show id. */
-    val festivalNames: Map<String, String> = emptyMap(),
+    /** Every **Festival** identity known so far, and which **Gigs** carry one (#166). */
+    val festivals: Festivals = Festivals(),
 )
 
 /** One page of an **Attended** list, with the total setlist.fm reports for it. */
@@ -91,14 +94,22 @@ interface TimelinePlumbing {
     /** One page of a user's **Attended** list. */
     suspend fun attendedPage(user: String, page: Int): AttendedPage
 
-    /** The real **Festival** name behind a setlist page, or null if it can't be had. */
-    suspend fun festivalName(setlistUrl: String): String?
+    /**
+     * The **Festival** behind a setlist page, or null when that night belongs to none
+     * — which is the common and correct answer, and is what stops it being asked again.
+     */
+    suspend fun festivalAt(setlistUrl: String): ScrapedFestival?
 
     /**
-     * Persists resolved **Festival** names. Merge semantics belong to the store,
-     * which already has them and is already the cross-platform contract.
+     * Persists resolved **Festival** identities, their membership, and which **Gigs**
+     * have now been asked about. Merge semantics belong to the store, which already has
+     * them and is already the cross-platform contract.
      */
-    suspend fun saveFestivalNames(names: Map<String, String>)
+    suspend fun saveFestivals(
+        festivals: Map<String, StoredFestival>,
+        idByShow: Map<String, String>,
+        asked: Set<String>,
+    )
 }
 
 // --- The rules ---
@@ -112,22 +123,33 @@ interface TimelinePlumbing {
  * headline show with support, read as a **Festival** called "Sentrum Scene". A room is
  * not an event, and 44 nights on the line are shaped like that one.
  *
- * **The headliner is the longest set, and that is a fallback rather than the answer.**
- * setlist.fm publishes set times on the festival page and they are the real evidence
- * for who played last; the API does not carry them, and this app does not scrape that
- * page yet. Song count is a *weaker answer to the same question* — it is right for
- * support-plus-headliner, which is the case this fixes, and it is uninformative for a
- * festival day, which is the case an identity is supposed to name anyway. Ties go to
- * the order the source gave, so the label is stable rather than arbitrary.
+ * **The headliner is who played last, and every fallback is a weaker answer to that
+ * same question** — never a different question:
+ *
+ * 1. **the latest scheduled set time**, where the source published them. setlist.fm
+ *    puts them on the festival page ([setTimes] is what that scrape found), and they
+ *    are the real evidence for the running order rather than a stand-in for it;
+ * 2. **the longest set** — right for support-plus-headliner, which is the case this
+ *    fixes, and uninformative for a festival day, which is the case an identity is
+ *    supposed to name anyway;
+ * 3. **the order the source returned**, which at least makes the label stable rather
+ *    than arbitrary. Ties at every rung fall through to it.
  *
  * **Supports are capped at two.** Beyond that a **Node** is growing into a list, and
  * the list already exists one **Resolution** in.
  */
-fun billedAs(shows: List<FmSetlist>, supportCap: Int = SUPPORT_CAP): String {
+fun billedAs(
+    shows: List<FmSetlist>,
+    setTimes: Map<String, String> = emptyMap(),
+    supportCap: Int = SUPPORT_CAP,
+): String {
     val named = shows.filter { !it.artist?.name.isNullOrBlank() }
     if (named.isEmpty()) return shows.firstOrNull()?.venue?.name ?: "Several acts"
     // maxByOrNull keeps the first on a tie, which is the source's own order.
-    val headliner = named.maxByOrNull { it.performed().size } ?: named.first()
+    val headliner = named.filter { setTimes[it.id] != null }
+        .maxByOrNull { playedLast(setTimes.getValue(it.id)) }
+        ?: named.maxByOrNull { it.performed().size }
+        ?: named.first()
     val supports = named.filter { it.id != headliner.id }.map { it.artist!!.name }
     val head = headliner.artist!!.name
     if (supports.isEmpty()) return head
@@ -139,6 +161,44 @@ fun billedAs(shows: List<FmSetlist>, supportCap: Int = SUPPORT_CAP): String {
 
 /** Two supports named, the rest counted. See [billedAs]. */
 const val SUPPORT_CAP = 2
+
+/**
+ * What was scraped, as an identity this app owns.
+ *
+ * **The identity is ours; the vendors' are attributes.** The id is minted from
+ * setlist.fm's slug so that two devices — and the same device twice — agree on it
+ * without asking anyone, but it is *ours*: the slug sits beside it as enrichment, the
+ * way a **Gig** already carries its setlist.fm id since #107, and storage never moves
+ * because a vendor's key changed. A **Bill** you typed has no vendor key at all, which
+ * is exactly why a vendor key cannot be the identity.
+ *
+ * Null when the page gave neither a name nor a slug: an identity with nothing to
+ * identify it is not one.
+ */
+private fun ScrapedFestival.toStoredFestival(): StoredFestival? {
+    val name = name?.takeUnless { it.isBlank() } ?: return null
+    val id = festivalIdForSlug(slug ?: "name:${name.lowercase(Locale.ROOT)}")
+    return StoredFestival(
+        id = id,
+        name = name,
+        rangeFrom = rangeFrom,
+        rangeTo = rangeTo,
+        setlistFmSlug = slug,
+        source = StoredFestival.FestivalSource.SCRAPED,
+        dayMembership = dayMembership,
+        setTimes = setTimes,
+    )
+}
+
+/**
+ * How late in the *night* a `HH:mm` set time is, as something sortable.
+ *
+ * A 00:30 slot closed the evening; it did not open it. This draws the same line
+ * [NIGHT_ENDS] does for a check-in — the night is still going on at 01:30 — because a
+ * headliner picked by clock time alone would hand the billing to the first band on.
+ */
+private fun playedLast(time: String): String =
+    if (time < NIGHT_ENDS.toString()) "~$time" else time
 
 class TimelineLogic(private val plumbing: TimelinePlumbing) {
 
@@ -170,13 +230,13 @@ class TimelineLogic(private val plumbing: TimelinePlumbing) {
         fun playlistName(
             setlist: FmSetlist,
             mine: List<FmSetlist>,
-            festivalNames: Map<String, String>,
+            festivals: Festivals,
         ): String {
             val artistName = setlist.artist?.name ?: ""
-            val festival = groupIntoFestivals(mine, festivalNames)
+            val festival = groupIntoFestivals(mine, festivals)
                 .filterIsInstance<TimelineNode.Festival>()
                 .find { node -> node.shows.any { it.id == setlist.id } }
-            val where = festival?.name?.let { name ->
+            val where = festival?.identity?.name?.let { name ->
                 setlist.year()?.let { name.replace(it, "").trim().trim('-', '–').trim() } ?: name
             } ?: setlist.venue?.name
             return listOfNotNull(setlist.year(), artistName.ifBlank { null }, where)
@@ -208,39 +268,61 @@ class TimelineLogic(private val plumbing: TimelinePlumbing) {
         val spine = plumbing.storedSpine(me) ?: return
         onSpine(spine)
 
-        // A cached Spine may hold Festivals whose real names were never resolved —
-        // the import failed the scrape, or predates it. Resolving only after a
+        // A cached Spine may hold evenings whose Festival identity was never resolved
+        // — the import failed the scrape, or predates it. Resolving only after a
         // fresh import is what left iOS showing venue names on a reopened app.
-        val found = resolveFestivalNames(spine.mine, spine.festivalNames)
-        if (found.isEmpty()) return
-        onSpine(spine.copy(festivalNames = spine.festivalNames + found))
+        val found = resolveFestivals(spine.mine, spine.festivals)
+        if (found == spine.festivals) return
+        onSpine(spine.copy(festivals = found))
     }
 
     /**
-     * Fills in the real **Festival** names for the clusters on [mine] — one page
-     * fetch per Festival, only for ones [known] doesn't already have, and only
-     * where there is a setlist page to scrape. Failures are silent: the venue name
-     * stays as the label.
+     * Asks setlist.fm which **Festival**, if any, the unidentified evenings on [mine]
+     * belong to, and folds the answers into [known].
      *
-     * Returns what it found, and saves it: a Festival name costs a fetch each, so
-     * it is paid once.
+     * **A Section is the candidate, not a run of nights.** Several acts at one venue on
+     * one date is the shape a festival day has; it is also the shape a headline show
+     * with support has, and the *only* way to tell them apart is to ask a source that
+     * knows. So this asks, and takes no for an answer: a night whose page carries no
+     * festival link is recorded as asked ([TimelineCache.festivalsAsked]) and never
+     * asked again, which is what keeps 44 multi-act nights from costing 44 fetches
+     * every launch.
+     *
+     * Nothing here infers. If the page says nothing, the evening stays a **Section**
+     * for good, and that is the record saying the smaller true thing.
      */
-    suspend fun resolveFestivalNames(
-        mine: List<FmSetlist>,
-        known: Map<String, String>,
-    ): Map<String, String> {
-        val firsts = groupIntoFestivals(mine)
-            .filterIsInstance<TimelineNode.Festival>()
-            .map { it.shows.first() }
-            .filter { it.id !in known && !it.url.isNullOrBlank() }
-        if (firsts.isEmpty()) return emptyMap()
+    suspend fun resolveFestivals(mine: List<FmSetlist>, known: Festivals): Festivals {
+        val candidates = groupIntoFestivals(mine, known)
+            .filterIsInstance<TimelineNode.Section>()
+            .filter { section -> section.shows.none { it.id in known.asked } }
+        if (candidates.isEmpty()) return known
 
-        val found = firsts.mapNotNull { show ->
-            plumbing.festivalName(show.url!!)?.let { show.id to it }
-        }.toMap()
-        if (found.isEmpty()) return emptyMap()
-        plumbing.saveFestivalNames(found)
-        return found
+        val identities = mutableMapOf<String, StoredFestival>()
+        val idByShow = mutableMapOf<String, String>()
+        val asked = mutableSetOf<String>()
+        for (section in candidates) {
+            val show = section.shows.firstOrNull { !it.url.isNullOrBlank() } ?: continue
+            // Only a reply counts as having asked. A fetch that failed in a tunnel is
+            // a question still open, and must be asked again on the next launch.
+            val page = runCatching { plumbing.festivalAt(show.url!!) }.getOrElse { continue }
+            // **The evening is asked about, not the Gig.** Every setlist of a festival
+            // carries the same link on its own page, so one page answers for the whole
+            // night — and asking act by act would pay per act for one answer.
+            asked += section.shows.map { it.id }
+            val identity = page?.toStoredFestival() ?: continue
+            identities[identity.id] = identity
+            // The nights the *source* says are the festival's, plus this evening, which
+            // we know is: it is the night whose page carried the link.
+            section.shows.forEach { idByShow[it.id] = identity.id }
+            identity.dayMembership?.values?.flatten()?.forEach { idByShow[it] = identity.id }
+        }
+        if (asked.isEmpty()) return known
+        plumbing.saveFestivals(identities, idByShow, asked)
+        return Festivals(
+            byId = known.byId.mergedWith(identities),
+            idByShow = known.idByShow + idByShow,
+            asked = known.asked + asked,
+        )
     }
 
     /**
@@ -298,7 +380,7 @@ class DeviceTimelinePlumbing(
         val cache = timelines.load()
         // Nothing written yet is null, not an empty Spine: a first run must leave
         // whatever is already on screen alone rather than blanking it.
-        if (cache.shows.isEmpty() && cache.festivalNames.isEmpty()) return null
+        if (cache.shows.isEmpty() && cache.festivals.isEmpty()) return null
         return LoadedSpine(
             me = me,
             // Not `shows[me]` alone: a night I checked into that setlist.fm has never
@@ -316,7 +398,7 @@ class DeviceTimelinePlumbing(
             // treated it as stale, refetched my own attended list as a friend's, and
             // saved it back over my own — a page-limited fetch overwriting my Spine.
             byFriend = cache.shows,
-            festivalNames = cache.festivalNames,
+            festivals = cache.festivalIdentities(),
         )
     }
 
@@ -325,10 +407,14 @@ class DeviceTimelinePlumbing(
         return AttendedPage(resp.setlist, resp.total)
     }
 
-    override suspend fun festivalName(setlistUrl: String): String? =
-        setlistFm.festivalName(setlistUrl)
+    override suspend fun festivalAt(setlistUrl: String): ScrapedFestival? =
+        setlistFm.festivalAt(setlistUrl)
 
-    override suspend fun saveFestivalNames(names: Map<String, String>) {
-        timelines.save(festivalNames = names)
+    override suspend fun saveFestivals(
+        festivals: Map<String, StoredFestival>,
+        idByShow: Map<String, String>,
+        asked: Set<String>,
+    ) {
+        timelines.save(festivals = festivals, festivalIdByShow = idByShow, festivalsAsked = asked)
     }
 }
