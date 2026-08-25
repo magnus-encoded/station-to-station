@@ -301,6 +301,12 @@ class TimelineLogic(private val plumbing: TimelinePlumbing) {
         val idByShow = mutableMapOf<String, String>()
         val asked = mutableSetOf<String>()
         for (section in candidates) {
+            // **A festival answers for every one of its days at once.** The candidates
+            // were decided before the first fetch, so a three-day Øya arrives here as
+            // three Sections — but the first one's `dayMembership` already claimed the
+            // other two. Skipping them saves the setlist page *and* the festival page
+            // behind it; memoising the second fetch by url would only have saved half.
+            if (section.shows.any { it.id in idByShow }) continue
             val show = section.shows.firstOrNull { !it.url.isNullOrBlank() } ?: continue
             // Only a reply counts as having asked. A fetch that failed in a tunnel is
             // a question still open, and must be asked again on the next launch.
