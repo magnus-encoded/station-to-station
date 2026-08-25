@@ -127,7 +127,11 @@ final class LaneGeometryTests: XCTestCase {
 
     private func festivalRow(mine: Bool, _ present: Friend...) -> WovenRow {
         WovenRow(
-            node: .festival(name: "Tons of Rock", shows: [FmSetlist(id: "f", artist: FmArtist(name: "A"))]),
+            // Geometry asks only whether a node holds several nights, never which kind.
+            node: .section([
+                FmSetlist(id: "f1", artist: FmArtist(name: "A")),
+                FmSetlist(id: "f2", artist: FmArtist(name: "B")),
+            ]),
             mine: mine,
             others: present
         )

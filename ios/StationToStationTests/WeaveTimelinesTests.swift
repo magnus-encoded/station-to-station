@@ -13,6 +13,16 @@ final class WeaveTimelinesTests: XCTestCase {
     private let lemmy = Friend(setlistfm: "Lemmy", name: "Lemmy")
     private let ozzy = Friend(setlistfm: "Ozzy", name: "Ozzy")
 
+    /// A **Festival** identity carried by `shows` — mine and theirs alike, since that
+    /// is what makes their nights and my nights the same festival rather than two
+    /// things at one address (#166).
+    private func festival(_ shows: String...) -> Festivals {
+        Festivals(
+            byId: ["hm26": StoredFestival(id: "hm26", name: "Hollowmoor Sound 2026")],
+            idByShow: Dictionary(uniqueKeysWithValues: shows.map { ($0, "hm26") })
+        )
+    }
+
     func testWithNobodyConnectedTheRowsAreJustMyOwn() {
         let rows = weaveTimelines(mine: [show("1", "21-11-2025", "Blå")])
         XCTAssertEqual(1, rows.count)
@@ -20,15 +30,19 @@ final class WeaveTimelinesTests: XCTestCase {
         XCTAssertTrue(rows[0].others.isEmpty)
     }
 
-    func testTheirFestivalAtMyVenueFoldsIntoMyNode() {
+    /// Their days at a festival land on my node rather than beside it — because the
+    /// identity says both are that festival. Without one they would be four separate
+    /// nights at one address, which is the true, smaller thing (#166).
+    func testTheirDaysAtMyFestivalFoldIntoMyNode() {
         let rows = weaveTimelines(
             mine: [show("a1", "25-06-2026", "Ekebergsletta"), show("a2", "24-06-2026", "Ekebergsletta")],
+            festivals: festival("a1", "a2", "b1", "b2"),
             friends: [lemmy],
             theirs: ["Lemmy": [show("b1", "27-06-2026", "Ekebergsletta"),
                                        show("b2", "26-06-2026", "Ekebergsletta")]]
         )
         XCTAssertEqual(1, rows.count)
-        XCTAssertTrue(rows[0].node.isFestival)
+        XCTAssertTrue(rows[0].node.isIdentified)
         // Company, but not Together: their 26–27 June run and my 24–25 June one
         // share no night. Absorb folds their cluster in; it does not make the
         // nights shared.
@@ -37,6 +51,19 @@ final class WeaveTimelinesTests: XCTestCase {
         XCTAssertEqual(.mine, rows[0].ownership)
         XCTAssertEqual(2, rows[0].showsHereByFriends.count)
         XCTAssertEqual([lemmy], rows[0].others)
+    }
+
+    /// And with no identity, they do not fold: nothing knows those are one thing.
+    func testTheirRunAtMyVenueWithNoIdentityStaysBesideMyNights() {
+        let rows = weaveTimelines(
+            mine: [show("a1", "25-06-2026", "Ekebergsletta"), show("a2", "24-06-2026", "Ekebergsletta")],
+            friends: [lemmy],
+            theirs: ["Lemmy": [show("b1", "27-06-2026", "Ekebergsletta"),
+                                       show("b2", "26-06-2026", "Ekebergsletta")]]
+        )
+        XCTAssertEqual(4, rows.count)
+        XCTAssertEqual(2, rows.filter { $0.mine }.count)
+        XCTAssertTrue(rows.allSatisfy { $0.sharedCount == 0 })
     }
 
     func testANightOnlyTheyWereAtGetsItsOwnRow() {
@@ -56,12 +83,14 @@ final class WeaveTimelinesTests: XCTestCase {
         let theirs = ["Lemmy": [show("b1", "16-05-2026", "Stora Scenen"),
                                         show("b2", "15-05-2026", "Stora Scenen")]]
         let mine = [show("a1", "21-11-2025", "Blå")]
-        let collapsed = weaveTimelines(mine: mine, friends: [lemmy], theirs: theirs)
-        guard let festival = collapsed.first(where: { $0.node.isFestival }) else {
+        let theirFestival = festival("b1", "b2")
+        let collapsed = weaveTimelines(mine: mine, festivals: theirFestival,
+                                       friends: [lemmy], theirs: theirs)
+        guard let fest = collapsed.first(where: { $0.node.isIdentified }) else {
             return XCTFail("expected a festival row")
         }
-        let rows = weaveTimelines(mine: mine, friends: [lemmy], theirs: theirs,
-                                  expanded: [festival.key])
+        let rows = weaveTimelines(mine: mine, festivals: theirFestival, friends: [lemmy],
+                                  theirs: theirs, expanded: [fest.key])
 
         let inner = rows.filter { $0.depth == 1 }
         XCTAssertEqual(2, inner.count)
@@ -72,12 +101,14 @@ final class WeaveTimelinesTests: XCTestCase {
     func testOpeningASharedFestivalListsBothSidesGigsUnderneath() {
         let mine = [show("a1", "25-06-2026", "Ekebergsletta"), show("a2", "24-06-2026", "Ekebergsletta")]
         let theirs = ["Lemmy": [show("b1", "26-06-2026", "Ekebergsletta")]]
-        let collapsed = weaveTimelines(mine: mine, friends: [lemmy], theirs: theirs)
-        let rows = weaveTimelines(mine: mine, friends: [lemmy], theirs: theirs,
-                                  expanded: [collapsed[0].key])
+        let ours = festival("a1", "a2", "b1")
+        let collapsed = weaveTimelines(mine: mine, festivals: ours,
+                                       friends: [lemmy], theirs: theirs)
+        let rows = weaveTimelines(mine: mine, festivals: ours, friends: [lemmy],
+                                  theirs: theirs, expanded: [collapsed[0].key])
 
         XCTAssertEqual(4, rows.count) // the festival, then its three gigs
-        XCTAssertTrue(rows[0].node.isFestival)
+        XCTAssertTrue(rows[0].node.isIdentified)
         let inner = Array(rows.dropFirst())
         XCTAssertTrue(inner.allSatisfy { $0.depth == 1 })
         // 26th theirs, 25th + 24th mine
@@ -90,6 +121,7 @@ final class WeaveTimelinesTests: XCTestCase {
         let tons = show("w1", "25-06-2026", "Ekebergsletta")
         let rows = weaveTimelines(
             mine: [tons, show("a2", "24-06-2026", "Ekebergsletta")],
+            festivals: festival("w1", "a2", "b2"),
             friends: [ozzy, lemmy],
             theirs: ["Lemmy": [tons, show("b2", "26-06-2026", "Ekebergsletta")],
                      "Ozzy": [tons]]
@@ -138,6 +170,7 @@ final class WeaveTimelinesTests: XCTestCase {
     func testAFestivalOnlyTheyWentToIsNeverTogether() {
         let rows = weaveTimelines(
             mine: [show("a1", "21-11-2025", "Blå")],
+            festivals: festival("b1", "b2"),
             friends: [ozzy, lemmy],
             theirs: ["Ozzy": [show("b1", "16-05-2026", "Stora Scenen"),
                               show("b2", "15-05-2026", "Stora Scenen")]]
