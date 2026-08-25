@@ -36,6 +36,11 @@ private func fmFormatter(_ pattern: String) -> DateFormatter {
 }
 
 private let fmDateParser = fmFormatter("dd-MM-yyyy")
+
+/// A dd-MM-yyyy date as this app stores every date — a **Festival**'s own range
+/// included, which is not on a setlist and so has nowhere else to be parsed. The twin
+/// of Android's `parseFmDate`.
+func parseFmDate(_ text: String) -> Date? { fmDateParser.date(from: text) }
 private let readableFormatter = fmFormatter("d MMMM yyyy")
 private let yearFormatter = fmFormatter("yyyy")
 

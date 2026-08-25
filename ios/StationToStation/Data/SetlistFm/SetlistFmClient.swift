@@ -100,33 +100,68 @@ final class SetlistFmClient {
         return (all, total)
     }
 
-    /// The Festival a setlist belongs to, e.g. "Øyafestivalen 2025" for a show
-    /// whose venue is only "Tøyenparken".
+    /// The **Festival** a setlist belongs to — the identity and the name. Nil when
+    /// that night belongs to no festival, which is the common and correct answer.
     ///
-    /// setlist.fm models festivals as a first-class entity but does not expose
-    /// them in the REST API — the name lives only on the setlist's own web page,
-    /// which links to `/festival/<year>/<slug>.html`. MusicBrainz has festival
-    /// events too and needs no key, but its coverage is patchy, so it can't be
-    /// the primary source.
+    /// setlist.fm models festivals as a first-class entity but does not expose them in
+    /// the REST API. The setlist's own web page links to `/festival/<year>/<slug>.html`
+    /// and the slug in that href is the vendor's own key — the same across every act
+    /// and every year's edition — which is what a stored identity is derived from.
+    /// MusicBrainz has festival events too and needs no key, but its coverage is
+    /// patchy, so it can't be the primary source.
     ///
-    /// Returns nil on anything unexpected — the caller falls back to the venue name.
-    func festivalName(setlistURL: String) async -> String? {
+    /// **ponytail: the setlist page only.** Android follows the link and reads the
+    /// range, the day grouping and the set times off the festival page as well. Here
+    /// those three come back nil, which is exactly what ADR-0004 asks of a field that
+    /// could not be read — an identity still lands, a **Node** still says
+    /// "Øyafestivalen 2025", and membership falls back to the **Gigs** carrying the
+    /// id. Port `parseFestivalPage` when this side needs the running order too.
+    func festivalAt(setlistURL: String) async -> ScrapedFestival? {
         guard let url = URL(string: setlistURL) else { return nil }
         // Same IPv4 forcing as the API — the setlist.fm website is behind the same
-        // CloudFront. Best-effort: any failure just leaves the venue name.
+        // CloudFront. Best-effort: any failure leaves the question open.
         guard let resp = try? await IPv4Https.get(url: url, headers: ["Accept": "text/html"]),
               (200...299).contains(resp.status),
               let html = String(data: resp.body, encoding: .utf8)
         else { return nil }
-        return parseFestivalName(html)
+        return parseFestivalLink(html)
     }
 }
 
-/// The "played at a festival" link on a setlist page: title="View &lt;name&gt; details".
-private let festivalLink = try! Regex(#"href="[^"]*?/festival/\d{4}/[^"]+"\s+title="View (.+?) detail"#)
-
-func parseFestivalName(_ html: String) -> String? {
-    guard let m = html.firstMatch(of: festivalLink), let group = m.output[1].substring
-    else { return nil }
-    return String(group).trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
+/// A **Festival** as setlist.fm's pages give it up, every field independently nullable.
+///
+/// Not a `StoredFestival`: this is what was *read*, and turning it into an identity the
+/// app owns — minting the local id, deciding it is scraped rather than authored — is
+/// the logic layer's job and not the scraper's.
+struct ScrapedFestival: Equatable {
+    var name: String?
+    /// e.g. `tons-of-rock-2026-6bd52ece`, out of the href — the vendor's own key.
+    var slug: String?
+    /// Where the festival page is, relative to the setlist page.
+    var href: String?
+    /// dd-MM-yyyy, the shape setlist.fm sends everywhere else in this app.
+    var rangeFrom: String?
+    var rangeTo: String?
+    /// dd-MM-yyyy to the setlist.fm ids the source says played that day.
+    var dayMembership: [String: [String]]?
+    /// Setlist.fm id to `HH:mm`, for the acts whose start time was published.
+    var setTimes: [String: String]?
 }
+
+/// The "played at a festival" link on a setlist page: title="View &lt;name&gt; details".
+private let festivalLink =
+    try! Regex(#"href="([^"]*?/festival/\d{4}/([^"/]+)\.html)"\s+title="View (.+?) detail"#)
+
+/// The identity and the name, off the setlist page. Nil when the page carries no
+/// festival link at all, which is what "this was not a festival" looks like.
+func parseFestivalLink(_ html: String) -> ScrapedFestival? {
+    guard let m = html.firstMatch(of: festivalLink) else { return nil }
+    func group(_ i: Int) -> String? {
+        guard let s = m.output[i].substring else { return nil }
+        return String(s).trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
+    }
+    return ScrapedFestival(name: group(3), slug: group(2), href: group(1))
+}
+
+/// Kept for the one fact the label used to be: see `parseFestivalLink`.
+func parseFestivalName(_ html: String) -> String? { parseFestivalLink(html)?.name }
