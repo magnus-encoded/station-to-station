@@ -297,6 +297,12 @@ private func absorbing(mine: TimelineCache, theirs: TimelineCache,
             return (user, kept + (theirs.shows[user] ?? []).filter { s in !kept.contains { $0.id == s.id } })
         })
     merged.festivalNames = theirs.festivalNames.merging(mine.festivalNames) { _, keep in keep }
+    // Identities union. This device wins a collision, as everything else here does —
+    // except over an identity the other one *authored*, which no scrape of mine may
+    // overwrite. That is `mergedWith`'s rule, unchanged by the transport (#166).
+    merged.festivals = mergedWith(theirs.festivals, mine.festivals)
+    merged.festivalIdByShow = theirs.festivalIdByShow.merging(mine.festivalIdByShow) { _, keep in keep }
+    merged.festivalsAsked = theirs.festivalsAsked.union(mine.festivalsAsked)
     merged.attendedTotals = Dictionary(uniqueKeysWithValues:
         Set(mine.attendedTotals.keys).union(theirs.attendedTotals.keys).map { user in
             (user, max(mine.attendedTotals[user] ?? 0, theirs.attendedTotals[user] ?? 0))

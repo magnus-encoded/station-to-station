@@ -8,62 +8,159 @@ import Foundation
 // with UBIQUITOUS_LANGUAGE.md. The vocabulary is exact: Line, Spine, Lane, Node,
 // Crossing, Joined, Absorb.
 
-/// A timeline is a mix of single gigs and festivals (a run of shows at one venue).
+/// What one **Node** on the **Line** stands for: a lone **Gig**, an evening of
+/// several, or a **Festival**.
+///
+/// The three are not three shapes of the same claim. A **Section** says *these
+/// performances were the same night in the same room* — a fact we have, from the date
+/// and the venue we were given. A **Festival** says *this evening was Øyafestivalen
+/// 2025*, which is a claim about what happened and needs a source that knows. #166 is
+/// the fifth application of ADR-0002's thesis: festivalhood is demoted from a shape
+/// the app computes to an identity a **Section** may acquire.
+///
+/// Kotlin gives the last two a shared `Several` supertype so that nothing downstream
+/// can branch on which kind it got. A Swift enum cannot have one, so the supertype is
+/// expressed as the questions both cases answer — ``isSeveral``, ``label``,
+/// ``setTimes``, ``runningOrder(also:)``, ``severalKey`` — and the rule is the same:
+/// the weave and the geometry ask *how many nights*, never *what kind*.
 enum TimelineNode {
     case concert(FmSetlist)
-    /// `name` is the festival's *identity* and is nil when nothing knows it. It is
-    /// never guessed from the venue: two acts at one venue on one date is all
-    /// setlist.fm sends, and it reads the same for a headline show with support as
-    /// for one day of a festival. Draw ``label``, not this.
-    case festival(name: String?, shows: [FmSetlist])
+    /// One evening: two or more **Gigs** on the same date at the same venue, and
+    /// nothing else. It makes no claim about what the evening *was*, and it is named
+    /// from its own acts — never from the room it happened in.
+    case section([FmSetlist])
+    /// A **Section** that has an identity — and the identity is the whole of it. It
+    /// arrives from setlist.fm's own festival page or from a **Bill** typed in by
+    /// hand, and it is never inferred: a run of nights at one venue that nothing has
+    /// named is a run of nights.
+    case festival(StoredFestival, [FmSetlist])
 
     var shows: [FmSetlist] {
         switch self {
         case .concert(let s): return [s]
+        case .section(let shows): return shows
         case .festival(_, let shows): return shows
         }
     }
 
-    var isFestival: Bool {
+    /// Several **Gigs** drawn as one **Node** — the only thing the screens and the
+    /// geometry need to tell from a **Concert**.
+    var isSeveral: Bool {
+        if case .concert = self { return false }
+        return true
+    }
+
+    /// Whether something actually knows this evening was a festival. The *one* place
+    /// the difference is allowed to show: the eyebrow above the label, which must not
+    /// say FESTIVAL about a claim nothing supports.
+    var isIdentified: Bool {
         if case .festival = self { return true }
         return false
     }
 
-    /// Whether anything actually knows this cluster was a festival.
-    var identified: Bool {
-        if case .festival(let name, _) = self { return name != nil }
-        return false
-    }
-
-    /// What to draw for this node. A cluster with no identity is named from its own
-    /// acts — "Devin Townsend (Haken)" — never from the room it happened in.
+    /// What to draw. **Computed, never stored** — for the **Preamble**'s reason:
+    /// **Reconcile** has no time bound, a support act can be corrected upstream years
+    /// later, and a stored label would be the record freezing a fact it has since
+    /// learned better.
     var label: String {
         switch self {
         case .concert(let s): return s.artist?.name ?? ""
-        case .festival(let name, let shows): return name ?? billedAs(shows)
+        case .section(let shows): return billedAs(shows)
+        case .festival(let identity, _): return identity.name
+        }
+    }
+
+    /// When each act went on, `HH:mm` by setlist.fm id, where a source published it.
+    var setTimes: [String: String] {
+        if case .festival(let identity, _) = self { return identity.setTimes ?? [:] }
+        return [:]
+    }
+
+    /// The evening as it went: earliest set first, where the source said. Nights with
+    /// no published time keep the order they arrived in, after the ones that have one
+    /// — a running order is a fact, and the absence of one is not a reason to invent
+    /// a different order.
+    ///
+    /// `also` is what other people were at here and I was not, so opening a node
+    /// lists the whole evening rather than my half of it.
+    func runningOrder(also: [FmSetlist] = []) -> [FmSetlist] {
+        var seen = Set<String>()
+        let deduped = (shows + also).filter { seen.insert($0.id).inserted }
+        let times = setTimes
+        // Kotlin's `sortedWith` is stable and Swift's `sorted` is not, so the source
+        // index is the explicit tiebreak that keeps the two platforms in step.
+        return deduped.enumerated().sorted { a, b in
+            let da = a.element.localDate()
+            let db = b.element.localDate()
+            if da != db {
+                switch (da, db) {
+                case let (x?, y?): return x > y
+                case (nil, _?): return false
+                case (_?, nil): return true
+                case (nil, nil): break
+                }
+            }
+            let ta = times[a.element.id] ?? sortsLast
+            let tb = times[b.element.id] ?? sortsLast
+            if ta != tb { return ta < tb }
+            return a.offset < b.offset
+        }.map(\.element)
+    }
+
+    /// What a **Node** of several nights is keyed by wherever it is drawn. Nil for a
+    /// **Concert**, which is keyed by its own setlist and its depth.
+    ///
+    /// A **Festival** is keyed by the identity's own id, which is the point of it
+    /// having one (#166): the key used to be the cluster's first show, so adopting a
+    /// setlist or correcting a venue typo moved it and took the row's open state —
+    /// and, before #256, its stored name — with it.
+    var severalKey: String? {
+        switch self {
+        case .concert: return nil
+        case .section(let shows): return "s-\(shows.first?.id ?? "")"
+        case .festival(let identity, _): return "f-\(identity.id)"
         }
     }
 }
 
-/// Two supports named, the rest counted. See ``billedAs(_:cap:)``.
+/// Sorts after every real `HH:mm` — see ``TimelineNode/runningOrder(also:)``.
+private let sortsLast = "~"
+
+/// Two supports named, the rest counted. See ``billedAs(_:setTimes:cap:)``.
 let supportCap = 2
 
-/// How an evening bills itself from its own acts, when no festival identity names it.
+/// What an evening of several acts is called when nothing knows it was a festival:
+/// **the headliner, then its supports in parentheses.** "Devin Townsend (Haken)".
 ///
-/// The headliner is the longest set. That is a fallback rather than the answer:
-/// setlist.fm publishes set times on the festival page and those are the real evidence
-/// for who played last, but the API does not carry them and we do not scrape that page.
-/// Song count is right for support-plus-headliner — the case this is for — and
-/// uninformative for a festival day, which is the case an identity should have named.
+/// This is the label half of #166. A **Node** was named after its venue whenever the
+/// festival-name lookup had not landed, and a room is not an event.
 ///
-/// Ties keep the source's own order, so the label is stable between renders.
-func billedAs(_ shows: [FmSetlist], cap: Int = supportCap) -> String {
+/// **The headliner is who played last, and every fallback is a weaker answer to that
+/// same question** — never a different question:
+///
+/// 1. **the latest scheduled set time**, where the source published them — setlist.fm
+///    puts them on the festival page, and they are the real evidence for the running
+///    order rather than a stand-in for it;
+/// 2. **the longest set** — right for support-plus-headliner, which is the case this
+///    fixes, and uninformative for a festival day, which an identity should name;
+/// 3. **the order the source returned**, which at least makes the label stable rather
+///    than arbitrary. Ties at every rung fall through to it.
+func billedAs(_ shows: [FmSetlist], setTimes: [String: String] = [:], cap: Int = supportCap) -> String {
     let named = shows.filter { !($0.artist?.name ?? "").isEmpty }
     guard let first = named.first else { return shows.first?.venue?.name ?? "Several acts" }
-    // max(by:) returns the *last* maximal element, so the comparison is strict on
-    // the other side to keep the first — the order the source gave.
-    let headliner = named.dropFirst().reduce(first) {
-        $1.performed().count > $0.performed().count ? $1 : $0
+    // `reduce` with a strict `>` keeps the *first* maximal element — the order the
+    // source gave — where `max(by:)` would return the last one. Kotlin's
+    // `maxByOrNull` keeps the first, so the tiebreak has to be spelled out here.
+    let timed = named.filter { setTimes[$0.id] != nil }
+    let headliner: FmSetlist
+    if let firstTimed = timed.first {
+        headliner = timed.dropFirst().reduce(firstTimed) {
+            playedLast(setTimes[$1.id] ?? "") > playedLast(setTimes[$0.id] ?? "") ? $1 : $0
+        }
+    } else {
+        headliner = named.dropFirst().reduce(first) {
+            $1.performed().count > $0.performed().count ? $1 : $0
+        }
     }
     let supports = named.filter { $0.id != headliner.id }.map { $0.artist?.name ?? "" }
     let head = headliner.artist?.name ?? ""
@@ -75,6 +172,16 @@ func billedAs(_ shows: [FmSetlist], cap: Int = supportCap) -> String {
     return "\(head) (\(tail))"
 }
 
+/// How late in the *night* a `HH:mm` set time is, as something sortable.
+///
+/// A 00:30 slot closed the evening; it did not open it. This draws the same line
+/// `nightEndsHour` does for a check-in — the night is still going on at 01:30 —
+/// because a headliner picked by clock time alone would hand the billing to the first
+/// band on.
+private func playedLast(_ time: String) -> String {
+    time < String(format: "%02d:00", nightEndsHour) ? "~\(time)" : time
+}
+
 /// What an unidentified cluster calls itself above its label: "ONE NIGHT" for several
 /// acts on one date, "N NIGHTS" for a run. Both are things the data actually says.
 func eveningKicker(_ shows: [FmSetlist]) -> String {
@@ -83,46 +190,56 @@ func eveningKicker(_ shows: [FmSetlist]) -> String {
     return days.count <= 1 ? "ONE NIGHT" : "\(days.count) NIGHTS"
 }
 
-/// A Festival is two or more Gigs at the same venue within a few days.
-private let festivalWindowDays: TimeInterval = 4 * 24 * 60 * 60
-
-/// Two adjacent shows belong together when they share a venue and fall within
-/// the window.
-private func sameFestival(_ a: FmSetlist, _ b: FmSetlist) -> Bool {
-    guard let venueA = a.venue?.name, let venueB = b.venue?.name,
-          venueA.caseInsensitiveCompare(venueB) == .orderedSame,
-          let da = a.localDate(), let db = b.localDate()
-    else { return false }
-    return abs(da.timeIntervalSince(db)) <= festivalWindowDays
-}
-
-/// The festival's real name — "Øyafestivalen 2025", not "Tøyenparken" — resolved
-/// from setlist.fm's festival entity and keyed by the cluster's first show. Nil until
-/// it lands, and nil forever if it never does: an unresolved cluster is a run of
-/// nights, not a festival whose name we mislaid.
-private func festivalName(_ shows: [FmSetlist], _ names: [String: String]) -> String? {
-    guard let first = shows.first else { return nil }
-    return names[first.id]
-}
-
-/// Groups a date-ordered list of shows into festivals, leaving lone shows as
-/// concerts. `names` maps a cluster's first show id to the festival's real name.
-func groupIntoFestivals(_ setlists: [FmSetlist], names: [String: String] = [:]) -> [TimelineNode] {
-    var nodes: [TimelineNode] = []
-    var i = 0
-    while i < setlists.count {
-        var cluster = [setlists[i]]
-        var j = i + 1
-        while j < setlists.count, sameFestival(cluster[cluster.count - 1], setlists[j]) {
-            cluster.append(setlists[j])
-            j += 1
-        }
-        nodes.append(cluster.count >= 2
-            ? .festival(name: festivalName(cluster, names), shows: cluster)
-            : .concert(cluster[0]))
-        i = j
+/// **The one seam: what becomes one Node.** Everything that draws a **Line** — the
+/// **Spine**, every **Lane** beside it, the future lane — comes through here, which is
+/// why the rule can be changed in one place and why nothing downstream needs to know
+/// which kind it got.
+///
+/// Three rules, and there is no fourth:
+///
+/// - **An identity supplied for a set of Gigs → a `festival`.** Membership comes from
+///   the identity's own day grouping where the source published one, and otherwise
+///   from the **Gigs** carrying that identity. One night of a four-day festival is
+///   still that festival: going for one day does not shrink it.
+/// - **Same date, same venue → a `section`.** One evening, drawn as one **Node**,
+///   named from its acts.
+/// - **Nothing else groups.** Two nights at one venue with no identity are two
+///   **Nodes** — a residency, a local haunt, or a coincidence, and the record says the
+///   true, smaller thing rather than inventing an event that never happened.
+///
+/// The four-day window that used to make the second decision is gone. It guessed in
+/// both directions: it invented festivals out of a headline show with support, and it
+/// named the real ones after their room whenever the lookup had not landed.
+///
+/// Nodes come back in the order their first member appears in `setlists`, so a
+/// date-ordered list stays date-ordered. Ported term for term from Android's
+/// `groupIntoFestivals`.
+func groupIntoFestivals(_ setlists: [FmSetlist], _ festivals: Festivals = Festivals()) -> [TimelineNode] {
+    var order: [String] = []
+    var groups: [String: [FmSetlist]] = [:]
+    for show in setlists {
+        let key = groupKey(show, festivals)
+        if groups[key] == nil { order.append(key) }
+        groups[key, default: []].append(show)
     }
-    return nodes
+    return order.compactMap { key in
+        guard let shows = groups[key], let head = shows.first else { return nil }
+        if let identity = festivals.of(head.id) { return .festival(identity, shows) }
+        return shows.count >= 2 ? .section(shows) : .concert(head)
+    }
+}
+
+/// What decides that two **Gigs** are the same **Node**: an identity, or one evening
+/// in one room.
+///
+/// A show missing either half of "which evening" is keyed to itself and groups with
+/// nothing — unknown is not a venue, and it is not a date either, so two nights that
+/// cannot say where or when they were must never land on one **Node** together.
+private func groupKey(_ show: FmSetlist, _ festivals: Festivals) -> String {
+    if let identity = festivals.of(show.id) { return "f:\(identity.id)" }
+    let venue = (show.venue?.name ?? "").lowercased()
+    guard !venue.isEmpty, let date = show.localDate() else { return "x:\(show.id)" }
+    return "e:\(date.timeIntervalSince1970)|\(venue)"
 }
 
 /// A row of the timeline at whatever Resolution it is shown at. `node` is always
@@ -165,20 +282,13 @@ struct WovenRow: Identifiable {
     }
 
     var key: String {
-        switch node {
-        case .concert(let s): return "c-\(s.id)-\(depth)"
-        case .festival(_, let shows): return "f-\(shows.first?.id ?? "")"
-        }
+        if case .concert(let s) = node { return "c-\(s.id)-\(depth)" }
+        return node.severalKey ?? ""
     }
 
     var id: String { key }
 
-    var date: Date? {
-        switch node {
-        case .concert(let s): return s.localDate()
-        case .festival(_, let shows): return shows.compactMap { $0.localDate() }.max()
-        }
-    }
+    var date: Date? { node.shows.compactMap { $0.localDate() }.max() }
 
     var shows: [FmSetlist] { node.shows }
 
@@ -202,21 +312,40 @@ enum RowOwnership: String {
     case mine, theirs, together
 }
 
-/// Whether `other`'s cluster belongs on this node rather than beside it: my
-/// Festival Absorbing their run at the same venue, or — the case a lone gig used
-/// to miss — simply the same gig on both lists. Anything looser (same venue,
-/// different nights, neither of us clustering it) would mark unshared nights as
-/// shared.
+/// Whether `other`'s node belongs on this one rather than beside it — the same three
+/// facts the grouping seam uses, read across two **Lines** instead of down one, so a
+/// **Crossing** is decided by exactly what makes a **Node**:
+///
+/// - **the same identity** — their nights at Øyafestivalen 2025 land on my Øya node,
+///   however few of the days either of us went to;
+/// - **the same Gig** on both lists, which is what **Together** means;
+/// - **the same evening in the same room**, which is the **Section** rule.
+///
+/// Anything looser — same venue, different nights, an identity nobody supplied — would
+/// mark unshared nights as shared, which is the four-day window #166 removed.
 private func hosts(_ node: TimelineNode, _ other: TimelineNode) -> Bool {
-    if absorbs(node, other) { return true }
+    if sameIdentity(node, other) { return true }
     let otherIds = Set(other.shows.map(\.id))
-    return node.shows.contains { otherIds.contains($0.id) }
+    if node.shows.contains(where: { otherIds.contains($0.id) }) { return true }
+    return sameEvening(node, other)
 }
 
-/// Same venue, overlapping few days — near enough to be the same festival.
-private func absorbs(_ node: TimelineNode, _ other: TimelineNode) -> Bool {
-    guard case .festival(_, let mineShows) = node else { return false }
-    return other.shows.contains { show in mineShows.contains { sameFestival($0, show) } }
+/// The one place the weave touches the kind, and only to compare two identities. It
+/// never branches on Section-vs-Festival for behaviour.
+private func sameIdentity(_ node: TimelineNode, _ other: TimelineNode) -> Bool {
+    guard case .festival(let a, _) = node, case .festival(let b, _) = other else { return false }
+    return a.id == b.id
+}
+
+/// Every night on both nodes in one room on one date. See `groupKey`.
+private func sameEvening(_ node: TimelineNode, _ other: TimelineNode) -> Bool {
+    let all = node.shows + other.shows
+    guard let head = all.first, let date = head.localDate() else { return false }
+    let venue = head.venue?.name ?? ""
+    if venue.isEmpty { return false }
+    return all.allSatisfy {
+        $0.localDate() == date && venue.caseInsensitiveCompare($0.venue?.name ?? "") == .orderedSame
+    }
 }
 
 /// Newest first, undated last, ties broken by the order the rows were built.
@@ -240,19 +369,20 @@ private func newestFirst<T>(_ items: [T], date: (T) -> Date?) -> [T] {
 /// makes the Edge between my own Nodes longer, which is the whole point of
 /// zooming out.
 ///
-/// A friend's shows are clustered into festivals the same way mine are, and a
-/// cluster of theirs that lands at my venue within the same few days is folded
-/// into my festival node rather than sitting beside it: one Tons of Rock, marked
-/// shared. Expanding that node (`expanded` holds row keys) lists the individual
-/// gigs so the two attendances can be compared inside the festival.
+/// A friend's shows go through the same `groupIntoFestivals` mine do, and a node of
+/// theirs that `hosts` says is the same thing as one of mine — the same **Festival**
+/// identity, the same **Gig**, or the same evening in the same room — is folded into
+/// mine rather than sitting beside it: one Tons of Rock, marked shared. Expanding that
+/// node (`expanded` holds row keys) lists the individual gigs so the two attendances
+/// can be compared inside it.
 func weaveTimelines(
     mine: [FmSetlist],
-    festivalNames: [String: String] = [:],
+    festivals: Festivals = Festivals(),
     friends: [Friend] = [],
     theirs: [String: [FmSetlist]] = [:],
     expanded: Set<String> = []
 ) -> [WovenRow] {
-    let myNodes = groupIntoFestivals(mine, names: festivalNames)
+    let myNodes = groupIntoFestivals(mine, festivals)
     // Every node on the spine, mine first so a night I was at always hosts the
     // meeting. A cluster of theirs that no existing host takes becomes a host
     // itself, which is what lets two friends at a gig I missed land on one node
@@ -267,7 +397,7 @@ func weaveTimelines(
     for friend in friends {
         let shows = theirs[friend.setlistfm] ?? []
         if shows.isEmpty { continue }
-        for node in groupIntoFestivals(shows, names: festivalNames) {
+        for node in groupIntoFestivals(shows, festivals) {
             let host: Int
             if let existing = hostNodes.firstIndex(where: { hosts($0, node) }) {
                 host = existing
@@ -304,14 +434,12 @@ func weaveTimelines(
     if expanded.isEmpty { return rows }
     // Open festivals list their gigs underneath, each tagged with who was at that one.
     return rows.flatMap { row -> [WovenRow] in
-        guard row.node.isFestival, expanded.contains(row.key) else { return [row] }
+        guard row.node.isSeveral, expanded.contains(row.key) else { return [row] }
         // Whose a gig is comes from my own timeline, never from the node holding
         // it — reading it off the node made every gig inside a friend's festival
         // look mine.
         let myIds = Set(mine.map(\.id))
-        var seen = Set<String>()
-        let deduped = (row.node.shows + row.showsHereByFriends).filter { seen.insert($0.id).inserted }
-        let inner = newestFirst(deduped, date: { $0.localDate() }).map { show in
+        let inner = row.node.runningOrder(also: row.showsHereByFriends).map { show in
             WovenRow(
                 node: .concert(show),
                 mine: myIds.contains(show.id),
