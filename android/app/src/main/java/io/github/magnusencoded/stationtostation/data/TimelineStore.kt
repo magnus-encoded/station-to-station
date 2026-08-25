@@ -256,6 +256,10 @@ internal fun gigIdForSetlistId(setlistId: String): String = uuidFrom("gig:$setli
  * and "which gigs happen to be mine" is not: my attendance decides which nights I
  * see, never which nights belong to the festival.
  *
+ * [setTimes] is when each act was scheduled to go on, `HH:mm`, by setlist.fm id — the
+ * evidence for who played last, which is the question the headliner rule is really
+ * asking. Present only where the festival page published them.
+ *
  * [source] decides who wins on conflict: an authored **Bill** identity is never
  * overwritten by a scrape, which is why [source] is carried on the record rather
  * than inferred from which fields are set.
@@ -270,6 +274,7 @@ data class StoredFestival(
     val mbid: String? = null,
     val source: String = FestivalSource.SCRAPED,
     val dayMembership: Map<String, List<String>>? = null,
+    val setTimes: Map<String, String>? = null,
 ) {
     /** Which source wins on conflict; see [source]. A plain string, for [StoredMedia.Kind]'s reason. */
     object FestivalSource {
@@ -280,6 +285,62 @@ data class StoredFestival(
 
 /** The id a scraped **Festival** gets the first time its setlist.fm slug is seen. */
 internal fun festivalIdForSlug(slug: String): String = uuidFrom("festival:$slug")
+
+/**
+ * **Precedence: setlist.fm, then the author, and the author wins.** An authored **Bill**
+ * identity is never overwritten by a scrape — what I know beats what was guessed at
+ * upstream — which is a rule about the record and so lives in one place rather than at
+ * each of the two seams that merge these.
+ */
+internal fun Map<String, StoredFestival>.mergedWith(
+    found: Map<String, StoredFestival>,
+): Map<String, StoredFestival> =
+    this + found.filterKeys { this[it]?.source != StoredFestival.FestivalSource.AUTHORED }
+
+/**
+ * Every **Festival** identity this device knows, and which **Gigs** carry one.
+ *
+ * This is what `groupIntoFestivals` decides with, and it replaces the name map it used
+ * to take (#166). The difference is the whole issue: a name keyed by a cluster's first
+ * show could only ever *label* a shape the app had already inferred, so festivalhood
+ * was arithmetic. An identity is evidence — it came from setlist.fm's own festival page
+ * or from a **Bill** somebody typed — and nothing else makes a **Node** a **Festival**.
+ */
+data class Festivals(
+    val byId: Map<String, StoredFestival> = emptyMap(),
+    /** Festival id by the **Gig**'s setlist.fm id. */
+    val idByShow: Map<String, String> = emptyMap(),
+    /** Which **Gigs** have already been asked about. See [TimelineCache.festivalsAsked]. */
+    val asked: Set<String> = emptySet(),
+) {
+    /**
+     * Which identity each **Gig** belongs to, the source's own day grouping winning
+     * over membership carried on the Gig: the festival page saying "these played on
+     * the Thursday" is evidence, and "this is one of the nights I happened to attend"
+     * is not. My attendance decides which nights I *see*, never which nights belong.
+     */
+    private val identityOfShow: Map<String, String> by lazy {
+        idByShow + byId.values.flatMap { f ->
+            f.dayMembership?.values?.flatten().orEmpty().map { it to f.id }
+        }
+    }
+
+    /** The identity this **Gig** belongs to, or null — which is the common answer. */
+    fun of(showId: String): StoredFestival? = identityOfShow[showId]?.let { byId[it] }
+
+    fun isEmpty(): Boolean = byId.isEmpty()
+
+    /** What was known, plus what has just been learned. See [mergedWith] for who wins. */
+    operator fun plus(found: Festivals): Festivals = Festivals(
+        byId = byId.mergedWith(found.byId),
+        idByShow = idByShow + found.idByShow,
+        asked = asked + found.asked,
+    )
+}
+
+/** The identities as the timeline reads them. See [Festivals]. */
+fun TimelineCache.festivalIdentities(): Festivals =
+    Festivals(festivals, festivalIdByShow, festivalsAsked)
 
 @Serializable
 data class TimelineCache(
@@ -302,6 +363,16 @@ data class TimelineCache(
      * already say which nights belong to it.
      */
     val festivalIdByShow: Map<String, String> = emptyMap(),
+    /**
+     * The **Gigs** whose setlist.fm page has already been read for a **Festival**
+     * identity, by setlist.fm id — *asked*, not *answered*.
+     *
+     * [StoredAct.tried]'s distinction, for the same reason: "there is no festival
+     * behind this night" is a correct, final answer and most of the line, while "the
+     * page could not be reached" is a question still open. Without it every multi-act
+     * night with no festival costs a page fetch on every single launch, forever.
+     */
+    val festivalsAsked: Set<String> = emptySet(),
     /** Whether [withFestivals] has run. See [mediaTierMigrated] for why this is a flag. */
     val festivalsMigrated: Boolean = false,
     /**
@@ -622,14 +693,16 @@ class TimelineStore(
         festivalNames: Map<String, String> = emptyMap(),
         festivals: Map<String, StoredFestival> = emptyMap(),
         festivalIdByShow: Map<String, String> = emptyMap(),
+        festivalsAsked: Set<String> = emptySet(),
         playlists: Map<String, StoredPlaylist> = emptyMap(),
         attendedTotals: Map<String, Int> = emptyMap(),
     ): Unit = writeMerged { cache ->
         var c = cache.copy(
             shows = cache.shows + shows.filterValues { list -> list.isNotEmpty() },
             festivalNames = cache.festivalNames + festivalNames,
-            festivals = cache.festivals + festivals,
+            festivals = cache.festivals.mergedWith(festivals),
             festivalIdByShow = cache.festivalIdByShow + festivalIdByShow,
+            festivalsAsked = cache.festivalsAsked + festivalsAsked,
             attendedTotals = cache.attendedTotals + attendedTotals,
         )
         for ((night, made) in playlists) {
@@ -992,7 +1065,13 @@ private fun TimelineCache.withFestivals(): TimelineCache {
     val newFestivals = mutableMapOf<String, StoredFestival>()
     val newIdByShow = mutableMapOf<String, String>()
     for ((firstId, name) in festivalNames) {
-        val cluster = clusters.firstOrNull { it.first().id == firstId } ?: continue
+        // By membership, not by `first()`: the old key was the *newest* show of the
+        // cluster, because the lane grouped a newest-first list, while the replay
+        // below sorts ascending. Matching on the head would migrate nothing at all.
+        //
+        // A name whose show is nowhere in the cache is dropped rather than filed
+        // under a guessed identity — the name alone cannot say what it named.
+        val cluster = clusters.firstOrNull { c -> c.any { it.id == firstId } } ?: continue
         val festivalId = uuidFrom("festival:$firstId")
         newFestivals[festivalId] = StoredFestival(
             id = festivalId,
