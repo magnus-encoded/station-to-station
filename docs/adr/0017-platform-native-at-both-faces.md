@@ -147,10 +147,22 @@ Four questions this leaves open, named so they are not mistaken for decided:
   deliberately.
 - ADR-0006 — the corridor. Grammar above, Expression below; see the amendment.
 - #12 — *"native, not a port"*, and the volatility scope the slogan lost.
-- `UBIQUITOUS_LANGUAGE.md` — where Grammar is written. Gestures were never named there, which is why
-  a gesture did not read as a concept.
+- ~~`UBIQUITOUS_LANGUAGE.md` — where Grammar is written.~~ (see amendment 2026-08-25) Gestures were
+  never named there, which is why a gesture did not read as a concept.
 - `ios/.../UI/SwipeBack.swift` — the worked example above.
 - `ios/.../Data/SetlistFm/IPv4Https.swift` — the model for a divergence that names its reason.
 - #145 — ADR-0006's own worked example, and the divergence that surfaced this.
 - #308, #30 — the below-the-line contract gap this ADR names but does not close.
 - Christine Røde, *Designing for both iOS and Android — the right way*, Config London 2025.
+
+## Amendment — 2026-08-25
+
+**Grammar is written in `CONTEXT.md`, not `UBIQUITOUS_LANGUAGE.md`.** The Related entry above named
+the wrong file. The two had diverged into rival glossaries under the same `# Ubiquitous Language`
+heading, and the sections this ADR leans on — **The room**, **The flyover**, **The Bill family**,
+**Navigation grammar** — exist only in `CONTEXT.md`. `UBIQUITOUS_LANGUAGE.md` is the
+`domain-modeling` skill's regenerated model of the same vocabulary: not hand-authored, and not to be
+hand-patched. Both files now say so at the top.
+
+This is the ADR's own diagnosis applied to itself — Grammar written in prose, with nothing that
+fails when it is broken, drifted — and this document pointed an agent at the copy that was behind.

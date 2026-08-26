@@ -50,9 +50,14 @@ weekend.
 
 ## Facts that bite
 
-**versionCode is 1.** Play rejects any later upload that does not exceed the
-last accepted one. Bump `appVersionCode` in `android/gradle.properties` before
-every subsequent upload. One line, in a commit, so what shipped stays in git.
+**versionCode must always exceed the last accepted one**, or Play rejects the
+upload. ~~versionCode is 1. Bump `appVersionCode` in `android/gradle.properties`
+before every subsequent upload.~~ No longer done by hand: `android-release.yml`
+derives it from `git rev-list --count HEAD` and passes it in as `VERSION_CODE`
+(see the comment in `android/app/build.gradle.kts`). `appVersionCode=1` in
+`android/gradle.properties` is now only the fallback for local and debug builds.
+The consequence to remember is that tags must be cut from `main` — a tag on a
+branch that is behind produces a lower count than the last upload.
 
 **The bundle has the setlist.fm key baked in.** That was scoped to a small
 cohort sharing 1440 requests/day. Do not promote this bundle to production

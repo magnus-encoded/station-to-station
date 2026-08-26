@@ -50,4 +50,4 @@ cd android
 # APK at app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Requires JDK 17+ and Android SDK 35.
+Requires JDK 17+ and Android SDK 37 (`compileSdk = 37`, `targetSdk = 36`).
