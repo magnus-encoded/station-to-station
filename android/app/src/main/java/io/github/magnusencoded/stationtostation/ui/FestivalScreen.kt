@@ -493,7 +493,7 @@ fun FestivalItem(
                 letterSpacing = 1.5.sp,
             )
             Spacer(Modifier.height(3.dp))
-            Text(festival.label, fontFamily = Serif, fontSize = 17.sp, color = Ink)
+            Text(festival.label, fontFamily = Serif, fontSize = 17.sp, color = if (mine) Ink else Muted)
             Spacer(Modifier.height(2.dp))
             Text(festivalDateRange(festival), color = Muted, fontSize = 13.sp)
             Spacer(Modifier.height(7.dp))
