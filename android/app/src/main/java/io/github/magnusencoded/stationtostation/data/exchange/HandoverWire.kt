@@ -14,14 +14,19 @@ import java.io.OutputStream
 import java.net.Socket
 import java.security.KeyStore
 import java.security.MessageDigest
+import java.security.Principal
+import java.security.PrivateKey
 import java.security.SecureRandom
 import java.security.cert.Certificate
 import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
+import javax.net.ssl.KeyManager
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLEngine
+import javax.net.ssl.X509ExtendedKeyManager
 import javax.net.ssl.X509TrustManager
 
 /**
@@ -101,10 +106,45 @@ fun sslClientContext(pinnedFingerprint: ByteArray): SSLContext =
  * certificate is requested — the client authenticates itself with [proveLinkKey]
  * instead, over the channel TLS has already secured.
  */
-fun sslServerContext(keyStore: KeyStore, keyPassword: CharArray): SSLContext {
+fun sslServerContext(keyStore: KeyStore, keyPassword: CharArray, alias: String? = null): SSLContext {
     val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
     kmf.init(keyStore, keyPassword)
-    return SSLContext.getInstance("TLS").apply { init(kmf.keyManagers, null, SecureRandom()) }
+    return SSLContext.getInstance("TLS").apply {
+        init(keyManagersFor(kmf, alias), null, SecureRandom())
+    }
+}
+
+/**
+ * Which key TLS presents, said out loud. `AndroidKeyStore` is a single store for the whole
+ * app, so a [KeyManagerFactory] built from it sees every key this app ever generated — the
+ * durable Contact identity, every leftover session key — and picks whichever one it likes.
+ * [alias] pins that choice to the key this session actually minted. Without it a handshake
+ * can present a certificate the QR never named (pinning fails) or a key TLS cannot sign
+ * with at all (`Incompatible digest`, silently, mid-handshake).
+ *
+ * A null alias leaves the default selection alone — for a keystore holding exactly one
+ * identity, which is what the off-device tests hand it.
+ */
+internal fun keyManagersFor(kmf: KeyManagerFactory, alias: String?): Array<KeyManager> =
+    if (alias == null) kmf.keyManagers
+    else kmf.keyManagers
+        .map { if (it is X509ExtendedKeyManager) FixedAliasKeyManager(it, alias) else it }
+        .toTypedArray()
+
+private class FixedAliasKeyManager(
+    private val delegate: X509ExtendedKeyManager,
+    private val alias: String,
+) : X509ExtendedKeyManager() {
+    override fun chooseClientAlias(keyType: Array<out String>?, issuers: Array<out Principal>?, socket: Socket?) = alias
+    override fun chooseServerAlias(keyType: String?, issuers: Array<out Principal>?, socket: Socket?) = alias
+    override fun chooseEngineClientAlias(keyType: Array<out String>?, issuers: Array<out Principal>?, engine: SSLEngine?) = alias
+    override fun chooseEngineServerAlias(keyType: String?, issuers: Array<out Principal>?, engine: SSLEngine?) = alias
+    override fun getCertificateChain(forAlias: String?): Array<X509Certificate>? = delegate.getCertificateChain(forAlias)
+    override fun getPrivateKey(forAlias: String?): PrivateKey? = delegate.getPrivateKey(forAlias)
+    override fun getClientAliases(keyType: String?, issuers: Array<out Principal>?): Array<String>? =
+        delegate.getClientAliases(keyType, issuers)
+    override fun getServerAliases(keyType: String?, issuers: Array<out Principal>?): Array<String>? =
+        delegate.getServerAliases(keyType, issuers)
 }
 
 // --- Framing -----------------------------------------------------------------------
