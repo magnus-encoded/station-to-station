@@ -68,7 +68,12 @@ class ContactExchange(
     fun start() {
         if (running) return
         running = true
-        val sessionContext = contactSessionContext(contactIdentityKeyStore(), CharArray(0))
+        // A per-session certificate, not the durable Contact identity: that key is
+        // SHA-256-only and TLS cannot sign a handshake with it (see [selfSignedIdentity]).
+        // Nothing about trust moves — [proveContactIdentity] below still signs with the
+        // durable key, over *this* certificate's fingerprint.
+        val (_, keyStore) = generateContactSessionIdentity()
+        val sessionContext = contactSessionContext(keyStore, CharArray(0), CONTACT_SESSION_ALIAS)
         val socket = sessionContext.serverSocketFactory.createServerSocket(0) as SSLServerSocket
         server = socket
         peers.startAdvertising(socket.localPort)
@@ -92,6 +97,7 @@ class ContactExchange(
         runCatching { server?.close() }
         server = null
         handled.clear()
+        runCatching { forgetContactSessionIdentity() }
         manifestCache = null
         galleryCache = null
     }
