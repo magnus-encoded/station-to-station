@@ -79,7 +79,7 @@ fun runHandoverDebugHost(context: Context, linkKeyHex: String, insecure: Boolean
         val (cert, keyStore) = generateHandoverIdentity(sessionId = "debug")
         val fingerprint = encodeHex(certFingerprint(cert))
         log("fingerprint (pass to the join side with --fingerprint): $fingerprint")
-        serverSocket = sslServerContext(keyStore, keyPassword = CharArray(0))
+        serverSocket = sslServerContext(keyStore, CharArray(0), handoverAlias("debug"))
             .serverSocketFactory.createServerSocket(DEBUG_PORT)
     }
 

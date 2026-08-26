@@ -55,22 +55,22 @@ object AcceptAnyTrustManager : X509TrustManager {
  * client certificate on its own.
  *
  * **This is what makes Android↔iOS work at all (#267), and it is load-bearing.** The two
- * platforms do not present the same kind of certificate and never will: this side hands
- * over a durable `AndroidKeyStore` one that outlives the app, iOS mints a fresh
- * per-session one and throws it away when the screen closes. They interoperate only
+ * platforms do not present the same kind of certificate and never will: each side mints
+ * whatever its own platform can actually sign a handshake with, and throws it away when
+ * the screen closes — the certificate is never the identity. They interoperate only
  * because **trust never comes from the certificate** — it comes from a signature over
  * that certificate's fingerprint, made with the Contact key the two swapped in person.
  *
  * So: anything that later pins a certificate, remembers one between sessions, or ties one
- * to the identity key ends interop silently. It would still pass every Android↔Android
- * test, because on Android both ends present the same durable identity. The same warning
- * is on iOS's `ContactExchange.parameters`.
+ * to the identity key ends interop silently, and would still pass every Android↔Android
+ * test, because there both ends are the same platform minting the same shape of
+ * certificate. The same warning is on iOS's `ContactExchange.parameters`.
  */
-fun contactSessionContext(keyStore: KeyStore, keyPassword: CharArray): SSLContext {
+fun contactSessionContext(keyStore: KeyStore, keyPassword: CharArray, alias: String? = null): SSLContext {
     val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
     kmf.init(keyStore, keyPassword)
     return SSLContext.getInstance("TLS").apply {
-        init(kmf.keyManagers, arrayOf(AcceptAnyTrustManager), SecureRandom())
+        init(keyManagersFor(kmf, alias), arrayOf(AcceptAnyTrustManager), SecureRandom())
     }
 }
 

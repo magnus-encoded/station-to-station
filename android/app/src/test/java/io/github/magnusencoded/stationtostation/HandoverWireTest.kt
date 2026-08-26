@@ -7,6 +7,7 @@ import io.github.magnusencoded.stationtostation.data.SealedManifest
 import io.github.magnusencoded.stationtostation.data.exchange.PinnedTrustManager
 import io.github.magnusencoded.stationtostation.data.exchange.certFingerprint
 import io.github.magnusencoded.stationtostation.data.exchange.copyExactly
+import io.github.magnusencoded.stationtostation.data.exchange.keyManagersFor
 import io.github.magnusencoded.stationtostation.data.exchange.proveLinkKey
 import io.github.magnusencoded.stationtostation.data.exchange.readAccountsAck
 import io.github.magnusencoded.stationtostation.data.exchange.readAccountsStep
@@ -24,6 +25,7 @@ import io.github.magnusencoded.stationtostation.data.exchange.writeManifest
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -32,8 +34,10 @@ import java.io.ByteArrayOutputStream
 import java.io.EOFException
 import java.security.KeyStore
 import java.security.cert.X509Certificate
+import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLHandshakeException
 import javax.net.ssl.SSLServerSocket
+import javax.net.ssl.X509ExtendedKeyManager
 
 /**
  * The transport half of #142, run as plain JVM sockets over loopback — exactly what the
@@ -371,5 +375,24 @@ class HandoverWireTest {
         }
         serverThread.join(5000)
         client.close()
+    }
+
+    /**
+     * On-device the keystore is `AndroidKeyStore` — one store holding every key the app
+     * ever made — so leaving the choice to the factory is how a handshake ends up
+     * presenting the durable Contact identity (which cannot sign a handshake at all)
+     * instead of the key this session minted. Pinned, the alias is the answer whatever
+     * key type the peer asks for.
+     */
+    @Test
+    fun `a pinned alias is the key TLS presents, whatever else the keystore holds`() {
+        val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
+        kmf.init(fixtureKeyStore(), "handover-fixture".toCharArray())
+        val pinned = keyManagersFor(kmf, "handover-fixture").first() as X509ExtendedKeyManager
+
+        assertEquals("handover-fixture", pinned.chooseServerAlias("RSA", null, null))
+        assertEquals("handover-fixture", pinned.chooseClientAlias(arrayOf("EC"), null, null))
+        assertNotNull(pinned.getPrivateKey("handover-fixture"))
+        assertNotNull(pinned.getCertificateChain("handover-fixture"))
     }
 }
