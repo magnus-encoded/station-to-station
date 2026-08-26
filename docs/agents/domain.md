@@ -5,7 +5,8 @@ How the engineering skills should consume this repo's domain documentation when 
 ## Before exploring, read these
 
 - **`CONTEXT.md`** at the repo root — the glossary of the timeline's vocabulary.
-- **`docs/adr/`** — read ADRs that touch the area you're about to work in. None exist yet.
+- **`docs/adr/`** — read ADRs that touch the area you're about to work in. Start from
+  [`docs/adr/README.md`](../adr/README.md), which indexes them and gives a reading order.
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest
 creating them upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and
@@ -18,7 +19,7 @@ Single-context repo:
 ```
 /
 ├── CONTEXT.md
-├── docs/adr/                   ← none yet
+├── docs/adr/                   ← architectural + persona decisions
 ├── ios/                        ← SwiftUI app
 ├── android/                    ← Compose app
 └── fixtures/weave/             ← the corpus both platforms assert against

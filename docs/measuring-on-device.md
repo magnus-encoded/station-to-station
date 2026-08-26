@@ -6,7 +6,7 @@ written down here rather than rediscovered.
 
 ## Never judge performance from the CI APK
 
-The only artifact the loop produces is `assembleDebug`, and a debuggable APK is
+The artifact the everyday loop produces is `assembleDebug` (`app-debug`), and a debuggable APK is
 roughly a hundred times janker than the same code with the flag off. Measured on a
 Pixel 7 Pro, same commit of `main`, same eight scripted swipes down the
 **Timeline**, only `isDebuggable` differing:
@@ -30,10 +30,15 @@ so the usual debug-versus-release folklore about shrinking does not apply here. 
 flag is the whole story.
 
 This reading — "20% janky frames, UI-thread bound, GPU idle" — looks exactly like a
-composition problem in the **Timeline** and is not one. If performance ever becomes
-a real question rather than an impression, add a second CI artifact built
-non-debuggable and measure that. Do not optimise against a number taken from the
-debug APK.
+composition problem in the **Timeline** and is not one. Do not optimise against a
+number taken from the debug APK.
+
+That second artifact now exists: the `measure` build type is the debug build with
+`isDebuggable = false` and nothing else moved, and `android.yml` builds it on every
+run as `app-measure` (`./gradlew assembleMeasure`). It keeps the `.debug` package id
+and the committed debug key, so it installs straight over a debug build, and its
+`versionName` ends in `-measure` so you can tell which of the two is on the phone.
+Take performance numbers from that one, never from `app-debug`.
 
 To take a real number:
 
@@ -62,7 +67,8 @@ fact worth checking rather than assuming next time.
 
 ## The version on screen does not say which branch is on the phone
 
-`versionName` is `"1.1" + GITHUB_RUN_NUMBER`, and that counter is global and
+`versionName` is `appVersionName` (see `android/gradle.properties`) with
+`.GITHUB_RUN_NUMBER` appended on debug and measure builds, and that counter is global and
 monotonic across the Android workflow. Any PR touching `android/**` bumps it,
 including one whose feature is unrelated — so **a higher version can be an older
 feature set**. A build from an iOS-media branch (which touches `android/` for a

@@ -181,13 +181,12 @@ import kotlinx.coroutines.launch
 import java.time.LocalDateTime
 import kotlin.math.roundToInt
 
-// Station to Station — the timeline face of the app (working title).
+// Station to Station — the timeline face of the app.
 // Flow: splash (log in with Spotify, or skip to setlists-only) → the timeline
 // of your setlist.fm shows → a single night's real setlist → convert to a
 // Spotify playlist. Import lives behind the "+" node, not the front door.
-// ponytail: next enrichment pass is photos-from-the-night onto the concert
-// (not just the playlist cover), and bringing the convert/login flow into
-// this UI instead of the existing confirm screen.
+// ponytail: the convert/login flow still lives in ConfirmScreen rather than
+// here. Fold it in only if the hop between the two ever reads as a seam.
 
 // --- Nocturnal palette. Amber only ever marks a live/lit moment. ---
 private val Ground = Color(0xFF0E0B14)
