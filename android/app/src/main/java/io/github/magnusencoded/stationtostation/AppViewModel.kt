@@ -65,6 +65,7 @@ import io.github.magnusencoded.stationtostation.data.exchange.HandoverReceipt
 import io.github.magnusencoded.stationtostation.data.exchange.certFingerprint
 import io.github.magnusencoded.stationtostation.data.exchange.forgetHandoverIdentity
 import io.github.magnusencoded.stationtostation.data.exchange.generateHandoverIdentity
+import io.github.magnusencoded.stationtostation.data.exchange.handoverAlias
 import io.github.magnusencoded.stationtostation.data.exchange.localLinkAddress
 import io.github.magnusencoded.stationtostation.data.exchange.parseHandoverInvite
 import io.github.magnusencoded.stationtostation.data.exchange.runHandoverReceiver
@@ -786,7 +787,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     ?: throw IllegalStateException("this phone is not on a network to hand over across")
                 val (cert, keyStore) = generateHandoverIdentity(sessionId)
                 val linkKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
-                val server = sslServerContext(keyStore, CharArray(0)).serverSocketFactory.createServerSocket(0)
+                val server = sslServerContext(keyStore, CharArray(0), handoverAlias(sessionId))
+                    .serverSocketFactory.createServerSocket(0)
                 handoverCloseables = listOf(server)
                 handoverUi {
                     it.copy(

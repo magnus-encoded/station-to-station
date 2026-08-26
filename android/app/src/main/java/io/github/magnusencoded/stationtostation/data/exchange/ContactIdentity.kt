@@ -5,7 +5,6 @@ import android.security.keystore.KeyProperties
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.PrivateKey
-import java.security.cert.X509Certificate
 import java.security.spec.ECGenParameterSpec
 import java.util.Base64
 
@@ -32,6 +31,12 @@ private fun keyStore(): KeyStore = KeyStore.getInstance("AndroidKeyStore").apply
 private fun ensureGenerated(keyStore: KeyStore) {
     if (keyStore.containsAlias(ALIAS)) return
     val spec = KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_SIGN)
+        // SHA-256 only, and it has to stay that way: this key is already on every device
+        // that has ever made a Contact, and AndroidKeyStore keys are immutable — widening
+        // this would mean a new key, and a new key is a new identity every existing
+        // Contact would stop recognising. It signs challenges, never a TLS handshake:
+        // TLS needs DIGEST_NONE, which is why a reconcile session mints its own
+        // certificate (`AndroidKeyStoreCert.generateContactSessionIdentity`).
         .setDigests(KeyProperties.DIGEST_SHA256)
         .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
         .build()
@@ -57,20 +62,3 @@ fun contactIdentityPrivateKey(): PrivateKey {
 
 /** Signs [nonce] with the device's persisted identity — the proof a LAN peer checks against the public key already on their Friend record. */
 fun signWithContactIdentity(nonce: ByteArray): ByteArray = signChallenge(nonce, contactIdentityPrivateKey())
-
-/** The same identity's self-signed leaf certificate — what [proveContactIdentity] signs
- * the fingerprint of, and what [sslServerContext] presents at the TLS layer for a
- * reconcile session this device is hosting. */
-fun contactIdentityCertificate(): X509Certificate {
-    val keyStore = keyStore()
-    ensureGenerated(keyStore)
-    return keyStore.getCertificate(ALIAS) as X509Certificate
-}
-
-/** The AndroidKeyStore instance backing the identity, ready for [sslServerContext] — the
- * key material never leaves the keystore; TLS only ever gets a reference to it. */
-fun contactIdentityKeyStore(): KeyStore {
-    val keyStore = keyStore()
-    ensureGenerated(keyStore)
-    return keyStore
-}

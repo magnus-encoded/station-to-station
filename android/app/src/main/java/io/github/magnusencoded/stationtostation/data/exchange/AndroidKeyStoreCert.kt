@@ -29,21 +29,38 @@ import javax.security.auth.x500.X500Principal
  */
 private const val KEYSTORE_ALIAS_PREFIX = "handover-"
 
-fun generateHandoverIdentity(sessionId: String): Pair<X509Certificate, KeyStore> {
-    val alias = KEYSTORE_ALIAS_PREFIX + sessionId
+/** Where a Contact reconcile session's own certificate lives (#257). Deliberately *not*
+ * the durable [contactIdentityPrivateKey]: that key was generated SHA-256-only and so
+ * cannot sign a TLS handshake at all (see [selfSignedIdentity]), and it predates every
+ * Contact already on a device, so it cannot be regenerated without breaking them. It
+ * still signs the proof inside the session — only never the handshake. */
+const val CONTACT_SESSION_ALIAS = "contact-session"
+
+/** The alias a handover session's key sits under. Callers need it because `AndroidKeyStore`
+ * is one store for the whole app: see [keyManagersFor] for why TLS has to be told which
+ * key of the app's many it is meant to present. */
+fun handoverAlias(sessionId: String): String = KEYSTORE_ALIAS_PREFIX + sessionId
+
+private fun selfSignedIdentity(alias: String, lifetimeMs: Long): Pair<X509Certificate, KeyStore> {
     val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
     if (!keyStore.containsAlias(alias)) {
         val now = Date()
-        val tenMinutesOut = Date(now.time + 10 * 60 * 1000)
         val spec = KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN)
-            .setDigests(KeyProperties.DIGEST_SHA256)
+            // DIGEST_NONE as well as SHA-256, and it is the whole reason TLS works here: a
+            // TLS stack signs its CertificateVerify with *raw* ECDSA over an already-hashed
+            // input (`NONEwithECDSA`). A key restricted to SHA-256 refuses that —
+            // `Incompatible digest` out of keymaster, "Could not find provider for
+            // algorithm: NONEwithECDSA" out of Conscrypt — and the handshake dies with no
+            // exception any of our own code can see.
+            .setDigests(KeyProperties.DIGEST_NONE, KeyProperties.DIGEST_SHA256)
             .setAlgorithmParameterSpec(java.security.spec.ECGenParameterSpec("secp256r1"))
             .setCertificateSubject(X500Principal("CN=$alias"))
             .setCertificateSerialNumber(BigInteger.ONE)
             .setCertificateNotBefore(now)
-            // Comfortably outlives any single handover; the alias itself is one-shot, so
-            // an expired leftover key is inert rather than a certificate anyone reuses.
-            .setCertificateNotAfter(tenMinutesOut)
+            // Comfortably outlives any single session; the alias is one-shot and deleted
+            // when the session ends, so an expired leftover key is inert rather than a
+            // certificate anyone reuses.
+            .setCertificateNotAfter(Date(now.time + lifetimeMs))
             .build()
         KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
             .apply { initialize(spec) }
@@ -53,9 +70,23 @@ fun generateHandoverIdentity(sessionId: String): Pair<X509Certificate, KeyStore>
     return cert to keyStore
 }
 
+fun generateHandoverIdentity(sessionId: String): Pair<X509Certificate, KeyStore> =
+    selfSignedIdentity(handoverAlias(sessionId), lifetimeMs = 10 * 60 * 1000L)
+
+/** A fresh certificate for one foreground reconcile session, replacing any leftover from a
+ * session that never got to call [forgetContactSessionIdentity]. A day of validity rather
+ * than ten minutes: this one lives as long as the screen stays open. */
+fun generateContactSessionIdentity(): Pair<X509Certificate, KeyStore> {
+    forgetContactSessionIdentity()
+    return selfSignedIdentity(CONTACT_SESSION_ALIAS, lifetimeMs = 24 * 60 * 60 * 1000L)
+}
+
 /** Removes the ephemeral identity once the session is over — nothing here is meant to
  * outlive it, and `AndroidKeyStore` does not clean up after itself. */
-fun forgetHandoverIdentity(sessionId: String) {
-    val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-    keyStore.deleteEntry(KEYSTORE_ALIAS_PREFIX + sessionId)
+fun forgetHandoverIdentity(sessionId: String) = deleteAlias(handoverAlias(sessionId))
+
+fun forgetContactSessionIdentity() = deleteAlias(CONTACT_SESSION_ALIAS)
+
+private fun deleteAlias(alias: String) {
+    KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(alias)
 }
