@@ -499,7 +499,7 @@ struct StationRow: View {
                 // eyebrow says only that (#166).
                 Text(row.node.isIdentified ? "FESTIVAL" : eveningKicker(shows))
                     .font(.system(size: 10, weight: .semibold)).kerning(1.5).foregroundStyle(slate)
-                Text(row.node.label).font(.system(size: 17, design: .serif)).foregroundStyle(ink)
+                Text(row.node.label).font(.system(size: 17, design: .serif)).foregroundStyle(row.mine ? ink : muted)
                 Text(festivalDateRange(row.node)).font(.system(size: 13)).foregroundStyle(muted)
                 festivalCounts(shows).font(.system(size: 12)).padding(.top, 4)
             }
