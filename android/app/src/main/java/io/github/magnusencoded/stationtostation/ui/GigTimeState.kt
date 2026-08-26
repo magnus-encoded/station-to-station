@@ -18,8 +18,9 @@ internal const val APPROACHING_DAYS = 7L
  * [PAST] — and only then does the setlist.fm nudge make sense, since adding a
  * setlist is something you do after the show.
  *
- * [AT_VENUE] from the issue sketch — handing off to check-in — needs a GPS fix,
- * not just a clock, so it isn't a value this pure function can produce. That's #33.
+ * `AT_VENUE` from the issue sketch — handing off to check-in — needs a GPS fix,
+ * not just a clock, so it is deliberately not a value of this enum. Check-in lives
+ * in `CheckIn.kt` instead, and reuses this window via [withinCheckInWindow].
  */
 enum class GigTimeState {
     /** More than [APPROACHING_DAYS] out: the plain future node, no countdown yet. */

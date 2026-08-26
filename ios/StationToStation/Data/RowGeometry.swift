@@ -7,9 +7,10 @@ import CoreGraphics
 ///
 /// `rowGeometry` is the one seam. It is arithmetic over the primitives in
 /// `Timeline.swift` — `laneStep`, `stripWidth`, `laneXf`, `linesAt`, `nodeHost`,
-/// `lineDrawnOffset` — holds no state, touches no Canvas, and needs no device. Three
-/// consumers read the same value and none recomputes any part of it: `PeopleRails`
-/// strokes it, `LaneGeometryTests` asserts it, and the woven-row dump prints it.
+/// `lineDrawnOffset` — holds no state, touches no Canvas, and needs no device.
+/// Two consumers read the same value and neither recomputes any part of it: `PeopleRails`
+/// strokes it and `LaneGeometryTests` asserts it. (Android has a third — the woven-row
+/// logcat dump — which has no counterpart here.)
 ///
 /// **The open decision the spec left to this half, settled: the constants are shared.**
 /// The tail bend, the stroke weights and the three node radii were listed as

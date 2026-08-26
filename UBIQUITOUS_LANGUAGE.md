@@ -1,4 +1,6 @@
 # Ubiquitous Language
+> Maintained by the `domain-modeling` skill. `CONTEXT.md` is the authored source and the
+> agent entry point; where the two disagree, `CONTEXT.md` wins.
 
 The vocabulary of the timeline — the fractal spine that is Station to Station's whole
 visual language. Most of these terms were used loosely for a whole session before they

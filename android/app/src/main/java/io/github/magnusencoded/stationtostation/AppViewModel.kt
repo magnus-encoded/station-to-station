@@ -2047,6 +2047,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.update {
                 it.copy(
                     plannedGigs = it.plannedGigs.filterNot { g -> g.id == gigId },
+                    setlists = it.setlists.filterNot { g -> g.id == gigId },
                     attendanceByGig = it.attendanceByGig - gigId,
                     logsByGig = it.logsByGig - gigId,
                 )
@@ -2103,6 +2104,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _state.update {
             it.copy(
                 plannedGigs = it.plannedGigs.filterNot { g -> g.id == gigId },
+                setlists = it.setlists.filterNot { g -> g.id == gigId },
                 attendanceByGig = it.attendanceByGig - gigId,
                 logsByGig = it.logsByGig - gigId,
                 mediaBySetlist = it.mediaBySetlist - gigId,

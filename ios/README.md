@@ -42,7 +42,7 @@ xcodegen generate       # writes StationToStation.xcodeproj + Info.plist
 open StationToStation.xcodeproj
 ```
 
-Or from the command line (what CI does — a simulator build needs no signing):
+Or from the command line (a simulator build needs no signing):
 
 ```sh
 xcodebuild build -scheme StationToStation -sdk iphonesimulator
@@ -50,6 +50,10 @@ xcodebuild test  -scheme StationToStation -destination 'platform=iOS Simulator,n
 ```
 
 Requires Xcode 15+ (iOS 16 deployment target). CI (`.github/workflows/ios.yml`)
-builds an unsigned simulator `.app` and uploads it as an artifact — the direct
-analog of the Android job's debug APK. A signed device `.ipa` would additionally
-need an Apple Developer account and signing secrets.
+runs the tests on whichever iPhone simulator the runner image happens to ship,
+then builds an **unsigned Debug build for arm64 devices**, packages it as
+`StationToStation.ipa` and uploads it as an artifact — and, from `main` or a
+release, attaches it to the newest GitHub release as `StationToStation-debug.ipa`.
+It is unsigned on purpose: a sideload tool re-signs it with the installer's own
+Apple ID. A properly signed `.ipa` would additionally need an Apple Developer
+account and signing secrets.

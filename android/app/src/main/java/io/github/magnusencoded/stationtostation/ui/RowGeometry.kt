@@ -21,7 +21,8 @@ import io.github.magnusencoded.stationtostation.data.Friend
  *
  * Everything here is in density-independent points. The canvas is the only thing that
  * converts to pixels, which is what makes the same numbers meaningful in a log, in an
- * assertion, and (once ported) on a platform with a different point system.
+ * assertion, and on a platform with a different point system — see `RowGeometry.swift`,
+ * which carries these constants term for term.
  */
 internal data class DrawnLine(
     /** [Spine] for mine, or a lane index for a friend's. */

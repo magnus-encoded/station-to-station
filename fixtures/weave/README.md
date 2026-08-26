@@ -1,6 +1,6 @@
 # Weave fixtures
 
-The weave exists twice — once in Kotlin, once (soon) in Swift. These are the documents
+The weave exists twice — once in Kotlin, once in Swift. These are the documents
 both copies must agree on. Neither platform owns them: they live outside `android/` and
 `ios/` on purpose.
 
