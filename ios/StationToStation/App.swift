@@ -19,6 +19,16 @@ struct StationToStationApp: App {
 
     var body: some Scene {
         WindowGroup {
+            // The first-run door (#358), and nothing else is reachable behind it.
+            // A splash pushed *onto* the stack could be dismissed by a back
+            // gesture into a timeline nobody had asked to see yet.
+            if !model.state.onboarded {
+                SplashView()
+                    .environmentObject(model)
+                    .tint(spotifyGreen)
+                    .preferredColorScheme(.dark)
+                    .appBanners(model)
+            } else {
             NavigationStack(path: $nav.path) {
                 // The Timeline is home; the setlist-to-Spotify converter stays
                 // reachable behind search, exactly as on Android — nothing removed.
@@ -100,6 +110,7 @@ struct StationToStationApp: App {
                     // is left as it is so a friend link can land on the strip.
                     if url.host == nil || url.host == "me" { model.setZoomedOut(false) }
                 }
+            }
             }
         }
     }
