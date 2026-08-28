@@ -170,6 +170,7 @@ import io.github.magnusencoded.stationtostation.data.bandsOf
 import io.github.magnusencoded.stationtostation.data.hintForAdding
 import io.github.magnusencoded.stationtostation.data.hintForMoving
 import io.github.magnusencoded.stationtostation.data.preamble
+import io.github.magnusencoded.stationtostation.data.isMyNight
 import io.github.magnusencoded.stationtostation.data.visibleToContacts
 import io.github.magnusencoded.stationtostation.data.withheldFromContacts
 import io.github.magnusencoded.stationtostation.data.gigInviteUri
@@ -1973,6 +1974,13 @@ private fun GigMediaBands(
     loadPreview: suspend (Uri) -> MediaThumb,
     arranging: Boolean,
     contactLight: Boolean,
+    /**
+     * Whether this night is mine to change (#327). Distinct from [contactLight], which
+     * is a *preview* of someone else's view of my own night — this is someone else's
+     * night. Both suppress editing and they are not the same question, so the room may
+     * be read-only for either reason.
+     */
+    editable: Boolean,
     senderName: (String) -> String?,
     onArrange: () -> Unit,
     onAdd: (Band) -> Unit,
@@ -2141,7 +2149,7 @@ private fun GigMediaBands(
                 )
             }
         }
-        if (!contactLight) {
+        if (editable) {
             Spacer(Modifier.width(10.dp))
             AttachHandle(
                 // The travel is the distance to the bands themselves, so the handle
@@ -2446,7 +2454,8 @@ private fun GigNotes(
     /** The night's own facts, already composed. Empty when the record knows nothing. */
     preamble: String,
     senderName: (String) -> String?,
-    contactLight: Boolean,
+    /** Whether this night is mine to write on, and not under the light (#327). */
+    editable: Boolean,
     onWrite: (Band, String) -> Unit,
     onVerdict: (String, String?) -> Unit,
     onMove: (String, Band, Int) -> Unit,
@@ -2465,7 +2474,7 @@ private fun GigNotes(
             // either band.
             preamble = if (noteBands.shared.isNotEmpty()) preamble else "",
             senderName = senderName,
-            editable = !contactLight,
+            editable = editable,
             onWrite = { onWrite(Band.SHARED, it) },
             onVerdict = { v -> noteBands.shared.firstOrNull()?.let { onVerdict(it.id, v) } },
             // Withdrawing: the same move a photograph makes, through the same
@@ -2486,7 +2495,9 @@ private fun GigNotes(
                 crossed = false,
                 preamble = if (noteBands.shared.isEmpty()) preamble else "",
                 senderName = senderName,
-                editable = true,
+                // Was `true`: the vault is only ever mine, which is true of the *band*
+                // and says nothing about whose *night* this is (#327).
+                editable = editable,
                 onWrite = { onWrite(Band.VAULT, it) },
                 onVerdict = { v -> noteBands.vault.firstOrNull()?.let { onVerdict(it.id, v) } },
                 // Publishing a draft. The upward move earns the green promise for
@@ -2914,6 +2925,21 @@ fun StationEventScreen(
         venue = setlist?.venue?.name,
         songCount = setlist?.performed()?.size ?: 0,
     )
+    // Whether this night is one of my own, through the one rule (#327). A **Contact**'s
+    // night is reachable from the timeline exactly like mine — it has to be — and every
+    // control that *changes* it has to ask this first, because attaching to their night
+    // acquires it: the **Gig** becomes a record here and their Shared media for it
+    // routes to me on the next **Reconcile**.
+    val mineNight = setlist != null && isMyNight(
+        setlist.id,
+        state.attendanceByGig[setlist.id],
+        state.setlists,
+        state.plannedGigs,
+    )
+    // The two reasons the room is read-only, folded once. They are different questions —
+    // the light previews someone else's view of *my* night, this is *their* night — and
+    // either one is enough.
+    val editable = mineNight && !state.contactLight
     // Arranging belongs to the Room, not to the strip: that is the whole of "a tap
     // anywhere that is not an [x] leaves it".
     var arranging by remember(setlist?.id) { mutableStateOf(false) }
@@ -3603,11 +3629,14 @@ fun StationEventScreen(
                             GigMediaBands(
                                 media = gigMedia,
                                 loadPreview = viewModel::photoPreview,
-                                arranging = arranging,
+                                // Remove and the drag both hang off arrange mode, so
+                                // withholding it is the whole of gating them.
+                                arranging = arranging && editable,
                                 // The light shows what they see, so the vault band and
                                 // the handle are absent under it rather than drawn over
                                 // a filtered list they could only misreport.
                                 contactLight = state.contactLight,
+                                editable = editable,
                                 // A sender is a public key (#28) and a Contact's name
                                 // lives on the friends list under a setlist.fm handle.
                                 // Nothing joins the two yet, so the promise degrades to
@@ -3771,6 +3800,7 @@ fun StationEventScreen(
                         preamble = gigPreamble,
                         senderName = { key -> state.friends.firstOrNull { it.setlistfm == key }?.name },
                         contactLight = state.contactLight,
+                        editable = editable,
                         onWrite = { band, text -> viewModel.setGigNote(setlist.id, band, text) },
                         onVerdict = { id, v -> viewModel.setGigVerdict(setlist.id, id, v) },
                         onMove = { id, band, index -> viewModel.moveGigMedia(setlist.id, id, band, index) },

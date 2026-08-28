@@ -74,4 +74,38 @@ final class ContactViewTests: XCTestCase {
         XCTAssertEqual([], visibleToContacts([]).map(\.id))
         XCTAssertEqual([], withheldFromContacts([]).map(\.id))
     }
+
+    // --- Whose night is this (#327) ------------------------------------------------
+
+    private func night(_ id: String) -> FmSetlist {
+        FmSetlist(id: id, eventDate: "25-06-2026", artist: FmArtist(name: "Artist"),
+                  venue: FmVenue(name: "A venue"))
+    }
+
+    /// The defect this rule exists to stop: a Contact's night is reachable from the
+    /// timeline exactly like one of mine, and every editing affordance on it was
+    /// offered. Attaching acquired the night.
+    func testAContactsNightIsNotMine() {
+        XCTAssertFalse(isMyNight("theirs", attendance: nil,
+                                 mine: [night("a"), night("b")],
+                                 planned: [night("c")]))
+    }
+
+    func testANightOnMyOwnLineIsMine() {
+        XCTAssertTrue(isMyNight("b", attendance: nil,
+                                mine: [night("a"), night("b")], planned: []))
+    }
+
+    /// A ticket I hold is my night before it has happened — there is nothing on my
+    /// attended line yet, and it is still mine to put a note on.
+    func testANightIAmGoingToIsMine() {
+        XCTAssertTrue(isMyNight("c", attendance: nil, mine: [], planned: [night("c")]))
+    }
+
+    /// The most direct answer, and the reason it is asked first: an attendance record
+    /// is the app saying I was there. A night minted by standing in front of the stage
+    /// is on neither list.
+    func testAnAttendanceClaimIsEnoughOnItsOwn() {
+        XCTAssertTrue(isMyNight("x", attendance: StoredAttendance(), mine: [], planned: []))
+    }
 }

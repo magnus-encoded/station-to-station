@@ -8,6 +8,9 @@ import io.github.magnusencoded.stationtostation.data.TimelineCache
 import io.github.magnusencoded.stationtostation.data.categoriesFor
 import io.github.magnusencoded.stationtostation.data.contactManifest
 import io.github.magnusencoded.stationtostation.data.contactMedia
+import io.github.magnusencoded.stationtostation.data.StoredAttendance
+import io.github.magnusencoded.stationtostation.data.isMyNight
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.handoverPlan
 import io.github.magnusencoded.stationtostation.data.Band
 import io.github.magnusencoded.stationtostation.data.moveMedia
@@ -341,5 +344,45 @@ class ContactViewTest {
         // My own other phone: a draft has to travel, or keeping it back costs me the
         // material I write from.
         assertTrue(categoriesFor(contact = false).contains("personal_note"))
+    }
+
+    // --- Whose night is this (#327) ------------------------------------------------
+
+    private fun night(id: String) = FmSetlist(id = id, eventDate = "25-06-2026")
+
+    /**
+     * The defect this rule exists to stop: a **Contact**'s night is reachable from the
+     * timeline exactly like one of mine, and every editing affordance on it was offered.
+     * Attaching acquired the night.
+     */
+    @Test
+    fun `a contact's night is not mine`() {
+        assertFalse(
+            isMyNight("theirs", null, listOf(night("a"), night("b")), listOf(night("c"))),
+        )
+    }
+
+    @Test
+    fun `a night on my own line is mine`() {
+        assertTrue(isMyNight("b", null, listOf(night("a"), night("b")), emptyList()))
+    }
+
+    /**
+     * A ticket I hold is my night before it has happened — there is nothing on my
+     * attended line yet, and it is still mine to put a note on.
+     */
+    @Test
+    fun `a night I am going to is mine`() {
+        assertTrue(isMyNight("c", null, emptyList(), listOf(night("c"))))
+    }
+
+    /**
+     * The most direct answer, and the reason it is asked first: an attendance record is
+     * the app saying I was there. A night minted by standing in front of the stage is on
+     * neither list.
+     */
+    @Test
+    fun `an attendance claim is enough on its own`() {
+        assertTrue(isMyNight("x", StoredAttendance(), emptyList(), emptyList()))
     }
 }
