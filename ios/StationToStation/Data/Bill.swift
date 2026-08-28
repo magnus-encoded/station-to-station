@@ -219,6 +219,41 @@ func parseLineup(_ text: String) -> [StoredAct] {
     return out
 }
 
+/// "Silent Majority (US hardcore)" — the name, plus whatever tells it from its namesakes.
+func artistLabel(name: String, disambiguation: String?) -> String {
+    [name.isBlank ? nil : name,
+     (disambiguation?.isBlank == false) ? "(\(disambiguation!))" : nil]
+        .compactMap { $0 }.joined(separator: " ")
+}
+
+/// The songs an artist has been playing lately, most-played first — the pool an
+/// **Act**'s setlist is ticked off from rather than typed.
+///
+/// Frequency across the most recent setlists, not the single latest one: a set has a
+/// stable core and a rotating edge, and the core is what is worth offering first.
+/// Covers and tape tracks come through `performed()`'s filter already.
+func candidateSongs(_ recent: [FmSetlist], take: Int = 4, limit: Int = 40) -> [String] {
+    var order: [String] = []
+    var counts: [String: Int] = [:]
+    for set in recent.prefix(take) {
+        for song in set.performed() {
+            if counts[song.name] == nil { order.append(song.name) }
+            counts[song.name, default: 0] += 1
+        }
+    }
+    // Stable: `order` is first-seen order and the sort below is a stable enumerated
+    // tiebreak on it, so equal counts stay in the order the most recent setlist
+    // played them. Swift's `sorted` is not documented as stable; the index is.
+    return order.enumerated()
+        .sorted { a, b in
+            let (ca, cb) = (counts[a.element] ?? 0, counts[b.element] ?? 0)
+            return ca == cb ? a.offset < b.offset : ca > cb
+        }
+        .map(\.element)
+        .prefix(limit)
+        .map { $0 }
+}
+
 /// The setlist face of a **Gig** this app minted rather than setlist.fm.
 func localGigSetlist(gigId: String, artist: String, date: String,
                      venue: String, city: String) -> FmSetlist {
