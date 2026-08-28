@@ -2205,7 +2205,13 @@ private fun AttachHandle(
             .height(GigPhotoSize)
             .clip(RoundedCornerShape(10.dp))
             .background(Raised2)
-            .border(1.dp, if (chosen != null) Amber else LineLit, RoundedCornerShape(10.dp))
+            // Never Amber, and never anything else either: the doc above is the rule
+            // and this line was the exception to it, left over from #162 — before
+            // #268 settled that amber is the vault's and an upward drag must not
+            // reach for it. A handle that lit amber on the way *up* said the one
+            // thing the colour is not allowed to say, under a thumb, where nobody
+            // could read it anyway. The bands answer.
+            .border(1.dp, LineLit, RoundedCornerShape(10.dp))
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDrag = { change, amount ->
@@ -2234,7 +2240,7 @@ private fun AttachHandle(
     ) {
         Text(
             "↕",
-            color = if (chosen != null) Amber else Muted,
+            color = Muted,
             fontSize = 26.sp,
         )
     }
