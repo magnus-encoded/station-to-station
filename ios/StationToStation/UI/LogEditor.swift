@@ -192,21 +192,21 @@ struct LogCorrection: View {
             // The whole pool, ranked against what was written down — never close
             // matches only, because a remembered line sharing no words with any
             // title still has to be correctable.
-            candidates: rankTitles(written, catalogue(setlist, model)),
+            candidates: rankTitles(written, catalogue),
             canRestore: log.rememberedAt(index) != nil,
             looking: model.state.catalogueFetching != nil,
             onPick: { model.correctLogEntry(index, title: $0); onDone() },
             onRestore: { model.restoreLogEntry(index); onDone() }
         )
     }
-}
 
-/// The artist's own songs, as far as this session has been told. Fetched by the
-/// Room's Curtain rather than on open: a catalogue is a prompt for a correction, and
-/// a night nobody is correcting should cost MusicBrainz nothing.
-private func catalogue(_ setlist: FmSetlist, _ model: AppModel) -> [String] {
-    guard let mbid = setlist.artist?.mbid, !mbid.isEmpty else { return [] }
-    return model.state.catalogueByArtist[mbid] ?? []
+    /// The artist's own songs, as far as this session has been told. Fetched by the
+    /// Room's Curtain rather than on open: a catalogue is a prompt for a correction,
+    /// and a night nobody is correcting should cost MusicBrainz nothing.
+    private var catalogue: [String] {
+        guard let mbid = setlist.artist?.mbid, !mbid.isEmpty else { return [] }
+        return model.state.catalogueByArtist[mbid] ?? []
+    }
 }
 
 /// Correcting one Log entry, in place, under the row it belongs to (#126).
