@@ -551,4 +551,50 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual("63de6d5b", after.setlistIdFor(older))
         XCTAssertEqual(["content://photo1", "content://photo2"], after.media()["63de6d5b"]?.map(\.ref))
     }
+
+    // MARK: - Deleting a night this app minted (#172)
+
+    /// A **Gig** an **Act** became, taken back off — the mistap path. Two refusals, and
+    /// both are the point: a night that has taken a setlist.fm id is not ours to delete,
+    /// and a night with **Media** on it is not a mistap.
+    func testANightThisAppMintedGoesEntirelyIncludingWhatWasKeyedByIt() async {
+        let store = TimelineStore(file: tempFile(contents: "{}"))
+        let id = await store.createLocalGig(date: "06-08-2026", artist: "Velvet Ditch", venue: "")
+        await store.saveAttendance(setlistId: id, attendance: StoredAttendance(provenance: "checked_in"))
+        await store.saveLog(setlistId: id, log: StoredLog(songs: ["Low Tide"]))
+
+        let gone = await store.deleteGig(id)
+        XCTAssertTrue(gone)
+        let after = await store.load()
+        XCTAssertNil(after.gigs[id])
+        XCTAssertNil(after.gigPlanned[id])
+        XCTAssertNil(after.gigAttendance[id])
+        XCTAssertNil(after.gigLogs[id])
+    }
+
+    func testANightWithPhotographsOnItIsKeptBecauseThatIsNotAMistap() async {
+        let store = TimelineStore(file: tempFile(contents: "{}"))
+        let id = await store.createLocalGig(date: "06-08-2026", artist: "Velvet Ditch", venue: "")
+        await store.saveMedia(setlistId: id, media: [
+            StoredMedia(id: "m1", kind: StoredMedia.Kind.photo, ref: "file:///p.jpg"),
+        ])
+
+        let gone = await store.deleteGig(id)
+        XCTAssertFalse(gone)
+        let after = await store.load()
+        XCTAssertNotNil(after.gigs[id])
+        XCTAssertEqual(["m1"], after.gigMedia[id]?.map(\.id))
+    }
+
+    /// The vendor's record outlives our copy of it: a night that has adopted a
+    /// setlist.fm id is no longer a local night to throw away.
+    func testANightThatHasTakenASetlistFmIdIsNotOursToDelete() async {
+        let store = TimelineStore(file: tempFile(contents: "{}"))
+        let id = await store.createLocalGig(date: "06-08-2026", artist: "Velvet Ditch", venue: "")
+        _ = await store.adoptSetlistId(gigId: id, setlistId: "fm-1")
+
+        XCTAssertFalse(await store.deleteGig(id))
+        let after = await store.load()
+        XCTAssertNotNil(after.gigs[id])
+    }
 }
