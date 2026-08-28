@@ -44,6 +44,9 @@ struct GigView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var nav: Nav
 
+    @State private var adopting = false
+    @State private var adoptLink = ""
+
     var body: some View {
         let show = model.state.selectedSetlist
         let rows = show.map(eventRows) ?? []
@@ -89,6 +92,16 @@ struct GigView: View {
             }
         }
         .toolbar {
+            // Only for a night this app minted. A night that already has a setlist.fm
+            // page has nothing to adopt, and offering it there would be an invitation
+            // to claim a second id for one night (#128).
+            if model.state.selectedSetlist?.url == nil {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button { adopting = true } label: { Image(systemName: "link.badge.plus") }
+                        .tint(faint)
+                        .accessibilityLabel("This night is on setlist.fm now — paste its link")
+                }
+            }
             // The light switch (#180): a visible icon button (Android's is a bare
             // gesture on the timeline; GigView's swipes are already claimed by
             // back and the playlist, so a toolbar button is the reversible
@@ -108,6 +121,24 @@ struct GigView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
+        // Pasting the link to the record whoever created it just made. A pasted link
+        // rather than a search by artist and date: the moment this is used is the moment
+        // you are looking at the page you just created, so its url is in your hand, and
+        // matching heuristics are a way to be wrong about which night you meant.
+        .alert("It's on setlist.fm now", isPresented: $adopting) {
+            TextField("setlist.fm link", text: $adoptLink)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Button("Adopt") {
+                if let show = model.state.selectedSetlist {
+                    model.adoptSetlistLink(gigId: show.id, linkOrId: adoptLink)
+                }
+                adoptLink = ""
+            }
+            Button("Cancel", role: .cancel) { adoptLink = "" }
+        } message: {
+            Text("Paste the link. This night takes their id and stops being a stub — which is what lets a friend who was there meet you on it.")
+        }
         // Act on this level: the Alcove, one step Inner. It holds exactly one thing
         // and it may be empty — empty while the band plays, and empty on a night
         // whose record nobody has filled in, where the playlist would convert
