@@ -32,6 +32,16 @@ private let slate = Color(red: 0x6D / 255, green: 0x7E / 255, blue: 0x9B / 255)
 struct NightGrid: View {
     @EnvironmentObject var model: AppModel
     @State private var pickingBand: Band?
+    /// The keepsake the **Window** is open on, if any.
+    @State private var opened: StoredMedia?
+
+    /// The night's full recording: the first video among the keepsakes. Photos and
+    /// one-song clips sit alongside it and are not treated as the recording. Kind comes
+    /// off the record, not from asking the library — a reference that has died still
+    /// knows what it was.
+    private var recording: StoredMedia? {
+        visualMedia.first { $0.kind == StoredMedia.Kind.video }
+    }
     @State private var draggingId: String?
     @State private var sharedTargeted = false
     @State private var vaultTargeted = false
@@ -123,6 +133,20 @@ struct NightGrid: View {
         .sheet(item: $pickingBand) { band in
             MediaPicker { model.attachMedia(assetIds: $0, to: band) }.ignoresSafeArea()
         }
+        .fullScreenCover(item: $opened) { media in
+            // The setlist rides along only under the night's own recording (#27).
+            let songs = media.id == recording?.id
+                ? (model.state.selectedSetlist?.songs() ?? []) : []
+            MediaWindow(
+                media: media,
+                songs: songs,
+                offsets: model.songOffsets(mediaId: media.id, songCount: songs.count),
+                onStamp: { index, atMs in
+                    model.stampSong(mediaId: media.id, index: index, atMs: atMs,
+                                    songCount: songs.count)
+                },
+                onDismiss: { opened = nil })
+        }
     }
 
     private func band(
@@ -180,6 +204,7 @@ struct NightGrid: View {
             // Received media never drags: its disposition is not mine to set. Nor does
             // anything drag on a night that is not mine, or under the light — it is a
             // look, not a grip.
+            .onTapGesture { opened = media }
             .onDrag {
                 guard editable, media.from == nil else { return NSItemProvider() }
                 draggingId = media.id

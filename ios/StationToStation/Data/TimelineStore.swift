@@ -133,7 +133,7 @@ struct StoredGig: Codable, Equatable {
 ///
 /// `kind` is *stored*, not sniffed at read time: asking for a MIME type works
 /// right up until the reference dies, which is the entire premise of this record.
-struct StoredMedia: Codable, Equatable {
+struct StoredMedia: Codable, Equatable, Identifiable {
     enum Kind {
         static let photo = "photo"
         static let video = "video"

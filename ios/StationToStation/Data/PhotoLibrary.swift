@@ -167,6 +167,34 @@ enum PhotoLibrary {
         }
     }
 
+    /// The picture at viewing size, off the library. A **Window** onto a keepsake
+    /// shows the real thing, so this is allowed the network the grid tier is not:
+    /// looking at one photograph is worth a round trip to iCloud, and drawing a
+    /// hundred thumbnails is not.
+    static func fullImage(assetId: String, edgePx: Int = 2048) async -> UIImage? {
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetId], options: nil).firstObject
+        else { return nil }
+        return await requestImage(asset, edgePx: edgePx, allowNetwork: true)
+    }
+
+    /// The clip, ready to play. Nil for a reference that has died — the tile still
+    /// draws from the durable tier, but there is nothing left to play.
+    static func playerItem(assetId: String) async -> AVPlayerItem? {
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetId], options: nil).firstObject,
+              asset.mediaType == .video
+        else { return nil }
+        let options = PHVideoRequestOptions()
+        options.isNetworkAccessAllowed = true
+        options.deliveryMode = .highQualityFormat
+        return await withCheckedContinuation { continuation in
+            let answered = Answered()
+            PHImageManager.default().requestPlayerItem(forVideo: asset, options: options) { item, _ in
+                guard answered.claim() else { return }
+                continuation.resume(returning: item)
+            }
+        }
+    }
+
     /// The photo as Spotify wants a cover: a square JPEG small enough that its
     /// base64 form stays inside the 256 KB the upload endpoint accepts. Base64
     /// costs a third on top, so the JPEG itself is held well under that.
