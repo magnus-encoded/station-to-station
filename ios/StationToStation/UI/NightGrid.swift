@@ -162,7 +162,8 @@ struct NightGrid: View {
         crossed isCrossed: Bool
     ) -> some View {
         let accent = bandAccent(band, crossed: isCrossed)
-        VStack(alignment: .leading, spacing: 8) {
+        // Explicit, because the `let` above costs the single-expression inference.
+        return VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(title)
                     .font(.system(size: 10, weight: .semibold)).kerning(1.5)
