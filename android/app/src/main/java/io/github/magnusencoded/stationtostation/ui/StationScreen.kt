@@ -821,7 +821,10 @@ fun StationTimelineScreen(
                                 val nodeX = crossingX(row, lanes, laneWidth)
                                 when (val node = row.node) {
                                     is TimelineNode.Concert -> {
-                                        val nightMedia = state.mediaBySetlist[node.setlist.id].orEmpty()
+                                        // Visuals only. A Note has no bytes and an empty
+                                        // `ref` (#170), and one drew a blank tile on the row.
+                                        val nightMedia = state.mediaBySetlist[node.setlist.id]
+                                            .orEmpty().filterNot { it.kind == StoredMedia.Kind.NOTE }
                                         TimelineItem(
                                             setlist = node.setlist,
                                             highlight = isFirst && row.mine,
