@@ -63,6 +63,10 @@ struct UiState {
     /// apart from `timelineShows` the same way `showsByFriend` is — a plan is not an
     /// attended show, and `gigTimeState` is what tells them apart on screen.
     var plannedGigs: [FmSetlist] = []
+    /// The id of the **Bill** whose song pools are being looked up right now, if any.
+    /// One at a time: the lookups are sequential and the line that reports them is one
+    /// line, so a second in flight would have nowhere truthful to say so.
+    var billFetching: String?
     /// The **Bills** on the wall (#172) — festivals whose **Gigs** do not exist yet.
     /// A list, not a map, because the future lane draws them in one order with the
     /// tickets and nothing looks one up by id except an edit.
@@ -372,6 +376,113 @@ final class AppModel: ObservableObject {
             }
             if !gone { state.notice = "That night has photos on it, so it's been kept." }
         }
+    }
+
+    /// Fills in every unanswered **Act**'s candidate songs from setlist.fm.
+    ///
+    /// Opportunistic, never scheduled: opening a **Bill** that still holds acts nobody
+    /// has an answer for is the reason to think a lookup might work. Not a timer, not a
+    /// background job, no retry loop — in the enclosure it fails once and stops, and
+    /// re-opening the **Bill** is the retry, a gesture someone makes when they have a
+    /// reason to.
+    ///
+    /// An act is skipped once setlist.fm has *answered* about it, empty or not (see
+    /// `StoredAct.tried`) — so a small local act nobody has ever logged costs one lookup
+    /// in its life, while an act missed for want of signal is asked again.
+    ///
+    /// ponytail: sequential, one artist at a time. A lineup is a dozen names and this
+    /// runs on a screen being looked at. Parallelise if a hundred-act bill turns up.
+    func fetchCandidates(_ billId: String) {
+        guard state.billFetching == nil else { return }
+        let pending = (state.bills.first { $0.id == billId }?.acts ?? [])
+            .enumerated()
+            .filter { !$0.element.tried && $0.element.candidates.isEmpty }
+        guard !pending.isEmpty else { return }
+        state.billFetching = billId
+        Task {
+            defer { state.billFetching = nil }
+            for (i, act) in pending {
+                // A thrown request is *no answer*: leave the act untried so the next
+                // open asks again. Only a reply — including "no such artist" — settles
+                // the question.
+                guard let found = try? await setlistFm.searchArtists(act.name) else { continue }
+                // The first exact-name match, and there may be five of them — which
+                // artist this landed on is recorded and shown, because a pool whose
+                // source is unnamed cannot be distrusted.
+                let artist = found.artist.first { $0.name.lowercased() == act.name.lowercased() }
+                var songs: [String] = []
+                if let artist {
+                    guard let sets = try? await setlistFm.artistSetlists(artist.mbid) else { continue }
+                    songs = candidateSongs(sets.setlist)
+                }
+                // Re-read each time: the field may have dated this act in between, and a
+                // stale snapshot written back would undo it.
+                editBill(billId) { bill in
+                    var edited = bill
+                    guard i < edited.acts.count else { return edited }
+                    edited.acts[i].candidates = songs
+                    edited.acts[i].matchedArtist = artist
+                        .map { artistLabel(name: $0.name, disambiguation: $0.disambiguation) } ?? ""
+                    edited.acts[i].mbid = artist?.mbid ?? ""
+                    edited.acts[i].tried = true
+                    return edited
+                }
+            }
+        }
+    }
+
+    /// The name on the poster, corrected — and asked about again.
+    ///
+    /// A lineup is copied off a wall, and the wall is not authoritative about spelling:
+    /// the history says *The* Silent Majority where the programme says Silent Majority,
+    /// and `fetchCandidates` matches on the exact name, so one character is the
+    /// difference between a song pool and "no setlist.fm history". Rather than guess at
+    /// normalising names nobody has seen, let the person standing in front of the stage
+    /// fix it and ask upstream again.
+    ///
+    /// Clearing `tried` is the point: it is what makes the act eligible for a lookup at
+    /// all, and the pool, matched artist and mbid go with it because they describe an
+    /// answer to the *old* name.
+    ///
+    /// The night, if the act already has one, is deliberately untouched — it is a record
+    /// of what happened, not a line on a poster.
+    func renameAct(billId: String, actIndex: Int, name: String) {
+        let corrected = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let bill = state.bills.first(where: { $0.id == billId }),
+              actIndex < bill.acts.count,
+              !corrected.isEmpty, corrected != bill.acts[actIndex].name else { return }
+        editBill(billId) { bill in
+            var edited = bill
+            edited.acts[actIndex].name = corrected
+            edited.acts[actIndex].candidates = []
+            edited.acts[actIndex].matchedArtist = ""
+            edited.acts[actIndex].mbid = ""
+            edited.acts[actIndex].tried = false
+            return edited
+        }
+        fetchCandidates(billId)
+    }
+
+    /// An **Act** that never was on the poster. Added already dated, because a
+    /// **Surprise** is only ever discovered after it has happened — there is no state in
+    /// which an unannounced act is pending.
+    ///
+    /// Dated by the same rule as any other act, and refused outright when there is no
+    /// honest date to give it: a hand-typed act is the easiest place of all to fabricate
+    /// a night, not an exception to the invariant.
+    func addSurpriseAct(billId: String, name: String, chosen: String? = nil,
+                        now: Date = Date()) {
+        let typed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !typed.isEmpty,
+              let bill = state.bills.first(where: { $0.id == billId }),
+              gigNight(bill, chosen: chosen, now: now) != nil else { return }
+        let at = bill.acts.count
+        editBill(billId) { bill in
+            var edited = bill
+            edited.acts.append(StoredAct(name: typed, surprise: true))
+            return edited
+        }
+        markActPlayed(billId: billId, actIndex: at, chosen: chosen, now: now)
     }
 
     /// One **Bill**, changed in state and on disk together. Every edit goes through here

@@ -287,4 +287,47 @@ final class BillTests: XCTestCase {
         }
         XCTAssertEqual(2, node.shows.count)
     }
+
+    // MARK: - The pool an Act's setlist is ticked off from
+
+    private func setlist(_ id: String, _ songs: [String]) -> FmSetlist {
+        FmSetlist(id: id, sets: FmSets(set: [FmSet(song: songs.map { FmSong(name: $0) })]))
+    }
+
+    func testThePoolIsWhatTheyHaveBeenPlayingMostPlayedFirst() {
+        // Frequency across the most recent setlists, not the single latest one: a set
+        // has a stable core and a rotating edge, and the core is worth offering first.
+        let pool = candidateSongs([
+            setlist("a", ["Low Tide", "Harbour"]),
+            setlist("b", ["Low Tide", "Kalmar"]),
+            setlist("c", ["Low Tide", "Harbour"]),
+        ])
+        XCTAssertEqual(["Low Tide", "Harbour", "Kalmar"], pool)
+    }
+
+    func testEqualCountsKeepTheOrderTheMostRecentSetlistPlayedThem() {
+        XCTAssertEqual(["Harbour", "Kalmar"], candidateSongs([setlist("a", ["Harbour", "Kalmar"])]))
+    }
+
+    func testOnlyTheMostRecentFewSetlistsAreAsked() {
+        // `take` is the window, and a song that has fallen out of the set should fall
+        // out of the pool with it.
+        let pool = candidateSongs([
+            setlist("a", ["Low Tide"]), setlist("b", ["Low Tide"]),
+            setlist("c", ["Low Tide"]), setlist("d", ["Low Tide"]),
+            setlist("e", ["Retired"]),
+        ])
+        XCTAssertEqual(["Low Tide"], pool)
+    }
+
+    func testAnArtistWithNoHistoryHasAnEmptyPoolWhichIsAnAnswer() {
+        XCTAssertEqual([], candidateSongs([]))
+    }
+
+    func testAnArtistLabelNamesWhatTellsItFromItsNamesakes() {
+        XCTAssertEqual("Silent Majority (US hardcore)",
+                       artistLabel(name: "Silent Majority", disambiguation: "US hardcore"))
+        XCTAssertEqual("Silent Majority", artistLabel(name: "Silent Majority", disambiguation: nil))
+        XCTAssertEqual("Silent Majority", artistLabel(name: "Silent Majority", disambiguation: "  "))
+    }
 }

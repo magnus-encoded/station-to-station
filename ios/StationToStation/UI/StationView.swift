@@ -396,6 +396,14 @@ struct StationView: View {
                                     openGig(gig)
                                 }
                             },
+                            onRename: { i, name in
+                                model.renameAct(billId: bill.id, actIndex: i, name: name)
+                            },
+                            onSurprise: { name, night in
+                                model.addSurpriseAct(billId: bill.id, name: name, chosen: night)
+                            },
+                            fetching: model.state.billFetching == bill.id,
+                            onFetchCandidates: { model.fetchCandidates(bill.id) },
                             onRemove: { model.removeBill(bill.id) })
                 case .ticket(let node):
                     if case .concert(let gig) = node {
@@ -868,7 +876,6 @@ private struct RowThumb: View {
 /// The ring is amber once any act has been seen and slate until then: **amber means
 /// mine**, and nothing here is mine until I was at one of these.
 ///
-/// The song pools, renaming and surprises are the next split of #172.
 private struct BillRow: View {
     let bill: StoredBill
     let open: Bool
@@ -876,11 +883,22 @@ private struct BillRow: View {
     let onPlayed: (Int, String?) -> Void
     let onUnmark: (Int) -> Void
     let onOpenGig: (String) -> Void
+    let onRename: (Int, String) -> Void
+    let onSurprise: (String, String?) -> Void
+    let fetching: Bool
+    let onFetchCandidates: () -> Void
     let onRemove: () -> Void
 
     /// Which act's night question is open. One at a time: the answers are a list under
     /// the row that asked, and two open at once would not say which row they belong to.
     @State private var asking: Int?
+    /// Which act is being renamed. The whole row becomes the field, because the row's
+    /// own gesture is "played tonight" and a field sharing it would fire that on
+    /// every tap.
+    @State private var editing: Int?
+    @State private var editText = ""
+    @State private var surpriseText = ""
+    @State private var surpriseAsking = false
 
     private var seen: Int { bill.acts.filter { $0.gigId != nil }.count }
     private var accent: Color { seen > 0 ? amber : slate }
@@ -909,7 +927,7 @@ private struct BillRow: View {
                 // In poster order, never re-sorted: order is the only thing a lineup
                 // reliably carries, and a seen act sliding to the top would lose it.
                 ForEach(Array(bill.acts.enumerated()), id: \.offset) { i, act in
-                    actRow(i, act)
+                    if editing == i { renameField(i) } else { actRow(i, act) }
                     if asking == i {
                         nightChoices { night in
                             asking = nil
@@ -917,13 +935,30 @@ private struct BillRow: View {
                         }
                     }
                 }
-                Button("take this bill down", role: .destructive, action: onRemove)
-                    .font(.system(size: 12))
-                    .padding(.leading, 32)
-                    .padding(.top, 6)
+                // Nothing has played yet, so there is nobody to have been surprised by.
+                // The field would only offer a way to date an act before its festival
+                // opened.
+                if phase != .before { surpriseField }
+                HStack {
+                    // Only while something is actually in flight, and it clears either
+                    // way. There is no manual "fetch suggestions" row: opening the Bill
+                    // does it, and re-opening is the retry.
+                    Text(fetching ? "looking up song suggestions\u{2026}" : "")
+                        .font(.system(size: 12)).foregroundStyle(faint)
+                    Spacer(minLength: 0)
+                    Button("take this bill down", role: .destructive, action: onRemove)
+                        .font(.system(size: 12))
+                }
+                .padding(.leading, 32)
+                .padding(.top, 6)
             }
         }
         .padding(.vertical, 8)
+        // Opportunistic, and this is the whole scheduler: opening a Bill that still has
+        // unanswered acts is the reason to think a lookup might work. Not a timer, not a
+        // background job, no retry loop — in the enclosure it fails once and stops, and
+        // re-opening the Bill is the retry, made by someone who has a reason to try.
+        .task(id: open) { if open { onFetchCandidates() } }
     }
 
     private var phase: BillWhen { billWhen(bill, now: Date()) }
@@ -947,8 +982,16 @@ private struct BillRow: View {
                 .overlay(Circle().stroke(seen ? amber : faint, lineWidth: 1.5))
             VStack(alignment: .leading, spacing: 2) {
                 Text(act.name).font(.system(size: 15)).foregroundStyle(seen ? ink : muted)
-                Text(subtitle(act, seen: seen))
-                    .font(.system(size: 11)).foregroundStyle(seen ? amber : faint)
+                if seen {
+                    Text(subtitle(act, seen: true))
+                        .font(.system(size: 11)).foregroundStyle(amber)
+                } else {
+                    Button("\(subtitle(act, seen: false)) \u{00B7} fix the name") {
+                        editText = act.name
+                        editing = i
+                    }
+                    .font(.system(size: 11)).foregroundStyle(faint).buttonStyle(.plain)
+                }
             }
             Spacer(minLength: 0)
             // The affordance is only ever what the clock can honestly support. After the
@@ -976,6 +1019,72 @@ private struct BillRow: View {
         // and a typo has nothing to return to. An act off the Bill only has something
         // to undo once it has been given a night.
         .onLongPressGesture { if seen || act.surprise { onUnmark(i) } }
+    }
+
+    /// The sub-line is where a wrong name shows itself — "no setlist.fm history" is
+    /// usually a spelling, not an absence — so it is also the way to fix it. Only before
+    /// the act has a night: afterwards the row is a record of a night, not a line on a
+    /// poster.
+    @ViewBuilder
+    private func renameField(_ i: Int) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            TextField("who is actually on the poster", text: $editText)
+                .textFieldStyle(.roundedBorder)
+                .submitLabel(.done)
+                .onSubmit { commitRename(i) }
+            HStack {
+                Button("cancel") { editing = nil }
+                    .font(.system(size: 13)).foregroundStyle(faint)
+                Spacer(minLength: 0)
+                Button("rename and look up again") { commitRename(i) }
+                    .font(.system(size: 13)).foregroundStyle(amber)
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, 32)
+        .padding(.vertical, 6)
+    }
+
+    private func commitRename(_ i: Int) {
+        onRename(i, editText)
+        editing = nil
+    }
+
+    /// An act nobody announced. Typed once, dated on arrival.
+    ///
+    /// Hand-typed is the easiest place of all to invent a date, so it is asked the same
+    /// question as the poster's own acts once the festival has ended.
+    @ViewBuilder
+    private var surpriseField: some View {
+        let typed = surpriseText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ask = phase == .after
+        VStack(alignment: .leading, spacing: 6) {
+            TextField("someone nobody announced", text: $surpriseText)
+                .textFieldStyle(.roundedBorder)
+                .submitLabel(.done)
+                .onChange(of: surpriseText) { _ in surpriseAsking = false }
+            if !typed.isEmpty {
+                Button(ask ? "+ add \"\(typed)\" — which night?"
+                           : "+ add \"\(typed)\", played tonight") {
+                    if ask {
+                        surpriseAsking.toggle()
+                    } else {
+                        onSurprise(typed, nil)
+                        surpriseText = ""
+                    }
+                }
+                .font(.system(size: 13)).foregroundStyle(amber).buttonStyle(.plain)
+                if ask && surpriseAsking {
+                    nightChoices { night in
+                        onSurprise(typed, night)
+                        surpriseText = ""
+                        surpriseAsking = false
+                    }
+                }
+            }
+        }
+        .padding(.leading, 32)
+        .padding(.top, 6)
     }
 
     /// The way out has to be visible, or it may as well not exist — a mistyped surprise
