@@ -5,6 +5,9 @@ struct ConfirmView: View {
     @EnvironmentObject var nav: Nav
     @Environment(\.openURL) private var openURL
     @State private var expandedIndex = -1
+    /// The clip standing between "create" and the playlist, while its frame is
+    /// being chosen.
+    @State private var pickingFrameFor: CoverClip?
 
     var body: some View {
         let s = model.state
@@ -72,7 +75,16 @@ struct ConfirmView: View {
                     } label: { Text("Log in with Spotify").frame(maxWidth: .infinity) }
                     .buttonStyle(.borderedProminent)
                 } else {
-                    Button { model.createPlaylist() } label: {
+                    Button {
+                        // A clip has no one picture until a frame is chosen, so the
+                        // choosing is the last step before the playlist rather than a
+                        // slot on this form — the same order Android puts it in.
+                        if let cover = s.selectedCoverAssetId, PhotoLibrary.isVideo(assetId: cover) {
+                            pickingFrameFor = CoverClip(assetId: cover)
+                        } else {
+                            model.createPlaylist()
+                        }
+                    } label: {
                         if s.creatingPlaylist {
                             ProgressView()
                         } else {
@@ -99,6 +111,115 @@ struct ConfirmView: View {
                 url: URL(string: s.createdPlaylistUrl ?? "") ?? URL(string: "https://open.spotify.com")!,
                 onOpen: { openURL(URL(string: s.createdPlaylistUrl ?? "")!) },
                 onDone: { model.dismissCreated(); nav.pop() })
+        }
+        .sheet(item: $pickingFrameFor) { clip in
+            CoverFrameSheet(
+                assetId: clip.assetId,
+                frameMs: s.selectedCoverFrameMs,
+                onFrameChange: model.setCoverFrame,
+                onCancel: { pickingFrameFor = nil },
+                onConfirm: {
+                    pickingFrameFor = nil
+                    model.createPlaylist()
+                })
+        }
+    }
+}
+
+/// The clip being scrubbed. A wrapper because `sheet(item:)` wants an identity and
+/// an asset id is a bare string.
+private struct CoverClip: Identifiable {
+    let assetId: String
+    var id: String { assetId }
+}
+
+/// Where in a clip a drag down its track lands, in milliseconds.
+///
+/// Pulled out of the sheet because it is the only part of scrubbing that can be
+/// wrong in a way a test can catch: a drag that leaves the track must clamp to the
+/// clip's ends rather than seek past them.
+func scrubFrameMs(y: CGFloat, trackHeight: CGFloat, durationMs: Int64) -> Int64 {
+    guard trackHeight > 0, durationMs > 0 else { return 0 }
+    let fraction = min(max(y / trackHeight, 0), 1)
+    return Int64(fraction * CGFloat(durationMs))
+}
+
+/// Picks the one frame of a clip worth being the cover.
+///
+/// Scrubbed vertically, like the timeline the night itself is read on: the start of
+/// the clip at the top, the end at the bottom. Twin of Android's `VideoFrameDialog`
+/// — a sheet rather than a dialog because that is what a full-width picture wants on
+/// iOS, and the same thing either way.
+private struct CoverFrameSheet: View {
+    let assetId: String
+    let frameMs: Int64
+    let onFrameChange: (Int64) -> Void
+    let onCancel: () -> Void
+    let onConfirm: () -> Void
+
+    @State private var duration: Int64 = 0
+    @State private var frame: UIImage?
+
+    private let scrubHeight: CGFloat = 220
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                HStack(spacing: 16) {
+                    ZStack {
+                        Rectangle().fill(Color(.secondarySystemBackground))
+                        if let frame {
+                            Image(uiImage: frame).resizable().scaledToFill()
+                        } else {
+                            ProgressView()
+                        }
+                    }
+                    .frame(height: scrubHeight)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .clipped()
+                    .accessibilityLabel("The frame this clip will use as the cover")
+
+                    // The track: tall and thin, dragged with a thumb marking where in
+                    // the clip this frame sits.
+                    GeometryReader { geo in
+                        let height = max(geo.size.height, 1)
+                        let fraction = duration <= 0 ? 0
+                            : min(max(CGFloat(frameMs) / CGFloat(duration), 0), 1)
+                        ZStack(alignment: .top) {
+                            Rectangle().fill(Color(.tertiarySystemFill)).frame(width: 2)
+                            Circle().fill(Color.accentColor).frame(width: 20, height: 20)
+                                .offset(y: (height - 20) * fraction)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .contentShape(Rectangle())
+                        .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
+                            onFrameChange(scrubFrameMs(y: drag.location.y,
+                                                       trackHeight: height,
+                                                       durationMs: duration))
+                        })
+                    }
+                    .frame(width: 32, height: scrubHeight)
+                }
+                .padding(.horizontal)
+                Spacer()
+            }
+            .padding(.top, 16)
+            .navigationTitle("Choose the cover frame")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Use this frame (\(formatDuration(frameMs)))", action: onConfirm)
+                }
+            }
+        }
+        .task { duration = PhotoLibrary.videoDurationMs(assetId: assetId) }
+        // Decoding trails the drag rather than racing it: a frame grab costs more than
+        // a finger moves, so this only ever chases the value the scrub has settled on.
+        .task(id: frameMs) {
+            frame = await PhotoLibrary.videoFrame(assetId: assetId, atMs: frameMs, edgePx: 512)
         }
     }
 }
@@ -239,11 +360,10 @@ private func formatDuration(_ ms: Int64) -> String {
 /// cover. Gallery access is only ever asked for after a tap here, so opening a
 /// setlist never triggers a permission prompt on its own.
 ///
-/// Twin of Android's `CoverPicker` (`ConfirmScreen.kt`), minus the video-frame
-/// scrubber (`VideoFrameDialog`): iOS offers photo covers only for now.
-/// ponytail: video candidates are simply not offered as covers here — add
-/// AVFoundation frame scrubbing (a `VideoFrameDialog` twin) if a Reliver whose
-/// only capture of a night is video actually wants one.
+/// Twin of Android's `CoverPicker` (`ConfirmScreen.kt`). A clip is offered here like
+/// any other capture of the night, standing as its poster frame; which frame it
+/// actually goes out as is asked once, on the way to the playlist — see
+/// `CoverFrameSheet`.
 private struct CoverPicker: View {
     @EnvironmentObject var model: AppModel
 
