@@ -93,6 +93,7 @@ struct StationView: View {
     /// state, not model state: it exists only while the alert is open.
     @State private var addingPlanned = false
     @State private var plannedLink = ""
+    @State private var addingBill = false
 
     private var lanes: [Friend] { model.state.friends }
 
@@ -344,9 +345,17 @@ struct StationView: View {
     /// detents (#175's `PlanningPull`). SwiftUI has no equivalent gesture primitive to
     /// port faithfully, and the capability the issue actually asks for is "a way to add
     /// a planned gig", not the drag itself — so this is a plain button that opens an
-    /// alert with a text field instead. Bills (the festival-lineup door) are not ported
-    /// either: the issue's four parts are setlist.fm-link, calendar, maps and time
-    /// state, and a Bill is a different record with no time-state question of its own.
+    /// alert with a text field instead.
+    ///
+    /// **Bills** live here too since #172 — the same lane, sorted by the same rule, by
+    /// `futureRows`. Their door is a second button rather than a second detent on a
+    /// gesture this platform does not have, for the reason above.
+    ///
+    /// The lane stays flat: no Spine, no rails, no node rings. That is Expression and it
+    /// was already decided here. What was Grammar and missing is the grouping — two
+    /// planned nights at one venue are one **Section** above today exactly as they would
+    /// be below it (#134), and they open in place, because collapsing them with no way
+    /// back in would take away the only handle each night had.
     private var future: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("\u{2191}  THE FUTURE")
@@ -357,15 +366,37 @@ struct StationView: View {
                     .font(.system(size: 12)).foregroundStyle(faint)
                 Spacer()
                 if model.state.planningLoading { ProgressView().tint(faint) }
+                Button { addingBill = true } label: {
+                    Image(systemName: "list.bullet.rectangle").foregroundStyle(slate)
+                }
+                .accessibilityLabel("Put up a festival bill")
                 Button { addingPlanned = true } label: {
                     Image(systemName: "plus.circle").foregroundStyle(slate)
                 }
                 .accessibilityLabel("Add a gig you're going to")
             }
-            ForEach(model.state.plannedGigs) { gig in
-                PlannedGigRow(setlist: gig)
-                    .contentShape(Rectangle())
-                    .onTapGesture { openGig(gig) }
+            ForEach(futureRows(bills: model.state.bills,
+                               tickets: model.state.plannedGigs,
+                               festivals: model.state.festivals)) { row in
+                switch row {
+                case .onBill(let bill):
+                    BillRow(bill: bill,
+                            open: model.state.expandedFestivals.contains(bill.id),
+                            onToggle: {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    model.toggleFestival(bill.id)
+                                }
+                            },
+                            onRemove: { model.removeBill(bill.id) })
+                case .ticket(let node):
+                    if case .concert(let gig) = node {
+                        PlannedGigRow(setlist: gig)
+                            .contentShape(Rectangle())
+                            .onTapGesture { openGig(gig) }
+                    } else {
+                        plannedCluster(node)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -383,6 +414,47 @@ struct StationView: View {
         } message: {
             Text("Paste the setlist.fm page for the show — its search can't find one that hasn't happened yet.")
         }
+        .sheet(isPresented: $addingBill) {
+            AddBillSheet { name, city, from, to, lineup in
+                model.addBill(name: name, city: city, from: from, to: to, lineup: lineup)
+                addingBill = false
+            } onCancel: { addingBill = false }
+        }
+    }
+
+    /// Several planned nights that group — a **Section** above today. Opens in place on
+    /// the same `expandedFestivals` set the Spine below uses, so one gesture means one
+    /// thing on both halves of the line.
+    @ViewBuilder
+    private func plannedCluster(_ node: TimelineNode) -> some View {
+        let key = node.severalKey ?? ""
+        let open = model.state.expandedFestivals.contains(key)
+        VStack(alignment: .leading, spacing: 3) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { model.toggleFestival(key) }
+            } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(node.isIdentified ? "FESTIVAL" : eveningKicker(node.shows))
+                        .font(.system(size: 10, weight: .semibold)).kerning(1.5)
+                        .foregroundStyle(slate)
+                    Text(node.label).font(.system(size: 15, design: .serif)).foregroundStyle(ink)
+                    Text(festivalDateRange(node)).font(.system(size: 13)).foregroundStyle(muted)
+                    Text("\(node.shows.count) nights" + (open ? " \u{00B7} tap to close" : " \u{00B7} tap to open"))
+                        .font(.system(size: 12)).foregroundStyle(faint)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            if open {
+                ForEach(node.shows) { gig in
+                    PlannedGigRow(setlist: gig)
+                        .padding(.leading, 14)
+                        .contentShape(Rectangle())
+                        .onTapGesture { openGig(gig) }
+                }
+            }
+        }
+        .padding(.vertical, 8)
     }
 
     private func openGig(_ show: FmSetlist) {
@@ -774,6 +846,147 @@ private struct RowThumb: View {
         .task {
             // Off the main actor: a timeline of decodes should not stutter its own scroll.
             image = await Task.detached { PhotoLibrary.gridImage(mediaId) }.value
+        }
+    }
+}
+
+/// A **Bill** on the wall: a festival whose **Gigs** do not exist yet.
+///
+/// Collapsed it says what is known and what is not, in that order and never conflated —
+/// eleven names is not eleven nights. Open, it is the lineup in poster order, never
+/// re-sorted, because order is the only thing a lineup reliably carries.
+///
+/// The ring is amber once any act has been seen and slate until then: **amber means
+/// mine**, and nothing here is mine until I was at one of these.
+///
+/// Read-only for now. Marking an act played — the field gesture this exists for — is
+/// the next split of #172, along with the song pools, renaming and surprises.
+private struct BillRow: View {
+    let bill: StoredBill
+    let open: Bool
+    let onToggle: () -> Void
+    let onRemove: () -> Void
+
+    private var seen: Int { bill.acts.filter { $0.gigId != nil }.count }
+    private var accent: Color { seen > 0 ? amber : slate }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Button(action: onToggle) {
+                HStack(alignment: .top, spacing: 10) {
+                    Text("\(seen)")
+                        .font(.system(size: 10, weight: .semibold)).foregroundStyle(accent)
+                        .frame(width: 22, height: 22)
+                        .overlay(Circle().stroke(accent, lineWidth: 2))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("BILL")
+                            .font(.system(size: 10, weight: .semibold)).kerning(1.5)
+                            .foregroundStyle(slate)
+                        Text(bill.name).font(.system(size: 15, design: .serif)).foregroundStyle(ink)
+                        Text(billDates(bill)).font(.system(size: 13)).foregroundStyle(muted)
+                        Text(summary).font(.system(size: 12)).foregroundStyle(faint).padding(.top, 4)
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+            .buttonStyle(.plain)
+            if open {
+                ForEach(Array(bill.acts.enumerated()), id: \.offset) { _, act in
+                    HStack(spacing: 8) {
+                        Text(act.name)
+                            .font(.system(size: 14))
+                            .foregroundStyle(act.gigId == nil ? muted : ink)
+                        // The poster's own hedge, kept as the poster made it.
+                        if act.maybe {
+                            Text("might not turn up")
+                                .font(.system(size: 11)).foregroundStyle(faint)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.leading, 32)
+                    .padding(.vertical, 3)
+                }
+                Button("take this bill down", role: .destructive, action: onRemove)
+                    .font(.system(size: 12))
+                    .padding(.leading, 32)
+                    .padding(.top, 6)
+            }
+        }
+        .padding(.vertical, 8)
+    }
+
+    /// What is known and what is not, said in that order.
+    private var summary: String {
+        var parts = ["\(bill.acts.count) acts"]
+        if seen > 0 { parts.append("\(seen) seen") }
+        let undated = bill.acts.count - seen
+        if undated > 0 { parts.append("\(undated) with no night yet") }
+        parts.append(open ? "tap to close" : "tap to open")
+        return parts.joined(separator: " \u{00B7} ")
+    }
+}
+
+private let billDateShort = fmFormatter("d MMM")
+private let billDateFull = fmFormatter("d MMMM yyyy")
+
+/// "6 Aug – 9 August 2026", or the honest admission that nobody typed the dates in.
+private func billDates(_ bill: StoredBill) -> String {
+    let a = parseFmDate(bill.from)
+    let b = parseFmDate(bill.to)
+    switch (a, b) {
+    case let (a?, b?) where a != b:
+        return "\(billDateShort.string(from: a)) \u{2013} \(billDateFull.string(from: b))"
+    case let (a?, _): return billDateFull.string(from: a)
+    case let (_, b?): return billDateFull.string(from: b)
+    default: return "dates not given"
+    }
+}
+
+/// The door onto a **Bill**. A sheet rather than Android's dialog: five fields, one of
+/// them a pasted block of names, is a form and not a question.
+private struct AddBillSheet: View {
+    let onAdd: (String, String, String, String, String) -> Void
+    let onCancel: () -> Void
+
+    @State private var name = ""
+    @State private var city = ""
+    @State private var from = ""
+    @State private var to = ""
+    @State private var lineup = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("festival", text: $name)
+                    TextField("town", text: $city)
+                    TextField("from (dd-MM-yyyy)", text: $from)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    TextField("to (dd-MM-yyyy)", text: $to)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                } footer: {
+                    Text("The lineup is known; which night each act plays is not.")
+                }
+                Section {
+                    TextEditor(text: $lineup).frame(minHeight: 160)
+                } header: {
+                    Text("the lineup, one act per line")
+                } footer: {
+                    Text("Start a line with ? for an act that might not turn up.")
+                }
+            }
+            .navigationTitle("A festival, before it happens")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Put it up") { onAdd(name, city, from, to, lineup) }
+                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty
+                                  || lineup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
         }
     }
 }

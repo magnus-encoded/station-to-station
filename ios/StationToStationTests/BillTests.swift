@@ -239,4 +239,52 @@ final class BillTests: XCTestCase {
         XCTAssertEqual("", bill.name)
         XCTAssertEqual([StoredAct(name: "Velvet Ditch")], bill.acts)
     }
+
+    // MARK: - Where a Bill sits in the future lane
+
+    private func planned(_ id: String, _ date: String, _ artist: String,
+                         venue: String = "Rockefeller") -> FmSetlist {
+        FmSetlist(id: id, eventDate: date, artist: FmArtist(name: artist),
+                  venue: FmVenue(name: venue), url: "https://setlist.fm/\(id)")
+    }
+
+    func testTheFutureLaneIsOneListFurthestFutureFirst() {
+        let rows = futureRows(bills: [threeNights],
+                              tickets: [planned("g1", "20-08-2026", "Low Tide"),
+                                        planned("g2", "01-08-2026", "Nord&Nord")])
+        XCTAssertEqual(["planned-g1", "bill-nordlys", "planned-g2"], rows.map(\.id))
+    }
+
+    func testABillSortsByWhenItStartsNotWhenItEnds() {
+        // Its last day is the wrong handle: a three-day festival beginning tonight
+        // would sort above a gig two days out, which is this same bug one step smaller.
+        let rows = futureRows(bills: [threeNights],
+                              tickets: [planned("g1", "08-08-2026", "Low Tide")])
+        XCTAssertEqual(["planned-g1", "bill-nordlys"], rows.map(\.id))
+    }
+
+    func testARowWithNoDateSortsToTheBottomRatherThanTheTop() {
+        // Unknown is not "the furthest away". It still renders: a Bill whose dates were
+        // never typed in is a real thing to be holding.
+        let undated = StoredBill(id: "u", name: "Harbour Sessions",
+                                 acts: parseLineup("Velvet Ditch"))
+        let rows = futureRows(bills: [undated, threeNights],
+                              tickets: [planned("g1", "01-08-2026", "Low Tide")])
+        XCTAssertEqual(["bill-nordlys", "planned-g1", "bill-u"], rows.map(\.id))
+    }
+
+    func testTwoPlannedNightsAtOnePlaceAreOneRowAboveTodayToo() {
+        // The same shape below today is the same shape above it — the lane used to draw
+        // them as two loose nodes only because it did its own grouping, which was none
+        // (#134).
+        let rows = futureRows(bills: [], tickets: [
+            planned("g1", "20-08-2026", "Low Tide", venue: "Sentrum"),
+            planned("g2", "20-08-2026", "Nord&Nord", venue: "Sentrum"),
+        ])
+        XCTAssertEqual(1, rows.count)
+        guard case .ticket(let node) = rows[0], case .section = node else {
+            return XCTFail("two planned nights at one venue should be one Section")
+        }
+        XCTAssertEqual(2, node.shows.count)
+    }
 }
