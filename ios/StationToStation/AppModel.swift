@@ -352,6 +352,40 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// A night I was at that setlist.fm has never heard of, typed in.
+    ///
+    /// The only way into this app that does not end at setlist.fm: no account, no API
+    /// key, no catalogue — the poster in the window, the small venue nobody lists. It
+    /// is the same `createLocalGig` a **Bill** mints an **Act**'s night with, reached
+    /// from the other side.
+    ///
+    /// **Attended**, because that is what typing it in claims. The night therefore
+    /// joins the Spine rather than the future lane, which is `spineNights`' whole
+    /// reason for existing (#341).
+    func addLocalGig(artist: String, venue: String, date: String) {
+        let who = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        let where_ = venue.trimmingCharacters(in: .whitespacesAndNewlines)
+        // `gigDay`, not `parseFmDate`: that one reads dd-MM-yyyy as GMT, and a night
+        // typed in west of it would be normalised back out a day early.
+        guard !who.isEmpty, let night = gigDay(date.trimmingCharacters(in: .whitespaces)) else {
+            state.error = "A night needs who played and a date as dd-MM-yyyy."
+            return
+        }
+        Task {
+            let day = fmDate(night)
+            let gigId = await timelines.createLocalGig(date: day, artist: who, venue: where_)
+            let gig = localGigSetlist(gigId: gigId, artist: who, date: day,
+                                      venue: where_, city: "")
+            let attendance = StoredAttendance(provenance: "attended")
+            await timelines.savePlanned(gig)
+            await timelines.saveAttendance(setlistId: gigId, attendance: attendance)
+            state.plannedGigs = sortedPlanned(state.plannedGigs + [gig])
+            state.attendanceByGig[gigId] = attendance
+            // The Spine is built from the store, and this night has just joined it.
+            loadTimeline()
+        }
+    }
+
     /// A mistap, undone — and what "undone" means depends on where the act came from.
     ///
     /// An act off the **Bill** goes back to having no night: the poster still says it is
