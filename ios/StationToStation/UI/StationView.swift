@@ -22,6 +22,9 @@ private let ground = Color(red: 0x0E / 255, green: 0x0B / 255, blue: 0x14 / 255)
 private let ink = Color(red: 0xED / 255, green: 0xE9 / 255, blue: 0xF2 / 255)
 private let muted = Color(red: 0x8B / 255, green: 0x82 / 255, blue: 0x99 / 255)
 private let faint = Color(red: 0x5A / 255, green: 0x53 / 255, blue: 0x68 / 255)
+/// Behind a keepsake that hasn't decoded yet. Same value the other faces use;
+/// each file keeps its own copy of the palette it needs.
+private let raised = Color(red: 0x17 / 255, green: 0x12 / 255, blue: 0x1F / 255)
 private let lineCol = Color(red: 0x2E / 255, green: 0x27 / 255, blue: 0x40 / 255)
 private let slate = Color(red: 0x6D / 255, green: 0x7E / 255, blue: 0x9B / 255)
 /// Mine. Never "the accent colour" — it means *mine*, at every Resolution.
