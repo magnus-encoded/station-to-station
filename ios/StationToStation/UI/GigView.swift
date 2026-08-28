@@ -45,7 +45,19 @@ struct GigView: View {
     @EnvironmentObject var nav: Nav
 
     @State private var adopting = false
+    @State private var deleting = false
     @State private var adoptLink = ""
+
+    /// What this delete actually costs, said plainly. The count is of keepsakes whose
+    /// original has already left the library, so this app's copy is the last one.
+    private var deleteWarning: String {
+        let lost = model.state.selectedSetlist.map { model.photosLostByDeleting($0.id) } ?? 0
+        switch lost {
+        case 0: return "The night, its Log and the keepsakes on it go. Your photographs stay in your library."
+        case 1: return "Its photograph is only stored here. Deleting the night deletes it."
+        default: return "Its \(lost) photographs are only stored here. Deleting the night deletes them."
+        }
+    }
 
     var body: some View {
         let show = model.state.selectedSetlist
@@ -101,6 +113,15 @@ struct GigView: View {
                         .tint(faint)
                         .accessibilityLabel("This night is on setlist.fm now — paste its link")
                 }
+                // Reachable from the night itself, on purpose: the undo on a Bill's
+                // act needs the Bill to still exist, and a night whose poster has been
+                // taken down — or that was typed in with no poster at all (#347, #349)
+                // — was left with no way out.
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button { deleting = true } label: { Image(systemName: "trash") }
+                        .tint(faint)
+                        .accessibilityLabel("Delete this night")
+                }
             }
             // The light switch (#180): a visible icon button (Android's is a bare
             // gesture on the timeline; GigView's swipes are already claimed by
@@ -138,6 +159,20 @@ struct GigView: View {
             Button("Cancel", role: .cancel) { adoptLink = "" }
         } message: {
             Text("Paste the link. This night takes their id and stops being a stub — which is what lets a friend who was there meet you on it.")
+        }
+        // Asked always, where Android asks only when it holds the only copy of a
+        // photograph. The Log goes either way, and a written record of what I heard is
+        // not a pointer into anything that could give it back.
+        .alert("Delete this night?", isPresented: $deleting) {
+            Button("Delete", role: .destructive) {
+                if let show = model.state.selectedSetlist {
+                    model.deleteLocalGig(show.id)
+                    nav.pop()
+                }
+            }
+            Button("Keep it", role: .cancel) {}
+        } message: {
+            Text(deleteWarning + " There is no undo.")
         }
         // Act on this level: the Alcove, one step Inner. It holds exactly one thing
         // and it may be empty — empty while the band plays, and empty on a night
