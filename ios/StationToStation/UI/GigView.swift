@@ -48,6 +48,10 @@ struct GigView: View {
     @Environment(\.openURL) private var openURL
     @EnvironmentObject var nav: Nav
 
+    /// Which Log entry's correction panel is open, if any. One at a time: this is a
+    /// room you are standing in, not a list of forms. It lives here rather than in
+    /// LogEditor because the entries do — they are on the spine now (#268).
+    @State private var correctingLog: Int?
     @State private var adopting = false
     @State private var deleting = false
     @State private var adoptLink = ""
@@ -80,12 +84,24 @@ struct GigView: View {
                         // it: the keepsakes are how the night is recognised, and they
                         // come before the record of it.
                         NightGrid()
-                        if rows.isEmpty {
+                        // One list, not two (#268). setlist.fm's record and my Log
+                        // are two descriptions of the same night, and printing them
+                        // one under the other made the reader do the alignment in
+                        // their head. Woven, a song both hold is a single line that
+                        // says so — and neither record is changed by the other,
+                        // which is still the rule: this decides reading order and
+                        // nothing else.
+                        let log = model.state.gigLog
+                        let woven = weaveSetlist(published: rows.map(publishedTitle),
+                                                 logged: log.songs)
+                        if woven.isEmpty {
                             Text("No setlist was logged for this night on setlist.fm.")
                                 .font(.system(size: 13)).foregroundStyle(muted)
                                 .padding(.horizontal, 24).padding(.top, 8)
                         } else {
-                            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in songRow(row) }
+                            ForEach(Array(woven.enumerated()), id: \.offset) { _, line in
+                                wovenRow(line, rows: rows, log: log, setlist: show)
+                            }
                         }
                         // My own Log (#169), under the set and never taken away — it
                         // renders on a night's page forever after. The way in is under
@@ -369,28 +385,63 @@ struct GigView: View {
         }
     }
 
+    /// One line of the woven set: a published row, one of my Log's entries, or the
+    /// one both records hold.
     @ViewBuilder
-    private func songRow(_ row: EventRow) -> some View {
-        switch row {
-        case .encore:
-            HStack(spacing: 8) {
-                Rectangle().fill(faint.opacity(0.4)).frame(height: 1)
-                Text("ENCORE").font(.system(size: 10, weight: .semibold)).kerning(1.5).foregroundStyle(faint)
-                Rectangle().fill(faint.opacity(0.4)).frame(height: 1)
+    private func wovenRow(_ line: WovenSong, rows: [EventRow], log: StoredLog,
+                          setlist: FmSetlist) -> some View {
+        // Mine is an index into the Log, and the × and the correction panel act on it
+        // there — the published row beside it is never touched by either.
+        let remove: (() -> Void)? = line.logged.map { j in
+            { correctingLog = nil; model.removeFromLog(j) }
+        }
+        if let p = line.published {
+            switch rows[p] {
+            case .encore:
+                EncoreLabel()
+            case .song(let number, let name, let cover):
+                SpineRow(
+                    number: number,
+                    title: name,
+                    note: cover.map { "\($0) cover" },
+                    remembered: line.logged.flatMap { log.rememberedAt($0) },
+                    // The strongest thing a row can say: two records, independently,
+                    // agree. Amber is what says it.
+                    mine: line.both,
+                    onRemove: remove
+                )
             }
-            .padding(.horizontal, 24).padding(.vertical, 10)
-        case .song(let number, let name, let cover):
-            HStack(alignment: .top, spacing: 12) {
-                Text(number.map { "\($0)" } ?? "\u{266A}")
-                    .font(.system(size: 12, weight: .medium)).foregroundStyle(faint)
-                    .frame(width: 20, alignment: .trailing)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(name).font(.system(size: 15)).foregroundStyle(ink)
-                    if let cover { Text("\(cover) cover").font(.system(size: 11)).foregroundStyle(muted) }
-                }
-                Spacer()
+        } else if let j = line.logged {
+            let title = log.songs[j]
+            let gap = title.nilIfBlank == nil
+            SpineRow(
+                // A number is a position in a record. Where setlist.fm has a set the
+                // numbers are its numbers and mine gets a bare dot; where it has
+                // none my Log *is* the record, so the running order reads back.
+                number: rows.isEmpty ? j + 1 : nil,
+                // A Gap is a song that was played and could not be named. It is in
+                // the record on purpose: an acknowledged hole is a true fact, and the
+                // same song silently absent is the record lying about what it knows.
+                title: gap ? "\u{2014} one I couldn\u{2019}t name \u{2014}" : title,
+                note: nil,
+                remembered: log.rememberedAt(j),
+                mine: true,
+                gap: gap,
+                // A Gap offers no correction: "one I couldn't name" is an
+                // acknowledged fact, not an invitation to guess.
+                onTap: gap ? nil : { correctingLog = correctingLog == j ? nil : j },
+                onRemove: remove
+            )
+            if correctingLog == j {
+                LogCorrection(setlist: setlist, index: j) { correctingLog = nil }
             }
-            .padding(.horizontal, 24).padding(.vertical, 5)
         }
     }
+}
+
+/// The title a published row puts into the weave — nil for anything that is not a
+/// song, so an encore marker keeps its place without ever matching one.
+private func publishedTitle(_ row: EventRow) -> String? {
+    if case .song(_, let name, _) = row { return name }
+    return nil
 }
