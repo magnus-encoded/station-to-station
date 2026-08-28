@@ -69,6 +69,13 @@ struct GigView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         header(show, offers?.room)
+                        // The night's grid (#99): what I shot, above what was played,
+                        // and part of the header block rather than a section under the
+                        // set. Reading order is Grammar (ADR-0017, amended 2026-08-28),
+                        // so this is Android's sequence and not a second opinion about
+                        // it: the keepsakes are how the night is recognised, and they
+                        // come before the record of it.
+                        NightGrid()
                         if rows.isEmpty {
                             Text("No setlist was logged for this night on setlist.fm.")
                                 .font(.system(size: 13)).foregroundStyle(muted)
@@ -76,17 +83,23 @@ struct GigView: View {
                         } else {
                             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in songRow(row) }
                         }
-                        plannedActions(show, offers?.alcove)
-                        // The night's grid (#99): what I shot, under what was played.
-                        NightGrid()
-                        // A Note is media too (#50, #170): a draft in the vault, a
-                        // letter in the shared band, and the Preamble composed
-                        // above it from what the record already knows.
-                        NightNotes(preamble: gigPreamble(show), senderName: senderName)
-                        // My own Log (#169), and it is never taken away — this
-                        // renders on a night's page forever after, same as the
-                        // grid above it.
+                        // My own Log (#169), under the set and never taken away — it
+                        // renders on a night's page forever after. The way in is under
+                        // the entries because the entries *are* the set now (#268).
                         LogEditor(setlist: show)
+                        // A Note is media too (#50, #170): a draft in the vault, a
+                        // letter in the shared band, and the Preamble composed above it
+                        // from what the record already knows. Last of the night's own
+                        // material, and after the set on purpose — the sentence is
+                        // written once the songs have been read back, which is what
+                        // "analysis happens after the show" means as a layout.
+                        NightNotes(preamble: gigPreamble(show), senderName: senderName)
+                        // The Alcove's own controls, below the night's record rather
+                        // than inside it — Android pins these in a `bottomBar`, and a
+                        // fixture of the Room is not part of what the Room holds. The
+                        // vehicle differs (pinned there, scrolled here) and that part
+                        // is Expression.
+                        plannedActions(show, offers?.alcove)
                     }
                     .padding(.top, 8)
                 }
