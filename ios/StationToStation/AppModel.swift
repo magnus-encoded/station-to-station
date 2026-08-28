@@ -26,6 +26,9 @@ struct UiState {
     var bundledSpotifyClientId = false
     var bundledSetlistFmKey = false
     var grantedScope: String?
+    /// Whether the first-run door has been passed (#358). The splash is shown while
+    /// this is false, and a launch after it never sees one again.
+    var onboarded = false
     // Search
     var artistQuery = ""
     var userQuery = ""
@@ -219,6 +222,7 @@ final class AppModel: ObservableObject {
         state.bundledSpotifyClientId = settings.hasBundledSpotifyClientId
         state.bundledSetlistFmKey = settings.hasBundledSetlistFmKey
         state.grantedScope = settings.grantedScope
+        state.onboarded = settings.onboarded
         state.mySetlistFmUser = settings.mySetlistFmUser ?? ""
         state.friends = settings.friends
 
@@ -228,6 +232,9 @@ final class AppModel: ObservableObject {
         // the URL from ever reaching us — is needed.
         if let fixture = UserDefaults.standard.string(forKey: "seedFixture")?.nilIfBlank {
             loadFixture(fixture, open: UserDefaults.standard.bool(forKey: "seedOpen"))
+            // A seeded launch is asking for a timeline, so it is past the first-run
+            // door by definition — nobody wants to answer a splash to see a fixture.
+            state.onboarded = true
         }
 
         // Refusing the location prompt is not a dead end and not an error: the
@@ -1003,6 +1010,17 @@ final class AppModel: ObservableObject {
                 fail(error)
             }
         }
+    }
+
+    /// The first-run door has been passed — by either button.
+    ///
+    /// A login that failed still counts: the door was opened deliberately, and making
+    /// someone answer the same splash again because Spotify was unreachable would
+    /// punish them for a network they do not control. Settings has the login for a
+    /// second attempt.
+    func markOnboarded() {
+        settings.setOnboarded()
+        state.onboarded = true
     }
 
     func disconnectSpotify() {

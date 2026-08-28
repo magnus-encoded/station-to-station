@@ -21,6 +21,7 @@ final class Settings {
         static let scope = "spotify_scope"
         static let pkceVerifier = "pkce_verifier"
         static let mySetlistFmUser = "my_setlistfm_user"
+        static let onboarded = "onboarded"
         static let friends = "friends"
     }
 
@@ -41,6 +42,12 @@ final class Settings {
     func saveSpotifyClientId(_ v: String) {
         store.set(v.trimmingCharacters(in: .whitespaces), forKey: Key.spotifyClientId)
     }
+
+    /// Whether the first-run door has been passed. False on a fresh install and
+    /// nowhere else — `UserDefaults` answers false for a key it has never seen, which
+    /// is exactly the answer wanted.
+    var onboarded: Bool { store.bool(forKey: Key.onboarded) }
+    func setOnboarded() { store.set(true, forKey: Key.onboarded) }
 
     var mySetlistFmUser: String? { store.string(forKey: Key.mySetlistFmUser)?.nilIfBlank }
     func saveMySetlistFmUser(_ v: String) {
