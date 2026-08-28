@@ -118,6 +118,10 @@ struct UiState {
     /// Asset ids the library holds from that night's window and this gig has not
     /// attached — the suggestion the grid offers before the picker is opened.
     var gigMediaSuggestions: [String] = []
+    /// What each night has already been turned into (#360). Every playlist, not
+    /// the last one: each url may be in somebody's hands, so converting a night
+    /// again must not orphan a link already sent.
+    var playlistsBySetlist: [String: [StoredPlaylist]] = [:]
     /// The open **Gig**'s attendance claim (#174/#29) — whether, and how, I'm
     /// known to have been there. Loaded alongside the gig's media so the header
     /// badge has something to read.
@@ -286,6 +290,7 @@ final class AppModel: ObservableObject {
             // any night is opened — and this already reads the cache at launch and
             // after every write.
             state.mediaBySetlist = cache.media()
+            state.playlistsBySetlist = cache.playlists()
         }
     }
 
@@ -1552,6 +1557,7 @@ final class AppModel: ObservableObject {
             // The whole map: opening any night is also the cheapest moment to refresh
             // what the Timeline behind it is drawing.
             state.mediaBySetlist = cache.media()
+            state.playlistsBySetlist = cache.playlists()
             state.selectedAttendance = cache.attendance()[setlist.id]
             markSelectedOwnership(setlist, attendance: state.selectedAttendance)
             refreshSuggestions(setlist)
@@ -2096,15 +2102,38 @@ final class AppModel: ObservableObject {
                 } else {
                     coverError = nil
                 }
+                // Fall back to the canonical URL rather than dropping the link:
+                // `externalUrls` is Spotify's to omit, the id is ours to keep.
+                let url = playlist.externalUrls["spotify"]
+                    ?? "https://open.spotify.com/playlist/\(playlist.id)"
                 state.creatingPlaylist = false
-                state.createdPlaylistUrl = playlist.externalUrls["spotify"]
+                state.createdPlaylistUrl = url
                 state.createdPlaylistName = name
                 state.createdTrackCount = result.added
                 state.createdRefusedCount = result.refused.count
                 state.coverUploadError = coverError
+                // So the night still points at it — on this screen and on the next
+                // launch. Appended, never replaced: converting this night again must
+                // not orphan a link already sent to someone.
+                if let night = s.selectedSetlist?.id.nilIfBlank {
+                    let made = StoredPlaylist(url: url, name: name, trackCount: result.added)
+                    state.playlistsBySetlist[night, default: []].append(made)
+                    await timelines.save(playlists: [night: made])
+                }
             } catch {
                 fail(error)
             }
         }
+    }
+
+    /// Drops one playlist link from a night.
+    ///
+    /// For a playlist deleted on Spotify, where the pointer left behind is dead
+    /// weight. It removes the *link*, never the night — which is why it is a separate
+    /// door from `deleteLocalGig` and not a step inside it.
+    func removePlaylist(_ setlistId: String, url: String) {
+        state.playlistsBySetlist[setlistId] =
+            (state.playlistsBySetlist[setlistId] ?? []).filter { $0.url != url }
+        Task { await timelines.removePlaylist(setlistId: setlistId, url: url) }
     }
 }

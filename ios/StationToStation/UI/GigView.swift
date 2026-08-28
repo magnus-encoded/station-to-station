@@ -18,6 +18,7 @@ private let faint = Color(red: 0x5A / 255, green: 0x53 / 255, blue: 0x68 / 255)
 /// Mine. Never "the accent colour" — it means *mine*, at every Resolution
 /// (same mark StationView draws its Spine with).
 private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
+private let spotifyGreen = Color(red: 0x1D / 255, green: 0xB9 / 255, blue: 0x54 / 255)
 
 /// A row of the night: an encore divider, or a performed song (numbered; a tape
 /// track has no number — it played but is not one of the band's songs).
@@ -42,6 +43,9 @@ private func eventRows(_ setlist: FmSetlist) -> [EventRow] {
 
 struct GigView: View {
     @EnvironmentObject var model: AppModel
+    /// SwiftUI's own opener rather than `UIApplication.shared.open`, so this file
+    /// needs no UIKit import for one link.
+    @Environment(\.openURL) private var openURL
     @EnvironmentObject var nav: Nav
 
     @State private var adopting = false
@@ -99,6 +103,12 @@ struct GigView: View {
                         // fixture of the Room is not part of what the Room holds. The
                         // vehicle differs (pinned there, scrolled here) and that part
                         // is Expression.
+                        // What this night already became (#360). With the Alcove's
+                        // own controls, because a made playlist is a fixture of the
+                        // Room rather than part of the night's record — and once a
+                        // night has one, opening it is the offer and converting again
+                        // is the aside.
+                        madePlaylists(show)
                         plannedActions(show, offers?.alcove)
                     }
                     .padding(.top, 8)
@@ -277,6 +287,50 @@ struct GigView: View {
 
     /// Calendar, maps and "I'm not going" (#175) — only for a gig I actually hold a
     /// ticket for. Which of the two calendar words is showing, and whether either is,
+    /// Every playlist this night has been turned into.
+    ///
+    /// Every one of them, not the last: each url may be in somebody's hands, so
+    /// converting a night again must not make an earlier link unreachable from here.
+    ///
+    /// Dropping one is a context menu rather than Android's long-press — the gesture
+    /// there has no iOS equivalent that announces itself, and a destructive action
+    /// reachable only by holding something is one VoiceOver cannot find. It drops the
+    /// *link*, for a playlist deleted on Spotify, and never the night.
+    @ViewBuilder
+    private func madePlaylists(_ show: FmSetlist) -> some View {
+        let made = model.state.playlistsBySetlist[show.id] ?? []
+        if !made.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(made, id: \.url) { playlist in
+                    Button {
+                        if let url = URL(string: playlist.url) { openURL(url) }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Circle().fill(spotifyGreen).frame(width: 7, height: 7)
+                            // One playlist needs no naming; several have to be told
+                            // apart, because the one you sent is a particular one.
+                            Text(made.count == 1
+                                 ? "Open the playlist \u{2197}"
+                                 : "\(playlist.name.nilIfBlank ?? "Playlist") \u{2197}")
+                                .font(.system(size: 14)).foregroundStyle(spotifyGreen)
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                        .padding(.vertical, 6)
+                    }
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            model.removePlaylist(show.id, url: playlist.url)
+                        } label: {
+                            Label("Drop this link", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 24).padding(.top, 14)
+        }
+    }
+
     /// comes from the **Alcove**: a gig that already happened, or one being stood at,
     /// has nothing left to put on a calendar. Maps and "I'm not going" have no such
     /// gate — a venue is worth finding whether the night is ahead or behind.
