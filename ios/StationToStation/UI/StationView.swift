@@ -89,10 +89,9 @@ struct StationView: View {
     /// has ended and settled into `model.state.zoomedOut`. View-local: it is
     /// visual feedback for a gesture in flight, not app state to persist.
     @State private var dragFraction: CGFloat?
-    /// The paste-a-link entry point for the future edge (#175). A sheet's-worth of
-    /// state, not model state: it exists only while the alert is open.
+    /// The entry point for the future edge (#175). A sheet's-worth of state, not
+    /// model state: it exists only while the sheet is open.
     @State private var addingPlanned = false
-    @State private var plannedLink = ""
     @State private var addingBill = false
     @State private var addingLocal = false
 
@@ -424,17 +423,14 @@ struct StationView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
         .padding(.bottom, 18)
-        .alert("Add a gig you're going to", isPresented: $addingPlanned) {
-            TextField("setlist.fm link or id", text: $plannedLink)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-            Button("Add") {
-                model.addPlannedGig(plannedLink)
-                plannedLink = ""
-            }
-            Button("Cancel", role: .cancel) { plannedLink = "" }
-        } message: {
-            Text("Paste the setlist.fm page for the show — its search can't find one that hasn't happened yet.")
+        .sheet(isPresented: $addingPlanned) {
+            AddPlannedGigSheet { artist, venue, date in
+                model.addPlannedGigByHand(artist: artist, venue: venue, date: date)
+                addingPlanned = false
+            } onAddByLink: { link in
+                model.addPlannedGig(link)
+                addingPlanned = false
+            } onCancel: { addingPlanned = false }
         }
         .sheet(isPresented: $addingLocal) {
             AddLocalGigSheet { artist, venue, date in
@@ -1204,6 +1200,76 @@ private func billDates(_ bill: StoredBill) -> String {
 /// The door that needs no account, no API key and no catalogue — see
 /// `AppModel.addLocalGig`. Twin of Android's `AddLocalGigDialog`; a sheet rather than
 /// a dialog for the same reason `AddBillSheet` is one.
+/// A gig I'm going to, typed in — or pasted, for a night setlist.fm already has.
+///
+/// Typing is the default and the link is the alternative, which is the way round
+/// Android settled on: the paste is the faster door only for a show already
+/// catalogued, and a future show usually is not (#349). Twin of Android's
+/// `AddPlannedGigDialog`, minus the artist suggestions under the field (#350).
+private struct AddPlannedGigSheet: View {
+    let onAdd: (String, String, String) -> Void
+    let onAddByLink: (String) -> Void
+    let onCancel: () -> Void
+
+    @State private var artist = ""
+    @State private var venue = ""
+    @State private var date = ""
+    @State private var link = ""
+    @State private var pasting = false
+
+    private var ready: Bool {
+        pasting
+            ? !link.trimmingCharacters(in: .whitespaces).isEmpty
+            : !artist.trimmingCharacters(in: .whitespaces).isEmpty
+                && !date.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if pasting {
+                    Section {
+                        TextField("setlist.fm link", text: $link)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    } footer: {
+                        Text("Paste the setlist.fm page for the show. It brings the real "
+                             + "venue and date with it.")
+                    }
+                } else {
+                    Section {
+                        TextField("who's playing", text: $artist)
+                        TextField("venue (optional)", text: $venue)
+                        TextField("date (dd-MM-yyyy)", text: $date)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    } footer: {
+                        Text("It can't be searched for this far ahead, so this night "
+                             + "lives on this phone until setlist.fm catches up with it.")
+                    }
+                }
+                Section {
+                    Button(pasting ? "or type it in" : "or paste a setlist.fm link") {
+                        pasting.toggle()
+                    }
+                    .font(.footnote)
+                }
+            }
+            .navigationTitle("A gig you're going to")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") {
+                        if pasting { onAddByLink(link) } else { onAdd(artist, venue, date) }
+                    }
+                    .disabled(!ready)
+                }
+            }
+        }
+    }
+}
+
 struct AddLocalGigSheet: View {
     let onAdd: (String, String, String) -> Void
     let onCancel: () -> Void
