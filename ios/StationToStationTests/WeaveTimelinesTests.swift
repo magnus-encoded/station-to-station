@@ -115,6 +115,56 @@ final class WeaveTimelinesTests: XCTestCase {
         XCTAssertEqual([false, true, true], inner.map(\.mine))
     }
 
+    /// A night we were **both** at, listed inside an open Festival, is a Crossing —
+    /// at the Resolution the Festival is open, not only at the one it is closed.
+    ///
+    /// The regression: `showsHereByFriends` was left off the member rows, and
+    /// `sharedCount` is an intersection with it, so it was structurally zero at depth
+    /// 1. The Festival counted "1 together" and the night it counted drew amber.
+    func testASharedNightInsideAnOpenFestivalIsACrossing() {
+        let mine = [show("a1", "25-06-2026", "Ekebergsletta"),
+                    show("a2", "24-06-2026", "Ekebergsletta")]
+        // a1 is on both lists; a2 is mine alone.
+        let theirs = ["Lemmy": [show("a1", "25-06-2026", "Ekebergsletta")]]
+        let ours = festival("a1", "a2")
+        let collapsed = weaveTimelines(mine: mine, festivals: ours,
+                                       friends: [lemmy], theirs: theirs)
+        XCTAssertEqual(1, collapsed[0].sharedCount) // the closed Festival already knew
+
+        let rows = weaveTimelines(mine: mine, festivals: ours, friends: [lemmy],
+                                  theirs: theirs, expanded: [collapsed[0].key])
+        let inner = rows.filter { $0.depth == 1 }
+
+        let together = inner.first { $0.shows.first?.id == "a1" }
+        XCTAssertEqual(1, together?.sharedCount)
+        XCTAssertEqual(.together, together?.ownership)
+
+        // And the night nobody else was at is still mine alone — the fix must not
+        // hand a Crossing to every member row of a shared Festival.
+        let alone = inner.first { $0.shows.first?.id == "a2" }
+        XCTAssertEqual(0, alone?.sharedCount)
+        XCTAssertEqual(.mine, alone?.ownership)
+    }
+
+    /// The Absorb case, which the fix must leave exactly as it was: their cluster
+    /// sits in my node without our having shared a night, so no member row is a
+    /// Crossing however many Lines run through the row.
+    func testAnAbsorbedFestivalHasCompanyButNoCrossingInside() {
+        let mine = [show("a1", "25-06-2026", "Ekebergsletta"),
+                    show("a2", "24-06-2026", "Ekebergsletta")]
+        let theirs = ["Lemmy": [show("b1", "27-06-2026", "Ekebergsletta"),
+                                show("b2", "26-06-2026", "Ekebergsletta")]]
+        let ours = festival("a1", "a2", "b1", "b2")
+        let collapsed = weaveTimelines(mine: mine, festivals: ours,
+                                       friends: [lemmy], theirs: theirs)
+        XCTAssertTrue(collapsed[0].hasCompany)
+        XCTAssertEqual(0, collapsed[0].sharedCount)
+
+        let rows = weaveTimelines(mine: mine, festivals: ours, friends: [lemmy],
+                                  theirs: theirs, expanded: [collapsed[0].key])
+        XCTAssertTrue(rows.filter { $0.depth == 1 }.allSatisfy { $0.sharedCount == 0 })
+    }
+
     // --- Three lines. Everything above holds with one friend and hides the rest. ---
 
     func testANightAllThreeOfUsWereAtIsOneNodeCarryingBoth() {
