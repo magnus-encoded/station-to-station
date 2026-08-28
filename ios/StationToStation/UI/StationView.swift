@@ -278,6 +278,8 @@ struct StationView: View {
                         next: rows.indices.contains(i + 1) ? rows[i + 1] : nil,
                         lanes: lanes,
                         laneWidth: laneWidth,
+                        media: rowMedia(row),
+                        unlit: model.state.contactLight,
                         // Brightness carries one extra meaning only: brighter = most recent.
                         highlight: i == 0,
                         onTap: {
@@ -289,6 +291,16 @@ struct StationView: View {
             }
             .padding(.top, 4)
         }
+    }
+
+    /// A night's keepsakes for its row. **Unfiltered by the light on purpose** —
+    /// filtering here would take a whole strip away and change the row's height, so
+    /// every row below it moves the moment the switch is thrown. The light dims
+    /// thumbnail by thumbnail instead (see `StationRow.strip`).
+    private func rowMedia(_ row: WovenRow) -> [StoredMedia] {
+        guard case .concert(let show) = row.node else { return [] }
+        // A Note has no bytes and an empty `ref` (#170); the strip resolves references.
+        return (model.state.mediaBySetlist[show.id] ?? []).filter { $0.kind != StoredMedia.Kind.note }
     }
 
     /// "N gigs · since YYYY", and — only when someone else is on screen — the Lane
@@ -404,6 +416,11 @@ struct StationRow: View {
     let next: WovenRow?
     let lanes: [Friend]
     let laneWidth: CGFloat
+    /// This night's visual keepsakes, in the order they were attached. Defaulted so
+    /// StationSnapshotTests can still render a bare column of rows.
+    var media: [StoredMedia] = []
+    /// The Contact light. Not "hide": see `strip`.
+    var unlit: Bool = false
     let highlight: Bool
     let onTap: () -> Void
 
@@ -522,8 +539,28 @@ struct StationRow: View {
                 // The shared rule, not a local one: what the record says about its own
                 // songs (#127). Said "setlist not logged" here while Android said "no
                 // setlist yet" for the identical state — one line, two apps.
+                if !media.isEmpty { strip.padding(.top, 3) }
                 Text(setlistStatus(songCount: show.performed().count))
                     .font(.system(size: 12)).foregroundStyle(faint).padding(.top, 4)
+            }
+        }
+    }
+
+    /// The night's first three keepsakes, at timeline **Resolution**.
+    ///
+    /// Opacity, not absence: the same three thumbnails in the same three places, so
+    /// nothing above or below them moves when the light goes on.
+    ///
+    /// Per thumbnail, not per strip. Dimming the whole run is uniform, and uniform is
+    /// exactly the failure `ContactView.swift` names about absence — it cannot tell a
+    /// night I shared nothing from a night I shared everything. Count and slots are
+    /// unchanged, so the reflow this dimming exists to avoid still cannot happen.
+    private var strip: some View {
+        let lit = Set(visibleToContacts(media).map(\.id))
+        return HStack(spacing: 6) {
+            ForEach(media.prefix(3), id: \.id) { item in
+                RowThumb(mediaId: item.id)
+                    .opacity(unlit && !lit.contains(item.id) ? 0.35 : 1)
             }
         }
     }
@@ -712,5 +749,28 @@ private struct CheckInDialog: View {
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(ground.ignoresSafeArea())
+    }
+}
+
+/// One keepsake at row size, from the durable tier — the library is never asked, which
+/// is what keeps a row drawn after the original is gone.
+private struct RowThumb: View {
+    let mediaId: String
+    @State private var image: UIImage?
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(raised)
+            if let image { Image(uiImage: image).resizable().scaledToFill() }
+        }
+        .frame(width: 44, height: 44)
+        .clipped()
+        // Decorative: the row already says the night in words, and three "Photo"s
+        // after it is noise in a list you swipe through with a screen reader.
+        .accessibilityHidden(true)
+        .task {
+            // Off the main actor: a timeline of decodes should not stutter its own scroll.
+            image = await Task.detached { PhotoLibrary.gridImage(mediaId) }.value
+        }
     }
 }

@@ -84,10 +84,18 @@ struct UiState {
     /// Row keys of the Festivals uncollapsed in place. Not a screen: a Festival
     /// opens where it stands.
     var expandedFestivals: Set<String> = []
-    /// The selected night's media (#97), in the order it was attached. Only the
-    /// open **Gig**'s: the grid is the one thing that reads it, and a night at a
-    /// time is what it needs.
-    var gigMedia: [StoredMedia] = []
+    /// Every night's media (#97), in the order it was attached, keyed by setlist id.
+    ///
+    /// The whole map rather than the open **Gig**'s alone, because the Timeline draws
+    /// a night's first keepsakes on its own row: a night at a time was enough while
+    /// only the grid read this, and it is not any more.
+    var mediaBySetlist: [String: [StoredMedia]] = [:]
+    /// The open **Gig**'s share of it. **Derived, never assigned** — it was a second
+    /// copy, and two places holding one night's media is a drift waiting to happen.
+    var gigMedia: [StoredMedia] {
+        guard let id = selectedSetlist?.id else { return [] }
+        return mediaBySetlist[id] ?? []
+    }
     /// Asset ids the library holds from that night's window and this gig has not
     /// attached — the suggestion the grid offers before the picker is opened.
     var gigMediaSuggestions: [String] = []
@@ -239,6 +247,10 @@ final class AppModel: ObservableObject {
             let cache = await timelines.load()
             state.plannedGigs = sortedPlanned(cache.planned())
             state.calendarEventByGig = cache.calendarEvents()
+            // The Timeline draws keepsakes on its rows, so this has to be here before
+            // any night is opened — and this already reads the cache at launch and
+            // after every write.
+            state.mediaBySetlist = cache.media()
         }
     }
 
@@ -981,13 +993,14 @@ final class AppModel: ObservableObject {
     }
 
     private func loadGigMedia(_ setlist: FmSetlist) {
-        state.gigMedia = []
         state.gigMediaSuggestions = []
         state.selectedAttendance = nil
         Task {
             let cache = await timelines.load()
             guard state.selectedSetlist?.id == setlist.id else { return }
-            state.gigMedia = cache.media()[setlist.id] ?? []
+            // The whole map: opening any night is also the cheapest moment to refresh
+            // what the Timeline behind it is drawing.
+            state.mediaBySetlist = cache.media()
             state.selectedAttendance = cache.attendance()[setlist.id]
             markSelectedOwnership(setlist, attendance: state.selectedAttendance)
             refreshSuggestions(setlist)
@@ -1118,7 +1131,7 @@ final class AppModel: ObservableObject {
                 // its own run rather than after somebody else's media.
                 let split = bandsOf(had + fresh)
                 let media = split.shared + split.received + split.vault
-                state.gigMedia = media
+                state.mediaBySetlist[setlist.id] = media
                 await timelines.saveMedia(setlistId: setlist.id, media: media)
                 refreshSuggestions(setlist)
             }
@@ -1142,7 +1155,7 @@ final class AppModel: ObservableObject {
         guard let setlist = state.selectedSetlist else { return }
         let target = band == .shared ? bandsOf(state.gigMedia).shared.count : bandsOf(state.gigMedia).vault.count
         let media = StationToStation.moveMedia(state.gigMedia, id: mediaId, to: band, index: target)
-        state.gigMedia = media
+        state.mediaBySetlist[setlist.id] = media
         Task { await timelines.saveMedia(setlistId: setlist.id, media: media) }
     }
 
@@ -1150,7 +1163,7 @@ final class AppModel: ObservableObject {
     func removeMedia(_ media: StoredMedia) {
         guard let setlist = state.selectedSetlist else { return }
         let kept = state.gigMedia.filter { $0.id != media.id }
-        state.gigMedia = kept
+        state.mediaBySetlist[setlist.id] = kept
         Task {
             await timelines.saveMedia(setlistId: setlist.id, media: kept)
             PhotoLibrary.deleteThumbnails(media.id)
@@ -1200,7 +1213,7 @@ final class AppModel: ObservableObject {
                 text: written
             )]
         }
-        state.gigMedia = media
+        state.mediaBySetlist[setlist.id] = media
         Task { await timelines.saveMedia(setlistId: setlist.id, media: media) }
     }
 
@@ -1223,7 +1236,7 @@ final class AppModel: ObservableObject {
             m.verdict = verdict
             return m
         }
-        state.gigMedia = media
+        state.mediaBySetlist[setlist.id] = media
         Task { await timelines.saveMedia(setlistId: setlist.id, media: media) }
     }
 
