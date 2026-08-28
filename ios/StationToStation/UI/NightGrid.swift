@@ -174,10 +174,18 @@ struct NightGrid: View {
                 }
                 Spacer()
                 if editable {
+                    // The control that adds wears the colour of the band it adds to,
+                    // never a fixed amber: amber is the vault's and means *private
+                    // here* and nothing else (#268), so the shared band's Add drawn
+                    // in it said the opposite of what tapping it does. Same rule
+                    // Android's two-way handle keeps by refusing to reach for amber
+                    // on an upward drag.
                     Button { pickingBand = band } label: {
-                        Label("Add", systemImage: "plus").font(.system(size: 12))
+                        Label(band == .vault ? "Add to the vault" : "Add to shared",
+                              systemImage: "plus")
+                            .font(.system(size: 12))
                     }
-                    .tint(amber)
+                    .tint(accent)
                 }
             }
             .padding(.horizontal, 24)
