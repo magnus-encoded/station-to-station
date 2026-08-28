@@ -1,3 +1,4 @@
+import AVFoundation
 import Photos
 import UIKit
 
@@ -111,17 +112,78 @@ enum PhotoLibrary {
         return await requestImage(asset, edgePx: edgePx, allowNetwork: false)
     }
 
+    /// Whether this asset is a clip. The cover path asks because a clip has no one
+    /// picture until a frame is chosen — every other reader here treats it as its
+    /// poster frame and never needs to know.
+    static func isVideo(assetId: String) -> Bool {
+        PHAsset.fetchAssets(withLocalIdentifiers: [assetId], options: nil)
+            .firstObject?.mediaType == .video
+    }
+
+    /// How long the clip runs, so a scrubber knows what it is scrubbing across.
+    /// Read off the asset rather than the file: PhotoKit already knows, and asking
+    /// the file would fetch bytes that may still be in iCloud to learn a number.
+    static func videoDurationMs(assetId: String) -> Int64 {
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetId], options: nil).firstObject,
+              asset.mediaType == .video
+        else { return 0 }
+        return Int64(asset.duration * 1000)
+    }
+
+    /// The frame at `atMs`, for scrubbing a clip to the picture worth keeping.
+    ///
+    /// Twin of Android's `videoFrameAt`, and the same choice at its centre: zero
+    /// tolerance rather than the nearest sync frame. Sync frames can sit seconds
+    /// apart, so snapping to them would make a scrubber feel stuck.
+    static func videoFrame(assetId: String, atMs: Int64, edgePx: Int) async -> UIImage? {
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetId], options: nil).firstObject,
+              asset.mediaType == .video
+        else { return nil }
+        let options = PHVideoRequestOptions()
+        options.isNetworkAccessAllowed = true
+        options.deliveryMode = .highQualityFormat
+        let video: AVAsset? = await withCheckedContinuation { continuation in
+            let answered = Answered()
+            PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { av, _, _ in
+                guard answered.claim() else { return }
+                continuation.resume(returning: av)
+            }
+        }
+        guard let video else { return nil }
+        let generator = AVAssetImageGenerator(asset: video)
+        // The video twin of `upright`: a clip filmed sideways carries its rotation in
+        // the track transform, and a cover that ignores it is a cover on its side.
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: edgePx, height: edgePx)
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        let time = CMTime(value: CMTimeValue(max(0, atMs)), timescale: 1000)
+        return await withCheckedContinuation { continuation in
+            let answered = Answered()
+            generator.generateCGImagesAsynchronously(forTimes: [NSValue(time: time)]) { _, image, _, _, _ in
+                guard answered.claim() else { return }
+                continuation.resume(returning: image.map(UIImage.init(cgImage:)))
+            }
+        }
+    }
+
     /// The photo as Spotify wants a cover: a square JPEG small enough that its
     /// base64 form stays inside the 256 KB the upload endpoint accepts. Base64
     /// costs a third on top, so the JPEG itself is held well under that.
     ///
     /// Twin of Android's `PhotoRepository.coverJpeg` — same edge, same byte
     /// ceiling, same downscale-until-it-fits loop.
-    static func coverJpeg(assetId: String) async -> Data? {
-        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetId], options: nil).firstObject,
-              let image = await requestImage(asset, edgePx: coverEdgePx, allowNetwork: true),
-              let square = centerCropSquare(image)
+    ///
+    /// `frameMs` is the frame a clip was scrubbed to, and means nothing for a photo.
+    /// A clip's cover is one picture out of it, which is why the choosing happens
+    /// before the playlist is made rather than after.
+    static func coverJpeg(assetId: String, frameMs: Int64 = 0) async -> Data? {
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetId], options: nil).firstObject
         else { return nil }
+        let picture = asset.mediaType == .video
+            ? await videoFrame(assetId: assetId, atMs: frameMs, edgePx: coverEdgePx)
+            : await requestImage(asset, edgePx: coverEdgePx, allowNetwork: true)
+        guard let picture, let square = centerCropSquare(picture) else { return nil }
         var quality: CGFloat = 0.9
         var data = square.jpegData(compressionQuality: quality)
         while let d = data, d.count > maxCoverJpegBytes, quality > 0.4 {
