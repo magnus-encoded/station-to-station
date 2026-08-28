@@ -25,6 +25,9 @@ private let muted = Color(red: 0x8B / 255, green: 0x82 / 255, blue: 0x99 / 255)
 private let faint = Color(red: 0x5A / 255, green: 0x53 / 255, blue: 0x68 / 255)
 private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
 private let crossed = Color(red: 0x6E / 255, green: 0xC2 / 255, blue: 0x8E / 255)
+/// Not mine. The same value Android's `Slate` carries, and it is only ever the
+/// absence of amber — it asserts nothing about the item beyond whose camera it was.
+private let slate = Color(red: 0x6D / 255, green: 0x7E / 255, blue: 0x9B / 255)
 
 struct NightGrid: View {
     @EnvironmentObject var model: AppModel
@@ -166,7 +169,9 @@ struct NightGrid: View {
     }
 
     private func tile(_ media: StoredMedia, band: Band) -> some View {
-        MediaTile(mediaId: media.id, isVideo: media.kind == StoredMedia.Kind.video)
+        MediaTile(mediaId: media.id,
+                  isVideo: media.kind == StoredMedia.Kind.video,
+                  mine: media.from == nil)
             .contextMenu {
                 if editable {
                     Button("Remove", role: .destructive) { model.removeMedia(media) }
@@ -274,6 +279,11 @@ extension Band: Identifiable {
 private struct MediaTile: View {
     let mediaId: String
     let isVideo: Bool
+    /// Whose camera this came off. **Amber means mine, at every Resolution** — the
+    /// shared band holds my own photographs and a Contact's side by side, and without
+    /// this they are the same tile (#324). Slate is not a second claim; it is the
+    /// absence of the first.
+    let mine: Bool
     @State private var image: UIImage?
 
     var body: some View {
@@ -289,6 +299,13 @@ private struct MediaTile: View {
         }
         .aspectRatio(1, contentMode: .fill)
         .clipped()
+        .overlay(
+            RoundedRectangle(cornerRadius: 2)
+                .stroke(mine ? amber : slate, lineWidth: 1.5)
+        )
+        // The border is the whole of the mark, so a reader gets the same fact as a
+        // sentence rather than not at all.
+        .accessibilityLabel(mine ? "Your photo" : "A photo from a Contact")
         .task {
             // Off the main actor: a grid of thirty decodes should not stutter the
             // scroll it is being scrolled in.
