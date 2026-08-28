@@ -332,7 +332,12 @@ final class DeviceTimelinePlumbing: TimelinePlumbing {
         if cache.shows.isEmpty && cache.festivals.isEmpty { return nil }
         return LoadedSpine(
             me: me,
-            mine: cache.shows[me] ?? [],
+            // Not `shows[me]` alone: a night I checked into that setlist.fm has never
+            // heard of is on no attended list, and leaves the future lane the moment it
+            // stops being a plan. See `spineNights`.
+            mine: spineNights(attended: cache.shows[me] ?? [],
+                              planned: cache.planned(),
+                              attendance: cache.attendance()),
             // Not `shows - me`. A Contact whose Card carries my own setlist.fm username
             // is my other device, and subtracting my key left that lane empty: every
             // night rendered as mine-only instead of Joined. Only friends are ever read

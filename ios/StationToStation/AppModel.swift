@@ -63,6 +63,11 @@ struct UiState {
     /// apart from `timelineShows` the same way `showsByFriend` is — a plan is not an
     /// attended show, and `gigTimeState` is what tells them apart on screen.
     var plannedGigs: [FmSetlist] = []
+    /// What each night above today claims about itself, by gig id. The future lane is
+    /// `plannedGigs` filtered by this — a night that has stopped being a plan leaves the
+    /// lane and joins the Spine — so a write that changes a claim has to land here too,
+    /// or the night stays put until the next cold start.
+    var attendanceByGig: [String: StoredAttendance] = [:]
     /// The id of the **Bill** whose song pools are being looked up right now, if any.
     /// One at a time: the lookups are sequential and the line that reports them is one
     /// line, so a second in flight would have nowhere truthful to say so.
@@ -254,6 +259,7 @@ final class AppModel: ObservableObject {
         Task {
             let cache = await timelines.load()
             state.plannedGigs = sortedPlanned(cache.planned())
+            state.attendanceByGig = cache.attendance()
             state.bills = Array(cache.bills.values).sorted { $0.name < $1.name }
             state.calendarEventByGig = cache.calendarEvents()
             // The Timeline draws keepsakes on its rows, so this has to be here before
@@ -333,6 +339,7 @@ final class AppModel: ObservableObject {
                 : StoredAttendance(provenance: "attended")
             await timelines.saveAttendance(setlistId: gigId, attendance: attendance)
             state.plannedGigs = sortedPlanned(state.plannedGigs + [gig])
+            state.attendanceByGig[gigId] = attendance
             editBill(billId) { bill in
                 var edited = bill
                 edited.acts[actIndex].gigId = gigId
@@ -358,6 +365,7 @@ final class AppModel: ObservableObject {
         if let gigId = act.gigId {
             state.plannedGigs.removeAll { $0.id == gigId }
             state.timelineShows.removeAll { $0.id == gigId }
+            state.attendanceByGig[gigId] = nil
         }
         Task {
             // An undated Surprise — a typo caught before it was ever tapped — has no gig
@@ -563,7 +571,7 @@ final class AppModel: ObservableObject {
             // The real record replaces the stub: it has the url, the songs whoever typed
             // them in logged, and an id friends' lines can meet at.
             guard let fresh = try? await setlistFm.setlist(setlistId) else { return }
-            await timelines.savePlanned(fresh)
+            state.attendanceByGig[fresh.id] = await timelines.savePlanned(fresh)
             state.plannedGigs = sortedPlanned(state.plannedGigs.filter { $0.id != gigId } + [fresh])
             if state.selectedSetlist?.id == gigId { state.selectedSetlist = fresh }
             // An **Act** holds the id its night was minted with, and the line above just
@@ -612,7 +620,7 @@ final class AppModel: ObservableObject {
         Task {
             do {
                 let gig = try await setlistFm.setlist(id)
-                await timelines.savePlanned(gig)
+                state.attendanceByGig[gig.id] = await timelines.savePlanned(gig)
                 state.plannedGigs = sortedPlanned(state.plannedGigs.filter { $0.id != gig.id } + [gig])
                 state.planningLoading = false
             } catch {
@@ -625,6 +633,7 @@ final class AppModel: ObservableObject {
     /// Forgets a gig I'm not going to after all.
     func removePlannedGig(_ gigId: String) {
         state.plannedGigs = state.plannedGigs.filter { $0.id != gigId }
+        state.attendanceByGig[gigId] = nil
         Task { await timelines.removePlanned(setlistId: gigId) }
     }
 
@@ -679,11 +688,18 @@ final class AppModel: ObservableObject {
     /// lives in the logic layer; this is the after-a-fresh-import caller of it.
     func resolveFestivals() {
         let mine = state.timelineShows
+        let ahead = plannedLane(state.plannedGigs, state.attendanceByGig)
         let known = state.festivals
         Task {
+            // Two passes rather than one concatenated list, so a night ahead and a night
+            // behind can never be read as one evening. The future lane grows its own
+            // Sections (#134) and they want identities too — and it is `plannedLane` here
+            // for the reason that function exists: the resolver and the lane have to be
+            // looking at the same list.
             let found = await logic.resolveFestivals(mine: mine, known: known)
-            if found == known { return }
-            state.festivals = found
+            let alsoAhead = await logic.resolveFestivals(mine: ahead, known: found)
+            if alsoAhead == known { return }
+            state.festivals = alsoAhead
         }
     }
 
@@ -1089,7 +1105,7 @@ final class AppModel: ObservableObject {
         }
         Task {
             guard let fetched = try? await setlistFm.setlist(id) else { return }
-            await timelines.savePlanned(fetched)
+            state.attendanceByGig[fetched.id] = await timelines.savePlanned(fetched)
             // Keeps the future edge in step with what was just written — without this
             // an invited-in gig would not appear above tonight until the next launch.
             state.plannedGigs = sortedPlanned(state.plannedGigs.filter { $0.id != fetched.id } + [fetched])
@@ -1429,6 +1445,9 @@ final class AppModel: ObservableObject {
                 venueLat: existing?.venueLat, venueLon: existing?.venueLon
             )
             await timelines.saveAttendance(setlistId: gigId, attendance: attendance)
+            // The claim goes into state as well as onto disk: the night has just stopped
+            // being a plan, and the lane it leaves is drawn from this map.
+            state.attendanceByGig[gigId] = attendance
             if state.selectedSetlist?.id == gigId { state.selectedAttendance = attendance }
         }
     }
