@@ -1,5 +1,7 @@
 package io.github.magnusencoded.stationtostation.data
 
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
+
 /**
  * The two tiers, and what a **Contact** can see of my **Line** (#144, #145).
  *
@@ -57,6 +59,31 @@ fun visibleToContacts(media: List<StoredMedia>): List<StoredMedia> =
  */
 fun withheldFromContacts(media: List<StoredMedia>): List<StoredMedia> =
     media.filter { it.from == null && it.personal }
+
+/**
+ * Whether a night is **mine** — one on my own **Line**, as opposed to a **Contact**'s
+ * that I am only looking at (#327).
+ *
+ * Every editing affordance on a **Gig** has to ask this before it is drawn. Attaching a
+ * photograph to someone else's night is not a disclosure hole — **Shared** is by-person
+ * and any **Contact** is entitled to any Shared media — but it *acquires* the night: the
+ * **Gig** becomes a record on my device and their Shared media for it routes to me on the
+ * next **Reconcile**. An action that only makes sense on my own night silently converted
+ * theirs into mine.
+ *
+ * Three ways a night is mine, and an attendance claim is the first because it is the most
+ * direct: a **Checked in** or **Attended** record is the app saying I was there. The other
+ * two are the lists my own **Line** is drawn from.
+ */
+fun isMyNight(
+    setlistId: String,
+    attendance: StoredAttendance?,
+    mine: List<FmSetlist>,
+    planned: List<FmSetlist>,
+): Boolean {
+    if (attendance != null) return true
+    return mine.any { it.id == setlistId } || planned.any { it.id == setlistId }
+}
 
 /** Every night's **Media**, as a **Contact** sees it. Nights sharing nothing stay, empty. */
 fun contactMedia(media: Map<String, List<StoredMedia>>): Map<String, List<StoredMedia>> =

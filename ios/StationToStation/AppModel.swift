@@ -95,6 +95,10 @@ struct UiState {
     /// known to have been there. Loaded alongside the gig's media so the header
     /// badge has something to read.
     var selectedAttendance: StoredAttendance?
+    /// Whether the open **Gig** is a night of my own rather than a **Contact**'s I am
+    /// only looking at (#327). Decided by `isMyNight`, the one rule, so the grid and
+    /// anything else that edits cannot answer it differently.
+    var selectedIsMine = false
     /// A gig a location fix just placed me at, tonight — "Are you here?" (#174).
     /// Nil until `offerCheckIn` finds one; presenting it is the whole of the ask.
     var checkInOffer: FmSetlist?
@@ -920,6 +924,11 @@ final class AppModel: ObservableObject {
         )
 
         state.selectedSetlist = setlist
+        // Answered twice on purpose: now from the two lists, which are already in
+        // hand, and again in `loadGigMedia` once the store hands back the attendance
+        // claim. Starting at the answer the lists give rather than at `false` is what
+        // keeps a night that is plainly mine from drawing itself read-only for a frame.
+        markSelectedOwnership(setlist, attendance: nil)
         loadGigMedia(setlist)
         state.gigLog = StoredLog()
         Task {
@@ -959,6 +968,18 @@ final class AppModel: ObservableObject {
 
     /// What this night already holds, plus what the library says was shot that
     /// night and is not attached yet.
+    /// Whether the open night is mine, through the one rule (#327) — never re-derived
+    /// at a call site, because the direction a second implementation would drift is
+    /// offering an edit on someone else's night.
+    private func markSelectedOwnership(_ setlist: FmSetlist, attendance: StoredAttendance?) {
+        state.selectedIsMine = isMyNight(
+            setlist.id,
+            attendance: attendance,
+            mine: state.timelineShows,
+            planned: state.plannedGigs
+        )
+    }
+
     private func loadGigMedia(_ setlist: FmSetlist) {
         state.gigMedia = []
         state.gigMediaSuggestions = []
@@ -968,6 +989,7 @@ final class AppModel: ObservableObject {
             guard state.selectedSetlist?.id == setlist.id else { return }
             state.gigMedia = cache.media()[setlist.id] ?? []
             state.selectedAttendance = cache.attendance()[setlist.id]
+            markSelectedOwnership(setlist, attendance: state.selectedAttendance)
             refreshSuggestions(setlist)
         }
     }

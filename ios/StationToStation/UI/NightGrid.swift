@@ -49,6 +49,16 @@ struct NightGrid: View {
         return .none
     }
 
+    /// Whether this grid may be edited at all. Two quite different reasons it may
+    /// not be: the light is a preview of what a **Contact** sees and not a place to
+    /// change it mid-look, and a **Contact**'s own night was never mine to put
+    /// anything on (#327). Asked once here so Add, Remove, the drag and the drop
+    /// cannot answer it differently — the drag was the one that would have gone on
+    /// working.
+    private var editable: Bool {
+        model.state.selectedIsMine && !model.state.contactLight
+    }
+
     /// What a Contact is actually offered from the shared band — or the whole
     /// shared band with the light off. Routed through the one rule (#180)
     /// rather than re-derived: `visibleToContacts` also decides what a
@@ -73,7 +83,8 @@ struct NightGrid: View {
         VStack(alignment: .leading, spacing: 20) {
             if light { contactLightBanner }
 
-            if !light && !model.state.gigMediaSuggestions.isEmpty { suggestions }
+            // Tapping a suggestion is an Attach, so it is gated with the rest of them.
+            if editable && !model.state.gigMediaSuggestions.isEmpty { suggestions }
 
             band(
                 title: "SHARED",
@@ -129,9 +140,7 @@ struct NightGrid: View {
                     Text(say).font(.system(size: 10)).foregroundStyle(crossed)
                 }
                 Spacer()
-                // No editing under the light: it is a preview of what a Contact
-                // sees, not a place to change it mid-look.
-                if !model.state.contactLight {
+                if editable {
                     Button { pickingBand = band } label: {
                         Label("Add", systemImage: "plus").font(.system(size: 12))
                     }
@@ -159,21 +168,25 @@ struct NightGrid: View {
     private func tile(_ media: StoredMedia, band: Band) -> some View {
         MediaTile(mediaId: media.id, isVideo: media.kind == StoredMedia.Kind.video)
             .contextMenu {
-                if !model.state.contactLight {
+                if editable {
                     Button("Remove", role: .destructive) { model.removeMedia(media) }
                 }
             }
-            // Received media never drags: its disposition is not mine to set.
-            // Nor does anything drag under the light — it is a look, not a grip.
+            // Received media never drags: its disposition is not mine to set. Nor does
+            // anything drag on a night that is not mine, or under the light — it is a
+            // look, not a grip.
             .onDrag {
-                guard !model.state.contactLight, media.from == nil else { return NSItemProvider() }
+                guard editable, media.from == nil else { return NSItemProvider() }
                 draggingId = media.id
                 return NSItemProvider(object: media.id as NSString)
             }
     }
 
     private func drop(_ providers: [NSItemProvider], into band: Band) -> Bool {
-        guard let provider = providers.first else { return false }
+        // The receiving end of the same guard. Nothing on this night can start a drag
+        // when the grid is not editable, but a drop is an open door: it takes text
+        // from anywhere, and the id it carries is the only thing it is trusted on.
+        guard editable, let provider = providers.first else { return false }
         _ = provider.loadObject(ofClass: NSString.self) { value, _ in
             guard let id = value as? String else { return }
             DispatchQueue.main.async {
