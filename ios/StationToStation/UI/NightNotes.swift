@@ -14,9 +14,24 @@ import SwiftUI
 private let ink = Color(red: 0xED / 255, green: 0xE9 / 255, blue: 0xF2 / 255)
 private let muted = Color(red: 0x8B / 255, green: 0x82 / 255, blue: 0x99 / 255)
 private let faint = Color(red: 0x5A / 255, green: 0x53 / 255, blue: 0x68 / 255)
-private let slate = Color(red: 0x6B / 255, green: 0x7A / 255, blue: 0x8F / 255)
+private let slate = Color(red: 0x6D / 255, green: 0x7E / 255, blue: 0x9B / 255)
+private let crossed = Color(red: 0x6F / 255, green: 0xBF / 255, blue: 0x9C / 255)
 private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
 private let unlitField = Color(red: 0x1C / 255, green: 0x17 / 255, blue: 0x26 / 255)
+
+/// The band's own colour, and the same three facts the grid's frames carry:
+/// **amber** is the vault and means *only I can read this*, **slate** is a shared
+/// band holding only my prose, **crossed** is a shared band more than one of us
+/// wrote in. Twin of Android's `bandAccent`.
+private func bandAccent(_ band: Band, crossed isCrossed: Bool) -> Color {
+    if band == .vault { return amber }
+    return isCrossed ? crossed : slate
+}
+
+private func bandMeaning(_ band: Band, _ isCrossed: Bool) -> String {
+    if band == .vault { return "In the vault, only you can read these" }
+    return isCrossed ? "Shared, more than one of you wrote here" : "Shared, only yours so far"
+}
 
 func verdictGlyph(_ verdict: String?) -> String {
     switch verdict {
@@ -51,17 +66,23 @@ struct NightNotes: View {
     var body: some View {
         let bands = noteBands
         let contactLight = model.state.contactLight
+        // The same question the grid asks, answered the same way: a Contact's night
+        // was never mine to write on, and the light is a look and not a desk (#327).
+        let editable = model.state.selectedIsMine && !contactLight
         VStack(alignment: .leading, spacing: 16) {
             BandNote(
                 band: .shared,
                 mine: bands.shared.first,
                 received: bands.received,
+                // The prose's own crossing, not the night's: this outline is a
+                // statement about what is written here (#268).
+                crossed: bands.crossed,
                 // Once per night, over whichever note is uppermost. The same
                 // sentence twice is noise, and it is a fact about the night
                 // rather than about either band.
                 preamble: bands.shared.isEmpty ? "" : preamble,
                 senderName: senderName,
-                editable: !contactLight,
+                editable: editable,
                 onWrite: { model.setGigNote(.shared, text: $0) },
                 onVerdict: { v in if let id = bands.shared.first?.id { model.setGigVerdict(id, verdict: v) } },
                 // Withdrawing: the same move a photograph makes, through the
@@ -80,9 +101,13 @@ struct NightNotes: View {
                     // they put in the commons; there is no path by which one
                     // lands in my vault.
                     received: [],
+                    // Never — the vault outlines amber whatever it holds.
+                    crossed: false,
                     preamble: bands.shared.isEmpty ? preamble : "",
                     senderName: senderName,
-                    editable: true,
+                    // Was `true`: the vault is only ever mine, which is true of the
+                    // *band* and says nothing about whose *night* this is (#327).
+                    editable: editable,
                     onWrite: { model.setGigNote(.vault, text: $0) },
                     onVerdict: { v in if let id = bands.vault.first?.id { model.setGigVerdict(id, verdict: v) } },
                     // Publishing a draft. The upward move earns the green
@@ -107,6 +132,8 @@ private struct BandNote: View {
     let band: Band
     let mine: StoredMedia?
     let received: [StoredMedia]
+    /// More than one of us in this band's prose — see `bandAccent`.
+    let crossed: Bool
     let preamble: String
     let senderName: (String) -> String?
     let editable: Bool
@@ -120,19 +147,43 @@ private struct BandNote: View {
     @FocusState private var focused: Bool
 
     var body: some View {
+        let accent = bandAccent(band, crossed: crossed)
+        // A Contact looking at a night nobody wrote about gets no frame around the
+        // nothing. The write-line is what an empty frame is *for*, and there isn't one.
+        return Group {
+            if !editable && mine == nil && received.isEmpty {
+                EmptyView()
+            } else {
+                content(accent)
+            }
+        }
+    }
+
+    private func content(_ accent: Color) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(band == .shared ? "SHARED" : "IN THE VAULT")
                 .font(.system(size: 10, weight: .semibold)).kerning(1.5).foregroundStyle(faint)
+                .accessibilityLabel(bandMeaning(band, crossed))
+
+            // Always first, whether it opens the field or reopens it over what is
+            // already there. Everything written lands underneath — you come here to
+            // write, and reading a Contact *after* saying your own piece is the order
+            // that keeps the sentence yours (#268).
+            if editable && !editing {
+                Text(mine != nil ? "Edit"
+                     : band == .shared ? "Write something to share"
+                     : "Write something just for you")
+                    .font(.system(size: 12))
+                    .foregroundStyle(mine != nil ? accent : muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 6)
+                    .onTapGesture { draft = mine?.text ?? ""; editing = true }
+            }
 
             if editing {
-                editor
+                editor(accent)
             } else if let mine {
                 mineNote(mine)
-            } else if editable {
-                Text(band == .shared ? "Write something to share" : "Write something just for you")
-                    .font(.system(size: 12)).foregroundStyle(muted)
-                    .padding(.vertical, 6)
-                    .onTapGesture { draft = ""; editing = true }
             }
 
             ForEach(received, id: \.id) { note in
@@ -150,13 +201,22 @@ private struct BandNote: View {
                 .padding(.top, 4)
             }
         }
-        .padding(.vertical, 6)
+        // One frame for the whole band, thickening while it is being written in —
+        // the same language the grid's strips use, and for the same reason: a second
+        // outline around the field inside this one is two boundaries drawn for one
+        // boundary. It was amber besides, which on a shared note is the colour of
+        // the other answer (#268).
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .strokeBorder(accent, lineWidth: editing ? 2 : 1)
+        )
     }
 
     // One field, no toolbar. The phone is the wrong surface for long form
     // (ADR-0012) and the answer is to keep the room visible around it, not
     // to grow an editor.
-    private var editor: some View {
+    private func editor(_ accent: Color) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             TextEditor(text: $draft)
                 .font(.system(size: 13))
@@ -165,11 +225,11 @@ private struct BandNote: View {
                 .frame(minHeight: 108)
                 .padding(6)
                 .background(RoundedRectangle(cornerRadius: 6).fill(unlitField))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(amber, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(accent, lineWidth: 1))
                 .focused($focused)
                 .onAppear { focused = true }
             HStack(spacing: 16) {
-                Text("done").font(.system(size: 12)).foregroundStyle(amber)
+                Text("done").font(.system(size: 12)).foregroundStyle(accent)
                     .onTapGesture { onWrite(draft); editing = false }
                 Text("discard").font(.system(size: 12)).foregroundStyle(faint)
                     .onTapGesture { draft = mine?.text ?? ""; editing = false }
@@ -192,14 +252,8 @@ private struct BandNote: View {
                 // act as dragging a photograph across, minus the index — one
                 // note per band means there is no position to choose.
                 .onLongPressGesture { if editable { onLift(mine.id) } }
-            if editable {
-                HStack(alignment: .center) {
-                    VerdictThumbs(current: mine.verdict, onVerdict: onVerdict)
-                    Spacer()
-                    Text("edit").font(.system(size: 11)).foregroundStyle(faint)
-                        .onTapGesture { draft = mine.text; editing = true }
-                }
-            }
+            // Editing is the line above now, so this row is the verdict alone.
+            if editable { VerdictThumbs(current: mine.verdict, onVerdict: onVerdict) }
         }
     }
 }
@@ -212,12 +266,25 @@ private struct VerdictThumbs: View {
 
     private let all = [StoredMedia.Verdict.down, StoredMedia.Verdict.up, StoredMedia.Verdict.doubleUp]
 
+    private func verdictLabel(_ v: String) -> String {
+        switch v {
+        case StoredMedia.Verdict.down: return "Rate down"
+        case StoredMedia.Verdict.up: return "Rate up"
+        default: return "Rate up twice"
+        }
+    }
+
     var body: some View {
         HStack(spacing: 10) {
-            ForEach(all, id: \.self) { v in
+            // Choosing one takes the others away: three glyphs left standing beside
+            // the chosen one read as three unmade choices (#268). Tapping what is
+            // left reopens the question.
+            ForEach(all.filter { current == nil || current == $0 }, id: \.self) { v in
                 Text(verdictGlyph(v))
                     .font(.system(size: 15))
                     .foregroundStyle(current == v ? amber : faint)
+                    .accessibilityLabel(verdictLabel(v))
+                    .accessibilityAddTraits(current == v ? [.isButton, .isSelected] : .isButton)
                     .onTapGesture { onVerdict(current == v ? nil : v) }
             }
         }
