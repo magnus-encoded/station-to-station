@@ -26,6 +26,12 @@ final class WeaveFixtureTests: XCTestCase {
     private struct FixtureInput: Decodable {
         var me: String
         var friends: [Friend]?
+        /// Which **Festival**s are open, by row key. A **Resolution**, not a fact about
+        /// the night — carried because the grammar this corpus pins is claimed *at
+        /// every Resolution* (ADR-0006), and a corpus that only ever weaves collapsed
+        /// can only ever check one of them. Absent means every Festival is closed,
+        /// which is what every fixture written before this said implicitly.
+        var expanded: [String]?
     }
 
     /// Optionals rather than defaults, so the synthesized decoder does the work:
@@ -84,7 +90,8 @@ final class WeaveFixtureTests: XCTestCase {
                 mine: mine,
                 festivals: cache.festivalIdentities(),
                 friends: lanes,
-                theirs: cache.shows.filter { $0.key != input.me }
+                theirs: cache.shows.filter { $0.key != input.me },
+                expanded: Set(input.expanded ?? [])
             )
 
             XCTAssertEqual(expected.rows.count, rows.count, "\(name): row count")
