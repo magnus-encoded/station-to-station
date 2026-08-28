@@ -746,6 +746,38 @@ actor TimelineStore {
         }
     }
 
+    /// A night this app minted, gone entirely — the record and everything keyed by it.
+    ///
+    /// Refused in two cases, and both refusals are the point. A **Gig** that has taken a
+    /// setlist.fm id is not ours to delete: the vendor's record outlives our copy of it.
+    /// A night with **Media** on it is not a mistap — the photographs are irreplaceable
+    /// and there is no undo for bytes. Returns whether it went, so the caller can say so
+    /// rather than silently doing nothing.
+    ///
+    /// Deletion rather than `removePlanned`, which rightly refuses to erase a check-in —
+    /// that refusal is exactly what used to strand an attendance claim for a night
+    /// nothing pointed at any more.
+    func deleteGig(_ gigId: String, withMedia: Bool = false) -> Bool {
+        var deleted = false
+        writeMerged { cache in
+            var c = cache
+            guard let id = c.gigIdOrNil(gigId), let gig = c.gigs[id] else { return c }
+            guard gig.setlistId == nil else { return c }
+            guard withMedia || (c.gigMedia[id] ?? []).isEmpty else { return c }
+            deleted = true
+            c.gigs[id] = nil
+            c.gigPlanned[id] = nil
+            c.gigAttendance[id] = nil
+            c.gigLogs[id] = nil
+            c.gigMedia[id] = nil
+            c.gigCalendarEvent[id] = nil
+            c.gigPlaylists[id] = nil
+            c.gigSongOffsets[id] = nil
+            return c
+        }
+        return deleted
+    }
+
     /// Remembers the calendar event made for a planned gig, by its EventKit identifier
     /// (#175). The counterpart to Android's `markCalendarAdded`, which keeps a content
     /// URI in the same field — both are just "the handle that proves an event exists".

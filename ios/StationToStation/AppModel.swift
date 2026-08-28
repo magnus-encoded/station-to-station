@@ -296,6 +296,93 @@ final class AppModel: ObservableObject {
         Task { await timelines.removeBill(billId) }
     }
 
+    /// An **Act** becomes a **Gig** I was at — the field gesture the whole **Bill**
+    /// exists for.
+    ///
+    /// The night comes from `gigNight`, which refuses outright rather than guessing: the
+    /// invariant is that a **Gig** minted from a **Bill** is dated inside that Bill's
+    /// range, and a tap on the day after the festival ended has no honest answer.
+    ///
+    /// The venue is deliberately blank. A **Bill**'s name is the festival, not the room,
+    /// and writing "Nordlys Fields" where setlist.fm will one day say "Verandaen, Skotbu"
+    /// does not merely look wrong — it stops this night ever recognising itself in the
+    /// published record of the same night. Blank resolves itself; a wrong answer does not.
+    ///
+    /// Tapped with no night chosen means "tonight", and that is a check-in — I am
+    /// standing here. Picked off the range afterwards is `attended`: still my own
+    /// evidence, but not a claim about where I am now.
+    func markActPlayed(billId: String, actIndex: Int, chosen: String? = nil,
+                       now: Date = Date()) {
+        guard let bill = state.bills.first(where: { $0.id == billId }),
+              actIndex < bill.acts.count else { return }
+        let act = bill.acts[actIndex]
+        guard act.gigId == nil else { return }
+        guard let night = gigNight(bill, chosen: chosen, now: now) else { return }
+        Task {
+            let gigId = await timelines.createLocalGig(date: night, artist: act.name, venue: "")
+            let gig = localGigSetlist(gigId: gigId, artist: act.name, date: night,
+                                      venue: "", city: bill.city)
+            await timelines.savePlanned(gig)
+            let attendance = chosen == nil
+                ? StoredAttendance(provenance: "checked_in",
+                                   checkedInAt: Int64(Date().timeIntervalSince1970 * 1000))
+                : StoredAttendance(provenance: "attended")
+            await timelines.saveAttendance(setlistId: gigId, attendance: attendance)
+            state.plannedGigs = sortedPlanned(state.plannedGigs + [gig])
+            editBill(billId) { bill in
+                var edited = bill
+                edited.acts[actIndex].gigId = gigId
+                return edited
+            }
+        }
+    }
+
+    /// A mistap, undone — and what "undone" means depends on where the act came from.
+    ///
+    /// An act off the **Bill** goes back to having no night: the poster still says it is
+    /// playing, so there is something to return to. A **Surprise** was typed by hand and
+    /// has nothing to return to, so the whole act goes with the night.
+    ///
+    /// Refused when the night has media on it. That is not a mistap, and the photographs
+    /// are irreplaceable — the act stops being on the **Bill** and the night stays,
+    /// reachable as an ordinary night above today.
+    func unmarkAct(billId: String, actIndex: Int) {
+        guard let bill = state.bills.first(where: { $0.id == billId }),
+              actIndex < bill.acts.count else { return }
+        let act = bill.acts[actIndex]
+        guard act.gigId != nil || act.surprise else { return }
+        if let gigId = act.gigId {
+            state.plannedGigs.removeAll { $0.id == gigId }
+            state.timelineShows.removeAll { $0.id == gigId }
+        }
+        Task {
+            // An undated Surprise — a typo caught before it was ever tapped — has no gig
+            // to strip, only an act to drop.
+            var gone = true
+            if let gigId = act.gigId { gone = await timelines.deleteGig(gigId) }
+            let dropped = gone
+            editBill(billId) { bill in
+                var edited = bill
+                if act.surprise && dropped {
+                    edited.acts.remove(at: actIndex)
+                } else {
+                    edited.acts[actIndex].gigId = nil
+                }
+                return edited
+            }
+            if !gone { state.notice = "That night has photos on it, so it's been kept." }
+        }
+    }
+
+    /// One **Bill**, changed in state and on disk together. Every edit goes through here
+    /// so the two cannot drift.
+    private func editBill(_ billId: String, _ change: (StoredBill) -> StoredBill) {
+        guard let i = state.bills.firstIndex(where: { $0.id == billId }) else { return }
+        let edited = change(state.bills[i])
+        state.bills[i] = edited
+        Task { await timelines.saveBill(edited) }
+    }
+
     func addPlannedGig(_ linkOrId: String) {
         guard let id = parseSetlistId(linkOrId) else {
             state.error = "That doesn't look like a setlist.fm gig link."

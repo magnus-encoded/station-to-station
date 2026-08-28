@@ -387,6 +387,15 @@ struct StationView: View {
                                     model.toggleFestival(bill.id)
                                 }
                             },
+                            onPlayed: { i, night in
+                                model.markActPlayed(billId: bill.id, actIndex: i, chosen: night)
+                            },
+                            onUnmark: { i in model.unmarkAct(billId: bill.id, actIndex: i) },
+                            onOpenGig: { gigId in
+                                if let gig = model.state.plannedGigs.first(where: { $0.id == gigId }) {
+                                    openGig(gig)
+                                }
+                            },
                             onRemove: { model.removeBill(bill.id) })
                 case .ticket(let node):
                     if case .concert(let gig) = node {
@@ -859,13 +868,19 @@ private struct RowThumb: View {
 /// The ring is amber once any act has been seen and slate until then: **amber means
 /// mine**, and nothing here is mine until I was at one of these.
 ///
-/// Read-only for now. Marking an act played — the field gesture this exists for — is
-/// the next split of #172, along with the song pools, renaming and surprises.
+/// The song pools, renaming and surprises are the next split of #172.
 private struct BillRow: View {
     let bill: StoredBill
     let open: Bool
     let onToggle: () -> Void
+    let onPlayed: (Int, String?) -> Void
+    let onUnmark: (Int) -> Void
+    let onOpenGig: (String) -> Void
     let onRemove: () -> Void
+
+    /// Which act's night question is open. One at a time: the answers are a list under
+    /// the row that asked, and two open at once would not say which row they belong to.
+    @State private var asking: Int?
 
     private var seen: Int { bill.acts.filter { $0.gigId != nil }.count }
     private var accent: Color { seen > 0 ? amber : slate }
@@ -891,20 +906,16 @@ private struct BillRow: View {
             }
             .buttonStyle(.plain)
             if open {
-                ForEach(Array(bill.acts.enumerated()), id: \.offset) { _, act in
-                    HStack(spacing: 8) {
-                        Text(act.name)
-                            .font(.system(size: 14))
-                            .foregroundStyle(act.gigId == nil ? muted : ink)
-                        // The poster's own hedge, kept as the poster made it.
-                        if act.maybe {
-                            Text("might not turn up")
-                                .font(.system(size: 11)).foregroundStyle(faint)
+                // In poster order, never re-sorted: order is the only thing a lineup
+                // reliably carries, and a seen act sliding to the top would lose it.
+                ForEach(Array(bill.acts.enumerated()), id: \.offset) { i, act in
+                    actRow(i, act)
+                    if asking == i {
+                        nightChoices { night in
+                            asking = nil
+                            onPlayed(i, night)
                         }
-                        Spacer(minLength: 0)
                     }
-                    .padding(.leading, 32)
-                    .padding(.vertical, 3)
                 }
                 Button("take this bill down", role: .destructive, action: onRemove)
                     .font(.system(size: 12))
@@ -913,6 +924,112 @@ private struct BillRow: View {
             }
         }
         .padding(.vertical, 8)
+    }
+
+    private var phase: BillWhen { billWhen(bill, now: Date()) }
+
+    /// One **Act**. Undated *during* the festival, the whole row is the field gesture:
+    /// one tap says it played tonight and the act becomes a **Gig** I was at. Dated, it
+    /// opens that **Gig**; a long press is the way back out of a mistap.
+    ///
+    /// Once the festival is over the same tap asks instead of claims — the clock cannot
+    /// name the night any more, and the **Bill**'s own nights are the answers. Before it
+    /// starts there is nothing to offer at all.
+    @ViewBuilder
+    private func actRow(_ i: Int, _ act: StoredAct) -> some View {
+        let seen = act.gigId != nil
+        // Undated, at a festival that has ended: the one case that has to be asked about.
+        let ask = !seen && phase == .after
+        HStack(spacing: 12) {
+            Circle()
+                .fill(seen ? amber : Color.clear)
+                .frame(width: 9, height: 9)
+                .overlay(Circle().stroke(seen ? amber : faint, lineWidth: 1.5))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(act.name).font(.system(size: 15)).foregroundStyle(seen ? ink : muted)
+                Text(subtitle(act, seen: seen))
+                    .font(.system(size: 11)).foregroundStyle(seen ? amber : faint)
+            }
+            Spacer(minLength: 0)
+            // The affordance is only ever what the clock can honestly support. After the
+            // festival "played tonight" is a claim about a night that does not exist, so
+            // it becomes a question; before it, there is nothing to say at all.
+            Text(seen ? "open \u{203A}"
+                 : phase == .before ? ""
+                 : ask ? (asking == i ? "which night?" : "played \u{00B7} which night?")
+                 : "played tonight")
+                .font(.system(size: 13, weight: seen ? .regular : .semibold))
+                .foregroundStyle(seen ? faint : slate)
+        }
+        .padding(.leading, 32)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if let gigId = act.gigId { onOpenGig(gigId) }
+            // Nothing has played. The row is a name on a poster and the tap has no
+            // honest meaning yet, so it does nothing.
+            else if phase == .before { }
+            else if ask { asking = asking == i ? nil : i }
+            else { onPlayed(i, nil) }
+        }
+        // A Surprise can always be taken back off, dated or not: it was typed by hand
+        // and a typo has nothing to return to. An act off the Bill only has something
+        // to undo once it has been given a night.
+        .onLongPressGesture { if seen || act.surprise { onUnmark(i) } }
+    }
+
+    /// The way out has to be visible, or it may as well not exist — a mistyped surprise
+    /// with no stated escape is just wrong data you have to live with.
+    private func subtitle(_ act: StoredAct, seen: Bool) -> String {
+        if seen {
+            return act.surprise ? "you were there \u{00B7} hold to remove"
+                                : "you were there \u{00B7} hold to undo"
+        }
+        var parts: [String] = []
+        // A maybe stays a maybe until it plays. The poster hedged; so does this.
+        if act.maybe { parts.append("maybe") }
+        if !act.candidates.isEmpty {
+            // Which artist the pool came from, wherever the pool is mentioned. Five
+            // bands are called Silent Majority and four of their setlists are no use
+            // here — naming the source is what lets a wrong match be spotted in the
+            // second it appears.
+            parts.append("\(act.candidates.count) songs from "
+                         + (act.matchedArtist.isEmpty ? act.name : act.matchedArtist))
+        } else if act.tried {
+            // Answered, and the answer was nothing. Correct and final — not pending,
+            // and not a spinner waiting to become something.
+            parts.append("no setlist.fm history")
+        } else {
+            parts.append("no night yet")
+        }
+        return parts.joined(separator: " \u{00B7} ")
+    }
+
+    /// The nights this **Bill** actually had, as a list to tap.
+    ///
+    /// Not a date picker: a festival is three or four days, and a picker would offer
+    /// every day there has ever been — including the ones this festival did not have,
+    /// which is the fabrication being closed off. The choices *are* the range.
+    @ViewBuilder
+    private func nightChoices(_ onPick: @escaping (String) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Which night did they play?")
+                .font(.system(size: 11, weight: .semibold)).foregroundStyle(slate)
+            ForEach(billNights(bill), id: \.self) { night in
+                Button { onPick(night) } label: {
+                    HStack(spacing: 12) {
+                        Text("\u{00B7}").font(.system(size: 16)).foregroundStyle(faint)
+                        Text(nightLabel(night)).font(.system(size: 15)).foregroundStyle(amber)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 8)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.leading, 32)
+        .padding(.bottom, 10)
     }
 
     /// What is known and what is not, said in that order.
@@ -924,6 +1041,13 @@ private struct BillRow: View {
         parts.append(open ? "tap to close" : "tap to open")
         return parts.joined(separator: " \u{00B7} ")
     }
+}
+
+/// "Thu 6 Aug" — the day of the week is what someone remembers a festival night by.
+private let nightLabelFormatter = fmFormatter("EEE d MMM")
+
+private func nightLabel(_ night: String) -> String {
+    parseFmDate(night).map { nightLabelFormatter.string(from: $0) } ?? night
 }
 
 private let billDateShort = fmFormatter("d MMM")
