@@ -118,6 +118,14 @@ struct UiState {
     /// The selected night's own **Log** (#169): what I saw, as opposed to what
     /// setlist.fm publishes. Only the open **Gig**'s, same reasoning as `gigMedia`.
     var gigLog = StoredLog()
+    /// An artist's own songs, once a **Curtain** pull has asked for them (#129) —
+    /// the pool a **Log** entry is corrected against. Session-lived rather than
+    /// stored: a pull is a gesture someone made on purpose, and a catalogue is a
+    /// prompt, so losing it on a cold start costs one deliberate pull.
+    var catalogueByArtist: [String: [String]] = [:]
+    /// The mbid being fetched, so the panel can say "looking up" instead of
+    /// "nothing known" — the two mean opposite things to someone mid-correction.
+    var catalogueFetching: String?
     /// The handover screen's whole state (#142). Nil `role` means no handover is
     /// running, which is also what the screen reads to know whether to exist.
     var handover = HandoverUi()
@@ -147,6 +155,7 @@ final class AppModel: ObservableObject {
     let settings = Settings()
     private lazy var setlistFm = SetlistFmClient { [settings] in settings.setlistFmApiKeyValue }
     private lazy var spotify = SpotifyClient(settings)
+    private let musicBrainz = MusicBrainzClient()
     private let timelines = TimelineStore()
     /// The device half of the Timeline (ADR-0001): the store, the client, the
     /// bundle. Held as the concrete type because seeding a fixture is an iOS-only
@@ -1236,6 +1245,66 @@ final class AppModel: ObservableObject {
         } catch {
             return "The cover could not be uploaded. \(userMessage(error))"
         }
+    }
+
+    // --- The Curtain: the Window this Room has onto a data source (#129) ---
+
+    /// Pull the **Curtain** down on the open **Gig**.
+    ///
+    /// Which **Window** is behind it is `gigOffers`' answer and never this call
+    /// site's — two places deciding when to fetch is how they drift, which is the
+    /// whole reason `Curtain` is a returned instruction. `curtainAction` is the
+    /// dispatch, pure and asserted by the same cases on both platforms; only the
+    /// plumbing it names lives here.
+    ///
+    /// A failed pull changes nothing and shows nothing. Being offline costs nothing.
+    func pullCurtain(_ curtain: Curtain) async {
+        switch curtainAction(curtain) {
+        case .fetchCatalogue: await fetchCatalogue(state.selectedSetlist?.artist?.mbid)
+        case .fetchSetlist: await refreshSelectedSetlist()
+        // No "did this event move" endpoint exists, so `checkEvent` asks for
+        // nothing rather than for a fetch pretending to be one.
+        case .nothing: break
+        }
+    }
+
+    /// Ask setlist.fm what this night says now: someone may have posted the set, or
+    /// filled a record that was linked and empty.
+    ///
+    /// A local **Gig**'s id is this app's and not setlist.fm's, so asking for it is a
+    /// guaranteed 404 dressed up as an error nobody can act on. The way a local night
+    /// gets a real record is adoption, not refresh.
+    private func refreshSelectedSetlist() async {
+        guard let open = state.selectedSetlist, open.url != nil,
+              let fresh = try? await setlistFm.setlist(open.id),
+              state.selectedSetlist?.id == fresh.id
+        else { return }
+        state.selectedSetlist = fresh
+        state.timelineShows = state.timelineShows.map { $0.id == fresh.id ? fresh : $0 }
+        // A gig I'm going to lives in its own list, so refreshing one has to write
+        // back there — otherwise the night's setlist appears on screen and is gone
+        // again on the next launch. Provenance is untouched: songs landing is
+        // setlist.fm filling a record in, not evidence that I went.
+        if state.plannedGigs.contains(where: { $0.id == fresh.id }) {
+            state.plannedGigs = state.plannedGigs.map { $0.id == fresh.id ? fresh : $0 }
+            await timelines.savePlanned(fresh)
+        }
+    }
+
+    /// The artist's own songs, for a **Log** being typed with nothing posted yet.
+    ///
+    /// Asked once per artist. MusicBrainz is CC0 and a back catalogue does not change
+    /// over an evening, so re-asking would spend a rate limit on the same answer.
+    private func fetchCatalogue(_ mbid: String?) async {
+        guard let mbid, !mbid.trimmingCharacters(in: .whitespaces).isEmpty,
+              state.catalogueByArtist[mbid] == nil, state.catalogueFetching == nil
+        else { return }
+        state.catalogueFetching = mbid
+        let titles = await musicBrainz.catalogue(mbid: mbid)
+        state.catalogueFetching = nil
+        // An empty answer is not stored: MusicBrainz going quiet (ADR-0004) must not
+        // become "this artist has no songs" for the rest of the session.
+        if !titles.isEmpty { state.catalogueByArtist[mbid] = titles }
     }
 
     // --- The Log: what I saw, as opposed to what setlist.fm publishes (#169) ---
