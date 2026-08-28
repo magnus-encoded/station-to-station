@@ -248,3 +248,55 @@ extension FmSetlist {
     /// A gig this app minted rather than setlist.fm: the one thing that has no page.
     var isLocal: Bool { url == nil }
 }
+
+/// One row of the future lane — everything above today, in one list because it is one
+/// line. A **Bill** and a ticket are different kinds of thing and sort by the same rule.
+enum FutureRow: Identifiable {
+    case onBill(StoredBill)
+    /// A **Gig** I hold a ticket for — or the **Festival** a few of them at one venue
+    /// on one night turn out to be. Two nights above today at the same place is the
+    /// same shape as two nights below it, and the lane drew them as loose nodes only
+    /// because it did its own grouping, which was none (#134).
+    case ticket(TimelineNode)
+
+    var id: String {
+        switch self {
+        case .onBill(let bill): return "bill-\(bill.id)"
+        case .ticket(let node):
+            if case .concert(let s) = node { return "planned-\(s.id)" }
+            return node.severalKey ?? ""
+        }
+    }
+
+    var date: Date? {
+        switch self {
+        // A **Bill** sorts by when it *starts*. Its last day is the wrong handle: a
+        // three-day festival beginning tonight would sort above a gig two days out,
+        // which is this same bug one step smaller.
+        case .onBill(let bill): return parseFmDate(bill.from) ?? parseFmDate(bill.to)
+        // Same rule for a cluster: the night it opens, not the night it ends.
+        case .ticket(let node): return node.shows.compactMap { $0.localDate() }.min()
+        }
+    }
+}
+
+/// Everything above today, furthest future first — the same descending order the
+/// attended rows below already use, which is the whole point: one line, one rule.
+///
+/// A **Bill** is not folded into the grouping. It is its own kind of node with its own
+/// lineup, which is why it arrives here as a separate argument.
+///
+/// A row with no date sorts to the *bottom* of the future, not the top. Unknown is not
+/// "the furthest away". It still renders: a **Bill** whose dates were never typed in is
+/// a real thing to be holding.
+///
+/// `tickets` arrives already filtered and is not re-filtered here. Android's
+/// `plannedLane` drops a night that has stopped being a plan, and its `spineNights`
+/// catches the night that drops — the two are a matched pair, and iOS has neither yet.
+/// Landing one half here would strand a checked-into night on no list at all.
+func futureRows(bills: [StoredBill], tickets: [FmSetlist],
+                festivals: Festivals = Festivals()) -> [FutureRow] {
+    let rows = bills.map(FutureRow.onBill)
+        + groupIntoFestivals(tickets, festivals).map(FutureRow.ticket)
+    return rows.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+}
