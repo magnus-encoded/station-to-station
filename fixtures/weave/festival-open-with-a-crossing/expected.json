@@ -1,0 +1,27 @@
+{
+  "rows": [
+    {
+      "key": "f-tor2026", "date": "2026-06-25", "node": "festival", "title": "Tons of Rock 2026",
+      "ownership": "together",
+      "with": ["Lemmy"], "together": 1, "theirs": 2,
+      "hosts": { "Lemmy": "spine" }
+    },
+    {
+      "key": "c-b1-1", "date": "2026-06-26", "node": "gig", "title": "Slayer",
+      "ownership": "theirs",
+      "with": ["Lemmy"], "theirs": 1,
+      "hosts": { "Lemmy": "lane1" }
+    },
+    {
+      "key": "c-a1-1", "date": "2026-06-25", "node": "gig", "title": "The Warning",
+      "ownership": "together",
+      "with": ["Lemmy"], "together": 1, "theirs": 1,
+      "hosts": { "Lemmy": "spine" }
+    },
+    {
+      "key": "c-a2-1", "date": "2026-06-24", "node": "gig", "title": "Gojira",
+      "ownership": "mine",
+      "hosts": { "Lemmy": "lane1" }
+    }
+  ]
+}

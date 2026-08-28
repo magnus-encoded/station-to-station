@@ -136,6 +136,56 @@ class WeaveTimelinesTest {
         assertEquals(listOf(false, true, true), inner.map { it.mine }) // 26th theirs, 25th + 24th mine
     }
 
+    /**
+     * A night we were **both** at, listed inside an open **Festival**, is a
+     * **Crossing** — at the **Resolution** the Festival is open, not only at the one
+     * it is closed.
+     *
+     * The regression: `showsHereByFriends` was left off the member rows, and
+     * `sharedCount` is an intersection with it, so it was structurally zero at depth
+     * 1. The Festival counted "1 together" and the night it counted drew amber.
+     */
+    @Test
+    fun `a shared night inside an open festival is a crossing`() {
+        val mine = listOf(show("a1", "25-06-2026", "Ekebergsletta"), show("a2", "24-06-2026", "Ekebergsletta"))
+        // a1 is on both lists; a2 is mine alone.
+        val theirs = mapOf("Lemmy" to listOf(show("a1", "25-06-2026", "Ekebergsletta")))
+        val ours = festival("a1", "a2")
+        val collapsed = weaveTimelines(mine, ours, listOf(lemmy), theirs)
+        assertEquals(1, collapsed[0].sharedCount) // the closed Festival already knew
+
+        val rows = weaveTimelines(mine, ours, listOf(lemmy), theirs, expanded = setOf(collapsed[0].key))
+        val inner = rows.filter { it.depth == 1 }
+
+        assertEquals(1, inner.first { it.shows.firstOrNull()?.id == "a1" }.sharedCount)
+        // And the night nobody else was at is still mine alone — the fix must not hand
+        // a Crossing to every member row of a shared Festival.
+        assertEquals(0, inner.first { it.shows.firstOrNull()?.id == "a2" }.sharedCount)
+    }
+
+    /**
+     * The **Absorb** case, which the fix must leave exactly as it was: their cluster
+     * sits in my node without our having shared a night, so no member row is a
+     * Crossing however many **Line**s run through the row.
+     */
+    @Test
+    fun `an absorbed festival has company but no crossing inside`() {
+        val mine = listOf(show("a1", "25-06-2026", "Ekebergsletta"), show("a2", "24-06-2026", "Ekebergsletta"))
+        val theirs = mapOf(
+            "Lemmy" to listOf(
+                show("b1", "27-06-2026", "Ekebergsletta"),
+                show("b2", "26-06-2026", "Ekebergsletta"),
+            ),
+        )
+        val ours = festival("a1", "a2", "b1", "b2")
+        val collapsed = weaveTimelines(mine, ours, listOf(lemmy), theirs)
+        assertTrue(collapsed[0].others.isNotEmpty())
+        assertEquals(0, collapsed[0].sharedCount)
+
+        val rows = weaveTimelines(mine, ours, listOf(lemmy), theirs, expanded = setOf(collapsed[0].key))
+        assertTrue(rows.filter { it.depth == 1 }.all { it.sharedCount == 0 })
+    }
+
     // --- Three lines. Everything above holds with one friend and hides the rest. ---
 
     @Test

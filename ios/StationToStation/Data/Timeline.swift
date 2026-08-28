@@ -439,14 +439,26 @@ func weaveTimelines(
         // it — reading it off the node made every gig inside a friend's festival
         // look mine.
         let myIds = Set(mine.map(\.id))
-        let inner = row.node.runningOrder(also: row.showsHereByFriends).map { show in
-            WovenRow(
+        let inner = row.node.runningOrder(also: row.showsHereByFriends).map { show -> WovenRow in
+            let alsoHere = row.others.filter { f in
+                (theirs[f.setlistfm] ?? []).contains { $0.id == show.id }
+            }
+            return WovenRow(
                 node: .concert(show),
                 mine: myIds.contains(show.id),
-                others: row.others.filter { f in
-                    (theirs[f.setlistfm] ?? []).contains { $0.id == show.id }
-                },
-                depth: 1
+                others: alsoHere,
+                depth: 1,
+                // Carried, not defaulted: `sharedCount` is an intersection with this
+                // list, so leaving it empty made it structurally zero at depth 1 and
+                // no member gig could ever draw a Crossing. The Festival above said
+                // "2 together" and both of the nights it counted drew amber. Amber
+                // means mine at *every* Resolution (ADR-0006), and a Resolution that
+                // cannot say green is not saying amber — it is saying nothing.
+                //
+                // `alsoHere` is already exactly the friends who were at this show, so
+                // this needs no rule of its own: the show is in the list when anyone
+                // else was there, and the list is empty when nobody was.
+                showsHereByFriends: alsoHere.isEmpty ? [] : [show]
             )
         }
         return [row] + inner

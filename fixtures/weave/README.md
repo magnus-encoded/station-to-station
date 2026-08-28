@@ -13,7 +13,18 @@ One directory per case:
   - `friends` — in **Lane** order, nearest my **Spine** first. On device this is the
     friends list reversed; here it is written out so a fixture needs no outside context.
 
-  Both are ignored by the store's own parser, so each file still loads as a plain
+  - `expanded` — which **Festival**s are open, by row key (`f-<id>`, or `s-<first show
+    id>` for a **Section**). Optional; absent means every Festival is closed, which is
+    what every fixture written before this key said implicitly.
+
+    It is a **Resolution**, not a fact about the night, and it is here because the
+    grammar this corpus pins is claimed *at every Resolution* (ADR-0006). A corpus that
+    only ever weaves collapsed can only check one of them — which is how a **Crossing**
+    that could never draw green inside an open Festival survived the whole suite on
+    both platforms. Rows inside an open Festival carry `depth` 1, so their keys read
+    `c-<setlist id>-1`.
+
+  All three are ignored by the store's own parser, so each file still loads as a plain
   `TimelineCache` — the test asserts exactly that.
 
   A **Festival** is an identity, never a shape (#166): `festivals` holds the identities
