@@ -335,13 +335,51 @@ enum FutureRow: Identifiable {
 /// "the furthest away". It still renders: a **Bill** whose dates were never typed in is
 /// a real thing to be holding.
 ///
-/// `tickets` arrives already filtered and is not re-filtered here. Android's
-/// `plannedLane` drops a night that has stopped being a plan, and its `spineNights`
-/// catches the night that drops — the two are a matched pair, and iOS has neither yet.
-/// Landing one half here would strand a checked-into night on no list at all.
+/// `tickets` is filtered through `plannedLane` here rather than by the caller, so the
+/// lane and the identity resolver above it cannot end up reading different lists.
 func futureRows(bills: [StoredBill], tickets: [FmSetlist],
+                attendance: [String: StoredAttendance],
                 festivals: Festivals = Festivals()) -> [FutureRow] {
     let rows = bills.map(FutureRow.onBill)
-        + groupIntoFestivals(tickets, festivals).map(FutureRow.ticket)
+        + groupIntoFestivals(plannedLane(tickets, attendance), festivals).map(FutureRow.ticket)
     return rows.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+}
+
+/// The nights the future lane is made of: still a plan, newest first.
+///
+/// Date-ordered because the lane is drawn newest first and `gigPlanned`'s own order is
+/// whatever they happened to be added in. Its own function because the identity resolver
+/// has to see the exact same list the lane does.
+func plannedLane(_ gigs: [FmSetlist],
+                 _ attendance: [String: StoredAttendance]) -> [FmSetlist] {
+    gigs.filter { isPlanned(attendance[$0.id]?.provenance) }
+        .sorted { ($0.localDate() ?? .distantPast) > ($1.localDate() ?? .distantPast) }
+}
+
+/// The nights the **Spine** is made of: setlist.fm's **Attended** list, plus my own
+/// evidenced nights it has never heard of. Newest first, for `plannedLane`'s reason.
+///
+/// The counterpart to `plannedLane`, and the half that was missing. The Spine used to be
+/// `shows[me]` alone, so a night's only route onto the timeline was setlist.fm knowing
+/// about it — and `plannedLane` drops a night the moment it stops being a plan. A night
+/// I checked into that setlist.fm has never heard of therefore left the future lane and
+/// arrived nowhere: on neither list, holding a **Log** and seven photographs that nothing
+/// would draw.
+///
+/// "Evidenced" is `isPlanned` read the other way round — `attended` and `checked_in` are
+/// evidence I was there, and a check-in is the strongest claim this app can hold. A night
+/// carrying it must outrank the absence of a vendor's row about it.
+///
+/// Deduplicated on the setlist.fm id, which is what the two lists share: a planned night
+/// that later turns up in the **Attended** import is one night, and the imported copy
+/// wins because it is the published record of the same evening.
+func spineNights(attended: [FmSetlist], planned: [FmSetlist],
+                 attendance: [String: StoredAttendance]) -> [FmSetlist] {
+    let known = Set(attended.map(\.id))
+    let mine = planned.filter {
+        !known.contains($0.id) && !isPlanned(attendance[$0.id]?.provenance)
+    }
+    guard !mine.isEmpty else { return attended }
+    return (attended + mine)
+        .sorted { ($0.localDate() ?? .distantPast) > ($1.localDate() ?? .distantPast) }
 }

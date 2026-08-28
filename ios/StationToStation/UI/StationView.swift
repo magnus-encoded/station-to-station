@@ -377,6 +377,7 @@ struct StationView: View {
             }
             ForEach(futureRows(bills: model.state.bills,
                                tickets: model.state.plannedGigs,
+                               attendance: model.state.attendanceByGig,
                                festivals: model.state.festivals)) { row in
                 switch row {
                 case .onBill(let bill):

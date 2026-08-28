@@ -248,18 +248,27 @@ final class BillTests: XCTestCase {
                   venue: FmVenue(name: venue), url: "https://setlist.fm/\(id)")
     }
 
+    /// Every ticket still a plan — the state the lane is normally in. `plannedLane`
+    /// draws a night only while a claim says it is one, so a fixture without claims is
+    /// a fixture about a different question (see `SpineNightsTests`).
+    private func stillPlanned(_ gigs: [FmSetlist]) -> [String: StoredAttendance] {
+        Dictionary(uniqueKeysWithValues: gigs.map { ($0.id, StoredAttendance(provenance: "planned")) })
+    }
+
     func testTheFutureLaneIsOneListFurthestFutureFirst() {
-        let rows = futureRows(bills: [threeNights],
-                              tickets: [planned("g1", "20-08-2026", "Low Tide"),
-                                        planned("g2", "01-08-2026", "Nord&Nord")])
+        let tickets = [planned("g1", "20-08-2026", "Low Tide"),
+                       planned("g2", "01-08-2026", "Nord&Nord")]
+        let rows = futureRows(bills: [threeNights], tickets: tickets,
+                              attendance: stillPlanned(tickets))
         XCTAssertEqual(["planned-g1", "bill-nordlys", "planned-g2"], rows.map(\.id))
     }
 
     func testABillSortsByWhenItStartsNotWhenItEnds() {
         // Its last day is the wrong handle: a three-day festival beginning tonight
         // would sort above a gig two days out, which is this same bug one step smaller.
-        let rows = futureRows(bills: [threeNights],
-                              tickets: [planned("g1", "08-08-2026", "Low Tide")])
+        let tickets = [planned("g1", "08-08-2026", "Low Tide")]
+        let rows = futureRows(bills: [threeNights], tickets: tickets,
+                              attendance: stillPlanned(tickets))
         XCTAssertEqual(["planned-g1", "bill-nordlys"], rows.map(\.id))
     }
 
@@ -268,8 +277,9 @@ final class BillTests: XCTestCase {
         // never typed in is a real thing to be holding.
         let undated = StoredBill(id: "u", name: "Harbour Sessions",
                                  acts: parseLineup("Velvet Ditch"))
-        let rows = futureRows(bills: [undated, threeNights],
-                              tickets: [planned("g1", "01-08-2026", "Low Tide")])
+        let tickets = [planned("g1", "01-08-2026", "Low Tide")]
+        let rows = futureRows(bills: [undated, threeNights], tickets: tickets,
+                              attendance: stillPlanned(tickets))
         XCTAssertEqual(["bill-nordlys", "planned-g1", "bill-u"], rows.map(\.id))
     }
 
@@ -277,10 +287,12 @@ final class BillTests: XCTestCase {
         // The same shape below today is the same shape above it — the lane used to draw
         // them as two loose nodes only because it did its own grouping, which was none
         // (#134).
-        let rows = futureRows(bills: [], tickets: [
+        let tickets = [
             planned("g1", "20-08-2026", "Low Tide", venue: "Sentrum"),
             planned("g2", "20-08-2026", "Nord&Nord", venue: "Sentrum"),
-        ])
+        ]
+        let rows = futureRows(bills: [], tickets: tickets,
+                              attendance: stillPlanned(tickets))
         XCTAssertEqual(1, rows.count)
         guard case .ticket(let node) = rows[0], case .section = node else {
             return XCTFail("two planned nights at one venue should be one Section")

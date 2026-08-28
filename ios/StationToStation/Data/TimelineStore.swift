@@ -719,16 +719,28 @@ actor TimelineStore {
     /// **Never downgrades the claim.** Re-storing the record when the night's setlist
     /// finally lands must not throw away a check-in that happened in between — which is
     /// exactly the sequence a night you planned and then went to produces.
-    func savePlanned(_ setlist: FmSetlist) {
+    /// **Returns the claim it settled on**, which callers need rather than merely may
+    /// want: `plannedLane` draws a gig only if an attendance record says it is planned,
+    /// so a caller that writes the record here and does not put the same claim into its
+    /// own state has saved a night the lane will not draw until the next cold start.
+    /// Returning it is also what stops a caller from writing `"planned"` by hand and
+    /// getting the never-downgrade rule below wrong.
+    @discardableResult
+    func savePlanned(_ setlist: FmSetlist) -> StoredAttendance {
+        // Assigned inside the transform because that is where the existing claim is
+        // visible, and read after because `writeMerged` holds the lock across it.
+        var settled = StoredAttendance(provenance: "planned")
         writeMerged { cache in
             var c = cache
             let gigId = c.withGig(setlist.id)
             c.gigPlanned[gigId] = setlist
-            if c.gigAttendance[gigId] == nil {
-                c.gigAttendance[gigId] = StoredAttendance(provenance: "planned")
-            }
+            // Never downgrades: re-storing the record when the night's setlist finally
+            // lands must not throw away a check-in that happened in between.
+            settled = c.gigAttendance[gigId] ?? StoredAttendance(provenance: "planned")
+            c.gigAttendance[gigId] = settled
             return c
         }
+        return settled
     }
 
     /// Forgets a gig I am no longer going to.
