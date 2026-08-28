@@ -85,6 +85,7 @@ private struct ArtistTab: View {
 private struct UserTab: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var nav: Nav
+    @State private var addingLocal = false
 
     var body: some View {
         let s = model.state
@@ -107,8 +108,24 @@ private struct UserTab: View {
             Link("Forgot your username? Sign in on setlist.fm (Google login supported)",
                  destination: URL(string: "https://www.setlist.fm/signin")!)
                 .font(.subheadline)
+            Divider()
+            // The one way in that does not end at setlist.fm, and the only one a
+            // person without an account can act on (#347). It lives here because this
+            // is the import surface — where Android's `ImportScreen` keeps it — and
+            // the cold start is the other place it is offered.
+            Button("Or type in a night you were at") { addingLocal = true }
+                .font(.subheadline)
+            Text("The poster in the window, the small venue nobody catalogues.")
+                .font(.caption).foregroundStyle(.secondary)
             Spacer()
         }
         .padding(.horizontal)
+        .sheet(isPresented: $addingLocal) {
+            AddLocalGigSheet { artist, venue, date in
+                model.addLocalGig(artist: artist, venue: venue, date: date)
+                addingLocal = false
+                nav.popToRoot()
+            } onCancel: { addingLocal = false }
+        }
     }
 }

@@ -94,6 +94,7 @@ struct StationView: View {
     @State private var addingPlanned = false
     @State private var plannedLink = ""
     @State private var addingBill = false
+    @State private var addingLocal = false
 
     private var lanes: [Friend] { model.state.friends }
 
@@ -134,7 +135,10 @@ struct StationView: View {
         let s = model.state
         ZStack {
             ground.ignoresSafeArea()
-            if s.timelineShows.isEmpty && s.plannedGigs.isEmpty {
+            // A Bill counts. It hangs on the future lane, which the empty branch does
+            // not draw — so without this, putting up a lineup before any gig exists
+            // files it straight behind "Nothing on your Line yet."
+            if s.timelineShows.isEmpty && s.plannedGigs.isEmpty && s.bills.isEmpty {
                 empty(loading: s.timelineLoading)
             } else {
                 timeline
@@ -432,6 +436,12 @@ struct StationView: View {
         } message: {
             Text("Paste the setlist.fm page for the show — its search can't find one that hasn't happened yet.")
         }
+        .sheet(isPresented: $addingLocal) {
+            AddLocalGigSheet { artist, venue, date in
+                model.addLocalGig(artist: artist, venue: venue, date: date)
+                addingLocal = false
+            } onCancel: { addingLocal = false }
+        }
         .sheet(isPresented: $addingBill) {
             AddBillSheet { name, city, from, to, lineup in
                 model.addBill(name: name, city: city, from: from, to: to, lineup: lineup)
@@ -481,6 +491,9 @@ struct StationView: View {
     }
 
     @ViewBuilder
+    /// The cold start. Three ways in, and the order is the point: the import is
+    /// fastest for someone who already has a history, the future lane is for someone
+    /// who has a ticket and no history yet, and the last is for someone with neither.
     private func empty(loading: Bool) -> some View {
         VStack(spacing: 12) {
             if loading {
@@ -494,6 +507,14 @@ struct StationView: View {
                     .multilineTextAlignment(.center)
                 Button("Import my concerts") { model.refreshTimeline() }
                     .buttonStyle(.borderedProminent).tint(amber).foregroundStyle(Color.black)
+                // A line can start above today as easily as below it: someone with no
+                // history yet still has a ticket for something.
+                Button("\u{2191}  or add a gig you're going to") { addingPlanned = true }
+                    .font(.system(size: 13)).foregroundStyle(slate).padding(.top, 4)
+                // Both doors above end at setlist.fm. This one does not, and it is the
+                // only affordance here a person without an account can act on (#347).
+                Button("or type in a night you were at") { addingLocal = true }
+                    .font(.system(size: 13)).foregroundStyle(slate)
             }
         }
         .padding(32)
@@ -1178,6 +1199,48 @@ private func billDates(_ bill: StoredBill) -> String {
 
 /// The door onto a **Bill**. A sheet rather than Android's dialog: five fields, one of
 /// them a pasted block of names, is a form and not a question.
+/// A night I was at that setlist.fm has never heard of.
+///
+/// The door that needs no account, no API key and no catalogue — see
+/// `AppModel.addLocalGig`. Twin of Android's `AddLocalGigDialog`; a sheet rather than
+/// a dialog for the same reason `AddBillSheet` is one.
+struct AddLocalGigSheet: View {
+    let onAdd: (String, String, String) -> Void
+    let onCancel: () -> Void
+
+    @State private var artist = ""
+    @State private var venue = ""
+    @State private var date = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("who played", text: $artist)
+                    TextField("venue (optional)", text: $venue)
+                    TextField("date (dd-MM-yyyy)", text: $date)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                } footer: {
+                    Text("No account needed. This night lives on this phone, and what "
+                         + "was played goes in its log afterwards.")
+                }
+            }
+            .navigationTitle("A night you were at")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add it") { onAdd(artist, venue, date) }
+                        .disabled(artist.trimmingCharacters(in: .whitespaces).isEmpty
+                                  || date.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
+    }
+}
+
 private struct AddBillSheet: View {
     let onAdd: (String, String, String, String, String) -> Void
     let onCancel: () -> Void
