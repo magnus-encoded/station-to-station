@@ -131,6 +131,10 @@ struct UiState {
     var coverPermissionGranted = false
     /// nil means Spotify's own album-art collage.
     var selectedCoverAssetId: String?
+    /// Where in a clip the cover frame was scrubbed to. Zero for a photo, which has
+    /// only the one picture, and zero again the moment the picker lands somewhere
+    /// else — a frame belongs to the clip it was chosen out of.
+    var selectedCoverFrameMs: Int64 = 0
     var coverUploadError: String?
     /// The light switch (#180): my own Line, drawn as a Contact sees it. Global,
     /// not persisted, not per-night — the same flag the timeline and the gig
@@ -1312,6 +1316,7 @@ final class AppModel: ObservableObject {
         state.createdPlaylistUrl = nil
         state.coverCandidateIds = []
         state.selectedCoverAssetId = nil
+        state.selectedCoverFrameMs = 0
         state.coverSearched = false
         state.coverUploadError = nil
         loadCoverCandidates(setlist)
@@ -1614,7 +1619,13 @@ final class AppModel: ObservableObject {
         state.coverPermissionGranted = granted
         state.coverLoading = true
         Task {
-            let pinned = state.gigMedia.filter { $0.kind == StoredMedia.Kind.photo }.map(\.ref)
+            // Clips included: a night whose only capture is a clip has a cover in it,
+            // one frame at a time (`CoverFrameSheet`). Pictures only, though — a Note
+            // holds no bytes and a dead reference resolves to nothing, and neither is
+            // a picture of the night.
+            let pinned = state.gigMedia
+                .filter { $0.kind == StoredMedia.Kind.photo || $0.kind == StoredMedia.Kind.video }
+                .map(\.ref)
             let gallery = granted ? await Task.detached { PhotoLibrary.assetsFromNight(window) }.value : []
             var seen = Set<String>()
             let candidates = (pinned + gallery).filter { seen.insert($0).inserted }
@@ -1630,7 +1641,14 @@ final class AppModel: ObservableObject {
 
     /// The cover the picker has landed on, or nil for Spotify's own collage.
     func setCover(_ assetId: String?) {
-        if state.selectedCoverAssetId != assetId { state.selectedCoverAssetId = assetId }
+        guard state.selectedCoverAssetId != assetId else { return }
+        state.selectedCoverAssetId = assetId
+        state.selectedCoverFrameMs = 0
+    }
+
+    /// The frame of the clip the scrub has settled on.
+    func setCoverFrame(_ atMs: Int64) {
+        if state.selectedCoverFrameMs != atMs { state.selectedCoverFrameMs = atMs }
     }
 
     /// Re-runs the cover search after the gallery permission prompt the picker
@@ -1647,7 +1665,8 @@ final class AppModel: ObservableObject {
             return "The cover needs a permission your Spotify login predates. "
                 + "Log out in Settings and log in again to enable playlist covers."
         }
-        guard let jpeg = await PhotoLibrary.coverJpeg(assetId: assetId) else {
+        guard let jpeg = await PhotoLibrary.coverJpeg(assetId: assetId,
+                                                      frameMs: state.selectedCoverFrameMs) else {
             return "That photo could not be prepared as a cover."
         }
         do {
