@@ -95,18 +95,26 @@ struct GigView: View {
                         let woven = weaveSetlist(published: rows.map(publishedTitle),
                                                  logged: log.songs)
                         if woven.isEmpty {
-                            Text("No setlist was logged for this night on setlist.fm.")
+                            Text(emptySetLine)
                                 .font(.system(size: 13)).foregroundStyle(muted)
                                 .padding(.horizontal, 24).padding(.top, 8)
                         } else {
                             ForEach(Array(woven.enumerated()), id: \.offset) { _, line in
-                                wovenRow(line, rows: rows, log: log, setlist: show)
+                                wovenRow(line, rows: rows, log: log, setlist: show,
+                                         canLog: canLog(show))
                             }
                         }
                         // My own Log (#169), under the set and never taken away — it
                         // renders on a night's page forever after. The way in is under
                         // the entries because the entries *are* the set now (#268).
-                        LogEditor(setlist: show)
+                        // A Log makes sense the moment I am known to have been there
+                        // — a check-in, or a night this app minted itself, which only
+                        // ever happens by someone standing in front of the stage
+                        // tapping an Act. It stays available forever after that:
+                        // remembering a song three days later must cost nothing.
+                        // Android has gated this since the Log existed; iOS offered it
+                        // on every night, a Contact's included.
+                        if canLog(show) { LogEditor(setlist: show) }
                         // A Note is media too (#50, #170): a draft in the vault, a
                         // letter in the shared band, and the Preamble composed above it
                         // from what the record already knows. Last of the night's own
@@ -389,10 +397,10 @@ struct GigView: View {
     /// one both records hold.
     @ViewBuilder
     private func wovenRow(_ line: WovenSong, rows: [EventRow], log: StoredLog,
-                          setlist: FmSetlist) -> some View {
+                          setlist: FmSetlist, canLog: Bool) -> some View {
         // Mine is an index into the Log, and the × and the correction panel act on it
         // there — the published row beside it is never touched by either.
-        let remove: (() -> Void)? = line.logged.map { j in
+        let remove: (() -> Void)? = (canLog ? line.logged : nil).map { j in
             { correctingLog = nil; model.removeFromLog(j) }
         }
         if let p = line.published {
@@ -429,13 +437,31 @@ struct GigView: View {
                 gap: gap,
                 // A Gap offers no correction: "one I couldn't name" is an
                 // acknowledged fact, not an invitation to guess.
-                onTap: gap ? nil : { correctingLog = correctingLog == j ? nil : j },
+                onTap: gap || !canLog ? nil : { correctingLog = correctingLog == j ? nil : j },
                 onRemove: remove
             )
             if correctingLog == j {
                 LogCorrection(setlist: setlist, index: j) { correctingLog = nil }
             }
         }
+    }
+}
+
+/// Whether this night is one I may write a Log on: a night I checked into, or one
+/// this app minted itself — which only ever happens by someone standing in front of
+/// the stage tapping an Act. Twin of Android's `canLog`.
+private extension GigView {
+    func canLog(_ show: FmSetlist) -> Bool {
+        model.state.selectedAttendance?.provenance == "checked_in" || show.url == nil
+    }
+
+    /// A night that hasn't happened has no setlist missing from it — nothing has been
+    /// played yet, and saying "not logged" would blame setlist.fm for a gap that
+    /// isn't one (ADR-0004).
+    var emptySetLine: String {
+        isPlanned(model.state.selectedAttendance?.provenance)
+            ? "This show hasn't happened yet."
+            : "This show has no setlist on setlist.fm yet."
     }
 }
 
