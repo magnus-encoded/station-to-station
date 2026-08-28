@@ -78,4 +78,33 @@ final class MusicBrainzTests: XCTestCase {
         XCTAssertTrue(sameSong("Don't Look Back", "dontlookback"))
         XCTAssertFalse(sameSong("Between Stations", "Between Nations"))
     }
+
+    /// Artist completion for a planned gig (#350). The four artists called Nirvana are
+    /// the reason the disambiguation comes back with the name.
+    private let artistPage = """
+        {
+          "count": 4,
+          "artists": [
+            { "id": "a", "name": "Nirvana", "score": 74, "disambiguation": "UK band" },
+            { "id": "b", "name": "Nirvana", "score": 100, "disambiguation": "US grunge band" },
+            { "id": "c", "name": "", "score": 90 },
+            { "id": "", "name": "Nirvana 2002", "score": 88 }
+          ]
+        }
+        """
+
+    func testArtistsComeBackBestFirstWithWhatTellsThemApart() {
+        let hits = parseArtists(artistPage)
+
+        // The nameless hit and the idless one are both dropped: a row nobody can read
+        // is not a suggestion, and one with no id cannot be followed up.
+        XCTAssertEqual(2, hits.count)
+        XCTAssertEqual("US grunge band", hits.first?.disambiguation)
+        XCTAssertEqual("b", hits.first?.mbid)
+    }
+
+    func testAReplyThatIsNotWhatWeExpectedIsAnEmptyListNotACrash() {
+        XCTAssertTrue(parseArtists("<html>rate limited</html>").isEmpty)
+        XCTAssertTrue(parseArtists("").isEmpty)
+    }
 }

@@ -158,6 +158,10 @@ struct UiState {
     /// The mbid being fetched, so the panel can say "looking up" instead of
     /// "nothing known" — the two mean opposite things to someone mid-correction.
     var catalogueFetching: String?
+    /// Spellings MusicBrainz offered for the artist name being typed into one of the
+    /// by-hand doors (#350). Session-lived and cleared the moment one is picked: it
+    /// is a prompt, and nothing downstream is keyed on the **mbid** it carries.
+    var artistSuggestions: [MbArtist] = []
     /// The handover screen's whole state (#142). Nil `role` means no handover is
     /// running, which is also what the screen reads to know whether to exist.
     var handover = HandoverUi()
@@ -188,6 +192,8 @@ final class AppModel: ObservableObject {
     private lazy var setlistFm = SetlistFmClient { [settings] in settings.setlistFmApiKeyValue }
     private lazy var spotify = SpotifyClient(settings)
     private let musicBrainz = MusicBrainzClient()
+    /// The in-flight suggestion lookup, held so the next keystroke can cancel it.
+    private var artistSearch: Task<Void, Never>?
     private let timelines = TimelineStore()
     /// The device half of the Timeline (ADR-0001): the store, the client, the
     /// bundle. Held as the concrete type because seeding a fixture is an iOS-only
@@ -406,6 +412,36 @@ final class AppModel: ObservableObject {
             guard await timelines.deleteGig(gigId, withMedia: true) else { return }
             for item in media { PhotoLibrary.deleteThumbnails(item.id) }
         }
+    }
+
+    /// Spellings for a name being typed into one of the by-hand doors (#350).
+    ///
+    /// Debounced, and the previous lookup is cancelled: without the cancel a slow
+    /// reply for "ka" can land after a fast one for "kaizers" and put the wrong four
+    /// rows under a name that has moved on.
+    ///
+    /// A failure is an empty list, never a banner. This is a prompt on top of a field
+    /// that works perfectly well without it, and MusicBrainz being unreachable is not
+    /// something the person typing needs to be told about mid-word (ADR-0004).
+    func suggestArtists(_ query: String) {
+        artistSearch?.cancel()
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            state.artistSuggestions = []
+            return
+        }
+        artistSearch = Task { [musicBrainz] in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
+            let hits = await musicBrainz.searchArtists(query: query)
+            guard !Task.isCancelled else { return }
+            state.artistSuggestions = hits
+        }
+    }
+
+    /// The typed name was replaced by a picked one, so the list has done its job.
+    func clearArtistSuggestions() {
+        artistSearch?.cancel()
+        state.artistSuggestions = []
     }
 
     /// A gig I'm going to, typed in: who is playing, where, and when.

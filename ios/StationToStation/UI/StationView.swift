@@ -1244,17 +1244,26 @@ private func billDates(_ bill: StoredBill) -> String {
 /// Typing is the default and the link is the alternative, which is the way round
 /// Android settled on: the paste is the faster door only for a show already
 /// catalogued, and a future show usually is not (#349). Twin of Android's
-/// `AddPlannedGigDialog`, minus the artist suggestions under the field (#350).
+/// `AddPlannedGigDialog`.
+///
+/// **The artist completes; the venue does not.** MusicBrainz has a `place` entity and
+/// its coverage of small rooms is thin, so a completion box that fails most of the
+/// time would teach people to ignore the one above it. A plain field that never
+/// guesses is the honest version of a venue.
 private struct AddPlannedGigSheet: View {
     let onAdd: (String, String, String) -> Void
     let onAddByLink: (String) -> Void
     let onCancel: () -> Void
 
+    @EnvironmentObject var model: AppModel
     @State private var artist = ""
     @State private var venue = ""
     @State private var date = ""
     @State private var link = ""
     @State private var pasting = false
+    /// The last spelling picked from the list, so writing it into the field is not
+    /// mistaken for typing it.
+    @State private var picked = ""
 
     private var ready: Bool {
         pasting
@@ -1277,6 +1286,27 @@ private struct AddPlannedGigSheet: View {
                 } else {
                     Section {
                         TextField("who's playing", text: $artist)
+                            // Picking a spelling writes the field, and `onChange`
+                            // cannot tell that from typing — without the guard the
+                            // list the pick just dismissed comes straight back.
+                            .onChange(of: artist) { name in
+                                if name != picked { model.suggestArtists(name) }
+                            }
+                        // Suggestions sit directly under the field they belong to and
+                        // nowhere else. Capped at four rows: this is a prompt above a
+                        // keyboard, and a list that scrolls is a search result page
+                        // pretending to be a hint.
+                        ForEach(model.state.artistSuggestions.prefix(4)) { hit in
+                            Button {
+                                picked = hit.name
+                                artist = hit.name
+                                model.clearArtistSuggestions()
+                            } label: {
+                                Text(hit.disambiguation.isEmpty
+                                     ? hit.name : "\(hit.name)  · \(hit.disambiguation)")
+                                    .font(.footnote).foregroundStyle(slate)
+                            }
+                        }
                         TextField("venue (optional)", text: $venue)
                         TextField("date (dd-MM-yyyy)", text: $date)
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -1296,10 +1326,11 @@ private struct AddPlannedGigSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", action: onCancel)
+                    Button("Cancel") { model.clearArtistSuggestions(); onCancel() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") {
+                        model.clearArtistSuggestions()
                         if pasting { onAddByLink(link) } else { onAdd(artist, venue, date) }
                     }
                     .disabled(!ready)
