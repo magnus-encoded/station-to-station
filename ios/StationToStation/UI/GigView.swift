@@ -75,6 +75,15 @@ struct GigView: View {
                     }
                     .padding(.top, 8)
                 }
+                // The Curtain over this Room's Window (#129): draw it back and see
+                // what the source says about this night *now*. Which source that is
+                // comes from `offers.curtain` — never from here — so it is never the
+                // same request on a night three weeks away, a night being stood at,
+                // and a night from 1992. Pull-to-refresh is the platform's own
+                // answer to this and ships accessible (ADR-0017).
+                .refreshable {
+                    if let curtain = offers?.curtain { await model.pullCurtain(curtain) }
+                }
             } else {
                 Text("No gig selected.").foregroundStyle(muted)
             }
@@ -151,7 +160,11 @@ struct GigView: View {
                 window: show.eventDate.flatMap { nightWindow(gigDate: $0) },
                 provenance: model.state.selectedAttendance?.provenance,
                 log: log.songs.isEmpty && !log.closed ? nil : log,
-                setlistId: show.id,
+                // A local **Gig** wears this app's own id, not setlist.fm's, so it is
+                // not *linked* — the same `takeUnless(localGig)` Android applies. Fed
+                // whole it would make an unposted night look recorded, and the Alcove
+                // would offer the playlist where the set still needs handing over.
+                setlistId: show.url == nil ? nil : show.id,
                 songCount: show.performed().count,
                 calendarEvent: model.state.calendarEventByGig[show.id]
             ),

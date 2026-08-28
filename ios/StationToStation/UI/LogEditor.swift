@@ -2,14 +2,13 @@ import SwiftUI
 
 // The Log: my own witness statement for a night, asserted one tap at a time
 // (#169). Ported from Android's `LogEditor` (`ui/BillScreen.kt`) with one
-// deliberate cut: the Bill/Act candidate pool and the MusicBrainz catalogue
-// completion for corrections. Neither the Bill/Act pool (#172, #173) nor a
-// MusicBrainzClient exists on iOS yet, so correction here is free text only —
-// still human-in-the-loop, just without a ranked pool to tap from. ADR-0001
-// licenses the UI-layer divergence; the rules that matter (a Gap is never
-// corrected, a second correction keeps the first words, restoring is never a
-// one-way door, Close is a person's word and nothing else's) are unchanged —
-// they live in StoredLog itself and are asserted there.
+// deliberate cut remaining: the Bill/Act candidate pool, which needs a Bill
+// (#172, #173) and iOS has none. The MusicBrainz catalogue the panel ranks
+// against is here now — it is what this Room's Curtain fetches when a Log is
+// open on a night nobody has posted (#129). The rules that matter (a Gap is
+// never corrected, a second correction keeps the first words, restoring is
+// never a one-way door, Close is a person's word and nothing else's) are
+// unchanged — they live in StoredLog itself and are asserted there.
 
 private let ink = Color(red: 0xED / 255, green: 0xE9 / 255, blue: 0xF2 / 255)
 private let muted = Color(red: 0x8B / 255, green: 0x82 / 255, blue: 0x99 / 255)
@@ -41,9 +40,16 @@ struct LogEditor: View {
             ForEach(Array(log.songs.enumerated()), id: \.offset) { i, song in
                 entryRow(i, song, log)
                 if correcting == i {
+                    let written = log.rememberedAt(i) ?? song
                     CorrectionPanel(
-                        written: log.rememberedAt(i) ?? song,
+                        written: written,
+                        // The whole pool, ranked against what was written down —
+                        // never close matches only, because a remembered line
+                        // sharing no words with any title still has to be
+                        // correctable.
+                        candidates: rankTitles(written, catalogue),
                         canRestore: log.rememberedAt(i) != nil,
+                        looking: model.state.catalogueFetching != nil,
                         onPick: { model.correctLogEntry(i, title: $0); correcting = nil },
                         onRestore: { model.restoreLogEntry(i); correcting = nil }
                     )
@@ -69,6 +75,14 @@ struct LogEditor: View {
             }
         }
         .padding(.horizontal, 24).padding(.vertical, 16)
+    }
+
+    /// The artist's own songs, as far as this session has been told. Fetched by the
+    /// Room's Curtain rather than on open: a catalogue is a prompt for a correction,
+    /// and a night nobody is correcting should cost MusicBrainz nothing.
+    private var catalogue: [String] {
+        guard let mbid = setlist.artist?.mbid, !mbid.isEmpty else { return [] }
+        return model.state.catalogueByArtist[mbid] ?? []
     }
 
     /// How many songs setlist.fm's own record holds, when there is one — and only
@@ -156,14 +170,19 @@ struct LogEditor: View {
 }
 
 /// Correcting one Log entry, in place, under the row it belongs to (#126).
-/// Nothing is rewritten without a tap: free text here rather than a ranked
-/// pool, since iOS has neither the Bill/Act candidates nor a MusicBrainz
-/// catalogue to rank against yet. Its own view (not a helper method on
-/// `LogEditor`) so its typed text is its own state — a room you are standing
-/// in, not the "add a song" field wearing a different hat.
+/// Nothing is rewritten without a tap: the pool is a *prompt*, never a claim,
+/// and the free-text field above it is the escape hatch that is always present
+/// and never a fallback — an artist with nothing known is the ordinary case
+/// here, not a failure. Its own view (not a helper method on `LogEditor`) so
+/// its typed text is its own state — a room you are standing in, not the "add
+/// a song" field wearing a different hat.
 private struct CorrectionPanel: View {
     let written: String
+    let candidates: [String]
     let canRestore: Bool
+    /// Whether a Curtain pull is in flight. "Looking up their songs" and "nothing
+    /// known for this artist" mean opposite things to someone mid-correction.
+    let looking: Bool
     let onPick: (String) -> Void
     let onRestore: () -> Void
 
@@ -182,6 +201,21 @@ private struct CorrectionPanel: View {
                 Text("\u{2192} call it \"\(typed.trimmed)\"")
                     .font(.system(size: 13)).foregroundStyle(amber)
                     .onTapGesture { onPick(typed.trimmed) }
+            }
+            if candidates.isEmpty {
+                Text(looking
+                    ? "Looking up their songs\u{2026}"
+                    : "Nothing known for this artist \u{2014} type the title above, or pull down to look them up.")
+                    .font(.system(size: 11)).foregroundStyle(faint)
+                    .padding(.top, 4)
+            } else {
+                ForEach(candidates, id: \.self) { title in
+                    Text(title)
+                        .font(.system(size: 14)).foregroundStyle(muted)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .onTapGesture { onPick(title) }
+                }
             }
             // A wrong correction is never a one-way door.
             if canRestore {
