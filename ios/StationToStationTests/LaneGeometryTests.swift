@@ -246,7 +246,7 @@ final class LaneGeometryTests: XCTestCase {
         XCTAssertEqual(LineColour.mine(present: true), try at(drawn(row(mine: true)), Spine).colour)
         XCTAssertEqual(LineColour.mine(present: false), try at(drawn(row(mine: false, lemmy)), Spine).colour)
         // A friend alone on their own Lane takes their own light.
-        XCTAssertEqual(LineColour.rail(lane: 1), try at(drawn(row(mine: false, lemmy)), 1).colour)
+        XCTAssertEqual(LineColour.rail(colourIndex: 1), try at(drawn(row(mine: false, lemmy)), 1).colour)
         // Company, whoever it is with.
         XCTAssertEqual(LineColour.meeting, try at(drawn(row(mine: true, ozzy)), Spine).colour)
     }
@@ -278,7 +278,7 @@ final class LaneGeometryTests: XCTestCase {
 
         let leaving = try at(drawn(together, next: alone), 0)
         XCTAssertEqual(LineColour.meeting, leaving.colour)
-        XCTAssertEqual(LineColour.rail(lane: 0), leaving.colourAhead)  // takes its colour back
+        XCTAssertEqual(LineColour.rail(colourIndex: 0), leaving.colourAhead)  // takes its colour back
         XCTAssertEqual(laneXf(0, laneStep(lanes.count)), leaving.toX, accuracy: 0.01) // swings out
 
         // The row after the parting: nothing green is left of it.
@@ -346,13 +346,13 @@ final class LaneGeometryTests: XCTestCase {
         XCTAssertEqual(7, try at(together, 0).nodeR, accuracy: 0.01)
         // And below it Ozzy leaves for Turnstile, so the edge ahead is nobody's green.
         XCTAssertEqual(LineColour.mine(present: true), try at(together, Spine).colourAhead)
-        XCTAssertEqual(LineColour.rail(lane: 0), try at(together, 0).colourAhead)
+        XCTAssertEqual(LineColour.rail(colourIndex: 0), try at(together, 0).colourAhead)
 
         // Row 2 is Turnstile, theirs. Their Node sits on their Lane and mine runs past it
         // without a notch, dimmed because I was not there.
         let theirs = geom(2)
         XCTAssertEqual(laneXf(0, laneStep(friends.count)), try at(theirs, 0).x, accuracy: 0.01)
-        XCTAssertEqual(LineColour.rail(lane: 0), try at(theirs, 0).colour)
+        XCTAssertEqual(LineColour.rail(colourIndex: 0), try at(theirs, 0).colour)
         XCTAssertEqual(7, try at(theirs, 0).nodeR, accuracy: 0.01)
         XCTAssertEqual(SpineX, try at(theirs, Spine).x, accuracy: 0.01)
         XCTAssertEqual(0, try at(theirs, Spine).nodeR, accuracy: 0.01)
@@ -389,6 +389,54 @@ final class LaneGeometryTests: XCTestCase {
         XCTAssertEqual(3, Set(kvelertak.map(\.x)).count)
         for d in kvelertak { XCTAssertEqual(1, d.people) }
         XCTAssertNotNil(line(kvelertak, 1))
-        XCTAssertEqual(LineColour.rail(lane: 0), try at(kvelertak, 0).colour) // Lemmy, alone
+        XCTAssertEqual(LineColour.rail(colourIndex: 0), try at(kvelertak, 0).colour) // Lemmy, alone
+    }
+
+    // MARK: - Hiding a Line (#266)
+    //
+    // Tapping a name in the legend is nothing more than a shorter lane list, so every
+    // assertion below is the same `rowGeometry` call with fewer people in it.
+
+    private var three: [Friend] { [ozzy, lemmy, Friend(setlistfm: "Dio", name: "Dio")] }
+
+    private func drawnHiding(_ r: WovenRow, next: WovenRow? = nil,
+                             hidden: Set<String> = []) -> [DrawnLine] {
+        let shown = visibleLanes(three, hidden)
+        return rowGeometry(r, next, shown, stripWidth(shown.count), ordinary,
+                           laneColours(three, hidden))
+    }
+
+    /// The seam itself: who is left, and which colour each of them keeps.
+    func testTheFilterIsOneShorterListPlusTheColoursItLeftBehind() {
+        XCTAssertEqual(three.map(\.setlistfm), visibleLanes(three, []).map(\.setlistfm))
+        XCTAssertEqual([0, 1, 2], laneColours(three, []))
+
+        XCTAssertEqual(["Ozzy", "Dio"], visibleLanes(three, ["Lemmy"]).map(\.setlistfm))
+        XCTAssertEqual([0, 2], laneColours(three, ["Lemmy"]))
+
+        // Someone who is not a Followed line at all cannot hide anyone.
+        XCTAssertEqual(three.map(\.setlistfm), visibleLanes(three, ["Nobody"]).map(\.setlistfm))
+    }
+
+    /// Gone, not dimmed: the strip has to actually get quieter.
+    func testAHiddenLineIsNotDrawnAtAll() {
+        let r = row(mine: false, lemmy)
+        XCTAssertNotNil(drawnHiding(r).first { $0.line == 1 })
+        // Lemmy is lane 1 of three; hide him and no Line is left carrying him.
+        let quieter = drawnHiding(r, hidden: ["Lemmy"])
+        XCTAssertTrue(quieter.allSatisfy { !$0.present || $0.line == Spine })
+        XCTAssertEqual(2, quieter.filter { $0.line != Spine }.count)
+    }
+
+    /// The half the seam does not give for free: a colour you have learned to read
+    /// goes on meaning the same person after someone inside them is hidden.
+    func testHidingSomeoneRepaintsNobody() throws {
+        // Dio is lane 2, colour 2. Hide Lemmy and Dio is drawn on lane 1 — with his
+        // own colour still, not the one lane 1 used to wear.
+        let dio = three[2]
+        let r = row(mine: false, dio)
+        XCTAssertEqual(LineColour.rail(colourIndex: 2), try at(drawnHiding(r), 2).colour)
+        XCTAssertEqual(LineColour.rail(colourIndex: 2),
+                       try at(drawnHiding(r, hidden: ["Lemmy"]), 1).colour)
     }
 }
