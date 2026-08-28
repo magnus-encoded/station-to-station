@@ -385,7 +385,6 @@ struct GigView: View {
         }
     }
 
-    @ViewBuilder
     /// One line of the woven set: a published row, one of my Log's entries, or the
     /// one both records hold.
     @ViewBuilder
