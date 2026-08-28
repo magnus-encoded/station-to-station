@@ -63,6 +63,10 @@ struct UiState {
     /// apart from `timelineShows` the same way `showsByFriend` is — a plan is not an
     /// attended show, and `gigTimeState` is what tells them apart on screen.
     var plannedGigs: [FmSetlist] = []
+    /// The **Bills** on the wall (#172) — festivals whose **Gigs** do not exist yet.
+    /// A list, not a map, because the future lane draws them in one order with the
+    /// tickets and nothing looks one up by id except an edit.
+    var bills: [StoredBill] = []
     /// The calendar event made for a planned gig, by gig id — EventKit's
     /// `eventIdentifier`. Presence is what the leaf reads as "already added".
     var calendarEventByGig: [String: String] = [:]
@@ -246,6 +250,7 @@ final class AppModel: ObservableObject {
         Task {
             let cache = await timelines.load()
             state.plannedGigs = sortedPlanned(cache.planned())
+            state.bills = Array(cache.bills.values).sorted { $0.name < $1.name }
             state.calendarEventByGig = cache.calendarEvents()
             // The Timeline draws keepsakes on its rows, so this has to be here before
             // any night is opened — and this already reads the cache at launch and
@@ -260,6 +265,37 @@ final class AppModel: ObservableObject {
     /// Fetched by id, never searched: setlist.fm's search index stops about a day out
     /// (#29), so a show weeks away cannot be found by artist, venue or date — only
     /// asked for by the id sitting in the url of the page the user was on.
+    /// Puts a **Bill** on the wall.
+    ///
+    /// Written unconditionally and with no network in it at all: entering a lineup has
+    /// to work with the radio off, because the one place it definitely will not run is
+    /// inside the enclosure. Android also goes looking for each **Act**'s song pool
+    /// here — that is `fetchCandidates`, and it is the next split of #172.
+    func addBill(name: String, city: String, from: String, to: String, lineup: String) {
+        let acts = parseLineup(lineup)
+        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !acts.isEmpty else {
+            state.error = "A bill needs a name and at least one act."
+            return
+        }
+        let bill = StoredBill(
+            id: UUID().uuidString.lowercased(),
+            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+            city: city.trimmingCharacters(in: .whitespacesAndNewlines),
+            from: from.trimmingCharacters(in: .whitespacesAndNewlines),
+            to: to.trimmingCharacters(in: .whitespacesAndNewlines),
+            acts: acts
+        )
+        state.bills.append(bill)
+        Task { await timelines.saveBill(bill) }
+    }
+
+    /// Takes a **Bill** off the wall. The **Gigs** its **Acts** became are *not*
+    /// touched: they are nights that happened, and they outlive the poster.
+    func removeBill(_ billId: String) {
+        state.bills.removeAll { $0.id == billId }
+        Task { await timelines.removeBill(billId) }
+    }
+
     func addPlannedGig(_ linkOrId: String) {
         guard let id = parseSetlistId(linkOrId) else {
             state.error = "That doesn't look like a setlist.fm gig link."
