@@ -345,11 +345,12 @@ final class TimelineStoreTests: XCTestCase {
         await TimelineStore(file: file).save(shows: ["dizzi90": [show("a")]])
         let json = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
         XCTAssertEqual(
-            // gigLogs joined the list in #169: iOS now models the Log rather than
-            // carrying it blind, so it writes the key itself instead of only echoing
-            // one it found. Android reads an absent or empty map the same way.
-            ["attendanceByGig", "attendedTotals", "calendarEventByGig", "festivalIdByShow",
-             "festivalNames", "festivals", "festivalsAsked",
+            // gigLogs joined the list in #169 and bills in #172: iOS now models both
+            // rather than carrying them blind, so it writes the keys itself instead of
+            // only echoing ones it found. Android reads an absent or empty map the same
+            // way.
+            ["attendanceByGig", "attendedTotals", "bills", "calendarEventByGig",
+             "festivalIdByShow", "festivalNames", "festivals", "festivalsAsked",
              "gigAttendance", "gigCalendarEvent", "gigLogs", "gigMedia", "gigPhotos", "gigPlanned",
              "gigPlaylists", "gigSongOffsets", "gigs", "photosBySetlist", "plannedShows", "playlistsMade",
              "shows", "songOffsetsBySetlist"],
