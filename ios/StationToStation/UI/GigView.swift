@@ -43,6 +43,9 @@ private func eventRows(_ setlist: FmSetlist) -> [EventRow] {
 
 struct GigView: View {
     @EnvironmentObject var model: AppModel
+    /// SwiftUI's own opener rather than `UIApplication.shared.open`, so this file
+    /// needs no UIKit import for one link.
+    @Environment(\.openURL) private var openURL
     @EnvironmentObject var nav: Nav
 
     @State private var adopting = false
