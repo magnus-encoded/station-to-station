@@ -52,6 +52,8 @@ struct GigView: View {
     /// room you are standing in, not a list of forms. It lives here rather than in
     /// LogEditor because the entries do — they are on the spine now (#268).
     @State private var correctingLog: Int?
+    /// Whether the filing sheet is up — handing this night to setlist.fm.
+    @State private var filing = false
     @State private var adopting = false
     @State private var deleting = false
     @State private var adoptLink = ""
@@ -114,7 +116,22 @@ struct GigView: View {
                         // remembering a song three days later must cost nothing.
                         // Android has gated this since the Log existed; iOS offered it
                         // on every night, a Contact's included.
-                        if canLog(show) { LogEditor(setlist: show) }
+                        if canLog(show) {
+                            LogEditor(setlist: show)
+                            // Publish: explicit, labelled, and never a side effect of
+                            // anything else. The clipboard is the whole channel —
+                            // setlist.fm's form takes no prefill parameters and its
+                            // Text Field editor takes a whole ordered set in one
+                            // paste — so the copy and the door open together, on a
+                            // tap that says it will.
+                            Button { filing = true } label: {
+                                Label("Copy the set and open setlist.fm",
+                                      systemImage: "square.and.arrow.up")
+                                    .font(.system(size: 14))
+                            }
+                            .tint(amber)
+                            .padding(.horizontal, 24).padding(.top, 4)
+                        }
                         // A Note is media too (#50, #170): a draft in the vault, a
                         // letter in the shared band, and the Preamble composed above it
                         // from what the record already knows. Last of the night's own
@@ -193,6 +210,11 @@ struct GigView: View {
         // rather than a search by artist and date: the moment this is used is the moment
         // you are looking at the page you just created, so its url is in your hand, and
         // matching heuristics are a way to be wrong about which night you meant.
+        .sheet(isPresented: $filing) {
+            if let show = model.state.selectedSetlist {
+                FilingSheet(setlist: show, log: model.state.gigLog) { filing = false }
+            }
+        }
         .alert("It's on setlist.fm now", isPresented: $adopting) {
             TextField("setlist.fm link", text: $adoptLink)
                 .textInputAutocapitalization(.never)
