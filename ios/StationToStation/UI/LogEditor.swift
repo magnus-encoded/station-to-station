@@ -22,9 +22,6 @@ struct LogEditor: View {
     let setlist: FmSetlist
 
     @State private var typed = ""
-    /// Which entry's correction panel is open, if any. One at a time: this is a
-    /// room you are standing in, not a list of forms.
-    @State private var correcting: Int?
 
     var body: some View {
         let log = model.state.gigLog
@@ -38,26 +35,8 @@ struct LogEditor: View {
                 .font(.system(size: 11)).foregroundStyle(faint)
             Spacer().frame(height: 10)
 
-            ForEach(Array(log.songs.enumerated()), id: \.offset) { i, song in
-                entryRow(i, song, log)
-                if correcting == i {
-                    let written = log.rememberedAt(i) ?? song
-                    CorrectionPanel(
-                        written: written,
-                        // The whole pool, ranked against what was written down —
-                        // never close matches only, because a remembered line
-                        // sharing no words with any title still has to be
-                        // correctable.
-                        candidates: rankTitles(written, catalogue),
-                        canRestore: log.rememberedAt(i) != nil,
-                        looking: model.state.catalogueFetching != nil,
-                        onPick: { model.correctLogEntry(i, title: $0); correcting = nil },
-                        onRestore: { model.restoreLogEntry(i); correcting = nil }
-                    )
-                }
-            }
-
-            Spacer().frame(height: 10)
+            // The entries themselves are on the spine above, woven into the set
+            // (#268) — what is left here is the way in.
             addField
             gapButton
             pool
@@ -79,46 +58,12 @@ struct LogEditor: View {
         .padding(.horizontal, 24).padding(.vertical, 16)
     }
 
-    /// The artist's own songs, as far as this session has been told. Fetched by the
-    /// Room's Curtain rather than on open: a catalogue is a prompt for a correction,
-    /// and a night nobody is correcting should cost MusicBrainz nothing.
-    private var catalogue: [String] {
-        guard let mbid = setlist.artist?.mbid, !mbid.isEmpty else { return [] }
-        return model.state.catalogueByArtist[mbid] ?? []
-    }
-
     /// How many songs setlist.fm's own record holds, when there is one — and only
     /// once I have written something down. An untouched log beside an imported
     /// setlist is not a divergence, it is a log I have not started.
     private var published: Int? {
         guard setlist.url != nil, !model.state.gigLog.songs.isEmpty else { return nil }
         return setlist.performed().count
-    }
-
-    @ViewBuilder
-    private func entryRow(_ i: Int, _ song: String, _ log: StoredLog) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text("\(i + 1)").font(.system(size: 12)).foregroundStyle(faint)
-                .frame(width: 20, alignment: .trailing)
-            VStack(alignment: .leading, spacing: 1) {
-                // A Gap is a song that was played and could not be named. It is in
-                // the record on purpose: an acknowledged hole is a true fact.
-                Text(song.trimmed.isEmpty ? "— one I couldn't name —" : song)
-                    .font(.system(size: 15)).foregroundStyle(song.trimmed.isEmpty ? faint : ink)
-                if let remembered = log.rememberedAt(i) {
-                    Text("\"\(remembered)\"").font(.system(size: 12)).foregroundStyle(faint)
-                }
-            }
-            // A Gap offers no correction: "one I couldn't name" is an
-            // acknowledged fact, not an invitation to guess.
-            .contentShape(Rectangle())
-            .onTapGesture { if !song.trimmed.isEmpty { correcting = correcting == i ? nil : i } }
-            Spacer()
-            Text("\u{00D7}").font(.system(size: 18)).foregroundStyle(faint)
-                .padding(.horizontal, 10).padding(.vertical, 4)
-                .onTapGesture { correcting = nil; model.removeFromLog(i) }
-        }
-        .padding(.vertical, 6)
     }
 
     private var addField: some View {
@@ -227,6 +172,40 @@ struct LogEditor: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { model.setLogClosed(!log.closed) }
+    }
+}
+
+/// One Log entry's correction, placed under whichever spine row holds it. Its own
+/// view so the catalogue lookup stays in one file with the rest of the Log — GigView
+/// draws the row, this answers "what was it really called?" (#268).
+struct LogCorrection: View {
+    @EnvironmentObject var model: AppModel
+    let setlist: FmSetlist
+    let index: Int
+    let onDone: () -> Void
+
+    var body: some View {
+        let log = model.state.gigLog
+        let written = log.rememberedAt(index) ?? log.songs[index]
+        CorrectionPanel(
+            written: written,
+            // The whole pool, ranked against what was written down — never close
+            // matches only, because a remembered line sharing no words with any
+            // title still has to be correctable.
+            candidates: rankTitles(written, catalogue),
+            canRestore: log.rememberedAt(index) != nil,
+            looking: model.state.catalogueFetching != nil,
+            onPick: { model.correctLogEntry(index, title: $0); onDone() },
+            onRestore: { model.restoreLogEntry(index); onDone() }
+        )
+    }
+
+    /// The artist's own songs, as far as this session has been told. Fetched by the
+    /// Room's Curtain rather than on open: a catalogue is a prompt for a correction,
+    /// and a night nobody is correcting should cost MusicBrainz nothing.
+    private var catalogue: [String] {
+        guard let mbid = setlist.artist?.mbid, !mbid.isEmpty else { return [] }
+        return model.state.catalogueByArtist[mbid] ?? []
     }
 }
 
