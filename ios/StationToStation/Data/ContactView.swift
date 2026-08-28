@@ -35,6 +35,29 @@ func withheldFromContacts(_ media: [StoredMedia]) -> [StoredMedia] {
     media.filter { $0.from == nil && $0.personal }
 }
 
+/// Whether a night is **mine** — one on my own **Line**, as opposed to a **Contact**'s
+/// that I am only looking at (#327).
+///
+/// Every editing affordance on a **Gig** has to ask this before it is drawn. Attaching
+/// a photograph to someone else's night is not a disclosure hole — **Shared** is
+/// by-person and any **Contact** is entitled to any Shared media — but it *acquires*
+/// the night: the **Gig** becomes a record on my device and their Shared media for it
+/// routes to me on the next **Reconcile**. An action that only makes sense on my own
+/// night silently converted theirs into mine.
+///
+/// Three ways a night is mine, and an attendance claim is the first because it is the
+/// most direct: a **Checked in** or **Attended** record is the app saying I was there.
+/// The other two are the lists my own **Line** is drawn from.
+func isMyNight(
+    _ setlistId: String,
+    attendance: StoredAttendance?,
+    mine: [FmSetlist],
+    planned: [FmSetlist]
+) -> Bool {
+    if attendance != nil { return true }
+    return mine.contains { $0.id == setlistId } || planned.contains { $0.id == setlistId }
+}
+
 /// Every night's **Media**, as a **Contact** sees it. Nights sharing nothing stay,
 /// empty — a night that vanished would answer a question nobody asked.
 func contactMedia(_ media: [String: [StoredMedia]]) -> [String: [StoredMedia]] {
