@@ -620,7 +620,8 @@ struct StationRow: View {
             // Zoomed out, the canvas owns the Lines (it has friends' Lanes to
             // draw). Zoomed in, the Spine is a single amber stroke.
             if zoomedOut {
-                PeopleRails(row: row, next: next, lanes: lanes, laneWidth: laneWidth)
+                PeopleRails(row: row, next: next, lanes: lanes, colours: colours,
+                            laneWidth: laneWidth)
             } else {
                 Rectangle().fill(amber.opacity(0.3)).frame(width: 2).offset(x: SpineX)
             }
@@ -765,6 +766,9 @@ private struct PeopleRails: View {
     let row: WovenRow
     let next: WovenRow?
     let lanes: [Friend]
+    /// The colour index each drawn Lane keeps (`laneColours`). Empty means nobody is
+    /// hidden, where drawn index and colour index are the same thing.
+    var colours: [Int] = []
     let laneWidth: CGFloat
 
     var body: some View {
