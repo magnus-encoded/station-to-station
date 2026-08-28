@@ -412,6 +412,21 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// **Back out** of **Festival resolution** (#176). A Festival is uncollapsed in
+    /// place and is never a screen, so there is no stack entry to pop — but it is
+    /// still a rung, and **Back out** has no per-screen exception. Every uncollapsed
+    /// Festival is at that one rung, so one swipe collapses all of them: that *is*
+    /// one rung **Outer**, not several.
+    ///
+    /// False means nothing was open, and the Timeline is then at its outermost rung
+    /// — where **Pinch**, not **Back out**, is the gesture.
+    @discardableResult
+    func backOutOfFestivals() -> Bool {
+        if state.expandedFestivals.isEmpty { return false }
+        state.expandedFestivals.removeAll()
+        return true
+    }
+
     private func fail(_ error: Error) {
         state.error = userMessage(error)
         state.searchLoading = false
