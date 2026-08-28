@@ -23,6 +23,10 @@ struct MusicBrainzClient {
 
     private static let page = 100
     static let maxTitles = 400
+    /// A prompt, not a search result page: eight rows is what fits above a keyboard.
+    static let artistLimit = 8
+    /// Below this a query matches most of the database and the list is noise.
+    static let minQuery = 2
     /// Required by MusicBrainz, and a blank or generic one gets blocked. Naming the
     /// application and a way to reach us is the deal for an open database.
     static let userAgent =
@@ -54,6 +58,38 @@ struct MusicBrainzClient {
             try? await Task.sleep(nanoseconds: 1_000_000_000)
         }
         return Array(dedupe(titles).prefix(cap))
+    }
+
+    /// Artists whose name looks like `query`, best match first.
+    ///
+    /// The one place this app asks MusicBrainz by *name* rather than by identity, and
+    /// it is deliberately not a resolution step: it offers spellings to a person who
+    /// then picks one. Nothing is keyed on the **mbid** it returns — a planned gig
+    /// typed in by hand is a local **Gig** either way — so a wrong pick here costs a
+    /// wrong name and not a wrong join.
+    ///
+    /// The disambiguation comment comes back with the name because MusicBrainz has
+    /// four artists called Nirvana and a list of four identical rows is worse than no
+    /// list at all.
+    func searchArtists(query: String, limit: Int = artistLimit) async -> [MbArtist] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard q.count >= Self.minQuery else { return [] }
+        var comps = URLComponents(string: "https://musicbrainz.org/ws/2/artist")!
+        comps.queryItems = [
+            URLQueryItem(name: "query", value: q),
+            URLQueryItem(name: "fmt", value: "json"),
+            URLQueryItem(name: "limit", value: String(limit)),
+        ]
+        guard let url = comps.url else { return [] }
+
+        var request = URLRequest(url: url)
+        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        guard let (data, response) = try? await session.data(for: request),
+              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode)
+        else { return [] }
+        return Array(parseArtists(String(decoding: data, as: UTF8.self)).prefix(limit))
     }
 
     /// Nil on any failure. A gig screen must not throw because a catalogue is
@@ -99,6 +135,61 @@ struct RecordingsPage: Codable, Equatable {
         count = (try? c.decodeIfPresent(Int.self, forKey: .count)) ?? nil ?? 0
         recordings = (try? c.decodeIfPresent([Recording].self, forKey: .recordings)) ?? nil ?? []
     }
+}
+
+/// One artist MusicBrainz offered for a typed name.
+///
+/// `disambiguation` is MusicBrainz's own one-line note — "US grunge band", "Norwegian
+/// rock band" — and is empty for most artists. It is carried because without it the
+/// four artists called Nirvana are four identical rows.
+struct MbArtist: Codable, Equatable, Identifiable {
+    var name: String
+    var mbid: String
+    var disambiguation: String = ""
+
+    var id: String { mbid }
+}
+
+private struct ArtistsPage: Codable {
+    var artists: [ArtistHit] = []
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        artists = (try? c.decodeIfPresent([ArtistHit].self, forKey: .artists)) ?? nil ?? []
+    }
+
+    init() {}
+}
+
+private struct ArtistHit: Codable {
+    var id: String = ""
+    var name: String = ""
+    var score: Int = 0
+    var disambiguation: String = ""
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decodeIfPresent(String.self, forKey: .id)) ?? nil ?? ""
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? nil ?? ""
+        score = (try? c.decodeIfPresent(Int.self, forKey: .score)) ?? nil ?? 0
+        disambiguation =
+            (try? c.decodeIfPresent(String.self, forKey: .disambiguation)) ?? nil ?? ""
+    }
+}
+
+/// Parsing kept apart from fetching, as with `parseRecordings`.
+///
+/// Sorted by MusicBrainz's own score rather than trusting document order, and nameless
+/// or idless hits are dropped — a row a person cannot read is not a suggestion, and one
+/// with no id cannot be followed up later.
+func parseArtists(_ body: String) -> [MbArtist] {
+    guard let data = body.data(using: .utf8),
+          let page = try? JSONDecoder().decode(ArtistsPage.self, from: data)
+    else { return [] }
+    return page.artists
+        .filter { !$0.name.isEmpty && !$0.id.isEmpty }
+        .sorted { $0.score > $1.score }
+        .map { MbArtist(name: $0.name, mbid: $0.id, disambiguation: $0.disambiguation) }
 }
 
 struct Recording: Codable, Equatable {
