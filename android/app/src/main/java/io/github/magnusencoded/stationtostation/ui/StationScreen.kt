@@ -2454,6 +2454,12 @@ private fun GigNotes(
     /** The night's own facts, already composed. Empty when the record knows nothing. */
     preamble: String,
     senderName: (String) -> String?,
+    /**
+     * Still needed on its own: the vault row is *absent* under the light rather than
+     * merely read-only, because a **Contact** cannot see the vault and an empty row
+     * drawn there would claim nothing is held back over a vault that holds something.
+     */
+    contactLight: Boolean,
     /** Whether this night is mine to write on, and not under the light (#327). */
     editable: Boolean,
     onWrite: (Band, String) -> Unit,
