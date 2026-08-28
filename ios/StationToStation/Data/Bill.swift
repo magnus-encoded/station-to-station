@@ -254,6 +254,16 @@ func candidateSongs(_ recent: [FmSetlist], take: Int = 4, limit: Int = 40) -> [S
         .map { $0 }
 }
 
+/// Has this artist logged `song` in any of these setlists?
+///
+/// The question that tells five identically-named bands apart. `/search/setlists` has
+/// no song parameter, so the only way to ask it is to pull each namesake's recent
+/// setlists and look — which is why the cost is one request per namesake, and why it
+/// happens on a deliberate tap rather than in the background.
+func playsSong(_ recent: [FmSetlist], _ song: String) -> Bool {
+    recent.contains { set in set.performed().contains { sameSong($0.name, song) } }
+}
+
 /// The setlist face of a **Gig** this app minted rather than setlist.fm.
 func localGigSetlist(gigId: String, artist: String, date: String,
                      venue: String, city: String) -> FmSetlist {

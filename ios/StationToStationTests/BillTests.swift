@@ -330,4 +330,21 @@ final class BillTests: XCTestCase {
         XCTAssertEqual("Silent Majority", artistLabel(name: "Silent Majority", disambiguation: nil))
         XCTAssertEqual("Silent Majority", artistLabel(name: "Silent Majority", disambiguation: "  "))
     }
+
+    // MARK: - Telling five bands with one name apart
+
+    func testANamesakeIsFoundByASongYouKnowTheyPlay() {
+        XCTAssertTrue(playsSong([setlist("a", ["Harbour", "Low Tide"])], "low tide"))
+        XCTAssertFalse(playsSong([setlist("a", ["Harbour"])], "Low Tide"))
+    }
+
+    func testTheMatchIgnoresWhatSongKeyAlreadyIgnores() {
+        // The same rule corrections use: punctuation and case are not what makes two
+        // titles different songs.
+        XCTAssertTrue(playsSong([setlist("a", ["Don't Look Back"])], "dont look back"))
+    }
+
+    func testNoSetlistsIsNoMatchRatherThanAnError() {
+        XCTAssertFalse(playsSong([], "Low Tide"))
+    }
 }

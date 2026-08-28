@@ -485,6 +485,114 @@ final class AppModel: ObservableObject {
         markActPlayed(billId: billId, actIndex: at, chosen: chosen, now: now)
     }
 
+    /// The pool came from the wrong band. Name one song you *know* they play, and the
+    /// right one is found by it.
+    ///
+    /// A picker would ask "which of these five identically-named artists?", which nobody
+    /// standing in a field can answer — the names are identical, that is the entire
+    /// problem. "Name a song you know they play" is always answerable and is
+    /// *meaningful*: it is the fact that actually distinguishes them.
+    ///
+    /// Done by pulling each same-named artist's recent setlists and looking, because
+    /// there is no other way: `/search/setlists` has no song parameter. Cost is one
+    /// extra request per namesake, on a deliberate tap.
+    ///
+    /// The named song is used to *identify* and is never written into the **Log**.
+    /// Naming a song a band is known for is not a claim that they played it tonight, and
+    /// quietly recording it as one would be the exact fabrication this feature avoids.
+    func disambiguateAct(gigId: String, song: String) {
+        let named = song.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !named.isEmpty, state.billFetching == nil,
+              let bill = state.bills.first(where: { b in b.acts.contains { $0.gigId == gigId } }),
+              let index = bill.acts.firstIndex(where: { $0.gigId == gigId })
+        else { return }
+        let act = bill.acts[index]
+        state.billFetching = bill.id
+        Task {
+            defer { state.billFetching = nil }
+            guard let found = try? await setlistFm.searchArtists(act.name) else {
+                state.error = "Couldn't reach setlist.fm to check."
+                return
+            }
+            let namesakes = found.artist.filter { $0.name.lowercased() == act.name.lowercased() }
+            for artist in namesakes {
+                guard let sets = try? await setlistFm.artistSetlists(artist.mbid) else { continue }
+                guard playsSong(sets.setlist, named) else { continue }
+                let label = artistLabel(name: artist.name, disambiguation: artist.disambiguation)
+                let pool = candidateSongs(sets.setlist)
+                editBill(bill.id) { b in
+                    var edited = b
+                    guard index < edited.acts.count else { return edited }
+                    edited.acts[index].candidates = pool
+                    edited.acts[index].matchedArtist = label
+                    edited.acts[index].mbid = artist.mbid
+                    edited.acts[index].tried = true
+                    return edited
+                }
+                // The label, never the bare name. The name is the ambiguous string —
+                // five bands answer to it — so "songs are from Silent Majority" confirms
+                // nothing at all. What distinguishes them is the disambiguation, and the
+                // song count says the swap actually landed.
+                state.notice = "\(label) — \(pool.count) songs, from \"\(named)\"."
+                return
+            }
+            // Honest dead end. The pool is left exactly as it was rather than cleared: a
+            // pool that might be wrong still beats no pool, and it is labelled with
+            // whose it is.
+            state.error = "No band called \(act.name) has \"\(named)\" logged on setlist.fm."
+        }
+    }
+
+    /// A night this app minted, now catalogued on setlist.fm, takes their id.
+    ///
+    /// A pasted link rather than a search by artist and date. #34 sketched the search,
+    /// but the moment this is used is the moment you are looking at the page you just
+    /// created, so its url is in your hand — and matching heuristics are a way to be
+    /// wrong about which night you meant.
+    func adoptSetlistLink(gigId: String, linkOrId: String) {
+        guard let setlistId = parseSetlistId(linkOrId) else {
+            state.error = "That doesn't look like a setlist.fm link."
+            return
+        }
+        Task {
+            guard await timelines.adoptSetlistId(gigId: gigId, setlistId: setlistId) else {
+                state.error = "That night already has a setlist.fm id."
+                return
+            }
+            state.notice = "Adopted — this night is on setlist.fm now."
+            // The real record replaces the stub: it has the url, the songs whoever typed
+            // them in logged, and an id friends' lines can meet at.
+            guard let fresh = try? await setlistFm.setlist(setlistId) else { return }
+            await timelines.savePlanned(fresh)
+            state.plannedGigs = sortedPlanned(state.plannedGigs.filter { $0.id != gigId } + [fresh])
+            if state.selectedSetlist?.id == gigId { state.selectedSetlist = fresh }
+            // An **Act** holds the id its night was minted with, and the line above just
+            // changed the id that night is known by. Left alone the poster points at
+            // nothing: the act's "open" leads nowhere, so the songs whoever typed them in
+            // are unreachable — and because the lane hides a ticket only when some act
+            // claims its id, the night draws a second time beside the **Bill** it
+            // belongs to.
+            repointActs(from: gigId, to: fresh.id)
+        }
+    }
+
+    /// Moves every **Act**'s pointer from one gig id to another — the other half of
+    /// adoption, which renames a night without moving any of its data.
+    ///
+    /// Touches only the **Bills** that actually point at `from`, so publishing one act
+    /// does not rewrite a festival's whole poster.
+    private func repointActs(from: String, to: String) {
+        for bill in state.bills where bill.acts.contains(where: { $0.gigId == from }) {
+            editBill(bill.id) { b in
+                var edited = b
+                for i in edited.acts.indices where edited.acts[i].gigId == from {
+                    edited.acts[i].gigId = to
+                }
+                return edited
+            }
+        }
+    }
+
     /// One **Bill**, changed in state and on disk together. Every edit goes through here
     /// so the two cannot drift.
     private func editBill(_ billId: String, _ change: (StoredBill) -> StoredBill) {
