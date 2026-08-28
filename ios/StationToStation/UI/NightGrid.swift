@@ -108,7 +108,8 @@ struct NightGrid: View {
                 empty: light ? "Nothing shared from this night." : "Nothing shared yet.",
                 hint: hint,
                 targeted: sharedTargeted,
-                band: .shared
+                band: .shared,
+                crossed: bands.crossed
             )
             .onDrop(of: [.text], isTargeted: $sharedTargeted) { drop($0, into: .shared) }
 
@@ -124,7 +125,8 @@ struct NightGrid: View {
                     empty: "Nothing held back.",
                     hint: hint,
                     targeted: vaultTargeted,
-                    band: .vault
+                    band: .vault,
+                    crossed: false
                 )
                 .onDrop(of: [.text], isTargeted: $vaultTargeted) { drop($0, into: .vault) }
             }
@@ -156,40 +158,90 @@ struct NightGrid: View {
         empty: String,
         hint: ReleaseHint,
         targeted: Bool,
-        band: Band
+        band: Band,
+        crossed isCrossed: Bool
     ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let accent = bandAccent(band, crossed: isCrossed)
+        // Explicit, because the `let` above costs the single-expression inference.
+        return VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(title)
                     .font(.system(size: 10, weight: .semibold)).kerning(1.5)
                     .foregroundStyle(targeted && hint != .none ? crossed : faint)
+                    .accessibilityLabel(bandMeaning(title, band, isCrossed))
                 if targeted, let say = say(for: hint, band: band) {
                     Text(say).font(.system(size: 10)).foregroundStyle(crossed)
                 }
                 Spacer()
                 if editable {
+                    // The control that adds wears the colour of the band it adds to,
+                    // never a fixed amber: amber is the vault's and means *private
+                    // here* and nothing else (#268), so the shared band's Add drawn
+                    // in it said the opposite of what tapping it does. Same rule
+                    // Android's two-way handle keeps by refusing to reach for amber
+                    // on an upward drag.
                     Button { pickingBand = band } label: {
-                        Label("Add", systemImage: "plus").font(.system(size: 12))
+                        Label(band == .vault ? "Add to the vault" : "Add to shared",
+                              systemImage: "plus")
+                            .font(.system(size: 12))
                     }
-                    .tint(amber)
+                    .tint(accent)
                 }
             }
             .padding(.horizontal, 24)
 
-            if mine.isEmpty && received.isEmpty {
-                Text(empty)
-                    .font(.system(size: 13)).foregroundStyle(muted)
-                    .padding(.horizontal, 24)
-            } else {
-                LazyVGrid(columns: columns, spacing: 4) {
-                    ForEach(mine, id: \.id) { media in tile(media, band: band) }
-                    ForEach(received, id: \.id) { media in tile(media, band: band) }
+            // One frame around the band's contents, in the band's own colour, drawn
+            // at rest and not only under a drag. Android's strips have always had
+            // this; without it iOS's two bands are told apart by a 10pt label alone,
+            // and a wrapping grid — unlike Android's one-row strip — puts that label
+            // three rows of thumbnails away from the boundary it marks. The more
+            // media a night holds, the less a label alone can carry.
+            //
+            // The gesture changes *this* frame rather than adding a second: two
+            // outlines around one band is one boundary drawn twice.
+            Group {
+                if mine.isEmpty && received.isEmpty {
+                    Text(empty)
+                        .font(.system(size: 13)).foregroundStyle(muted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(10)
+                } else {
+                    LazyVGrid(columns: columns, spacing: 4) {
+                        ForEach(mine, id: \.id) { media in tile(media, band: band) }
+                        ForEach(received, id: \.id) { media in tile(media, band: band) }
+                    }
+                    .padding(6)
                 }
-                .padding(.horizontal, 20)
             }
+            .background(targeted ? accent.opacity(0.12) : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 6))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(accent, lineWidth: targeted ? 2 : 1)
+            )
+            .padding(.horizontal, 20)
         }
         .padding(.vertical, 6)
-        .background(targeted ? crossed.opacity(0.12) : Color.clear)
+    }
+
+    /// Three colours for three facts, and no colour carries two: **amber** is the
+    /// vault and means *only I can see this*, **slate** is a shared band holding only
+    /// mine, and **crossed** is a shared band more than one of us is in. The upward
+    /// gesture can therefore never light amber, which is the whole point — the
+    /// direction that spends something must not be drawn in the colour of the
+    /// direction that spends nothing. Twin of Android's `bandAccent`.
+    private func bandAccent(_ band: Band, crossed isCrossed: Bool) -> Color {
+        if band == .vault { return amber }
+        return isCrossed ? crossed : slate
+    }
+
+    /// The colour says it to everyone who can see it; this says the same thing to
+    /// VoiceOver, which cannot.
+    private func bandMeaning(_ title: String, _ band: Band, _ isCrossed: Bool) -> String {
+        if band == .vault { return "\(title), only you can see these" }
+        return isCrossed
+            ? "\(title), more than one of you is in this"
+            : "\(title), only yours so far"
     }
 
     private func tile(_ media: StoredMedia, band: Band) -> some View {
