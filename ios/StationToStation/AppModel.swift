@@ -1591,6 +1591,40 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // --- The recording as an index (#27) ---
+
+    /// Where each song sits in a recording, as long as the setlist is now.
+    ///
+    /// Padded and truncated to `songCount` rather than returned as stored: the setlist
+    /// can be edited on setlist.fm after a night was stamped, and a stored list of the
+    /// old length would otherwise shift every song's time by one.
+    func songOffsets(mediaId: String?, songCount: Int) -> [Int64] {
+        let stored = mediaId.flatMap { id in
+            state.mediaBySetlist.values.compactMap { $0.first { $0.id == id } }.first
+        }?.songOffsets ?? []
+        return (0..<max(songCount, 0)).map { stored.indices.contains($0) ? stored[$0] : notStamped }
+    }
+
+    /// Records that song `index` starts at `atMs` in the night's recording, or clears
+    /// it with `notStamped`.
+    ///
+    /// Only this one song moves. The recording and the setlist need not hold the same
+    /// songs — a clip setlist.fm left out sits in the gap between two stamps — so
+    /// nothing may be inferred about its neighbours from one stamp.
+    func stampSong(mediaId: String, index: Int, atMs: Int64, songCount: Int) {
+        var offsets = songOffsets(mediaId: mediaId, songCount: songCount)
+        guard offsets.indices.contains(index) else { return }
+        offsets[index] = atMs
+        for (gigId, media) in state.mediaBySetlist where media.contains(where: { $0.id == mediaId }) {
+            state.mediaBySetlist[gigId] = media.map {
+                var m = $0
+                if m.id == mediaId { m.songOffsets = offsets }
+                return m
+            }
+        }
+        Task { await timelines.saveSongOffsets(mediaId: mediaId, offsets: offsets) }
+    }
+
     private func refreshSuggestions(_ setlist: FmSetlist) {
         // Silent without permission: the picker is what asks, so a prompt only
         // ever follows a tap.
