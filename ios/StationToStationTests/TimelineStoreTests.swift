@@ -593,7 +593,8 @@ final class TimelineStoreTests: XCTestCase {
         let id = await store.createLocalGig(date: "06-08-2026", artist: "Velvet Ditch", venue: "")
         _ = await store.adoptSetlistId(gigId: id, setlistId: "fm-1")
 
-        XCTAssertFalse(await store.deleteGig(id))
+        let gone = await store.deleteGig(id)
+        XCTAssertFalse(gone)
         let after = await store.load()
         XCTAssertNotNil(after.gigs[id])
     }
