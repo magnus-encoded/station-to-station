@@ -95,7 +95,13 @@ struct StationView: View {
     @State private var addingBill = false
     @State private var addingLocal = false
 
-    private var lanes: [Friend] { model.state.friends }
+    /// Everyone followed, in lane order — the list colours are counted against.
+    private var allLanes: [Friend] { model.state.friends }
+    /// The Lanes actually drawn. The one place hiding is applied (#266): everything
+    /// below is handed this and never learns that filtering exists.
+    private var lanes: [Friend] { visibleLanes(allLanes, model.state.hiddenLines) }
+    /// The colour each drawn Lane keeps, so hiding one person repaints nobody.
+    private var laneColourIndexes: [Int] { laneColours(allLanes, model.state.hiddenLines) }
 
     /// Open enough to show Lanes, whether settled or mid-pinch. Only feeds cheap
     /// UI (the loading spinner) — never the weave, see `rows` below.
@@ -284,6 +290,7 @@ struct StationView: View {
                         row: row,
                         next: rows.indices.contains(i + 1) ? rows[i + 1] : nil,
                         lanes: lanes,
+                        colours: laneColourIndexes,
                         laneWidth: laneWidth,
                         media: rowMedia(row),
                         unlit: model.state.contactLight,
@@ -316,12 +323,19 @@ struct StationView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("\(model.state.timelineShows.count) gigs" + (earliest.map { " · since \($0)" } ?? ""))
                 .font(.system(size: 12)).foregroundStyle(faint)
-            if laneWidth > 0 {
+            // Shown while zoomed out even with everyone hidden — a name you cannot see
+            // is a name you cannot restore (#266).
+            if laneWidth > 0 || model.state.zoomedOut {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 14) {
                         laneKey(amber, "You")
-                        ForEach(Array(lanes.enumerated()), id: \.element.id) { i, f in
-                            laneKey(laneColor(i), f.name)
+                        // The unfiltered list, indexed for colour: a hidden name stays
+                        // in the legend, and everyone keeps the colour they had.
+                        ForEach(Array(allLanes.enumerated()), id: \.element.id) { i, f in
+                            laneKey(laneColor(i), f.name,
+                                    hidden: model.state.hiddenLines.contains(f.setlistfm)) {
+                                model.toggleLineHidden(f.setlistfm)
+                            }
                         }
                     }
                 }
@@ -332,10 +346,25 @@ struct StationView: View {
         .padding(.bottom, 12)
     }
 
-    private func laneKey(_ color: Color, _ label: String) -> some View {
-        HStack(spacing: 5) {
-            Rectangle().fill(color).frame(width: 3, height: 12)
-            Text(label).font(.system(size: 11)).foregroundStyle(muted)
+    /// Hidden is said twice over: the swatch goes out and the name is struck through,
+    /// so the state survives a colour the reader cannot discriminate.
+    @ViewBuilder
+    private func laneKey(_ color: Color, _ label: String,
+                         hidden: Bool = false, onToggle: (() -> Void)? = nil) -> some View {
+        let key = HStack(spacing: 5) {
+            Rectangle().fill(hidden ? faint : color).frame(width: 3, height: 12)
+            Text(label).font(.system(size: 11)).foregroundStyle(hidden ? faint : muted)
+                .strikethrough(hidden)
+        }
+        if let onToggle {
+            // A real toggle rather than a tap handler, so VoiceOver says which way it
+            // is before it is used — the twin of Android's `Role.Switch`.
+            Toggle(isOn: Binding(get: { !hidden }, set: { _ in onToggle() })) { key }
+                .toggleStyle(.button).buttonStyle(.plain)
+                .accessibilityLabel(label)
+                .accessibilityValue(hidden ? "hidden" : "shown")
+        } else {
+            key
         }
     }
 
@@ -525,6 +554,9 @@ struct StationRow: View {
     let row: WovenRow
     let next: WovenRow?
     let lanes: [Friend]
+    /// The colour index each drawn Lane keeps (`laneColours`). Empty means nobody is
+    /// hidden; defaulted so StationSnapshotTests can render a bare column of rows.
+    var colours: [Int] = []
     let laneWidth: CGFloat
     /// This night's visual keepsakes, in the order they were attached. Defaulted so
     /// StationSnapshotTests can still render a bare column of rows.
@@ -748,7 +780,7 @@ private struct PeopleRails: View {
         let isFestival = row.node.isSeveral
         let nodeAt = nodeHost(row, lanes)
 
-        for d in rowGeometry(row, next, lanes, laneWidth, h) {
+        for d in rowGeometry(row, next, lanes, laneWidth, h, colours) {
             let atColor = color(d.colour)
 
             if d.nodeY - d.nodeR > 0 {
@@ -783,7 +815,10 @@ private struct PeopleRails: View {
                 let joined = linesAt(row, lanes).count > 1
                 let r: CGFloat = 6
                 let rect = CGRect(x: d.x - r, y: d.nodeY - r, width: 2 * r, height: 2 * r)
-                ctx.stroke(Path(ellipseIn: rect), with: .color(joined ? crossed : laneColor(d.line)), lineWidth: 2)
+                // The host's *stable* colour, so hiding someone never repaints this.
+                let hostColour = colours.indices.contains(d.line) ? colours[d.line] : d.line
+                ctx.stroke(Path(ellipseIn: rect),
+                           with: .color(joined ? crossed : laneColor(hostColour)), lineWidth: 2)
             }
         }
     }
@@ -794,7 +829,7 @@ private struct PeopleRails: View {
         switch role {
         case .meeting: return crossed
         case .mine(let present): return amber.opacity(present ? 0.85 : 0.4)
-        case .rail(let lane): return laneColor(lane)
+        case .rail(let colourIndex): return laneColor(colourIndex)
         case .absent: return lineCol
         }
     }

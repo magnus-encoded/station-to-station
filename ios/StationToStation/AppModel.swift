@@ -53,6 +53,9 @@ struct UiState {
     // Friends (peer-to-peer, on-device)
     var mySetlistFmUser = ""
     var friends: [Friend] = []
+    /// The **Lines** tapped out of the legend, by setlist.fm username. A reading aid
+    /// and nothing else — session-lived, never written, never sent (#266).
+    var hiddenLines: Set<String> = []
     /// A card that would change a **Contact** already held, waiting on the one question
     /// this app asks (#188). Nothing is written and nothing is persisted while it stands.
     var friendConflict: FriendConflict?
@@ -828,6 +831,14 @@ final class AppModel: ObservableObject {
             if alsoAhead == known { return }
             state.festivals = alsoAhead
         }
+    }
+
+    /// Tap a name in the legend to take their **Line** off the strip, tap it again to
+    /// bring it back. Nothing is stored and nothing is sent: hiding is how this one
+    /// timeline is being read right now, not a fact about the person.
+    func toggleLineHidden(_ setlistfm: String) {
+        if state.hiddenLines.contains(setlistfm) { state.hiddenLines.remove(setlistfm) }
+        else { state.hiddenLines.insert(setlistfm) }
     }
 
     /// Pinch out to open the friends' Lanes beside my Spine, pinch in to close
