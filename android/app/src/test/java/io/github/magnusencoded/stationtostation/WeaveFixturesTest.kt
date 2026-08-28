@@ -35,6 +35,14 @@ class WeaveFixturesTest {
         val shows: Map<String, List<FmSetlist>> = emptyMap(),
         val festivals: Map<String, StoredFestival> = emptyMap(),
         val festivalIdByShow: Map<String, String> = emptyMap(),
+        /**
+         * Which **Festival**s are open, by row key. A **Resolution**, not a fact about
+         * the night — carried here because the grammar this corpus pins is claimed *at
+         * every Resolution* (ADR-0006), and a corpus that only ever weaves collapsed
+         * can only ever check one of them. Absent means every Festival is closed,
+         * which is what every fixture written before this said implicitly.
+         */
+        val expanded: Set<String> = emptySet(),
     )
 
     @Serializable
@@ -115,6 +123,7 @@ class WeaveFixturesTest {
                 festivals = Festivals(fixture.festivals, fixture.festivalIdByShow),
                 friends = fixture.friends,
                 theirs = fixture.shows - fixture.me,
+                expanded = fixture.expanded,
             )
             assertEquals(case.name, expected.rows, rows.map { row(it, fixture.friends) })
         }

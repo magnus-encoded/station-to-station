@@ -1,0 +1,39 @@
+{
+  "me": "dizzi90",
+  "friends": [{ "setlistfm": "Lemmy", "name": "Lemmy" }],
+  "expanded": ["f-tor2026"],
+  "shows": {
+    "dizzi90": [
+      {
+        "id": "a1",
+        "eventDate": "25-06-2026",
+        "artist": { "name": "The Warning" },
+        "venue": { "name": "Ekebergsletta" }
+      },
+      {
+        "id": "a2",
+        "eventDate": "24-06-2026",
+        "artist": { "name": "Gojira" },
+        "venue": { "name": "Ekebergsletta" }
+      }
+    ],
+    "Lemmy": [
+      {
+        "id": "a1",
+        "eventDate": "25-06-2026",
+        "artist": { "name": "The Warning" },
+        "venue": { "name": "Ekebergsletta" }
+      },
+      {
+        "id": "b1",
+        "eventDate": "26-06-2026",
+        "artist": { "name": "Slayer" },
+        "venue": { "name": "Ekebergsletta" }
+      }
+    ]
+  },
+  "festivals": {
+    "tor2026": { "id": "tor2026", "name": "Tons of Rock 2026", "source": "scraped" }
+  },
+  "festivalIdByShow": { "a1": "tor2026", "a2": "tor2026", "b1": "tor2026" }
+}
