@@ -50,8 +50,8 @@ screen, and the corridor's topology — one place for each place, and leaving a 
 you stood. It is identical across platforms not by policy but by construction: it is not made of
 controls, so there is nothing for a platform to have an opinion about.
 
-**Expression** is material and shadow and shape, element order, and **the vehicle** — which control
-or gesture moves you along the topology. Blur behind a sheet on iOS and flat overlapping colour on
+**Expression** is material and shadow and shape, ~~element order,~~ (see amendment 2026-08-28) and
+**the vehicle** — which control or gesture moves you along the topology. Blur behind a sheet on iOS and flat overlapping colour on
 Android are the same design. So is a carousel re-derived from Android's app switcher instead of
 ported from iOS's.
 
@@ -166,3 +166,31 @@ hand-patched. Both files now say so at the top.
 
 This is the ADR's own diagnosis applied to itself — Grammar written in prose, with nothing that
 fails when it is broken, drifted — and this document pointed an agent at the copy that was behind.
+
+## Amendment — 2026-08-28
+
+**The reading order of a Room's parts is Grammar, not Expression.** The table above listed *element
+order* under Expression, where divergence is the default and is not documented. That was wrong, and
+the iOS **Gig Room** is what proved it: it drew the keepsakes below the set and the **Note** above
+the **Log**, both legal under the old reading, and both of them said something different about the
+night than Android's room said.
+
+The sequence a Room's parts are read in is an argument about the night, made in layout. Android's
+own code has been saying so: the **Note** is last *"after the set on purpose: the sentence is
+written once the songs have been read back, which is what 'analysis happens after the show' means as
+a layout."* A claim of that shape is not material, not shadow, and not a vehicle — it is meaning,
+which is the definition this ADR already gives for Grammar. An order that can be *argued for* is an
+order that can be *wrong*, and Expression has nothing that can be wrong in it.
+
+**What stays Expression** is everything the order is made of: how far apart the parts sit, what
+separates them, whether a fixture is pinned or scrolls. Android pins the **Alcove**'s controls in a
+`bottomBar` and iOS scrolls them below the record — same sequence, different vehicle, and the
+vehicle is still the platform's to choose.
+
+**The narrow reading is the one that binds.** Not "every element on every screen is order-locked" —
+that would forbid a platform from grouping a toolbar the way its users expect. What binds is the
+order of the *named parts of a Room*: the things `CONTEXT.md` gives names to. Where a part has no
+name, there is nothing for the two platforms to disagree about yet.
+
+This is the ADR's own test — *who owns the problem?* — answered honestly. Nobody's phone has an
+opinion about whether the photographs come before the setlist. We do.
