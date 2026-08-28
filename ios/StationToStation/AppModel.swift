@@ -352,6 +352,42 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// A gig I'm going to, typed in: who is playing, where, and when.
+    ///
+    /// **The objection that kept this a paste box is obsolete.** The alert defended
+    /// taking only a setlist.fm link on two grounds. The first still holds —
+    /// setlist.fm's search index stops about a day out (#29), so a future gig cannot
+    /// be *found*. The second, that typing the details in would invent a second record
+    /// for a gig setlist.fm already has, has not been true since the **Bill** shipped:
+    /// `markActPlayed` mints local **Gig**s for nights setlist.fm has never heard of,
+    /// and `adoptSetlistLink` moves one onto the vendor id when setlist.fm catches up,
+    /// with every photo, offset, calendar link and playlist intact.
+    ///
+    /// **No attendance is written**, which is the whole difference from `addLocalGig`.
+    /// `savePlanned` records `planned` for a gig with no claim on it, and a night I
+    /// have not been to yet has no claim to make. Writing `attended` here would be the
+    /// app asserting I was somewhere I have not been.
+    func addPlannedGigByHand(artist: String, venue: String, date: String) {
+        let who = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        let room = venue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !who.isEmpty, let night = gigDay(date.trimmingCharacters(in: .whitespaces)) else {
+            state.error = "A night needs who is playing and a date as dd-MM-yyyy."
+            return
+        }
+        Task {
+            let day = fmDate(night)
+            let gigId = await timelines.createLocalGig(date: day, artist: who, venue: room)
+            let gig = localGigSetlist(gigId: gigId, artist: who, date: day,
+                                      venue: room, city: "")
+            // The claim goes into state as well as onto disk. `plannedLane` filters on
+            // it, so a gig added without it is written correctly and then drawn by
+            // nothing — the night appears only after a restart, which reads as Add
+            // having done nothing at all.
+            state.attendanceByGig[gigId] = await timelines.savePlanned(gig)
+            state.plannedGigs = sortedPlanned(state.plannedGigs + [gig])
+        }
+    }
+
     /// A night I was at that setlist.fm has never heard of, typed in.
     ///
     /// The only way into this app that does not end at setlist.fm: no account, no API
