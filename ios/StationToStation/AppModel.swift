@@ -352,6 +352,59 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// How many pictures a delete would destroy — the ones this app holds the last
+    /// copy of. Zero means every keepsake on the night is still in the library too,
+    /// so removing the night costs nothing that cannot be found again.
+    ///
+    /// The sheet asks this to decide *what to say*, not whether to ask. Android asks
+    /// only when bytes would go; iOS asks always, because the **Log** goes either way
+    /// and a written record is not a pointer into anything.
+    func photosLostByDeleting(_ gigId: String) -> Int {
+        (state.mediaBySetlist[gigId] ?? [])
+            .filter { PhotoLibrary.holdsOnlyCopy(mediaId: $0.id, ref: $0.ref) }
+            .count
+    }
+
+    /// A night deleted from its own screen — the deliberate one, as opposed to
+    /// `unmarkAct`'s undo of a mistap.
+    ///
+    /// It exists because `unmarkAct` was the *only* route to `TimelineStore.deleteGig`
+    /// and it needs an **Act** on a live **Bill** to reach a gig. Remove the Bill, or
+    /// type a night in by hand at all (#347, #349), and the night is stranded: nothing
+    /// points at it and nothing can delete it. Deletion must not depend on the poster
+    /// still being up.
+    ///
+    /// Unlike the undo this takes the media with it, because someone reading the
+    /// night's own screen can see what is on it.
+    func deleteLocalGig(_ gigId: String) {
+        let media = state.mediaBySetlist[gigId] ?? []
+        state.plannedGigs.removeAll { $0.id == gigId }
+        state.timelineShows.removeAll { $0.id == gigId }
+        state.attendanceByGig[gigId] = nil
+        state.mediaBySetlist[gigId] = nil
+        state.calendarEventByGig[gigId] = nil
+        if state.selectedSetlist?.id == gigId {
+            state.selectedSetlist = nil
+            state.gigLog = StoredLog()
+        }
+        // An act still pointing at a deleted night would offer an undo for something
+        // that is gone. The poster keeps the act; it just stops claiming a gig,
+        // exactly as `unmarkAct` leaves it.
+        for bill in state.bills where bill.acts.contains(where: { $0.gigId == gigId }) {
+            editBill(bill.id) { b in
+                var edited = b
+                for i in edited.acts.indices where edited.acts[i].gigId == gigId {
+                    edited.acts[i].gigId = nil
+                }
+                return edited
+            }
+        }
+        Task {
+            guard await timelines.deleteGig(gigId, withMedia: true) else { return }
+            for item in media { PhotoLibrary.deleteThumbnails(item.id) }
+        }
+    }
+
     /// A gig I'm going to, typed in: who is playing, where, and when.
     ///
     /// **The objection that kept this a paste box is obsolete.** The alert defended

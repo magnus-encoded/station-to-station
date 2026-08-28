@@ -206,6 +206,24 @@ enum PhotoLibrary {
         return UIImage(cgImage: cropped, scale: image.scale, orientation: image.imageOrientation)
     }
 
+    /// Whether this app holds the last picture of a keepsake.
+    ///
+    /// The iOS shape of Android's `ownsBytes`, and it answers the same question a
+    /// different way. Android can own the bytes outright — a copy under its own
+    /// files directory — while every keepsake here is a pointer into the library
+    /// plus the derived tiers `Thumbnails` writes. So the app holds the only copy
+    /// exactly when the library no longer has the asset and the durable tier still
+    /// does: the original was deleted out from under us, and #98's copy is what has
+    /// been drawing that night ever since.
+    ///
+    /// Asked before a delete, and never to decide what to draw — a night renders
+    /// from the durable tier whether or not the original is still there.
+    static func holdsOnlyCopy(mediaId: String, ref: String) -> Bool {
+        guard FileManager.default.fileExists(atPath: Thumbnails.gridFile(mediaId).path)
+        else { return false }
+        return PHAsset.fetchAssets(withLocalIdentifiers: [ref], options: nil).firstObject == nil
+    }
+
     /// Removing means removing: the record goes, and so do the bytes it owned.
     static func deleteThumbnails(_ mediaId: String) {
         try? FileManager.default.removeItem(at: Thumbnails.gridFile(mediaId))
