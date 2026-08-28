@@ -506,6 +506,35 @@ func linesAt(_ row: WovenRow, _ lanes: [Friend]) -> [Int] {
 /// The innermost Line *is* the minimum: Spine is -1 and so sorts below every Lane
 /// index, and `row.mine` is what puts it in the set. That equivalence used to be
 /// something to verify by reading two implementations against each other.
+/// The **Lanes** actually drawn: everyone in lane order, minus the people tapped out
+/// of the legend. `hidden` holds setlist.fm usernames, the same key the friends list
+/// itself de-duplicates on.
+///
+/// **The one place hiding is applied** (#266). Every consumer of the lane list — the
+/// weave that builds the rows, `rowGeometry`, `nodeHost`, `crossingX` — is handed this
+/// list, so none of them learns that filtering exists and none of them can disagree
+/// about who is on screen. A hidden person is not in a row's other-attendees, so they
+/// place no **Line**, count into no **Crossing**, and drop out of a **Festival**'s
+/// **Together** and **Theirs** by construction rather than by a second subtraction.
+///
+/// A reading aid and nothing else: it is not stored, nothing is sent, and it says
+/// nothing about the relationship — a hidden **Contact**'s **Gig resolution**, media
+/// and **Reconcile** are untouched, because none of them reads a lane list.
+func visibleLanes(_ lanes: [Friend], _ hidden: Set<String>) -> [Friend] {
+    hidden.isEmpty ? lanes : laneColours(lanes, hidden).map { lanes[$0] }
+}
+
+/// The colour index each visible **Lane** keeps: its position in the *unfiltered* list.
+///
+/// The one thing the seam above does not give for free. **Lane colour** is taken from
+/// an index, and the drawn index re-packs when someone is hidden — so without this,
+/// hiding one person repaints everyone outside them and a colour you have learned to
+/// read stops meaning a person. Kept here rather than in the canvas so "hiding does not
+/// recolour anyone" is assertable with no canvas and no device.
+func laneColours(_ lanes: [Friend], _ hidden: Set<String>) -> [Int] {
+    lanes.indices.filter { !hidden.contains(lanes[$0].setlistfm) }
+}
+
 func nodeHost(_ row: WovenRow, _ lanes: [Friend]) -> Int {
     linesAt(row, lanes).min() ?? Spine
 }

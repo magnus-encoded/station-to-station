@@ -63,7 +63,12 @@ enum LineColour: Equatable {
     /// My own Spine. Dimmer on a night I was not at.
     case mine(present: Bool)
     /// A friend's Lane, by Lane index.
-    case rail(lane: Int)
+    /// A friend's **Lane**, by *colour* index — their position in the unfiltered lane
+    /// list, not the lane they are drawn on. The two are the same until someone is
+    /// hidden; after that the drawn lanes re-pack inward and the colours must not
+    /// follow them, or hiding one person recolours everyone outside them and a colour
+    /// you have learned stops meaning a person (#266).
+    case rail(colourIndex: Int)
     /// A Line running past a night nobody on it attended.
     case absent
 }
@@ -88,13 +93,22 @@ let SpineLineX: CGFloat = SpineX + 1
 ///
 /// A Lane that has not slid into view yet is absent from the result: the strip does not
 /// stroke Lines nobody can see.
+/// `lanes` is the *visible* lane list (`visibleLanes`), so hiding a person is nothing
+/// more than a shorter list — they take no **Lane**, notch no **Node** and are counted
+/// into no **Crossing**, with no case written for it anywhere below. `colours` is the
+/// other half: the colour index each visible lane keeps, from `laneColours`. Empty
+/// means nobody is hidden, where drawn index and colour index are the same thing.
 func rowGeometry(
     _ row: WovenRow,
     _ next: WovenRow?,
     _ lanes: [Friend],
     _ laneWidth: CGFloat,
-    _ rowHeight: CGFloat
+    _ rowHeight: CGFloat,
+    _ colours: [Int] = []
 ) -> [DrawnLine] {
+    func colourOf(_ line: Int) -> Int {
+        colours.indices.contains(line) ? colours[line] : line
+    }
     let step = laneStep(lanes.count)
     let strip = stripWidth(lanes.count)
     // Openness is scaled by the Lane count so the Lanes slide out one after another
@@ -162,10 +176,10 @@ func rowGeometry(
             bendLen: max(min((rowHeight - nodeY - gap) * 0.8, EdgeBend), 0),
             present: here,
             people: people,
-            colour: roleOf(people, here, line),
+            colour: roleOf(people, here, line, colourOf(line)),
             width: widthOf(people),
             peopleAhead: ahead,
-            colourAhead: roleOf(ahead, here, line),
+            colourAhead: roleOf(ahead, here, line, colourOf(line)),
             widthAhead: widthOf(ahead)
         )
     }
@@ -175,10 +189,11 @@ func rowGeometry(
 /// other they *are* one Line and have to read as one, and where one peels away it is
 /// alone again and takes its own colour back. Green comes from the *count*, so a Crossing
 /// between two friends is green without me being one of them.
-private func roleOf(_ people: Int, _ present: Bool, _ line: Int) -> LineColour {
+private func roleOf(_ people: Int, _ present: Bool, _ line: Int,
+                    _ colourIndex: Int) -> LineColour {
     if people > 1 { return .meeting }
     if line == Spine { return .mine(present: present) }
-    return present ? .rail(lane: line) : .absent
+    return present ? .rail(colourIndex: colourIndex) : .absent
 }
 
 /// Weight says how many walk this stretch together.
