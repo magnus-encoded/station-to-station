@@ -38,7 +38,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -55,6 +54,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -79,13 +79,6 @@ private val Amber = Color(0xFFE7B24C)
 private val AmberSoft = Color(0x29E7B24C)
 private val Slate = Color(0xFF6D7E9B)
 private val Serif = FontFamily.Serif
-
-// The QR affordance is revealed on a timer, not immediately: showing it too early reads
-// as "the radio gave up" when it hasn't. Reveal a quiet "use a code" option once a couple
-// of seconds pass with nobody found, and make it the primary offer once the radio has
-// clearly missed its budget — both without stopping the scan. See #30's flow.
-private const val QR_OFFER_AFTER_MS = 2_500L
-private const val QR_PRIMARY_AFTER_MS = 7_000L
 
 /**
  * One way to meet someone. Every radio runs behind this — Nearby between Androids, BLE
@@ -135,16 +128,7 @@ fun ExchangeScreen(
         cardUri = viewModel.myCardUri()?.toString()
     }
 
-    // The QR reveal, purely on elapsed time — independent of any tap and never stopping
-    // the radio. Escalates to primary only while still nobody has appeared.
-    var qrOffered by remember { mutableStateOf(false) }
-    var qrPrimaryDue by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        delay(QR_OFFER_AFTER_MS); qrOffered = true
-        delay(QR_PRIMARY_AFTER_MS - QR_OFFER_AFTER_MS); qrPrimaryDue = true
-    }
     val peers = state.exchangePeers
-    val qrPrimary = qrPrimaryDue && peers.isEmpty() && state.connectingWith == null
 
     Scaffold(
         containerColor = Ground,
@@ -182,18 +166,6 @@ fun ExchangeScreen(
                 val connecting = state.connectingWith
                 when {
                     connecting != null -> ConnectingBeat(connecting)
-                    qrPrimary -> {
-                        // The radio missed its budget; the code becomes the offer, radio
-                        // still live behind it in case someone turns up a second later.
-                        Spacer(Modifier.height(20.dp))
-                        Text(
-                            "No one turned up yet. Show your code, or scan theirs.",
-                            color = Muted,
-                            fontSize = 13.sp,
-                            modifier = Modifier.padding(bottom = 4.dp),
-                        )
-                        QrExchange(cardUri = cardUri, username = state.mySetlistFmUser, onSetUsername = onSetUsername)
-                    }
                     else -> LookingForPeople(
                         peers = peers,
                         discovering = state.discovering,
@@ -201,19 +173,19 @@ fun ExchangeScreen(
                     )
                 }
 
-                // The quiet "use a code" option, offered once a couple of seconds pass —
-                // present alongside the live list, because revealing it is not giving up.
-                if (qrOffered && !qrPrimary && connecting == null) {
-                    Spacer(Modifier.height(20.dp))
-                    var showCode by remember { mutableStateOf(false) }
-                    if (showCode) {
-                        QrExchange(cardUri = cardUri, username = state.mySetlistFmUser, onSetUsername = onSetUsername)
-                        TextButton(onClick = { showCode = false }) { Text("Hide code", color = Faint) }
-                    } else {
-                        OutlinedButton(onClick = { showCode = true }) {
-                            Text("Show my code / scan theirs", color = Amber)
-                        }
-                    }
+                // My card, always here rather than behind a toggle: the radar above never
+                // stops or hands off to it, so there is nothing to reveal — you just scroll.
+                if (connecting == null) {
+                    Spacer(Modifier.height(28.dp))
+                    Text(
+                        "OR HAND OVER YOUR CARD",
+                        color = Faint,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 1.5.sp,
+                        modifier = Modifier.align(Alignment.Start).padding(bottom = 8.dp),
+                    )
+                    QrExchange(cardUri = cardUri, username = state.mySetlistFmUser, onSetUsername = onSetUsername)
                 }
 
                 // Your people: contacts and followed lines already on the timeline.
@@ -334,10 +306,10 @@ private fun PeerRow(peer: ExchangePeer, onConnect: () -> Unit) {
 }
 
 /**
- * The QR fallback with role assignment. If both phones drop to "here's a code" nobody is
- * scanning, so one side defaults to showing and the other toggles to scan. Scanning needs
- * no in-app camera: the friend deep link is registered, so any phone camera that reads the
- * code opens the app and adds the owner.
+ * My card as a QR code. No scan-mode toggle: earlier this had a button that claimed to
+ * "scan theirs instead" but only hid your own code — scanning needs no in-app camera, the
+ * friend deep link is registered so any phone camera that reads a code opens the app, and
+ * that happens with your own code left on screen just as well as with it hidden.
  */
 @Composable
 private fun QrExchange(cardUri: String?, username: String, onSetUsername: () -> Unit) {
@@ -370,33 +342,32 @@ private fun QrExchange(cardUri: String?, username: String, onSetUsername: () -> 
         OutlinedButton(onClick = onSetUsername) { Text("Add your username", color = Amber) }
         return
     }
-    var scanning by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(8.dp))
-        if (scanning) {
-            Text(
-                "Point your camera at their code — it opens the app and adds them.",
-                color = Muted,
-                fontSize = 13.sp,
-            )
-        } else {
-            val qr = remember(cardUri) { runCatching { qrBitmap(cardUri, 640) }.getOrNull() }
-            if (qr != null) {
-                Box(Modifier.clip(RoundedCornerShape(14.dp)).background(Color.White).padding(14.dp)) {
-                    Image(
-                        bitmap = qr.asImageBitmap(),
-                        contentDescription = "Your card as a QR code",
-                        modifier = Modifier.size(220.dp),
-                    )
-                }
-                Spacer(Modifier.height(10.dp))
-                Text("@$username", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        // Amber-on-Ground rather than the usual black-on-white block: a QR only needs
+        // enough luminance contrast to decode, not literal black and white, so it can wear
+        // the same palette as everything around it.
+        val qr = remember(cardUri) {
+            runCatching { qrBitmap(cardUri, 640, ink = Amber.toArgb(), paper = Ground.toArgb()) }.getOrNull()
+        }
+        if (qr != null) {
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Ground)
+                    .border(1.dp, LineLit, RoundedCornerShape(14.dp))
+                    .padding(14.dp),
+            ) {
+                Image(
+                    bitmap = qr.asImageBitmap(),
+                    contentDescription = "Your card as a QR code",
+                    modifier = Modifier.size(220.dp),
+                )
             }
+            Spacer(Modifier.height(10.dp))
+            Text("@$username", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         }
         Spacer(Modifier.height(8.dp))
-        TextButton(onClick = { scanning = !scanning }) {
-            Text(if (scanning) "Show my code instead" else "I'll scan theirs instead", color = Amber)
-        }
         OutlinedButton(onClick = { shareLink(context, cardUri) }) {
             Text("Share a link instead", color = Amber)
         }
@@ -487,13 +458,18 @@ fun FriendTimelineScreen(
 
 /** Encodes text as a QR bitmap. The friend deep link is registered, so any camera app that
  *  reads this opens Station to Station and adds the card's owner. */
-internal fun qrBitmap(content: String, sizePx: Int): Bitmap {
+internal fun qrBitmap(
+    content: String,
+    sizePx: Int,
+    ink: Int = android.graphics.Color.BLACK,
+    paper: Int = android.graphics.Color.WHITE,
+): Bitmap {
     val matrix = MultiFormatWriter().encode(content, BarcodeFormat.QR_CODE, sizePx, sizePx)
     val pixels = IntArray(sizePx * sizePx)
     for (y in 0 until sizePx) {
         val row = y * sizePx
         for (x in 0 until sizePx) {
-            pixels[row + x] = if (matrix[x, y]) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+            pixels[row + x] = if (matrix[x, y]) ink else paper
         }
     }
     return Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888).apply {
