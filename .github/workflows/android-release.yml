@@ -123,11 +123,16 @@ jobs:
 
       # The .aab goes to Play and nowhere else — it is not installable, so putting
       # it on the Releases page would only offer people a file they cannot open.
+      # The .aab is a means to a Play upload, and the Publish step below has already
+      # made it by the time this expires. The installable half of a release — the
+      # .apk — lives on the Releases page, which is not Actions storage and is not
+      # pruned, so an old tag stays reachable as something you can actually install.
       - name: Upload bundle artifact
         uses: actions/upload-artifact@v7
         with:
           name: app-release-${{ github.ref_name }}
           path: android/app/build/outputs/bundle/release/app-release.aab
+          retention-days: 30
 
       # The store is one channel, not the only one. The .apk is what someone
       # downloads and installs directly, so it is the asset on the Releases page.
