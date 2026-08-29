@@ -209,7 +209,7 @@ dependencies {
     // Android-to-Android discovery and the card swap. Raw GATT is still coming for
     // iOS interop (#13/#18) — Nearby is the Android-only fast path, not a
     // replacement for it.
-    implementation("com.google.android.gms:play-services-nearby:19.3.0")
+    implementation("com.google.android.gms:play-services-nearby:19.5.0")
 
     testImplementation("junit:junit:4.13.2")
 }
