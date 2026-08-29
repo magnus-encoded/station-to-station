@@ -40,11 +40,16 @@ jobs:
           SETLISTFM_API_KEY: ${{ secrets.SETLISTFM_API_KEY }}
         run: ./gradlew --no-daemon assembleDebug
 
+      # retention-days because this runs on every push to every branch and the APK
+      # is ~21MB: at the 90-day default it was 631 copies and 11GB, against a 0.5GB
+      # plan. A debug APK is worth having for the branch you are currently testing
+      # and worth nothing a week later — the commit is still there to rebuild from.
       - name: Upload APK artifact
         uses: actions/upload-artifact@v7
         with:
           name: app-debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
 
       # The same code non-debuggable. Costs about a minute a run, and buys the only
       # artifact a performance number may be taken from — see docs/measuring-on-device.md.
@@ -62,3 +67,4 @@ jobs:
         with:
           name: app-measure
           path: android/app/build/outputs/apk/measure/app-measure.apk
+          retention-days: 7

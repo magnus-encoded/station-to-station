@@ -80,6 +80,7 @@ jobs:
           name: timeline-snapshot
           path: ios/snapshot-out/timeline.png
           if-no-files-found: ignore
+          retention-days: 7
 
       - name: Build device app (unsigned)
         working-directory: ios
@@ -105,16 +106,21 @@ jobs:
           cp -R "$app" Payload/
           zip -qr StationToStation.ipa Payload
 
+      # 14 rather than the 7 the other CI artifacts get: android-release.yml pulls
+      # this artifact from the newest green run when a tag is cut, so the retention
+      # window has to outlast a quiet spell on main or a release ships without an
+      # IPA. That step is continue-on-error, so the failure is soft either way.
       - name: Upload .ipa artifact
         uses: actions/upload-artifact@v7
         with:
           name: StationToStation-ipa
           path: ios/StationToStation.ipa
+          retention-days: 14
 
       # The same file, put where someone without a GitHub account can reach it.
-      # A workflow artifact needs a login to download and expires after 90 days,
-      # so "the iOS build is on the repo" was only true for signed-in visitors
-      # who knew about the Actions tab.
+      # A workflow artifact needs a login to download and is pruned on a retention
+      # window, so "the iOS build is on the repo" was only true for signed-in
+      # visitors who knew about the Actions tab.
       #
       # It rides the newest release rather than one of its own: the tag is the
       # Android publish, and cutting a parallel iOS tag for a build nobody can
