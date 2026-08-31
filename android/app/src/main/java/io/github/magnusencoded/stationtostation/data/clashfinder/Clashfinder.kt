@@ -1,5 +1,6 @@
 package io.github.magnusencoded.stationtostation.data.clashfinder
 
+import android.webkit.CookieManager
 import io.github.magnusencoded.stationtostation.data.ProgrammeAct
 import io.github.magnusencoded.stationtostation.data.StoredProgramme
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
@@ -10,6 +11,9 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import okhttp3.Cookie
+import okhttp3.CookieJar
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -442,9 +446,32 @@ fun browserCheckUrl(body: String): String? {
     return absolute.replace(Regex("""(?<=[?&])r=[^&]*"""), "r=%2F")
 }
 
+/**
+ * The one cookie jar, shared with the WebView the check is taken in.
+ *
+ * The check does not clear an *address* — it clears a *client*, by leaving a cookie
+ * behind — which is why taking it in Chrome did nothing for the app: two clients, two
+ * jars. Pointing OkHttp at the platform's own store makes the browser that takes the
+ * check and the code that makes the request the same client, and the clearance is kept
+ * across launches by the platform rather than by us.
+ */
+private object WebViewCookies : CookieJar {
+    override fun loadForRequest(url: HttpUrl): List<Cookie> =
+        CookieManager.getInstance().getCookie(url.toString())
+            ?.split(";")
+            ?.mapNotNull { Cookie.parse(url, it.trim()) }
+            .orEmpty()
+
+    override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+        val store = CookieManager.getInstance()
+        cookies.forEach { store.setCookie(url.toString(), it.toString()) }
+        store.flush()
+    }
+}
+
 class ClashfinderClient(private val auth: suspend () -> ClashfinderAuth?) {
 
-    private val http = OkHttpClient()
+    private val http = OkHttpClient.Builder().cookieJar(WebViewCookies).build()
 
     private suspend fun get(path: String): String {
         val credentials = auth() ?: throw IOException(

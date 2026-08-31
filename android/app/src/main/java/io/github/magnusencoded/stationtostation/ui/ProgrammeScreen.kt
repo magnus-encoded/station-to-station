@@ -1,8 +1,9 @@
 package io.github.magnusencoded.stationtostation.ui
 
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
+import android.webkit.CookieManager
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -46,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -151,8 +153,11 @@ fun ProgrammeScreen(
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     // Set only by the bot check, and it is what makes that error actionable rather than
-    // a wall: the address it names is the one to take in a browser.
+    // a wall: the address it names is the check, and taking it is what clears this app.
     var checkUrl by remember { mutableStateOf<String?>(null) }
+    var takingCheck by remember { mutableStateOf(false) }
+    // What to try again once the check is taken — the fetch that ran into it.
+    var retry by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     // Both caches are documents on disk, and the index is ten thousand records of it.
     // Reading them in composition put a file read and that decode on the main thread
@@ -182,6 +187,7 @@ fun ProgrammeScreen(
                 .onFailure {
                     error = it.message ?: "Could not reach clashfinder."
                     checkUrl = (it as? BrowserCheckRequired)?.url
+                    retry = { loadIndex() }
                 }
             loading = false
         }
@@ -208,6 +214,7 @@ fun ProgrammeScreen(
                 .onFailure {
                     error = it.message ?: "Could not reach clashfinder."
                     checkUrl = (it as? BrowserCheckRequired)?.url
+                    retry = { loadProgramme(id) }
                 }
             loading = false
         }
@@ -264,6 +271,14 @@ fun ProgrammeScreen(
             // that watches for exactly that. So the empty state is a signpost.
             !state.clashfinderReady -> NoAccount(pad, onOpenSettings)
 
+            // The check has to be taken *here*, in this app's own browser, because what
+            // it clears is a client and not an address — taken in Chrome it leaves its
+            // cookie in Chrome and this app stays shut out.
+            takingCheck && checkUrl != null -> BrowserCheck(pad, checkUrl!!) {
+                takingCheck = false
+                retry?.invoke()
+            }
+
             picking -> Picker(
                 modifier = pad,
                 festivals = festivals,
@@ -273,6 +288,7 @@ fun ProgrammeScreen(
                 loading = loading,
                 error = error,
                 checkUrl = checkUrl,
+                onTakeCheck = { takingCheck = true },
                 onRefresh = { loadIndex() },
                 onPick = { loadProgramme(it.id) },
             )
@@ -284,6 +300,7 @@ fun ProgrammeScreen(
                 loading = loading,
                 error = error,
                 checkUrl = checkUrl,
+                onTakeCheck = { takingCheck = true },
                 onRefetch = { loadProgramme(programme.id) },
                 onAdd = { viewModel.addActFromProgramme(programme, it) },
             )
@@ -325,24 +342,55 @@ private fun NoAccount(modifier: Modifier, onOpenSettings: () -> Unit) {
  * error offers the browser. Everything else is a sentence, as before.
  */
 @Composable
-private fun ErrorNote(error: String?, checkUrl: String?, modifier: Modifier = Modifier) {
+private fun ErrorNote(
+    error: String?,
+    checkUrl: String?,
+    onTakeCheck: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     if (error == null) return
-    val context = LocalContext.current
     Column(modifier) {
         Text(error, color = Slate, fontSize = 13.sp)
-        checkUrl?.let { url ->
+        if (checkUrl != null) {
             Text(
-                "Open the check in a browser, take it, then fetch again.",
+                "It is a page, and taking it here is what lets this app through.",
                 color = Faint,
                 fontSize = 12.sp,
                 modifier = Modifier.padding(top = 4.dp),
             )
             Spacer(Modifier.height(10.dp))
-            Action("Open the browser check", loading = false) {
-                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-            }
+            Action("Take the check", loading = false, onClick = onTakeCheck)
         }
     }
+}
+
+/**
+ * The check, in this app's own browser.
+ *
+ * A WebView rather than a link out, and the same cookie store the client reads: the
+ * challenge hands out a cookie, so whoever takes it is the one who gets through. It
+ * closes itself the moment the page stops being the check — the challenge sends the
+ * browser to the front page when it is satisfied — and the fetch it interrupted is
+ * tried again.
+ */
+@Composable
+private fun BrowserCheck(modifier: Modifier, url: String, onDone: () -> Unit) {
+    AndroidView(
+        modifier = modifier.fillMaxSize(),
+        factory = { ctx ->
+            CookieManager.getInstance().setAcceptCookie(true)
+            WebView(ctx).apply {
+                settings.javaScriptEnabled = true
+                webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView?, finished: String?) {
+                        CookieManager.getInstance().flush()
+                        if (finished?.contains("sgcaptcha") == false) onDone()
+                    }
+                }
+                loadUrl(url)
+            }
+        },
+    )
 }
 
 /**
@@ -364,6 +412,7 @@ private fun Picker(
     loading: Boolean,
     error: String?,
     checkUrl: String?,
+    onTakeCheck: () -> Unit,
     onRefresh: () -> Unit,
     onPick: (ClashfinderFestival) -> Unit,
 ) {
@@ -389,7 +438,7 @@ private fun Picker(
             Spacer(Modifier.height(18.dp))
             Action(if (loading) "Fetching…" else "Fetch the festival list", loading, onRefresh)
             Spacer(Modifier.height(14.dp))
-            ErrorNote(error, checkUrl)
+            ErrorNote(error, checkUrl, onTakeCheck)
             return@Column
         }
 
@@ -415,7 +464,7 @@ private fun Picker(
                 modifier = Modifier.clickable(enabled = !loading, onClick = onRefresh).padding(6.dp),
             )
         }
-        ErrorNote(error, checkUrl, Modifier.padding(vertical = 6.dp))
+        ErrorNote(error, checkUrl, onTakeCheck, Modifier.padding(vertical = 6.dp))
         if (ranked.isEmpty()) {
             Spacer(Modifier.height(16.dp))
             // The expected case, not a fault: clashfinder has ten thousand festivals
@@ -474,6 +523,7 @@ private fun Timetable(
     loading: Boolean,
     error: String?,
     checkUrl: String?,
+    onTakeCheck: () -> Unit,
     onRefetch: () -> Unit,
     onAdd: (ProgrammeAct) -> Unit,
 ) {
@@ -555,7 +605,7 @@ private fun Timetable(
                 fontSize = 12.sp,
                 modifier = Modifier.clickable(enabled = !loading, onClick = onRefetch).padding(vertical = 6.dp),
             )
-            ErrorNote(error, checkUrl)
+            ErrorNote(error, checkUrl, onTakeCheck)
             // Attribution is a condition of the licence the data comes under, not a
             // courtesy — so it is rendered with the data every time.
             if (programme.copyright.isNotBlank()) {
