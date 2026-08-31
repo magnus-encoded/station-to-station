@@ -2,7 +2,6 @@ package io.github.magnusencoded.stationtostation.data
 
 import io.github.magnusencoded.stationtostation.ui.NIGHT_ENDS
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -19,7 +18,9 @@ import java.time.LocalTime
  * inventing temporal precision the source does not have is the fabrication to avoid.
  *
  * So this is a separate, read-only record. Nothing here is ever written by a user and
- * nothing here is evidence of attendance — it is the noticeboard, not the timeline.
+ * nothing here is evidence of attendance. A person may add one of these rows to their
+ * **Bill** as an **Act** — that is planning to go, and it is still an **Act** until
+ * somebody marks it played. The noticeboard can seed the timeline; it never fills it.
  *
  * [stage] is the collision axis. Two acts at one festival clash only because a person
  * cannot be in two places, so a clash is defined across *different* stages; two names
@@ -33,6 +34,24 @@ data class ProgrammeAct(
     /** HH:mm, local. */
     val start: String = "",
     val stage: String = "",
+    /**
+     * HH:mm, local — the end the source *published*, blank where it published none.
+     *
+     * Øya's own page never carried this and the inference below was the whole story.
+     * Clashfinder does carry it, on every act of both documents sampled, and it is
+     * worth having: the default set length is an hour, a headline set is not, and an
+     * hour-long guess makes [clashesWith] report a real conflict as free time.
+     */
+    val end: String = "",
+    /**
+     * The MusicBrainz id the source published for this act, blank where it published
+     * none — which is about forty-nine acts in fifty.
+     *
+     * Kept because it is the only field in a timetable that identifies an artist
+     * *exactly*. Where it is there, an **Act** added off this row resolves for free and
+     * without a name to get wrong.
+     */
+    val mbid: String = "",
 ) {
     /**
      * When this act starts, as a moment.
@@ -45,6 +64,11 @@ data class ProgrammeAct(
      */
     fun startsAt(): LocalDateTime? =
         runCatching { LocalDate.parse(date) }.getOrNull()?.let { setTimeOnNight(it, start) }
+
+    /** The published end as a moment, on the same night rule as [startsAt]. */
+    fun endsAt(): LocalDateTime? =
+        if (end.isBlank()) null
+        else runCatching { LocalDate.parse(date) }.getOrNull()?.let { setTimeOnNight(it, end) }
 }
 
 /**
@@ -61,27 +85,33 @@ internal fun setTimeOnNight(date: LocalDate, hhmm: String): LocalDateTime? {
 }
 
 /**
- * How long an act runs when the programme does not say — and it never says.
+ * How long an act runs when the programme does not say.
  *
- * ponytail: a flat hour, because the only alternatives are worse. Øya publishes start
- * times and stage only, so an end time is always inferred; the inference below prefers
- * the *next act on the same stage*, which is real information, and falls back to this
- * for the last act of the night, where there is none.
+ * ponytail: a flat hour, because the only alternatives are worse. It is the last
+ * resort of three: a published end where there is one, otherwise the *next act on the
+ * same stage*, which is real information, and this for the last act of the night,
+ * where there is neither.
  */
 const val DEFAULT_SET_MINUTES = 60L
 
 /**
- * When each act ends, inferred — because no festival publishes it.
+ * When each act ends: as published, or inferred where it is not.
  *
- * The next act on the same stage is the honest source: a stage runs one act at a time,
- * so the following start is an upper bound on this one's end, and it is usually close
- * to exact because changeovers are short. Where there is no next act — the last set of
- * the night on that stage — there is nothing to lean on and [DEFAULT_SET_MINUTES]
- * stands in.
+ * A declared end wins outright, uncapped — a 105-minute headline set truncated to the
+ * default hour makes [clashesWith] report a genuine conflict as free time, which is
+ * the one thing this feature exists to prevent.
  *
- * Returned as a map rather than a field on [ProgrammeAct] because an act's end is not
- * a property of the act. It is a property of the act *and everything after it*, and
- * baking it into the record would make it look like published data.
+ * The inference stays behind it rather than being deleted. Every act in both sampled
+ * clashfinder documents carried an end, but that is two documents out of ten thousand,
+ * and a malformed act should degrade to a guessed hour rather than drop out of clash
+ * detection entirely. It prefers the next act on the same stage: a stage runs one act
+ * at a time, so the following start is an upper bound and usually close to exact.
+ *
+ * Returned as a map rather than a field on [ProgrammeAct] because an *inferred* end is
+ * not a property of the act. It is a property of the act and everything after it.
+ *
+ * A declared end that is not after the start is not honoured — a source that says an
+ * act ends before it begins has said nothing, and the inference is the better answer.
  */
 fun endTimes(acts: List<ProgrammeAct>): Map<ProgrammeAct, LocalDateTime> {
     val ends = mutableMapOf<ProgrammeAct, LocalDateTime>()
@@ -92,8 +122,9 @@ fun endTimes(acts: List<ProgrammeAct>): Map<ProgrammeAct, LocalDateTime> {
             val next = sorted.getOrNull(i + 1)?.second
             // A gap of hours means the stage went quiet, not that the act played on.
             // Cap at the default so an afternoon set doesn't swallow the evening.
-            ends[act] = minOf(next ?: start.plusMinutes(DEFAULT_SET_MINUTES),
-                start.plusMinutes(DEFAULT_SET_MINUTES))
+            ends[act] = act.endsAt()?.takeIf { it.isAfter(start) }
+                ?: minOf(next ?: start.plusMinutes(DEFAULT_SET_MINUTES),
+                    start.plusMinutes(DEFAULT_SET_MINUTES))
         }
     }
     return ends
@@ -152,115 +183,36 @@ fun actsOn(day: LocalDate, acts: List<ProgrammeAct>): List<ProgrammeAct> =
     acts.filter { it.date == day.toString() }
         .sortedWith(compareBy({ it.startsAt() }, { it.stage }))
 
+/**
+ * One festival's timetable as this phone holds it: the acts, and whose it is.
+ *
+ * **The app never carries a copy of anyone's programme.** It is fetched by this device,
+ * with the user's own clashfinder account, and kept only here — the app is a user agent
+ * and not a publisher, and no line-up ships inside the binary.
+ *
+ * [copyright] is not decoration. The data is CC BY-NC 3.0 and attribution is a
+ * *condition* of that licence, so the line the payload carries is stored with the acts
+ * and rendered with them. [lastEdit] is kept for a different reason: a clashfinder is
+ * edited up to and past the doors, so how old this copy is decides whether to trust it.
+ */
+@Serializable
+data class StoredProgramme(
+    /** The clashfinder's own id — what a refetch asks for. */
+    val id: String = "",
+    /** The festival's name as its own document gives it: the screen's title. */
+    val name: String = "",
+    val copyright: String = "",
+    val lastEdit: String = "",
+    val acts: List<ProgrammeAct> = emptyList(),
+)
+
 private val json = Json { ignoreUnknownKeys = true }
 
-/** Reads a cached programme back. */
-fun parseProgramme(text: String): List<ProgrammeAct> =
-    runCatching { json.decodeFromString<List<ProgrammeAct>>(text) }.getOrDefault(emptyList())
+/** Reads a cached programme back. Anything unreadable is no programme at all. */
+fun parseProgramme(text: String): StoredProgramme =
+    runCatching { json.decodeFromString<StoredProgramme>(text) }.getOrDefault(StoredProgramme())
 
 /** Writes one out, for the local cache and — later — for handing to another phone. */
-fun encodeProgramme(acts: List<ProgrammeAct>): String =
-    json.encodeToString(ListSerializer(ProgrammeAct.serializer()), acts)
+fun encodeProgramme(programme: StoredProgramme): String =
+    json.encodeToString(StoredProgramme.serializer(), programme)
 
-/**
- * The published programme, read off the festival's own page.
- *
- * **The app never carries a copy of anyone's programme.** It is fetched by the user's
- * own device, from the public page, exactly as a browser would — the app is a user
- * agent here, not a publisher. Nothing about a festival's line-up ships inside the
- * binary, and that is a deliberate line, not an oversight.
- *
- * Parsing is by regex over the server-rendered HTML, which is a thing to be honest
- * about: it is coupled to markup nobody promised to keep. That is survivable because
- * of *when* it runs — at home, the night before, with signal and a screen — and
- * because it fails visibly (no acts) rather than subtly. A silent partial parse is
- * the failure that would matter, which is why [oyaProgramme] is all-or-nothing per
- * act: an act missing any of its four fields is dropped rather than half-built.
- *
- * ponytail: one festival's markup, because one festival is what there is. The shape
- * generalises when a second one does.
- */
-const val OYA_PROGRAMME_URL = "https://www.oyafestivalen.no/program/program-2026"
-
-private val NORWEGIAN_MONTHS = mapOf(
-    "januar" to 1, "februar" to 2, "mars" to 3, "april" to 4, "mai" to 5, "juni" to 6,
-    "juli" to 7, "august" to 8, "september" to 9, "oktober" to 10, "november" to 11,
-    "desember" to 12,
-)
-
-private val BLOCK = Regex("""<h3[^>]*>(.*?)</h3>(.*?)</ul>""", RegexOption.DOT_MATCHES_ALL)
-private val LIST_ITEM = Regex("""<li>(.*?)</li>""", RegexOption.DOT_MATCHES_ALL)
-private val DAY = Regex("""(\d{1,2})\.\s*(\p{L}+)""")
-private val CLOCK = Regex("""([0-2]\d:[0-5]\d)""")
-private val TAGS = Regex("""<!--.*?-->|<[^>]+>""", RegexOption.DOT_MATCHES_ALL)
-
-private val ENTITY = Regex("""&(#x[0-9a-fA-F]+|#\d+|\w+);""")
-private val NAMED = mapOf(
-    "amp" to "&", "lt" to "<", "gt" to ">", "quot" to "\"", "apos" to "'", "nbsp" to " ",
-)
-
-/**
- * Entities back into characters, because a name is what a person reads, not what a
- * page encodes. Øya's own headliner is written `Nick Cave &amp; The Bad Seeds`, and an
- * act stored that way never matches the **Gig** pasted from setlist.fm — the ampersand
- * is the join between the programme and the timeline, and it has to be an ampersand.
- *
- * ponytail: no HTML parser and not `android.text.Html`, which would drag the whole
- * parser onto a device and out of the JVM tests. The named list is the five that mean
- * anything in a band name; anything numeric is decoded outright.
- *
- * `Character.toChars` and not `toChar()`: the latter narrows an `Int` and would turn
- * every code point above U+FFFF into garbage — a band name is exactly the place an
- * emoji or a rare script turns up. Anything outside Unicode is left as written.
- */
-private fun String.entities(): String = ENTITY.replace(this) { m ->
-    val e = m.groupValues[1]
-    when {
-        e.startsWith("#x") -> e.drop(2).toIntOrNull(16)?.codePoint()
-        e.startsWith("#") -> e.drop(1).toIntOrNull()?.codePoint()
-        else -> NAMED[e]
-    } ?: m.value
-}
-
-/** A code point as text, or null if it is not one — `toChars` throws on the rest. */
-private fun Int.codePoint(): String? =
-    if (Character.isValidCodePoint(this)) String(Character.toChars(this)) else null
-
-/**
- * Markup out, text in — the pages put artist names inside nested spans and comments.
- *
- * Stripping runs before decoding, so `&lt;b&gt;` in the source survives as the literal
- * text `<b>`. That is right for a name a person reads, and safe only because the
- * result is a display string and a match key: it goes to a Compose `Text`, which
- * renders characters and not markup. Never hand it to a WebView or `Html.fromHtml`.
- */
-private fun String.text(): String =
-    // Collapse after decoding, and count a decoded non-breaking space as a space: the
-    // page uses one to hold a name together, and it is a space to everyone reading it.
-    TAGS.replace(this, "").entities().replace(Regex("""[\s\u00A0]+"""), " ").trim()
-
-/**
- * Øya's programme page into acts. Pure: hand it the HTML, however you got it.
- *
- * [year] is a parameter because the page writes "torsdag 13. august" with no year in
- * it at all. Taking it from the url rather than the clock means a programme read in
- * January is not dated to January.
- */
-fun oyaProgramme(html: String, year: Int): List<ProgrammeAct> =
-    BLOCK.findAll(html).mapNotNull { block ->
-        val artist = block.groupValues[1].text().ifBlank { return@mapNotNull null }
-        val items = LIST_ITEM.findAll(block.groupValues[2]).map { it.groupValues[1].text() }.toList()
-        if (items.size < 3) return@mapNotNull null
-        val day = DAY.find(items[0]) ?: return@mapNotNull null
-        val month = NORWEGIAN_MONTHS[day.groupValues[2].lowercase()] ?: return@mapNotNull null
-        val clock = CLOCK.find(items[1])?.groupValues?.get(1) ?: return@mapNotNull null
-        val stage = items[2].ifBlank { return@mapNotNull null }
-        ProgrammeAct(
-            artist = artist,
-            date = "%04d-%02d-%02d".format(year, month, day.groupValues[1].toInt()),
-            start = clock,
-            stage = stage,
-        )
-    }.distinctBy { listOf(it.artist, it.date, it.start, it.stage) }
-        .sortedWith(compareBy({ it.date }, { it.start }, { it.stage }))
-        .toList()

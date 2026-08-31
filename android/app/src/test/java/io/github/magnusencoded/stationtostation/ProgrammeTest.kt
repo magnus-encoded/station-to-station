@@ -1,11 +1,11 @@
 package io.github.magnusencoded.stationtostation
 
 import io.github.magnusencoded.stationtostation.data.ProgrammeAct
+import io.github.magnusencoded.stationtostation.data.StoredProgramme
 import io.github.magnusencoded.stationtostation.data.actsOn
 import io.github.magnusencoded.stationtostation.data.clashesWith
 import io.github.magnusencoded.stationtostation.data.encodeProgramme
 import io.github.magnusencoded.stationtostation.data.endTimes
-import io.github.magnusencoded.stationtostation.data.oyaProgramme
 import io.github.magnusencoded.stationtostation.data.parseProgramme
 import io.github.magnusencoded.stationtostation.data.playingAt
 import io.github.magnusencoded.stationtostation.data.programmeDays
@@ -18,8 +18,13 @@ import java.time.LocalDateTime
 
 class ProgrammeTest {
 
-    private fun act(artist: String, start: String, stage: String, date: String = "2026-08-13") =
-        ProgrammeAct(artist = artist, date = date, start = start, stage = stage)
+    private fun act(
+        artist: String,
+        start: String,
+        stage: String,
+        date: String = "2026-08-13",
+        end: String = "",
+    ) = ProgrammeAct(artist = artist, date = date, start = start, stage = stage, end = end)
 
     @Test
     fun `an act ends when the next one on its stage starts`() {
@@ -43,6 +48,42 @@ class ProgrammeTest {
     fun `the last act of the night falls back to the default length`() {
         val a = act("Headliner", "22:30", "Sirkus")
         assertEquals(LocalDateTime.parse("2026-08-13T23:30"), endTimes(listOf(a))[a])
+    }
+
+    @Test
+    fun `a published end is preferred over anything inferred`() {
+        val a = act("First", "18:00", "Amfiet", end = "18:20")
+        val b = act("Second", "18:40", "Amfiet")
+        assertEquals(LocalDateTime.parse("2026-08-13T18:20"), endTimes(listOf(a, b))[a])
+    }
+
+    /**
+     * The truncation bug, asserted. A 105-minute headline set clipped to the default
+     * hour makes a real conflict disappear — the clash function reports free time
+     * exactly where the choice is, which is the one thing this feature exists to
+     * prevent.
+     */
+    @Test
+    fun `a published end longer than the default hour is honoured, and the clash is seen`() {
+        val headline = act("Headline", "22:00", "Amfiet", end = "23:45")
+        val other = act("Also want", "23:15", "Sirkus")
+
+        assertEquals(LocalDateTime.parse("2026-08-13T23:45"), endTimes(listOf(headline, other))[headline])
+        assertEquals(listOf(other), clashesWith(headline, listOf(headline, other)))
+    }
+
+    @Test
+    fun `an end that runs past midnight closes on the right night`() {
+        val late = act("Closer", "23:30", "Klubben", end = "01:00")
+        assertEquals(LocalDateTime.parse("2026-08-14T01:00"), endTimes(listOf(late))[late])
+    }
+
+    @Test
+    fun `an end that cannot be after its start is ignored, and the inference stands`() {
+        // A malformed act degrades to a guessed hour rather than dropping out of clash
+        // detection entirely.
+        val a = act("Malformed", "20:00", "Amfiet", end = "19:00")
+        assertEquals(LocalDateTime.parse("2026-08-13T21:00"), endTimes(listOf(a))[a])
     }
 
     @Test
@@ -86,64 +127,33 @@ class ProgrammeTest {
         assertEquals(listOf(on), playingAt(at, listOf(on, over, soon)))
     }
 
-    /**
-     * The markup this mimics, written out rather than captured: a saved copy of the
-     * real page would put a festival's programme in the repo, which is the thing this
-     * app deliberately does not do. What is being tested is the *shape* — nested spans
-     * inside the h3, Next.js comment nodes mid-text, "kl." before the time, a Norwegian
-     * date with no year — and that is reproducible without anyone's data.
-     */
-    private val pageShape = """
-        <div><h3 class="x">Band One<!-- --> <span class="y">(<!-- -->UK<!-- -->)</span></h3>
-        <ul class="flex"><li><span><span class="inline-block first-letter:uppercase">torsdag 13. august</span></span></li>
-        <li><span><span class="hidden md:inline-block">kl.</span> <!-- -->15:45</span></li>
-        <li><span class="h-8">Main Stage</span></li></ul></div>
-        <div><h3 class="x">Band &amp; Band&#x27;s Friend&#160;Two &#x1F3B8;</h3>
-        <ul class="flex"><li><span><span class="inline-block first-letter:uppercase">fredag 14. august</span></span></li>
-        <li><span><span class="hidden md:inline-block">kl.</span> <!-- -->22:00</span></li>
-        <li><span class="h-8">Tent</span></li></ul></div>
-    """.trimIndent()
-
     @Test
-    fun `the page parses into acts, comments and nested spans and all`() {
-        val acts = oyaProgramme(pageShape, year = 2026)
-        assertEquals(2, acts.size)
-        assertEquals("Band One (UK)", acts[0].artist)
-        assertEquals("2026-08-13", acts[0].date)
-        assertEquals("15:45", acts[0].start)
-        assertEquals("Main Stage", acts[0].stage)
-        assertEquals(listOf(LocalDate.parse("2026-08-13"), LocalDate.parse("2026-08-14")), programmeDays(acts))
+    fun `the days and the running order of a timetable`() {
+        val thursday = act("First", "15:45", "Amfiet")
+        val friday = act("Second", "22:00", "Tent", date = "2026-08-14")
+        val acts = listOf(friday, thursday)
+
+        assertEquals(
+            listOf(LocalDate.parse("2026-08-13"), LocalDate.parse("2026-08-14")),
+            programmeDays(acts).sorted(),
+        )
+        assertEquals(listOf(thursday), actsOn(LocalDate.parse("2026-08-13"), acts))
     }
 
     @Test
-    fun `an ampersand in a band name arrives as an ampersand`() {
-        // The live page writes "Nick Cave &amp; The Bad Seeds". Stored raw, that name
-        // matches nothing a person or setlist.fm would ever write. The guitar is the
-        // code point above U+FFFF: decoded one UTF-16 unit at a time it comes out
-        // as garbage, and a band name is exactly where such a character turns up.
-        val acts = oyaProgramme(pageShape, year = 2026)
-        assertEquals("Band & Band's Friend Two 🎸", acts[1].artist)
+    fun `a cached programme round-trips, attribution and all`() {
+        val programme = StoredProgramme(
+            id = "oyafestivalen2026",
+            name = "Øyafestivalen 2026",
+            copyright = "Clashfinder data CC BY-NC 3.0",
+            lastEdit = "2026-07-11 13:44:46",
+            acts = listOf(act("Headline", "21:30", "Amfiet", end = "23:15")),
+        )
+        assertEquals(programme, parseProgramme(encodeProgramme(programme)))
     }
 
     @Test
-    fun `a block missing any field is dropped, never half-built`() {
-        // The failure that would matter is a partial act quietly joining the list —
-        // an act with no stage clashes with nothing and is invisible on the timetable.
-        val broken = """
-            <div><h3>No time</h3><ul><li><span>torsdag 13. august</span></li>
-            <li><span>Main Stage</span></li></ul></div>
-        """.trimIndent()
-        assertTrue(oyaProgramme(broken, year = 2026).isEmpty())
-    }
-
-    @Test
-    fun `markup that has moved on parses to nothing, not to nonsense`() {
-        assertTrue(oyaProgramme("<html><body><p>We redesigned the site</p></body></html>", 2026).isEmpty())
-    }
-
-    @Test
-    fun `a cached programme round-trips`() {
-        val acts = oyaProgramme(pageShape, year = 2026)
-        assertEquals(acts, parseProgramme(encodeProgramme(acts)))
+    fun `an unreadable cache is no programme, not a crash`() {
+        assertEquals(StoredProgramme(), parseProgramme("not json at all"))
     }
 }

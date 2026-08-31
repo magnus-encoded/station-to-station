@@ -8,6 +8,8 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import io.github.magnusencoded.stationtostation.BuildConfig
+import io.github.magnusencoded.stationtostation.data.clashfinder.ClashfinderAuth
+import io.github.magnusencoded.stationtostation.data.clashfinder.clashfinderPublicKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -45,6 +47,9 @@ class SettingsRepository(private val context: Context) {
         val SPOTIFY_SCOPE = stringPreferencesKey("spotify_scope")
         val PKCE_VERIFIER = stringPreferencesKey("pkce_verifier")
         val MY_SETLISTFM_USER = stringPreferencesKey("my_setlistfm_user")
+        val CLASHFINDER_USER = stringPreferencesKey("clashfinder_user")
+        val CLASHFINDER_PRIVATE_KEY = stringPreferencesKey("clashfinder_private_key")
+        val CLASHFINDER_PUBLIC_KEY = stringPreferencesKey("clashfinder_public_key")
         val FRIENDS = stringPreferencesKey("friends")
         val ONBOARDED = booleanPreferencesKey("onboarded")
     }
@@ -126,6 +131,54 @@ class SettingsRepository(private val context: Context) {
 
     fun bundledSetlistFmKeyHint(): String = maskedHint(BuildConfig.SETLISTFM_API_KEY)
     fun bundledSpotifyClientIdHint(): String = maskedHint(BuildConfig.SPOTIFY_CLIENT_ID)
+
+    /**
+     * The clashfinder account, which is the user's own and has no bundled fallback.
+     *
+     * Beside the setlist.fm key rather than in the credential store, following the
+     * pattern that key set: it is a per-source secret the person pasted in themselves,
+     * and losing it on a restore would cost them the programme feature entirely.
+     */
+    val clashfinderUser: Flow<String?> =
+        context.dataStore.data.map { it[Keys.CLASHFINDER_USER]?.ifBlank { null } }
+
+    val clashfinderPrivateKey: Flow<String?> =
+        context.dataStore.data.map { it[Keys.CLASHFINDER_PRIVATE_KEY]?.ifBlank { null } }
+
+    /**
+     * Both halves, and the digest derived from them once here rather than per request —
+     * it is static for the life of an account.
+     *
+     * Either half blank clears the pair: half a credential is not a credential, and
+     * leaving one behind would make the empty state say the account is set up.
+     */
+    suspend fun saveClashfinderCredentials(user: String, privateKey: String) {
+        val u = user.trim()
+        val k = privateKey.trim()
+        context.dataStore.edit { prefs ->
+            if (u.isBlank() || k.isBlank()) {
+                prefs.remove(Keys.CLASHFINDER_USER)
+                prefs.remove(Keys.CLASHFINDER_PRIVATE_KEY)
+                prefs.remove(Keys.CLASHFINDER_PUBLIC_KEY)
+            } else {
+                prefs[Keys.CLASHFINDER_USER] = u
+                prefs[Keys.CLASHFINDER_PRIVATE_KEY] = k
+                prefs[Keys.CLASHFINDER_PUBLIC_KEY] = clashfinderPublicKey(u, k)
+            }
+        }
+    }
+
+    /** What a request carries, or null when there is no account on this phone. */
+    suspend fun clashfinderAuth(): ClashfinderAuth? {
+        val prefs = context.dataStore.data.first()
+        val user = prefs[Keys.CLASHFINDER_USER]?.ifBlank { null } ?: return null
+        val key = prefs[Keys.CLASHFINDER_PUBLIC_KEY]?.ifBlank { null }
+            // An account saved before the digest was stored, or a half-written edit.
+            ?: prefs[Keys.CLASHFINDER_PRIVATE_KEY]?.ifBlank { null }
+                ?.let { clashfinderPublicKey(user, it) }
+            ?: return null
+        return ClashfinderAuth(user, key)
+    }
 
     suspend fun saveSetlistFmApiKey(value: String) {
         context.dataStore.edit { it[Keys.SETLISTFM_API_KEY] = value.trim() }
