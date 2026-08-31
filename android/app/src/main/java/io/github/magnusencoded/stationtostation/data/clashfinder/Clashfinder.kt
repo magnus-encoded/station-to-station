@@ -1,5 +1,6 @@
 package io.github.magnusencoded.stationtostation.data.clashfinder
 
+import android.util.Log
 import android.webkit.CookieManager
 import io.github.magnusencoded.stationtostation.data.ProgrammeAct
 import io.github.magnusencoded.stationtostation.data.StoredProgramme
@@ -489,6 +490,11 @@ class ClashfinderClient(private val auth: suspend () -> ClashfinderAuth?) {
                 .build()
             http.newCall(request)
                 .execute().use { resp ->
+                    Log.i(
+                        "clashfinder",
+                        "${resp.code} sent=${WebViewCookies.loadForRequest(url).map { it.name }} " +
+                            "got=${resp.headers("Set-Cookie").size}",
+                    )
                     when {
                         resp.isSuccessful -> resp.body?.string().orEmpty()
                         resp.code == 401 || resp.code == 403 -> throw IOException(
@@ -503,6 +509,7 @@ class ClashfinderClient(private val auth: suspend () -> ClashfinderAuth?) {
         // what it is, because "could not read the programme" would send someone looking
         // for a bug in the parser — and hand back a way through it.
         if (!body.trimStart().startsWith("{")) {
+            Log.i("clashfinder", "refused: " + body.take(200))
             throw BrowserCheckRequired(browserCheckUrl(body) ?: "$HOST/$path")
         }
         return body
