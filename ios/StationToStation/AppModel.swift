@@ -20,6 +20,8 @@ struct UiState {
     // Settings
     var setlistFmApiKey = ""
     var spotifyClientId = ""
+    var clashfinderUser = ""
+    var clashfinderPrivateKey = ""
     var spotifyConnected = false
     var spotifyLoginReady = false
     var setlistFmReady = false
@@ -229,6 +231,8 @@ final class AppModel: ObservableObject {
         state.onboarded = settings.onboarded
         state.mySetlistFmUser = settings.mySetlistFmUser ?? ""
         state.friends = settings.friends
+        state.clashfinderUser = settings.clashfinderUser ?? ""
+        state.clashfinderPrivateKey = settings.clashfinderPrivateKey ?? ""
 
         // CI (and a URL bar) seed a Resolution here: `-seedFixture <name>` on the
         // launch line. UserDefaults maps `-key value` argv automatically, so no
@@ -1003,6 +1007,22 @@ final class AppModel: ObservableObject {
         state.spotifyClientId = clientId.trimmingCharacters(in: .whitespaces)
         state.spotifyLoginReady = settings.spotifyClientIdValue != nil
         state.setlistFmReady = settings.setlistFmApiKeyValue != nil
+    }
+
+    func saveClashfinderAccount(user: String, privateKey: String) {
+        settings.saveClashfinderAccount(user: user, privateKey: privateKey)
+        state.clashfinderUser = user.trimmingCharacters(in: .whitespaces)
+        state.clashfinderPrivateKey = privateKey.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// `nil` until both halves of a clashfinder account are on the phone — see
+    /// `Clashfinder.swift` on why there is no bundled fallback here.
+    var clashfinderAuth: ClashfinderAuth? {
+        guard !state.clashfinderUser.isEmpty, !state.clashfinderPrivateKey.isEmpty else { return nil }
+        return ClashfinderAuth(
+            user: state.clashfinderUser,
+            publicKey: clashfinderPublicKey(user: state.clashfinderUser, privateKey: state.clashfinderPrivateKey)
+        )
     }
 
     func loginSpotify() {

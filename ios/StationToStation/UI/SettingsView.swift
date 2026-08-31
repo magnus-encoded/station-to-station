@@ -4,6 +4,8 @@ struct SettingsView: View {
     @EnvironmentObject var model: AppModel
     @State private var apiKey = ""
     @State private var clientId = ""
+    @State private var clashfinderUser = ""
+    @State private var clashfinderPrivateKey = ""
 
     var body: some View {
         let s = model.state
@@ -45,6 +47,22 @@ struct SettingsView: View {
                     TextField("setlist.fm API key", text: $apiKey)
                         .autocorrectionDisabled().textInputAutocapitalization(.never)
                 }
+            }
+
+            Section("clashfinder") {
+                Text("Powers the Programme tab: a timetable for the festival you pick, "
+                    + "with clashes worked out for you. No account, no programme feature "
+                    + "— there is deliberately no shared credential here (see #390). "
+                    + "Create a free account and its private key at clashfinder.com.")
+                    .font(.caption).foregroundStyle(.secondary)
+                TextField("clashfinder username", text: $clashfinderUser)
+                    .autocorrectionDisabled().textInputAutocapitalization(.never)
+                SecureField("clashfinder private key", text: $clashfinderPrivateKey)
+                Button("Save clashfinder account") {
+                    model.saveClashfinderAccount(user: clashfinderUser, privateKey: clashfinderPrivateKey)
+                }
+                .disabled(clashfinderUser.trimmingCharacters(in: .whitespaces).isEmpty
+                    || clashfinderPrivateKey.trimmingCharacters(in: .whitespaces).isEmpty)
             }
 
             // Cards are swapped peer to peer and never expire on their own, so
@@ -92,6 +110,8 @@ struct SettingsView: View {
         .onAppear {
             apiKey = s.setlistFmApiKey
             clientId = s.spotifyClientId
+            clashfinderUser = s.clashfinderUser
+            clashfinderPrivateKey = s.clashfinderPrivateKey
         }
     }
 

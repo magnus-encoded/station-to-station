@@ -1,7 +1,7 @@
 import SwiftUI
 
 // The noticeboard: what is on, and what each thing costs you. The Swift twin of
-// Android's `ui/ProgrammeScreen.kt` (#173).
+// Android's `ui/ProgrammeScreen.kt` (#173, #389, #390).
 //
 // Deliberately read-only and deliberately not wired into the timeline. A programme
 // is what the festival announced, not evidence anybody went — turning a listing
@@ -11,6 +11,10 @@ import SwiftUI
 // The whole screen is one question asked two ways: *right now* (the on-now block,
 // only while the festival is running) and *later today* (the day list, where every
 // act carries what it clashes with).
+//
+// ponytail: adding an act to a Bill from here is #390's next slice, not this one —
+// this screen reads the timetable clashfinder publishes; it does not yet write
+// anywhere. See `docs/agents` / issue #390 for what is left.
 
 private let ground = Color(red: 0x0E / 255, green: 0x0B / 255, blue: 0x14 / 255)
 private let raised = Color(red: 0x17 / 255, green: 0x12 / 255, blue: 0x1F / 255)
@@ -32,49 +36,45 @@ private var programmeCacheFile: URL {
     return dir.appendingPathComponent("programme.json")
 }
 
-private func cachedProgramme() -> [ProgrammeAct] {
-    guard let text = try? String(contentsOf: programmeCacheFile, encoding: .utf8) else { return [] }
+/// The reduced clashfinder index, cached separately from any one festival's
+/// timetable — see `Clashfinder.swift`'s note on why the full ~4 MB index is never
+/// re-parsed on every open.
+private var indexCacheFile: URL {
+    let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    return dir.appendingPathComponent("clashfinder-index.json")
+}
+
+private func cachedProgramme() -> StoredProgramme {
+    guard let text = try? String(contentsOf: programmeCacheFile, encoding: .utf8) else { return StoredProgramme() }
     return parseProgramme(text)
 }
 
-/// Fetch the public page and keep what it says.
-///
-/// The programme is retrieved by this device, from the festival's own site, and
-/// stored only here. Nothing is redistributed and nothing was shipped — see
-/// `oyaProgramme`.
-private func fetchProgramme() async -> Result<[ProgrammeAct], Error> {
-    guard let url = URL(string: oyaProgrammeURL) else { return .failure(AppError("Bad programme URL.")) }
-    do {
-        let (data, response) = try await URLSession.shared.data(from: url)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            return .failure(AppError("The festival's site returned an error."))
-        }
-        let acts = oyaProgramme(String(decoding: data, as: UTF8.self), year: 2026)
-        // An empty parse means the page changed shape. Saying so beats caching
-        // nothing and showing an empty timetable that looks like a festival with
-        // no bands.
-        guard !acts.isEmpty else {
-            return .failure(AppError("Could not read the programme — the site's layout has changed."))
-        }
-        try? encodeProgramme(acts).write(to: programmeCacheFile, atomically: true, encoding: .utf8)
-        return .success(acts)
-    } catch {
-        return .failure(error)
-    }
+private func cachedIndex() -> [ClashfinderFestival] {
+    guard let text = try? String(contentsOf: indexCacheFile, encoding: .utf8) else { return [] }
+    return decodeFestivals(text)
 }
+
+/// The window shown before the person types anything — see `rankFestivals`.
+private let pickerPageSize = 40
 
 struct ProgrammeView: View {
     @EnvironmentObject var nav: Nav
+    @EnvironmentObject var model: AppModel
     var now: Date = Date()
 
-    @State private var acts: [ProgrammeAct] = cachedProgramme()
+    @State private var programme = cachedProgramme()
     @State private var loading = false
     @State private var error: String?
+    @State private var checkUrl: String?
     @State private var day: Date?
+    @State private var showPicker = false
 
     private var calendar: Calendar { .current }
+    private lazy var client = ClashfinderClient { [weak model] in await model?.clashfinderAuth }
 
     var body: some View {
+        let acts = programme.acts
         let days = programmeDays(acts, calendar: calendar)
         let onNow = playingAt(now, acts, calendar: calendar)
 
@@ -93,6 +93,11 @@ struct ProgrammeView: View {
                         dayChips(days)
                         let listed = day.map { actsOn($0, acts, calendar: calendar) } ?? []
                         ForEach(listed, id: \.self) { act in actRow(act, in: acts, accent: slate) }
+                        if !programme.copyright.isEmpty {
+                            Text(programme.copyright)
+                                .font(.system(size: 10)).foregroundStyle(faint)
+                                .padding(.top, 16)
+                        }
                         Spacer().frame(height: 32)
                     }
                     .padding(.horizontal, 16)
@@ -101,7 +106,13 @@ struct ProgrammeView: View {
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Text("Øya 2026").font(.system(size: 16, design: .serif)).foregroundStyle(ink)
+                Text(programme.name.isEmpty ? "Programme" : programme.name)
+                    .font(.system(size: 16, design: .serif)).foregroundStyle(ink)
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button { showPicker = true } label: {
+                    Image(systemName: "magnifyingglass").foregroundStyle(ink)
+                }
             }
         }
         .toolbarBackground(ground, for: .navigationBar)
@@ -111,7 +122,13 @@ struct ProgrammeView: View {
         // Opens on the night you are actually standing in. Before the festival
         // that is the first day, after it the last — never an empty screen.
         .onAppear { if day == nil { day = openingDay(days) } }
-        .onChange(of: acts) { day = openingDay(programmeDays($0, calendar: calendar)) }
+        .onChange(of: programme) { day = openingDay(programmeDays($0.acts, calendar: calendar)) }
+        .sheet(isPresented: $showPicker) {
+            FestivalPickerView(client: client, on: now, calendar: calendar) { picked in
+                showPicker = false
+                loadEvent(picked.id)
+            }
+        }
     }
 
     private func openingDay(_ days: [Date]) -> Date? {
@@ -121,32 +138,51 @@ struct ProgrammeView: View {
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("The line-up lives on the festival's own site. Fetch it here and it "
-                + "stays on this phone — get it before you go, the signal in a field "
-                + "is not the signal you have now.")
-                .font(.system(size: 14)).foregroundStyle(muted)
-            Text(loading ? "Fetching…" : "Fetch the programme")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(ground)
-                .padding(.horizontal, 18).padding(.vertical, 11)
-                .background(loading ? faint : amber)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-                .onTapGesture { if !loading { load() } }
+            if model.clashfinderAuth == nil {
+                Text("The programme comes from clashfinder, which needs your own account. "
+                    + "Add a username and private key in Settings — a free account takes a "
+                    + "minute at clashfinder.com.")
+                    .font(.system(size: 14)).foregroundStyle(muted)
+            } else {
+                Text("Pick a festival and its timetable stays on this phone — get it "
+                    + "before you go, the signal in a field is not the signal you have now.")
+                    .font(.system(size: 14)).foregroundStyle(muted)
+                Text(loading ? "Fetching…" : "Choose a festival")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(ground)
+                    .padding(.horizontal, 18).padding(.vertical, 11)
+                    .background(loading ? faint : amber)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .onTapGesture { if !loading { showPicker = true } }
+            }
             if let error {
-                Text(error).font(.system(size: 13)).foregroundStyle(slate)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(error).font(.system(size: 13)).foregroundStyle(slate)
+                    if let checkUrl, let url = URL(string: checkUrl) {
+                        Link("Take the check in a browser", destination: url)
+                            .font(.system(size: 13, weight: .semibold)).foregroundStyle(amber)
+                    }
+                }
             }
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private func load() {
+    private func loadEvent(_ id: String) {
         loading = true
         error = nil
+        checkUrl = nil
         Task { @MainActor in
-            switch await fetchProgramme() {
-            case .success(let fetched): acts = fetched
-            case .failure(let err): error = userMessage(err)
+            do {
+                let fetched = try await client.event(id)
+                programme = fetched
+                try? encodeProgramme(fetched).write(to: programmeCacheFile, atomically: true, encoding: .utf8)
+            } catch let check as BrowserCheckRequired {
+                error = "clashfinder wants a browser check before it will answer this phone."
+                checkUrl = check.url
+            } catch {
+                self.error = userMessage(error)
             }
             loading = false
         }
@@ -163,20 +199,22 @@ struct ProgrammeView: View {
             f.dateFormat = "EEE d"
             return f
         }()
-        return HStack(spacing: 8) {
-            ForEach(days, id: \.self) { d in
-                let selected = d == day
-                Text(fmt.string(from: d))
-                    .font(.system(size: 13, weight: selected ? .semibold : .regular))
-                    .foregroundStyle(selected ? ground : muted)
-                    .padding(.horizontal, 12).padding(.vertical, 7)
-                    .background(selected ? amber : Color.clear)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(selected ? amber : chipEdge, lineWidth: 1)
-                    )
-                    .onTapGesture { day = d }
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(days, id: \.self) { d in
+                    let selected = d == day
+                    Text(fmt.string(from: d))
+                        .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                        .foregroundStyle(selected ? ground : muted)
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .background(selected ? amber : Color.clear)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(selected ? amber : chipEdge, lineWidth: 1)
+                        )
+                        .onTapGesture { day = d }
+                }
             }
         }
         .padding(.bottom, 14)
@@ -242,5 +280,83 @@ private struct ActRowView: View {
         .padding(.bottom, 10)
         .contentShape(Rectangle())
         .onTapGesture { open.toggle() }
+    }
+}
+
+/// Which festival's timetable to fetch: nearness-ranked, windowed by default,
+/// searched over the whole catalogue — see `rankFestivals`.
+private struct FestivalPickerView: View {
+    let client: ClashfinderClient
+    let on: Date
+    let calendar: Calendar
+    let onPick: (ClashfinderFestival) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var all: [ClashfinderFestival] = cachedIndex()
+    @State private var query = ""
+    @State private var visible = pickerPageSize
+    @State private var loading = false
+    @State private var error: String?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                let ranked = rankFestivals(all, on: on, query: query, calendar: calendar)
+                ForEach(ranked.prefix(query.isEmpty ? visible : ranked.count)) { festival in
+                    Button { onPick(festival) } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(festival.name).foregroundStyle(.primary)
+                            Text("\(festival.start) \u{00B7} \(festival.acts) acts \u{00B7} \(festival.stages) stages")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                if query.isEmpty && visible < ranked.count {
+                    Button("Show more") { visible += pickerPageSize }
+                }
+            }
+            .searchable(text: $query, prompt: "Filter by name")
+            .navigationTitle("Choose a festival")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if loading { ProgressView() } else {
+                        Button("Refresh") { refresh() }
+                    }
+                }
+            }
+            .overlay {
+                if all.isEmpty && !loading {
+                    VStack(spacing: 8) {
+                        Image(systemName: "questionmark.folder").font(.system(size: 32))
+                        Text(error ?? "No festival list yet")
+                        Text("Tap Refresh to fetch clashfinder's catalogue.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+                    .padding(24)
+                }
+            }
+        }
+        .onAppear { if all.isEmpty { refresh() } }
+    }
+
+    private func refresh() {
+        loading = true
+        error = nil
+        Task { @MainActor in
+            do {
+                let fetched = try await client.index()
+                all = fetched
+                try? encodeFestivals(fetched).write(to: indexCacheFile, atomically: true, encoding: .utf8)
+            } catch {
+                self.error = userMessage(error)
+            }
+            loading = false
+        }
     }
 }
