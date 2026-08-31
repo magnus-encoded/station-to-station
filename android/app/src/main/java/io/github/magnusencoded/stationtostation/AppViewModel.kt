@@ -13,6 +13,12 @@ import io.github.magnusencoded.stationtostation.data.DeviceLocation
 import io.github.magnusencoded.stationtostation.data.DeviceTimelinePlumbing
 import io.github.magnusencoded.stationtostation.data.Festivals
 import io.github.magnusencoded.stationtostation.data.LoadedSpine
+import io.github.magnusencoded.stationtostation.data.ProgrammeAct
+import io.github.magnusencoded.stationtostation.data.StoredProgramme
+import io.github.magnusencoded.stationtostation.data.programmeDays
+import io.github.magnusencoded.stationtostation.data.clashfinder.ClashfinderClient
+import io.github.magnusencoded.stationtostation.data.clashfinder.billingLead
+import io.github.magnusencoded.stationtostation.data.clashfinder.matchArtist
 import io.github.magnusencoded.stationtostation.data.SettingsRepository
 import io.github.magnusencoded.stationtostation.data.StoredAct
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
@@ -181,6 +187,11 @@ data class UiState(
     val bundledSpotifyHint: String = "",
     /** The bundled setlist.fm key, masked. */
     val bundledSetlistFmHint: String = "",
+    /** The clashfinder account, as typed. There is no bundled one and never will be. */
+    val clashfinderUser: String = "",
+    val clashfinderPrivateKey: String = "",
+    /** Both halves are on this phone, so the programme button has somewhere to go. */
+    val clashfinderReady: Boolean = false,
     /** Scopes granted at the last Spotify login; null when unknown. */
     val grantedScope: String? = null,
     // Search
@@ -411,6 +422,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val musicBrainz = MusicBrainzClient()
 
     /**
+     * The programme source. Public because the **Programme** screen does its own
+     * fetching and caching — a timetable is a document on this phone, not a slice of
+     * app state, and the one screen that reads it is the one that keeps it.
+     */
+    val clashfinder = ClashfinderClient { settings.clashfinderAuth() }
+
+    /**
      * The Timeline's sequence and rules (ADR-0001), with the device half handed in
      * rather than constructed inside it — which is what makes them reachable from
      * a test. Everything else in this view model is still the OS-facing half.
@@ -471,6 +489,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     bundledSetlistFmKey = settings.hasBundledSetlistFmKey(),
                     bundledSpotifyHint = settings.bundledSpotifyClientIdHint(),
                     bundledSetlistFmHint = settings.bundledSetlistFmKeyHint(),
+                    clashfinderUser = settings.clashfinderUser.first() ?: "",
+                    clashfinderPrivateKey = settings.clashfinderPrivateKey.first() ?: "",
+                    clashfinderReady = settings.clashfinderAuth() != null,
                     grantedScope = settings.grantedScope(),
                     mySetlistFmUser = settings.mySetlistFmUser.first() ?: "",
                     friends = settings.friends.first(),
@@ -652,6 +673,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 spotifyLoginReady = settings.spotifyClientIdValue() != null,
                 setlistFmReady = settings.setlistFmApiKeyValue() != null,
             )
+        }
+    }
+
+    /**
+     * The clashfinder account. Saved as its own gesture rather than folded into
+     * [saveSettings], because it is two fields that only mean anything together.
+     */
+    fun saveClashfinderCredentials(user: String, privateKey: String) {
+        viewModelScope.launch {
+            settings.saveClashfinderCredentials(user, privateKey)
+            _state.update {
+                it.copy(
+                    clashfinderUser = user.trim(),
+                    clashfinderPrivateKey = privateKey.trim(),
+                    clashfinderReady = settings.clashfinderAuth() != null,
+                )
+            }
         }
     }
 
@@ -1998,6 +2036,102 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             fetchCandidates(billId)
+        }
+    }
+
+    /**
+     * One row off a **Programme**, onto a **Bill**, as an **Act**.
+     *
+     * The programme used to be deliberately unwired from the timeline, on the grounds
+     * that a listing is not attendance. That much is still true and is why this makes
+     * an **Act** and never a **Gig**: it stays an act until somebody standing there
+     * marks it played, so planning to go is never recorded as having gone. What has
+     * changed is the other half — a person planning a festival had the line-up and no
+     * clock, and the timetable is the only thing that has one.
+     *
+     * The **Bill** is found by the festival's own name or created for it, and its range
+     * comes from the timetable's own days. One act at a time, by a person tapping it:
+     * nothing is ever added in bulk (see the **Bill**'s own doc on fabrication).
+     */
+    fun addActFromProgramme(programme: StoredProgramme, act: ProgrammeAct) {
+        val name = act.artist.trim()
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            val bill = billFor(programme)
+            if (bill.acts.any { it.name.equals(name, ignoreCase = true) }) {
+                _state.update { it.copy(notice = "$name is already on ${bill.name}.") }
+                return@launch
+            }
+            val index = bill.acts.size
+            editBill(bill.id) { it.copy(acts = it.acts + StoredAct(name = name)) }
+            _state.update { it.copy(notice = "$name added to ${bill.name}.") }
+            resolveProgrammeAct(bill.id, index, name, act.mbid)
+        }
+    }
+
+    /** The **Bill** this festival already has, or a new one carrying its range. */
+    private suspend fun billFor(programme: StoredProgramme): StoredBill {
+        val name = programme.name.trim().ifBlank { programme.id }
+        _state.value.bills.firstOrNull { it.name.equals(name, ignoreCase = true) }?.let { return it }
+        val days = programmeDays(programme.acts)
+        val bill = StoredBill(
+            id = java.util.UUID.randomUUID().toString(),
+            name = name,
+            // No city: the payload carries no venue, town, country or coordinates at
+            // any level, and inventing one is not on. Timezone is the only spatial
+            // signal it has and it separates continents, not towns.
+            from = days.firstOrNull()?.let { fmDate(it) }.orEmpty(),
+            to = days.lastOrNull()?.let { fmDate(it) }.orEmpty(),
+        )
+        _state.update { it.copy(bills = it.bills + bill) }
+        timelines.saveBill(bill)
+        return bill
+    }
+
+    /**
+     * Which artist a just-added **Act** is, if it can be said exactly — and nothing if
+     * it cannot.
+     *
+     * Two routes and no third. The MusicBrainz id the timetable published is exact and
+     * free, and present on about one act in fifty. Otherwise the name must match a
+     * search hit *exactly* under the shared fold ([matchArtist]) — setlist.fm's search
+     * returns maximum confidence for plainly wrong results, so its score cannot gate
+     * anything. An act that resolves to nothing keeps the name as printed, which is a
+     * visibly incomplete row somebody can fix; a wrong binding is a plausible-looking
+     * mistake nobody ever notices.
+     *
+     * A thrown request is *no answer* and leaves the act untried, so opening the
+     * **Bill** later asks again — the same rule [fetchCandidates] follows.
+     */
+    private suspend fun resolveProgrammeAct(billId: String, index: Int, name: String, mbid: String) {
+        val answer = runCatching {
+            val id = mbid.ifBlank {
+                matchArtist(name, setlistFm.searchArtists(billingLead(name)).artist)?.mbid.orEmpty()
+            }
+            if (id.isBlank()) {
+                Triple("", "", emptyList<String>())
+            } else {
+                val sets = setlistFm.artistSetlists(id).setlist
+                val artist = sets.firstOrNull()?.artist
+                Triple(
+                    id,
+                    artist?.let { artistLabel(it.name, it.disambiguation) } ?: name,
+                    candidateSongs(sets),
+                )
+            }
+        }.getOrNull() ?: return
+        val (artistMbid, label, songs) = answer
+        editBill(billId) { b ->
+            b.copy(
+                acts = b.acts.mapIndexed { j, a ->
+                    if (j != index) a else a.copy(
+                        candidates = songs,
+                        matchedArtist = if (artistMbid.isBlank()) "" else label,
+                        mbid = artistMbid,
+                        tried = true,
+                    )
+                },
+            )
         }
     }
 
