@@ -1,9 +1,12 @@
 package io.github.magnusencoded.stationtostation.ui
 
 import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -65,7 +68,9 @@ import io.github.magnusencoded.stationtostation.data.nextAfter
 import io.github.magnusencoded.stationtostation.data.parseProgramme
 import io.github.magnusencoded.stationtostation.data.playingAt
 import io.github.magnusencoded.stationtostation.data.programmeDays
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -134,24 +139,39 @@ fun ProgrammeScreen(
     val scope = rememberCoroutineScope()
     val state by viewModel.state.collectAsStateWithLifecycle()
 
-    var programme by remember { mutableStateOf(cachedProgramme(context)) }
-    var festivals by remember { mutableStateOf(cachedFestivals(context)) }
+    var programme by remember { mutableStateOf(StoredProgramme()) }
+    var festivals by remember { mutableStateOf(emptyList<ClashfinderFestival>()) }
     // The picker is where you start with nothing in hand, and where "change festival"
     // sends you back to.
-    var picking by remember { mutableStateOf(programme.acts.isEmpty()) }
+    var picking by remember { mutableStateOf(true) }
     var query by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
+    // Both caches are documents on disk, and the index is ten thousand records of it.
+    // Reading them in composition put a file read and that decode on the main thread
+    // every time the screen was entered.
+    LaunchedEffect(Unit) {
+        val held = withContext(Dispatchers.IO) { cachedProgramme(context) to cachedFestivals(context) }
+        programme = held.first
+        festivals = held.second
+        picking = held.first.acts.isEmpty()
+    }
+
+    // Everything here — the request, the 4 MB parse behind it, and the write of what it
+    // yielded — happens off the main thread. The parse is the big one: it is the whole
+    // reason the index is reduced before it is cached at all.
     fun loadIndex() {
         loading = true
         error = null
         scope.launch {
-            runCatching { viewModel.clashfinder.index() }
-                .onSuccess {
-                    festivals = it
-                    File(context.filesDir, INDEX_CACHE).writeText(encodeFestivals(it))
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    viewModel.clashfinder.index()
+                        .also { File(context.filesDir, INDEX_CACHE).writeText(encodeFestivals(it)) }
                 }
+            }
+                .onSuccess { festivals = it }
                 .onFailure { error = it.message ?: "Could not reach clashfinder." }
             loading = false
         }
@@ -161,16 +181,32 @@ fun ProgrammeScreen(
         loading = true
         error = null
         scope.launch {
-            runCatching { viewModel.clashfinder.event(id) }
-                // A failed fetch leaves the timetable already in hand untouched. A bad
-                // connection in a field must not cost somebody their plans.
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    viewModel.clashfinder.event(id)
+                        .also { File(context.filesDir, PROGRAMME_CACHE).writeText(encodeProgramme(it)) }
+                }
+            }
+                // A failed fetch leaves the timetable already in hand untouched, and
+                // writes nothing. A bad connection in a field must not cost somebody
+                // their plans.
                 .onSuccess {
                     programme = it
-                    File(context.filesDir, PROGRAMME_CACHE).writeText(encodeProgramme(it))
                     picking = false
                 }
                 .onFailure { error = it.message ?: "Could not reach clashfinder." }
             loading = false
+        }
+    }
+
+    // The one thing this screen can do to the timeline answers on this screen. The
+    // notice used to fire on whichever screen was next, out of context — and the
+    // "already on the Bill" case was invisible, so an Add that correctly did nothing
+    // looked broken. Toast, because that is how the timeline already answers.
+    LaunchedEffect(state.notice) {
+        state.notice?.let {
+            Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+            viewModel.consumeNotice()
         }
     }
 
@@ -441,8 +477,14 @@ private fun Timetable(
         }
 
         item {
+            // Scrollable, because the number of days is now the festival's and not
+            // Øya's four: a clipped chip takes no taps, so the last nights of a long
+            // festival would be unreachable.
             Row(
-                Modifier.fillMaxWidth().padding(bottom = 14.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(bottom = 14.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 days.forEach { d ->

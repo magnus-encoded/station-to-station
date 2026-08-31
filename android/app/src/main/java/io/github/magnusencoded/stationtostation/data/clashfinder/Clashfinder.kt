@@ -201,15 +201,20 @@ fun rankFestivals(
     query: String = "",
 ): List<ClashfinderFestival> {
     val needle = foldName(query)
+    // Distance is computed once per festival rather than inside the comparator: it
+    // parses a date, and a comparator sees each row a dozen times over ten thousand of
+    // them, on the main thread, on every keystroke.
     return festivals
         .filter { needle.isEmpty() || needle in foldName(it.name) || needle in foldName(it.id) }
+        .map { it to it.distanceFrom(on) }
         .sortedWith(
-            compareBy<ClashfinderFestival> { it.distanceFrom(on) }
-                .thenByDescending { it.core }
-                .thenByDescending { it.edits }
-                .thenByDescending { it.acts }
-                .thenBy { it.name },
+            compareBy<Pair<ClashfinderFestival, Long>> { it.second }
+                .thenByDescending { it.first.core }
+                .thenByDescending { it.first.edits }
+                .thenByDescending { it.first.acts }
+                .thenBy { it.first.name },
         )
+        .map { it.first }
 }
 
 /**
@@ -317,9 +322,16 @@ private fun EventAct.toProgrammeAct(stage: String): ProgrammeAct? {
         // same way the start's is, so a set running past midnight needs no second rule.
         // An end that lands before its own start is discarded downstream (see endTimes).
         end = splitStamp(end)?.second?.toString().orEmpty(),
-        mbid = mbId.trim(),
+        // Checked at the edge, for [isClashfinderId]'s reason: this one comes off a
+        // document anyone may edit and goes into the *path* of a setlist.fm request.
+        // Anything that is not a MusicBrainz id is no worse than the common case, which
+        // is no id at all.
+        mbid = mbId.trim().takeIf { MBID.matches(it) }.orEmpty(),
     )
 }
+
+/** A MusicBrainz id: eight-four-four-four-twelve hex digits, and nothing else. */
+private val MBID = Regex("[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
 
 /** "2026-08-11 21:15" as a date and a clock, or null if it is neither. */
 private fun splitStamp(stamp: String): Pair<LocalDate, LocalTime>? {

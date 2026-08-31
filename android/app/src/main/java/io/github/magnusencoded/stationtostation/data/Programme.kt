@@ -110,8 +110,9 @@ const val DEFAULT_SET_MINUTES = 60L
  * Returned as a map rather than a field on [ProgrammeAct] because an *inferred* end is
  * not a property of the act. It is a property of the act and everything after it.
  *
- * A declared end that is not after the start is not honoured — a source that says an
- * act ends before it begins has said nothing, and the inference is the better answer.
+ * A declared end that cannot be made to follow its own start is not honoured — a source
+ * that says an act ends before it begins has said nothing, and the inference is the
+ * better answer. See [declaredEnd] for the one case where it can be made to.
  */
 fun endTimes(acts: List<ProgrammeAct>): Map<ProgrammeAct, LocalDateTime> {
     val ends = mutableMapOf<ProgrammeAct, LocalDateTime>()
@@ -122,12 +123,36 @@ fun endTimes(acts: List<ProgrammeAct>): Map<ProgrammeAct, LocalDateTime> {
             val next = sorted.getOrNull(i + 1)?.second
             // A gap of hours means the stage went quiet, not that the act played on.
             // Cap at the default so an afternoon set doesn't swallow the evening.
-            ends[act] = act.endsAt()?.takeIf { it.isAfter(start) }
+            ends[act] = declaredEnd(act, start)
                 ?: minOf(next ?: start.plusMinutes(DEFAULT_SET_MINUTES),
                     start.plusMinutes(DEFAULT_SET_MINUTES))
         }
     }
     return ends
+}
+
+/** The longest a published end may run past its start before it reads as an error. */
+private const val MAX_SET_HOURS = 12L
+
+/**
+ * The published end of [act], placed on the right side of the night boundary.
+ *
+ * [ProgrammeAct.endsAt] reads the end clock on its own, which lands it a day early for
+ * exactly one shape: an act that starts after midnight and ends at or after
+ * [NIGHT_ENDS] — the 02:00–06:00 stage that runs until it is light. Its start was
+ * pushed into the next day and its end was not, so the end arrives *before* the start
+ * and the real length is thrown away. Rolling it forward a day is what the timestamps
+ * meant in the first place.
+ *
+ * ponytail: a set longer than [MAX_SET_HOURS] is a source that is simply wrong rather
+ * than one crossing a boundary, and rolling that forward would invent a day-long act
+ * that clashes with everything. Widen the ceiling if a festival ever publishes a
+ * genuine all-nighter as one act.
+ */
+private fun declaredEnd(act: ProgrammeAct, start: LocalDateTime): LocalDateTime? {
+    val end = act.endsAt() ?: return null
+    val placed = if (end.isAfter(start)) end else end.plusDays(1)
+    return placed.takeIf { it.isAfter(start) && it <= start.plusHours(MAX_SET_HOURS) }
 }
 
 /** Half-open: an act ending exactly as another starts is a dash between stages, not a clash. */
