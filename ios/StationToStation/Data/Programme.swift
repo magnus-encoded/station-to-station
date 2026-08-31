@@ -1,7 +1,7 @@
 import Foundation
 
 /// The published festival programme: `ProgrammeAct` is *who, when, where*. The Swift
-/// twin of Android's `data/Programme.kt` (#173).
+/// twin of Android's `data/Programme.kt` (#173, #389).
 ///
 /// Not a `StoredAct`. A **Bill** is the *hedged* case — a poster with names and no
 /// nights — and this is its opposite: a schedule the festival has committed to, down
@@ -19,6 +19,20 @@ struct ProgrammeAct: Codable, Equatable, Hashable {
     /// HH:mm, local.
     var start: String = ""
     var stage: String = ""
+    /// HH:mm, local — the end the source *published*, blank where it published none.
+    ///
+    /// Øya's own page never carried this and the inference below was the whole
+    /// story. Clashfinder does carry it, and it is worth having: the default set
+    /// length is an hour, a headline set is not, and an hour-long guess makes
+    /// `clashesWith` report a real conflict as free time.
+    var end: String = ""
+    /// The MusicBrainz id the source published for this act, blank where it
+    /// published none.
+    ///
+    /// Kept because it is the only field in a timetable that identifies an artist
+    /// *exactly*. Where it is there, an **Act** added off this row resolves for
+    /// free and without a name to get wrong.
+    var mbid: String = ""
 
     /// When this act starts, as a moment.
     ///
@@ -29,41 +43,78 @@ struct ProgrammeAct: Codable, Equatable, Hashable {
     /// after-midnight act sorts to the front of its own day and clashes with the
     /// afternoon.
     func startsAt(calendar: Calendar = .current) -> Date? {
-        let dateParts = date.split(separator: "-").compactMap { Int($0) }
-        let timeParts = start.split(separator: ":").compactMap { Int($0) }
-        guard dateParts.count == 3, timeParts.count == 2 else { return nil }
-        var comps = DateComponents()
-        comps.year = dateParts[0]
-        comps.month = dateParts[1]
-        comps.day = dateParts[2]
-        guard let day = calendar.date(from: comps) else { return nil }
-        let (hour, minute) = (timeParts[0], timeParts[1])
-        let base = (hour, minute) < (nightEndsHour, 0)
-            ? (calendar.date(byAdding: .day, value: 1, to: day) ?? day)
-            : day
-        return calendar.date(bySettingHour: hour, minute: minute, second: 0, of: base)
+        setTimeOnNight(date, start, calendar: calendar)
+    }
+
+    /// The published end as a moment, on the same night rule as `startsAt`.
+    func endsAt(calendar: Calendar = .current) -> Date? {
+        end.isEmpty ? nil : setTimeOnNight(date, end, calendar: calendar)
     }
 }
 
-/// How long an act runs when the programme does not say — and it never says.
+/// An `HH:mm` slot on the night of `dateString`, as a moment — see `ProgrammeAct.startsAt`.
+private func setTimeOnNight(_ dateString: String, _ hhmm: String, calendar: Calendar) -> Date? {
+    let dateParts = dateString.split(separator: "-").compactMap { Int($0) }
+    let timeParts = hhmm.split(separator: ":").compactMap { Int($0) }
+    guard dateParts.count == 3, timeParts.count == 2 else { return nil }
+    var comps = DateComponents()
+    comps.year = dateParts[0]
+    comps.month = dateParts[1]
+    comps.day = dateParts[2]
+    guard let day = calendar.date(from: comps) else { return nil }
+    let (hour, minute) = (timeParts[0], timeParts[1])
+    let base = (hour, minute) < (nightEndsHour, 0)
+        ? (calendar.date(byAdding: .day, value: 1, to: day) ?? day)
+        : day
+    return calendar.date(bySettingHour: hour, minute: minute, second: 0, of: base)
+}
+
+/// How long an act runs when the programme does not say.
 ///
-/// ponytail: a flat hour, because the only alternatives are worse. Øya publishes
-/// start times and stage only, so an end time is always inferred; the inference
-/// below prefers the *next act on the same stage*, which is real information, and
-/// falls back to this for the last act of the night, where there is none.
+/// ponytail: a flat hour, because the only alternatives are worse. It is the last
+/// resort of three: a published end where there is one, otherwise the *next act on
+/// the same stage*, which is real information, and this for the last act of the
+/// night, where there is neither.
 let defaultSetMinutes = 60
 
-/// When each act ends, inferred — because no festival publishes it.
+/// The longest a published end may run past its start before it reads as an error.
+private let maxSetHours = 12
+
+/// The published end of `act`, placed on the right side of the night boundary.
 ///
-/// The next act on the same stage is the honest source: a stage runs one act at a
-/// time, so the following start is an upper bound on this one's end, and it is
-/// usually close to exact because changeovers are short. Where there is no next
-/// act — the last set of the night on that stage — there is nothing to lean on and
-/// `defaultSetMinutes` stands in.
+/// `ProgrammeAct.endsAt` reads the end clock on its own, which lands it a day early
+/// for exactly one shape: an act that starts after midnight and ends at or after
+/// `nightEndsHour` — the 02:00–06:00 stage that runs until it is light. Its start was
+/// pushed into the next day and its end was not, so the end arrives *before* the
+/// start and the real length is thrown away. Rolling it forward a day is what the
+/// timestamps meant in the first place.
 ///
-/// Returned as a dictionary rather than a field on `ProgrammeAct` because an act's
-/// end is not a property of the act. It is a property of the act *and everything
-/// after it*, and baking it into the record would make it look like published data.
+/// ponytail: a set longer than `maxSetHours` is a source that is simply wrong rather
+/// than one crossing a boundary, and rolling that forward would invent a day-long act
+/// that clashes with everything.
+private func declaredEnd(_ act: ProgrammeAct, start: Date, calendar: Calendar) -> Date? {
+    guard let end = act.endsAt(calendar: calendar) else { return nil }
+    let placed = end > start ? end : (calendar.date(byAdding: .day, value: 1, to: end) ?? end)
+    guard placed > start, let ceiling = calendar.date(byAdding: .hour, value: maxSetHours, to: start),
+          placed <= ceiling
+    else { return nil }
+    return placed
+}
+
+/// When each act ends: as published, or inferred where it is not.
+///
+/// A declared end wins outright, uncapped — a 105-minute headline set truncated to
+/// the default hour makes `clashesWith` report a genuine conflict as free time, which
+/// is the one thing this feature exists to prevent.
+///
+/// The inference stays behind it rather than being deleted: a malformed act should
+/// degrade to a guessed hour rather than drop out of clash detection entirely. It
+/// prefers the next act on the same stage: a stage runs one act at a time, so the
+/// following start is an upper bound and usually close to exact.
+///
+/// Returned as a dictionary rather than a field on `ProgrammeAct` because an
+/// *inferred* end is not a property of the act. It is a property of the act and
+/// everything after it.
 func endTimes(_ acts: [ProgrammeAct], calendar: Calendar = .current) -> [ProgrammeAct: Date] {
     var ends: [ProgrammeAct: Date] = [:]
     for (_, onStage) in Dictionary(grouping: acts, by: { $0.stage }) {
@@ -77,7 +128,8 @@ func endTimes(_ acts: [ProgrammeAct], calendar: Calendar = .current) -> [Program
             // A gap of hours means the stage went quiet, not that the act played
             // on. Cap at the default so an afternoon set doesn't swallow the
             // evening.
-            ends[act] = [next, capped].compactMap { $0 }.min() ?? capped
+            ends[act] = declaredEnd(act, start: start, calendar: calendar)
+                ?? [next, capped].compactMap { $0 }.min() ?? capped
         }
     }
     return ends
@@ -157,187 +209,41 @@ private func isoString(_ day: Date, calendar: Calendar = .current) -> String {
     return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
 }
 
-// MARK: - Cache
+// MARK: - Stored programme
+
+/// One festival's timetable as this phone holds it: the acts, and whose it is.
+///
+/// **The app never carries a copy of anyone's programme.** It is fetched by this
+/// device, with the user's own clashfinder account, and kept only here — the app is
+/// a user agent and not a publisher, and no line-up ships inside the binary.
+///
+/// `copyright` is not decoration. The data is CC BY-NC 3.0 and attribution is a
+/// *condition* of that licence, so the line the payload carries is stored with the
+/// acts and rendered with them. `lastEdit` is kept for a different reason: a
+/// clashfinder is edited up to and past the doors, so how old this copy is decides
+/// whether to trust it.
+struct StoredProgramme: Codable, Equatable {
+    /// The clashfinder's own id — what a refetch asks for.
+    var id: String = ""
+    /// The festival's name as its own document gives it: the screen's title.
+    var name: String = ""
+    var copyright: String = ""
+    var lastEdit: String = ""
+    var acts: [ProgrammeAct] = []
+}
 
 private let programmeEncoder = JSONEncoder()
 private let programmeDecoder = JSONDecoder()
 
-/// Reads a cached programme back.
-func parseProgramme(_ text: String) -> [ProgrammeAct] {
+/// Reads a cached programme back. Anything unreadable is no programme at all.
+func parseProgramme(_ text: String) -> StoredProgramme {
     guard let data = text.data(using: .utf8),
-          let acts = try? programmeDecoder.decode([ProgrammeAct].self, from: data)
-    else { return [] }
-    return acts
+          let programme = try? programmeDecoder.decode(StoredProgramme.self, from: data)
+    else { return StoredProgramme() }
+    return programme
 }
 
 /// Writes one out, for the local cache and — later — for handing to another phone.
-func encodeProgramme(_ acts: [ProgrammeAct]) -> String {
-    (try? programmeEncoder.encode(acts)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-}
-
-// MARK: - Parsing the published page
-
-/// The published programme, read off the festival's own page.
-///
-/// **The app never carries a copy of anyone's programme.** It is fetched by the
-/// user's own device, from the public page, exactly as a browser would — the app
-/// is a user agent here, not a publisher. Nothing about a festival's line-up ships
-/// inside the binary, and that is a deliberate line, not an oversight.
-///
-/// Parsing is by regex over the server-rendered HTML, which is a thing to be
-/// honest about: it is coupled to markup nobody promised to keep. That is
-/// survivable because of *when* it runs — at home, the night before, with signal
-/// and a screen — and because it fails visibly (no acts) rather than subtly. A
-/// silent partial parse is the failure that would matter, which is why
-/// `oyaProgramme` is all-or-nothing per act: an act missing any of its four fields
-/// is dropped rather than half-built.
-///
-/// ponytail: one festival's markup, because one festival is what there is. The
-/// shape generalises when a second one does.
-let oyaProgrammeURL = "https://www.oyafestivalen.no/program/program-2026"
-
-private let norwegianMonths: [String: Int] = [
-    "januar": 1, "februar": 2, "mars": 3, "april": 4, "mai": 5, "juni": 6,
-    "juli": 7, "august": 8, "september": 9, "oktober": 10, "november": 11,
-    "desember": 12,
-]
-
-private let namedEntities: [String: String] = [
-    "amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'", "nbsp": " ",
-]
-
-private func compiledRegex(_ pattern: String, dotAll: Bool = false) -> NSRegularExpression {
-    // Only ever called with the literal patterns below, so a throw here would be
-    // a coding mistake, not a runtime condition to recover from.
-    try! NSRegularExpression(pattern: pattern, options: dotAll ? [.dotMatchesLineSeparators] : [])
-}
-
-private let blockRegex = compiledRegex(#"<h3[^>]*>(.*?)</h3>(.*?)</ul>"#, dotAll: true)
-private let listItemRegex = compiledRegex(#"<li>(.*?)</li>"#, dotAll: true)
-private let dayRegex = compiledRegex(#"(\d{1,2})\.\s*(\p{L}+)"#)
-private let clockRegex = compiledRegex(#"([0-2]\d:[0-5]\d)"#)
-private let tagsRegex = compiledRegex(#"<!--.*?-->|<[^>]+>"#, dotAll: true)
-private let entityRegex = compiledRegex(#"&(#x[0-9a-fA-F]+|#\d+|\w+);"#)
-private let whitespaceRegex = compiledRegex(#"[\s ]+"#)
-
-/// A code point as text, or nil if it is not one — `Character(Unicode.Scalar)`
-/// requires a valid scalar, unlike a narrowing UTF-16 cast that would turn every
-/// code point above U+FFFF into garbage. A band name is exactly the place an
-/// emoji or a rare script turns up.
-private func codePointString(_ code: UInt32) -> String? {
-    Unicode.Scalar(code).map { String(Character($0)) }
-}
-
-/// One entity, decoded — or nil if it does not resolve, exactly one way, mirroring
-/// Android's `when`: an entity's shape decides which branch answers it, and only
-/// that branch gets to.
-private func decodeEntity(_ entity: String) -> String? {
-    if entity.hasPrefix("#x") {
-        return UInt32(entity.dropFirst(2), radix: 16).flatMap(codePointString)
-    } else if entity.hasPrefix("#") {
-        return UInt32(entity.dropFirst(1)).flatMap(codePointString)
-    } else {
-        return namedEntities[entity]
-    }
-}
-
-private extension String {
-    /// Entities back into characters, because a name is what a person reads, not
-    /// what a page encodes. Øya's own headliner is written `Nick Cave &amp; The
-    /// Bad Seeds`, and an act stored that way never matches the **Gig** pasted
-    /// from setlist.fm — the ampersand is the join between the programme and the
-    /// timeline, and it has to be an ampersand.
-    func decodingEntities() -> String {
-        let ns = self as NSString
-        var result = ""
-        var lastEnd = 0
-        for match in entityRegex.matches(in: self, range: NSRange(location: 0, length: ns.length)) {
-            guard match.numberOfRanges >= 2 else { continue }
-            let full = match.range
-            result += ns.substring(with: NSRange(location: lastEnd, length: full.location - lastEnd))
-            let entity = ns.substring(with: match.range(at: 1))
-            result += decodeEntity(entity) ?? ns.substring(with: full)
-            lastEnd = full.location + full.length
-        }
-        result += ns.substring(from: lastEnd)
-        return result
-    }
-
-    /// Markup out, text in — the pages put artist names inside nested spans and
-    /// comments.
-    ///
-    /// Stripping runs before decoding, so `&lt;b&gt;` in the source survives as
-    /// the literal text `<b>`. That is right for a name a person reads, and safe
-    /// only because the result is a display string and a match key: it goes to a
-    /// SwiftUI `Text`, which renders characters and not markup. Never hand it to
-    /// a `WKWebView`.
-    func strippingTags() -> String {
-        let ns = self as NSString
-        let stripped = tagsRegex.stringByReplacingMatches(
-            in: self, range: NSRange(location: 0, length: ns.length), withTemplate: "")
-        let decoded = stripped.decodingEntities()
-        let decodedNS = decoded as NSString
-        // Collapse after decoding, and count a decoded non-breaking space as a
-        // space: the page uses one to hold a name together, and it is a space to
-        // everyone reading it.
-        let collapsed = whitespaceRegex.stringByReplacingMatches(
-            in: decoded, range: NSRange(location: 0, length: decodedNS.length), withTemplate: " ")
-        return collapsed.trimmingCharacters(in: .whitespaces)
-    }
-}
-
-/// Øya's programme page into acts. Pure: hand it the HTML, however you got it.
-///
-/// `year` is a parameter because the page writes "torsdag 13. august" with no
-/// year in it at all. Taking it from the url rather than the clock means a
-/// programme read in January is not dated to January.
-func oyaProgramme(_ html: String, year: Int) -> [ProgrammeAct] {
-    let ns = html as NSString
-    var acts: [ProgrammeAct] = []
-    var seen = Set<[String]>()
-
-    for match in blockRegex.matches(in: html, range: NSRange(location: 0, length: ns.length)) {
-        guard match.numberOfRanges >= 3 else { continue }
-        let artist = ns.substring(with: match.range(at: 1)).strippingTags()
-        guard !artist.isEmpty else { continue }
-
-        let body = ns.substring(with: match.range(at: 2))
-        let bodyNS = body as NSString
-        let items = listItemRegex.matches(in: body, range: NSRange(location: 0, length: bodyNS.length))
-            .compactMap { $0.numberOfRanges >= 2 ? bodyNS.substring(with: $0.range(at: 1)).strippingTags() : nil }
-        guard items.count >= 3 else { continue }
-
-        let firstItemNS = items[0] as NSString
-        guard let dayMatch = dayRegex.firstMatch(in: items[0], range: NSRange(location: 0, length: firstItemNS.length)),
-              dayMatch.numberOfRanges >= 3,
-              let dayNum = Int(firstItemNS.substring(with: dayMatch.range(at: 1)))
-        else { continue }
-        let monthName = firstItemNS.substring(with: dayMatch.range(at: 2)).lowercased()
-        guard let month = norwegianMonths[monthName] else { continue }
-
-        let secondItemNS = items[1] as NSString
-        guard let clockMatch = clockRegex.firstMatch(in: items[1], range: NSRange(location: 0, length: secondItemNS.length)),
-              clockMatch.numberOfRanges >= 2
-        else { continue }
-        let clock = secondItemNS.substring(with: clockMatch.range(at: 1))
-
-        let stage = items[2]
-        guard !stage.isEmpty else { continue }
-
-        let act = ProgrammeAct(
-            artist: artist,
-            date: String(format: "%04d-%02d-%02d", year, month, dayNum),
-            start: clock,
-            stage: stage
-        )
-        if seen.insert([act.artist, act.date, act.start, act.stage]).inserted {
-            acts.append(act)
-        }
-    }
-
-    return acts.sorted { a, b in
-        if a.date != b.date { return a.date < b.date }
-        if a.start != b.start { return a.start < b.start }
-        return a.stage < b.stage
-    }
+func encodeProgramme(_ programme: StoredProgramme) -> String {
+    (try? programmeEncoder.encode(programme)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
 }
