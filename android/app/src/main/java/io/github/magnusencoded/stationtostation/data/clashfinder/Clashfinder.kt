@@ -3,6 +3,7 @@ package io.github.magnusencoded.stationtostation.data.clashfinder
 import android.webkit.CookieManager
 import io.github.magnusencoded.stationtostation.data.ProgrammeAct
 import io.github.magnusencoded.stationtostation.data.StoredProgramme
+import io.github.magnusencoded.stationtostation.data.musicbrainz.MusicBrainzClient.Companion.USER_AGENT
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
 import io.github.magnusencoded.stationtostation.ui.NIGHT_ENDS
 import kotlinx.coroutines.Dispatchers
@@ -482,7 +483,16 @@ class ClashfinderClient(private val auth: suspend () -> ClashfinderAuth?) {
             .addQueryParameter("authPublicKey", credentials.publicKey)
             .build()
         val body = withContext(Dispatchers.IO) {
-            http.newCall(Request.Builder().url(url).header("Accept", "application/json").build())
+            val request = Request.Builder()
+                .url(url)
+                // Named, with a way to reach us. The endpoint takes an account's own
+                // credentials, so it is meant to be called by programs; saying which
+                // program this is beats the library's default and beats pretending to
+                // be a browser, which we are not.
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "application/json")
+                .build()
+            http.newCall(request)
                 .execute().use { resp ->
                     when {
                         resp.isSuccessful -> resp.body?.string().orEmpty()
