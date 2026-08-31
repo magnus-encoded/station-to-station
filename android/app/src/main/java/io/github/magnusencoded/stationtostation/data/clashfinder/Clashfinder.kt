@@ -3,7 +3,7 @@ package io.github.magnusencoded.stationtostation.data.clashfinder
 import android.webkit.CookieManager
 import io.github.magnusencoded.stationtostation.data.ProgrammeAct
 import io.github.magnusencoded.stationtostation.data.StoredProgramme
-import io.github.magnusencoded.stationtostation.data.musicbrainz.MusicBrainzClient.Companion.USER_AGENT
+import io.github.magnusencoded.stationtostation.data.USER_AGENT
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
 import io.github.magnusencoded.stationtostation.ui.NIGHT_ENDS
 import kotlinx.coroutines.Dispatchers
