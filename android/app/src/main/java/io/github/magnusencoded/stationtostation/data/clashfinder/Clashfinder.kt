@@ -52,7 +52,8 @@ import kotlin.math.abs
  * we promise to keep (ADR-0005). Attribution is a condition of that licence, so the
  * `copyright` line the payload carries is stored with the acts and shown with them.
  */
-private const val HOST = "https://clashfinder.com/data"
+private const val ORIGIN = "https://clashfinder.com"
+private const val HOST = "$ORIGIN/data"
 
 /**
  * The full index, not the curated one.
@@ -413,6 +414,34 @@ class BrowserCheckRequired(val url: String) : IOException(
     "clashfinder wants a browser check before it will answer this phone."
 )
 
+private val REFRESH = Regex(
+    """http-equiv=["']refresh["'][^>]*content=["']\s*\d+\s*;\s*(?:url=)?([^"']+)""",
+    RegexOption.IGNORE_CASE,
+)
+
+/**
+ * Where the check actually lives, read out of the interstitial that names it.
+ *
+ * The 202 is a bare meta-refresh to `/.well-known/sgcaptcha/?r=…&y=ipc:<address>:<token>`,
+ * and that address in the token is the thing being cleared — which is why taking the
+ * check in the phone's browser clears it for the app's own requests on the same
+ * connection. Sending someone to the data URL instead would make them take the check and
+ * then download a 4 MB JSON file into their downloads for their trouble, so the `r`
+ * parameter — where to go afterwards — is pointed at the front page.
+ *
+ * Null where the body is some other HTML: then there is nothing to open and the caller
+ * falls back to the address it asked for.
+ */
+fun browserCheckUrl(body: String): String? {
+    val target = REFRESH.find(body)?.groupValues?.get(1)?.trim().orEmpty()
+    val absolute = when {
+        target.startsWith("http") -> target
+        target.startsWith("/") -> ORIGIN + target
+        else -> return null
+    }
+    return absolute.replace(Regex("""(?<=[?&])r=[^&]*"""), "r=%2F")
+}
+
 class ClashfinderClient(private val auth: suspend () -> ClashfinderAuth?) {
 
     private val http = OkHttpClient()
@@ -441,7 +470,9 @@ class ClashfinderClient(private val auth: suspend () -> ClashfinderAuth?) {
         // The bot check answers 200-with-HTML rather than a status anyone can read. Say
         // what it is, because "could not read the programme" would send someone looking
         // for a bug in the parser — and hand back a way through it.
-        if (!body.trimStart().startsWith("{")) throw BrowserCheckRequired("$HOST/$path")
+        if (!body.trimStart().startsWith("{")) {
+            throw BrowserCheckRequired(browserCheckUrl(body) ?: "$HOST/$path")
+        }
         return body
     }
 
