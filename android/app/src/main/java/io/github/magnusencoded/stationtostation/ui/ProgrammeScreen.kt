@@ -152,8 +152,8 @@ fun ProgrammeScreen(
     var query by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    // Set only by the bot check, and it is what makes that error actionable rather than
-    // a wall: the address it names is the check, and taking it is what clears this app.
+    // Set only by the bot check: the address of the check itself, which is the one
+    // failure on this screen a person can clear themselves.
     var checkUrl by remember { mutableStateOf<String?>(null) }
     var takingCheck by remember { mutableStateOf(false) }
     // What to try again once the check is taken — the fetch that ran into it.
@@ -271,9 +271,8 @@ fun ProgrammeScreen(
             // that watches for exactly that. So the empty state is a signpost.
             !state.clashfinderReady -> NoAccount(pad, onOpenSettings)
 
-            // The check has to be taken *here*, in this app's own browser, because what
-            // it clears is a client and not an address — taken in Chrome it leaves its
-            // cookie in Chrome and this app stays shut out.
+            // Taken here, in this app's own browser: the check clears a client, and a
+            // check taken in Chrome leaves its cookie in Chrome.
             takingCheck && checkUrl != null -> BrowserCheck(pad, checkUrl!!) {
                 takingCheck = false
                 retry?.invoke()
@@ -365,13 +364,10 @@ private fun ErrorNote(
 }
 
 /**
- * The check, in this app's own browser.
+ * The check, in this app's own browser, on the same cookie store the client reads.
  *
- * A WebView rather than a link out, and the same cookie store the client reads: the
- * challenge hands out a cookie, so whoever takes it is the one who gets through. It
- * closes itself the moment the page stops being the check — the challenge sends the
- * browser to the front page when it is satisfied — and the fetch it interrupted is
- * tried again.
+ * Closes itself the moment the page stops being the check — a satisfied challenge sends
+ * the browser to the front page — and the fetch it interrupted is tried again.
  */
 @Composable
 private fun BrowserCheck(modifier: Modifier, url: String, onDone: () -> Unit) {

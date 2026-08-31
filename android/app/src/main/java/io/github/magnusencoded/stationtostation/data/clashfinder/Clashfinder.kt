@@ -425,14 +425,12 @@ private val REFRESH = Regex(
 )
 
 /**
- * Where the check actually lives, read out of the interstitial that names it.
+ * Where the check lives, read out of the interstitial that names it.
  *
- * The 202 is a bare meta-refresh to `/.well-known/sgcaptcha/?r=…&y=ipc:<address>:<token>`,
- * and that address in the token is the thing being cleared — which is why taking the
- * check in the phone's browser clears it for the app's own requests on the same
- * connection. Sending someone to the data URL instead would make them take the check and
- * then download a 4 MB JSON file into their downloads for their trouble, so the `r`
- * parameter — where to go afterwards — is pointed at the front page.
+ * The 202 is a bare meta-refresh to `/.well-known/sgcaptcha/?r=…&y=ipc:<address>:<token>`.
+ * `r` is where the browser goes once the check is satisfied, and it is pointed at the
+ * front page: left alone it is the data URL, which would land 4 MB of JSON in somebody's
+ * downloads as their reward for taking a captcha.
  *
  * Null where the body is some other HTML: then there is nothing to open and the caller
  * falls back to the address it asked for.
@@ -448,13 +446,12 @@ fun browserCheckUrl(body: String): String? {
 }
 
 /**
- * The one cookie jar, shared with the WebView the check is taken in.
+ * The one cookie jar, shared with the WebView the bot check is taken in.
  *
- * The check does not clear an *address* — it clears a *client*, by leaving a cookie
- * behind — which is why taking it in Chrome did nothing for the app: two clients, two
- * jars. Pointing OkHttp at the platform's own store makes the browser that takes the
- * check and the code that makes the request the same client, and the clearance is kept
- * across launches by the platform rather than by us.
+ * The check clears a *client*, not an address: it leaves a cookie behind, so whoever
+ * holds that cookie is who gets through. Reading the platform's own store makes the
+ * browser that takes the check and the code that makes the request one client, and
+ * leaves keeping the clearance across launches to the platform.
  */
 private object WebViewCookies : CookieJar {
     override fun loadForRequest(url: HttpUrl): List<Cookie> =
@@ -485,10 +482,8 @@ class ClashfinderClient(private val auth: suspend () -> ClashfinderAuth?) {
         val body = withContext(Dispatchers.IO) {
             val request = Request.Builder()
                 .url(url)
-                // Named, with a way to reach us. The endpoint takes an account's own
-                // credentials, so it is meant to be called by programs; saying which
-                // program this is beats the library's default and beats pretending to
-                // be a browser, which we are not.
+                // Named, with a way to reach us — the endpoint takes an account's own
+                // credentials, so a program is what it expects to be talking to.
                 .header("User-Agent", USER_AGENT)
                 .header("Accept", "application/json")
                 .build()
