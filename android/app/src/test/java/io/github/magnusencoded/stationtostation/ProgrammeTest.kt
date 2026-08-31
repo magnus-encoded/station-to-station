@@ -78,6 +78,20 @@ class ProgrammeTest {
         assertEquals(LocalDateTime.parse("2026-08-14T01:00"), endTimes(listOf(late))[late])
     }
 
+    /**
+     * The 02:00–06:00 stage that runs until it is light. The start is pushed past the
+     * night boundary and the end sits on the far side of it, so read on its own the end
+     * lands a day early — and a four-hour set silently became a guessed hour, with three
+     * of its four hours reported as free time.
+     */
+    @Test
+    fun `a set that starts after midnight and ends at dawn keeps its real length`() {
+        val allNighter = act("Sunrise", "02:00", "Klubben", end = "06:00")
+
+        assertEquals(LocalDateTime.parse("2026-08-14T02:00"), allNighter.startsAt())
+        assertEquals(LocalDateTime.parse("2026-08-14T06:00"), endTimes(listOf(allNighter))[allNighter])
+    }
+
     @Test
     fun `an end that cannot be after its start is ignored, and the inference stands`() {
         // A malformed act degrades to a guessed hour rather than dropping out of clash

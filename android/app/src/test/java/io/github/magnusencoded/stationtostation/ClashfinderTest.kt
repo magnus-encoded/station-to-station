@@ -37,7 +37,8 @@ class ClashfinderTest {
           "locations": [
             {"name": "Amfiet", "events": [
               {"name": "Headline", "start": "2026-08-13 21:30", "end": "2026-08-13 23:15",
-               "mbId": "abc-123", "mbid": "abc-123"},
+               "mbId": "b7ffd2af-418f-4be2-bdd1-22f8b48613da",
+               "mbid": "b7ffd2af-418f-4be2-bdd1-22f8b48613da"},
               {"name": "Opener", "start": "2026-08-13 16:00", "end": "2026-08-13 16:45"}
             ]},
             {"name": "Klubben", "events": [
@@ -82,7 +83,23 @@ class ClashfinderTest {
     fun `both spellings of the MusicBrainz id parse, and one of them is read`() {
         val headline = parseClashfinderEvent(document).acts.single { it.artist == "Headline" }
 
-        assertEquals("abc-123", headline.mbid)
+        assertEquals("b7ffd2af-418f-4be2-bdd1-22f8b48613da", headline.mbid)
+    }
+
+    /**
+     * The id goes into the path of a setlist.fm request, off a document anyone may
+     * edit. Anything that is not a MusicBrainz id is dropped at the edge, which leaves
+     * the act in the common case: no id, resolved by name or not at all.
+     */
+    @Test
+    fun `an id that is not a MusicBrainz id is dropped rather than used`() {
+        val doc = """
+            {"name": "F", "locations": [{"name": "Stage", "events": [
+              {"name": "Act", "start": "2026-08-13 20:00", "mbId": "../../search/artists?q=x"}
+            ]}]}
+        """.trimIndent()
+
+        assertEquals("", parseClashfinderEvent(doc).acts.single().mbid)
     }
 
     @Test
@@ -207,15 +224,25 @@ class ClashfinderTest {
     // --- Credentials -----------------------------------------------------------------
 
     /**
-     * The one vector there is: the worked example the API page's own key generator
-     * prints for these inputs. A wrong concatenation order is a 401 indistinguishable
-     * from a mistyped key, and this is the cheapest place to catch it.
+     * The order is the whole test. A wrong concatenation order is a 401
+     * indistinguishable from a mistyped key, and this is the cheapest place to catch
+     * it — the expected digest below is sha256 of the two strings in *this* order, so
+     * swapping them fails here rather than in the field.
+     *
+     * Made-up credentials, deliberately: the order was checked against clashfinder's
+     * own key generator once, and pinning it does not need anybody's real account. A
+     * test vector is a value in a public repository forever.
      */
     @Test
     fun `the public key is sha256 of the username and the private key, in that order`() {
-        assertTrue(
-            clashfinderPublicKey("dizzi90", "wl84oksn3jhgsnui")
-                .startsWith("16f87d3935c0db8c69033ddfeea299eaf2ab7f172559d9781acce9a")
+        assertEquals(
+            "926593c0e73340310b674c5642a657b7072610f1480fefcbcd0c345d6d9f6059",
+            clashfinderPublicKey("stationtostation", "not-a-real-private-key"),
+        )
+        // Trimmed, because a pasted key arrives with whatever the clipboard had on it.
+        assertEquals(
+            clashfinderPublicKey("stationtostation", "not-a-real-private-key"),
+            clashfinderPublicKey("  stationtostation ", " not-a-real-private-key\n"),
         )
     }
 

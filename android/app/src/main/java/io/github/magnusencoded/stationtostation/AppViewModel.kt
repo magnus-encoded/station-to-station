@@ -2062,10 +2062,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _state.update { it.copy(notice = "$name is already on ${bill.name}.") }
                 return@launch
             }
-            val index = bill.acts.size
             editBill(bill.id) { it.copy(acts = it.acts + StoredAct(name = name)) }
             _state.update { it.copy(notice = "$name added to ${bill.name}.") }
-            resolveProgrammeAct(bill.id, index, name, act.mbid)
+            resolveProgrammeAct(bill.id, name, act.mbid)
         }
     }
 
@@ -2100,10 +2099,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * visibly incomplete row somebody can fix; a wrong binding is a plausible-looking
      * mistake nobody ever notices.
      *
+     * **Either route must produce an artist setlist.fm actually named.** An id off a
+     * document that half of clashfinder's users may edit is not evidence on its own: if
+     * the lookup comes back with no artist behind it, the id used to be written onto
+     * the act anyway and the row rendered as resolved under the printed name while
+     * carrying somebody else's identity. Nothing is bound unless a name came back with
+     * it, and that name is what gets shown.
+     *
      * A thrown request is *no answer* and leaves the act untried, so opening the
      * **Bill** later asks again — the same rule [fetchCandidates] follows.
+     *
+     * Written back by name rather than by position: this returns after two round trips,
+     * and an act removed from the **Bill** in the meantime shifts every index after it.
+     * A **Bill** does not hold two acts of one name — [addActFromProgramme] refuses the
+     * second — so the name is the stable handle here.
      */
-    private suspend fun resolveProgrammeAct(billId: String, index: Int, name: String, mbid: String) {
+    private suspend fun resolveProgrammeAct(billId: String, name: String, mbid: String) {
         val answer = runCatching {
             val id = mbid.ifBlank {
                 matchArtist(name, setlistFm.searchArtists(billingLead(name)).artist)?.mbid.orEmpty()
@@ -2112,21 +2123,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 Triple("", "", emptyList<String>())
             } else {
                 val sets = setlistFm.artistSetlists(id).setlist
-                val artist = sets.firstOrNull()?.artist
-                Triple(
-                    id,
-                    artist?.let { artistLabel(it.name, it.disambiguation) } ?: name,
-                    candidateSongs(sets),
-                )
+                // No artist behind the id is not a match, whatever the id looked like.
+                when (val artist = sets.firstOrNull()?.artist) {
+                    null -> Triple("", "", emptyList())
+                    else -> Triple(id, artistLabel(artist.name, artist.disambiguation), candidateSongs(sets))
+                }
             }
         }.getOrNull() ?: return
         val (artistMbid, label, songs) = answer
         editBill(billId) { b ->
             b.copy(
-                acts = b.acts.mapIndexed { j, a ->
-                    if (j != index) a else a.copy(
+                acts = b.acts.map { a ->
+                    if (!a.name.equals(name, ignoreCase = true)) a else a.copy(
                         candidates = songs,
-                        matchedArtist = if (artistMbid.isBlank()) "" else label,
+                        matchedArtist = label,
                         mbid = artistMbid,
                         tried = true,
                     )
