@@ -400,6 +400,19 @@ fun isClashfinderId(id: String): Boolean =
  * available and mirroring the corpus is not an option — which is fine, because matching
  * on a name and a date needs neither.
  */
+/**
+ * The host wants a human at a browser before it will answer this address.
+ *
+ * Carries [url] because "try again in a while" is not a thing anybody can act on: the
+ * check clears by *taking* it, in a browser, on this phone — the interstitial gates the
+ * address, so clearing it there clears it for the app's own requests too. The URL is
+ * the bare endpoint, without the account's credentials on the query string: it draws
+ * the same check, and the key has no business in browser history.
+ */
+class BrowserCheckRequired(val url: String) : IOException(
+    "clashfinder wants a browser check before it will answer this phone."
+)
+
 class ClashfinderClient(private val auth: suspend () -> ClashfinderAuth?) {
 
     private val http = OkHttpClient()
@@ -427,10 +440,8 @@ class ClashfinderClient(private val auth: suspend () -> ClashfinderAuth?) {
         }
         // The bot check answers 200-with-HTML rather than a status anyone can read. Say
         // what it is, because "could not read the programme" would send someone looking
-        // for a bug in the parser.
-        if (!body.trimStart().startsWith("{")) {
-            throw IOException("clashfinder asked for a browser check. Try again in a while.")
-        }
+        // for a bug in the parser — and hand back a way through it.
+        if (!body.trimStart().startsWith("{")) throw BrowserCheckRequired("$HOST/$path")
         return body
     }
 
