@@ -1,6 +1,8 @@
 package io.github.magnusencoded.stationtostation.ui
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -59,6 +61,7 @@ import io.github.magnusencoded.stationtostation.data.ProgrammeAct
 import io.github.magnusencoded.stationtostation.data.StoredProgramme
 import io.github.magnusencoded.stationtostation.data.actsOn
 import io.github.magnusencoded.stationtostation.data.clashesWith
+import io.github.magnusencoded.stationtostation.data.clashfinder.BrowserCheckRequired
 import io.github.magnusencoded.stationtostation.data.clashfinder.ClashfinderFestival
 import io.github.magnusencoded.stationtostation.data.clashfinder.decodeFestivals
 import io.github.magnusencoded.stationtostation.data.clashfinder.encodeFestivals
@@ -147,6 +150,9 @@ fun ProgrammeScreen(
     var query by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    // Set only by the bot check, and it is what makes that error actionable rather than
+    // a wall: the address it names is the one to take in a browser.
+    var checkUrl by remember { mutableStateOf<String?>(null) }
 
     // Both caches are documents on disk, and the index is ten thousand records of it.
     // Reading them in composition put a file read and that decode on the main thread
@@ -164,6 +170,7 @@ fun ProgrammeScreen(
     fun loadIndex() {
         loading = true
         error = null
+        checkUrl = null
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
@@ -172,7 +179,10 @@ fun ProgrammeScreen(
                 }
             }
                 .onSuccess { festivals = it }
-                .onFailure { error = it.message ?: "Could not reach clashfinder." }
+                .onFailure {
+                    error = it.message ?: "Could not reach clashfinder."
+                    checkUrl = (it as? BrowserCheckRequired)?.url
+                }
             loading = false
         }
     }
@@ -180,6 +190,7 @@ fun ProgrammeScreen(
     fun loadProgramme(id: String) {
         loading = true
         error = null
+        checkUrl = null
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
@@ -194,7 +205,10 @@ fun ProgrammeScreen(
                     programme = it
                     picking = false
                 }
-                .onFailure { error = it.message ?: "Could not reach clashfinder." }
+                .onFailure {
+                    error = it.message ?: "Could not reach clashfinder."
+                    checkUrl = (it as? BrowserCheckRequired)?.url
+                }
             loading = false
         }
     }
@@ -258,6 +272,7 @@ fun ProgrammeScreen(
                 today = billNightOf(now),
                 loading = loading,
                 error = error,
+                checkUrl = checkUrl,
                 onRefresh = { loadIndex() },
                 onPick = { loadProgramme(it.id) },
             )
@@ -268,6 +283,7 @@ fun ProgrammeScreen(
                 now = now,
                 loading = loading,
                 error = error,
+                checkUrl = checkUrl,
                 onRefetch = { loadProgramme(programme.id) },
                 onAdd = { viewModel.addActFromProgramme(programme, it) },
             )
@@ -302,6 +318,34 @@ private fun NoAccount(modifier: Modifier, onOpenSettings: () -> Unit) {
 }
 
 /**
+ * What went wrong, and — where there is one — the way out of it.
+ *
+ * The bot check is the only failure this screen can actually do something about, and
+ * "try again in a while" was a wall: the check clears by taking it in a browser, so the
+ * error offers the browser. Everything else is a sentence, as before.
+ */
+@Composable
+private fun ErrorNote(error: String?, checkUrl: String?, modifier: Modifier = Modifier) {
+    if (error == null) return
+    val context = LocalContext.current
+    Column(modifier) {
+        Text(error, color = Slate, fontSize = 13.sp)
+        checkUrl?.let { url ->
+            Text(
+                "Open the check in a browser, take it, then fetch again.",
+                color = Faint,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Spacer(Modifier.height(10.dp))
+            Action("Open the browser check", loading = false) {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            }
+        }
+    }
+}
+
+/**
  * Which festival, out of ten and a half thousand.
  *
  * Ordered by nearness to tonight rather than filtered to the future: 1% of clashfinders
@@ -319,6 +363,7 @@ private fun Picker(
     today: LocalDate,
     loading: Boolean,
     error: String?,
+    checkUrl: String?,
     onRefresh: () -> Unit,
     onPick: (ClashfinderFestival) -> Unit,
 ) {
@@ -343,10 +388,8 @@ private fun Picker(
             )
             Spacer(Modifier.height(18.dp))
             Action(if (loading) "Fetching…" else "Fetch the festival list", loading, onRefresh)
-            error?.let {
-                Spacer(Modifier.height(14.dp))
-                Text(it, color = Slate, fontSize = 13.sp)
-            }
+            Spacer(Modifier.height(14.dp))
+            ErrorNote(error, checkUrl)
             return@Column
         }
 
@@ -372,9 +415,7 @@ private fun Picker(
                 modifier = Modifier.clickable(enabled = !loading, onClick = onRefresh).padding(6.dp),
             )
         }
-        error?.let {
-            Text(it, color = Slate, fontSize = 13.sp, modifier = Modifier.padding(vertical = 6.dp))
-        }
+        ErrorNote(error, checkUrl, Modifier.padding(vertical = 6.dp))
         if (ranked.isEmpty()) {
             Spacer(Modifier.height(16.dp))
             // The expected case, not a fault: clashfinder has ten thousand festivals
@@ -432,6 +473,7 @@ private fun Timetable(
     now: LocalDateTime,
     loading: Boolean,
     error: String?,
+    checkUrl: String?,
     onRefetch: () -> Unit,
     onAdd: (ProgrammeAct) -> Unit,
 ) {
@@ -513,7 +555,7 @@ private fun Timetable(
                 fontSize = 12.sp,
                 modifier = Modifier.clickable(enabled = !loading, onClick = onRefetch).padding(vertical = 6.dp),
             )
-            error?.let { Text(it, color = Slate, fontSize = 13.sp) }
+            ErrorNote(error, checkUrl)
             // Attribution is a condition of the licence the data comes under, not a
             // courtesy — so it is rendered with the data every time.
             if (programme.copyright.isNotBlank()) {
