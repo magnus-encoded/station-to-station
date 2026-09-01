@@ -21,6 +21,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -669,22 +670,33 @@ private fun DeparturesBoard(
                     onToggle = toggle,
                 )
             }
-            // One place to commit, and nothing at all when nothing would change. It
-            // rises out of the bottom rather than appearing, so the first pick is
-            // answered by something arriving.
-            AnimatedVisibility(
+            CommitSlot(
                 visible = label != null,
-                enter = slideInVertically { it },
-                exit = slideOutVertically { it },
-                modifier = Modifier.align(Alignment.BottomCenter),
-            ) {
-                CommitBar(
-                    label = label.orEmpty(),
-                    sub = commitSub(board.diff, programme.name, applied.isEmpty(), open),
-                    onClick = { onCommit(board.diff) },
-                )
-            }
+                label = label.orEmpty(),
+                sub = commitSub(board.diff, programme.name, applied.isEmpty(), open),
+                onClick = { onCommit(board.diff) },
+            )
         }
+    }
+}
+
+/**
+ * The bar's own slot at the foot of the board.
+ *
+ * Its own function so that only [BoxScope] is in scope here: nested inside the head's
+ * Column, `AnimatedVisibility` resolved to the ColumnScope overload and would not
+ * compile. It rises out of the bottom rather than appearing, so the first pick is
+ * answered by something arriving.
+ */
+@Composable
+private fun BoxScope.CommitSlot(visible: Boolean, label: String, sub: String, onClick: () -> Unit) {
+    AnimatedVisibility(
+        visible = visible,
+        modifier = Modifier.align(Alignment.BottomCenter),
+        enter = slideInVertically { it },
+        exit = slideOutVertically { it },
+    ) {
+        CommitBar(label, sub, onClick)
     }
 }
 
