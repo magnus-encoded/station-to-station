@@ -1,16 +1,18 @@
 package io.github.magnusencoded.stationtostation.ui
 
 import android.content.Context
-import android.webkit.CookieManager
-import android.webkit.WebView
-import android.webkit.WebViewClient
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -47,7 +49,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -59,24 +60,31 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.magnusencoded.stationtostation.AppViewModel
+import io.github.magnusencoded.stationtostation.data.Position
 import io.github.magnusencoded.stationtostation.data.ProgrammeAct
+import io.github.magnusencoded.stationtostation.data.ProgrammeDiff
 import io.github.magnusencoded.stationtostation.data.StoredProgramme
-import io.github.magnusencoded.stationtostation.data.actsOn
-import io.github.magnusencoded.stationtostation.data.clashesWith
-import io.github.magnusencoded.stationtostation.data.clashfinder.BrowserCheckRequired
+import io.github.magnusencoded.stationtostation.data.actKey
+import io.github.magnusencoded.stationtostation.data.appliedActs
+import io.github.magnusencoded.stationtostation.data.commitLabel
+import io.github.magnusencoded.stationtostation.data.departuresOf
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
+import io.github.magnusencoded.stationtostation.data.clashfinder.ClashfinderBlocked
 import io.github.magnusencoded.stationtostation.data.clashfinder.ClashfinderFestival
+import io.github.magnusencoded.stationtostation.data.clashfinder.INDEX_PATH
+import io.github.magnusencoded.stationtostation.data.clashfinder.isClashfinderId
+import io.github.magnusencoded.stationtostation.data.clashfinder.parseClashfinderEvent
+import io.github.magnusencoded.stationtostation.data.clashfinder.parseClashfinderIndex
 import io.github.magnusencoded.stationtostation.data.clashfinder.decodeFestivals
 import io.github.magnusencoded.stationtostation.data.clashfinder.encodeFestivals
 import io.github.magnusencoded.stationtostation.data.clashfinder.rankFestivals
 import io.github.magnusencoded.stationtostation.data.encodeProgramme
-import io.github.magnusencoded.stationtostation.data.nextAfter
 import io.github.magnusencoded.stationtostation.data.parseProgramme
-import io.github.magnusencoded.stationtostation.data.playingAt
-import io.github.magnusencoded.stationtostation.data.programmeDays
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -152,12 +160,9 @@ fun ProgrammeScreen(
     var query by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    // Set only by the bot check: the address of the check itself, which is the one
-    // failure on this screen a person can clear themselves.
-    var checkUrl by remember { mutableStateOf<String?>(null) }
-    var takingCheck by remember { mutableStateOf(false) }
-    // What to try again once the check is taken — the fetch that ran into it.
-    var retry by remember { mutableStateOf<(() -> Unit)?>(null) }
+    // Set when the host refuses this app outright, which is what puts the hand-import
+    // fallback on screen.
+    var blocked by remember { mutableStateOf(false) }
 
     // Both caches are documents on disk, and the index is ten thousand records of it.
     // Reading them in composition put a file read and that decode on the main thread
@@ -175,7 +180,7 @@ fun ProgrammeScreen(
     fun loadIndex() {
         loading = true
         error = null
-        checkUrl = null
+        blocked = false
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
@@ -186,8 +191,7 @@ fun ProgrammeScreen(
                 .onSuccess { festivals = it }
                 .onFailure {
                     error = it.message ?: "Could not reach clashfinder."
-                    checkUrl = (it as? BrowserCheckRequired)?.url
-                    retry = { loadIndex() }
+                    blocked = it is ClashfinderBlocked
                 }
             loading = false
         }
@@ -196,7 +200,7 @@ fun ProgrammeScreen(
     fun loadProgramme(id: String) {
         loading = true
         error = null
-        checkUrl = null
+        blocked = false
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
@@ -213,9 +217,46 @@ fun ProgrammeScreen(
                 }
                 .onFailure {
                     error = it.message ?: "Could not reach clashfinder."
-                    checkUrl = (it as? BrowserCheckRequired)?.url
-                    retry = { loadProgramme(id) }
+                    blocked = it is ClashfinderBlocked
                 }
+            loading = false
+        }
+    }
+
+    // The fallback, in full: a document the user's own browser fetched, read straight
+    // off disk. Which kind it is comes from the document and not from the user — the
+    // index is a map of entries and a timetable is not, so one affordance covers both.
+    val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        loading = true
+        error = null
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val text = context.contentResolver.openInputStream(uri)
+                        ?.bufferedReader()?.use { it.readText() }.orEmpty()
+                    val index = parseClashfinderIndex(text)
+                    if (index.isNotEmpty()) {
+                        File(context.filesDir, INDEX_CACHE).writeText(encodeFestivals(index))
+                        index to null
+                    } else {
+                        val one = parseClashfinderEvent(text, importedId(context, uri))
+                        if (one.acts.isEmpty()) throw IOException("That is not a clashfinder file.")
+                        File(context.filesDir, PROGRAMME_CACHE).writeText(encodeProgramme(one))
+                        null to one
+                    }
+                }
+            }
+                .onSuccess { (index, one) ->
+                    index?.let { festivals = it }
+                    one?.let {
+                        programme = it
+                        picking = false
+                    }
+                    blocked = false
+                    error = null
+                }
+                .onFailure { error = it.message ?: "Could not read that file." }
             loading = false
         }
     }
@@ -271,12 +312,6 @@ fun ProgrammeScreen(
             // that watches for exactly that. So the empty state is a signpost.
             !state.clashfinderReady -> NoAccount(pad, onOpenSettings)
 
-            // Taken here, in this app's own browser: the check clears a client, and a
-            // check taken in Chrome leaves its cookie in Chrome.
-            takingCheck && checkUrl != null -> BrowserCheck(pad, checkUrl!!) {
-                takingCheck = false
-                retry?.invoke()
-            }
 
             picking -> Picker(
                 modifier = pad,
@@ -286,22 +321,29 @@ fun ProgrammeScreen(
                 today = billNightOf(now),
                 loading = loading,
                 error = error,
-                checkUrl = checkUrl,
-                onTakeCheck = { takingCheck = true },
+                blocked = blocked,
+                onImport = { importer.launch(arrayOf("*/*")) },
+                onOpenInBrowser = { scope.launch { viewModel.openClashfinderInBrowser(context, INDEX_PATH) } },
                 onRefresh = { loadIndex() },
                 onPick = { loadProgramme(it.id) },
             )
 
-            else -> Timetable(
+            else -> Departures(
                 modifier = pad,
                 programme = programme,
+                onLine = state.plannedGigs + state.setlists,
                 now = now,
                 loading = loading,
                 error = error,
-                checkUrl = checkUrl,
-                onTakeCheck = { takingCheck = true },
+                blocked = blocked,
+                onImport = { importer.launch(arrayOf("*/*")) },
+                onOpenInBrowser = {
+                    scope.launch {
+                        viewModel.openClashfinderInBrowser(context, "event/${programme.id}.json")
+                    }
+                },
                 onRefetch = { loadProgramme(programme.id) },
-                onAdd = { viewModel.addActFromProgramme(programme, it) },
+                onCommit = { viewModel.commitProgramme(programme, it) },
             )
         }
     }
@@ -343,50 +385,56 @@ private fun NoAccount(modifier: Modifier, onOpenSettings: () -> Unit) {
 @Composable
 private fun ErrorNote(
     error: String?,
-    checkUrl: String?,
-    onTakeCheck: () -> Unit,
+    blocked: Boolean,
+    onImport: () -> Unit,
+    onOpenInBrowser: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (error == null) return
     Column(modifier) {
         Text(error, color = Slate, fontSize = 13.sp)
-        if (checkUrl != null) {
-            Text(
-                "It is a page, and taking it here is what lets this app through.",
-                color = Faint,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-            Spacer(Modifier.height(10.dp))
-            Action("Take the check", loading = false, onClick = onTakeCheck)
-        }
+        if (blocked) ByHand(onImport, onOpenInBrowser)
     }
 }
 
 /**
- * The check, in this app's own browser, on the same cookie store the client reads.
+ * The way round a host that will not answer this app: fetch the file in a browser, which
+ * it does answer, and hand it over.
  *
- * Closes itself the moment the page stops being the check — a satisfied challenge sends
- * the browser to the front page — and the fetch it interrupted is tried again.
+ * Deliberately plain and deliberately last. It is a stopgap until clashfinder lets this
+ * client through, not a way anyone should have to work, and the copy says so rather than
+ * dressing two manual steps up as a feature.
  */
 @Composable
-private fun BrowserCheck(modifier: Modifier, url: String, onDone: () -> Unit) {
-    AndroidView(
-        modifier = modifier.fillMaxSize(),
-        factory = { ctx ->
-            CookieManager.getInstance().setAcceptCookie(true)
-            WebView(ctx).apply {
-                settings.javaScriptEnabled = true
-                webViewClient = object : WebViewClient() {
-                    override fun onPageFinished(view: WebView?, finished: String?) {
-                        CookieManager.getInstance().flush()
-                        if (finished?.contains("sgcaptcha") == false) onDone()
-                    }
-                }
-                loadUrl(url)
-            }
-        },
+private fun ByHand(onImport: () -> Unit, onOpenInBrowser: () -> Unit) {
+    Spacer(Modifier.height(14.dp))
+    Text(
+        "Until that is sorted out, a browser can still fetch it: open the file, then " +
+            "hand it over. Two manual steps, and it should not be this way.",
+        color = Faint,
+        fontSize = 12.sp,
     )
+    Spacer(Modifier.height(10.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Action("Open in a browser", loading = false, onClick = onOpenInBrowser)
+        Text(
+            "Hand over the file",
+            color = Muted,
+            fontSize = 13.sp,
+            modifier = Modifier
+                .clickable(onClick = onImport)
+                .padding(horizontal = 12.dp, vertical = 11.dp),
+        )
+    }
+}
+
+/** A timetable is fetched by id, and the browser saves it under that id. */
+private fun importedId(context: Context, uri: Uri): String {
+    val name = context.contentResolver
+        .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+        ?.use { if (it.moveToFirst()) it.getString(0) else null }
+        .orEmpty()
+    return name.removeSuffix(".json").takeIf { isClashfinderId(it) }.orEmpty()
 }
 
 /**
@@ -407,8 +455,9 @@ private fun Picker(
     today: LocalDate,
     loading: Boolean,
     error: String?,
-    checkUrl: String?,
-    onTakeCheck: () -> Unit,
+    blocked: Boolean,
+    onImport: () -> Unit,
+    onOpenInBrowser: () -> Unit,
     onRefresh: () -> Unit,
     onPick: (ClashfinderFestival) -> Unit,
 ) {
@@ -434,7 +483,7 @@ private fun Picker(
             Spacer(Modifier.height(18.dp))
             Action(if (loading) "Fetching…" else "Fetch the festival list", loading, onRefresh)
             Spacer(Modifier.height(14.dp))
-            ErrorNote(error, checkUrl, onTakeCheck)
+            ErrorNote(error, blocked, onImport, onOpenInBrowser)
             return@Column
         }
 
@@ -460,7 +509,7 @@ private fun Picker(
                 modifier = Modifier.clickable(enabled = !loading, onClick = onRefresh).padding(6.dp),
             )
         }
-        ErrorNote(error, checkUrl, onTakeCheck, Modifier.padding(vertical = 6.dp))
+        ErrorNote(error, blocked, onImport, onOpenInBrowser, Modifier.padding(vertical = 6.dp))
         if (ranked.isEmpty()) {
             Spacer(Modifier.height(16.dp))
             // The expected case, not a fault: clashfinder has ten thousand festivals
@@ -511,107 +560,129 @@ private fun FestivalRow(festival: ClashfinderFestival, onPick: (ClashfinderFesti
     }
 }
 
+/**
+ * **Departures**: the festival's days, each a vertical run of positions in running
+ * order, and one button that commits what you picked.
+ *
+ * Tap an act to select it; tap it again to deselect. That is the only gesture, and it
+ * means the same thing everywhere. Nothing is destroyed by choosing — the options you
+ * did not take stay on their rung, and a rung outlives the night it describes, because
+ * plans change on the day and adding to a programme after the festival is over is an
+ * ordinary thing to do.
+ *
+ * The day tabs are **views**, not scopes: the selection is one selection across the
+ * whole programme and the button's label is the diff, so it can be pressed from any tab
+ * without checking the others.
+ */
 @Composable
-private fun Timetable(
+private fun Departures(
     modifier: Modifier,
     programme: StoredProgramme,
+    onLine: List<FmSetlist>,
     now: LocalDateTime,
     loading: Boolean,
     error: String?,
-    checkUrl: String?,
-    onTakeCheck: () -> Unit,
+    blocked: Boolean,
+    onImport: () -> Unit,
+    onOpenInBrowser: () -> Unit,
     onRefetch: () -> Unit,
-    onAdd: (ProgrammeAct) -> Unit,
+    onCommit: (ProgrammeDiff) -> Unit,
 ) {
-    val acts = programme.acts
-    val days = remember(acts) { programmeDays(acts) }
-    // Opens on the night you are actually standing in. Before the festival that is the
-    // first day, after it the last — never an empty screen.
-    var day by remember(days) {
-        mutableStateOf(days.firstOrNull { it >= billNightOf(now) } ?: days.lastOrNull())
-    }
-    val onNow = remember(acts, now) { playingAt(now, acts) }
+    val applied = remember(programme, onLine) { appliedActs(programme, onLine) }
+    // The working selection starts as what is already on the line, so that turning an
+    // act off reads as a removal rather than as never having picked it. Re-seeded when
+    // the line moves under it — a commit is exactly that, and it is what empties the
+    // button again.
+    var picked by remember(programme.id) { mutableStateOf(applied) }
+    LaunchedEffect(applied) { picked = applied }
 
-    LazyColumn(modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        if (onNow.isNotEmpty()) {
+    val board = remember(programme, picked, applied) { departuresOf(programme, picked, applied) }
+    // Opens on the night you are actually standing in. Before the festival that is the
+    // first day, after it the last — never an empty screen. Null is "all days".
+    var day by remember(board.days) {
+        mutableStateOf(board.days.firstOrNull { it >= billNightOf(now) } ?: board.days.lastOrNull())
+    }
+    val shown = day?.let { listOf(it) } ?: board.days
+    val label = commitLabel(board.diff, programme.name, firstCommit = applied.isEmpty())
+
+    Box(modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
             item {
-                Spacer(Modifier.height(4.dp))
-                Label("ON NOW", Amber)
-                Spacer(Modifier.height(8.dp))
+                // Scrollable, because the number of days is the festival's: a clipped
+                // chip takes no taps, so the last nights of a long festival would be
+                // unreachable.
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(bottom = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    board.days.forEach { d ->
+                        DayChip(dayLabel(d), selected = d == day, onClick = { day = d })
+                    }
+                    DayChip("All days", selected = day == null, onClick = { day = null })
+                }
             }
-            items(onNow, key = { "now-" + it.artist + it.stage }) { act ->
-                ActRow(act, acts, accent = Amber, onAdd = onAdd)
-            }
-            // What starts next, so a break can be timed. Only while something is on:
-            // "next" a fortnight before the festival is the whole timetable, which the
-            // day list below already is.
-            val next = nextAfter(now, acts, limit = 3)
-            if (next.isNotEmpty()) {
-                item {
-                    Spacer(Modifier.height(14.dp))
-                    Label("AND THEN", Slate)
-                    Spacer(Modifier.height(6.dp))
-                    next.forEach {
-                        Text(
-                            "${it.start}  ${it.artist} · ${it.stage}",
-                            color = Muted,
-                            fontSize = 12.sp,
-                            modifier = Modifier.padding(top = 2.dp),
-                        )
+
+            shown.forEach { d ->
+                if (shown.size > 1) {
+                    item(key = "head-$d") {
+                        Spacer(Modifier.height(6.dp))
+                        Label(dayLabel(d).uppercase(Locale.ENGLISH), Slate)
+                        Spacer(Modifier.height(8.dp))
                     }
                 }
-            }
-            item { Spacer(Modifier.height(20.dp)) }
-        }
-
-        item {
-            // Scrollable, because the number of days is now the festival's and not
-            // Øya's four: a clipped chip takes no taps, so the last nights of a long
-            // festival would be unreachable.
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(bottom = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                days.forEach { d ->
-                    DayChip(d, selected = d == day, onClick = { day = d })
+                items(board.positions[d].orEmpty(), key = { "$d-" + it.options.first().artist }) { position ->
+                    PositionRow(
+                        position = position,
+                        picked = picked,
+                        applied = applied,
+                        onToggle = { key -> picked = if (key in picked) picked - key else picked + key },
+                    )
                 }
             }
+
+            item {
+                Spacer(Modifier.height(18.dp))
+                // A clashfinder is edited up to and past the doors — the median one is
+                // last touched the day before its own festival — so how old this copy is
+                // decides whether to trust it, and refetching is one tap from that.
+                if (programme.lastEdit.isNotBlank()) {
+                    Text("Timetable last edited ${programme.lastEdit}", color = Faint, fontSize = 11.sp)
+                    Spacer(Modifier.height(6.dp))
+                }
+                Text(
+                    if (loading) "Fetching…" else "Fetch it again",
+                    color = Muted,
+                    fontSize = 12.sp,
+                    modifier = Modifier.clickable(enabled = !loading, onClick = onRefetch).padding(vertical = 6.dp),
+                )
+                ErrorNote(error, blocked, onImport, onOpenInBrowser)
+                // Attribution is a condition of the licence the data comes under, not a
+                // courtesy — so it is rendered with the data every time.
+                if (programme.copyright.isNotBlank()) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(programme.copyright, color = Faint, fontSize = 11.sp)
+                }
+                // Room for the button to float over, so the licence line is readable
+                // with a selection made.
+                Spacer(Modifier.height(if (label == null) 32.dp else 96.dp))
+            }
         }
 
-        val listed = day?.let { actsOn(it, acts) }.orEmpty()
-        items(listed, key = { it.artist + it.stage + it.start }) { act ->
-            ActRow(act, acts, accent = Slate, onAdd = onAdd)
-        }
-
-        item {
-            Spacer(Modifier.height(18.dp))
-            // A clashfinder is edited up to and past the doors — the median one is last
-            // touched the day before its own festival — so how old this copy is decides
-            // whether to trust it, and refetching is one tap from that sentence.
-            if (programme.lastEdit.isNotBlank()) {
-                Text("Timetable last edited ${programme.lastEdit}", color = Faint, fontSize = 11.sp)
-                Spacer(Modifier.height(6.dp))
+        // One place to commit, and nothing at all when nothing would change.
+        label?.let {
+            Box(Modifier.align(Alignment.BottomCenter).padding(16.dp)) {
+                Action(it, loading = false, onClick = { onCommit(board.diff) })
             }
-            Text(
-                if (loading) "Fetching…" else "Fetch it again",
-                color = Muted,
-                fontSize = 12.sp,
-                modifier = Modifier.clickable(enabled = !loading, onClick = onRefetch).padding(vertical = 6.dp),
-            )
-            ErrorNote(error, checkUrl, onTakeCheck)
-            // Attribution is a condition of the licence the data comes under, not a
-            // courtesy — so it is rendered with the data every time.
-            if (programme.copyright.isNotBlank()) {
-                Spacer(Modifier.height(10.dp))
-                Text(programme.copyright, color = Faint, fontSize = 11.sp)
-            }
-            Spacer(Modifier.height(32.dp))
         }
     }
 }
+
+private val DAY_LABEL = DateTimeFormatter.ofPattern("EEEE d", Locale.ENGLISH)
+
+private fun dayLabel(day: LocalDate): String = day.format(DAY_LABEL)
 
 /** The same night boundary the rest of the app uses, so 01:30 is still tonight here too. */
 private fun billNightOf(now: LocalDateTime): LocalDate =
@@ -638,10 +709,9 @@ private fun Action(text: String, loading: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun DayChip(day: LocalDate, selected: Boolean, onClick: () -> Unit) {
-    val fmt = DateTimeFormatter.ofPattern("EEE d", Locale.ENGLISH)
+private fun DayChip(label: String, selected: Boolean, onClick: () -> Unit) {
     Text(
-        day.format(fmt),
+        label,
         color = if (selected) Ground else Muted,
         fontSize = 13.sp,
         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
@@ -661,30 +731,72 @@ private fun DayChip(day: LocalDate, selected: Boolean, onClick: () -> Unit) {
 private val ChipEdge = Color(0xFF2E2740)
 
 /**
- * One act, what it is a choice against, and the way onto a **Bill**.
+ * One position in the running order: a single act, or a **rung** of acts you are
+ * choosing between.
  *
- * The clash list is the payload of the whole screen, so it is shown by default rather
- * than behind a tap: the moment you need it is while walking between stages, and a
- * gesture you have to remember is one you will not make. Tapping collapses it, for the
- * evenings where you have already decided.
+ * A rung is horizontal and a day is vertical, so the axis says which it is before a
+ * word is read: sideways means "another option here", downwards means "and then".
  */
 @Composable
-private fun ActRow(
-    act: ProgrammeAct,
-    all: List<ProgrammeAct>,
-    accent: Color,
-    onAdd: (ProgrammeAct) -> Unit,
+private fun PositionRow(
+    position: Position,
+    picked: Set<String>,
+    applied: Set<String>,
+    onToggle: (String) -> Unit,
 ) {
-    var open by remember(act) { mutableStateOf(true) }
-    val clashes = remember(act, all) { clashesWith(act, all) }
+    if (!position.isRung) {
+        val act = position.options.first()
+        ActCard(act, actKey(act) in picked, actKey(act) in applied, Modifier.fillMaxWidth(), onToggle)
+        return
+    }
+    Column(Modifier.padding(bottom = 10.dp)) {
+        Text(
+            "${position.options.size} AT ONCE",
+            color = Faint,
+            fontSize = 9.sp,
+            letterSpacing = 1.2.sp,
+            modifier = Modifier.padding(bottom = 5.dp),
+        )
+        // Scrolled rather than paged: reading every option is the work of a rung, and a
+        // carousel that snaps hides how many are left. ponytail: no centring slide and
+        // no snap — those need a thumb to judge and can be added once one has been on it.
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            position.options.forEach { act ->
+                ActCard(act, actKey(act) in picked, actKey(act) in applied, Modifier.width(240.dp), onToggle)
+            }
+        }
+    }
+}
+
+/**
+ * One act, and whether it is decided.
+ *
+ * Amber is decided; nothing else on the card changes. The line beneath says whether it
+ * is already on the **Line**, so a decision already made is not offered as a new one.
+ */
+@Composable
+private fun ActCard(
+    act: ProgrammeAct,
+    selected: Boolean,
+    onLine: Boolean,
+    modifier: Modifier,
+    onToggle: (String) -> Unit,
+) {
     Column(
-        Modifier
-            .fillMaxWidth()
+        modifier
             .padding(bottom = 10.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(Raised)
-            .clickable { open = !open }
-            .semantics { stateDescription = if (open) "expanded" else "collapsed" }
+            .border(1.dp, if (selected) Amber else Color.Transparent, RoundedCornerShape(6.dp))
+            .clickable { onToggle(actKey(act)) }
+            .semantics {
+                this.selected = selected
+                role = Role.Checkbox
+                stateDescription = if (selected) "going" else "not going"
+            }
             .padding(horizontal = 14.dp, vertical = 11.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -692,7 +804,7 @@ private fun ActRow(
                 // The published end where there is one: a headline set is not an hour,
                 // and the length is half of what a choice costs.
                 if (act.end.isBlank()) act.start else "${act.start}–${act.end}",
-                color = accent,
+                color = if (selected) Amber else Slate,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -701,36 +813,10 @@ private fun ActRow(
                 Text(act.artist, fontFamily = Serif, fontSize = 16.sp, color = Ink)
                 Text(act.stage, color = Muted, fontSize = 12.sp)
             }
-            Text(
-                "Add",
-                color = Amber,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier
-                    .clickable { onAdd(act) }
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-            )
         }
-        if (clashes.isEmpty()) {
+        if (onLine) {
             Spacer(Modifier.height(5.dp))
-            // Worth saying out loud. "No clash" is the rarest and most useful fact on
-            // a festival timetable, and silence would read as "not computed".
-            Text("clear", color = Faint, fontSize = 11.sp)
-        } else if (open) {
-            Spacer(Modifier.height(9.dp))
-            Text("INSTEAD OF", color = Faint, fontSize = 9.sp, letterSpacing = 1.2.sp)
-            Spacer(Modifier.height(4.dp))
-            clashes.forEach {
-                Text(
-                    "${it.start}  ${it.artist} · ${it.stage}",
-                    color = Muted,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-            }
-        } else {
-            Spacer(Modifier.height(5.dp))
-            Text("${clashes.size} clash${if (clashes.size == 1) "" else "es"}", color = Faint, fontSize = 11.sp)
+            Text("on your line", color = Faint, fontSize = 11.sp)
         }
     }
 }

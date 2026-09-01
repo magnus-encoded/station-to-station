@@ -2,8 +2,11 @@ package io.github.magnusencoded.stationtostation
 
 import io.github.magnusencoded.stationtostation.data.ProgrammeAct
 import io.github.magnusencoded.stationtostation.data.StoredProgramme
+import io.github.magnusencoded.stationtostation.data.actKey
 import io.github.magnusencoded.stationtostation.data.actsOn
 import io.github.magnusencoded.stationtostation.data.clashesWith
+import io.github.magnusencoded.stationtostation.data.commitLabel
+import io.github.magnusencoded.stationtostation.data.departuresOf
 import io.github.magnusencoded.stationtostation.data.encodeProgramme
 import io.github.magnusencoded.stationtostation.data.endTimes
 import io.github.magnusencoded.stationtostation.data.parseProgramme
@@ -169,5 +172,138 @@ class ProgrammeTest {
     @Test
     fun `an unreadable cache is no programme, not a crash`() {
         assertEquals(StoredProgramme(), parseProgramme("not json at all"))
+    }
+
+    // --- Departures: the board, and the change committing it would make ---
+
+    private fun programme(vararg acts: ProgrammeAct) =
+        StoredProgramme(id = "tor2027", name = "Tons of Rock 2027", acts = acts.toList())
+
+    /** Who is on each position, so a test says what a person would see. */
+    private fun rungsOn(board: io.github.magnusencoded.stationtostation.data.Departures, date: String) =
+        board.positions[LocalDate.parse(date)].orEmpty().map { p -> p.options.map { it.artist } }
+
+    @Test
+    fun `a day with no overlaps is a run of single acts, and no rungs`() {
+        val board = departuresOf(
+            programme(act("First", "18:00", "Amfiet"), act("Second", "20:00", "Amfiet")),
+            picked = emptySet(),
+            applied = emptySet(),
+        )
+        assertEquals(listOf(listOf("First"), listOf("Second")), rungsOn(board, "2026-08-13"))
+    }
+
+    @Test
+    fun `two acts overlapping across stages are one rung of two`() {
+        val board = departuresOf(
+            programme(act("Want", "20:00", "Amfiet"), act("Also want", "20:30", "Sirkus")),
+            emptySet(), emptySet(),
+        )
+        assertEquals(listOf(listOf("Want", "Also want")), rungsOn(board, "2026-08-13"))
+    }
+
+    @Test
+    fun `a chain of three is one decision, even where the ends do not touch`() {
+        // A overlaps B and B overlaps C, but A is over before C starts. Taking A and C
+        // is still one walk, so it is one rung.
+        val board = departuresOf(
+            programme(
+                act("A", "20:00", "Amfiet", end = "20:45"),
+                act("B", "20:30", "Sirkus", end = "21:15"),
+                act("C", "21:00", "Klubben", end = "21:45"),
+            ),
+            emptySet(), emptySet(),
+        )
+        assertEquals(listOf(listOf("A", "B", "C")), rungsOn(board, "2026-08-13"))
+    }
+
+    @Test
+    fun `two acts on one stage are a running order, never a rung`() {
+        val board = departuresOf(
+            programme(act("First", "20:00", "Amfiet"), act("Second", "20:30", "Amfiet")),
+            emptySet(), emptySet(),
+        )
+        assertEquals(listOf(listOf("First"), listOf("Second")), rungsOn(board, "2026-08-13"))
+    }
+
+    @Test
+    fun `an after-midnight act closes its own night rather than opening the next`() {
+        val board = departuresOf(
+            programme(
+                act("Afternoon", "16:00", "Amfiet", date = "2026-08-13"),
+                act("Late", "01:00", "Klubben", date = "2026-08-13"),
+            ),
+            emptySet(), emptySet(),
+        )
+        assertEquals(listOf(listOf("Afternoon"), listOf("Late")), rungsOn(board, "2026-08-13"))
+    }
+
+    @Test
+    fun `turning off an act that is on the line is a removal`() {
+        val want = act("Want", "20:00", "Amfiet")
+        val diff = departuresOf(programme(want), picked = emptySet(), applied = setOf(actKey(want))).diff
+        assertTrue(diff.add.isEmpty())
+        assertEquals(listOf(actKey(want)), diff.remove)
+    }
+
+    @Test
+    fun `a selection that matches the line changes nothing, so there is no button`() {
+        val want = act("Want", "20:00", "Amfiet")
+        val diff = departuresOf(programme(want), setOf(actKey(want)), setOf(actKey(want))).diff
+        assertTrue(diff.isEmpty)
+        assertEquals(null, commitLabel(diff, "Tons of Rock 2027", firstCommit = false))
+    }
+
+    @Test
+    fun `a selection spanning two days names both, whichever tab is in view`() {
+        // The tab is a view, not a scope: nothing in the diff knows one exists.
+        val thu = act("Thursday act", "20:00", "Amfiet", date = "2026-08-13")
+        val fri = act("Friday act", "20:00", "Amfiet", date = "2026-08-14")
+        val diff = departuresOf(programme(thu, fri), setOf(actKey(thu), actKey(fri)), emptySet()).diff
+        assertEquals(
+            listOf(LocalDate.parse("2026-08-13"), LocalDate.parse("2026-08-14")),
+            diff.days,
+        )
+    }
+
+    @Test
+    fun `a first commit on one day is named in the language of the festival`() {
+        val thu = act("Thursday act", "20:00", "Amfiet", date = "2026-08-13")
+        val diff = departuresOf(programme(thu), setOf(actKey(thu)), emptySet()).diff
+        assertEquals(
+            "Add Thursday at Tons of Rock 2027",
+            commitLabel(diff, "Tons of Rock 2027", firstCommit = true),
+        )
+    }
+
+    @Test
+    fun `adding to a programme already committed says how much it adds`() {
+        val a = act("A", "20:00", "Amfiet")
+        val b = act("B", "20:00", "Sirkus")
+        val on = act("Already on", "16:00", "Amfiet")
+        val diff = departuresOf(
+            programme(a, b, on),
+            picked = setOf(actKey(a), actKey(b), actKey(on)),
+            applied = setOf(actKey(on)),
+        ).diff
+        assertEquals("Add 2 more gigs", commitLabel(diff, "Tons of Rock 2027", firstCommit = false))
+    }
+
+    @Test
+    fun `a commit that only takes things away announces itself`() {
+        val on = act("Already on", "16:00", "Amfiet")
+        val diff = departuresOf(programme(on), emptySet(), setOf(actKey(on))).diff
+        assertEquals("Remove 1 gig", commitLabel(diff, "Tons of Rock 2027", firstCommit = false))
+    }
+
+    @Test
+    fun `a change of mind that both adds and removes is one update`() {
+        val thu = act("Thursday act", "20:00", "Amfiet", date = "2026-08-13")
+        val fri = act("Friday act", "20:00", "Amfiet", date = "2026-08-14")
+        val diff = departuresOf(programme(thu, fri), setOf(actKey(fri)), setOf(actKey(thu))).diff
+        assertEquals(
+            "Update Thursday and Friday",
+            commitLabel(diff, "Tons of Rock 2027", firstCommit = false),
+        )
     }
 }

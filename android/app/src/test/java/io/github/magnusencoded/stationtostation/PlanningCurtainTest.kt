@@ -1,6 +1,6 @@
 package io.github.magnusencoded.stationtostation
 
-import io.github.magnusencoded.stationtostation.ui.BillDetent
+import io.github.magnusencoded.stationtostation.ui.ProgrammeDetent
 import io.github.magnusencoded.stationtostation.ui.GigDetent
 import io.github.magnusencoded.stationtostation.ui.ImportDetent
 import io.github.magnusencoded.stationtostation.ui.PlanningDoor
@@ -25,14 +25,14 @@ class PlanningCurtainTest {
     @Test
     fun `the detents are inclusive — reaching one arms it`() {
         assertEquals(PlanningDoor.Gig, armedDoor(GigDetent))
-        assertEquals(PlanningDoor.Bill, armedDoor(BillDetent))
+        assertEquals(PlanningDoor.Programme, armedDoor(ProgrammeDetent))
         assertEquals(PlanningDoor.Import, armedDoor(ImportDetent))
     }
 
     @Test
     fun `pulling further reaches the further door, and never skips one`() {
-        assertEquals(PlanningDoor.Gig, armedDoor(BillDetent - 0.01f))
-        assertEquals(PlanningDoor.Bill, armedDoor(ImportDetent - 0.01f))
+        assertEquals(PlanningDoor.Gig, armedDoor(ProgrammeDetent - 0.01f))
+        assertEquals(PlanningDoor.Programme, armedDoor(ImportDetent - 0.01f))
         assertEquals(PlanningDoor.Import, armedDoor(1f))
     }
 
@@ -41,8 +41,8 @@ class PlanningCurtainTest {
         // A detent you can cross by accident is a threshold with extra steps. Each of
         // the four states needs a real share of the travel, or the pull is a coin flip.
         assertEquals(true, GigDetent >= 0.25f)
-        assertEquals(true, BillDetent - GigDetent >= 0.2f)
-        assertEquals(true, ImportDetent - BillDetent >= 0.2f)
+        assertEquals(true, ProgrammeDetent - GigDetent >= 0.2f)
+        assertEquals(true, ImportDetent - ProgrammeDetent >= 0.2f)
         assertEquals(true, 1f - ImportDetent >= 0.05f)
     }
 
@@ -77,8 +77,8 @@ class PlanningCurtainTest {
     fun `pulling back past a detent de-arms it`() {
         // onPostScroll now folds upward drag into the same running total instead of
         // ignoring it, so retreat has to read back to a lesser door, not stick.
-        assertEquals(PlanningDoor.Bill, armedDoor(ImportDetent - 0.01f))
-        assertEquals(PlanningDoor.Gig, armedDoor(BillDetent - 0.01f))
+        assertEquals(PlanningDoor.Programme, armedDoor(ImportDetent - 0.01f))
+        assertEquals(PlanningDoor.Gig, armedDoor(ProgrammeDetent - 0.01f))
         assertEquals(PlanningDoor.None, armedDoor(GigDetent - 0.01f))
     }
 }

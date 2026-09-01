@@ -1,6 +1,5 @@
 package io.github.magnusencoded.stationtostation.data.clashfinder
 
-import android.webkit.CookieManager
 import io.github.magnusencoded.stationtostation.data.ProgrammeAct
 import io.github.magnusencoded.stationtostation.data.StoredProgramme
 import io.github.magnusencoded.stationtostation.data.USER_AGENT
@@ -12,9 +11,6 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
-import okhttp3.Cookie
-import okhttp3.CookieJar
-import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -57,8 +53,7 @@ import kotlin.math.abs
  * we promise to keep (ADR-0005). Attribution is a condition of that licence, so the
  * `copyright` line the payload carries is stored with the acts and shown with them.
  */
-private const val ORIGIN = "https://clashfinder.com"
-private const val HOST = "$ORIGIN/data"
+private const val HOST = "https://clashfinder.com/data"
 
 /**
  * The full index, not the curated one.
@@ -67,7 +62,7 @@ private const val HOST = "$ORIGIN/data"
  * this, about 10,500. Øyafestivalen is **not** a core clashfinder, so the curated index
  * would have silently omitted the one festival this feature was built for.
  */
-private const val INDEX_PATH = "events/all.json"
+const val INDEX_PATH = "events/all.json"
 
 /** One account's credentials, as every request carries them. */
 data class ClashfinderAuth(val user: String, val publicKey: String)
@@ -407,78 +402,35 @@ fun isClashfinderId(id: String): Boolean =
  * on a name and a date needs neither.
  */
 /**
- * The host wants a human at a browser before it will answer this address.
+ * The host refuses to answer this app at all.
  *
- * Carries [url] because "try again in a while" is not a thing anybody can act on: the
- * check clears by *taking* it, in a browser, on this phone — the interstitial gates the
- * address, so clearing it there clears it for the app's own requests too. The URL is
- * the bare endpoint, without the account's credentials on the query string: it draws
- * the same check, and the key has no business in browser history.
+ * Its bot protection serves a CAPTCHA interstitial in place of the data, and it does so
+ * for a request carrying the account's own credentials and a clearance cookie taken in a
+ * browser on the same device. There is nothing the caller can do about it from here —
+ * only clashfinder can let this client through — so the screen offers the file the
+ * user's own browser can still fetch.
  */
-class BrowserCheckRequired(val url: String) : IOException(
-    "clashfinder wants a browser check before it will answer this phone."
+class ClashfinderBlocked : IOException(
+    "clashfinder will not answer this app yet."
 )
 
-private val REFRESH = Regex(
-    """http-equiv=["']refresh["'][^>]*content=["']\s*\d+\s*;\s*(?:url=)?([^"']+)""",
-    RegexOption.IGNORE_CASE,
-)
-
-/**
- * Where the check lives, read out of the interstitial that names it.
- *
- * The 202 is a bare meta-refresh to `/.well-known/sgcaptcha/?r=…&y=ipc:<address>:<token>`.
- * `r` is where the browser goes once the check is satisfied, and it is pointed at the
- * front page: left alone it is the data URL, which would land 4 MB of JSON in somebody's
- * downloads as their reward for taking a captcha.
- *
- * Null where the body is some other HTML: then there is nothing to open and the caller
- * falls back to the address it asked for.
- */
-fun browserCheckUrl(body: String): String? {
-    val target = REFRESH.find(body)?.groupValues?.get(1)?.trim().orEmpty()
-    val absolute = when {
-        target.startsWith("http") -> target
-        target.startsWith("/") -> ORIGIN + target
-        else -> return null
-    }
-    return absolute.replace(Regex("""(?<=[?&])r=[^&]*"""), "r=%2F")
-}
-
-/**
- * The one cookie jar, shared with the WebView the bot check is taken in.
- *
- * The check clears a *client*, not an address: it leaves a cookie behind, so whoever
- * holds that cookie is who gets through. Reading the platform's own store makes the
- * browser that takes the check and the code that makes the request one client, and
- * leaves keeping the clearance across launches to the platform.
- */
-private object WebViewCookies : CookieJar {
-    override fun loadForRequest(url: HttpUrl): List<Cookie> =
-        CookieManager.getInstance().getCookie(url.toString())
-            ?.split(";")
-            ?.mapNotNull { Cookie.parse(url, it.trim()) }
-            .orEmpty()
-
-    override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-        val store = CookieManager.getInstance()
-        cookies.forEach { store.setCookie(url.toString(), it.toString()) }
-        store.flush()
-    }
-}
+/** The address of one document, credentials and all — what a browser can still fetch. */
+fun clashfinderUrl(path: String, auth: ClashfinderAuth): String =
+    "$HOST/$path".toHttpUrl().newBuilder()
+        .addQueryParameter("authUsername", auth.user)
+        .addQueryParameter("authPublicKey", auth.publicKey)
+        .build()
+        .toString()
 
 class ClashfinderClient(private val auth: suspend () -> ClashfinderAuth?) {
 
-    private val http = OkHttpClient.Builder().cookieJar(WebViewCookies).build()
+    private val http = OkHttpClient()
 
     private suspend fun get(path: String): String {
         val credentials = auth() ?: throw IOException(
             "No clashfinder account yet. Add your username and private key in Settings."
         )
-        val url = "$HOST/$path".toHttpUrl().newBuilder()
-            .addQueryParameter("authUsername", credentials.user)
-            .addQueryParameter("authPublicKey", credentials.publicKey)
-            .build()
+        val url = clashfinderUrl(path, credentials)
         val body = withContext(Dispatchers.IO) {
             val request = Request.Builder()
                 .url(url)
@@ -499,12 +451,10 @@ class ClashfinderClient(private val auth: suspend () -> ClashfinderAuth?) {
                     }
                 }
         }
-        // The bot check answers 200-with-HTML rather than a status anyone can read. Say
-        // what it is, because "could not read the programme" would send someone looking
-        // for a bug in the parser — and hand back a way through it.
-        if (!body.trimStart().startsWith("{")) {
-            throw BrowserCheckRequired(browserCheckUrl(body) ?: "$HOST/$path")
-        }
+        // The bot check answers 200-with-HTML rather than a status anyone can read, so
+        // it is named for what it is: "could not read the programme" would send someone
+        // looking for a bug in the parser.
+        if (!body.trimStart().startsWith("{")) throw ClashfinderBlocked()
         return body
     }
 

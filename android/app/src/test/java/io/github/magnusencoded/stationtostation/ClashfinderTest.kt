@@ -2,7 +2,6 @@ package io.github.magnusencoded.stationtostation
 
 import io.github.magnusencoded.stationtostation.data.clashfinder.ClashfinderFestival
 import io.github.magnusencoded.stationtostation.data.clashfinder.billingLead
-import io.github.magnusencoded.stationtostation.data.clashfinder.browserCheckUrl
 import io.github.magnusencoded.stationtostation.data.clashfinder.clashfinderPublicKey
 import io.github.magnusencoded.stationtostation.data.clashfinder.matchArtist
 import io.github.magnusencoded.stationtostation.data.clashfinder.parseClashfinderEvent
@@ -290,28 +289,5 @@ class ClashfinderTest {
         val dateless = ClashfinderFestival(id = "x", name = "Undated")
 
         assertEquals(Long.MAX_VALUE, dateless.distanceFrom(LocalDate.parse("2026-08-11")))
-    }
-
-    /**
-     * The bot check is the one failure a person can clear themselves, so the address it
-     * is taken at has to survive the trip out of the client. The interstitial is a bare
-     * meta-refresh and this reads the target out of it.
-     */
-    @Test
-    fun `the bot check gives up the address it is taken at`() {
-        val interstitial = "<html><head><link rel=\"icon\" href=\"data:;\">" +
-            "<meta http-equiv=\"refresh\" content=\"0;/.well-known/sgcaptcha/" +
-            "?r=%2Fdata%2Fevents%2Fall.json&y=ipc:176.11.16.248:1788206977.704\">" +
-            "</meta></head></html>"
-
-        assertEquals(
-            "https://clashfinder.com/.well-known/sgcaptcha/?r=%2F&y=ipc:176.11.16.248:1788206977.704",
-            browserCheckUrl(interstitial),
-        )
-    }
-
-    @Test
-    fun `html that is not the bot check names no address`() {
-        assertNull(browserCheckUrl("<html><body>Down for maintenance</body></html>"))
     }
 }
