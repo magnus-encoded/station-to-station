@@ -1,5 +1,6 @@
 package io.github.magnusencoded.stationtostation.data.musicbrainz
 
+import io.github.magnusencoded.stationtostation.data.USER_AGENT
 import io.github.magnusencoded.stationtostation.data.sameSong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -127,8 +128,6 @@ class MusicBrainzClient {
         internal const val ARTIST_LIMIT = 8
         /** Below this a query matches most of the database and the list is noise. */
         internal const val MIN_QUERY = 2
-        internal const val USER_AGENT =
-            "StationToStation/1.0 ( https://github.com/magnus-encoded/station-to-station )"
     }
 }
 
