@@ -9,11 +9,14 @@ import io.github.magnusencoded.stationtostation.data.commitLabel
 import io.github.magnusencoded.stationtostation.data.departuresOf
 import io.github.magnusencoded.stationtostation.data.encodeProgramme
 import io.github.magnusencoded.stationtostation.data.endTimes
+import io.github.magnusencoded.stationtostation.data.matchAct
+import io.github.magnusencoded.stationtostation.data.nameKey
 import io.github.magnusencoded.stationtostation.data.parseProgramme
 import io.github.magnusencoded.stationtostation.data.playingAt
 import io.github.magnusencoded.stationtostation.data.programmeDays
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -305,5 +308,35 @@ class ProgrammeTest {
             "Update Thursday and Friday",
             commitLabel(diff, "Tons of Rock 2027", firstCommit = false),
         )
+    }
+
+    @Test
+    fun `a country tag on one source is the same artist as no tag on the other`() {
+        assertEquals(nameKey("Wilco"), nameKey("Wilco (US)"))
+    }
+
+    @Test
+    fun `an ampersand and the word and are the same artist`() {
+        assertEquals(
+            nameKey("Nick Cave & the Bad Seeds"),
+            nameKey("Nick Cave and the Bad Seeds (AU)"),
+        )
+    }
+
+    @Test
+    fun `a typographic apostrophe is the same artist as a plain one`() {
+        assertEquals(nameKey("Melody's Echo Chamber"), nameKey("Melody’s Echo Chamber"))
+    }
+
+    @Test
+    fun `two different artists do not fold into one`() {
+        assertNotEquals(nameKey("Wilco"), nameKey("Wilko Johnson"))
+    }
+
+    @Test
+    fun `a MusicBrainz id decides it before the name is even read`() {
+        val id = "b7ffd2af-418f-4be2-bdd1-22f8b48613da"
+        val listed = act("Nick Cave and the Bad Seeds (AU)", "20:00", "Amfiet").copy(mbid = id)
+        assertEquals(listed, matchAct(listOf(listed), name = "something else entirely", mbid = id))
     }
 }

@@ -28,6 +28,8 @@ import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredBill
 import io.github.magnusencoded.stationtostation.data.StoredFestival
 import io.github.magnusencoded.stationtostation.data.ProgrammeDiff
+import io.github.magnusencoded.stationtostation.data.actKey
+import io.github.magnusencoded.stationtostation.data.nameKey
 import io.github.magnusencoded.stationtostation.data.programmeFestivalId
 import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.artistLabel
@@ -2108,7 +2110,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * evidence of something that happened; deselecting a plan must not be able to erase
      * it, and `deleteGig` refuses one carrying media in any case.
      */
-    fun commitProgramme(programme: StoredProgramme, diff: ProgrammeDiff) {
+    fun commitProgramme(programme: StoredProgramme, diff: ProgrammeDiff, picked: Set<String>) {
         if (diff.isEmpty) return
         viewModelScope.launch {
             val festivalId = programmeFestivalId(programme)
@@ -2126,11 +2128,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val minted = mutableListOf<FmSetlist>()
             val attendances = mutableMapOf<String, StoredAttendance>()
             val membership = mutableMapOf<String, String>()
-            for (act in diff.add) {
+            // Everything picked, not only what is new: an act already on the line from
+            // setlist.fm is exactly the one that has to be *gathered* into the festival
+            // rather than minted a second time, and it never appears in the diff because
+            // it was on the line before the programme was opened.
+            val taking = programme.acts.filter { actKey(it) in picked }.distinctBy { actKey(it) }
+            for (act in taking) {
                 val night = runCatching { LocalDate.parse(act.date) }.getOrNull() ?: continue
                 val artist = act.artist.trim()
                 if (artist.isBlank()) continue
-                val existing = onLine(night, artist)
+                val existing = onLine(night, artist, act.mbid)
                 val gigId = existing?.id
                     ?: timelines.createLocalGig(fmDate(night), artist, act.stage)
                 if (existing == null) {
@@ -2163,10 +2170,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** The **Gig** already on my line for this night and this artist, if there is one. */
-    private fun onLine(night: LocalDate, artist: String): FmSetlist? =
+    /**
+     * The **Gig** already on my line for this night and this artist, if there is one.
+     *
+     * On the same terms [matchAct] uses in the other direction: the MusicBrainz id where
+     * both sides have one, and [nameKey] otherwise, because the two sources spell the
+     * same artist differently often enough that an exact compare mints duplicates.
+     */
+    private fun onLine(night: LocalDate, artist: String, mbid: String = ""): FmSetlist? =
         (_state.value.plannedGigs + _state.value.setlists).firstOrNull { gig ->
-            gig.localDate() == night && gig.artist?.name?.trim().equals(artist.trim(), ignoreCase = true)
+            gig.localDate() == night &&
+                (mbid.isNotBlank() && gig.artist?.mbid == mbid ||
+                    nameKey(gig.artist?.name.orEmpty()) == nameKey(artist))
         }
 
     /** The **Bill** this festival already has, or a new one carrying its range. */
