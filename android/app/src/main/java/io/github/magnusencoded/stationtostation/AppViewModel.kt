@@ -30,6 +30,7 @@ import io.github.magnusencoded.stationtostation.data.StoredFestival
 import io.github.magnusencoded.stationtostation.data.ProgrammeDiff
 import io.github.magnusencoded.stationtostation.data.actKey
 import io.github.magnusencoded.stationtostation.data.nameKey
+import io.github.magnusencoded.stationtostation.data.playedActs
 import io.github.magnusencoded.stationtostation.data.programmeFestivalId
 import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.artistLabel
@@ -2110,9 +2111,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * evidence of something that happened; deselecting a plan must not be able to erase
      * it, and `deleteGig` refuses one carrying media in any case.
      */
-    fun commitProgramme(programme: StoredProgramme, diff: ProgrammeDiff, picked: Set<String>) {
+    fun commitProgramme(
+        programme: StoredProgramme,
+        diff: ProgrammeDiff,
+        picked: Set<String>,
+        now: LocalDateTime = LocalDateTime.now(),
+    ) {
         if (diff.isEmpty) return
         viewModelScope.launch {
+            val played = playedActs(programme.acts, now)
             val festivalId = programmeFestivalId(programme)
             val days = programmeDays(programme.acts)
             val festival = StoredFestival(
@@ -2142,7 +2149,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     ?: timelines.createLocalGig(fmDate(night), artist, act.stage)
                 if (existing == null) {
                     val gig = localGigSetlist(gigId, artist, night, venue = act.stage, city = "")
-                    attendances[gigId] = timelines.savePlanned(gig)
+                    val claim = timelines.savePlanned(gig)
+                    // A set that has already finished is a night I was at, not a night I
+                    // am going to — see `playedActs`. Only ever upgrades: `savePlanned`
+                    // hands back a claim that already exists, and a check-in outranks
+                    // this one.
+                    attendances[gigId] =
+                        if (actKey(act) in played &&
+                            claim.provenance == StoredAttendance.Provenance.PLANNED
+                        ) {
+                            StoredAttendance(provenance = StoredAttendance.Provenance.ATTENDED)
+                                .also { timelines.saveAttendance(gigId, it) }
+                        } else {
+                            claim
+                        }
                     minted += gig
                 }
                 membership[gigId] = festivalId

@@ -12,6 +12,7 @@ import io.github.magnusencoded.stationtostation.data.endTimes
 import io.github.magnusencoded.stationtostation.data.matchAct
 import io.github.magnusencoded.stationtostation.data.nameKey
 import io.github.magnusencoded.stationtostation.data.parseProgramme
+import io.github.magnusencoded.stationtostation.data.playedActs
 import io.github.magnusencoded.stationtostation.data.playingAt
 import io.github.magnusencoded.stationtostation.data.programmeDays
 import org.junit.Assert.assertEquals
@@ -338,5 +339,19 @@ class ProgrammeTest {
         val id = "b7ffd2af-418f-4be2-bdd1-22f8b48613da"
         val listed = act("Nick Cave and the Bad Seeds (AU)", "20:00", "Amfiet").copy(mbid = id)
         assertEquals(listed, matchAct(listOf(listed), name = "something else entirely", mbid = id))
+    }
+
+    @Test
+    fun `a set that has finished is something that happened, not something planned`() {
+        val over = act("Played already", "13:00", "Amfiet", date = "2026-08-15")
+        val played = playedActs(listOf(over), LocalDateTime.parse("2026-08-15T18:00"))
+        assertTrue(actKey(over) in played)
+    }
+
+    @Test
+    fun `a set still to come is not something that happened`() {
+        val later = act("On tonight", "22:00", "Amfiet", date = "2026-08-15")
+        val played = playedActs(listOf(later), LocalDateTime.parse("2026-08-15T18:00"))
+        assertFalse(actKey(later) in played)
     }
 }
