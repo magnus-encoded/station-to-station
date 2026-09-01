@@ -156,7 +156,7 @@ private fun declaredEnd(act: ProgrammeAct, start: LocalDateTime): LocalDateTime?
 }
 
 /** Half-open: an act ending exactly as another starts is a dash between stages, not a clash. */
-private fun overlaps(
+internal fun overlaps(
     aStart: LocalDateTime, aEnd: LocalDateTime,
     bStart: LocalDateTime, bEnd: LocalDateTime,
 ): Boolean = aStart < bEnd && bStart < aEnd

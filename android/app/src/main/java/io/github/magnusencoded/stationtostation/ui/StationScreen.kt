@@ -515,7 +515,7 @@ fun StationTimelineScreen(
                                 // closes the gap, so a short pull stays cheap to abandon.
                                 when (armedDoor(pull.value / pullMax)) {
                                     PlanningDoor.Gig -> adding = true
-                                    PlanningDoor.Bill -> addingBill = true
+                                    PlanningDoor.Programme -> onOpenProgramme()
                                     PlanningDoor.Import -> onOpenImport()
                                     PlanningDoor.None -> {}
                                 }

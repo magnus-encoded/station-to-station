@@ -23,6 +23,9 @@ import io.github.magnusencoded.stationtostation.data.SettingsRepository
 import io.github.magnusencoded.stationtostation.data.StoredAct
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredBill
+import io.github.magnusencoded.stationtostation.data.StoredFestival
+import io.github.magnusencoded.stationtostation.data.ProgrammeDiff
+import io.github.magnusencoded.stationtostation.data.programmeFestivalId
 import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.artistLabel
 import io.github.magnusencoded.stationtostation.data.bandsOf
@@ -427,6 +430,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * app state, and the one screen that reads it is the one that keeps it.
      */
     val clashfinder = ClashfinderClient { settings.clashfinderAuth() }
+
+    /**
+     * Hand one clashfinder document to the browser, which the host does still answer.
+     *
+     * The address carries the account's credentials because the data needs them, so this
+     * puts the public key in the browser's history — accepted only because it is the one
+     * route to the file while the app itself is refused, and it is the user's own key on
+     * their own phone.
+     */
+    suspend fun openClashfinderInBrowser(context: Context, path: String) {
+        val auth = settings.clashfinderAuth() ?: return
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse(clashfinderUrl(path, auth)))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }
 
     /**
      * The Timeline's sequence and rules (ADR-0001), with the device half handed in
@@ -2067,6 +2086,85 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             resolveProgrammeAct(bill.id, name, act.mbid)
         }
     }
+
+    /**
+     * **Departures committed: a diff applied to the Line, not an import.**
+     *
+     * Adds mint a **Gig** claimed `planned` — a programme is a plan, and it must never
+     * be counted as a show I have seen. Each carries the act's stage as its room and the
+     * **Festival**'s id, so `groupIntoFestivals` groups it by declared identity and never
+     * has to infer a festival from nights and venues: the **Festival** exists because
+     * somebody picked it.
+     *
+     * **An act already on the Line is adopted, never duplicated.** That is the bug that
+     * started this work — two stores with different date formats that did not check each
+     * other — and it is fixed here by matching on the night and the artist across the
+     * whole line before minting anything.
+     *
+     * Removes delete only a **Gig** this app minted. A night setlist.fm knows about is
+     * evidence of something that happened; deselecting a plan must not be able to erase
+     * it, and `deleteGig` refuses one carrying media in any case.
+     */
+    fun commitProgramme(programme: StoredProgramme, diff: ProgrammeDiff) {
+        if (diff.isEmpty) return
+        viewModelScope.launch {
+            val festivalId = programmeFestivalId(programme)
+            val days = programmeDays(programme.acts)
+            val festival = StoredFestival(
+                id = festivalId,
+                name = programme.name.trim().ifBlank { programme.id },
+                rangeFrom = days.firstOrNull()?.let { fmDate(it) },
+                rangeTo = days.lastOrNull()?.let { fmDate(it) },
+                // Authored: I picked this festival. An upstream scrape must not overwrite
+                // a name I chose off its own programme — see `mergedWith`.
+                source = StoredFestival.FestivalSource.AUTHORED,
+            )
+
+            val minted = mutableListOf<FmSetlist>()
+            val attendances = mutableMapOf<String, StoredAttendance>()
+            val membership = mutableMapOf<String, String>()
+            for (act in diff.add) {
+                val night = runCatching { LocalDate.parse(act.date) }.getOrNull() ?: continue
+                val artist = act.artist.trim()
+                if (artist.isBlank()) continue
+                val existing = onLine(night, artist)
+                val gigId = existing?.id
+                    ?: timelines.createLocalGig(fmDate(night), artist, act.stage)
+                if (existing == null) {
+                    val gig = localGigSetlist(gigId, artist, night, venue = act.stage, city = "")
+                    attendances[gigId] = timelines.savePlanned(gig)
+                    minted += gig
+                }
+                membership[gigId] = festivalId
+            }
+
+            val dropped = mutableSetOf<String>()
+            for (key in diff.remove) {
+                val night = runCatching { LocalDate.parse(key.substringBefore('|')) }.getOrNull() ?: continue
+                val gig = onLine(night, key.substringAfter('|'))?.takeIf { it.isLocal() } ?: continue
+                if (timelines.deleteGig(gig.id)) dropped += gig.id
+            }
+
+            timelines.save(festivals = mapOf(festivalId to festival), festivalIdByShow = membership)
+            _state.update {
+                it.copy(
+                    plannedGigs = sortedPlanned(it.plannedGigs.filterNot { g -> g.id in dropped } + minted),
+                    setlists = it.setlists.filterNot { g -> g.id in dropped },
+                    attendanceByGig = (it.attendanceByGig + attendances) - dropped,
+                    festivals = it.festivals + Festivals(
+                        byId = mapOf(festivalId to festival),
+                        idByShow = membership,
+                    ),
+                )
+            }
+        }
+    }
+
+    /** The **Gig** already on my line for this night and this artist, if there is one. */
+    private fun onLine(night: LocalDate, artist: String): FmSetlist? =
+        (_state.value.plannedGigs + _state.value.setlists).firstOrNull { gig ->
+            gig.localDate() == night && gig.artist?.name?.trim().equals(artist.trim(), ignoreCase = true)
+        }
 
     /** The **Bill** this festival already has, or a new one carrying its range. */
     private suspend fun billFor(programme: StoredProgramme): StoredBill {
