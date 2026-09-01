@@ -362,7 +362,7 @@ fun ProgrammeScreen(
                     }
                 },
                 onRefetch = { loadProgramme(programme.id) },
-                onCommit = { viewModel.commitProgramme(programme, it) },
+                onCommit = { diff, picked -> viewModel.commitProgramme(programme, diff, picked) },
             )
         }
     }
@@ -606,7 +606,7 @@ private fun DeparturesBoard(
     onImport: () -> Unit,
     onOpenInBrowser: () -> Unit,
     onRefetch: () -> Unit,
-    onCommit: (ProgrammeDiff) -> Unit,
+    onCommit: (ProgrammeDiff, Set<String>) -> Unit,
 ) {
     val applied = remember(programme, onLine) { appliedActs(programme, onLine) }
     // The working selection starts as what is already on the line, so that turning an
@@ -682,7 +682,7 @@ private fun DeparturesBoard(
                 visible = label != null,
                 label = label.orEmpty(),
                 sub = commitSub(board.diff, programme.name, applied.isEmpty(), open),
-                onClick = { onCommit(board.diff) },
+                onClick = { onCommit(board.diff, picked) },
             )
         }
     }

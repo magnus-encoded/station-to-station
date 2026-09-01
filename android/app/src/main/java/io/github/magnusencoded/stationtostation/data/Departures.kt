@@ -3,6 +3,7 @@ package io.github.magnusencoded.stationtostation.data
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.text.Normalizer
 import java.time.format.TextStyle
 import java.util.Locale
 
@@ -69,8 +70,43 @@ data class ProgrammeDiff(
  */
 fun actKey(act: ProgrammeAct): String = actKey(act.date, act.artist)
 
-fun actKey(date: String, artist: String): String =
-    "$date|${artist.trim().lowercase(Locale.ROOT)}"
+fun actKey(date: String, artist: String): String = "$date|${nameKey(artist)}"
+
+/**
+ * A name reduced to what two sources can be expected to agree on.
+ *
+ * Clashfinder disambiguates by country — `Wilco (US)`, `Nick Cave and the Bad Seeds (AU)`
+ * — where setlist.fm carries the plain name; one writes `and` where the other writes `&`;
+ * and typographic apostrophes differ between them for the same artist. Compared verbatim
+ * these are three different artists, so the same gig gets minted twice and the one
+ * already on the **Line** never joins the **Festival** — which is the bug this whole
+ * feature was written to end.
+ *
+ * ponytail: a trailing parenthetical is dropped whatever it says, so `Foo (DJ set)` folds
+ * into `Foo`. Two sets by one artist on one night is rarer than the country tags this
+ * fixes; split the rule if a festival ever bills both.
+ */
+fun nameKey(artist: String): String =
+    Normalizer.normalize(artist.lowercase(Locale.ROOT), Normalizer.Form.NFD)
+        .replace(MARKS, "")
+        .replace(TRAILING_TAG, "")
+        .replace("&", "and")
+        .replace(NOT_A_NAME, "")
+
+private val MARKS = Regex("\\p{Mn}+")
+private val TRAILING_TAG = Regex("\\s*\\([^()]*\\)\\s*$")
+private val NOT_A_NAME = Regex("[^\\p{L}\\p{N}]")
+
+/**
+ * The act on this night that is this artist — by MusicBrainz id where both sides carry
+ * one, by name otherwise.
+ *
+ * The id is exact and the name is a guess, so the id goes first. It is only there on
+ * about one clashfinder act in fifty, which is why [nameKey] has to be good.
+ */
+fun matchAct(acts: List<ProgrammeAct>, name: String, mbid: String): ProgrammeAct? =
+    acts.firstOrNull { it.mbid.isNotBlank() && it.mbid == mbid }
+        ?: acts.firstOrNull { nameKey(it.artist) == nameKey(name) }
 
 /** The board and the pending change, together. [picked] and [applied] are act keys. */
 fun departuresOf(
@@ -214,9 +250,10 @@ fun programmeFestivalId(programme: StoredProgramme): String =
  * to stop minting, so it reads as already applied and the commit adopts it.
  */
 fun appliedActs(programme: StoredProgramme, gigs: List<FmSetlist>): Set<String> {
-    val nights = programme.acts.map { actKey(it) }.toSet()
+    val byNight = programme.acts.groupBy { it.date }
     return gigs.mapNotNull { gig ->
         val date = gig.localDate()?.toString() ?: return@mapNotNull null
-        actKey(date, gig.artist?.name.orEmpty()).takeIf { it in nights }
+        matchAct(byNight[date].orEmpty(), gig.artist?.name.orEmpty(), gig.artist?.mbid.orEmpty())
+            ?.let { actKey(it) }
     }.toSet()
 }
