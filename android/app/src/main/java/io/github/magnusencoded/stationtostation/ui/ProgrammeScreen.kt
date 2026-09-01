@@ -17,8 +17,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -718,13 +716,21 @@ private fun Head(
             Tally(open, "OPEN", Slate)
         }
         // Scrollable, because the number of days is the festival's: a clipped chip takes
-        // no taps, so the last nights of a long festival would be unreachable.
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        // no taps, so the last nights of a long festival would be unreachable. It also
+        // scrolls itself to the day in view — a festival opened after its last night
+        // starts on that night, and a tab you cannot see reads as no tab selected.
+        val chips = rememberLazyListState()
+        LaunchedEffect(day, days) {
+            val i = if (day == null) days.size else days.indexOf(day)
+            if (i >= 0) chips.animateScrollToItem(i)
+        }
+        LazyRow(
+            state = chips,
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            days.forEach { d -> DayChip(dayLabel(d), d == day) { onDay(d) } }
-            DayChip("All days", day == null) { onDay(null) }
+            items(days) { d -> DayChip(dayLabel(d), d == day) { onDay(d) } }
+            item { DayChip("All days", day == null) { onDay(null) } }
         }
     }
 }
