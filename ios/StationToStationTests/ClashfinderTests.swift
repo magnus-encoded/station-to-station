@@ -233,20 +233,13 @@ final class ClashfinderTests: XCTestCase {
         XCTAssertEqual(Int.max, dateless.distanceFrom(day("2026-08-11"), calendar: cal))
     }
 
-    /// The bot check is the one failure a person can clear themselves, so the
-    /// address it is taken at has to survive the trip out of the client. The
-    /// interstitial is a bare meta-refresh and this reads the target out of it.
-    func testTheBotCheckGivesUpTheAddressItIsTakenAt() {
-        let interstitial = "<html><head><link rel=\"icon\" href=\"data:;\">"
-            + "<meta http-equiv=\"refresh\" content=\"0;/.well-known/sgcaptcha/"
-            + "?r=%2Fdata%2Fevents%2Fall.json&y=ipc:176.11.16.248:1788206977.704\">"
-            + "</meta></head></html>"
+    /// The one route to a document while the app itself is refused: the address a
+    /// browser can still fetch, credentials and all.
+    func testTheBrowserFallbackUrlCarriesTheAccountsCredentials() {
+        let auth = ClashfinderAuth(user: "magnus", publicKey: "abc123")
+        let url = clashfinderUrl("event/oyafestivalen2026.json", auth: auth)
         XCTAssertEqual(
-            "https://clashfinder.com/.well-known/sgcaptcha/?r=%2F&y=ipc:176.11.16.248:1788206977.704",
-            browserCheckUrl(interstitial))
-    }
-
-    func testHtmlThatIsNotTheBotCheckNamesNoAddress() {
-        XCTAssertNil(browserCheckUrl("<html><body>Down for maintenance</body></html>"))
+            "https://clashfinder.com/data/event/oyafestivalen2026.json?authUsername=magnus&authPublicKey=abc123",
+            url)
     }
 }

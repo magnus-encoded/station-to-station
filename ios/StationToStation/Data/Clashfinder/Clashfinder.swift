@@ -90,14 +90,20 @@ struct ClashfinderFestival: Codable, Equatable, Identifiable {
     /// A festival in progress on `day` is distance zero. Matching on the start
     /// alone would miss somebody who is standing at day two of a three-day
     /// festival, which is exactly when they are most likely to be looking.
+    // `calendar` is accepted for the caller's convenience but not used to do the
+    // day math below: `from` is read off a UTC-midnight epoch (`startsOn`), and
+    // measuring it against a *local* start-of-day mis-dates the festival by a
+    // whole day for anyone west of Greenwich. Everything here stays on the same
+    // UTC clock `startsOn` already committed to — see `utcCalendar` in
+    // `Departures.swift`.
     func distanceFrom(_ day: Date, calendar: Calendar = .current) -> Int {
         guard let from = startsOn() else { return .max }
-        let to = calendar.date(byAdding: .day, value: max(days, 1) - 1, to: from) ?? from
-        let (fromDay, toDay, dayDay) = (calendar.startOfDay(for: from), calendar.startOfDay(for: to), calendar.startOfDay(for: day))
+        let to = utcCalendar.date(byAdding: .day, value: max(days, 1) - 1, to: from) ?? from
+        let (fromDay, toDay, dayDay) = (utcCalendar.startOfDay(for: from), utcCalendar.startOfDay(for: to), utcCalendar.startOfDay(for: day))
         if dayDay < fromDay {
-            return calendar.dateComponents([.day], from: dayDay, to: fromDay).day ?? 0
+            return utcCalendar.dateComponents([.day], from: dayDay, to: fromDay).day ?? 0
         } else if dayDay > toDay {
-            return calendar.dateComponents([.day], from: toDay, to: dayDay).day ?? 0
+            return utcCalendar.dateComponents([.day], from: toDay, to: dayDay).day ?? 0
         }
         return 0
     }
@@ -249,6 +255,23 @@ private struct EventAct: Decodable {
     /// twice for no cost — but only `mbId` is mapped, and `mbid` is left to be
     /// ignored as an unknown key.
     var mbId: String = ""
+
+    // Synthesized `Decodable` does not fall back to a property's default when a
+    // key is simply missing — it still throws `keyNotFound`, which would fail
+    // this act, its whole stage's `[EventAct]`, and then the entire document.
+    // That is exactly the half-built failure `parseClashfinderEvent`'s own
+    // contract refuses: a malformed act must drop out, not take the festival
+    // with it.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func str(_ key: CodingKeys) -> String {
+            (try? c.decodeIfPresent(String.self, forKey: key)) ?? nil ?? ""
+        }
+        name = str(.name)
+        start = str(.start)
+        end = str(.end)
+        mbId = str(.mbId)
+    }
 }
 
 /// A MusicBrainz id: eight-four-four-four-twelve hex digits, and nothing else.
@@ -403,52 +426,37 @@ func isClashfinderId(_ id: String) -> Bool {
     !id.isEmpty && id.count <= 64 && id.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
 }
 
-/// The host wants a human at a browser before it will answer this address.
+/// The host refuses to answer this app at all.
 ///
-/// Carries `url` because "try again in a while" is not a thing anybody can act on:
-/// the check clears by *taking* it, in a browser, on this phone — the interstitial
-/// gates the address, so clearing it there clears it for the app's own requests
-/// too. The URL is the bare endpoint, without the account's credentials on the
-/// query string: it draws the same check, and the key has no business in browser
-/// history.
-struct BrowserCheckRequired: Error {
-    var url: String
-}
+/// Its bot protection serves a CAPTCHA interstitial in place of the data, and it
+/// does so for a request carrying the account's own credentials and a clearance
+/// cookie taken in a browser on the same device. There is nothing the caller can do
+/// about it from here — only clashfinder can let this client through — so the
+/// screen offers the file the user's own browser can still fetch.
+///
+/// Android tried routing its own client through a `WKWebView`-equivalent cookie
+/// jar first (a `WebView`'s `CookieManager`), on the theory that taking the check
+/// in a browser clears a cookie the app's own requests could then carry. It does
+/// not: the check gates a client, and clashfinder never told that client whether
+/// it counted. What shipped instead, and what this ports, is simpler — open the
+/// address in the system browser, credentials and all, and let the person hand the
+/// fetched file back in.
+struct ClashfinderBlocked: Error {}
 
-private let refreshPattern = try! NSRegularExpression(
-    pattern: #"http-equiv=["']refresh["'][^>]*content=["']\s*\d+\s*;\s*(?:url=)?([^"']+)"#,
-    options: [.caseInsensitive])
-
-/// Where the check actually lives, read out of the interstitial that names it.
+/// The address of one document, credentials and all — what a browser can still
+/// fetch, and what `Programme: a bot check you can actually clear` on Android hands
+/// to `Intent.ACTION_VIEW`.
 ///
-/// The 202 is a bare meta-refresh to
-/// `/.well-known/sgcaptcha/?r=…&y=ipc:<address>:<token>`, and that address in the
-/// token is the thing being cleared — which is why taking the check in the phone's
-/// browser clears it for the app's own requests on the same connection. Sending
-/// someone to the data URL instead would make them take the check and then
-/// download a 4 MB JSON file into their downloads for their trouble, so the `r`
-/// parameter — where to go afterwards — is pointed at the front page.
-///
-/// Nil where the body is some other HTML: then there is nothing to open and the
-/// caller falls back to the address it asked for.
-func browserCheckUrl(_ body: String) -> String? {
-    let ns = body as NSString
-    guard let m = refreshPattern.firstMatch(in: body, range: NSRange(location: 0, length: ns.length)),
-          m.numberOfRanges >= 2
-    else { return nil }
-    let target = ns.substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespaces)
-    let absolute: String
-    if target.hasPrefix("http") {
-        absolute = target
-    } else if target.hasPrefix("/") {
-        absolute = clashfinderOrigin + target
-    } else {
-        return nil
-    }
-    guard let rParam = try? NSRegularExpression(pattern: #"(?<=[?&])r=[^&]*"#) else { return absolute }
-    let absNS = absolute as NSString
-    return rParam.stringByReplacingMatches(
-        in: absolute, range: NSRange(location: 0, length: absNS.length), withTemplate: "r=%2F")
+/// The credentials go out in the query string on purpose: this is the one route to
+/// the file while the app itself is refused, and it is the user's own key on their
+/// own phone.
+func clashfinderUrl(_ path: String, auth: ClashfinderAuth) -> String {
+    var comps = URLComponents(string: "\(clashfinderHost)/\(path)")!
+    comps.queryItems = [
+        URLQueryItem(name: "authUsername", value: auth.user),
+        URLQueryItem(name: "authPublicKey", value: auth.publicKey),
+    ]
+    return comps.url!.absoluteString
 }
 
 /// The two requests this feature makes: one index per refresh, one document per
@@ -458,17 +466,6 @@ func browserCheckUrl(_ body: String) -> String? {
 /// rather than a rate-limit status when it decides a client is a bot, so bulk
 /// fetching is not available and mirroring the corpus is not an option — which is
 /// fine, because matching on a name and a date needs neither.
-///
-/// **The bot-check clearance is not yet wired to a browser surface here.** On
-/// Android, taking the check in an external browser did nothing for the app — the
-/// check clears a *cookie jar*, and the app's `OkHttpClient` and the phone's
-/// browser are two different jars — so the fix there routes `OkHttpClient` through
-/// the same `CookieManager` the check is taken in via a `WebView`. That fix was
-/// still being reworked as of #390 being filed; `URLSession.shared` here uses
-/// `HTTPCookieStorage.shared`, but a `WKWebView`'s own cookie store is a *separate*
-/// store from that by default and needs an explicit sync via `WKHTTPCookieStore`
-/// before "take the check in a `WKWebView`" will actually clear it for these
-/// requests. Confirm the Android resolution before wiring the iOS side to match it.
 final class ClashfinderClient {
     private let auth: () async -> ClashfinderAuth?
     private let session: URLSession
@@ -502,9 +499,9 @@ final class ClashfinderClient {
         let body = String(data: data, encoding: .utf8) ?? ""
         // The bot check answers 200-with-HTML rather than a status anyone can
         // read. Say what it is, because "could not read the programme" would send
-        // someone looking for a bug in the parser — and hand back a way through it.
+        // someone looking for a bug in the parser.
         if !body.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{") {
-            throw BrowserCheckRequired(url: browserCheckUrl(body) ?? "\(clashfinderHost)/\(path)")
+            throw ClashfinderBlocked()
         }
         return body
     }
