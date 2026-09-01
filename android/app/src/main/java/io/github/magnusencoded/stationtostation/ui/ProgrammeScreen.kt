@@ -110,6 +110,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.abs
 
 private val Ground = Color(0xFF0E0B14)
 private val Raised = Color(0xFF17121F)
@@ -1047,7 +1048,16 @@ private fun RungNode(
     val taken = options.firstOrNull { actKey(it) in picked }
     val row = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    val focus by remember { derivedStateOf { row.firstVisibleItemIndex } }
+    // The card in front of you is the one nearest the left edge, not the first one
+    // *touching* it: firstVisibleItemIndex flips after a pixel of scroll, so the lit card
+    // and the pip ran a whole option ahead of the track and you tapped one you couldn't
+    // see. Nearest-start is also exactly where the snap fling settles.
+    val focus by remember {
+        derivedStateOf {
+            val info = row.layoutInfo
+            info.visibleItemsInfo.minByOrNull { abs(it.offset - info.viewportStartOffset) }?.index ?: 0
+        }
+    }
 
     Box(Modifier.fillMaxWidth().rail().cross()) {
         Column(Modifier.padding(start = RailInset, top = 8.dp, bottom = 8.dp)) {
