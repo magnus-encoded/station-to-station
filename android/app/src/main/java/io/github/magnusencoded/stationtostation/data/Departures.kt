@@ -167,6 +167,26 @@ fun commitLabel(
     else -> "Add ${diff.add.size} more ${if (diff.add.size == 1) "gig" else "gigs"}"
 }
 
+/**
+ * The line under the label: the arithmetic the label rounds off.
+ *
+ * The label is the sentence and this is the receipt — how many in each direction, or
+ * which festival and day the sentence was about, or how much is still undecided. Blank
+ * where the label already says everything.
+ */
+fun commitSub(
+    diff: ProgrammeDiff,
+    festival: String,
+    firstCommit: Boolean,
+    open: Int,
+): String = when {
+    diff.isEmpty -> ""
+    diff.add.isNotEmpty() && diff.remove.isNotEmpty() -> "+${diff.add.size} · −${diff.remove.size}"
+    diff.add.isEmpty() -> festival.trim()
+    firstCommit -> gigs(diff.add.size) + if (open > 0) " · $open still open" else ""
+    else -> festival.trim()
+}
+
 private fun gigs(n: Int): String = "$n ${if (n == 1) "gig" else "gigs"}"
 
 private fun dayName(day: LocalDate): String =
