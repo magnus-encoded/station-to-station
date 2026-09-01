@@ -154,6 +154,7 @@ import io.github.magnusencoded.stationtostation.data.rankTitles
 import io.github.magnusencoded.stationtostation.data.weaveSetlist
 import io.github.magnusencoded.stationtostation.data.setlistEditEntry
 import io.github.magnusencoded.stationtostation.data.futureRows
+import io.github.magnusencoded.stationtostation.data.spineNights
 import io.github.magnusencoded.stationtostation.data.postFiling
 import io.github.magnusencoded.stationtostation.data.setlistPaste
 import androidx.compose.foundation.ScrollState
@@ -572,10 +573,19 @@ fun StationTimelineScreen(
                         }
                         LaunchedEffect(zoomedOut) { if (zoomedOut) viewModel.loadFriendTimelines() }
                         val rows = remember(
-                            state.setlists, state.festivals, lanes, state.showsByFriend, zoomedOut, expanded,
+                            state.setlists, state.plannedGigs, state.attendanceByGig,
+                            state.festivals, lanes, state.showsByFriend, zoomedOut, expanded,
                         ) {
                             weaveTimelines(
-                                mine = state.setlists,
+                                // Through `spineNights`, not `setlists` alone: a local gig
+                                // that stops being a plan — checked into, or committed off
+                                // a programme whose set has already finished — leaves the
+                                // future lane at once, and the spine only picked it up on
+                                // the next cold start. It landed nowhere in between.
+                                // Deduped on id there, so a night on both lists is one.
+                                mine = spineNights(
+                                    state.setlists, state.plannedGigs, state.attendanceByGig,
+                                ),
                                 festivals = state.festivals,
                                 friends = if (zoomedOut) lanes else emptyList(),
                                 theirs = if (zoomedOut) state.showsByFriend else emptyMap(),
