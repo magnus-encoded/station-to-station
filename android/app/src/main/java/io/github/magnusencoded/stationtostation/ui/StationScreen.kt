@@ -739,7 +739,13 @@ fun StationTimelineScreen(
                                         is FutureRow.OnBill -> "bill-${row.bill.id}"
                                         is FutureRow.Ticket -> when (val n = row.node) {
                                             is TimelineNode.Concert -> "planned-${n.setlist.id}"
-                                            is TimelineNode.Several -> n.key
+                                            // Prefixed for the same reason the concert
+                                            // above it is: both lanes are items of one
+                                            // LazyColumn, and a Festival with a night
+                                            // still planned and a night already attended
+                                            // is a node in each. The bare identity key
+                                            // was used twice and the list threw.
+                                            is TimelineNode.Several -> "planned-${n.key}"
                                         }
                                     }
                                 },
