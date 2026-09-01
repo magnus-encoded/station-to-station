@@ -47,6 +47,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -592,6 +593,7 @@ private fun FestivalRow(festival: ClashfinderFestival, onPick: (ClashfinderFesti
  * whole programme and the button's label is the diff, so it can be pressed from any tab
  * without checking the others.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DeparturesBoard(
     modifier: Modifier,
@@ -638,7 +640,14 @@ private fun DeparturesBoard(
             open = open,
             onDay = { day = it },
         )
-        Box(Modifier.fillMaxSize()) {
+        // Pulled down rather than tapped: a timetable is a document you refresh, and the
+        // gesture is where the hand already is. The line runs upward, so the top of it is
+        // the far end of the night — the footer keeps its own tap for the other end.
+        PullToRefreshBox(
+            isRefreshing = loading,
+            onRefresh = onRefetch,
+            modifier = Modifier.fillMaxSize(),
+        ) {
             // Days stack in time, so moving between them moves the line vertically: the
             // motion says "another day" where a sideways one would say "another option
             // on this rung", which is the gesture a rung already owns.
