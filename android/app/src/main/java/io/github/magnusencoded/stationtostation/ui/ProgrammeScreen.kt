@@ -6,24 +6,37 @@ import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -46,8 +59,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -56,6 +75,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -66,7 +86,9 @@ import io.github.magnusencoded.stationtostation.data.ProgrammeDiff
 import io.github.magnusencoded.stationtostation.data.StoredProgramme
 import io.github.magnusencoded.stationtostation.data.actKey
 import io.github.magnusencoded.stationtostation.data.appliedActs
+import io.github.magnusencoded.stationtostation.data.Departures
 import io.github.magnusencoded.stationtostation.data.commitLabel
+import io.github.magnusencoded.stationtostation.data.commitSub
 import io.github.magnusencoded.stationtostation.data.departuresOf
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.clashfinder.ClashfinderBlocked
@@ -130,15 +152,11 @@ private fun cachedFestivals(context: Context): List<ClashfinderFestival> =
         .orEmpty()
 
 /**
- * The noticeboard: what is on, what each thing costs you, and what to put on your **Bill**.
- *
- * The whole screen is one question asked three ways: *right now* (the on-now block,
- * only while the festival is running), *later today* (the day list, where every act
- * carries what it clashes with), and *am I going to that* (add, which puts an **Act**
- * on a **Bill** — never a **Gig**, because planning to go is not having gone).
+ * The planning surface: which festival, and then **Departures** — its days as a line of
+ * choices, and one button that puts what you chose on your own **Line**.
  *
  * Read-only about the festival and writable only about *me*: nothing here edits the
- * programme, and the only thing it can produce is an act on my own wall.
+ * programme, and the only thing it can produce is a **Gig** somebody picked.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -328,7 +346,7 @@ fun ProgrammeScreen(
                 onPick = { loadProgramme(it.id) },
             )
 
-            else -> Departures(
+            else -> DeparturesBoard(
                 modifier = pad,
                 programme = programme,
                 onLine = state.plannedGigs + state.setlists,
@@ -575,7 +593,7 @@ private fun FestivalRow(festival: ClashfinderFestival, onPick: (ClashfinderFesti
  * without checking the others.
  */
 @Composable
-private fun Departures(
+private fun DeparturesBoard(
     modifier: Modifier,
     programme: StoredProgramme,
     onLine: List<FmSetlist>,
@@ -604,79 +622,232 @@ private fun Departures(
     }
     val shown = day?.let { listOf(it) } ?: board.days
     val label = commitLabel(board.diff, programme.name, firstCommit = applied.isEmpty())
+    val toggle: (String) -> Unit = { key -> picked = if (key in picked) picked - key else picked + key }
 
-    Box(modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-            item {
-                // Scrollable, because the number of days is the festival's: a clipped
-                // chip takes no taps, so the last nights of a long festival would be
-                // unreachable.
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(bottom = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    board.days.forEach { d ->
-                        DayChip(dayLabel(d), selected = d == day, onClick = { day = d })
-                    }
-                    DayChip("All days", selected = day == null, onClick = { day = null })
-                }
-            }
+    // What the head counts. Only what is in view: the tally answers "how much of this
+    // night have I decided", and a number over days you cannot see answers nothing.
+    val positions = shown.flatMap { board.positions[it].orEmpty() }
+    val mine = positions.count { p -> p.options.any { actKey(it) in picked } }
+    val open = positions.count { p -> p.isRung && p.options.none { actKey(it) in picked } }
 
-            shown.forEach { d ->
-                if (shown.size > 1) {
-                    item(key = "head-$d") {
-                        Spacer(Modifier.height(6.dp))
-                        Label(dayLabel(d).uppercase(Locale.ENGLISH), Slate)
-                        Spacer(Modifier.height(8.dp))
-                    }
-                }
-                items(board.positions[d].orEmpty(), key = { "$d-" + it.options.first().artist }) { position ->
-                    PositionRow(
-                        position = position,
-                        picked = picked,
-                        applied = applied,
-                        onToggle = { key -> picked = if (key in picked) picked - key else picked + key },
-                    )
-                }
-            }
-
-            item {
-                Spacer(Modifier.height(18.dp))
-                // A clashfinder is edited up to and past the doors — the median one is
-                // last touched the day before its own festival — so how old this copy is
-                // decides whether to trust it, and refetching is one tap from that.
-                if (programme.lastEdit.isNotBlank()) {
-                    Text("Timetable last edited ${programme.lastEdit}", color = Faint, fontSize = 11.sp)
-                    Spacer(Modifier.height(6.dp))
-                }
-                Text(
-                    if (loading) "Fetching…" else "Fetch it again",
-                    color = Muted,
-                    fontSize = 12.sp,
-                    modifier = Modifier.clickable(enabled = !loading, onClick = onRefetch).padding(vertical = 6.dp),
+    Column(modifier.fillMaxSize()) {
+        Head(
+            days = board.days,
+            day = day,
+            mine = mine,
+            open = open,
+            onDay = { day = it },
+        )
+        Box(Modifier.fillMaxSize()) {
+            // Days stack in time, so moving between them moves the line vertically: the
+            // motion says "another day" where a sideways one would say "another option
+            // on this rung", which is the gesture a rung already owns.
+            AnimatedContent(
+                targetState = shown,
+                transitionSpec = {
+                    val up = (targetState.firstOrNull() ?: LocalDate.MIN) >
+                        (initialState.firstOrNull() ?: LocalDate.MIN)
+                    val d = if (up) 1 else -1
+                    (slideInVertically { h -> d * h / 8 } + fadeIn())
+                        .togetherWith(slideOutVertically { h -> -d * h / 8 } + fadeOut())
+                },
+                label = "day",
+            ) { days ->
+                Line(
+                    days = days,
+                    board = board,
+                    picked = picked,
+                    applied = applied,
+                    firstCommit = applied.isEmpty(),
+                    programme = programme,
+                    loading = loading,
+                    error = error,
+                    blocked = blocked,
+                    onImport = onImport,
+                    onOpenInBrowser = onOpenInBrowser,
+                    onRefetch = onRefetch,
+                    onToggle = toggle,
                 )
-                ErrorNote(error, blocked, onImport, onOpenInBrowser)
-                // Attribution is a condition of the licence the data comes under, not a
-                // courtesy — so it is rendered with the data every time.
-                if (programme.copyright.isNotBlank()) {
-                    Spacer(Modifier.height(10.dp))
-                    Text(programme.copyright, color = Faint, fontSize = 11.sp)
-                }
-                // Room for the button to float over, so the licence line is readable
-                // with a selection made.
-                Spacer(Modifier.height(if (label == null) 32.dp else 96.dp))
+            }
+            // One place to commit, and nothing at all when nothing would change. It
+            // rises out of the bottom rather than appearing, so the first pick is
+            // answered by something arriving.
+            AnimatedVisibility(
+                visible = label != null,
+                enter = slideInVertically { it },
+                exit = slideOutVertically { it },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            ) {
+                CommitBar(
+                    label = label.orEmpty(),
+                    sub = commitSub(board.diff, programme.name, applied.isEmpty(), open),
+                    onClick = { onCommit(board.diff) },
+                )
+            }
+        }
+    }
+}
+
+/** The festival's days, what is decided, and what is still open. */
+@Composable
+private fun Head(
+    days: List<LocalDate>,
+    day: LocalDate?,
+    mine: Int,
+    open: Int,
+    onDay: (LocalDate?) -> Unit,
+) {
+    Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)) {
+        Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), verticalAlignment = Alignment.Bottom) {
+            Label("DEPARTURES", Faint)
+            Spacer(Modifier.weight(1f))
+            Tally(mine, "PLANNED", Amber)
+            Spacer(Modifier.width(14.dp))
+            Tally(open, "OPEN", Slate)
+        }
+        // Scrollable, because the number of days is the festival's: a clipped chip takes
+        // no taps, so the last nights of a long festival would be unreachable.
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            days.forEach { d -> DayChip(dayLabel(d), d == day) { onDay(d) } }
+            DayChip("All days", day == null) { onDay(null) }
+        }
+    }
+}
+
+@Composable
+private fun Tally(count: Int, label: String, colour: Color) {
+    Column(horizontalAlignment = Alignment.End) {
+        Text("$count", color = colour, fontSize = 17.sp, fontFamily = FontFamily.Monospace)
+        Text(label, color = Faint, fontSize = 9.sp, letterSpacing = 1.2.sp)
+    }
+}
+
+/**
+ * The line itself: a rail with the night hung off it, reading **upward into later**.
+ *
+ * Reversed, because that is which way the **Line** runs everywhere else in this app —
+ * the future is up, and a programme is entirely future until it isn't. The footer sits
+ * at the bottom, where the day starts.
+ */
+@Composable
+private fun Line(
+    days: List<LocalDate>,
+    board: Departures,
+    picked: Set<String>,
+    applied: Set<String>,
+    firstCommit: Boolean,
+    programme: StoredProgramme,
+    loading: Boolean,
+    error: String?,
+    blocked: Boolean,
+    onImport: () -> Unit,
+    onOpenInBrowser: () -> Unit,
+    onRefetch: () -> Unit,
+    onToggle: (String) -> Unit,
+) {
+    LazyColumn(
+        Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        reverseLayout = true,
+        contentPadding = PaddingValues(bottom = 8.dp, top = 8.dp),
+    ) {
+        item(key = "foot") { Footer(programme, loading, error, blocked, onImport, onOpenInBrowser, onRefetch) }
+
+        days.forEach { d ->
+            items(board.positions[d].orEmpty(), key = { "$d|" + it.options.first().artist }) { position ->
+                PositionRow(position, picked, applied, firstCommit, onToggle)
+            }
+            item(key = "band-$d") {
+                // At the top of its own band, because the band is read downward from
+                // its label even though the line is built upward.
+                Text(
+                    dayLabel(d).uppercase(Locale.ENGLISH),
+                    color = Faint,
+                    fontSize = 10.sp,
+                    letterSpacing = 1.5.sp,
+                    modifier = Modifier.rail().padding(start = RailInset, top = 14.dp, bottom = 6.dp),
+                )
             }
         }
 
-        // One place to commit, and nothing at all when nothing would change.
-        label?.let {
-            Box(Modifier.align(Alignment.BottomCenter).padding(16.dp)) {
-                Action(it, loading = false, onClick = { onCommit(board.diff) })
+        item(key = "later") {
+            Text(
+                "↑ later",
+                color = Faint,
+                fontSize = 10.sp,
+                letterSpacing = 1.5.sp,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+@Composable
+private fun Footer(
+    programme: StoredProgramme,
+    loading: Boolean,
+    error: String?,
+    blocked: Boolean,
+    onImport: () -> Unit,
+    onOpenInBrowser: () -> Unit,
+    onRefetch: () -> Unit,
+) {
+    Column(Modifier.padding(top = 8.dp, bottom = 84.dp)) {
+        // A clashfinder is edited up to and past the doors — the median one is last
+        // touched the day before its own festival — so how old this copy is decides
+        // whether to trust it, and refetching is one tap from that sentence.
+        if (programme.lastEdit.isNotBlank()) {
+            Text("Timetable last edited ${programme.lastEdit}", color = Faint, fontSize = 11.sp)
+            Spacer(Modifier.height(6.dp))
+        }
+        Text(
+            if (loading) "Fetching…" else "Fetch it again",
+            color = Muted,
+            fontSize = 12.sp,
+            modifier = Modifier.clickable(enabled = !loading, onClick = onRefetch).padding(vertical = 6.dp),
+        )
+        ErrorNote(error, blocked, onImport, onOpenInBrowser)
+        // Attribution is a condition of the licence the data comes under, not a
+        // courtesy — so it is rendered with the data every time.
+        if (programme.copyright.isNotBlank()) {
+            Spacer(Modifier.height(10.dp))
+            Text(programme.copyright, color = Faint, fontSize = 11.sp)
+        }
+    }
+}
+
+/**
+ * What commits, and what it will cost — a bar rather than a button, because the label
+ * is a sentence about the whole programme and not a word about this screen.
+ */
+@Composable
+private fun CommitBar(label: String, sub: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .padding(16.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(4.dp))
+            .background(Amber)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(label, color = Ground, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            if (sub.isNotBlank()) {
+                Text(
+                    sub.uppercase(Locale.ENGLISH),
+                    color = Ground.copy(alpha = 0.72f),
+                    fontSize = 10.sp,
+                    letterSpacing = 0.8.sp,
+                    fontFamily = FontFamily.Monospace,
+                )
             }
         }
+        Text("→", color = Ground, fontSize = 16.sp, fontFamily = FontFamily.Monospace)
     }
 }
 
@@ -730,93 +901,269 @@ private fun DayChip(label: String, selected: Boolean, onClick: () -> Unit) {
 
 private val ChipEdge = Color(0xFF2E2740)
 
+/** Where the rail runs, and how far the cards stand clear of it. */
+private val RailX = 34.dp
+private val RailInset = RailX + 18.dp
+private val Rail = Color(0xFF2E2740)
+private val AmberDim = Color(0xFF8C6A28)
+
+/**
+ * The rail, drawn behind every row.
+ *
+ * Per row rather than once behind the whole list, because the list is lazy: a single
+ * full-height line would have to know a height nothing has measured yet, and each row
+ * drawing its own segment makes one continuous rail for free.
+ */
+private fun Modifier.rail(): Modifier = drawBehind {
+    val x = RailX.toPx()
+    drawLine(Rail, Offset(x, 0f), Offset(x, size.height), strokeWidth = 2.dp.toPx())
+}
+
+/** What this position is about to become on the **Line**. */
+private enum class NodeState { Settled, Pending, Leaving, Off }
+
+private fun stateOf(picked: Boolean, applied: Boolean): NodeState = when {
+    picked && applied -> NodeState.Settled
+    picked -> NodeState.Pending
+    applied -> NodeState.Leaving
+    else -> NodeState.Off
+}
+
 /**
  * One position in the running order: a single act, or a **rung** of acts you are
  * choosing between.
  *
  * A rung is horizontal and a day is vertical, so the axis says which it is before a
- * word is read: sideways means "another option here", downwards means "and then".
+ * word is read: sideways means "another option here", upwards means "and then".
  */
 @Composable
 private fun PositionRow(
     position: Position,
     picked: Set<String>,
     applied: Set<String>,
+    firstCommit: Boolean,
     onToggle: (String) -> Unit,
 ) {
-    if (!position.isRung) {
-        val act = position.options.first()
-        ActCard(act, actKey(act) in picked, actKey(act) in applied, Modifier.fillMaxWidth(), onToggle)
-        return
-    }
-    Column(Modifier.padding(bottom = 10.dp)) {
-        Text(
-            "${position.options.size} AT ONCE",
-            color = Faint,
-            fontSize = 9.sp,
-            letterSpacing = 1.2.sp,
-            modifier = Modifier.padding(bottom = 5.dp),
-        )
-        // Scrolled rather than paged: reading every option is the work of a rung, and a
-        // carousel that snaps hides how many are left. ponytail: no centring slide and
-        // no snap — those need a thumb to judge and can be added once one has been on it.
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+    if (position.isRung) RungNode(position, picked, applied, onToggle)
+    else GigNode(position.options.first(), picked, applied, firstCommit, onToggle)
+}
+
+/**
+ * A settled night on the line — or one on its way on or off it.
+ *
+ * The four states are the whole of what a diff can do to one act, and each says so in
+ * words as well as in colour: a preview nobody can read is a preview of nothing.
+ */
+@Composable
+private fun GigNode(
+    act: ProgrammeAct,
+    picked: Set<String>,
+    applied: Set<String>,
+    firstCommit: Boolean,
+    onToggle: (String) -> Unit,
+) {
+    val key = actKey(act)
+    val chosen = key in picked
+    val state = stateOf(chosen, key in applied)
+    Box(Modifier.fillMaxWidth().rail().dot(state)) {
+        Column(
+            Modifier
+                .padding(start = RailInset, top = 5.dp, bottom = 5.dp)
+                .fillMaxWidth()
+                .background(if (state == NodeState.Settled) Raised else Color.Transparent)
+                .edge(
+                    when (state) {
+                        NodeState.Settled -> Amber
+                        NodeState.Pending -> AmberDim
+                        else -> Rail
+                    },
+                )
+                .clickable { onToggle(key) }
+                .semantics {
+                    selected = chosen
+                    role = Role.Checkbox
+                    stateDescription = if (chosen) "going" else "not going"
+                }
+                .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 8.dp)
+                .alpha(if (state == NodeState.Off) 0.45f else 1f),
         ) {
-            position.options.forEach { act ->
-                ActCard(act, actKey(act) in picked, actKey(act) in applied, Modifier.width(240.dp), onToggle)
+            Text(
+                act.artist,
+                fontFamily = Serif,
+                fontSize = 16.sp,
+                color = if (state == NodeState.Off) Muted else Ink,
+            )
+            Text(when_(act), color = Muted, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+            // Only while the change is pending. A line already on the line says nothing;
+            // the whole point of this row is what pressing the bar would do to it.
+            val flag = when (state) {
+                NodeState.Pending -> "Will be added"
+                NodeState.Leaving -> "Will be removed"
+                NodeState.Off -> if (firstCommit) "" else "Not taken"
+                NodeState.Settled -> ""
+            }
+            if (flag.isNotBlank()) {
+                Text(flag.uppercase(Locale.ENGLISH), color = Faint, fontSize = 9.sp, letterSpacing = 1.1.sp)
             }
         }
     }
 }
 
 /**
- * One act, and whether it is decided.
+ * A rung: everything you are choosing between, side by side and none of it decided
+ * for you.
  *
- * Amber is decided; nothing else on the card changes. The line beneath says whether it
- * is already on the **Line**, so a decision already made is not offered as a new one.
+ * The options never collapse. Picking one lights it and leaves the rest exactly where
+ * they were, because the day itself changes its mind and a rung outlives its night.
+ * The last card is **Neither**, which is what "I am going to none of these" looks like
+ * when it has to be a thing you can point at.
  */
 @Composable
-private fun ActCard(
-    act: ProgrammeAct,
-    selected: Boolean,
-    onLine: Boolean,
-    modifier: Modifier,
+private fun RungNode(
+    position: Position,
+    picked: Set<String>,
+    applied: Set<String>,
     onToggle: (String) -> Unit,
 ) {
-    Column(
-        modifier
-            .padding(bottom = 10.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .background(Raised)
-            .border(1.dp, if (selected) Amber else Color.Transparent, RoundedCornerShape(6.dp))
-            .clickable { onToggle(actKey(act)) }
-            .semantics {
-                this.selected = selected
-                role = Role.Checkbox
-                stateDescription = if (selected) "going" else "not going"
-            }
-            .padding(horizontal = 14.dp, vertical = 11.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    val options = position.options
+    val taken = options.firstOrNull { actKey(it) in picked }
+    val row = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val focus by remember { derivedStateOf { row.firstVisibleItemIndex } }
+
+    Box(Modifier.fillMaxWidth().rail().cross()) {
+        Column(Modifier.padding(start = RailInset, top = 8.dp, bottom = 8.dp)) {
             Text(
-                // The published end where there is one: a headline set is not an hour,
-                // and the length is half of what a choice costs.
-                if (act.end.isBlank()) act.start else "${act.start}–${act.end}",
-                color = if (selected) Amber else Slate,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
+                "${options.size} WAYS · ${options.first().start}",
+                color = Slate,
+                fontSize = 9.sp,
+                letterSpacing = 1.2.sp,
+                modifier = Modifier.padding(bottom = 6.dp),
             )
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(act.artist, fontFamily = Serif, fontSize = 16.sp, color = Ink)
-                Text(act.stage, color = Muted, fontSize = 12.sp)
+            LazyRow(
+                state = row,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                flingBehavior = rememberSnapFlingBehavior(row),
+            ) {
+                itemsIndexed(options, key = { _, a -> a.artist }) { i, act ->
+                    val key = actKey(act)
+                    Option(
+                        act = act,
+                        state = stateOf(key in picked, key in applied),
+                        lit = i == focus,
+                        // Reading and choosing are one gesture: a card you tapped to
+                        // read comes to the front, and taking it is the same tap again.
+                        onClick = {
+                            scope.launch { row.animateScrollToItem(i) }
+                            onToggle(key)
+                        },
+                    )
+                }
+                item(key = "neither") {
+                    Neither(
+                        lit = options.size == focus,
+                        chosen = taken == null,
+                        onClick = {
+                            scope.launch { row.animateScrollToItem(options.size) }
+                            options.forEach { a -> if (actKey(a) in picked) onToggle(actKey(a)) }
+                        },
+                    )
+                }
             }
-        }
-        if (onLine) {
-            Spacer(Modifier.height(5.dp))
-            Text("on your line", color = Faint, fontSize = 11.sp)
+            // How many are left, and which of them is yours — the count a scrolling
+            // track hides.
+            Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                options.forEachIndexed { i, act ->
+                    Pip(on = i == focus, taken = actKey(act) in picked)
+                }
+                Pip(on = options.size == focus, taken = taken == null)
+            }
         }
     }
 }
+
+/** One option on a rung. Dimmed until it is the one in front of you. */
+@Composable
+private fun Option(act: ProgrammeAct, state: NodeState, lit: Boolean, onClick: () -> Unit) {
+    val chosen = state == NodeState.Settled || state == NodeState.Pending
+    Column(
+        Modifier
+            .width(216.dp)
+            .background(if (lit) Raised else Color.Transparent)
+            .border(1.dp, if (chosen) Amber else if (lit) Slate else SlateDim)
+            .edge(if (chosen) Amber else Color.Transparent)
+            .clickable(onClick = onClick)
+            .semantics {
+                selected = chosen
+                role = Role.Checkbox
+                stateDescription = if (chosen) "going" else "not going"
+            }
+            .padding(horizontal = 12.dp, vertical = 9.dp)
+            .alpha(if (lit) 1f else 0.45f),
+    ) {
+        Text(act.artist, fontFamily = Serif, fontSize = 15.sp, color = if (chosen) Amber else Ink)
+        Text(when_(act), color = Muted, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+    }
+}
+
+/** The choice the programme does not offer: none of them. */
+@Composable
+private fun Neither(lit: Boolean, chosen: Boolean, onClick: () -> Unit) {
+    Column(
+        Modifier
+            .width(150.dp)
+            .border(1.dp, if (chosen) Slate else SlateDim)
+            .clickable(onClick = onClick)
+            .semantics { selected = chosen; role = Role.Checkbox }
+            .padding(horizontal = 12.dp, vertical = 9.dp)
+            .alpha(if (lit) 1f else 0.45f),
+    ) {
+        Text("Neither", fontFamily = Serif, fontSize = 15.sp, color = if (chosen) Slate else Faint)
+        Text("nothing planned here", color = Faint, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+    }
+}
+
+@Composable
+private fun Pip(on: Boolean, taken: Boolean) {
+    Box(
+        Modifier
+            .size(5.dp)
+            .clip(CircleShape)
+            .background(if (taken) Amber else if (on) Slate else SlateDim),
+    )
+}
+
+private val SlateDim = Color(0xFF3D4654)
+
+/** The published end where there is one: a headline set is not an hour. */
+private fun when_(act: ProgrammeAct): String =
+    (if (act.end.isBlank()) act.start else "${act.start}–${act.end}") + " · " + act.stage
+
+/** The 2dp bar down a card's left edge: which way this act is going, in one stroke. */
+private fun Modifier.edge(colour: Color): Modifier = drawBehind {
+    if (colour != Color.Transparent) drawRect(colour, size = Size(2.dp.toPx(), size.height))
+}
+
+/** A **Gig**'s mark on the rail. Filled is on the line; an outline is not yet. */
+private fun Modifier.dot(state: NodeState): Modifier = drawBehind {
+    val centre = Offset(RailX.toPx(), 22.dp.toPx())
+    val r = 5.5.dp.toPx()
+    // Punched out of the rail first, so the line does not run through the mark.
+    drawCircle(Ground, r + 3.dp.toPx(), centre)
+    when (state) {
+        NodeState.Settled -> drawCircle(Amber, r, centre)
+        NodeState.Pending -> drawCircle(AmberDim, r, centre, style = Stroke(2.dp.toPx(), pathEffect = Dashes))
+        NodeState.Leaving -> drawCircle(Rail, r, centre)
+        NodeState.Off -> drawCircle(Rail, r, centre, style = Stroke(2.dp.toPx()))
+    }
+}
+
+/** A rung's mark: bigger, dashed, and cool — a crossing rather than a stop. */
+private fun Modifier.cross(): Modifier = drawBehind {
+    val centre = Offset(RailX.toPx(), 26.dp.toPx())
+    val r = 7.5.dp.toPx()
+    drawCircle(Ground, r + 3.dp.toPx(), centre)
+    drawCircle(Slate, r, centre, style = Stroke(2.dp.toPx(), pathEffect = Dashes))
+}
+
+private val Dashes = PathEffect.dashPathEffect(floatArrayOf(6f, 6f))
