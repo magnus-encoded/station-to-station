@@ -230,4 +230,38 @@ class FestivalGroupingTest {
 
     // The two weaker rungs on their own — song count, then source order — are
     // [BilledAsTest]'s, along with how many supports a long evening names.
+
+    // --- Membership that was declared rather than inferred ---------------------------
+
+    /**
+     * A **Programme** pick carries the **Festival**'s id on the **Gig** itself, so the
+     * grouping never has to guess from nights and venues. Different stages, different
+     * days, no venue two of them share — and still one festival, because somebody said
+     * so.
+     */
+    @Test
+    fun `Gigs carrying a Festival id group by it, whatever their nights and rooms say`() {
+        val nodes = groupIntoFestivals(
+            listOf(
+                show("1", "25-06-2026", "Amfiet", artist = "Pale Ledger"),
+                show("2", "26-06-2026", "Sirkus", artist = "Marrowfield"),
+            ),
+            identity("1", "2", name = "Tons of Rock 2027"),
+        )
+        val festival = nodes.single() as TimelineNode.Festival
+        assertEquals("Tons of Rock 2027", festival.label)
+        assertEquals(listOf("1", "2"), festival.shows.map { it.id })
+    }
+
+    /**
+     * Adopting a timetable before choosing anything is the normal first state, not an
+     * edge case: the identity exists and nothing carries it yet, and the line is
+     * unchanged rather than broken.
+     */
+    @Test
+    fun `a Festival with no Gigs in it yet is a normal state`() {
+        val alone = show("9", "01-01-2026", "Somewhere Hall")
+        val nodes = groupIntoFestivals(listOf(alone), identity(name = "Tons of Rock 2027"))
+        assertEquals(listOf(alone), (nodes.single() as TimelineNode.Concert).shows)
+    }
 }
