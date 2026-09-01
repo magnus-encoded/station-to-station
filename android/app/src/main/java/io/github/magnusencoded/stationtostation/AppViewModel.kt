@@ -1,6 +1,8 @@
 package io.github.magnusencoded.stationtostation
 
 import android.app.Application
+import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
@@ -17,6 +19,7 @@ import io.github.magnusencoded.stationtostation.data.ProgrammeAct
 import io.github.magnusencoded.stationtostation.data.StoredProgramme
 import io.github.magnusencoded.stationtostation.data.programmeDays
 import io.github.magnusencoded.stationtostation.data.clashfinder.ClashfinderClient
+import io.github.magnusencoded.stationtostation.data.clashfinder.clashfinderUrl
 import io.github.magnusencoded.stationtostation.data.clashfinder.billingLead
 import io.github.magnusencoded.stationtostation.data.clashfinder.matchArtist
 import io.github.magnusencoded.stationtostation.data.SettingsRepository
