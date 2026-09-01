@@ -238,6 +238,25 @@ private fun daysPhrase(days: List<LocalDate>): String {
     }
 }
 
+/**
+ * The acts whose sets have already finished at [now].
+ *
+ * Committing one of these is not a plan, it is a recollection — a **Programme** is
+ * opened after the festival at least as often as before it, and back-filling a weekend
+ * you were at is the ordinary case. A **Gig** minted as planned for a night that is over
+ * sits in the future lane for ever, which drew the same **Festival** twice: once above
+ * today holding the night just added, once below it holding the nights already
+ * evidenced.
+ *
+ * The claim is `attended` and never `checked_in`: naming a set off a timetable days
+ * later is remembering, and a check-in is something only a person standing in front of
+ * the stage does.
+ */
+fun playedActs(acts: List<ProgrammeAct>, now: LocalDateTime): Set<String> {
+    val ends = endTimes(acts)
+    return acts.filter { ends[it]?.isBefore(now) == true }.map { actKey(it) }.toSet()
+}
+
 /** The **Festival** identity a **Programme** adopts: local id first, clashfinder id under it. */
 fun programmeFestivalId(programme: StoredProgramme): String =
     festivalIdForSlug("clashfinder:${programme.id}")
