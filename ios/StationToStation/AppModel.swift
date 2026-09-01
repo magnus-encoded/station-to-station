@@ -530,6 +530,102 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// **Departures committed: a diff applied to the Line, not an import.** The
+    /// Swift twin of Android's `AppViewModel.commitProgramme` (#391, #390).
+    ///
+    /// Adds mint a **Gig** claimed `planned` — a programme is a plan, and it must
+    /// never be counted as a show I have seen. Each carries the act's stage as its
+    /// venue and the **Festival**'s id, so grouping is declared rather than
+    /// inferred: the **Festival** exists because somebody picked it.
+    ///
+    /// **An act already on the Line is adopted, never duplicated** — matched by
+    /// `onLine` before anything is minted.
+    ///
+    /// Removes delete only a **Gig** this app minted: `deleteGig` refuses one
+    /// carrying a setlist.fm id or holding media, so deselecting a plan can never
+    /// erase evidence that a night happened.
+    func commitProgramme(_ programme: StoredProgramme, diff: ProgrammeDiff, picked: Set<String>, now: Date = Date()) {
+        guard !diff.isEmpty else { return }
+        Task {
+            let played = playedActs(programme.acts, now: now)
+            let festivalId = programmeFestivalId(programme)
+            let days = programmeDays(programme.acts)
+            let name = programme.name.trimmingCharacters(in: .whitespaces)
+            let festival = StoredFestival(
+                id: festivalId,
+                name: name.isEmpty ? programme.id : name,
+                rangeFrom: days.first.map { fmDate($0) },
+                rangeTo: days.last.map { fmDate($0) },
+                // Authored: I picked this festival. An upstream scrape must not
+                // overwrite a name I chose off its own programme.
+                source: StoredFestival.FestivalSource.authored
+            )
+
+            var minted: [FmSetlist] = []
+            var attendances: [String: StoredAttendance] = [:]
+            var membership: [String: String] = [:]
+            for act in programme.acts where picked.contains(actKey(act)) {
+                let artist = act.artist.trimmingCharacters(in: .whitespaces)
+                guard !artist.isEmpty else { continue }
+                let gigId: String
+                if let existing = onLine(nightIso: act.date, artist: artist, mbid: act.mbid) {
+                    gigId = existing.id
+                } else {
+                    let fmDay = fmActDate(act.date)
+                    gigId = await timelines.createLocalGig(date: fmDay, artist: artist, venue: act.stage)
+                    let gig = localGigSetlist(gigId: gigId, artist: artist, date: fmDay,
+                                              venue: act.stage, city: "")
+                    let claim = await timelines.savePlanned(gig)
+                    // A set that has already finished is a night I was at, not a
+                    // night I am going to — see `playedActs`. Only ever upgrades:
+                    // `savePlanned` hands back whatever claim already stood, and a
+                    // check-in outranks this one.
+                    if played.contains(actKey(act)), claim.provenance == "planned" {
+                        let attended = StoredAttendance(provenance: "attended")
+                        await timelines.saveAttendance(setlistId: gigId, attendance: attended)
+                        attendances[gigId] = attended
+                    } else {
+                        attendances[gigId] = claim
+                    }
+                    minted.append(gig)
+                }
+                membership[gigId] = festivalId
+            }
+
+            var dropped = Set<String>()
+            for key in diff.remove {
+                let parts = key.split(separator: "|", maxSplits: 1)
+                guard parts.count == 2 else { continue }
+                // The artist half is already a `nameKey` fold; `onLine` folds its
+                // own query the same way, matching apples to apples.
+                guard let gig = onLine(nightIso: String(parts[0]), artist: String(parts[1])), gig.isLocal else { continue }
+                if await timelines.deleteGig(gig.id) { dropped.insert(gig.id) }
+            }
+
+            await timelines.save(festivals: [festivalId: festival], festivalIdByShow: membership)
+            state.plannedGigs = sortedPlanned(state.plannedGigs.filter { !dropped.contains($0.id) } + minted)
+            for (id, attendance) in attendances { state.attendanceByGig[id] = attendance }
+            for id in dropped { state.attendanceByGig[id] = nil }
+            state.festivals = state.festivals + Festivals(byId: [festivalId: festival], idByShow: membership)
+            // The Spine is built from the store, and a played act just committed
+            // may have joined it this instant rather than at the next cold start.
+            loadTimeline()
+        }
+    }
+
+    /// The **Gig** already on my line for this night and this artist, if there is
+    /// one. `nightIso` is `yyyy-MM-dd`, as `ProgrammeAct.date` gives it — the query
+    /// half of `nameKey` is folded the same way `diff.remove`'s keys already are.
+    private func onLine(nightIso: String, artist: String, mbid: String = "") -> FmSetlist? {
+        guard let night = parseISODateUTC(nightIso) else { return nil }
+        let key = nameKey(artist)
+        return (state.timelineShows + state.plannedGigs).first { gig in
+            guard gig.localDate() == night else { return false }
+            if !mbid.isEmpty, let gigMbid = gig.artist?.mbid, gigMbid == mbid { return true }
+            return nameKey(gig.artist?.name ?? "") == key
+        }
+    }
+
     /// A mistap, undone — and what "undone" means depends on where the act came from.
     ///
     /// An act off the **Bill** goes back to having no night: the poster still says it is
