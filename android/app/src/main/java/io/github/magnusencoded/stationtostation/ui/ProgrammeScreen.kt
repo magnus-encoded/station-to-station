@@ -25,6 +25,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -70,6 +72,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -78,6 +81,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -544,14 +548,24 @@ private fun Picker(
             )
             return@Column
         }
-        LazyColumn(Modifier.fillMaxSize(), state = listState) {
+        // The keyboard is up the whole time somebody is searching, so the list has to end
+        // above it: as content padding rather than a shrunken viewport, so the rows under
+        // the keys stay reachable by scrolling instead of being cut off.
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            state = listState,
+            contentPadding = PaddingValues(bottom = 32.dp + imeHeight()),
+        ) {
             items(ranked.take(window), key = { it.id }) { festival ->
                 FestivalRow(festival, onPick)
             }
-            item { Spacer(Modifier.height(32.dp)) }
         }
     }
 }
+
+/** How much of the screen the keyboard is covering right now. Zero when it is down. */
+@Composable
+private fun imeHeight(): Dp = with(LocalDensity.current) { WindowInsets.ime.getBottom(this).toDp() }
 
 private val DAY_STAMP = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH)
 
