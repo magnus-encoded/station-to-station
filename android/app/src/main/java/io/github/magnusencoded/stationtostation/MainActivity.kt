@@ -152,13 +152,17 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private val SpotifyGreen = Color(0xFF1DB954)
+// The spine's accent, the same amber the Line and the rungs are drawn in. It used to be
+// Spotify green, which every Material default then picked up — outlined text fields,
+// outlined buttons, checkboxes — and the whole app read as if it were a Spotify client.
+// Green now means Spotify and only Spotify, said explicitly where it is meant.
+private val Amber = Color(0xFFE7B24C)
 
 @Composable
 fun AppTheme(content: @Composable () -> Unit) {
     val colorScheme =
-        if (isSystemInDarkTheme()) darkColorScheme(primary = SpotifyGreen)
-        else lightColorScheme(primary = Color(0xFF14833B))
+        if (isSystemInDarkTheme()) darkColorScheme(primary = Amber, onPrimary = Color(0xFF241A08))
+        else lightColorScheme(primary = Color(0xFF8C6A28))
     MaterialTheme(colorScheme = colorScheme) {
         Surface(color = MaterialTheme.colorScheme.background, content = content)
     }
