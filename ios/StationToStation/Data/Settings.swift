@@ -63,8 +63,8 @@ final class Settings {
     /// The public key is derived and stored alongside the credential that produced
     /// it — computed once here, on save, rather than per request.
     func saveClashfinderAccount(user: String, privateKey: String) {
-        store.set(user.trimmingCharacters(in: .whitespaces), forKey: Key.clashfinderUser)
-        store.set(privateKey.trimmingCharacters(in: .whitespaces), forKey: Key.clashfinderPrivateKey)
+        store.set(user.trimmingCharacters(in: .whitespacesAndNewlines), forKey: Key.clashfinderUser)
+        store.set(privateKey.trimmingCharacters(in: .whitespacesAndNewlines), forKey: Key.clashfinderPrivateKey)
     }
 
     /// Whether the first-run door has been passed. False on a fresh install and
