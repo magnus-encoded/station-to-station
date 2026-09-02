@@ -352,7 +352,7 @@ final class TimelineStoreTests: XCTestCase {
             ["attendanceByGig", "attendedTotals", "bills", "calendarEventByGig",
              "festivalIdByShow", "festivalNames", "festivals", "festivalsAsked",
              "gigAttendance", "gigCalendarEvent", "gigLogs", "gigMedia", "gigPhotos", "gigPlanned",
-             "gigPlaylists", "gigSongOffsets", "gigs", "photosBySetlist", "plannedShows", "playlistsMade",
+             "gigPlaylists", "gigSongOffsets", "gigs", "hiddenLines", "photosBySetlist", "plannedShows", "playlistsMade",
              "shows", "songOffsetsBySetlist"],
             json?.keys.sorted()
         )
