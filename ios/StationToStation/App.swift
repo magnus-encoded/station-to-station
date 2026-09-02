@@ -16,6 +16,11 @@ final class Nav: ObservableObject {
 // Spotify and only Spotify, said explicitly where it is meant (see GigView).
 private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
 
+/// Spotify's own green, for the handful of places that really are about Spotify:
+/// the connect buttons, the now-playing dot on a Gig, the first-run door. Declared
+/// once now that five files want the same exception to the tint.
+let spotifyGreen = Color(red: 0x1D / 255, green: 0xB9 / 255, blue: 0x54 / 255)
+
 @main
 struct StationToStationApp: App {
     @StateObject private var model = AppModel()

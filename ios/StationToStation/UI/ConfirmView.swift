@@ -74,6 +74,7 @@ struct ConfirmView: View {
                         if s.spotifyLoginReady { model.loginSpotify() } else { nav.push(.settings) }
                     } label: { Text("Log in with Spotify").frame(maxWidth: .infinity) }
                     .buttonStyle(.borderedProminent)
+                    .tint(spotifyGreen)
                 } else {
                     Button {
                         // A clip has no one picture until a frame is chosen, so the

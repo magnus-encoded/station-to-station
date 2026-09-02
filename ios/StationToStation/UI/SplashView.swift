@@ -5,7 +5,6 @@ private let ground = Color(red: 0x0E / 255, green: 0x0B / 255, blue: 0x14 / 255)
 private let ink = Color(red: 0xED / 255, green: 0xE9 / 255, blue: 0xF2 / 255)
 private let muted = Color(red: 0x8B / 255, green: 0x82 / 255, blue: 0x99 / 255)
 private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
-private let spotifyGreen = Color(red: 0x1D / 255, green: 0xB9 / 255, blue: 0x54 / 255)
 
 /// The first-run door. Twin of Android's `SplashScreen`.
 ///
