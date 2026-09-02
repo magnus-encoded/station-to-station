@@ -74,7 +74,9 @@ struct ClashfinderFestival: Codable, Equatable, Identifiable {
     /// Clashfinder's own curation flag. Rare, and worth ranking on where it is there.
     var core: Bool = false
 
-    private static let isoDay: DateFormatter = {
+    // fileprivate, not private: parseClashfinderIndex is a free function in this
+    // file and formats with the same one, rather than standing up a second.
+    fileprivate static let isoDay: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         f.calendar = Calendar(identifier: .gregorian)
@@ -262,6 +264,11 @@ private struct EventAct: Decodable {
     // That is exactly the half-built failure `parseClashfinderEvent`'s own
     // contract refuses: a malformed act must drop out, not take the festival
     // with it.
+    // Writing `init(from:)` by hand is what stops the compiler synthesizing these.
+    enum CodingKeys: String, CodingKey {
+        case name, start, end, mbId
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         func str(_ key: CodingKeys) -> String {
