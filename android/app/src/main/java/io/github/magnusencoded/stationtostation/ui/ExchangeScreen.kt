@@ -164,13 +164,19 @@ fun ExchangeScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 val connecting = state.connectingWith
+                // With no username there is no card, so `startExchange` starts no radio —
+                // and a radar pulsing over "Looking for people around you…" would be
+                // describing a search that is not happening. #225 made the card half of
+                // this screen honest for an account-less user; this is the other half.
+                val discoverable = state.mySetlistFmUser.isNotBlank()
                 when {
                     connecting != null -> ConnectingBeat(connecting)
-                    else -> LookingForPeople(
+                    discoverable -> LookingForPeople(
                         peers = peers,
                         discovering = state.discovering,
                         onConnect = viewModel::connectWith,
                     )
+                    else -> Spacer(Modifier.height(20.dp))
                 }
 
                 // My card, always here rather than behind a toggle: the radar above never
@@ -178,7 +184,9 @@ fun ExchangeScreen(
                 if (connecting == null) {
                     Spacer(Modifier.height(28.dp))
                     Text(
-                        "OR HAND OVER YOUR CARD",
+                        // "OR" only if there was a first option. Without a username the
+                        // radios never ran, so this is the whole screen, not the fallback.
+                        if (discoverable) "OR HAND OVER YOUR CARD" else "HANDING CARDS OVER",
                         color = Faint,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,

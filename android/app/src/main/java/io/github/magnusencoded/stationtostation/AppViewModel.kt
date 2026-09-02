@@ -1259,9 +1259,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val me = myCard()
         val card = myProbeCard()
         if (me == null || card == null) {
-            _state.update {
-                it.copy(discovering = false, error = "Set your setlist.fm username first — it's the card you hand over.")
-            }
+            // Not an error: having no setlist.fm account is a supported way to use this
+            // app (#225), and this screen already says so where it matters — the card
+            // section explains the asymmetry and offers "Add your username".
+            //
+            // It used to raise one. `error` is a failure channel and this screen hosts no
+            // snackbar, so the message surfaced on whatever screen the user opened next,
+            // reading as a fault on an unrelated page rather than a prerequisite here.
+            _state.update { it.copy(discovering = false) }
             return
         }
         _state.update { it.copy(discovering = true, exchangePeers = emptyList(), connectingWith = null) }
