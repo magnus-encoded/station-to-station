@@ -1072,7 +1072,7 @@ private fun TimelineCache.withBands(): TimelineCache {
  * window would have drawn, purely to find which shows a preserved name belongs to.
  *
  * This is the *only* caller of [legacyClusterByVenueWindow]; the live seam
- * (`groupIntoFestivals` in FestivalScreen.kt) never clusters on venue and date again.
+ * (`groupIntoFestivals` in FestivalGrammar.kt) never clusters on venue and date again.
  */
 private fun TimelineCache.withFestivals(): TimelineCache {
     if (festivalsMigrated) return this
