@@ -12,6 +12,12 @@ import androidx.compose.ui.unit.dp
  * scrollable child: detectHorizontalDragGestures waits for horizontal-dominant
  * slop, so vertical scrolling underneath it is unaffected.
  *
+ * The rule is that every pushed screen has this, and that it does exactly what the
+ * back arrow and the system gesture do — one [onBack], never three behaviours. The
+ * one thing it must not swallow is a horizontal carousel: a LazyRow consumes the
+ * drag before this ever sees it, including at its ends, so scrolling cards stays
+ * scrolling cards and never walks off the screen. That is why this goes outside.
+ *
  * PointerInputScope is itself a Density, so the threshold converts to px inline —
  * no LocalDensity plumbing needed.
  */

@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -24,6 +25,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -53,6 +56,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -68,6 +72,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -76,6 +81,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -99,7 +105,7 @@ import io.github.magnusencoded.stationtostation.data.clashfinder.parseClashfinde
 import io.github.magnusencoded.stationtostation.data.clashfinder.parseClashfinderIndex
 import io.github.magnusencoded.stationtostation.data.clashfinder.decodeFestivals
 import io.github.magnusencoded.stationtostation.data.clashfinder.encodeFestivals
-import io.github.magnusencoded.stationtostation.data.clashfinder.rankFestivals
+import io.github.magnusencoded.stationtostation.data.clashfinder.FestivalSearch
 import io.github.magnusencoded.stationtostation.data.encodeProgramme
 import io.github.magnusencoded.stationtostation.data.parseProgramme
 import kotlinx.coroutines.Dispatchers
@@ -291,6 +297,12 @@ fun ProgrammeScreen(
         }
     }
 
+    // The board is something you reached *through* the picker, so back walks that step
+    // back before it leaves the screen. Re-entering lands on the board again, because the
+    // cached programme is what decides [picking].
+    val goBack: () -> Unit = { if (picking) onBack() else picking = true }
+    BackHandler(onBack = goBack)
+
     Scaffold(
         containerColor = Ground,
         topBar = {
@@ -303,27 +315,18 @@ fun ProgrammeScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = goBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Muted)
-                    }
-                },
-                actions = {
-                    if (!picking && programme.acts.isNotEmpty()) {
-                        Text(
-                            "Change",
-                            color = Muted,
-                            fontSize = 13.sp,
-                            modifier = Modifier
-                                .clickable { picking = true }
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
-                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Ground),
             )
         },
     ) { padding ->
-        val pad = Modifier.padding(padding)
+        // Right goes back, the same thing the arrow and the system gesture do. On the
+        // outermost layout, so the rung carousels underneath keep their own horizontal
+        // drags — see [swipeRightToBack].
+        val pad = Modifier.padding(padding).swipeRightToBack(onBack = goBack)
         when {
             // No account, no source — and this is the one place that can say so. There
             // is deliberately no bundled credential: one account shared by every
@@ -481,7 +484,12 @@ private fun Picker(
     onPick: (ClashfinderFestival) -> Unit,
 ) {
     var window by remember(query) { mutableIntStateOf(WINDOW) }
-    val ranked = remember(festivals, query, today) { rankFestivals(festivals, today, query) }
+    // Ordering and folding are the expensive half and neither depends on the query, so
+    // they happen once, off the main thread. Typing then only filters.
+    val search by produceState(FestivalSearch.EMPTY, festivals, today) {
+        value = withContext(Dispatchers.Default) { FestivalSearch(festivals, today) }
+    }
+    val ranked = remember(search, query) { search.search(query) }
     val listState = rememberLazyListState()
     // The window grows as the bottom of it comes into view, so the default being short
     // does not put the older half of the catalogue out of reach.
@@ -529,7 +537,9 @@ private fun Picker(
             )
         }
         ErrorNote(error, blocked, onImport, onOpenInBrowser, Modifier.padding(vertical = 6.dp))
-        if (ranked.isEmpty()) {
+        // Only once the catalogue is actually prepared: an empty result before that is
+        // the index still building, not a query that found nothing.
+        if (ranked.isEmpty() && search.size > 0) {
             Spacer(Modifier.height(16.dp))
             // The expected case, not a fault: clashfinder has ten thousand festivals
             // and there are rather more festivals than that in the world.
@@ -541,14 +551,24 @@ private fun Picker(
             )
             return@Column
         }
-        LazyColumn(Modifier.fillMaxSize(), state = listState) {
+        // The keyboard is up the whole time somebody is searching, so the list has to end
+        // above it: as content padding rather than a shrunken viewport, so the rows under
+        // the keys stay reachable by scrolling instead of being cut off.
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            state = listState,
+            contentPadding = PaddingValues(bottom = 32.dp + imeHeight()),
+        ) {
             items(ranked.take(window), key = { it.id }) { festival ->
                 FestivalRow(festival, onPick)
             }
-            item { Spacer(Modifier.height(32.dp)) }
         }
     }
 }
+
+/** How much of the screen the keyboard is covering right now. Zero when it is down. */
+@Composable
+private fun imeHeight(): Dp = with(LocalDensity.current) { WindowInsets.ime.getBottom(this).toDp() }
 
 private val DAY_STAMP = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH)
 
