@@ -164,19 +164,18 @@ fun ExchangeScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 val connecting = state.connectingWith
-                // With no username there is no card, so `startExchange` starts no radio —
-                // and a radar pulsing over "Looking for people around you…" would be
-                // describing a search that is not happening. #225 made the card half of
-                // this screen honest for an account-less user; this is the other half.
+                // Scanning runs whether or not I have a card, so the radar is honest for
+                // everyone. What changes without a username is only that I am not
+                // advertising back — said once, below, rather than by hiding the room.
                 val discoverable = state.mySetlistFmUser.isNotBlank()
                 when {
                     connecting != null -> ConnectingBeat(connecting)
-                    discoverable -> LookingForPeople(
+                    else -> LookingForPeople(
                         peers = peers,
                         discovering = state.discovering,
+                        discoverable = discoverable,
                         onConnect = viewModel::connectWith,
                     )
-                    else -> Spacer(Modifier.height(20.dp))
                 }
 
                 // My card, always here rather than behind a toggle: the radar above never
@@ -184,9 +183,7 @@ fun ExchangeScreen(
                 if (connecting == null) {
                     Spacer(Modifier.height(28.dp))
                     Text(
-                        // "OR" only if there was a first option. Without a username the
-                        // radios never ran, so this is the whole screen, not the fallback.
-                        if (discoverable) "OR HAND OVER YOUR CARD" else "HANDING CARDS OVER",
+                        "OR HAND OVER YOUR CARD",
                         color = Faint,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -222,12 +219,20 @@ fun ExchangeScreen(
 private fun LookingForPeople(
     peers: List<ExchangePeer>,
     discovering: Boolean,
+    discoverable: Boolean,
     onConnect: (ExchangePeer) -> Unit,
 ) {
     Spacer(Modifier.height(20.dp))
     Text(
-        "Stand next to someone with the app open. When they appear, add them and your " +
-            "timelines weave together.",
+        if (discoverable) {
+            "Stand next to someone with the app open. When they appear, add them and your " +
+                "timelines weave together."
+        } else {
+            // Finding and taking work with no account; only being found needs a card.
+            "Stand next to someone with the app open. When they appear, add them and " +
+                "their line joins yours — they will not see you back until you have a " +
+                "username."
+        },
         color = Muted,
         fontSize = 13.sp,
         modifier = Modifier.padding(bottom = 8.dp),
