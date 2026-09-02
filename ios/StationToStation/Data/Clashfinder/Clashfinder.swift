@@ -47,8 +47,8 @@ struct ClashfinderAuth {
 /// a mistyped key. The digest is static per account, so it is computed when the
 /// credential is saved and not per request.
 func clashfinderPublicKey(user: String, privateKey: String) -> String {
-    let digest = SHA256.hash(data: Data((user.trimmingCharacters(in: .whitespaces)
-        + privateKey.trimmingCharacters(in: .whitespaces)).utf8))
+    let digest = SHA256.hash(data: Data((user.trimmingCharacters(in: .whitespacesAndNewlines)
+        + privateKey.trimmingCharacters(in: .whitespacesAndNewlines)).utf8))
     return digest.map { String(format: "%02x", $0) }.joined()
 }
 
@@ -230,16 +230,46 @@ private let foldedLetters: [Character: String] = ["ø": "o", "æ": "ae", "ß": "
 
 // MARK: - The event document
 
+// Synthesized `Decodable` does not fall back to a property's default when a key is
+// simply missing — it throws `keyNotFound`, and one absent field then takes the act
+// it is on, then that stage's whole `[EventAct]`, then the entire document. That is
+// exactly the half-built failure `parseClashfinderEvent`'s contract refuses: a
+// malformed corner of a timetable must drop out, never take the festival with it.
+// So every struct below reads its keys through this, and none of them can throw.
+extension KeyedDecodingContainer {
+    fileprivate func value<T: Decodable>(_ key: Key, or fallback: T) -> T {
+        ((try? decodeIfPresent(T.self, forKey: key)) ?? nil) ?? fallback
+    }
+}
+
 private struct EventDoc: Decodable {
     var name: String = ""
     var copyright: String = ""
     var lastEdit: String = ""
     var locations: [EventLocation] = []
+
+    enum CodingKeys: String, CodingKey { case name, copyright, lastEdit, locations }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = c.value(.name, or: "")
+        copyright = c.value(.copyright, or: "")
+        lastEdit = c.value(.lastEdit, or: "")
+        locations = c.value(.locations, or: [])
+    }
 }
 
 private struct EventLocation: Decodable {
     var name: String = ""
     var events: [EventAct] = []
+
+    enum CodingKeys: String, CodingKey { case name, events }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = c.value(.name, or: "")
+        events = c.value(.events, or: [])
+    }
 }
 
 private struct EventAct: Decodable {
@@ -258,12 +288,6 @@ private struct EventAct: Decodable {
     /// ignored as an unknown key.
     var mbId: String = ""
 
-    // Synthesized `Decodable` does not fall back to a property's default when a
-    // key is simply missing — it still throws `keyNotFound`, which would fail
-    // this act, its whole stage's `[EventAct]`, and then the entire document.
-    // That is exactly the half-built failure `parseClashfinderEvent`'s own
-    // contract refuses: a malformed act must drop out, not take the festival
-    // with it.
     // Writing `init(from:)` by hand is what stops the compiler synthesizing these.
     enum CodingKeys: String, CodingKey {
         case name, start, end, mbId
@@ -271,13 +295,10 @@ private struct EventAct: Decodable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        func str(_ key: CodingKeys) -> String {
-            (try? c.decodeIfPresent(String.self, forKey: key)) ?? nil ?? ""
-        }
-        name = str(.name)
-        start = str(.start)
-        end = str(.end)
-        mbId = str(.mbId)
+        name = c.value(.name, or: "")
+        start = c.value(.start, or: "")
+        end = c.value(.end, or: "")
+        mbId = c.value(.mbId, or: "")
     }
 }
 
@@ -291,7 +312,7 @@ private func isMbid(_ s: String) -> Bool {
 
 /// "2026-08-11 21:15" as a date and a clock, or nil if it is neither.
 private func splitStamp(_ stamp: String) -> (date: String, clock: String)? {
-    let parts = stamp.trimmingCharacters(in: .whitespaces)
+    let parts = stamp.trimmingCharacters(in: .whitespacesAndNewlines)
         .split(whereSeparator: { $0 == " " || $0 == "T" }).map(String.init)
     guard parts.count >= 2 else { return nil }
     let dateParts = parts[0].split(separator: "-")
@@ -328,10 +349,10 @@ private func dayBefore(_ iso: String) -> String {
 /// calendar date is what gets stored, and the existing rule puts it back. The
 /// correction happens once, here at the edge; nothing downstream changes.
 private func eventActToProgrammeAct(_ act: EventAct, stage: String) -> ProgrammeAct? {
-    let artist = act.name.trimmingCharacters(in: .whitespaces)
+    let artist = act.name.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !artist.isEmpty, let (date, clock) = splitStamp(act.start) else { return nil }
     let night = clock < String(format: "%02d:00", nightEndsHour) ? dayBefore(date) : date
-    let mbid = act.mbId.trimmingCharacters(in: .whitespaces)
+    let mbid = act.mbId.trimmingCharacters(in: .whitespacesAndNewlines)
     return ProgrammeAct(
         artist: artist,
         date: night,
@@ -364,7 +385,7 @@ func parseClashfinderEvent(_ text: String, id: String = "") -> StoredProgramme {
     else { return StoredProgramme(id: id) }
     var acts: [ProgrammeAct] = []
     for location in doc.locations {
-        let stage = location.name.trimmingCharacters(in: .whitespaces)
+        let stage = location.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !stage.isEmpty else { continue }
         acts += location.events.compactMap { eventActToProgrammeAct($0, stage: stage) }
     }
@@ -372,9 +393,9 @@ func parseClashfinderEvent(_ text: String, id: String = "") -> StoredProgramme {
     let distinct = acts.filter { seen.insert([$0.artist, $0.date, $0.start, $0.stage]).inserted }
     return StoredProgramme(
         id: id,
-        name: doc.name.trimmingCharacters(in: .whitespaces),
-        copyright: doc.copyright.trimmingCharacters(in: .whitespaces),
-        lastEdit: doc.lastEdit.trimmingCharacters(in: .whitespaces),
+        name: doc.name.trimmingCharacters(in: .whitespacesAndNewlines),
+        copyright: doc.copyright.trimmingCharacters(in: .whitespacesAndNewlines),
+        lastEdit: doc.lastEdit.trimmingCharacters(in: .whitespacesAndNewlines),
         acts: distinct.sorted { a, b in
             let sa = a.startsAt() ?? .distantFuture
             let sb = b.startsAt() ?? .distantFuture
@@ -400,10 +421,10 @@ func billingLead(_ name: String) -> String {
         guard let r = lower.range(of: s), r.lowerBound > lower.startIndex else { return nil }
         return r.lowerBound
     }.min()
-    guard let cut else { return name.trimmingCharacters(in: .whitespaces) }
+    guard let cut else { return name.trimmingCharacters(in: .whitespacesAndNewlines) }
     let offset = lower.distance(from: lower.startIndex, to: cut)
     let idx = name.index(name.startIndex, offsetBy: offset)
-    return String(name[name.startIndex..<idx]).trimmingCharacters(in: .whitespaces)
+    return String(name[name.startIndex..<idx]).trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
 /// The one search hit that may be bound to `name` — or nil, which is a real answer.
