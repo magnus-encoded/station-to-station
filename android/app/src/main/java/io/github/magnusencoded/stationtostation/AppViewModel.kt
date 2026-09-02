@@ -1,6 +1,8 @@
 package io.github.magnusencoded.stationtostation
 
 import android.app.Application
+import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
@@ -13,10 +15,23 @@ import io.github.magnusencoded.stationtostation.data.DeviceLocation
 import io.github.magnusencoded.stationtostation.data.DeviceTimelinePlumbing
 import io.github.magnusencoded.stationtostation.data.Festivals
 import io.github.magnusencoded.stationtostation.data.LoadedSpine
+import io.github.magnusencoded.stationtostation.data.ProgrammeAct
+import io.github.magnusencoded.stationtostation.data.StoredProgramme
+import io.github.magnusencoded.stationtostation.data.programmeDays
+import io.github.magnusencoded.stationtostation.data.clashfinder.ClashfinderClient
+import io.github.magnusencoded.stationtostation.data.clashfinder.clashfinderUrl
+import io.github.magnusencoded.stationtostation.data.clashfinder.billingLead
+import io.github.magnusencoded.stationtostation.data.clashfinder.matchArtist
 import io.github.magnusencoded.stationtostation.data.SettingsRepository
 import io.github.magnusencoded.stationtostation.data.StoredAct
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredBill
+import io.github.magnusencoded.stationtostation.data.StoredFestival
+import io.github.magnusencoded.stationtostation.data.ProgrammeDiff
+import io.github.magnusencoded.stationtostation.data.actKey
+import io.github.magnusencoded.stationtostation.data.nameKey
+import io.github.magnusencoded.stationtostation.data.playedActs
+import io.github.magnusencoded.stationtostation.data.programmeFestivalId
 import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.artistLabel
 import io.github.magnusencoded.stationtostation.data.bandsOf
@@ -181,6 +196,11 @@ data class UiState(
     val bundledSpotifyHint: String = "",
     /** The bundled setlist.fm key, masked. */
     val bundledSetlistFmHint: String = "",
+    /** The clashfinder account, as typed. There is no bundled one and never will be. */
+    val clashfinderUser: String = "",
+    val clashfinderPrivateKey: String = "",
+    /** Both halves are on this phone, so the programme button has somewhere to go. */
+    val clashfinderReady: Boolean = false,
     /** Scopes granted at the last Spotify login; null when unknown. */
     val grantedScope: String? = null,
     // Search
@@ -411,6 +431,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val musicBrainz = MusicBrainzClient()
 
     /**
+     * The programme source. Public because the **Programme** screen does its own
+     * fetching and caching — a timetable is a document on this phone, not a slice of
+     * app state, and the one screen that reads it is the one that keeps it.
+     */
+    val clashfinder = ClashfinderClient { settings.clashfinderAuth() }
+
+    /**
+     * Hand one clashfinder document to the browser, which the host does still answer.
+     *
+     * The address carries the account's credentials because the data needs them, so this
+     * puts the public key in the browser's history — accepted only because it is the one
+     * route to the file while the app itself is refused, and it is the user's own key on
+     * their own phone.
+     */
+    suspend fun openClashfinderInBrowser(context: Context, path: String) {
+        val auth = settings.clashfinderAuth() ?: return
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse(clashfinderUrl(path, auth)))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }
+
+    /**
      * The Timeline's sequence and rules (ADR-0001), with the device half handed in
      * rather than constructed inside it — which is what makes them reachable from
      * a test. Everything else in this view model is still the OS-facing half.
@@ -471,6 +514,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     bundledSetlistFmKey = settings.hasBundledSetlistFmKey(),
                     bundledSpotifyHint = settings.bundledSpotifyClientIdHint(),
                     bundledSetlistFmHint = settings.bundledSetlistFmKeyHint(),
+                    clashfinderUser = settings.clashfinderUser.first() ?: "",
+                    clashfinderPrivateKey = settings.clashfinderPrivateKey.first() ?: "",
+                    clashfinderReady = settings.clashfinderAuth() != null,
                     grantedScope = settings.grantedScope(),
                     mySetlistFmUser = settings.mySetlistFmUser.first() ?: "",
                     friends = settings.friends.first(),
@@ -652,6 +698,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 spotifyLoginReady = settings.spotifyClientIdValue() != null,
                 setlistFmReady = settings.setlistFmApiKeyValue() != null,
             )
+        }
+    }
+
+    /**
+     * The clashfinder account. Saved as its own gesture rather than folded into
+     * [saveSettings], because it is two fields that only mean anything together.
+     */
+    fun saveClashfinderCredentials(user: String, privateKey: String) {
+        viewModelScope.launch {
+            settings.saveClashfinderCredentials(user, privateKey)
+            _state.update {
+                it.copy(
+                    clashfinderUser = user.trim(),
+                    clashfinderPrivateKey = privateKey.trim(),
+                    clashfinderReady = settings.clashfinderAuth() != null,
+                )
+            }
         }
     }
 
@@ -1998,6 +2061,223 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             fetchCandidates(billId)
+        }
+    }
+
+    /**
+     * One row off a **Programme**, onto a **Bill**, as an **Act**.
+     *
+     * The programme used to be deliberately unwired from the timeline, on the grounds
+     * that a listing is not attendance. That much is still true and is why this makes
+     * an **Act** and never a **Gig**: it stays an act until somebody standing there
+     * marks it played, so planning to go is never recorded as having gone. What has
+     * changed is the other half — a person planning a festival had the line-up and no
+     * clock, and the timetable is the only thing that has one.
+     *
+     * The **Bill** is found by the festival's own name or created for it, and its range
+     * comes from the timetable's own days. One act at a time, by a person tapping it:
+     * nothing is ever added in bulk (see the **Bill**'s own doc on fabrication).
+     */
+    fun addActFromProgramme(programme: StoredProgramme, act: ProgrammeAct) {
+        val name = act.artist.trim()
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            val bill = billFor(programme)
+            if (bill.acts.any { it.name.equals(name, ignoreCase = true) }) {
+                _state.update { it.copy(notice = "$name is already on ${bill.name}.") }
+                return@launch
+            }
+            editBill(bill.id) { it.copy(acts = it.acts + StoredAct(name = name)) }
+            _state.update { it.copy(notice = "$name added to ${bill.name}.") }
+            resolveProgrammeAct(bill.id, name, act.mbid)
+        }
+    }
+
+    /**
+     * **Departures committed: a diff applied to the Line, not an import.**
+     *
+     * Adds mint a **Gig** claimed `planned` — a programme is a plan, and it must never
+     * be counted as a show I have seen. Each carries the act's stage as its room and the
+     * **Festival**'s id, so `groupIntoFestivals` groups it by declared identity and never
+     * has to infer a festival from nights and venues: the **Festival** exists because
+     * somebody picked it.
+     *
+     * **An act already on the Line is adopted, never duplicated.** That is the bug that
+     * started this work — two stores with different date formats that did not check each
+     * other — and it is fixed here by matching on the night and the artist across the
+     * whole line before minting anything.
+     *
+     * Removes delete only a **Gig** this app minted. A night setlist.fm knows about is
+     * evidence of something that happened; deselecting a plan must not be able to erase
+     * it, and `deleteGig` refuses one carrying media in any case.
+     */
+    fun commitProgramme(
+        programme: StoredProgramme,
+        diff: ProgrammeDiff,
+        picked: Set<String>,
+        now: LocalDateTime = LocalDateTime.now(),
+    ) {
+        if (diff.isEmpty) return
+        viewModelScope.launch {
+            val played = playedActs(programme.acts, now)
+            val festivalId = programmeFestivalId(programme)
+            val days = programmeDays(programme.acts)
+            val festival = StoredFestival(
+                id = festivalId,
+                name = programme.name.trim().ifBlank { programme.id },
+                rangeFrom = days.firstOrNull()?.let { fmDate(it) },
+                rangeTo = days.lastOrNull()?.let { fmDate(it) },
+                // Authored: I picked this festival. An upstream scrape must not overwrite
+                // a name I chose off its own programme — see `mergedWith`.
+                source = StoredFestival.FestivalSource.AUTHORED,
+            )
+
+            val minted = mutableListOf<FmSetlist>()
+            val attendances = mutableMapOf<String, StoredAttendance>()
+            val membership = mutableMapOf<String, String>()
+            // Everything picked, not only what is new: an act already on the line from
+            // setlist.fm is exactly the one that has to be *gathered* into the festival
+            // rather than minted a second time, and it never appears in the diff because
+            // it was on the line before the programme was opened.
+            val taking = programme.acts.filter { actKey(it) in picked }.distinctBy { actKey(it) }
+            for (act in taking) {
+                val night = runCatching { LocalDate.parse(act.date) }.getOrNull() ?: continue
+                val artist = act.artist.trim()
+                if (artist.isBlank()) continue
+                val existing = onLine(night, artist, act.mbid)
+                val gigId = existing?.id
+                    ?: timelines.createLocalGig(fmDate(night), artist, act.stage)
+                if (existing == null) {
+                    val gig = localGigSetlist(gigId, artist, night, venue = act.stage, city = "")
+                    val claim = timelines.savePlanned(gig)
+                    // A set that has already finished is a night I was at, not a night I
+                    // am going to — see `playedActs`. Only ever upgrades: `savePlanned`
+                    // hands back a claim that already exists, and a check-in outranks
+                    // this one.
+                    attendances[gigId] =
+                        if (actKey(act) in played &&
+                            claim.provenance == StoredAttendance.Provenance.PLANNED
+                        ) {
+                            StoredAttendance(provenance = StoredAttendance.Provenance.ATTENDED)
+                                .also { timelines.saveAttendance(gigId, it) }
+                        } else {
+                            claim
+                        }
+                    minted += gig
+                }
+                membership[gigId] = festivalId
+            }
+
+            val dropped = mutableSetOf<String>()
+            for (key in diff.remove) {
+                val night = runCatching { LocalDate.parse(key.substringBefore('|')) }.getOrNull() ?: continue
+                val gig = onLine(night, key.substringAfter('|'))?.takeIf { it.isLocal() } ?: continue
+                if (timelines.deleteGig(gig.id)) dropped += gig.id
+            }
+
+            timelines.save(festivals = mapOf(festivalId to festival), festivalIdByShow = membership)
+            _state.update {
+                it.copy(
+                    plannedGigs = sortedPlanned(it.plannedGigs.filterNot { g -> g.id in dropped } + minted),
+                    setlists = it.setlists.filterNot { g -> g.id in dropped },
+                    attendanceByGig = (it.attendanceByGig + attendances) - dropped,
+                    festivals = it.festivals + Festivals(
+                        byId = mapOf(festivalId to festival),
+                        idByShow = membership,
+                    ),
+                )
+            }
+        }
+    }
+
+    /**
+     * The **Gig** already on my line for this night and this artist, if there is one.
+     *
+     * On the same terms [matchAct] uses in the other direction: the MusicBrainz id where
+     * both sides have one, and [nameKey] otherwise, because the two sources spell the
+     * same artist differently often enough that an exact compare mints duplicates.
+     */
+    private fun onLine(night: LocalDate, artist: String, mbid: String = ""): FmSetlist? =
+        (_state.value.plannedGigs + _state.value.setlists).firstOrNull { gig ->
+            gig.localDate() == night &&
+                (mbid.isNotBlank() && gig.artist?.mbid == mbid ||
+                    nameKey(gig.artist?.name.orEmpty()) == nameKey(artist))
+        }
+
+    /** The **Bill** this festival already has, or a new one carrying its range. */
+    private suspend fun billFor(programme: StoredProgramme): StoredBill {
+        val name = programme.name.trim().ifBlank { programme.id }
+        _state.value.bills.firstOrNull { it.name.equals(name, ignoreCase = true) }?.let { return it }
+        val days = programmeDays(programme.acts)
+        val bill = StoredBill(
+            id = java.util.UUID.randomUUID().toString(),
+            name = name,
+            // No city: the payload carries no venue, town, country or coordinates at
+            // any level, and inventing one is not on. Timezone is the only spatial
+            // signal it has and it separates continents, not towns.
+            from = days.firstOrNull()?.let { fmDate(it) }.orEmpty(),
+            to = days.lastOrNull()?.let { fmDate(it) }.orEmpty(),
+        )
+        _state.update { it.copy(bills = it.bills + bill) }
+        timelines.saveBill(bill)
+        return bill
+    }
+
+    /**
+     * Which artist a just-added **Act** is, if it can be said exactly — and nothing if
+     * it cannot.
+     *
+     * Two routes and no third. The MusicBrainz id the timetable published is exact and
+     * free, and present on about one act in fifty. Otherwise the name must match a
+     * search hit *exactly* under the shared fold ([matchArtist]) — setlist.fm's search
+     * returns maximum confidence for plainly wrong results, so its score cannot gate
+     * anything. An act that resolves to nothing keeps the name as printed, which is a
+     * visibly incomplete row somebody can fix; a wrong binding is a plausible-looking
+     * mistake nobody ever notices.
+     *
+     * **Either route must produce an artist setlist.fm actually named.** An id off a
+     * document that half of clashfinder's users may edit is not evidence on its own: if
+     * the lookup comes back with no artist behind it, the id used to be written onto
+     * the act anyway and the row rendered as resolved under the printed name while
+     * carrying somebody else's identity. Nothing is bound unless a name came back with
+     * it, and that name is what gets shown.
+     *
+     * A thrown request is *no answer* and leaves the act untried, so opening the
+     * **Bill** later asks again — the same rule [fetchCandidates] follows.
+     *
+     * Written back by name rather than by position: this returns after two round trips,
+     * and an act removed from the **Bill** in the meantime shifts every index after it.
+     * A **Bill** does not hold two acts of one name — [addActFromProgramme] refuses the
+     * second — so the name is the stable handle here.
+     */
+    private suspend fun resolveProgrammeAct(billId: String, name: String, mbid: String) {
+        val answer = runCatching {
+            val id = mbid.ifBlank {
+                matchArtist(name, setlistFm.searchArtists(billingLead(name)).artist)?.mbid.orEmpty()
+            }
+            if (id.isBlank()) {
+                Triple("", "", emptyList<String>())
+            } else {
+                val sets = setlistFm.artistSetlists(id).setlist
+                // No artist behind the id is not a match, whatever the id looked like.
+                when (val artist = sets.firstOrNull()?.artist) {
+                    null -> Triple("", "", emptyList())
+                    else -> Triple(id, artistLabel(artist.name, artist.disambiguation), candidateSongs(sets))
+                }
+            }
+        }.getOrNull() ?: return
+        val (artistMbid, label, songs) = answer
+        editBill(billId) { b ->
+            b.copy(
+                acts = b.acts.map { a ->
+                    if (!a.name.equals(name, ignoreCase = true)) a else a.copy(
+                        candidates = songs,
+                        matchedArtist = label,
+                        mbid = artistMbid,
+                        tried = true,
+                    )
+                },
+            )
         }
     }
 
