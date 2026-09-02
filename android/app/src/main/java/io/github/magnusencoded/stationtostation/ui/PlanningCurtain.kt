@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.sp
  * one, which is the same argument that deleted "↑ THE FUTURE" carried to its end: the
  * rows are what the curtain is for.
  */
-internal enum class PlanningDoor { None, Gig, Bill, Import }
+internal enum class PlanningDoor { None, Gig, Programme, Import }
 
 // Per file, as everywhere else in this package.
 private val LineCol = Color(0xFF2E2740)
@@ -48,7 +48,7 @@ private val Slate = Color(0xFF6D7E9B) // the future, a cooler light
  * abandon — the gesture has to be able to mean nothing.
  */
 internal const val GigDetent = 0.35f
-internal const val BillDetent = 0.62f
+internal const val ProgrammeDetent = 0.62f
 internal const val ImportDetent = 0.88f
 
 /**
@@ -74,7 +74,7 @@ internal fun curtainTakes(dy: Float, pull: Float): Float =
 /** Which door a pull this deep has armed. [progress] is 0f..1f of the curtain's travel. */
 internal fun armedDoor(progress: Float): PlanningDoor = when {
     progress >= ImportDetent -> PlanningDoor.Import
-    progress >= BillDetent -> PlanningDoor.Bill
+    progress >= ProgrammeDetent -> PlanningDoor.Programme
     progress >= GigDetent -> PlanningDoor.Gig
     else -> PlanningDoor.None
 }
@@ -112,7 +112,7 @@ internal fun PlanningPull(progress: () -> Float, heightPx: () -> Float) {
         // appear in has to be the order the pull arms them, or you are choosing a door
         // that is still hidden (#263).
         Door("a gig you're going to", lit = armed == PlanningDoor.Gig)
-        Door("a festival lineup", lit = armed == PlanningDoor.Bill)
+        Door("a festival programme", lit = armed == PlanningDoor.Programme)
         Door("your setlist.fm history", lit = armed == PlanningDoor.Import)
         Spacer(Modifier.height(4.dp))
     }

@@ -317,7 +317,11 @@ fun AppNavigation(viewModel: AppViewModel) {
             BleProbeScreen(onBack = { navController.popBackStack() })
         }
         composable("programme") {
-            ProgrammeScreen(onBack = { navController.popBackStack() })
+            ProgrammeScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onOpenSettings = { navController.navigate("settings") },
+            )
         }
     }
 }

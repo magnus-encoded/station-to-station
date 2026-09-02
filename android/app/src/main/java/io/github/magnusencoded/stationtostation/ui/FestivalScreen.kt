@@ -481,8 +481,9 @@ fun FestivalItem(
                     .padding(start = nodeX - 10.dp, top = 4.dp)
                     .size(22.dp)
                     .clip(CircleShape)
-                    // See-through: a node is a ring; nothing is drawn inside one.
-                    .background(Color.Transparent)
+                    // Opaque, like every other node: the spine stops at the rim instead
+                    // of running through the ring and behind the count inside it.
+                    .background(Ground)
                     .border(2.dp, accent, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {

@@ -61,6 +61,10 @@ fun SettingsScreen(
 
     var apiKey by remember(state.setlistFmApiKey) { mutableStateOf(state.setlistFmApiKey) }
     var clientId by remember(state.spotifyClientId) { mutableStateOf(state.spotifyClientId) }
+    var clashfinderUser by remember(state.clashfinderUser) { mutableStateOf(state.clashfinderUser) }
+    var clashfinderKey by remember(state.clashfinderPrivateKey) {
+        mutableStateOf(state.clashfinderPrivateKey)
+    }
 
     LaunchedEffect(state.error) {
         state.error?.let {
@@ -210,6 +214,54 @@ fun SettingsScreen(
                 onClick = { viewModel.saveSettings(apiKey, clientId) },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Save") }
+
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(24.dp))
+
+            // No bundled fallback here, unlike setlist.fm above: one account shared by
+            // every install would put all of this app's traffic on a single credential
+            // against a host that runs active bot protection. The price is that the
+            // programme button does nothing until these two fields are filled in, so
+            // the text says what to get and where.
+            Text("clashfinder", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                if (state.clashfinderReady) {
+                    "Festival timetables come from clashfinder, using this account."
+                } else {
+                    "Festival timetables — stages, set times and clashes — come from " +
+                        "clashfinder, which needs a free account of your own. Register, " +
+                        "then copy the private key off your account page. It is not " +
+                        "your password."
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
+            TextButton(onClick = {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse("https://clashfinder.com/m/account"))
+                )
+            }) { Text("Register at clashfinder.com") }
+            OutlinedTextField(
+                value = clashfinderUser,
+                onValueChange = { clashfinderUser = it },
+                label = { Text("clashfinder username") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = clashfinderKey,
+                onValueChange = { clashfinderKey = it },
+                label = { Text("clashfinder private key") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = { viewModel.saveClashfinderCredentials(clashfinderUser, clashfinderKey) },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Save clashfinder account") }
 
             Spacer(Modifier.height(24.dp))
             HorizontalDivider()
