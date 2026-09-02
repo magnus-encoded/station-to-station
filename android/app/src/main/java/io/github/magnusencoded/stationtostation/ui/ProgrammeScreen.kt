@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -291,6 +292,12 @@ fun ProgrammeScreen(
         }
     }
 
+    // The board is something you reached *through* the picker, so back walks that step
+    // back before it leaves the screen. Re-entering lands on the board again, because the
+    // cached programme is what decides [picking].
+    val goBack: () -> Unit = { if (picking) onBack() else picking = true }
+    BackHandler(onBack = goBack)
+
     Scaffold(
         containerColor = Ground,
         topBar = {
@@ -303,20 +310,8 @@ fun ProgrammeScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = goBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Muted)
-                    }
-                },
-                actions = {
-                    if (!picking && programme.acts.isNotEmpty()) {
-                        Text(
-                            "Change",
-                            color = Muted,
-                            fontSize = 13.sp,
-                            modifier = Modifier
-                                .clickable { picking = true }
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
-                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Ground),
