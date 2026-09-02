@@ -555,14 +555,16 @@ func laneColours(_ lanes: [Friend], _ hidden: Set<String>) -> [Int] {
 /// what makes `legendSplit`'s head simply the front of this order rather than a
 /// second rule.
 func legendOrder(_ lanes: [Friend], hiddenAt: [String: Int64]) -> [Friend] {
-    lanes.sorted { a, b in
-        switch (hiddenAt[a.setlistfm], hiddenAt[b.setlistfm]) {
-        case (nil, nil): return false
+    // The lane's own index breaks ties: Swift's sort is not stable, and a legend whose
+    // active chips reshuffle between renders is its own bug.
+    lanes.enumerated().sorted { a, b in
+        switch (hiddenAt[a.element.setlistfm], hiddenAt[b.element.setlistfm]) {
+        case (nil, nil): return a.offset < b.offset
         case (nil, _): return true
         case (_, nil): return false
-        case let (ta?, tb?): return ta > tb
+        case let (ta?, tb?): return ta == tb ? a.offset < b.offset : ta > tb
         }
-    }
+    }.map(\.element)
 }
 
 /// Where the legend's `+ N more` disclosure takes over (#396). The head holds every
