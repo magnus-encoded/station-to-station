@@ -219,6 +219,37 @@ fun rankFestivals(
 }
 
 /**
+ * The catalogue prepared for typing into: ordered once, folded once.
+ *
+ * [rankFestivals] answers one query in full — fold ten thousand names, parse ten thousand
+ * dates, sort what survives — which is a keystroke's worth of work per keystroke on the
+ * main thread, and the picker felt exactly like that. Nothing in the ordering depends on
+ * the query, so it is settled up front and filtering only ever *removes* rows from an
+ * order that already holds. What is left per keystroke is one fold of the needle and a
+ * substring test per row.
+ *
+ * Build it off the main thread: the once is still ten thousand of everything.
+ */
+class FestivalSearch(festivals: List<ClashfinderFestival>, on: LocalDate) {
+    // A space joins the two haystacks: [foldName] keeps only letters and digits, so no
+    // needle can ever contain one and no match can straddle the seam between them.
+    private val rows = rankFestivals(festivals, on)
+        .map { it to foldName(it.name) + ' ' + foldName(it.id) }
+
+    val size: Int get() = rows.size
+
+    fun search(query: String): List<ClashfinderFestival> {
+        val needle = foldName(query)
+        if (needle.isEmpty()) return rows.map { it.first }
+        return rows.filter { needle in it.second }.map { it.first }
+    }
+
+    companion object {
+        val EMPTY = FestivalSearch(emptyList(), LocalDate.EPOCH)
+    }
+}
+
+/**
  * A name reduced to what two spellings of it have in common.
  *
  * Diacritics off, case off, punctuation and spacing off — so "oya" finds

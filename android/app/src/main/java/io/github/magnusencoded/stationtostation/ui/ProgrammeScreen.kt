@@ -54,6 +54,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -100,7 +101,7 @@ import io.github.magnusencoded.stationtostation.data.clashfinder.parseClashfinde
 import io.github.magnusencoded.stationtostation.data.clashfinder.parseClashfinderIndex
 import io.github.magnusencoded.stationtostation.data.clashfinder.decodeFestivals
 import io.github.magnusencoded.stationtostation.data.clashfinder.encodeFestivals
-import io.github.magnusencoded.stationtostation.data.clashfinder.rankFestivals
+import io.github.magnusencoded.stationtostation.data.clashfinder.FestivalSearch
 import io.github.magnusencoded.stationtostation.data.encodeProgramme
 import io.github.magnusencoded.stationtostation.data.parseProgramme
 import kotlinx.coroutines.Dispatchers
@@ -476,7 +477,12 @@ private fun Picker(
     onPick: (ClashfinderFestival) -> Unit,
 ) {
     var window by remember(query) { mutableIntStateOf(WINDOW) }
-    val ranked = remember(festivals, query, today) { rankFestivals(festivals, today, query) }
+    // Ordering and folding are the expensive half and neither depends on the query, so
+    // they happen once, off the main thread. Typing then only filters.
+    val search by produceState(FestivalSearch.EMPTY, festivals, today) {
+        value = withContext(Dispatchers.Default) { FestivalSearch(festivals, today) }
+    }
+    val ranked = remember(search, query) { search.search(query) }
     val listState = rememberLazyListState()
     // The window grows as the bottom of it comes into view, so the default being short
     // does not put the older half of the catalogue out of reach.
@@ -524,7 +530,9 @@ private fun Picker(
             )
         }
         ErrorNote(error, blocked, onImport, onOpenInBrowser, Modifier.padding(vertical = 6.dp))
-        if (ranked.isEmpty()) {
+        // Only once the catalogue is actually prepared: an empty result before that is
+        // the index still building, not a query that found nothing.
+        if (ranked.isEmpty() && search.size > 0) {
             Spacer(Modifier.height(16.dp))
             // The expected case, not a fault: clashfinder has ten thousand festivals
             // and there are rather more festivals than that in the world.

@@ -6,6 +6,7 @@ import io.github.magnusencoded.stationtostation.data.clashfinder.clashfinderPubl
 import io.github.magnusencoded.stationtostation.data.clashfinder.matchArtist
 import io.github.magnusencoded.stationtostation.data.clashfinder.parseClashfinderEvent
 import io.github.magnusencoded.stationtostation.data.clashfinder.parseClashfinderIndex
+import io.github.magnusencoded.stationtostation.data.clashfinder.FestivalSearch
 import io.github.magnusencoded.stationtostation.data.clashfinder.rankFestivals
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
 import org.junit.Assert.assertEquals
@@ -219,6 +220,27 @@ class ClashfinderTest {
         val found = rankFestivals(festivals, on = LocalDate.parse("2026-08-11"), query = "other festival")
 
         assertEquals(listOf("nextyear"), found.map { it.id })
+    }
+
+    @Test
+    fun `the prepared catalogue answers a query the same way ranking it fresh does`() {
+        val on = LocalDate.parse("2026-08-11")
+        val search = FestivalSearch(festivals, on)
+
+        assertEquals(rankFestivals(festivals, on).map { it.id }, search.search("").map { it.id })
+        assertEquals(
+            rankFestivals(festivals, on, query = "oyafest").map { it.id },
+            search.search("oyafest").map { it.id },
+        )
+    }
+
+    @Test
+    fun `no match straddles the seam between a name and the id after it`() {
+        // The two haystacks are one string per row, so the tail of the name plus the head
+        // of the id must not read as a hit: "2026oyafestivalen" spans exactly that seam.
+        val search = FestivalSearch(festivals, LocalDate.parse("2026-08-11"))
+
+        assertTrue(search.search("2026oyafestivalen").isEmpty())
     }
 
     // --- Credentials -----------------------------------------------------------------
