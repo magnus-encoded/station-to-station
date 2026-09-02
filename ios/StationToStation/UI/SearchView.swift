@@ -24,6 +24,7 @@ struct SearchView: View {
                     Text("Log in with Spotify").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(spotifyGreen)
                 .padding(.horizontal).padding(.vertical, 8)
             }
             Picker("", selection: $tab) {

@@ -14,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -134,6 +135,12 @@ fun SettingsScreen(
                         }
                     },
                     enabled = state.bundledSpotifyClientId || clientId.isNotBlank(),
+                    // The one button on this screen that really is Spotify, so it keeps
+                    // the green the rest of the app gave up.
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = SpotifyGreen,
+                        contentColor = Color.White,
+                    ),
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Log in with Spotify") }
             }
