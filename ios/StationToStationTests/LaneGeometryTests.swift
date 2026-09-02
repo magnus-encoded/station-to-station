@@ -472,7 +472,7 @@ final class LaneGeometryTests: XCTestCase {
     func testLegendSplitsRestContinuesTheSameOrder() {
         let dio = Friend(setlistfm: "Dio", name: "Dio")
         let motorhead = Friend(setlistfm: "Motorhead", name: "Motorhead")
-        let hiddenAt = ["Ozzy": 100, "Lemmy": 300, "Dio": 200, "Motorhead": 50]
+        let hiddenAt: [String: Int64] = ["Ozzy": 100, "Lemmy": 300, "Dio": 200, "Motorhead": 50]
         let (head, rest) = legendSplit(
             [ozzy, lemmy, dio, motorhead], hiddenAt: hiddenAt, headSize: 2
         )
