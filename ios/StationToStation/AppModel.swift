@@ -58,9 +58,16 @@ struct UiState {
     // Friends (peer-to-peer, on-device)
     var mySetlistFmUser = ""
     var friends: [Friend] = []
-    /// The **Lines** tapped out of the legend, by setlist.fm username. A reading aid
-    /// and nothing else — session-lived, never written, never sent (#266).
-    var hiddenLines: Set<String> = []
+    /// The **Lines** tapped out of the legend, by setlist.fm username, each with the
+    /// moment it was turned off (#396). Still a reading aid and nothing about the
+    /// person — it says nothing about the relationship and is never sent — but it
+    /// now survives a launch, which is what lets the legend's recency order mean
+    /// anything: with nothing remembered, every name is active and there is nothing
+    /// to sort by (#266).
+    var hiddenAt: [String: Int64] = [:]
+    /// Who is currently tapped out. Derived rather than held separately, so there is
+    /// only one fact — `hiddenAt` — to keep in step; a lane not in it is active.
+    var hiddenLines: Set<String> { Set(hiddenAt.keys) }
     /// A card that would change a **Contact** already held, waiting on the one question
     /// this app asks (#188). Nothing is written and nothing is persisted while it stands.
     var friendConflict: FriendConflict?
@@ -295,6 +302,7 @@ final class AppModel: ObservableObject {
             // after every write.
             state.mediaBySetlist = cache.media()
             state.playlistsBySetlist = cache.playlists()
+            state.hiddenAt = cache.hiddenLines
         }
     }
 
@@ -982,11 +990,13 @@ final class AppModel: ObservableObject {
     }
 
     /// Tap a name in the legend to take their **Line** off the strip, tap it again to
-    /// bring it back. Nothing is stored and nothing is sent: hiding is how this one
-    /// timeline is being read right now, not a fact about the person.
+    /// bring it back. Nothing is sent and nothing says anything about the
+    /// relationship — but the toggle and its moment are persisted (#396), which is
+    /// what lets the legend's recency order survive a launch.
     func toggleLineHidden(_ setlistfm: String) {
-        if state.hiddenLines.contains(setlistfm) { state.hiddenLines.remove(setlistfm) }
-        else { state.hiddenLines.insert(setlistfm) }
+        if state.hiddenAt[setlistfm] != nil { state.hiddenAt[setlistfm] = nil }
+        else { state.hiddenAt[setlistfm] = Int64(Date().timeIntervalSince1970 * 1000) }
+        Task { await timelines.saveHiddenLines(state.hiddenAt) }
     }
 
     /// Pinch out to open the friends' Lanes beside my Spine, pinch in to close

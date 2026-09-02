@@ -428,6 +428,58 @@ final class LaneGeometryTests: XCTestCase {
         XCTAssertEqual(2, quieter.filter { $0.line != Spine }.count)
     }
 
+    // MARK: - The legend's recency order (#396)
+
+    /// One sort key: active Lanes first (whatever order they came in), then hidden
+    /// ones by how recently they were toggled off, most recent first.
+    func testLegendOrdersActiveFirstThenMostRecentlyHidden() {
+        let dio = Friend(setlistfm: "Dio", name: "Dio")
+        let ordered = legendOrder(
+            [ozzy, lemmy, dio],
+            hiddenAt: ["Ozzy": 100, "Dio": 200]
+        )
+        // Lemmy is active, so first regardless of the others' timestamps. Dio was
+        // hidden more recently than Ozzy, so Dio comes next.
+        XCTAssertEqual(["Lemmy", "Dio", "Ozzy"], ordered.map(\.setlistfm))
+    }
+
+    /// The head never drops an active Lane, even past `headSize` — losing the group
+    /// you are actually comparing is the bug this exists to fix.
+    func testLegendSplitNeverCutsAnActiveLaneFromTheHead() {
+        let dio = Friend(setlistfm: "Dio", name: "Dio")
+        let motorhead = Friend(setlistfm: "Motorhead", name: "Motorhead")
+        let (head, rest) = legendSplit(
+            [ozzy, lemmy, dio, motorhead],
+            hiddenAt: ["Dio": 1],
+            headSize: 2
+        )
+        // Three are active (Ozzy, Lemmy, Motorhead); the floor of 2 is exceeded to
+        // fit all three, and only the one hidden Lane falls into the disclosure.
+        XCTAssertEqual(3, head.count)
+        XCTAssertTrue(head.allSatisfy { $0.setlistfm != "Dio" })
+        XCTAssertEqual(["Dio"], rest.map(\.setlistfm))
+    }
+
+    /// A short list gets no disclosure at all: everyone fits under `headSize`.
+    func testLegendSplitLeavesNothingForTheDisclosureWhenTheListIsShort() {
+        let (head, rest) = legendSplit([ozzy, lemmy], hiddenAt: [:], headSize: 6)
+        XCTAssertEqual(2, head.count)
+        XCTAssertTrue(rest.isEmpty)
+    }
+
+    /// The rest is a disclosure, not a truncation (#266): every hidden name past the
+    /// head is still there, in the same recency order, just not drawn yet.
+    func testLegendSplitsRestContinuesTheSameOrder() {
+        let dio = Friend(setlistfm: "Dio", name: "Dio")
+        let motorhead = Friend(setlistfm: "Motorhead", name: "Motorhead")
+        let hiddenAt: [String: Int64] = ["Ozzy": 100, "Lemmy": 300, "Dio": 200, "Motorhead": 50]
+        let (head, rest) = legendSplit(
+            [ozzy, lemmy, dio, motorhead], hiddenAt: hiddenAt, headSize: 2
+        )
+        XCTAssertEqual(["Lemmy", "Dio"], head.map(\.setlistfm))
+        XCTAssertEqual(["Ozzy", "Motorhead"], rest.map(\.setlistfm))
+    }
+
     /// The half the seam does not give for free: a colour you have learned to read
     /// goes on meaning the same person after someone inside them is hidden.
     func testHidingSomeoneRepaintsNobody() throws {

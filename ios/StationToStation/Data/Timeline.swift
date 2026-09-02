@@ -547,6 +547,42 @@ func laneColours(_ lanes: [Friend], _ hidden: Set<String>) -> [Int] {
     lanes.indices.filter { !hidden.contains(lanes[$0].setlistfm) }
 }
 
+/// One order for the whole lane legend: most recently toggled off first, and any
+/// active (currently shown) Lane ahead of every hidden one (#396). `hiddenAt` is
+/// toggle-off time by setlist.fm username; an absent username is active.
+///
+/// One sort key, not an active list and a hidden list stitched together — which is
+/// what makes `legendSplit`'s head simply the front of this order rather than a
+/// second rule.
+func legendOrder(_ lanes: [Friend], hiddenAt: [String: Int64]) -> [Friend] {
+    // The lane's own index breaks ties: Swift's sort is not stable, and a legend whose
+    // active chips reshuffle between renders is its own bug.
+    lanes.enumerated().sorted { a, b in
+        switch (hiddenAt[a.element.setlistfm], hiddenAt[b.element.setlistfm]) {
+        case (nil, nil): return a.offset < b.offset
+        case (nil, _): return true
+        case (_, nil): return false
+        case let (ta?, tb?): return ta == tb ? a.offset < b.offset : ta > tb
+        }
+    }.map(\.element)
+}
+
+/// Where the legend's `+ N more` disclosure takes over (#396). The head holds every
+/// active Lane — never cut, because losing the group you are actually comparing is
+/// the bug this exists to fix — plus the most recently hidden ones, up to `headSize`.
+/// `headSize` is a floor, not a cap: more active Lanes than that only grow the head.
+///
+/// `rest` is a disclosure, never a truncation (#266): every name `legendOrder` puts
+/// there is still in it, in the same order, just not drawn until it is opened.
+func legendSplit(
+    _ lanes: [Friend], hiddenAt: [String: Int64], headSize: Int
+) -> (head: [Friend], rest: [Friend]) {
+    let ordered = legendOrder(lanes, hiddenAt: hiddenAt)
+    let activeCount = lanes.filter { hiddenAt[$0.setlistfm] == nil }.count
+    let count = max(headSize, activeCount)
+    return (Array(ordered.prefix(count)), Array(ordered.dropFirst(count)))
+}
+
 func nodeHost(_ row: WovenRow, _ lanes: [Friend]) -> Int {
     linesAt(row, lanes).min() ?? Spine
 }

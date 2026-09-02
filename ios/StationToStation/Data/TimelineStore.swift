@@ -470,6 +470,12 @@ struct TimelineCache: Codable {
     /// The calendar event made for a gig, by gig id. Dead since #107; see
     /// `gigCalendarEvent`. Not carried before #107 either.
     var calendarEventByGig: [String: String] = [:]
+    /// The **Lines** tapped out of the legend, by setlist.fm username, to the moment
+    /// each was turned off — epoch millis (#396). The legend's recency order sorts by
+    /// this; an absent username is active. Replaced wholesale on every write, never
+    /// merged: an unhide has to actually remove an entry, which a merge that only adds
+    /// could never do.
+    var hiddenLines: [String: Int64] = [:]
 
     // MARK: - Keyed by the app's own Gig id (#107)
     //
@@ -545,6 +551,7 @@ struct TimelineCache: Codable {
         attendanceByGig = map(.attendanceByGig, StoredAttendance.self)
         plannedShows = (try? c.decodeIfPresent([FmSetlist].self, forKey: .plannedShows)) ?? nil ?? []
         calendarEventByGig = map(.calendarEventByGig, String.self)
+        hiddenLines = map(.hiddenLines, Int64.self)
         gigs = map(.gigs, StoredGig.self)
         gigPhotos = map(.gigPhotos, [String].self)
         gigSongOffsets = map(.gigSongOffsets, [Int64].self)
@@ -798,6 +805,17 @@ actor TimelineStore {
             var c = cache
             let id = c.withGig(gigId)
             c.gigCalendarEvent[id] = eventId
+            return c
+        }
+    }
+
+    /// The legend's hidden set, replacing what was there wholesale (#396) — unlike
+    /// `save`'s merge, this has to be able to remove an entry, which is what an unhide
+    /// is.
+    func saveHiddenLines(_ hiddenLines: [String: Int64]) {
+        writeMerged { cache in
+            var c = cache
+            c.hiddenLines = hiddenLines
             return c
         }
     }
