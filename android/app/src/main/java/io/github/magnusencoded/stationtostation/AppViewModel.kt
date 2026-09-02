@@ -1256,29 +1256,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * People appear as they come into range, so the list is a live view of the room.
      */
     fun startExchange() {
-        val me = myCard()
-        val card = myProbeCard()
-        if (me == null || card == null) {
-            // Not an error: having no setlist.fm account is a supported way to use this
-            // app (#225), and this screen already says so where it matters — the card
-            // section explains the asymmetry and offers "Add your username".
-            //
-            // It used to raise one. `error` is a failure channel and this screen hosts no
-            // snackbar, so the message surfaced on whatever screen the user opened next,
-            // reading as a fault on an unrelated page rather than a prerequisite here.
-            _state.update { it.copy(discovering = false) }
-            return
-        }
+        // No username is not a reason to keep anyone off this screen. It only means
+        // there is no card to hand over, so the advertising radios stay quiet while
+        // scanning runs as usual — the room is still visible, and a card handed to me
+        // is still mine to take (#225's "you can take their card", now actually wired).
+        //
+        // This used to return early with `error` set. `error` is a failure channel and
+        // this screen hosts no snackbar, so the message surfaced on whatever screen the
+        // user opened next, reading as a fault on an unrelated page.
         _state.update { it.copy(discovering = true, exchangePeers = emptyList(), connectingWith = null) }
-        exchange.start(me, card)
+        exchange.start(myCard(), myProbeCard())
     }
 
     /** Pulled down on the exchange screen: drop everything and listen again. */
     fun restartExchange() {
-        val me = myCard() ?: return
-        val card = myProbeCard() ?: return
         _state.update { it.copy(discovering = true, exchangePeers = emptyList()) }
-        exchange.restart(me, card)
+        exchange.restart(myCard(), myProbeCard())
     }
 
     fun stopExchange() {

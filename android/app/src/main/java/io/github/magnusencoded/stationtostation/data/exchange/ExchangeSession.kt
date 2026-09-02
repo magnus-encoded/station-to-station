@@ -146,7 +146,7 @@ class ExchangeSession(private val context: Context, scope: CoroutineScope) {
 
     /** Starts all three radios in parallel. Safe to call again while running. */
     @SuppressLint("MissingPermission")
-    fun start(me: Friend, myCard: ProbeCard) {
+    fun start(me: Friend?, myCard: ProbeCard?) {
         if (running) return
         running = true
         this.myCard = myCard
@@ -159,11 +159,18 @@ class ExchangeSession(private val context: Context, scope: CoroutineScope) {
         // whole flow already listens for, so a missing grant surfaces once, not per radio.
         nearby.start(me, myCard)
         if (nearby.hasPermissions()) {
-            peripheral = BleCardPeripheral(context, myCard).also {
-                it.onCardWritten = { written ->
-                    friendFromCard(written)?.let { friend -> onFriendReceived?.invoke(friend) }
+            // The advertising half is the half that needs a card. With no setlist.fm
+            // username there is nothing to hand over — but scanning needs nothing of
+            // mine, so the screen still finds the room and can still take a card.
+            // `readCard` has always tolerated a null card of its own ("one-way
+            // exchange", #87); this lets that path actually be reached.
+            myCard?.let { card ->
+                peripheral = BleCardPeripheral(context, card).also {
+                    it.onCardWritten = { written ->
+                        friendFromCard(written)?.let { friend -> onFriendReceived?.invoke(friend) }
+                    }
+                    it.start()
                 }
-                it.start()
             }
             central.start()
         }
@@ -181,7 +188,7 @@ class ExchangeSession(private val context: Context, scope: CoroutineScope) {
         bleHits.value = emptyList()
     }
 
-    fun restart(me: Friend, myCard: ProbeCard) {
+    fun restart(me: Friend?, myCard: ProbeCard?) {
         stop()
         start(me, myCard)
     }
@@ -201,9 +208,15 @@ class ExchangeSession(private val context: Context, scope: CoroutineScope) {
      */
     @SuppressLint("MissingPermission")
     fun connect(peer: ExchangePeer, onCard: (Friend?) -> Unit) {
-        peer.nearby?.let { advertised ->
-            nearby.exchangeCards(advertised) { card -> onCard(card?.let(::friendFromCard)) }
-            return
+        // Nearby's swap is mutual by construction — `exchangeCards` needs a card of mine
+        // to request the connection with — so with no username that route can only
+        // return null. BLE reads one-way, so it is the route that still works; take it
+        // rather than the one that would fail and fall through to QR.
+        if (myCard != null) {
+            peer.nearby?.let { advertised ->
+                nearby.exchangeCards(advertised) { card -> onCard(card?.let(::friendFromCard)) }
+                return
+            }
         }
         val hit = peer.ble ?: run { onCard(null); return }
         central.readCard(hit, negotiateMtu = false, myCard = myCard) { timing ->
