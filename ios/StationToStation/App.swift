@@ -10,7 +10,11 @@ final class Nav: ObservableObject {
     func popToRoot() { path.removeAll() }
 }
 
-private let spotifyGreen = Color(red: 0x1D / 255, green: 0xB9 / 255, blue: 0x54 / 255)
+// The spine's accent, the same amber the Line and the rungs are drawn in. The app-wide
+// tint used to be Spotify green, which every control then inherited — text fields,
+// buttons, toggles — and the whole app read as if it were a Spotify client. Green means
+// Spotify and only Spotify, said explicitly where it is meant (see GigView).
+private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
 
 @main
 struct StationToStationApp: App {
@@ -25,7 +29,7 @@ struct StationToStationApp: App {
             if !model.state.onboarded {
                 SplashView()
                     .environmentObject(model)
-                    .tint(spotifyGreen)
+                    .tint(amber)
                     .preferredColorScheme(.dark)
                     .appBanners(model)
             } else {
@@ -50,7 +54,7 @@ struct StationToStationApp: App {
             }
             .environmentObject(model)
             .environmentObject(nav)
-            .tint(spotifyGreen)
+            .tint(amber)
             // Nocturnal single theme: the Timeline is dark whatever the phone is.
             .preferredColorScheme(.dark)
             .appBanners(model)

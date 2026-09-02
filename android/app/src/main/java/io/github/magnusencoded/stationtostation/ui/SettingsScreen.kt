@@ -36,6 +36,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -45,6 +46,8 @@ import io.github.magnusencoded.stationtostation.AppViewModel
 import io.github.magnusencoded.stationtostation.BuildConfig
 import io.github.magnusencoded.stationtostation.data.spotify.SPOTIFY_REDIRECT_URI
 import kotlinx.coroutines.launch
+
+private val SpotifyGreen = Color(0xFF1DB954)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -97,7 +100,8 @@ fun SettingsScreen(
             Text("Spotify", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             if (state.spotifyConnected) {
-                Text("✓ Logged in with Spotify", color = MaterialTheme.colorScheme.primary)
+                // Green, said out loud, because here it really is about Spotify.
+                Text("✓ Logged in with Spotify", color = SpotifyGreen)
                 val scope = state.grantedScope
                 Text(
                     when {
