@@ -323,7 +323,10 @@ fun ProgrammeScreen(
             )
         },
     ) { padding ->
-        val pad = Modifier.padding(padding)
+        // Right goes back, the same thing the arrow and the system gesture do. On the
+        // outermost layout, so the rung carousels underneath keep their own horizontal
+        // drags — see [swipeRightToBack].
+        val pad = Modifier.padding(padding).swipeRightToBack(onBack = goBack)
         when {
             // No account, no source — and this is the one place that can say so. There
             // is deliberately no bundled credential: one account shared by every
