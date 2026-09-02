@@ -14,6 +14,8 @@ final class Settings {
 
     private enum Key {
         static let setlistFmApiKey = "setlistfm_api_key"
+        static let clashfinderUser = "clashfinder_user"
+        static let clashfinderPrivateKey = "clashfinder_private_key"
         static let spotifyClientId = "spotify_client_id"
         static let accessToken = "spotify_access_token"
         static let refreshToken = "spotify_refresh_token"
@@ -41,6 +43,28 @@ final class Settings {
     }
     func saveSpotifyClientId(_ v: String) {
         store.set(v.trimmingCharacters(in: .whitespaces), forKey: Key.spotifyClientId)
+    }
+
+    // --- Clashfinder ---
+    //
+    // No bundled fallback the way setlist.fm has one (see `Clashfinder.swift`): a
+    // shared credential would put all of this app's traffic on one account against
+    // a host running active bot protection. With no account there is no programme
+    // feature at all, so the empty state has to say what to get and where.
+
+    var clashfinderUser: String? { store.string(forKey: Key.clashfinderUser)?.nilIfBlank }
+    var clashfinderPrivateKey: String? { store.string(forKey: Key.clashfinderPrivateKey)?.nilIfBlank }
+
+    var clashfinderAuth: ClashfinderAuth? {
+        guard let user = clashfinderUser, let key = clashfinderPrivateKey else { return nil }
+        return ClashfinderAuth(user: user, publicKey: clashfinderPublicKey(user: user, privateKey: key))
+    }
+
+    /// The public key is derived and stored alongside the credential that produced
+    /// it — computed once here, on save, rather than per request.
+    func saveClashfinderAccount(user: String, privateKey: String) {
+        store.set(user.trimmingCharacters(in: .whitespacesAndNewlines), forKey: Key.clashfinderUser)
+        store.set(privateKey.trimmingCharacters(in: .whitespacesAndNewlines), forKey: Key.clashfinderPrivateKey)
     }
 
     /// Whether the first-run door has been passed. False on a fresh install and
