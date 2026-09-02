@@ -1,7 +1,8 @@
 import XCTest
 @testable import StationToStation
 
-/// The festival programme (#173), ported case for case from Android's `ProgrammeTest`.
+/// The festival programme (#173, #389), ported case for case from Android's
+/// `ProgrammeTest`.
 ///
 /// A fixed UTC calendar throughout, so the boundary math is the same instant
 /// wherever this runs — the Android suite gets that for free from `LocalDateTime`,
@@ -14,8 +15,8 @@ final class ProgrammeTests: XCTestCase {
         return c
     }()
 
-    private func act(_ artist: String, _ start: String, _ stage: String, date: String = "2026-08-13") -> ProgrammeAct {
-        ProgrammeAct(artist: artist, date: date, start: start, stage: stage)
+    private func act(_ artist: String, _ start: String, _ stage: String, date: String = "2026-08-13", end: String = "") -> ProgrammeAct {
+        ProgrammeAct(artist: artist, date: date, start: start, stage: stage, end: end)
     }
 
     private func moment(_ ymd: String, _ hm: String) -> Date {
@@ -46,6 +47,45 @@ final class ProgrammeTests: XCTestCase {
     func testTheLastActOfTheNightFallsBackToTheDefaultLength() {
         let a = act("Headliner", "22:30", "Sirkus")
         XCTAssertEqual(moment("2026-08-13", "23:30"), endTimes([a], calendar: cal)[a])
+    }
+
+    func testAPublishedEndIsPreferredOverAnythingInferred() {
+        let a = act("First", "18:00", "Amfiet", end: "18:20")
+        let b = act("Second", "18:40", "Amfiet")
+        XCTAssertEqual(moment("2026-08-13", "18:20"), endTimes([a, b], calendar: cal)[a])
+    }
+
+    /// The truncation bug, asserted. A 105-minute headline set clipped to the
+    /// default hour makes a real conflict disappear — the clash function reports
+    /// free time exactly where the choice is, which is the one thing this feature
+    /// exists to prevent.
+    func testAPublishedEndLongerThanTheDefaultHourIsHonouredAndTheClashIsSeen() {
+        let headline = act("Headline", "22:00", "Amfiet", end: "23:45")
+        let other = act("Also want", "23:15", "Sirkus")
+        XCTAssertEqual(moment("2026-08-13", "23:45"), endTimes([headline, other], calendar: cal)[headline])
+        XCTAssertEqual([other], clashesWith(headline, [headline, other], calendar: cal))
+    }
+
+    func testAnEndThatRunsPastMidnightClosesOnTheRightNight() {
+        let late = act("Closer", "23:30", "Klubben", end: "01:00")
+        XCTAssertEqual(moment("2026-08-14", "01:00"), endTimes([late], calendar: cal)[late])
+    }
+
+    /// The 02:00–06:00 stage that runs until it is light. The start is pushed past
+    /// the night boundary and the end sits on the far side of it, so read on its
+    /// own the end lands a day early — and a four-hour set silently became a
+    /// guessed hour, with three of its four hours reported as free time.
+    func testASetThatStartsAfterMidnightAndEndsAtDawnKeepsItsRealLength() {
+        let allNighter = act("Sunrise", "02:00", "Klubben", end: "06:00")
+        XCTAssertEqual(moment("2026-08-14", "02:00"), allNighter.startsAt(calendar: cal))
+        XCTAssertEqual(moment("2026-08-14", "06:00"), endTimes([allNighter], calendar: cal)[allNighter])
+    }
+
+    func testAnEndThatCannotBeAfterItsStartIsIgnoredAndTheInferenceStands() {
+        // A malformed act degrades to a guessed hour rather than dropping out of
+        // clash detection entirely.
+        let a = act("Malformed", "20:00", "Amfiet", end: "19:00")
+        XCTAssertEqual(moment("2026-08-13", "21:00"), endTimes([a], calendar: cal)[a])
     }
 
     func testOverlappingActsOnDifferentStagesClash() {
@@ -84,61 +124,28 @@ final class ProgrammeTests: XCTestCase {
         XCTAssertEqual([on], playingAt(at, [on, over, soon], calendar: cal))
     }
 
-    /// The markup this mimics, written out rather than captured: a saved copy of
-    /// the real page would put a festival's programme in the repo, which is the
-    /// thing this app deliberately does not do. What is being tested is the
-    /// *shape* — nested spans inside the h3, Next.js comment nodes mid-text,
-    /// "kl." before the time, a Norwegian date with no year — and that is
-    /// reproducible without anyone's data.
-    private let pageShape = """
-        <div><h3 class="x">Band One<!-- --> <span class="y">(<!-- -->UK<!-- -->)</span></h3>
-        <ul class="flex"><li><span><span class="inline-block first-letter:uppercase">torsdag 13. august</span></span></li>
-        <li><span><span class="hidden md:inline-block">kl.</span> <!-- -->15:45</span></li>
-        <li><span class="h-8">Main Stage</span></li></ul></div>
-        <div><h3 class="x">Band &amp; Band&#x27;s Friend&#160;Two &#x1F3B8;</h3>
-        <ul class="flex"><li><span><span class="inline-block first-letter:uppercase">fredag 14. august</span></span></li>
-        <li><span><span class="hidden md:inline-block">kl.</span> <!-- -->22:00</span></li>
-        <li><span class="h-8">Tent</span></li></ul></div>
-        """
-
-    func testThePageParsesIntoActsCommentsAndNestedSpansAndAll() {
-        let acts = oyaProgramme(pageShape, year: 2026)
-        XCTAssertEqual(2, acts.count)
-        XCTAssertEqual("Band One (UK)", acts[0].artist)
-        XCTAssertEqual("2026-08-13", acts[0].date)
-        XCTAssertEqual("15:45", acts[0].start)
-        XCTAssertEqual("Main Stage", acts[0].stage)
-        XCTAssertEqual([moment("2026-08-13", "00:00"), moment("2026-08-14", "00:00")],
-                        programmeDays(acts, calendar: cal))
+    func testTheDaysAndTheRunningOrderOfATimetable() {
+        let thursday = act("First", "15:45", "Amfiet")
+        let friday = act("Second", "22:00", "Tent", date: "2026-08-14")
+        let acts = [friday, thursday]
+        XCTAssertEqual(
+            [moment("2026-08-13", "00:00"), moment("2026-08-14", "00:00")],
+            programmeDays(acts, calendar: cal))
+        XCTAssertEqual([thursday], actsOn(moment("2026-08-13", "00:00"), acts, calendar: cal))
     }
 
-    func testAnAmpersandInABandNameArrivesAsAnAmpersand() {
-        // The live page writes "Nick Cave &amp; The Bad Seeds". Stored raw, that
-        // name matches nothing a person or setlist.fm would ever write. The
-        // guitar is the code point above U+FFFF: decoded one UTF-16 unit at a
-        // time it comes out as garbage, and a band name is exactly where such a
-        // character turns up.
-        let acts = oyaProgramme(pageShape, year: 2026)
-        XCTAssertEqual("Band & Band's Friend Two \u{1F3B8}", acts[1].artist)
+    func testACachedProgrammeRoundTripsAttributionAndAll() {
+        let programme = StoredProgramme(
+            id: "oyafestivalen2026",
+            name: "Øyafestivalen 2026",
+            copyright: "Clashfinder data CC BY-NC 3.0",
+            lastEdit: "2026-07-11 13:44:46",
+            acts: [act("Headline", "21:30", "Amfiet", end: "23:15")]
+        )
+        XCTAssertEqual(programme, parseProgramme(encodeProgramme(programme)))
     }
 
-    func testABlockMissingAnyFieldIsDroppedNeverHalfBuilt() {
-        // The failure that would matter is a partial act quietly joining the
-        // list — an act with no stage clashes with nothing and is invisible on
-        // the timetable.
-        let broken = """
-            <div><h3>No time</h3><ul><li><span>torsdag 13. august</span></li>
-            <li><span>Main Stage</span></li></ul></div>
-            """
-        XCTAssertTrue(oyaProgramme(broken, year: 2026).isEmpty)
-    }
-
-    func testMarkupThatHasMovedOnParsesToNothingNotToNonsense() {
-        XCTAssertTrue(oyaProgramme("<html><body><p>We redesigned the site</p></body></html>", year: 2026).isEmpty)
-    }
-
-    func testACachedProgrammeRoundTrips() {
-        let acts = oyaProgramme(pageShape, year: 2026)
-        XCTAssertEqual(acts, parseProgramme(encodeProgramme(acts)))
+    func testAnUnreadableCacheIsNoProgrammeNotACrash() {
+        XCTAssertEqual(StoredProgramme(), parseProgramme("not json at all"))
     }
 }
