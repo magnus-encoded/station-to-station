@@ -363,20 +363,20 @@ data class UiState(
      */
     val openFestivals: Set<String> = emptySet(),
     /**
-     * Whose **Line** is tapped out of the weave, by setlist.fm username. A reading aid
-     * for a moment of comparison, not a preference and not a decision about a person:
-     * nothing is stored, nothing is revoked, and nothing is told to anyone (#266).
+     * Whose **Line** is tapped out of the weave, by setlist.fm username, together with
+     * when each was turned off (#396) — the legend's recency order sorts by it, and it
+     * is what makes "turned off last night" survive a launch. Still a reading aid and
+     * not a decision about a person: nothing is sent, and it says nothing about the
+     * relationship.
      *
      * Held here for the same reason as [openFestivals] — opening a gig disposes the
      * timeline, and a filter set up to survive a change of **Resolution** must survive
-     * going one rung **Inner** and coming back. Deliberately **not** persisted: opening
-     * the app to a timeline missing people you have no memory of hiding is the failure
-     * worth avoiding, and this state dies with the process.
+     * going one rung **Inner** and coming back.
      *
      * Keyed by person, so someone who has never been hidden is visible — adding a
      * **Followed line** or a **Contact** is never silently a no-op.
      */
-    val hiddenLines: Set<String> = emptySet(),
+    val hiddenAt: Map<String, Long> = emptyMap(),
     /**
      * A gig a `station-to-station://` link asked for, and how it wants to be shown.
      * The timeline is the one place that can find a gig's row — a gig inside a
@@ -395,7 +395,10 @@ data class UiState(
     val notice: String? = null,
     // True once the splash has been passed (Spotify login or skip).
     val onboarded: Boolean = false,
-)
+) {
+    /** Who is currently tapped out. Derived so there is only [hiddenAt] to keep in step. */
+    val hiddenLines: Set<String> get() = hiddenAt.keys
+}
 
 /**
  * One handover, as the screen sees it (#142). Which side of it this phone is on, the code
@@ -616,6 +619,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 catalogueByArtist = it.catalogueByArtist + cached.catalogueByArtist,
                 attendanceByGig = it.attendanceByGig + cached.attendance(),
                 calendarEventByGig = it.calendarEventByGig + cached.calendarEvents(),
+                hiddenAt = cached.hiddenLines,
             )
         }
         // The Spine itself — which source it comes from, and the retry of unresolved
@@ -1352,13 +1356,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Hide or show one **Line** in the weave. The gesture is its own undo, so there is
-     * one entry point and no separate restore. A new set each time, so remember() sees it.
+     * one entry point and no separate restore. A new map each time, so remember() sees
+     * it. Persisted with the toggle-off moment (#396), which the legend's recency
+     * order sorts by.
      */
-    fun toggleLineHidden(setlistfm: String) = _state.update {
-        it.copy(
-            hiddenLines = if (setlistfm in it.hiddenLines) it.hiddenLines - setlistfm
-            else it.hiddenLines + setlistfm,
-        )
+    fun toggleLineHidden(setlistfm: String) {
+        val hiddenAt = if (setlistfm in _state.value.hiddenAt) {
+            _state.value.hiddenAt - setlistfm
+        } else {
+            _state.value.hiddenAt + (setlistfm to System.currentTimeMillis())
+        }
+        _state.update { it.copy(hiddenAt = hiddenAt) }
+        viewModelScope.launch { timelines.saveHiddenLines(hiddenAt) }
     }
 
     fun openFestival(key: String) = _state.update {

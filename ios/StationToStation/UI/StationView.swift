@@ -47,6 +47,10 @@ private let laneColors: [Color] = [
 ]
 private func laneColor(_ index: Int) -> Color { laneColors[((index % laneColors.count) + laneColors.count) % laneColors.count] }
 
+/// The legend's `+ N more` disclosure never appears below this many names (#396):
+/// a floor, not a cap — every active Lane is always in the head regardless.
+private let legendHeadSize = 6
+
 /// Fires `recompute` whenever any of the woven Timeline's real inputs settle to a new
 /// value — never on the live pinch drag, which has no business here (see `rows` on
 /// `StationView`, #308). Grouped into one ViewModifier rather than chained straight
@@ -94,6 +98,9 @@ struct StationView: View {
     @State private var addingPlanned = false
     @State private var addingBill = false
     @State private var addingLocal = false
+    /// Whether the legend's `+ N more` has been opened. View-local: it is where the
+    /// reader left the disclosure, not a fact to remember across a launch (#396).
+    @State private var legendExpanded = false
 
     /// Everyone followed, in lane order — the list colours are counted against.
     private var allLanes: [Friend] { model.state.friends }
@@ -317,8 +324,18 @@ struct StationView: View {
         return (model.state.mediaBySetlist[show.id] ?? []).filter { $0.kind != StoredMedia.Kind.note }
     }
 
+    /// The colour each friend keeps, by setlist.fm username, off the *unfiltered*
+    /// list — `allLanes.enumerated()`, never the legend's re-ordered one. This is the
+    /// one thing `legendSplit` does not give for free: it groups and reorders, and a
+    /// re-ordered array's own position is not a Lane colour (#396).
+    private var legendColourByUsername: [String: Int] {
+        Dictionary(uniqueKeysWithValues: allLanes.enumerated().map { ($1.setlistfm, $0) })
+    }
+
     /// "N gigs · since YYYY", and — only when someone else is on screen — the Lane
-    /// key: You in amber, each friend in their Lane colour.
+    /// key: You in amber, then everyone else grouped by recency of hiding (#396), most
+    /// recently toggled off first, with a `+ N more` disclosure continuing the same
+    /// order once the list outgrows a glance.
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("\(model.state.timelineShows.count) gigs" + (earliest.map { " · since \($0)" } ?? ""))
@@ -326,16 +343,22 @@ struct StationView: View {
             // Shown while zoomed out even with everyone hidden — a name you cannot see
             // is a name you cannot restore (#266).
             if laneWidth > 0 || model.state.zoomedOut {
+                let colourOf = legendColourByUsername
+                let (head, rest) = legendSplit(allLanes, hiddenAt: model.state.hiddenAt, headSize: legendHeadSize)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 14) {
                         laneKey(amber, "You")
-                        // The unfiltered list, indexed for colour: a hidden name stays
-                        // in the legend, and everyone keeps the colour they had.
-                        ForEach(Array(allLanes.enumerated()), id: \.element.id) { i, f in
-                            laneKey(laneColor(i), f.name,
+                        ForEach(legendExpanded ? head + rest : head, id: \.setlistfm) { f in
+                            laneKey(laneColor(colourOf[f.setlistfm] ?? 0), f.name,
                                     hidden: model.state.hiddenLines.contains(f.setlistfm)) {
                                 model.toggleLineHidden(f.setlistfm)
                             }
+                        }
+                        // A disclosure, never a truncation (#266): every name above
+                        // stays reachable, just not drawn until this is tapped.
+                        if !legendExpanded && !rest.isEmpty {
+                            Button("+ \(rest.count) more") { legendExpanded = true }
+                                .font(.system(size: 11)).foregroundStyle(slate)
                         }
                     }
                 }

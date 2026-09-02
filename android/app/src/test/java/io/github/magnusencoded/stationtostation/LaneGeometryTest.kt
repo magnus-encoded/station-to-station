@@ -16,6 +16,8 @@ import io.github.magnusencoded.stationtostation.ui.hostLane
 import io.github.magnusencoded.stationtostation.ui.laneColours
 import io.github.magnusencoded.stationtostation.ui.laneStep
 import io.github.magnusencoded.stationtostation.ui.laneXf
+import io.github.magnusencoded.stationtostation.ui.legendOrder
+import io.github.magnusencoded.stationtostation.ui.legendSplit
 import io.github.magnusencoded.stationtostation.ui.linesAt
 import io.github.magnusencoded.stationtostation.ui.nodeHost
 import io.github.magnusencoded.stationtostation.ui.rowGeometry
@@ -440,6 +442,56 @@ class LaneGeometryTest {
         assertNotNull(kvelertak.line(1))
         assertEquals(LineColour.Rail(0), kvelertak.at(0).colour) // Lemmy, alone on lane 0
         assertEquals(LineColour.Absent, kvelertak.at(1).colour) // Ozzy, past a night he missed
+    }
+
+    // --- The legend's recency order (#396) ---
+
+    private val motorhead = Friend(setlistfm = "Motorhead", name = "Motorhead")
+
+    /**
+     * One sort key: active Lanes first (whatever order they came in), then hidden
+     * ones by how recently they were toggled off, most recent first.
+     */
+    @Test
+    fun `the legend orders active first then most recently hidden`() {
+        val ordered = legendOrder(three, mapOf("Ozzy" to 100L, "Dio" to 200L))
+        // Lemmy is active, so first regardless of the others' timestamps. Dio was
+        // hidden more recently than Ozzy, so Dio comes next.
+        assertEquals(listOf("Lemmy", "Dio", "Ozzy"), ordered.map { it.setlistfm })
+    }
+
+    /**
+     * The head never drops an active Lane, even past `headSize` — losing the group
+     * you are actually comparing is the bug this exists to fix.
+     */
+    @Test
+    fun `the legend split never cuts an active Lane from the head`() {
+        val (head, rest) = legendSplit(three + motorhead, mapOf("Dio" to 1L), headSize = 2)
+        // Three are active (Ozzy, Lemmy, Motorhead); the floor of 2 is exceeded to
+        // fit all three, and only the one hidden Lane falls into the disclosure.
+        assertEquals(3, head.size)
+        assertTrue(head.none { it.setlistfm == "Dio" })
+        assertEquals(listOf("Dio"), rest.map { it.setlistfm })
+    }
+
+    /** A short list gets no disclosure at all: everyone fits under `headSize`. */
+    @Test
+    fun `the legend split leaves nothing for the disclosure when the list is short`() {
+        val (head, rest) = legendSplit(lanes, emptyMap(), headSize = 6)
+        assertEquals(2, head.size)
+        assertTrue(rest.isEmpty())
+    }
+
+    /**
+     * The rest is a disclosure, not a truncation (#266): every hidden name past the
+     * head is still there, in the same recency order, just not drawn yet.
+     */
+    @Test
+    fun `the legend splits rest continues the same order`() {
+        val hiddenAt = mapOf("Ozzy" to 100L, "Lemmy" to 300L, "Dio" to 200L, "Motorhead" to 50L)
+        val (head, rest) = legendSplit(three + motorhead, hiddenAt, headSize = 2)
+        assertEquals(listOf("Lemmy", "Dio"), head.map { it.setlistfm })
+        assertEquals(listOf("Ozzy", "Motorhead"), rest.map { it.setlistfm })
     }
 
     // --- Hiding a Line (#266) ---

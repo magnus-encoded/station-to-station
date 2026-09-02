@@ -458,6 +458,14 @@ data class TimelineCache(
      * Dead since #107. See [gigCalendarEvent].
      */
     val calendarEventByGig: Map<String, String> = emptyMap(),
+    /**
+     * The **Lines** tapped out of the legend, by setlist.fm username, to the moment
+     * each was turned off — epoch millis (#396). The legend's recency order sorts by
+     * this; a username absent from the map is active. Replaced wholesale on every
+     * write, never merged: an unhide has to actually remove an entry, which a merge
+     * that only adds could never do.
+     */
+    val hiddenLines: Map<String, Long> = emptyMap(),
 
     // --- Keyed by the app's own Gig id (#107) ---------------------------------
     //
@@ -722,6 +730,15 @@ class TimelineStore(
     suspend fun saveCatalogue(mbid: String, titles: List<String>): Unit = writeMerged {
         if (mbid.isBlank() || titles.isEmpty()) it
         else it.copy(catalogueByArtist = it.catalogueByArtist + (mbid to titles))
+    }
+
+    /**
+     * The legend's hidden set, replacing whatever was there wholesale (#396) — unlike
+     * [save]'s merge, this has to be able to remove an entry, which is what an unhide
+     * is.
+     */
+    suspend fun saveHiddenLines(hiddenLines: Map<String, Long>): Unit = writeMerged {
+        it.copy(hiddenLines = hiddenLines)
     }
 
     /** The Reliver's current media for one gig, replacing whatever was there. */
