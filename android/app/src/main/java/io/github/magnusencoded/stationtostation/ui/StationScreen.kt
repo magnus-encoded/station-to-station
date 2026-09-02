@@ -281,6 +281,9 @@ fun StationTimelineScreen(
     var adding by remember { mutableStateOf(false) }
     var addingBill by remember { mutableStateOf(false) }
     var addingByHand by remember { mutableStateOf(false) }
+    // Whether the legend's `+ N more` has been opened — where the reader left the
+    // disclosure, not a fact to remember across a launch (#396).
+    var legendExpanded by remember { mutableStateOf(false) }
 
     // Check-in (#33): opening the timeline takes one fix and compares it against
     // what's already known. Foreground, one-shot, nothing scheduled.
@@ -547,6 +550,15 @@ fun StationTimelineScreen(
                         // zoomed out even with everyone hidden — a name you cannot see
                         // is a name you cannot restore (#266).
                         if (zoomedOut || laneWidth > 0.dp) {
+                            // Grouped by recency of hiding, most recently toggled off
+                            // first (#396) — one order for the whole legend, so the
+                            // disclosure below just continues it.
+                            val colourByUsername = remember(allLanes) {
+                                allLanes.withIndex().associate { (i, f) -> f.setlistfm to i }
+                            }
+                            val (head, rest) = remember(allLanes, state.hiddenAt) {
+                                legendSplit(allLanes, state.hiddenAt, LegendHeadSize)
+                            }
                             Row(
                                 Modifier
                                     .horizontalScroll(rememberScrollState())
@@ -554,13 +566,29 @@ fun StationTimelineScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 LaneKey(Amber, "You")
-                                allLanes.forEachIndexed { i, friend ->
+                                (if (legendExpanded) head + rest else head).forEach { friend ->
                                     Spacer(Modifier.width(14.dp))
                                     LaneKey(
-                                        color = railColor(i),
+                                        // The unfiltered index, never the legend's
+                                        // re-ordered position — a Lane colour comes
+                                        // from `allLanes.enumerated()` (#396).
+                                        color = railColor(colourByUsername[friend.setlistfm] ?: 0),
                                         label = friend.name,
                                         hidden = friend.setlistfm in state.hiddenLines,
                                         onToggle = { viewModel.toggleLineHidden(friend.setlistfm) },
+                                    )
+                                }
+                                // A disclosure, never a truncation (#266): every name
+                                // above stays reachable, just not drawn until tapped.
+                                if (!legendExpanded && rest.isNotEmpty()) {
+                                    Spacer(Modifier.width(14.dp))
+                                    Text(
+                                        "+ ${rest.size} more",
+                                        color = Slate,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier
+                                            .clickable { legendExpanded = true }
+                                            .padding(vertical = 6.dp),
                                     )
                                 }
                             }
@@ -1644,6 +1672,12 @@ internal val LaneStep = 20.dp
  */
 private val MaxStripWidth = 132.dp
 
+/**
+ * The legend's `+ N more` disclosure never appears below this many names (#396): a
+ * floor, not a cap — every active Lane is always in the head regardless.
+ */
+private const val LegendHeadSize = 6
+
 /** Lane spacing for [count] friends: full step until the strip is full, then tighter. */
 internal fun laneStep(count: Int): Dp =
     if (count <= 0) LaneStep else minOf(LaneStep, MaxStripWidth / count)
@@ -1684,6 +1718,38 @@ internal fun visibleLanes(lanes: List<Friend>, hidden: Set<String>): List<Friend
  */
 internal fun laneColours(lanes: List<Friend>, hidden: Set<String>): List<Int> =
     lanes.indices.filterNot { lanes[it].setlistfm in hidden }
+
+/**
+ * One order for the whole lane legend: most recently toggled off first, and any
+ * active (currently shown) Lane ahead of every hidden one (#396). [hiddenAt] is
+ * toggle-off time by setlist.fm username; a username absent from it is active.
+ *
+ * One sort key, not an active list and a hidden list stitched together — which is
+ * what makes [legendSplit]'s head simply the front of this order rather than a
+ * second rule.
+ */
+internal fun legendOrder(lanes: List<Friend>, hiddenAt: Map<String, Long>): List<Friend> =
+    lanes.sortedWith(compareByDescending { hiddenAt[it.setlistfm] ?: Long.MAX_VALUE })
+
+/**
+ * Where the legend's `+ N more` disclosure takes over (#396). The head holds every
+ * active Lane — never cut, because losing the group you are actually comparing is
+ * the bug this exists to fix — plus the most recently hidden ones, up to [headSize].
+ * [headSize] is a floor, not a cap: more active Lanes than that only grow the head.
+ *
+ * `rest` is a disclosure, never a truncation (#266): every name [legendOrder] puts
+ * there is still in it, in the same order, just not drawn until it is opened.
+ */
+internal fun legendSplit(
+    lanes: List<Friend>,
+    hiddenAt: Map<String, Long>,
+    headSize: Int,
+): Pair<List<Friend>, List<Friend>> {
+    val ordered = legendOrder(lanes, hiddenAt)
+    val activeCount = lanes.count { it.setlistfm !in hiddenAt }
+    val count = maxOf(headSize, activeCount)
+    return ordered.take(count) to ordered.drop(count)
+}
 
 /**
  * A line index in points. [Spine] is -1, so lane 0 sits one step out from my spine.
