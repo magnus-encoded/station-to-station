@@ -188,6 +188,13 @@ fun ProgrammeScreen(
     // Set when the host refuses this app outright, which is what puts the hand-import
     // fallback on screen.
     var blocked by remember { mutableStateOf(false) }
+    // Which timetable the refused request was after, empty for the index — so the browser
+    // opens *that* document. A programme picked from the picker fails while the picker is
+    // still up, since the board is only reached on success, so the picker's escape hatch
+    // was sending people to fetch the index they already had, over and over, and never to
+    // the timetable they had actually asked for.
+    var refusedId by remember { mutableStateOf("") }
+    val refusedPath = if (refusedId.isEmpty()) INDEX_PATH else "event/$refusedId.json"
 
     // Both caches are documents on disk, and the index is ten thousand records of it.
     // Reading them in composition put a file read and that decode on the main thread
@@ -206,6 +213,7 @@ fun ProgrammeScreen(
         loading = true
         error = null
         blocked = false
+        refusedId = ""
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
@@ -226,6 +234,7 @@ fun ProgrammeScreen(
         loading = true
         error = null
         blocked = false
+        refusedId = id
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
@@ -265,7 +274,12 @@ fun ProgrammeScreen(
                         File(context.filesDir, INDEX_CACHE).writeText(encodeFestivals(index))
                         index to null
                     } else {
-                        val one = parseClashfinderEvent(text, importedId(context, uri))
+                        // The filename is the id, unless the browser renamed it round a
+                        // file already there ("tor25 (1).json"). The id we were refused
+                        // is the one we asked for, so it stands in.
+                        val id = importedId(context, uri)
+                            .ifEmpty { refusedId }
+                        val one = parseClashfinderEvent(text, id)
                         if (one.acts.isEmpty()) throw IOException("That is not a clashfinder file.")
                         File(context.filesDir, PROGRAMME_CACHE).writeText(encodeProgramme(one))
                         null to one
@@ -345,7 +359,7 @@ fun ProgrammeScreen(
                 error = error,
                 blocked = blocked,
                 onImport = { importer.launch(arrayOf("*/*")) },
-                onOpenInBrowser = { scope.launch { viewModel.openClashfinderInBrowser(context, INDEX_PATH) } },
+                onOpenInBrowser = { scope.launch { viewModel.openClashfinderInBrowser(context, refusedPath) } },
                 onRefresh = { loadIndex() },
                 onPick = { loadProgramme(it.id) },
             )
@@ -359,11 +373,7 @@ fun ProgrammeScreen(
                 error = error,
                 blocked = blocked,
                 onImport = { importer.launch(arrayOf("*/*")) },
-                onOpenInBrowser = {
-                    scope.launch {
-                        viewModel.openClashfinderInBrowser(context, "event/${programme.id}.json")
-                    }
-                },
+                onOpenInBrowser = { scope.launch { viewModel.openClashfinderInBrowser(context, refusedPath) } },
                 onRefetch = { loadProgramme(programme.id) },
                 onCommit = { diff, picked -> viewModel.commitProgramme(programme, diff, picked) },
             )

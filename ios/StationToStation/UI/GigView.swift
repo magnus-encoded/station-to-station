@@ -18,7 +18,6 @@ private let faint = Color(red: 0x5A / 255, green: 0x53 / 255, blue: 0x68 / 255)
 /// Mine. Never "the accent colour" — it means *mine*, at every Resolution
 /// (same mark StationView draws its Spine with).
 private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
-private let spotifyGreen = Color(red: 0x1D / 255, green: 0xB9 / 255, blue: 0x54 / 255)
 
 /// A row of the night: an encore divider, or a performed song (numbered; a tape
 /// track has no number — it played but is not one of the band's songs).

@@ -12,7 +12,8 @@ struct SettingsView: View {
         Form {
             Section("Spotify") {
                 if s.spotifyConnected {
-                    Text("✓ Logged in with Spotify").foregroundStyle(.tint)
+                    // Green, said out loud, because here it really is about Spotify.
+                    Text("✓ Logged in with Spotify").foregroundStyle(spotifyGreen)
                     Text(scopeMessage(s.grantedScope)).font(.caption).foregroundStyle(.secondary)
                     Button("Log out") { model.disconnectSpotify() }
                 } else {
@@ -20,6 +21,7 @@ struct SettingsView: View {
                         model.saveSettings(apiKey: apiKey, clientId: clientId)
                         model.loginSpotify()
                     }
+                    .tint(spotifyGreen)
                     .disabled(!s.bundledSpotifyClientId && clientId.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
                 Text("To use a different Spotify app, create one at "
