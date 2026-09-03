@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.net.Uri
 import android.util.Log
@@ -110,6 +111,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -179,6 +181,7 @@ import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
 import io.github.magnusencoded.stationtostation.data.musicbrainz.MbArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSong
+import io.github.magnusencoded.stationtostation.ui.flyover.CollectionFlyoverScreen
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
 import kotlin.math.roundToInt
@@ -930,6 +933,13 @@ fun StationTimelineScreen(
                                         onClick = {
                                             viewModel.toggleFestival(row.key)
                                         },
+                                        // The non-gestural route to the Collection
+                                        // resolution (#313): the pinch is aimed by where
+                                        // the fingers land, and a reader with no fingers
+                                        // to aim needs the same node named instead. Calls
+                                        // the same function the (not yet built) pinch
+                                        // will call, so the two paths cannot drift.
+                                        onWalk = { viewModel.openCollectionWalk(node) },
                                     )
                                 }
                             }
@@ -975,6 +985,22 @@ fun StationTimelineScreen(
                             "again to come back.",
                         color = Muted,
                         fontSize = 11.sp,
+                    )
+                }
+            }
+            // The Collection resolution's landscape face (#313). Entered from the Line
+            // and drawn over it, not pushed and not routed: nothing here ever navigates
+            // away, so leaving — the same reverse-pinch or back gesture that leaves any
+            // resolution — lands you back on the Line at the same scroll position,
+            // because you never left it. The portrait face (combined media across the
+            // run) has no answer yet, so a Collection selected in portrait shows
+            // nothing new until the phone turns — the same gap a Gig already has.
+            state.selectedCollection?.let { node ->
+                if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+                    CollectionFlyoverScreen(
+                        viewModel = viewModel,
+                        node = node,
+                        onBack = { viewModel.closeCollectionWalk() },
                     )
                 }
             }
