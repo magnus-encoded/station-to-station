@@ -67,19 +67,22 @@ is a destination.
 | ---- | ---------- | ---------------- |
 | **Gig** | One artist, one night. The atom of a timeline. The word shown to users when nobody else is on screen ("13 gigs"). | show, concert, event, setlist |
 | **Festival** | A **Node** standing for several **Gigs** that a named event says belong together. Festivalhood is an **identity**, never a shape: nothing is ever inferred from a venue and a run of dates. Two nights at one venue with nothing that knows what they were are two **Nodes**. Collapsed by default at every resolution. | cluster (internal only), run, multi-day |
-| **Festival identity** | What makes a **Festival** one: setlist.fm's own festival entity — its key, name, date range and day-by-day lineup — or a **Bill** I authored. Held under a stable local id; a **Gig** carries its membership. Absent it there is no festival, however the nights are shaped. The label a **Node** shows is computed from the identity at read time, never stored. | festival name, event name |
+| **Festival identity** | What makes a **Festival** one: setlist.fm's own festival entity — its key, name, date range and day-by-day lineup — or an identity authored by committing a **Programme** through **Departures**. Held under a stable local id; a **Gig** carries its membership. Absent it there is no festival, however the nights are shaped. The label a **Node** shows is computed from the identity at read time, never stored. | festival name, event name |
 | **Section** | The **Node** for several **Gigs** in one room on one night with no **Festival identity** behind them — a headline show with support. Billed by its own acts ("Devin Townsend (Haken)"), never by the room, and never spanning two nights. | festival (it is not one), cluster, evening |
 | **Absorb** | What a **Node** of mine does to a friend's: the same **Festival identity**, the same **Gig**, or the same evening in the same room folds in, marking the node shared, instead of sitting beside it as a second node. | merge (reserved for lines), group |
 | **Attended** | On someone's setlist.fm attended list. The *only* thing that makes a **Gig** theirs. | went to, logged |
 
-## The Bill family
+## Departures
+
+`StoredBill`/`StoredAct` — the hand-typed poster — were decommissioned in #391, with no
+migration: the acts already marked played already existed as ordinary **Gigs**, and the rest
+were an accepted loss. **Departures** replaced the poster as the way a planned night enters
+the timeline; see ADR-0018.
 
 | Term | Definition | Aliases to avoid |
 | ---- | ---------- | ---------------- |
-| **Bill** | A **Festival** whose **Gigs** don't exist yet — for a festival that is not on setlist.fm and cannot be, because which night each act plays is not known to anyone until the poster goes up. What *is* knowable in advance is the name, the venue, the date range and the list of names, and that is exactly what a **Bill** holds. Not a list of planned **Gigs**: inventing a day per act so the existing machinery works is the fabrication the record must not commit. `StoredBill`. | lineup, poster (fine informally), programme, planned festival |
-| **Act** | One name on a **Bill**, in poster order. Becomes a **Gig** when it is marked as played — the moment an act is dated it played, so no "unconfirmed gig" state can ever be reached. `StoredAct`. | artist (an **Act** may not resolve to one), slot, booking |
-| **Surprise** | An **Act** typed by hand that the poster did not announce. Has nothing to return to if it is undone, unlike an **Act** off the **Bill**. | guest, unlisted, extra |
-| **Programme** | A festival's published timetable — every act with a stage, a start and an end — fetched from **clashfinder** with the user's own account and kept on the phone. Read-only about the festival: it is the noticeboard. The **Bill**'s opposite (names without nights) and its source: adding a row puts an **Act** on a **Bill**, never a **Gig**. Times are *scheduled*, never played. | timetable (fine informally), lineup, schedule, setlist |
+| **Programme** | A festival's published timetable — every act with a stage, a start and an end — fetched from **clashfinder** with the user's own account and kept on the phone. Read-only about the festival: it is the noticeboard, never a store of attendance. It can only ever *seed* the timeline, never fill it. Times are *scheduled*, never played. | timetable (fine informally), lineup, schedule, setlist |
+| **Departures** | The planning surface built from a **Programme**: pick the acts you're going to, and committing mints a **Gig** for each directly — the same way a checked-in night always has. Nothing sits in a waiting room first. | planner, itinerary |
 | **Clash** | Two **Programme** acts on different stages whose times overlap — what a choice costs. Computed from published end times where the source has them, and from the next act on the same stage where it does not. | conflict, overlap |
 | **Log** | My own record of what was played on a night, on this phone — the witness statement, not the published one. Freely editable forever; remembering a song three days later costs nothing. Starts **Open** and only a person may close it, because a set captured by ticking off songs an artist has played before is incomplete by construction. Shown as "Your log of this night". `StoredLog`. | setlist (reserved for setlist.fm's), notes, logcat / `android.util.Log` (unrelated — this collision has already cost one conversation) |
 | **Gap** | A blank entry in a **Log**: they played something and I could not name it. An acknowledged gap is a true fact; the same song silently missing is the record lying about its own certainty. A song always has a name, so blank is unambiguous. | unknown, blank, missing |
@@ -96,8 +99,9 @@ apart on purpose.
 | ---- | ---------- | ---------------- |
 | **Room** | What you can do standing on a **Gig**: the **Log**, the media, the check-in, the terminals. **Nothing here is ever removed** — time decides which action is offered first, never what remains possible. | screen, detail view, page |
 | **Alcove** | The single fixture opposite the door: one step right, a destination, holding exactly one thing — and it may be empty. Empty while the band plays; closing the **Log** furnishes it. | button, CTA, headline, primary action, hero (the point is that it is a position, not a control) |
-| **Curtain** | What pulling down does: draw it back and see what the **Window** says about this night *now*. A returned instruction, not a call site's choice, and it may be a curtain onto an empty view. Failing changes nothing. | refresh (fine informally), sync, reload |
-| **Window** | The data source behind a **Curtain** — setlist.fm or MusicBrainz. Which window a **Room** has depends on what is already known about the night. | api, endpoint, feed |
+| **Curtain** | What pulling down in a **Room** does: draw it back and see what the **Window** says about this night *now*. A returned instruction, not a call site's choice, and it may be a curtain onto an empty view. Failing changes nothing. | refresh (fine informally), sync, reload |
+| **Window** | The data source behind a **Curtain** — setlist.fm or MusicBrainz for a **Room**, **clashfinder** for the **Planning Curtain**'s **Programme**. Which window a **Room** has depends on what is already known about the night. | api, endpoint, feed |
+| **Planning Curtain** | The three-detent pull that opens planning, distinct from a **Room**'s **Curtain**: pulling down chooses between adding a **Gig** by hand, opening the **Programme**, or importing. | planning sheet, add sheet |
 
 ## The flyover
 
@@ -179,7 +183,8 @@ never makes them a **Contact**, and a **Contact** need not be on setlist.fm at a
 - A **Gig** attended by two people produces exactly one **Crossing**, on the owner's **Spine**.
 - A **Festival** is a set of **Gigs**; it **Absorbs** a friend's cluster rather than duplicating it.
 - Zooming moves between **Resolutions**; it never pushes a screen.
-- A **Bill** is a set of **Acts**; an **Act** becomes a **Gig** when it is marked as played.
+- Committing a **Programme** through **Departures** mints a **Gig** directly, one per act
+  chosen — never a middle record that later becomes one.
 - A **Log** belongs to one **Gig**, holds **Gaps** among its songs, and is never overwritten
   by setlist.fm.
 - One step **Inner** from a **Gig** is its **Alcove**; **Back out** is one step **Outer**, always.
