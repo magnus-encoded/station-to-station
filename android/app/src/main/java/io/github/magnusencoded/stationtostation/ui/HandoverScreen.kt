@@ -52,6 +52,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.magnusencoded.stationtostation.AppViewModel
 import io.github.magnusencoded.stationtostation.HandoverRole
 import io.github.magnusencoded.stationtostation.HandoverUi
+import io.github.magnusencoded.stationtostation.data.AccountsMove
 import io.github.magnusencoded.stationtostation.data.CATEGORY_ACCOUNTS
 import io.github.magnusencoded.stationtostation.data.CATEGORY_SETLISTS
 import io.github.magnusencoded.stationtostation.data.StoredMedia
@@ -310,6 +311,15 @@ private fun Receipt(receipt: HandoverReceipt) {
             Spacer(Modifier.height(10.dp))
         }
         Line("Arrived", "${receipt.landed} of ${receipt.requested} (${humanBytes(receipt.bytes)})")
+        // Nothing when accounts were not part of this handover — declining the row is a
+        // supported outcome (#143 story 11) and the receipt should not mention a step that
+        // never ran (#143 story 9).
+        if (receipt.accountsMove != AccountsMove.NOT_OFFERED) {
+            Line(
+                "Accounts",
+                if (receipt.accountsMove == AccountsMove.ACKNOWLEDGED) "Arrived" else "Did not complete",
+            )
+        }
         if (receipt.fromGallery > 0) Line("Already on this phone", "${receipt.fromGallery}")
         if (receipt.held > 0) Line("Already held", "${receipt.held}")
         if (receipt.withheld > 0) Line("Not offered", "${receipt.withheld}")
