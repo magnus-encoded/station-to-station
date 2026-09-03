@@ -32,6 +32,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -450,6 +453,14 @@ fun FestivalItem(
     /** Under the contact light (#145): the amber comes off, and the meeting green with it. */
     unlit: Boolean = false,
     rails: @Composable () -> Unit = {},
+    /**
+     * The non-gestural route into the **Collection resolution** (#313): a reader with
+     * no fingers to aim a pinch with gets the node named instead, one action calling
+     * the same function the gesture will call. Null where a node has nothing to walk
+     * yet — a still-planned run, say — so the action does not appear for a door with
+     * nothing behind it.
+     */
+    onWalk: (() -> Unit)? = null,
 ) {
     val amber = if (unlit) Color(0xFF7C7788) else Color(0xFFE7B24C)
     // Amber means mine, at every resolution; brightness means most recent or shared.
@@ -463,7 +474,14 @@ fun FestivalItem(
         else -> theirColor
     }
     Row(
-        Modifier.fillMaxWidth().height(IntrinsicSize.Min).clickable(onClick = onClick),
+        Modifier.fillMaxWidth().height(IntrinsicSize.Min).clickable(onClick = onClick)
+            .let { m ->
+                if (onWalk == null) m else m.semantics {
+                    customActions = listOf(
+                        CustomAccessibilityAction("Walk the whole run") { onWalk(); true },
+                    )
+                }
+            },
     ) {
         Box(Modifier.width(SpineWidth + laneWidth).fillMaxHeight()) {
             rails()

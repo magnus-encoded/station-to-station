@@ -1,17 +1,25 @@
 package io.github.magnusencoded.stationtostation
 
+import io.github.magnusencoded.stationtostation.data.Festivals
 import io.github.magnusencoded.stationtostation.data.Friend
+import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.WovenSong
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSong
 import io.github.magnusencoded.stationtostation.ui.EventRow
+import io.github.magnusencoded.stationtostation.ui.TimelineNode
 import io.github.magnusencoded.stationtostation.ui.flyover.CoverZ
 import io.github.magnusencoded.stationtostation.ui.flyover.FlyoverBillboard
 import io.github.magnusencoded.stationtostation.ui.flyover.FlyoverGig
 import io.github.magnusencoded.stationtostation.ui.flyover.SongGap
 import io.github.magnusencoded.stationtostation.ui.flyover.StretchGap
 import io.github.magnusencoded.stationtostation.ui.flyover.WallGap
+import io.github.magnusencoded.stationtostation.ui.flyover.buildFlyoverGig
+import io.github.magnusencoded.stationtostation.ui.flyover.collectionBillboard
+import io.github.magnusencoded.stationtostation.ui.flyover.collectionFlyoverGigs
 import io.github.magnusencoded.stationtostation.ui.flyover.flyoverMarkers
 import io.github.magnusencoded.stationtostation.ui.flyover.flyoverNight
 import io.github.magnusencoded.stationtostation.ui.flyover.flyoverNotes
@@ -612,5 +620,118 @@ class FlyoverNightTest {
             friends,
         )
         assertEquals(listOf("n1", "n2"), night.notes.map { it.id })
+    }
+
+    // --- Assembling a Collection's run (#313 slice 2: the run billboard) ---
+
+    private fun setlist(id: String, artist: String, date: LocalDate) = FmSetlist(
+        id = id,
+        artist = FmArtist(name = artist),
+        eventDate = date.format(java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy")),
+    )
+
+    /**
+     * **A Section and a Festival are billed by the same rule.** #166 decides what the
+     * node is called — `billedAs`'s headliner-then-supports for a **Section**, the
+     * identity's own name for a **Festival** — and this only ever reads `label`, so the
+     * two get the same billboard by construction rather than by two call sites agreeing.
+     */
+    @Test
+    fun `the run's billboard is titled from whatever the node is already labelled`() {
+        val section = TimelineNode.Section(
+            listOf(setlist("h", "Devin Townsend", friday), setlist("s", "Haken", friday)),
+        )
+        assertEquals(section.label, collectionBillboard(section).title)
+    }
+
+    /** One date reads as one line, the same as a single Gig's own Cover. */
+    @Test
+    fun `a run on one date has a single-date billboard`() {
+        val section = TimelineNode.Section(
+            listOf(setlist("h", "Devin Townsend", friday), setlist("s", "Haken", friday)),
+        )
+        assertEquals("8 Aug 2025", collectionBillboard(section).where)
+    }
+
+    /** **The run's date range is the record's own range** (story 29) — earliest to
+     *  latest, whatever order the shows arrived in. */
+    @Test
+    fun `a run across dates has a range, earliest to latest`() {
+        val section = TimelineNode.Section(
+            listOf(setlist("sun", "Headliner", sunday), setlist("fri", "Support", friday)),
+        )
+        assertEquals("8 Aug 2025 – 10 Aug 2025", collectionBillboard(section).where)
+    }
+
+    /**
+     * **The one seam a night is assembled through.** [buildFlyoverGig] is what the
+     * single-**Gig** walk now calls too (PR #316 left this owed) — asserting it here is
+     * what keeps the Collection path and the single-night path from drifting apart.
+     */
+    @Test
+    fun `buildFlyoverGig carries the gig's own date, media and attendance through`() {
+        val gig = buildFlyoverGig(
+            setlist = setlist("fri", "Devin Townsend", friday),
+            media = listOf(photo("p")),
+            log = StoredLog(),
+            festivals = Festivals(),
+            attended = setOf("Lemmy"),
+            checkedIn = false,
+        )
+        assertEquals("fri", gig.id)
+        assertEquals("Devin Townsend", gig.billboard.title)
+        assertEquals(friday, gig.date)
+        assertEquals(setOf("Lemmy"), gig.attended)
+        assertEquals(listOf("p"), gig.media.map { it.id })
+    }
+
+    /**
+     * **The Collection assembly is buildFlyoverGig, called once per Gig in the run.**
+     * Handing its output straight to [flyoverNight] is what the walk's entry point
+     * still owes (#313) — this is the part of it that is pure and assertable today.
+     */
+    @Test
+    fun `a Collection's gigs are built from the same maps the single night reads`() {
+        val section = TimelineNode.Section(
+            listOf(setlist("fri", "Support", friday), setlist("sat", "Headliner", saturday)),
+        )
+        val gigs = collectionFlyoverGigs(
+            node = section,
+            mediaBySetlist = mapOf("fri" to listOf(photo("only-friday"))),
+            logsByGig = emptyMap(),
+            festivals = Festivals(),
+            showsByFriend = mapOf("Ozzy" to listOf(setlist("sat", "Headliner", saturday))),
+            attendanceByGig = emptyMap(),
+            contactLight = false,
+        )
+        assertEquals(listOf("fri", "sat"), gigs.map { it.id })
+        assertEquals(listOf("only-friday"), gigs.first { it.id == "fri" }.media.map { it.id })
+        assertTrue(gigs.first { it.id == "sat" }.media.isEmpty())
+        assertEquals(setOf("Ozzy"), gigs.first { it.id == "sat" }.attended)
+        assertTrue(gigs.first { it.id == "fri" }.attended.isEmpty())
+
+        // The composer takes it exactly as it takes the single-night case: no second
+        // implementation of the run's rules.
+        val night = flyoverNight(gigs, friends, runBillboard = collectionBillboard(section))
+        assertEquals(listOf("fri", "sat"), night.covers.mapNotNull { it.gigId })
+        assertNull("the run's own billboard belongs to no one Gig", night.covers[0].gigId)
+    }
+
+    /** The contact light narrows a Collection's media exactly as it narrows one night's
+     *  — the walk must not widen what the light held back. */
+    @Test
+    fun `contact light narrowing applies per gig in a Collection the same as at N equals one`() {
+        val section = TimelineNode.Section(listOf(setlist("fri", "Support", friday)))
+        val personalMedia = listOf(photo("shared"), photo("vault", personal = true))
+        val lit = collectionFlyoverGigs(
+            node = section,
+            mediaBySetlist = mapOf("fri" to personalMedia),
+            logsByGig = emptyMap(),
+            festivals = Festivals(),
+            showsByFriend = emptyMap(),
+            attendanceByGig = emptyMap(),
+            contactLight = true,
+        )
+        assertEquals(listOf("shared"), lit.first().media.map { it.id })
     }
 }
