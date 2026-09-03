@@ -16,6 +16,7 @@ import io.github.magnusencoded.stationtostation.data.deviceManifest
 import io.github.magnusencoded.stationtostation.data.exchange.HandoverInvite
 import io.github.magnusencoded.stationtostation.data.exchange.HandoverReceipt
 import io.github.magnusencoded.stationtostation.data.exchange.parseHandoverInvite
+import io.github.magnusencoded.stationtostation.data.exchange.proveLinkKey
 import io.github.magnusencoded.stationtostation.data.exchange.readAccountsAck
 import io.github.magnusencoded.stationtostation.data.exchange.readAccountsStep
 import io.github.magnusencoded.stationtostation.data.exchange.readRequest
@@ -127,6 +128,7 @@ class HandoverSessionTest {
                     accounts = { s ->
                         arrivedAccounts = readAccountsStep(s)
                         writeAccountsAck(s)
+                        arrivedAccounts
                     },
                     mine = TimelineCache(),
                     gallery = emptyList(),
@@ -144,6 +146,9 @@ class HandoverSessionTest {
         assertEquals(1, receipt?.requested)
         assertEquals(source.length(), receipt?.bytes)
         assertEquals("", receipt?.trouble)
+        // The receipt is honest that accounts were part of this handover and arrived (#143
+        // story 9) — reusing the same `AccountsMove` the acknowledged step already is.
+        assertEquals(AccountsMove.ACKNOWLEDGED, receipt?.accountsMove)
         // Both phones say the same thing about the transfer.
         assertEquals(receipt, sourceReceipt)
         assertEquals("a photograph of the front row", landing.readText())
@@ -154,6 +159,46 @@ class HandoverSessionTest {
         assertEquals("photo-1", landed.id)
         assertEquals(landing.toURI().toString(), landed.ref)
         assertEquals("Paper Cranes", applied!!.merged.gigs.getValue("gig-1").artist)
+    }
+
+    /**
+     * Accounts ticked, but the receiver's ack never arrives: `bulkMayStart` refuses the
+     * bulk transfer and the source hands back its own receipt on the spot, never reaching
+     * the receiver's. That receipt must still be honest that accounts were offered and did
+     * not complete (#143 story 9) — never silently NOT_OFFERED, which would read as
+     * "the row was not ticked" when it plainly was.
+     */
+    @Test
+    fun `a receipt says accounts did not complete when the ack never arrives`() {
+        val allow = setOf(CATEGORY_SETLISTS, CATEGORY_ACCOUNTS)
+        val (server, client) = pair()
+        var sourceReceipt: HandoverReceipt? = null
+        val hosting = Thread {
+            server.accept().use { socket ->
+                runBlocking {
+                    sourceReceipt = runHandoverSource(
+                        socket = socket,
+                        linkKey = linkKey,
+                        allow = allow,
+                        manifest = HandoverManifest(),
+                        // Sent, but the receiver hangs up before acking.
+                        accounts = { s -> writeAccountsStep(s, AccountsPayload()); AccountsMove.SENT },
+                        mediaSource = { null },
+                    )
+                }
+            }
+        }
+        hosting.start()
+
+        client.use { socket ->
+            proveLinkKey(socket, linkKey)
+            readAccountsStep(socket) // read the frame, never ack, then close
+        }
+        hosting.join(5000)
+        server.close()
+
+        assertEquals(AccountsMove.SENT, sourceReceipt?.accountsMove)
+        assertEquals("the accounts step did not complete", sourceReceipt?.trouble)
     }
 
     @Test
@@ -191,7 +236,7 @@ class HandoverSessionTest {
                 runHandoverReceiver(
                     socket = socket,
                     linkKey = linkKey,
-                    accounts = {},
+                    accounts = { null },
                     mine = TimelineCache(),
                     gallery = emptyList(),
                     receivedFile = { _, _ -> landing },
@@ -235,7 +280,7 @@ class HandoverSessionTest {
                 runHandoverReceiver(
                     socket = socket,
                     linkKey = "a guess from someone watching over your shoulder".toByteArray(),
-                    accounts = {},
+                    accounts = { null },
                     mine = TimelineCache(),
                     gallery = emptyList(),
                     receivedFile = { _, _ -> File(tempDir("never"), "never.bin") },
@@ -279,7 +324,7 @@ class HandoverSessionTest {
                 runHandoverReceiver(
                     socket = socket,
                     linkKey = linkKey,
-                    accounts = {},
+                    accounts = { null },
                     mine = TimelineCache(),
                     gallery = emptyList(),
                     receivedFile = { _, _ -> File(tempDir("never"), "never.bin") },
@@ -332,7 +377,7 @@ class HandoverSessionTest {
                 runHandoverReceiver(
                     socket = socket,
                     linkKey = linkKey,
-                    accounts = {},
+                    accounts = { null },
                     mine = TimelineCache(),
                     gallery = emptyList(),
                     receivedFile = { id, _ -> File(dir, "$id.bin") },
@@ -414,6 +459,7 @@ class HandoverSessionTest {
                     accounts = { s ->
                         arrivedAccounts = readAccountsStep(s)
                         writeAccountsAck(s)
+                        arrivedAccounts
                     },
                     mine = TimelineCache(),
                     gallery = emptyList(),
@@ -430,6 +476,9 @@ class HandoverSessionTest {
         assertNull(arrivedAccounts?.credentials?.spotifyRefreshToken)
         assertEquals(1, receipt?.landed)
         assertEquals("", receipt?.trouble)
+        // The row was not ticked, so the receipt says nothing arrived on that front either
+        // (#143 story 9) — an identities-only frame is not a credential move.
+        assertEquals(AccountsMove.NOT_OFFERED, receipt?.accountsMove)
         assertEquals("a photograph of the encore", landing.readText())
         assertEquals("photo-1", applied!!.merged.gigMedia.getValue("gig-1").single().id)
     }

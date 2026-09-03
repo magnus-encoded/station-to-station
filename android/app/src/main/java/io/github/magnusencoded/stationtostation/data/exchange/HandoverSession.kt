@@ -1,6 +1,7 @@
 package io.github.magnusencoded.stationtostation.data.exchange
 
 import io.github.magnusencoded.stationtostation.data.AccountsMove
+import io.github.magnusencoded.stationtostation.data.AccountsPayload
 import io.github.magnusencoded.stationtostation.data.GalleryItem
 import io.github.magnusencoded.stationtostation.data.HandoverManifest
 import io.github.magnusencoded.stationtostation.data.HandoverPlan
@@ -143,7 +144,9 @@ suspend fun runHandoverSource(
     // Accounts complete before bytes begin. A half-finished credential move is the one
     // state worth refusing to build on.
     if (!bulkMayStart(allow, step)) {
-        return HandoverReceipt(trouble = "the accounts step did not complete")
+        // Never ACKNOWLEDGED here — bulkMayStart would then be true — so `step` is exactly
+        // #143 story 9's "offered but did not complete".
+        return HandoverReceipt(trouble = "the accounts step did not complete", accountsMove = step)
     }
 
     onProgress(HandoverProgress(phase = HandoverPhase.MANIFEST))
@@ -195,8 +198,10 @@ suspend fun runHandoverSource(
 suspend fun runHandoverReceiver(
     socket: Socket,
     linkKey: ByteArray,
-    /** See `AppViewModel.receiveHandoverAccounts`: stores durably, *then* acks. */
-    accounts: suspend (Socket) -> Unit,
+    /** See `AppViewModel.receiveHandoverAccounts`: stores durably, *then* acks, and hands
+     * back whatever arrived — null only on a connection dropped before any accounts frame,
+     * which desyncs the frames that follow and so never reaches the receipt below. */
+    accounts: suspend (Socket) -> AccountsPayload?,
     mine: TimelineCache,
     gallery: List<GalleryItem>,
     receivedFile: (id: String, kind: String) -> File,
@@ -207,7 +212,14 @@ suspend fun runHandoverReceiver(
     proveLinkKey(socket, linkKey)
 
     onProgress(HandoverProgress(phase = HandoverPhase.ACCOUNTS))
-    accounts(socket)
+    // Not "was the row ticked" — this side never sees the tick list — but "did a
+    // credential actually arrive": a declined row still sends an identities-only payload
+    // (#143 story 11), which is the same shape as "not part of this handover" from the
+    // receipt's point of view (#143 story 9).
+    val accountsMove = accounts(socket)
+        ?.takeUnless { it.credentials.spotifyRefreshToken.isNullOrBlank() }
+        ?.let { AccountsMove.ACKNOWLEDGED }
+        ?: AccountsMove.NOT_OFFERED
 
     onProgress(HandoverProgress(phase = HandoverPhase.MANIFEST))
     val sealed = readManifest(socket) ?: return null
@@ -273,6 +285,7 @@ suspend fun runHandoverReceiver(
         requested = expected.size,
         countMismatch = landed.countMismatch,
         trouble = trouble,
+        accountsMove = accountsMove,
     )
     // Best-effort: if the socket is already gone (the usual reason `trouble` is set), the
     // source simply reports what it sent. Failing to hand back a receipt must not undo a
