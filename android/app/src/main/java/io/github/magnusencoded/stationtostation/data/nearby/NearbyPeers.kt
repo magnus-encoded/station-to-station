@@ -138,8 +138,13 @@ class NearbyPeers(private val context: Context) {
     /**
      * Starts advertising [me] and collecting whoever answers. Safe to call again
      * while running — a re-entered screen should not restart the radio.
+     *
+     * **[me] and [myCard] are null for someone with no setlist.fm username**, and then
+     * only discovery runs: with no public history to point at there is nothing to
+     * advertise, but seeing who is in the room needs no card of your own. Looking is
+     * not the half that requires an account.
      */
-    fun start(me: Friend, myCard: ProbeCard) {
+    fun start(me: Friend?, myCard: ProbeCard?) {
         if (running) return
         if (!hasPermissions()) {
             _failure.update { "Bluetooth and nearby-device permission are needed to find people." }
@@ -147,8 +152,8 @@ class NearbyPeers(private val context: Context) {
         }
         // Keyless by construction — see `AppViewModel.myCard()`. The key rides the
         // connection instead (#272); a name carrying one would silently overflow.
-        val advertisement = me.toShareUri().toString()
-        if (!fitsAnEndpointName(advertisement)) {
+        val advertisement = me?.toShareUri()?.toString()
+        if (advertisement != null && !fitsAnEndpointName(advertisement)) {
             // Refused rather than sent. Nearby does not report an over-long name: over
             // Bluetooth Classic it truncates, over BLE it drops the advertisement, so the
             // owner is simply invisible with nothing to read. Being invisible *and* silent
@@ -163,14 +168,16 @@ class NearbyPeers(private val context: Context) {
         // P2P_CLUSTER, not POINT_TO_POINT: at a festival several people are in range
         // at once, and the whole point is to see who is there.
         val strategy = Strategy.P2P_CLUSTER
-        connections
-            .startAdvertising(
-                advertisement,
-                SERVICE_ID,
-                lifecycle,
-                AdvertisingOptions.Builder().setStrategy(strategy).build(),
-            )
-            .addOnFailureListener { fail("Could not advertise", it) }
+        if (advertisement != null) {
+            connections
+                .startAdvertising(
+                    advertisement,
+                    SERVICE_ID,
+                    lifecycle,
+                    AdvertisingOptions.Builder().setStrategy(strategy).build(),
+                )
+                .addOnFailureListener { fail("Could not advertise", it) }
+        }
         connections
             .startDiscovery(SERVICE_ID, discovery, DiscoveryOptions.Builder().setStrategy(strategy).build())
             .addOnFailureListener { fail("Could not look for people nearby", it) }
@@ -193,7 +200,7 @@ class NearbyPeers(private val context: Context) {
     }
 
     /** Stop and start again — the "nothing is appearing, try harder" gesture. */
-    fun restart(me: Friend, myCard: ProbeCard) {
+    fun restart(me: Friend?, myCard: ProbeCard?) {
         stop()
         start(me, myCard)
     }

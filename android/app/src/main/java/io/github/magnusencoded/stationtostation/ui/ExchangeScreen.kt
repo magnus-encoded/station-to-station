@@ -164,11 +164,16 @@ fun ExchangeScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 val connecting = state.connectingWith
+                // Scanning runs whether or not I have a card, so the radar is honest for
+                // everyone. What changes without a username is only that I am not
+                // advertising back — said once, below, rather than by hiding the room.
+                val discoverable = state.mySetlistFmUser.isNotBlank()
                 when {
                     connecting != null -> ConnectingBeat(connecting)
                     else -> LookingForPeople(
                         peers = peers,
                         discovering = state.discovering,
+                        discoverable = discoverable,
                         onConnect = viewModel::connectWith,
                     )
                 }
@@ -214,12 +219,20 @@ fun ExchangeScreen(
 private fun LookingForPeople(
     peers: List<ExchangePeer>,
     discovering: Boolean,
+    discoverable: Boolean,
     onConnect: (ExchangePeer) -> Unit,
 ) {
     Spacer(Modifier.height(20.dp))
     Text(
-        "Stand next to someone with the app open. When they appear, add them and your " +
-            "timelines weave together.",
+        if (discoverable) {
+            "Stand next to someone with the app open. When they appear, add them and your " +
+                "timelines weave together."
+        } else {
+            // Finding and taking work with no account; only being found needs a card.
+            "Stand next to someone with the app open. When they appear, add them and " +
+                "their line joins yours — they will not see you back until you have a " +
+                "username."
+        },
         color = Muted,
         fontSize = 13.sp,
         modifier = Modifier.padding(bottom = 8.dp),
