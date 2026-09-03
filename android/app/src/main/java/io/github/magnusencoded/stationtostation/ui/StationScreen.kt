@@ -465,6 +465,17 @@ fun StationTimelineScreen(
                     // at the top of the list.
                     val pullMax = with(LocalDensity.current) { 200.dp.toPx() }
                     val haptics = LocalHapticFeedback.current
+                    // What a door does, whichever way it was reached — the gesture's
+                    // release and the reader's custom action both call this, so a future
+                    // rewire of one door can't silently leave the other stale (#164).
+                    fun openDoor(door: PlanningDoor) {
+                        when (door) {
+                            PlanningDoor.Gig -> adding = true
+                            PlanningDoor.Programme -> onOpenProgramme()
+                            PlanningDoor.Import -> onOpenImport()
+                            PlanningDoor.None -> {}
+                        }
+                    }
                     val pullNest = remember {
                         object : NestedScrollConnection {
                             /** Last detent crossed, so each one ticks once. */
@@ -517,12 +528,7 @@ fun StationTimelineScreen(
                             override suspend fun onPreFling(available: Velocity): Velocity {
                                 // Release takes the lit door. Releasing with none lit
                                 // closes the gap, so a short pull stays cheap to abandon.
-                                when (armedDoor(pull.value / pullMax)) {
-                                    PlanningDoor.Gig -> adding = true
-                                    PlanningDoor.Programme -> onOpenProgramme()
-                                    PlanningDoor.Import -> onOpenImport()
-                                    PlanningDoor.None -> {}
-                                }
+                                openDoor(armedDoor(pull.value / pullMax))
                                 lastArmed = PlanningDoor.None
                                 pull.animateTo(0f)
                                 return Velocity.Zero
@@ -734,18 +740,21 @@ fun StationTimelineScreen(
                                             if (zoomedOut) "Close the other timelines"
                                             else "Open the other timelines beside yours"
                                         ) { viewModel.setZoomedOut(!zoomedOut); true },
-                                        // The two doors moved into the curtain, and a
-                                        // pull depth is not a thing TalkBack can express
-                                        // — so without these the only way into planning
-                                        // would be a gesture the reader intercepts.
+                                        // The three doors live in the curtain, and a pull
+                                        // depth is not a thing TalkBack can express — so
+                                        // without these the only way into planning would
+                                        // be a gesture the reader intercepts. Each label
+                                        // matches the door's own text and calls openDoor,
+                                        // the same function the gesture's release calls,
+                                        // so the two paths cannot drift apart again (#164).
                                         CustomAccessibilityAction("Add a gig you're going to") {
-                                            adding = true; true
+                                            openDoor(PlanningDoor.Gig); true
                                         },
-                                        CustomAccessibilityAction("Add a festival lineup") {
-                                            addingBill = true; true
+                                        CustomAccessibilityAction("Open the festival programme") {
+                                            openDoor(PlanningDoor.Programme); true
                                         },
                                         CustomAccessibilityAction("Import your setlist.fm history") {
-                                            onOpenImport(); true
+                                            openDoor(PlanningDoor.Import); true
                                         },
                                     )
                                 },
