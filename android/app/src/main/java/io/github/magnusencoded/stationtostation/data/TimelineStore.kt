@@ -237,15 +237,15 @@ internal fun gigIdForSetlistId(setlistId: String): String = uuidFrom("gig:$setli
 
 /**
  * A **Festival**: an identity, not a shape (#166). It exists only when something
- * knows it — setlist.fm's own festival page, or a **Bill** typed in by hand — and it
- * is never inferred from a venue string and a date window.
+ * knows it — setlist.fm's own festival page, or an authored identity from the
+ * **Programme** — and it is never inferred from a venue string and a date window.
  *
  * [id] is local and ours, the same "the identity is ours; the vendors' are
  * attributes" move #107 made for a **Gig**: [setlistFmSlug] and [mbid] are
  * enrichment that may land later or never, and storage never moves because of them.
  *
  * [rangeFrom]/[rangeTo] are dd-MM-yyyy, the shape setlist.fm sends everywhere else in
- * this app. Null when the range isn't known — a **Bill** with no dates typed in, or a
+ * this app. Null when the range isn't known — an authored identity with no dates, or a
  * scrape that came back empty for that field, per ADR-0004's "every field degrades
  * independently to null".
  *
@@ -260,9 +260,9 @@ internal fun gigIdForSetlistId(setlistId: String): String = uuidFrom("gig:$setli
  * evidence for who played last, which is the question the headliner rule is really
  * asking. Present only where the festival page published them.
  *
- * [source] decides who wins on conflict: an authored **Bill** identity is never
- * overwritten by a scrape, which is why [source] is carried on the record rather
- * than inferred from which fields are set.
+ * [source] decides who wins on conflict: an authored identity is never overwritten
+ * by a scrape, which is why [source] is carried on the record rather than inferred
+ * from which fields are set.
  */
 @Serializable
 data class StoredFestival(
@@ -287,7 +287,7 @@ data class StoredFestival(
 internal fun festivalIdForSlug(slug: String): String = uuidFrom("festival:$slug")
 
 /**
- * **Precedence: setlist.fm, then the author, and the author wins.** An authored **Bill**
+ * **Precedence: setlist.fm, then the author, and the author wins.** An authored
  * identity is never overwritten by a scrape — what I know beats what was guessed at
  * upstream — which is a rule about the record and so lives in one place rather than at
  * each of the two seams that merge these.
@@ -304,7 +304,8 @@ internal fun Map<String, StoredFestival>.mergedWith(
  * to take (#166). The difference is the whole issue: a name keyed by a cluster's first
  * show could only ever *label* a shape the app had already inferred, so festivalhood
  * was arithmetic. An identity is evidence — it came from setlist.fm's own festival page
- * or from a **Bill** somebody typed — and nothing else makes a **Node** a **Festival**.
+ * or from an identity authored through the **Programme** — and nothing else makes a
+ * **Node** a **Festival**.
  */
 data class Festivals(
     val byId: Map<String, StoredFestival> = emptyMap(),
@@ -367,10 +368,10 @@ data class TimelineCache(
      * The **Gigs** whose setlist.fm page has already been read for a **Festival**
      * identity, by setlist.fm id — *asked*, not *answered*.
      *
-     * [StoredAct.tried]'s distinction, for the same reason: "there is no festival
-     * behind this night" is a correct, final answer and most of the line, while "the
-     * page could not be reached" is a question still open. Without it every multi-act
-     * night with no festival costs a page fetch on every single launch, forever.
+     * The same distinction matters here as everywhere a fetch can fail: "there is no
+     * festival behind this night" is a correct, final answer, while "the page could
+     * not be reached" is a question still open. Without it every multi-act night with
+     * no festival costs a page fetch on every single launch, forever.
      */
     val festivalsAsked: Set<String> = emptySet(),
     /** Whether [withFestivals] has run. See [mediaTierMigrated] for why this is a flag. */
@@ -507,13 +508,6 @@ data class TimelineCache(
      * arrangement is #75's whole subject, and a speculative field would prejudge it.
      */
     val gigMedia: Map<String, List<StoredMedia>> = emptyMap(),
-    /**
-     * The **Bills** on the wall, by id (#34/#93). Not keyed by a **Gig** because a
-     * **Bill** is what exists *before* there are any: it holds names, not nights.
-     * The **Gigs** it eventually mints are ordinary entries in [gigs]/[gigPlanned],
-     * pointed at from [StoredAct.gigId].
-     */
-    val bills: Map<String, StoredBill> = emptyMap(),
     /**
      * My own **Log** of each night, by **Gig** id. Keyed like every other gig map, so
      * adoption moves nothing: the notes I took survive the night acquiring a
@@ -929,11 +923,9 @@ class TimelineStore(
      *   night other people's lines can meet at, and adoption is not undone by a
      *   long press.
      * - **A gig with any media stays, unless [withMedia].** Media is irreplaceable
-     *   and a night someone photographed is not a mistap. The caller keeps the gig
-     *   instead — see `unmarkAct`, which falls back to simply forgetting it was on
-     *   a **Bill**. [withMedia] is the deliberate delete from the night's own
-     *   screen, where the person is looking at the night and means it; the mistap
-     *   undo never passes it.
+     *   and a night someone photographed is not a mistap. [withMedia] is the
+     *   deliberate delete from the night's own screen, where the person is looking
+     *   at the night and means it; the mistap undo never passes it.
      *
      * Everything keyed by the gig goes together. A half-delete would leave an
      * attendance claim for a night that no longer exists, which is worse than
@@ -993,17 +985,6 @@ class TimelineStore(
         val (c, id) = it.withGig(gigId)
         c.copy(gigLogs = c.gigLogs + (id to log))
     }
-
-    /** A **Bill**, replacing whatever was under its id. The whole record, every time. */
-    suspend fun saveBill(bill: StoredBill): Unit = writeMerged {
-        it.copy(bills = it.bills + (bill.id to bill))
-    }
-
-    /**
-     * Takes a **Bill** off the wall. The **Gigs** its **Acts** became are *not*
-     * touched: they are nights that happened, and they outlive the poster.
-     */
-    suspend fun removeBill(billId: String): Unit = writeMerged { it.copy(bills = it.bills - billId) }
 
     /**
      * Drops one playlist link from a night — the Spotify playlist itself was deleted
@@ -1262,8 +1243,8 @@ private fun TimelineCache.gigIdOrNull(key: String): String? =
  * the import that describes it arrives, in whichever order the two happen.
  *
  * **Any** missing fact, not only a missing date (#128). A **Gig** minted from a
- * **Bill** knows its date and artist the moment it is made and has no venue at all,
- * because a poster names the festival and never the room. Gating on a blank date
+ * planned **Departures** row knows its date and artist the moment it is made and
+ * may have no venue at all. Gating on a blank date
  * meant that when such a night was later adopted onto its setlist.fm record — the one
  * event that finally knows the room — the venue was passed over and stayed blank
  * forever. Each field fills only if blank, so this never overwrites what is known.

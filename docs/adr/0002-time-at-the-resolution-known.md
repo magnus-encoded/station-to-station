@@ -188,6 +188,32 @@ grouping rule is the identical in-between, so both builds assert it case for cas
    differently derive different keys and simply never cross, which looks exactly like not having been
    there together. Nobody has a way to see this happen.
 
+## Amendment (2026-09-03): the Bill machinery this ADR points at is gone
+
+**What changed.** #391 decommissioned `StoredBill`/`StoredAct` outright — no migration, the loss
+authorised by the project owner. Every site-specific reference above (`markActPlayed`,
+`billNight`, `fetchCandidates`, `disambiguateAct`, "an act marked played without being dated") named
+code that no longer exists. **Departures**, committing a published programme's rows through
+`AppViewModel.commitProgramme`, replaced the poster as the way a planned night enters the timeline —
+and a Departures row already carries an exact date from the programme, so the coarse-resolution
+problem this ADR was written to solve (a festival edition with no day, a year with no edition) does
+not arise on that path at all.
+
+**What still holds and what does not.** The generalisation is untouched: ~~`Gig` carries a date at
+the resolution actually known~~ **a Gig carries a date at the resolution actually known**, and the
+five-item demotion sequence (identity, songs, time, festivalhood, …) is a real pattern independent
+of which feature motivated it. What does not survive is the *plan*: this ADR sketched Resolution as
+riding in on the Bill's backfill machinery, and that vehicle is gone. Date precision below "exact
+night" is accordingly **deferred, not decided** — nothing in #391 required it, and no coarse-date
+feature has been built to replace the one this ADR assumed.
+
+**What this means for the open questions.** All four stand exactly as asked; none were answered by
+#391, because #391 touched the Bill's *lineup* half, not this ADR's *time* half. A future
+implementation of Resolution needs its own concrete carrier (a coarse Gig, a coarse Departures
+row, or something else) rather than `StoredBill`'s.
+
+**Related:** #391 — the decommission; `CONTEXT.md`'s Bill/Act entries, retired the same day.
+
 ## Related
 
 - `docs/adr/0001-logic-layer-above-plumbing.md` — this ADR's rules belong to the logic layer.

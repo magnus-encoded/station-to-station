@@ -10,17 +10,12 @@ import java.time.LocalTime
 /**
  * One act on a published festival programme: who, when, where.
  *
- * Not a [StoredAct]. A **Bill** is the *hedged* case — a poster with names and no
- * nights, which is the whole reason it exists — and this is its opposite: a schedule
- * the festival has committed to, down to the minute and the stage. Folding announced
- * set times into `StoredAct` would put a field on every act that is empty for every
- * festival that works the way Ringnes does, and `StoredAct`'s own doc is emphatic that
- * inventing temporal precision the source does not have is the fabrication to avoid.
- *
- * So this is a separate, read-only record. Nothing here is ever written by a user and
- * nothing here is evidence of attendance. A person may add one of these rows to their
- * **Bill** as an **Act** — that is planning to go, and it is still an **Act** until
- * somebody marks it played. The noticeboard can seed the timeline; it never fills it.
+ * A schedule the festival has committed to, down to the minute and the stage — the
+ * shape almost every real festival publishes. This is a separate, read-only record.
+ * Nothing here is ever written by a user and nothing here is evidence of attendance:
+ * selecting a row in **Departures** and committing mints a **Gig** claimed `planned`
+ * directly, never an intermediate hedged record. The noticeboard can seed the
+ * timeline; it never fills it.
  *
  * [stage] is the collision axis. Two acts at one festival clash only because a person
  * cannot be in two places, so a clash is defined across *different* stages; two names
@@ -58,9 +53,8 @@ data class ProgrammeAct(
      *
      * A start before [NIGHT_ENDS] belongs to the *next* calendar day — a programme
      * lists a 01:00 set under the night it belongs to, which is how everyone at the
-     * festival talks about it and the same boundary [billNight] already draws in
-     * the other direction. Without this an after-midnight act sorts to the front of
-     * its own day and clashes with the afternoon.
+     * festival talks about it. Without this an after-midnight act sorts to the front
+     * of its own day and clashes with the afternoon.
      */
     fun startsAt(): LocalDateTime? =
         runCatching { LocalDate.parse(date) }.getOrNull()?.let { setTimeOnNight(it, start) }

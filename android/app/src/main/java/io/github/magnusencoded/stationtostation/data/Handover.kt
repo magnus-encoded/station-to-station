@@ -410,7 +410,6 @@ private fun TimelineCache.absorbing(
             val kept = shows[user].orEmpty()
             kept + theirs.shows[user].orEmpty().filterNot { s -> kept.any { it.id == s.id } }
         },
-        bills = theirs.bills + bills,
         festivalNames = theirs.festivalNames + festivalNames,
         // Identities union. This device wins a collision, as everything else here
         // does — except over an identity the other one *authored*, which no scrape of

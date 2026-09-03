@@ -3,10 +3,9 @@ import Foundation
 /// The published festival programme: `ProgrammeAct` is *who, when, where*. The Swift
 /// twin of Android's `data/Programme.kt` (#173, #389).
 ///
-/// Not a `StoredAct`. A **Bill** is the *hedged* case — a poster with names and no
-/// nights — and this is its opposite: a schedule the festival has committed to, down
-/// to the minute and the stage. Nothing here is ever written by a user and nothing
-/// here is evidence of attendance — it is the noticeboard, not the timeline.
+/// A schedule the festival has committed to, down to the minute and the stage.
+/// Nothing here is ever written by a user and nothing here is evidence of
+/// attendance — it is the noticeboard, not the timeline.
 ///
 /// `stage` is the collision axis. Two acts at one festival clash only because a
 /// person cannot be in two places, so a clash is defined across *different* stages;
