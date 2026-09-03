@@ -276,12 +276,16 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual(["b1"], loaded.shows["dizzi90"]?.map(\.id))
     }
 
-    /// The keys iOS has never heard of at all — the **Bills** on the wall, my
-    /// **Logs** of the nights, the catalogue, the two tier-upgrade fields — plus
-    /// `text` and `verdict` inside a **Note**. `Codable` drops what it never
-    /// decoded, so before #168 the first save from this side erased every one of
-    /// them, and a **Bill** and a **Log** have no upstream: nothing can put them
-    /// back.
+    /// The keys iOS has never heard of at all — my **Logs** of the nights, the
+    /// catalogue, the two tier-upgrade fields — plus `text` and `verdict` inside a
+    /// **Note**. `Codable` drops what it never decoded, so before #168 the first
+    /// save from this side erased every one of them, and a **Log** has no upstream:
+    /// nothing can put it back.
+    ///
+    /// `bills` is one of these again as of #391: `StoredBill`/`StoredAct` were
+    /// decommissioned and neither twin models the key any more, so a `bills` key
+    /// left over in an old file is exactly the same case as `catalogueByArtist` —
+    /// carried untouched, never read, no shape asserted on it.
     func testAWriteFromHereKeepsTheKeysThisPlatformHasNeverHeardOf() async throws {
         let file = tempFile(contents: """
         {"shows":{},"festivalNames":{},"gigs":{"g1":{"id":"g1","date":"25-06-2026",\
@@ -289,9 +293,7 @@ final class TimelineStoreTests: XCTestCase {
         "gigMedia":{"g1":[{"id":"n1","kind":"note","ref":"","capturedAt":null,"from":null,\
         "personal":true,"pointer":null,"songOffsets":[],\
         "text":"Best encore I have stood through.","verdict":"double_up"}]},\
-        "bills":{"b1":{"id":"b1","name":"Tons of Rock 2026","city":"Oslo",\
-        "from":"25-06-2026","to":"27-06-2026",\
-        "acts":[{"name":"Gojira","maybe":false,"candidates":[],"gigId":null}]}},\
+        "bills":{"b1":{"id":"b1","name":"Tons of Rock 2026","city":"Oslo"}},\
         "gigLogs":{"g1":{"songs":["Flying Whales",""],"closed":false}},\
         "sharedNights":["g1"],"mediaTierMigrated":true,\
         "catalogueByArtist":{"mb-1":["Flying Whales","Stranded"]}}
@@ -318,11 +320,6 @@ final class TimelineStoreTests: XCTestCase {
             ["Flying Whales", "Stranded"],
             (json?["catalogueByArtist"] as? [String: [String]])?["mb-1"]
         )
-        // A Bill's own shape has to survive too, not just its key: nothing here
-        // reads an Act, so nothing here may flatten one.
-        let bill = (json?["bills"] as? [String: [String: Any]])?["b1"]
-        XCTAssertEqual("Tons of Rock 2026", bill?["name"] as? String)
-        XCTAssertEqual(["Gojira"], (bill?["acts"] as? [[String: Any]])?.compactMap { $0["name"] as? String })
 
         // The two inside StoredMedia are modelled rather than carried — a note
         // round-trips through the same decode every photo does, so raw carrying
@@ -345,11 +342,12 @@ final class TimelineStoreTests: XCTestCase {
         await TimelineStore(file: file).save(shows: ["dizzi90": [show("a")]])
         let json = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
         XCTAssertEqual(
-            // gigLogs joined the list in #169 and bills in #172: iOS now models both
-            // rather than carrying them blind, so it writes the keys itself instead of
-            // only echoing ones it found. Android reads an absent or empty map the same
-            // way.
-            ["attendanceByGig", "attendedTotals", "bills", "calendarEventByGig",
+            // gigLogs joined the list in #169: iOS models it rather than carrying it
+            // blind, so it writes the key itself instead of only echoing one it found.
+            // Android reads an absent or empty map the same way. `bills` left the list
+            // in #391 with `StoredBill`/`StoredAct` themselves: neither twin writes it
+            // any more.
+            ["attendanceByGig", "attendedTotals", "calendarEventByGig",
              "festivalIdByShow", "festivalNames", "festivals", "festivalsAsked",
              "gigAttendance", "gigCalendarEvent", "gigLogs", "gigMedia", "gigPhotos", "gigPlanned",
              "gigPlaylists", "gigSongOffsets", "gigs", "hiddenLines", "photosBySetlist", "plannedShows", "playlistsMade",

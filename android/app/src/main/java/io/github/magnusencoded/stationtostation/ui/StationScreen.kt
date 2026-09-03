@@ -282,7 +282,6 @@ fun StationTimelineScreen(
     // Reachable from both the future edge and the empty spine: a collector with no
     // history at all still has a ticket for something.
     var adding by remember { mutableStateOf(false) }
-    var addingBill by remember { mutableStateOf(false) }
     var addingByHand by remember { mutableStateOf(false) }
     // Whether the legend's `+ N more` has been opened — where the reader left the
     // disclosure, not a fact to remember across a launch (#396).
@@ -380,22 +379,13 @@ fun StationTimelineScreen(
                     onDismiss = { addingByHand = false },
                 )
             }
-            if (addingBill) {
-                AddBillDialog(
-                    onAdd = { name, city, from, to, lineup ->
-                        viewModel.addBill(name, city, from, to, lineup)
-                        addingBill = false
-                    },
-                    onDismiss = { addingBill = false },
-                )
-            }
             when {
                 state.setlistsLoading && state.setlists.isEmpty() ->
                     CircularProgressIndicator(color = Amber, modifier = Modifier.align(Alignment.Center))
 
                 // One gig I'm going to and nothing else is a timeline, not an empty
                 // spine — it is exactly the collector's cold start.
-                state.setlists.isEmpty() && state.plannedGigs.isEmpty() && state.bills.isEmpty() ->
+                state.setlists.isEmpty() && state.plannedGigs.isEmpty() ->
                     EmptyTimeline(
                         onAdd = onOpenImport,
                         onPlan = { adding = true },
@@ -635,13 +625,10 @@ fun StationTimelineScreen(
                         // Hoisted out of the LazyColumn because the deep-link scroll
                         // below counts it too, and the two must not drift.
                         val future = remember(
-                            state.bills, state.plannedGigs, state.attendanceByGig, state.festivals,
+                            state.plannedGigs, state.attendanceByGig, state.festivals,
                         ) {
-                            val billGigs =
-                                state.bills.flatMap { b -> b.acts.mapNotNull { it.gigId } }.toSet()
                             futureRows(
-                                bills = state.bills,
-                                tickets = state.plannedGigs.filterNot { it.id in billGigs },
+                                tickets = state.plannedGigs,
                                 attendance = state.attendanceByGig,
                                 festivals = state.festivals,
                             )
@@ -680,10 +667,9 @@ fun StationTimelineScreen(
                                 return@LaunchedEffect
                             }
                             // The rows don't start at item 0: the future prompt is, and
-                            // every Bill and every gig I'm going to sits between it and
-                            // them. Counted off the same list the LazyColumn emits, so
-                            // the two cannot drift — the earlier `plannedGigs.size` was
-                            // already wrong once a Bill was on the wall.
+                            // every gig I'm going to sits between it and them. Counted
+                            // off the same list the LazyColumn emits, so the two cannot
+                            // drift.
                             listState.animateScrollToItem(at + 1 + future.size)
                             viewModel.consumeGigLink()
                         }
@@ -770,61 +756,25 @@ fun StationTimelineScreen(
                             item { FuturePrompt(loading = state.planningLoading) }
                             // Everything above today, in one date-ordered list —
                             // furthest out first, the same descending order the attended
-                            // rows below use. Bills and tickets interleave because they
-                            // sit on the same Line: drawing Bills as a block above the
-                            // tickets put a festival starting tonight above a gig a week
-                            // out, and "up is always later" is not a rule a new kind of
-                            // node is exempt from.
-                            //
-                            // A Gig an Act became is drawn inside its Bill, never here:
-                            // the Bill is its Festival node, and one night must not be
-                            // two nodes on one line. Planned gigs that share a venue and
-                            // a night are a Festival like any other, grouped by the same
-                            // function the attended rows use (#134); a Bill stays its own
-                            // node, since an announced lineup is a different thing.
+                            // rows below use. Planned gigs that share a venue and a night
+                            // are a Festival like any other, grouped by the same function
+                            // the attended rows use (#134).
                             items(
                                 future,
                                 key = { row ->
-                                    when (row) {
-                                        is FutureRow.OnBill -> "bill-${row.bill.id}"
-                                        is FutureRow.Ticket -> when (val n = row.node) {
-                                            is TimelineNode.Concert -> "planned-${n.setlist.id}"
-                                            // Prefixed for the same reason the concert
-                                            // above it is: both lanes are items of one
-                                            // LazyColumn, and a Festival with a night
-                                            // still planned and a night already attended
-                                            // is a node in each. The bare identity key
-                                            // was used twice and the list threw.
-                                            is TimelineNode.Several -> "planned-${n.key}"
-                                        }
+                                    when (val n = row.node) {
+                                        is TimelineNode.Concert -> "planned-${n.setlist.id}"
+                                        // Prefixed for the same reason the concert above
+                                        // it is: both lanes are items of one LazyColumn,
+                                        // and a Festival with a night still planned and a
+                                        // night already attended is a node in each. The
+                                        // bare identity key was used twice and the list
+                                        // threw.
+                                        is TimelineNode.Several -> "planned-${n.key}"
                                     }
                                 },
                             ) { row ->
-                                when (row) {
-                                    is FutureRow.OnBill -> BillItem(
-                                        bill = row.bill,
-                                        open = row.bill.id in expanded,
-                                        fetching = state.billFetching == row.bill.id,
-                                        onToggle = { viewModel.toggleFestival(row.bill.id) },
-                                        onPlayed = { i, night ->
-                                            viewModel.markActPlayed(row.bill.id, i, night)
-                                        },
-                                        onUnmark = { i -> viewModel.unmarkAct(row.bill.id, i) },
-                                        onOpenGig = { gigId ->
-                                            state.plannedGigs.firstOrNull { it.id == gigId }?.let {
-                                                viewModel.openShow(it)
-                                                onOpenEvent()
-                                            }
-                                        },
-                                        onRename = { i, name -> viewModel.renameAct(row.bill.id, i, name) },
-                                        onSurprise = { name, night ->
-                                            viewModel.addSurpriseAct(row.bill.id, name, night)
-                                        },
-                                        onFetchCandidates = { viewModel.fetchCandidates(row.bill.id) },
-                                        onRemove = { viewModel.removeBill(row.bill.id) },
-                                    )
-
-                                    is FutureRow.Ticket -> when (val node = row.node) {
+                                when (val node = row.node) {
                                         is TimelineNode.Concert -> TimelineItem(
                                             setlist = node.setlist,
                                             highlight = false,
@@ -868,7 +818,6 @@ fun StationTimelineScreen(
                                             }
                                         }
                                     }
-                                }
                             }
                             itemsIndexed(rows, key = { _, row -> row.key }) { index, row ->
                                 val isFirst = index == 0
@@ -1029,11 +978,10 @@ private fun FuturePrompt(loading: Boolean) {
  * **This used to be a paste box for a setlist.fm link**, defended on two grounds. The
  * first still holds: setlist.fm's search index stops about a day out, so a show weeks
  * away cannot be *found* by artist, venue or date (#29). The second — that typing the
- * details in "would invent a second record for a gig setlist.fm already has" — has not
- * been true since the **Bill** shipped. `markActPlayed` mints local **Gig**s for nights
- * setlist.fm has never heard of and `adoptSetlistId` moves one onto the vendor id when
- * setlist.fm catches up, with every association intact. The collision that argument
- * described is one the codebase learned to resolve two features ago.
+ * details in "would invent a second record for a gig setlist.fm already has" — is no
+ * longer true: `createLocalGig` mints local **Gig**s for nights setlist.fm has never
+ * heard of and `adoptSetlistId` moves one onto the vendor id when setlist.fm catches
+ * up, with every association intact.
  *
  * **The link path stays, demoted.** It is strictly better when you have the link: it
  * brings the real id, the real venue and the real date, and needs no adoption later.
@@ -3144,15 +3092,12 @@ fun StationEventScreen(
     // app itself is the record of is the one night that cannot become a playlist.
     val convertible = setlist != null &&
         (setlist.performed().isNotEmpty() || (log.closed && log.named().isNotEmpty()))
-    // The Act this night was minted from, when it came off a Bill: it carries the
-    // candidate pool and — the part that matters — which artist that pool came from.
-    val act = setlist?.let { viewModel.actFor(it.id) }
     val localGig = setlist != null && setlist.isLocal()
     val canLog = setlist != null && (checkedIn || localGig)
     // Whose catalogue to offer when correcting an entry: the night's own setlist.fm
-    // record first, the **Bill** **Act** behind it second. Hoisted above the Log
-    // editor because the pull-to-refresh curtain (below) needs the same answer.
-    val catalogueArtist = setlist?.artist?.mbid?.ifBlank { null } ?: act?.mbid
+    // record. Hoisted above the Log editor because the pull-to-refresh curtain
+    // (below) needs the same answer.
+    val catalogueArtist = setlist?.artist?.mbid?.ifBlank { null }
     val catalogue = catalogueArtist?.let { state.catalogueByArtist[it] }.orEmpty()
     val catalogueLoading = catalogueArtist != null && state.catalogueFetching == catalogueArtist
     // Which of my **Log**'s entries has its correction panel open, if any. One at a
@@ -3327,9 +3272,8 @@ fun StationEventScreen(
                                 .clickable { adopting = true }
                                 .padding(vertical = 6.dp),
                         )
-                        // Reachable from the night itself, on purpose: the undo on a
-                        // Bill's act needs the Bill to still exist, and a night whose
-                        // poster has been taken down was left with no way out at all.
+                        // Reachable from the night itself, on purpose: deletion must
+                        // not depend on anything else still existing.
                         Text(
                             "delete this night",
                             color = Danger,
@@ -3873,7 +3817,7 @@ fun StationEventScreen(
                                     // and have recorded appears once.
                                     candidates = rankTitles(
                                         written,
-                                        (act?.candidates.orEmpty() + catalogue).distinctBy { it.lowercase() },
+                                        catalogue.distinctBy { it.lowercase() },
                                     ),
                                     canRestore = log.rememberedAt(j) != null,
                                     loading = catalogueLoading,
@@ -3903,8 +3847,12 @@ fun StationEventScreen(
                     item {
                         Spacer(Modifier.height(6.dp))
                         LogEditor(
-                            candidates = act?.candidates.orEmpty(),
-                            poolArtist = act?.matchedArtist.orEmpty(),
+                            candidates = catalogue,
+                            // Naming which artist a wrong match came from was the
+                            // Bill's own act-search feature (#93), which went with it —
+                            // this pool is the night's own MusicBrainz catalogue, not a
+                            // namesake match to distrust.
+                            poolArtist = "",
                             log = log,
                             // Only once I have written something down. An untouched log
                             // beside an imported setlist is not a divergence, it is a
@@ -3914,8 +3862,6 @@ fun StationEventScreen(
                                 .takeIf { setlist.url != null && log.songs.isNotEmpty() },
                             onAdd = { viewModel.addToLog(setlist.id, it) },
                             onClosed = { viewModel.setLogClosed(setlist.id, it) },
-                            onDisambiguate = { viewModel.disambiguateAct(setlist.id, it) },
-                            searching = state.billFetching != null,
                         )
                         Spacer(Modifier.height(10.dp))
                     }

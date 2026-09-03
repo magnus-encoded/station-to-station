@@ -1,15 +1,16 @@
 import SwiftUI
 
 // The Log: my own witness statement for a night, asserted one tap at a time
-// (#169). Ported from Android's `LogEditor` (`ui/BillScreen.kt`). The Bill/Act
-// candidate pool is here since #172 gave iOS a Bill to have one from — it is the
-// songs this act has been playing lately, offered to tap rather than type, and
-// named with whose they are. The MusicBrainz catalogue the panel ranks
-// against is here now — it is what this Room's Curtain fetches when a Log is
-// open on a night nobody has posted (#129). The rules that matter (a Gap is
-// never corrected, a second correction keeps the first words, restoring is
-// never a one-way door, Close is a person's word and nothing else's) are
-// unchanged — they live in StoredLog itself and are asserted there.
+// (#169). Ported from Android's `LogEditor` (`ui/LogEditor.kt`). The Bill/Act
+// candidate-song pool (#93/#172) was decommissioned with the Bill itself in
+// #391 — Departures replaced the poster as the way a planned night enters the
+// timeline, and there is no longer an Act whose recent setlists this could
+// prompt from. The MusicBrainz catalogue the panel ranks against is still
+// here — it is what this Room's Curtain fetches when a Log is open on a night
+// nobody has posted (#129). The rules that matter (a Gap is never corrected, a
+// second correction keeps the first words, restoring is never a one-way door,
+// Close is a person's word and nothing else's) are unchanged — they live in
+// StoredLog itself and are asserted there.
 
 private let ink = Color(red: 0xED / 255, green: 0xE9 / 255, blue: 0xF2 / 255)
 private let muted = Color(red: 0x8B / 255, green: 0x82 / 255, blue: 0x99 / 255)
@@ -39,7 +40,6 @@ struct LogEditor: View {
             // (#268) — what is left here is the way in.
             addField
             gapButton
-            pool
             Spacer().frame(height: 14)
             closedToggle(log)
 
@@ -73,74 +73,11 @@ struct LogEditor: View {
                 .textFieldStyle(.plain)
                 .padding(8)
                 .background(RoundedRectangle(cornerRadius: 6).fill(faint.opacity(0.12)))
-            // The escape hatch, always present and never a fallback: a pool built
-            // from what an artist has played before cannot contain a new song, a
-            // cover, a guest spot, or anything by an artist setlist.fm has never
-            // heard of.
             if !typed.trimmed.isEmpty {
                 Text("+ add \"\(typed.trimmed)\"")
                     .font(.system(size: 13)).foregroundStyle(amber)
                     .padding(.vertical, 6)
                     .onTapGesture { model.addToLog(typed.trimmed); typed = "" }
-                // The way out of a wrong match, on the song already typed above. It gets
-                // no field of its own: "name a song you know they play" is the same song
-                // — one you just heard them play is one you know they play — and two
-                // fields wanting the same thing is a question about which, with no
-                // answer. A picker would be worse: it offers five identical names, and
-                // the names being identical is the entire problem.
-                //
-                // Only the tap decides where it goes. "+ add" puts it in the **Log**;
-                // this looks the band up and writes nothing — naming a song to identify
-                // a band is not a claim they played it tonight.
-                if act?.matchedArtist.isEmpty == false {
-                    let searching = model.state.billFetching != nil
-                    Text(searching ? "looking for a band that plays it\u{2026}"
-                         : "\u{2192} not them? find who plays \"\(typed.trimmed)\"")
-                        .font(.system(size: 13)).foregroundStyle(searching ? faint : slate)
-                        .padding(.vertical, 6)
-                        .onTapGesture {
-                            guard !searching else { return }
-                            model.disambiguateAct(gigId: setlist.id, song: typed.trimmed)
-                        }
-                }
-            }
-        }
-    }
-
-    /// The **Act** this night was minted from, if a **Bill** minted it. Nil for an
-    /// ordinary night, which is most of them — everything below reads as absent then.
-    private var act: StoredAct? {
-        model.state.bills.lazy.compactMap { bill in
-            bill.acts.first { $0.gigId == setlist.id }
-        }.first
-    }
-
-    /// The songs this artist has been playing lately, minus the ones already in the
-    /// **Log** — a prompt to tap, never a claim. Nothing enters the record until it is
-    /// tapped, so "I think they played X" never becomes "they played X" by inaction.
-    @ViewBuilder
-    private var pool: some View {
-        let chosen = model.state.gigLog.songs
-        let remaining = (act?.candidates ?? [])
-            .filter { c in !chosen.contains { $0.lowercased() == c.lowercased() } }
-        if !remaining.isEmpty {
-            Spacer().frame(height: 14)
-            // Named, not implied. The pool comes from whichever artist a name search
-            // landed on, and names are not unique — this line is what turns a wrong
-            // match from an invisible corruption into an obvious one.
-            Text((act?.matchedArtist.isEmpty == false ? "\(act!.matchedArtist) has" : "They have")
-                 + " been playing these — tap the ones you heard")
-                .font(.system(size: 11, weight: .semibold)).foregroundStyle(slate)
-            Spacer().frame(height: 4)
-            ForEach(remaining, id: \.self) { song in
-                HStack(spacing: 8) {
-                    Text("+").font(.system(size: 13)).foregroundStyle(slate)
-                    Text(song).font(.system(size: 14)).foregroundStyle(ink)
-                    Spacer(minLength: 0)
-                }
-                .padding(.vertical, 7)
-                .contentShape(Rectangle())
-                .onTapGesture { model.addToLog(song) }
             }
         }
     }

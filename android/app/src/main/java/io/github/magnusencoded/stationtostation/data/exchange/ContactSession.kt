@@ -104,7 +104,7 @@ fun runContactSession(
  *
  * The models line up today — every field iOS declares on `HandoverManifest`,
  * `TimelineCache`, `OfferedMedia`, `StoredMedia` and `StoredGig` exists here, and this
- * side's extras (`identities`, `festivals`, `bills`, …) all carry defaults. This is so
+ * side's extras (`identities`, `festivals`, …) all carry defaults. This is so
  * that staying lined up is not a condition of working at all.
  */
 private val manifestJson = Json { encodeDefaults = true; ignoreUnknownKeys = true }

@@ -61,9 +61,32 @@ miss.
 - **It makes the unbounded-time property free rather than expensive.** Since nothing waits, "years
   later" and "ten minutes later" are the same code path.
 
+## Amendment (2026-09-03): the device-boundary line generalises to a single-device one
+
+**What changed.** #391 decommissioned `StoredBill`/`StoredAct` with no migration path, on the
+strength of an observation this ADR already contains without naming it: ~~the distinction is whether
+another device is involved~~ **the distinction that matters is whether a record holds a fact, or only
+a way of arriving at one** — and a Bill was always the second kind, on one device, no network in it at
+all. ADR-0018 states this as its own rule: the Gig is the only atom of persisted attendance, and a
+Bill, a Programme, or a scraped Festival identity is a source or a label, never a peer store for the
+facts (media, Log, attendance) that make a night matter.
+
+**Why this belongs here rather than only in ADR-0018.** This ADR's Consequences already drew the
+capture-path/enrichment split for the cross-device case: *"the capture path is the opposite case:
+what the user records in the moment must be written durably and is not best-effort."* ADR-0018 is
+that same split, run one level down — inside a single phone, between the Gig (capture, durable) and
+everything that only ever points at one (best-effort in the exact sense that #391 could delete a
+whole record type and lose nothing that had already become a Gig).
+
+**Related:** ADR-0018 — the single-device generalisation, stated as its own decision rather than
+folded in here because it earns its own Context (three examples, not one) and its own Consequences
+(what a future source record may and may not hold).
+
 ## Related
 
 - ADR-0003 — no backend, which is why receipt cannot be guaranteed.
+- ADR-0018 — the single-device generalisation of this ADR's device-boundary line.
 - #28 — the original invariant this scopes.
 - #103 — the sync that asserts the algorithmic half.
 - #105 — the vocabulary corrections that surfaced the gap.
+- #391 — the Bill/Act decommission that prompted the amendment.

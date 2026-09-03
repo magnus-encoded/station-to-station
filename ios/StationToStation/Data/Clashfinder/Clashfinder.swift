@@ -20,8 +20,8 @@ import CryptoKit
 /// **It suggests, it never decides.** Half of all clashfinders are editable by
 /// anyone and the median one is still being edited the day before its own festival.
 /// These are the *scheduled* times, not the played ones. Nothing here writes a
-/// **Gig**: a person reads this and adds **Acts** to a **Bill**, exactly as they
-/// would off a poster.
+/// **Gig** on its own: a person picks acts off the **Programme** this feeds and
+/// **Departures** commits them, exactly as they would off a poster (#391).
 ///
 /// Data is CC BY-NC 3.0 — attribution is a condition of that licence, so the
 /// `copyright` line the payload carries is stored with the acts and shown with them.
@@ -432,10 +432,10 @@ func billingLead(_ name: String) -> String {
 /// **Never bind on a weak match.** setlist.fm's search returns its maximum
 /// confidence score for results that are plainly wrong, so the score cannot be used
 /// as a gate at all; only exact equality under `foldName` can. The cost of refusing
-/// is that an act joins the **Bill** with the name as printed and no artist behind
-/// it, which is a visibly incomplete row somebody can fix. The cost of binding
-/// wrongly is a timeline quietly full of plausible-looking mistakes, which nobody
-/// ever notices to fix.
+/// is that a **Programme** row goes forward with the name as printed and no
+/// artist behind it, which is a visibly incomplete row somebody can still commit.
+/// The cost of binding wrongly is a timeline quietly full of plausible-looking
+/// mistakes, which nobody ever notices to fix.
 ///
 /// This is also what keeps the entries on a timetable that are not music — a film,
 /// a quiz, a notice, a silent disco — from becoming bands. They stay visible on the
