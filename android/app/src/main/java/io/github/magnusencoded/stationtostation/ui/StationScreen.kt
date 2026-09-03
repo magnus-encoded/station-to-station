@@ -3633,6 +3633,7 @@ fun StationEventScreen(
                                             Intent(Intent.ACTION_VIEW, Uri.parse(setlist.url)),
                                         )
                                     },
+                                    label = "Link to this setlist on setlist.fm",
                                 )
                             } else {
                                 // **Local**: a true property of the record — it exists on
@@ -4239,12 +4240,21 @@ private fun EncoreLabel() {
 }
 
 @Composable
-private fun EventTag(text: String, color: Color = Muted, onClick: (() -> Unit)? = null) {
+private fun EventTag(
+    text: String,
+    color: Color = Muted,
+    onClick: (() -> Unit)? = null,
+    // What a reader should hear when the visible text is a bare identifier or a
+    // glyph. Sighted readers get the id because the id is the record; TalkBack
+    // reading it out loud says nothing about what a tap will do.
+    label: String? = null,
+) {
     Text(
         text,
         color = color,
         fontSize = 11.sp,
         modifier = Modifier
+            .then(if (label != null) Modifier.semantics { contentDescription = label } else Modifier)
             .clip(RoundedCornerShape(20.dp))
             .background(Raised2)
             .border(1.dp, Color(0xFF2A2338), RoundedCornerShape(20.dp))
