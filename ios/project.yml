@@ -16,7 +16,7 @@ settings:
     # with "redirect_uri: not matching configuration".
     SPOTIFY_CLIENT_ID: 4d0ca5e417a54b599b07bfac99671644
     SETLISTFM_API_KEY: ""
-    MARKETING_VERSION: "1.5.1"
+    MARKETING_VERSION: "1.6.0"
     CURRENT_PROJECT_VERSION: "1"
 
 targets:
