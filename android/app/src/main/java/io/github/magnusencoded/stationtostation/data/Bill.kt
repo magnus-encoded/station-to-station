@@ -47,16 +47,23 @@ fun setlistEditEntry(setlist: FmSetlist): String = setlist.url ?: SETLISTFM_ADD_
  */
 sealed interface FutureRow {
     /**
+     * The night this row stands for. On the interface rather than only on [Ticket]: the
+     * lane reads `row.node` without knowing which kind it holds, and with `OnBill` gone
+     * (#391) there is nothing left for it to narrow to anyway.
+     */
+    val node: TimelineNode
+
+    /**
      * A **Gig** I hold a ticket for — or the **Festival** a few of them at one venue
      * on one night turn out to be. Two nights above today at the same place is the
      * same shape as two nights below it, and the lane used to draw them as two loose
      * nodes only because it did its own grouping, which was none (#134).
      */
-    data class Ticket(val node: TimelineNode) : FutureRow
+    data class Ticket(override val node: TimelineNode) : FutureRow
 
     val date: LocalDate?
         // The night a cluster opens, not the night it ends.
-        get() = (this as Ticket).node.shows.mapNotNull { it.localDate() }.minOrNull()
+        get() = node.shows.mapNotNull { it.localDate() }.minOrNull()
 }
 
 /**
