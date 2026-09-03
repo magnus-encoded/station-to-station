@@ -1,12 +1,22 @@
 package io.github.magnusencoded.stationtostation.ui.flyover
 
+import io.github.magnusencoded.stationtostation.data.Festivals
 import io.github.magnusencoded.stationtostation.data.Friend
+import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.WovenSong
+import io.github.magnusencoded.stationtostation.data.scheduledStart
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
+import io.github.magnusencoded.stationtostation.data.visibleToContacts
+import io.github.magnusencoded.stationtostation.data.weaveSetlist
 import io.github.magnusencoded.stationtostation.ui.EventRow
+import io.github.magnusencoded.stationtostation.ui.TimelineNode
+import io.github.magnusencoded.stationtostation.ui.eventRows
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /**
  * The walk, as the **Flyover** needs it (#278, #313): who is on it, what stands along
@@ -458,4 +468,94 @@ internal fun flyoverNight(
         wallZ = contentLength + WallGap,
         contentLength = contentLength,
     )
+}
+
+/**
+ * One **Gig**'s stored parts, turned into what [flyoverNight] needs.
+ *
+ * **The one place a night is assembled.** Extracted from the screen that used to build
+ * it inline for the N=1 case only (#313, PR #316) — a **Collection**'s walk needs the
+ * same assembly done once per **Gig** in the run, and a second, slightly different copy
+ * of it is exactly the drift the composer seam exists to prevent.
+ */
+internal fun buildFlyoverGig(
+    setlist: FmSetlist,
+    /** What the caller decided is visible — narrowed by the contact light where it
+     *  applies. The walk must not widen it again. */
+    media: List<StoredMedia>,
+    log: StoredLog,
+    festivals: Festivals,
+    /** The **Contacts** whose timeline holds this **Gig**. */
+    attended: Set<String>,
+    checkedIn: Boolean,
+): FlyoverGig {
+    val rows = setlist.eventRows()
+    return FlyoverGig(
+        id = setlist.id,
+        billboard = FlyoverBillboard(
+            title = setlist.artist?.name ?: "Unknown artist",
+            where = listOfNotNull(setlist.venueLine(), setlist.readableDate()).joinToString(" · "),
+            chips = buildList {
+                val performed = setlist.performed().size
+                if (performed > 0) add("$performed songs")
+                setlist.tour?.name?.let { add(it) }
+                if (checkedIn) add("checked in")
+            },
+        ),
+        media = media,
+        rows = rows,
+        woven = weaveSetlist(rows.map { (it as? EventRow.SongItem)?.song?.name }, log.songs),
+        log = log,
+        date = setlist.localDate(),
+        startsAt = scheduledStart(setlist, festivals),
+        attended = attended,
+    )
+}
+
+/** `d MMM yyyy`, fixed to English so a run's date range does not depend on the phone's
+ *  locale — the same reason [FmSetlist.readableDate] is fixed. */
+private val RunDateFmt = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH)
+
+/**
+ * What the run's own billboard says, for a **Collection resolution** (#313).
+ *
+ * **A Section and a Festival get the same resolution, so the same rule for both:** the
+ * title is whatever the node is already labelled — #166 decides that, never this — and
+ * the date range is the record's own range (story 29), not an invented span. A single
+ * date reads as one line, same as a **Gig**'s own **Cover**; two or more reads as a
+ * range, earliest to latest, regardless of running order.
+ */
+internal fun collectionBillboard(node: TimelineNode.Several): FlyoverBillboard {
+    val dates = node.shows.mapNotNull { it.localDate() }.sorted()
+    val where = when {
+        dates.isEmpty() -> ""
+        dates.first() == dates.last() -> dates.first().format(RunDateFmt)
+        else -> "${dates.first().format(RunDateFmt)} – ${dates.last().format(RunDateFmt)}"
+    }
+    return FlyoverBillboard(title = node.label, where = where)
+}
+
+/**
+ * A **Collection**'s whole run, as [flyoverNight] needs it — one [FlyoverGig] per
+ * **Gig** the node holds, in no particular order here: [flyoverNight] applies the
+ * running order itself, from each **Gig**'s own [FlyoverGig.date] and [FlyoverGig.startsAt].
+ *
+ * Media, the log and attendance are read from the same maps the single-**Gig** walk
+ * reads from — [buildFlyoverGig] is the one seam that turns them into a [FlyoverGig],
+ * whether it is called once or once per night of a festival.
+ */
+internal fun collectionFlyoverGigs(
+    node: TimelineNode.Several,
+    mediaBySetlist: Map<String, List<StoredMedia>>,
+    logsByGig: Map<String, StoredLog>,
+    festivals: Festivals,
+    showsByFriend: Map<String, List<FmSetlist>>,
+    attendanceByGig: Map<String, StoredAttendance>,
+    contactLight: Boolean,
+): List<FlyoverGig> = node.shows.map { setlist ->
+    val held = mediaBySetlist[setlist.id].orEmpty()
+    val media = if (contactLight) visibleToContacts(held) else held
+    val attended = showsByFriend.filterValues { shows -> shows.any { it.id == setlist.id } }.keys
+    val checkedIn = attendanceByGig[setlist.id]?.provenance == StoredAttendance.Provenance.CHECKED_IN
+    buildFlyoverGig(setlist, media, logsByGig[setlist.id] ?: StoredLog(), festivals, attended, checkedIn)
 }

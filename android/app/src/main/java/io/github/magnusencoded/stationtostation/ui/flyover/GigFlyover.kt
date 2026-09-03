@@ -64,11 +64,7 @@ import io.github.magnusencoded.stationtostation.BuildConfig
 import io.github.magnusencoded.stationtostation.MediaThumb
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredLog
-import io.github.magnusencoded.stationtostation.data.scheduledStart
 import io.github.magnusencoded.stationtostation.data.visibleToContacts
-import io.github.magnusencoded.stationtostation.data.weaveSetlist
-import io.github.magnusencoded.stationtostation.ui.EventRow
-import io.github.magnusencoded.stationtostation.ui.eventRows
 import io.github.magnusencoded.stationtostation.ui.railColor
 import io.github.magnusencoded.stationtostation.ui.swipeRightToBack
 import io.github.magnusencoded.stationtostation.ui.verdictGlyph
@@ -140,39 +136,21 @@ fun GigFlyoverScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     val night = remember(
         media, state.friends, setlist.id, log, state.showsByFriend, checkedIn, state.festivals,
     ) {
-        val rows = setlist.eventRows()
         flyoverNight(
-            // One night is the N=1 case of the run. There is no second composer.
+            // One night is the N=1 case of the run. There is no second composer, and
+            // buildFlyoverGig is the one place a night's stored parts become the
+            // composer's input — a Collection's walk (#313) calls the same function
+            // once per Gig rather than a second, drifting copy of this assembly.
             gigs = listOf(
-                FlyoverGig(
-                    id = setlist.id,
-                    billboard = FlyoverBillboard(
-                        title = setlist.artist?.name ?: "Unknown artist",
-                        where = listOfNotNull(setlist.venueLine(), setlist.readableDate())
-                            .joinToString(" · "),
-                        chips = buildList {
-                            val performed = setlist.performed().size
-                            if (performed > 0) add("$performed songs")
-                            setlist.tour?.name?.let { add(it) }
-                            if (checkedIn) add("checked in")
-                        },
-                    ),
+                buildFlyoverGig(
+                    setlist = setlist,
                     media = media,
-                    rows = rows,
-                    woven = weaveSetlist(
-                        rows.map { (it as? EventRow.SongItem)?.song?.name },
-                        log.songs,
-                    ),
                     log = log,
-                    date = setlist.localDate(),
-                    // The second rung of the running order, sourced at last (#313): the
-                    // set times #166's festival-page parse found, for the nights that
-                    // are at a festival that published them. Null everywhere else, which
-                    // is most of the line — the ladder falls through to source order.
-                    startsAt = scheduledStart(setlist, state.festivals),
+                    festivals = state.festivals,
                     attended = state.showsByFriend
                         .filterValues { shows -> shows.any { it.id == setlist.id } }
                         .keys,
+                    checkedIn = checkedIn,
                 ),
             ),
             friends = state.friends,
