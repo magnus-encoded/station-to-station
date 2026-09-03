@@ -58,6 +58,7 @@ import io.github.magnusencoded.stationtostation.data.sfmStamp
 import io.github.magnusencoded.stationtostation.data.sfmUserFromDescription
 import io.github.magnusencoded.stationtostation.data.spotifyPlaylistId
 import io.github.magnusencoded.stationtostation.data.toShareUri
+import io.github.magnusencoded.stationtostation.ui.TimelineNode
 import io.github.magnusencoded.stationtostation.ui.atVenue
 import io.github.magnusencoded.stationtostation.ui.canCheckInManually
 import io.github.magnusencoded.stationtostation.ui.checkInCandidate
@@ -217,6 +218,12 @@ data class UiState(
     val setlistsLoading: Boolean = false,
     // Selected setlist + matching
     val selectedSetlist: FmSetlist? = null,
+    /**
+     * The **Collection** whose walk is open, landscape face only (#313). Entered from
+     * the Line and left the same way — a state at a place, never a route, so nothing
+     * here has a back stack entry of its own.
+     */
+    val selectedCollection: TimelineNode.Several? = null,
     val matches: List<SongMatch> = emptyList(),
     val matching: Boolean = false,
     val playlistName: String = "",
@@ -1634,6 +1641,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     /** Opens a show for viewing (its real setlist) without the Spotify match/cover
      *  machinery — that only starts when the user converts it to a playlist. */
     fun openShow(setlist: FmSetlist) = _state.update { it.copy(selectedSetlist = setlist) }
+
+    /**
+     * Enters the **Collection resolution** on this run of **Gigs** (#313). A state at
+     * the Line, not a route — there is nothing to pop, only a value to set back to
+     * null, which is what [closeCollectionWalk] and the reverse gesture both do.
+     */
+    fun openCollectionWalk(node: TimelineNode.Several) =
+        _state.update { it.copy(selectedCollection = node) }
+
+    /** Leaves the **Collection resolution**, landing back on the Line exactly where it
+     *  was left — nothing moved, so there is nowhere else it could land. */
+    fun closeCollectionWalk() = _state.update { it.copy(selectedCollection = null) }
 
     // --- Gigs I'm going to ---
 

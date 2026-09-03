@@ -3,6 +3,7 @@ package io.github.magnusencoded.stationtostation.ui.flyover
 import android.widget.MediaController
 import android.net.Uri
 import android.widget.VideoView
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -64,11 +65,8 @@ import io.github.magnusencoded.stationtostation.BuildConfig
 import io.github.magnusencoded.stationtostation.MediaThumb
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredLog
-import io.github.magnusencoded.stationtostation.data.scheduledStart
 import io.github.magnusencoded.stationtostation.data.visibleToContacts
-import io.github.magnusencoded.stationtostation.data.weaveSetlist
-import io.github.magnusencoded.stationtostation.ui.EventRow
-import io.github.magnusencoded.stationtostation.ui.eventRows
+import io.github.magnusencoded.stationtostation.ui.TimelineNode
 import io.github.magnusencoded.stationtostation.ui.railColor
 import io.github.magnusencoded.stationtostation.ui.swipeRightToBack
 import io.github.magnusencoded.stationtostation.ui.verdictGlyph
@@ -140,42 +138,73 @@ fun GigFlyoverScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     val night = remember(
         media, state.friends, setlist.id, log, state.showsByFriend, checkedIn, state.festivals,
     ) {
-        val rows = setlist.eventRows()
         flyoverNight(
-            // One night is the N=1 case of the run. There is no second composer.
+            // One night is the N=1 case of the run. There is no second composer, and
+            // buildFlyoverGig is the one place a night's stored parts become the
+            // composer's input — a Collection's walk (#313) calls the same function
+            // once per Gig rather than a second, drifting copy of this assembly.
             gigs = listOf(
-                FlyoverGig(
-                    id = setlist.id,
-                    billboard = FlyoverBillboard(
-                        title = setlist.artist?.name ?: "Unknown artist",
-                        where = listOfNotNull(setlist.venueLine(), setlist.readableDate())
-                            .joinToString(" · "),
-                        chips = buildList {
-                            val performed = setlist.performed().size
-                            if (performed > 0) add("$performed songs")
-                            setlist.tour?.name?.let { add(it) }
-                            if (checkedIn) add("checked in")
-                        },
-                    ),
+                buildFlyoverGig(
+                    setlist = setlist,
                     media = media,
-                    rows = rows,
-                    woven = weaveSetlist(
-                        rows.map { (it as? EventRow.SongItem)?.song?.name },
-                        log.songs,
-                    ),
                     log = log,
-                    date = setlist.localDate(),
-                    // The second rung of the running order, sourced at last (#313): the
-                    // set times #166's festival-page parse found, for the nights that
-                    // are at a festival that published them. Null everywhere else, which
-                    // is most of the line — the ladder falls through to source order.
-                    startsAt = scheduledStart(setlist, state.festivals),
+                    festivals = state.festivals,
                     attended = state.showsByFriend
                         .filterValues { shows -> shows.any { it.id == setlist.id } }
                         .keys,
+                    checkedIn = checkedIn,
                 ),
             ),
             friends = state.friends,
+        )
+    }
+
+    Flyover(
+        night = night,
+        loadThumb = viewModel::photoPreview,
+        loadFull = viewModel::fullPhoto,
+        onBack = onBack,
+    )
+}
+
+/**
+ * The **Collection resolution**'s landscape face (#313): one **Walk** through a run of
+ * **Gigs**, concatenated. Not a screen of its own — [io.github.magnusencoded.stationtostation.ui.StationTimelineScreen]
+ * draws this over the **Line** when a Collection is open, the same way it holds the
+ * contact light, so leaving is a state change and not a pop.
+ *
+ * Everything below the assembly is the single **Gig** walk, unmodified: [collectionFlyoverGigs]
+ * and [collectionBillboard] are the only things a **Collection** adds, and [Flyover]
+ * itself has no idea whether the night it was handed is one Gig or a run of them.
+ */
+@Composable
+fun CollectionFlyoverScreen(viewModel: AppViewModel, node: TimelineNode.Several, onBack: () -> Unit) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+
+    // The platform back affordance leaves the resolution (story 22): this rung was
+    // entered by a non-gestural action, so it must be leavable by one too, and the
+    // system's own is the one every reader and every switch-access user already has.
+    // swipeRightToBack, registered inside [Flyover] below, stays as an additional way
+    // out — it is not this rung's only one.
+    BackHandler(onBack = onBack)
+
+    LaunchedEffect(Unit) { viewModel.loadFriendTimelines() }
+    val night = remember(
+        node, state.mediaBySetlist, state.friends, state.logsByGig, state.showsByFriend,
+        state.attendanceByGig, state.contactLight, state.festivals,
+    ) {
+        flyoverNight(
+            gigs = collectionFlyoverGigs(
+                node = node,
+                mediaBySetlist = state.mediaBySetlist,
+                logsByGig = state.logsByGig,
+                festivals = state.festivals,
+                showsByFriend = state.showsByFriend,
+                attendanceByGig = state.attendanceByGig,
+                contactLight = state.contactLight,
+            ),
+            friends = state.friends,
+            runBillboard = collectionBillboard(node),
         )
     }
 
