@@ -3,6 +3,7 @@ package io.github.magnusencoded.stationtostation.ui.flyover
 import android.widget.MediaController
 import android.net.Uri
 import android.widget.VideoView
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -65,6 +66,7 @@ import io.github.magnusencoded.stationtostation.MediaThumb
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.visibleToContacts
+import io.github.magnusencoded.stationtostation.ui.TimelineNode
 import io.github.magnusencoded.stationtostation.ui.railColor
 import io.github.magnusencoded.stationtostation.ui.swipeRightToBack
 import io.github.magnusencoded.stationtostation.ui.verdictGlyph
@@ -154,6 +156,55 @@ fun GigFlyoverScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                 ),
             ),
             friends = state.friends,
+        )
+    }
+
+    Flyover(
+        night = night,
+        loadThumb = viewModel::photoPreview,
+        loadFull = viewModel::fullPhoto,
+        onBack = onBack,
+    )
+}
+
+/**
+ * The **Collection resolution**'s landscape face (#313): one **Walk** through a run of
+ * **Gigs**, concatenated. Not a screen of its own — [io.github.magnusencoded.stationtostation.ui.StationTimelineScreen]
+ * draws this over the **Line** when a Collection is open, the same way it holds the
+ * contact light, so leaving is a state change and not a pop.
+ *
+ * Everything below the assembly is the single **Gig** walk, unmodified: [collectionFlyoverGigs]
+ * and [collectionBillboard] are the only things a **Collection** adds, and [Flyover]
+ * itself has no idea whether the night it was handed is one Gig or a run of them.
+ */
+@Composable
+fun CollectionFlyoverScreen(viewModel: AppViewModel, node: TimelineNode.Several, onBack: () -> Unit) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+
+    // The platform back affordance leaves the resolution (story 22): this rung was
+    // entered by a non-gestural action, so it must be leavable by one too, and the
+    // system's own is the one every reader and every switch-access user already has.
+    // swipeRightToBack, registered inside [Flyover] below, stays as an additional way
+    // out — it is not this rung's only one.
+    BackHandler(onBack = onBack)
+
+    LaunchedEffect(Unit) { viewModel.loadFriendTimelines() }
+    val night = remember(
+        node, state.mediaBySetlist, state.friends, state.logsByGig, state.showsByFriend,
+        state.attendanceByGig, state.contactLight, state.festivals,
+    ) {
+        flyoverNight(
+            gigs = collectionFlyoverGigs(
+                node = node,
+                mediaBySetlist = state.mediaBySetlist,
+                logsByGig = state.logsByGig,
+                festivals = state.festivals,
+                showsByFriend = state.showsByFriend,
+                attendanceByGig = state.attendanceByGig,
+                contactLight = state.contactLight,
+            ),
+            friends = state.friends,
+            runBillboard = collectionBillboard(node),
         )
     }
 
