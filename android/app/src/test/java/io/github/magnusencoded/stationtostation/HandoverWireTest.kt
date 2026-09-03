@@ -1,9 +1,11 @@
 package io.github.magnusencoded.stationtostation
 
+import io.github.magnusencoded.stationtostation.data.AccountsMove
 import io.github.magnusencoded.stationtostation.data.AccountsPayload
 import io.github.magnusencoded.stationtostation.data.Credentials
 import io.github.magnusencoded.stationtostation.data.Identities
 import io.github.magnusencoded.stationtostation.data.SealedManifest
+import io.github.magnusencoded.stationtostation.data.exchange.HandoverReceipt
 import io.github.magnusencoded.stationtostation.data.exchange.PinnedTrustManager
 import io.github.magnusencoded.stationtostation.data.exchange.certFingerprint
 import io.github.magnusencoded.stationtostation.data.exchange.copyExactly
@@ -13,6 +15,7 @@ import io.github.magnusencoded.stationtostation.data.exchange.readAccountsAck
 import io.github.magnusencoded.stationtostation.data.exchange.readAccountsStep
 import io.github.magnusencoded.stationtostation.data.exchange.readItemHeader
 import io.github.magnusencoded.stationtostation.data.exchange.readManifest
+import io.github.magnusencoded.stationtostation.data.exchange.readReceipt
 import io.github.magnusencoded.stationtostation.data.exchange.sslClientContext
 import io.github.magnusencoded.stationtostation.data.exchange.sslServerContext
 import io.github.magnusencoded.stationtostation.data.exchange.verifyLinkKey
@@ -22,6 +25,7 @@ import io.github.magnusencoded.stationtostation.data.exchange.writeEndOfItems
 import io.github.magnusencoded.stationtostation.data.exchange.writeFrame
 import io.github.magnusencoded.stationtostation.data.exchange.writeItem
 import io.github.magnusencoded.stationtostation.data.exchange.writeManifest
+import io.github.magnusencoded.stationtostation.data.exchange.writeReceipt
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -349,6 +353,50 @@ class HandoverWireTest {
 
         assertEquals("paper-cranes-fan", received?.identities?.setlistFmUser)
         assertTrue(received?.credentials?.isEmpty == true)
+    }
+
+    /**
+     * #143 story 9: the receipt is honest about the accounts step. Round-trips the field
+     * this test is named for, and — the compatibility case the task calls out — an older
+     * peer's receipt, encoded with no such key at all, must still decode rather than
+     * dropping the whole frame; `NOT_OFFERED` is the same honest default either way.
+     */
+    @Test
+    fun `the receipt's accounts outcome round-trips, and an older receipt with no such field decodes as not offered`() {
+        val (server, client) = handshake()
+        val serverThread = Thread {
+            writeReceipt(server, HandoverReceipt(landed = 1, requested = 1, accountsMove = AccountsMove.ACKNOWLEDGED))
+            writeFrame(server.getOutputStream(), "{\"landed\":2,\"requested\":2}".toByteArray())
+            server.close()
+        }
+        serverThread.start()
+
+        val current = readReceipt(client)
+        val fromOlderPeer = readReceipt(client)
+        serverThread.join(5000)
+        client.close()
+
+        assertEquals(AccountsMove.ACKNOWLEDGED, current?.accountsMove)
+        assertEquals(2, fromOlderPeer?.landed)
+        assertEquals(AccountsMove.NOT_OFFERED, fromOlderPeer?.accountsMove)
+    }
+
+    /**
+     * The credential-exclusion invariant, restated for the receipt (#143): it may report
+     * *that* accounts arrived, never any value that arrived with them. Structural, like
+     * `AccountsTest`'s "the manifest has no field that could hold one" — a field that could
+     * carry a token is the bug, whatever a test that only inspects values would show.
+     */
+    @Test
+    fun `HandoverReceipt has no field that could hold a credential`() {
+        val suspect = listOf("token", "credential", "secret", "refresh", "scope")
+        for (field in HandoverReceipt::class.java.declaredFields) {
+            val name = field.name.lowercase()
+            assertFalse(
+                "HandoverReceipt field '${field.name}' looks like it could carry a credential",
+                suspect.any { name.contains(it) },
+            )
+        }
     }
 
     @Test
