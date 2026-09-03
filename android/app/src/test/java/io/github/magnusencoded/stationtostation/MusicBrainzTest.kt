@@ -90,6 +90,61 @@ class MusicBrainzTest {
         assertEquals(3, ranked.size)
     }
 
+    // --- Ranking candidates against what was written, in isolation ---------------
+
+    /** The case that motivated this, with the real numbers behind it. */
+    @Test
+    fun `the contained title ranks first by a wide margin`() {
+        val catalogue = listOf("High and Apple Sweet", "Vardhavn", "Toothpicks and Gum", "Paper Cranes")
+        val ranked = rankTitles("All held together by toothpicks and gum", catalogue)
+
+        assertEquals("Toothpicks and Gum", ranked.first())
+        assertEquals("High and Apple Sweet", ranked[1]) // one word shared, and only one
+        assertEquals(catalogue.size, ranked.size) // the whole pool stays reachable
+    }
+
+    /** Punctuation is thrown away here exactly as it is everywhere recognition happens. */
+    @Test
+    fun `ranking ignores punctuation and case`() {
+        assertEquals(
+            "Don't Look Back",
+            rankTitles("i think it was dont look back", listOf("Vardhavn", "Don't Look Back")).first(),
+        )
+    }
+
+    /**
+     * Degrades to "nothing confident" rather than promoting a bad match: with no words
+     * in common the pool comes back in the order it came in.
+     */
+    @Test
+    fun `a line sharing no words with any title leaves the order alone`() {
+        val catalogue = listOf("Vardhavn", "Paper Cranes", "Hollowmoor")
+        assertEquals(catalogue, rankTitles("something else entirely", catalogue))
+        assertEquals(catalogue, rankTitles("", catalogue))
+    }
+
+    /**
+     * A title is not "contained" across a word boundary.
+     *
+     * `songKey` throws spacing away, so on its terms "Sand" sits inside
+     * "toothpick*s and* gum" — and containment is worth a whole point, so a
+     * two-word coincidence outranked the title the line actually names.
+     */
+    @Test
+    fun `a title spanning two words is not a contained match`() {
+        val ranked = rankTitles("All held together by toothpicks and gum", listOf("Sand", "Toothpicks and Gum"))
+
+        assertEquals("Toothpicks and Gum", ranked.first())
+    }
+
+    /** The same, with nothing to outrank it: a coincidence must not lead on its own. */
+    @Test
+    fun `a word-boundary coincidence does not beat a real word match`() {
+        val ranked = rankTitles("All held together by toothpicks and gum", listOf("Sand", "Gum"))
+
+        assertEquals("Gum", ranked.first())
+    }
+
     /**
      * Artist completion for a planned gig (#228). The four artists called Nirvana are the
      * reason the disambiguation comes back with the name.

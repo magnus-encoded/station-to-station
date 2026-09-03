@@ -418,9 +418,8 @@ func mediaKind(of ref: String) -> String {
 ///
 /// The keys declared here are the ones iOS *reads*. The ones it has never heard
 /// of — whatever Android adds next — are carried without being modelled, by
-/// `carryingUnknownKeys` on the way out (#168). `gigLogs` left that set in #169
-/// and `bills` in #172, both for the same reason: you cannot render a record you
-/// have not decoded.
+/// `carryingUnknownKeys` on the way out (#168). `gigLogs` left that set in #169,
+/// for the same reason: you cannot render a record you have not decoded.
 struct TimelineCache: Codable {
     /// Attended shows by setlist.fm username — mine and every friend's alike.
     var shows: [String: [FmSetlist]] = [:]
@@ -508,15 +507,6 @@ struct TimelineCache: Codable {
     /// (#97). No sort field on the record: deriving and correcting a night's
     /// arrangement is #75's subject, and a speculative field would prejudge it.
     var gigMedia: [String: [StoredMedia]] = [:]
-    /// The **Bills** on the wall, by id (#34/#93). Not keyed by a **Gig** because a
-    /// **Bill** is what exists *before* there are any: it holds names, not nights. The
-    /// **Gigs** it eventually mints are ordinary entries in `gigs`/`gigPlanned`, pointed
-    /// at from `StoredAct.gigId`.
-    ///
-    /// Modelled rather than carried raw, for `gigLogs`' reason and with its cost: this
-    /// platform reads it now, and `StoredBill`/`StoredAct` must move on both sides
-    /// together, because `carryingUnknownKeys` works on top-level keys only.
-    var bills: [String: StoredBill] = [:]
     /// The **Log** for each night, by **Gig** id (#169). See `StoredLog`.
     ///
     /// **This key stops being carried raw and starts being modelled**, which reverses
@@ -561,7 +551,6 @@ struct TimelineCache: Codable {
         gigPlanned = map(.gigPlanned, FmSetlist.self)
         gigMedia = map(.gigMedia, [StoredMedia].self)
         gigLogs = map(.gigLogs, StoredLog.self)
-        bills = map(.bills, StoredBill.self)
     }
 
     /// The id this gig is known by *outside* the store: its setlist.fm id where it
@@ -885,24 +874,6 @@ actor TimelineStore {
         }
     }
 
-    /// A **Bill**, replacing whatever was under its id. The whole record, every time.
-    func saveBill(_ bill: StoredBill) {
-        writeMerged { cache in
-            var c = cache
-            c.bills[bill.id] = bill
-            return c
-        }
-    }
-
-    /// Takes a **Bill** off the wall. The **Gigs** its **Acts** became are *not*
-    /// touched: they are nights that happened, and they outlive the poster.
-    func removeBill(_ billId: String) {
-        writeMerged { cache in
-            var c = cache
-            c.bills.removeValue(forKey: billId)
-            return c
-        }
-    }
 
     /// Drops one playlist link from a night — the Spotify playlist itself was
     /// deleted outside the app, so the pointer to it is now dead weight.
@@ -1011,12 +982,12 @@ actor TimelineStore {
     /// does not model at all (#168).
     ///
     /// `Codable` drops what it never decoded, so without this the first save from
-    /// here erases whatever Android has learned to write since — and `bills` and
-    /// `gigLogs` are the two records in this app with no upstream, so a setlist.fm
-    /// pull cannot put them back. That is data loss, not scope, which is the rule
-    /// `TimelineCache` states about itself. Both are modelled here now (#172), which
-    /// narrows what this catches without removing the need for it: the *next* key the
-    /// other side adds is the case this exists for, and there is always a next one.
+    /// here erases whatever Android has learned to write since — and `gigLogs` is a
+    /// record in this app with no upstream, so a setlist.fm pull cannot put it back.
+    /// That is data loss, not scope, which is the rule `TimelineCache` states about
+    /// itself. It is modelled here now (#172), which narrows what this catches
+    /// without removing the need for it: the *next* key the other side adds is the
+    /// case this exists for, and there is always a next one.
     ///
     /// Carried raw rather than modelled: five Swift types for records this
     /// platform never reads would fix exactly today's five, and break again on

@@ -83,14 +83,6 @@ struct UiState {
     /// lane and joins the Spine — so a write that changes a claim has to land here too,
     /// or the night stays put until the next cold start.
     var attendanceByGig: [String: StoredAttendance] = [:]
-    /// The id of the **Bill** whose song pools are being looked up right now, if any.
-    /// One at a time: the lookups are sequential and the line that reports them is one
-    /// line, so a second in flight would have nowhere truthful to say so.
-    var billFetching: String?
-    /// The **Bills** on the wall (#172) — festivals whose **Gigs** do not exist yet.
-    /// A list, not a map, because the future lane draws them in one order with the
-    /// tickets and nothing looks one up by id except an edit.
-    var bills: [StoredBill] = []
     /// The calendar event made for a planned gig, by gig id — EventKit's
     /// `eventIdentifier`. Presence is what the leaf reads as "already added".
     var calendarEventByGig: [String: String] = [:]
@@ -295,7 +287,6 @@ final class AppModel: ObservableObject {
             let cache = await timelines.load()
             state.plannedGigs = sortedPlanned(cache.planned())
             state.attendanceByGig = cache.attendance()
-            state.bills = Array(cache.bills.values).sorted { $0.name < $1.name }
             state.calendarEventByGig = cache.calendarEvents()
             // The Timeline draws keepsakes on its rows, so this has to be here before
             // any night is opened — and this already reads the cache at launch and
@@ -303,85 +294,6 @@ final class AppModel: ObservableObject {
             state.mediaBySetlist = cache.media()
             state.playlistsBySetlist = cache.playlists()
             state.hiddenAt = cache.hiddenLines
-        }
-    }
-
-    /// Adds a gig I'm going to, from whatever was pasted off setlist.fm — the page url
-    /// or the bare id.
-    ///
-    /// Fetched by id, never searched: setlist.fm's search index stops about a day out
-    /// (#29), so a show weeks away cannot be found by artist, venue or date — only
-    /// asked for by the id sitting in the url of the page the user was on.
-    /// Puts a **Bill** on the wall.
-    ///
-    /// Written unconditionally and with no network in it at all: entering a lineup has
-    /// to work with the radio off, because the one place it definitely will not run is
-    /// inside the enclosure. Android also goes looking for each **Act**'s song pool
-    /// here — that is `fetchCandidates`, and it is the next split of #172.
-    func addBill(name: String, city: String, from: String, to: String, lineup: String) {
-        let acts = parseLineup(lineup)
-        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !acts.isEmpty else {
-            state.error = "A bill needs a name and at least one act."
-            return
-        }
-        let bill = StoredBill(
-            id: UUID().uuidString.lowercased(),
-            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
-            city: city.trimmingCharacters(in: .whitespacesAndNewlines),
-            from: from.trimmingCharacters(in: .whitespacesAndNewlines),
-            to: to.trimmingCharacters(in: .whitespacesAndNewlines),
-            acts: acts
-        )
-        state.bills.append(bill)
-        Task { await timelines.saveBill(bill) }
-    }
-
-    /// Takes a **Bill** off the wall. The **Gigs** its **Acts** became are *not*
-    /// touched: they are nights that happened, and they outlive the poster.
-    func removeBill(_ billId: String) {
-        state.bills.removeAll { $0.id == billId }
-        Task { await timelines.removeBill(billId) }
-    }
-
-    /// An **Act** becomes a **Gig** I was at — the field gesture the whole **Bill**
-    /// exists for.
-    ///
-    /// The night comes from `gigNight`, which refuses outright rather than guessing: the
-    /// invariant is that a **Gig** minted from a **Bill** is dated inside that Bill's
-    /// range, and a tap on the day after the festival ended has no honest answer.
-    ///
-    /// The venue is deliberately blank. A **Bill**'s name is the festival, not the room,
-    /// and writing "Nordlys Fields" where setlist.fm will one day say "Verandaen, Skotbu"
-    /// does not merely look wrong — it stops this night ever recognising itself in the
-    /// published record of the same night. Blank resolves itself; a wrong answer does not.
-    ///
-    /// Tapped with no night chosen means "tonight", and that is a check-in — I am
-    /// standing here. Picked off the range afterwards is `attended`: still my own
-    /// evidence, but not a claim about where I am now.
-    func markActPlayed(billId: String, actIndex: Int, chosen: String? = nil,
-                       now: Date = Date()) {
-        guard let bill = state.bills.first(where: { $0.id == billId }),
-              actIndex < bill.acts.count else { return }
-        let act = bill.acts[actIndex]
-        guard act.gigId == nil else { return }
-        guard let night = gigNight(bill, chosen: chosen, now: now) else { return }
-        Task {
-            let gigId = await timelines.createLocalGig(date: night, artist: act.name, venue: "")
-            let gig = localGigSetlist(gigId: gigId, artist: act.name, date: night,
-                                      venue: "", city: bill.city)
-            await timelines.savePlanned(gig)
-            let attendance = chosen == nil
-                ? StoredAttendance(provenance: "checked_in",
-                                   checkedInAt: Int64(Date().timeIntervalSince1970 * 1000))
-                : StoredAttendance(provenance: "attended")
-            await timelines.saveAttendance(setlistId: gigId, attendance: attendance)
-            state.plannedGigs = sortedPlanned(state.plannedGigs + [gig])
-            state.attendanceByGig[gigId] = attendance
-            editBill(billId) { bill in
-                var edited = bill
-                edited.acts[actIndex].gigId = gigId
-                return edited
-            }
         }
     }
 
@@ -398,17 +310,10 @@ final class AppModel: ObservableObject {
             .count
     }
 
-    /// A night deleted from its own screen — the deliberate one, as opposed to
-    /// `unmarkAct`'s undo of a mistap.
+    /// A night deleted from its own screen.
     ///
-    /// It exists because `unmarkAct` was the *only* route to `TimelineStore.deleteGig`
-    /// and it needs an **Act** on a live **Bill** to reach a gig. Remove the Bill, or
-    /// type a night in by hand at all (#347, #349), and the night is stranded: nothing
-    /// points at it and nothing can delete it. Deletion must not depend on the poster
-    /// still being up.
-    ///
-    /// Unlike the undo this takes the media with it, because someone reading the
-    /// night's own screen can see what is on it.
+    /// Unlike the mistap undo this takes the media with it, because someone reading
+    /// the night's own screen can see what is on it.
     func deleteLocalGig(_ gigId: String) {
         let media = state.mediaBySetlist[gigId] ?? []
         state.plannedGigs.removeAll { $0.id == gigId }
@@ -419,18 +324,6 @@ final class AppModel: ObservableObject {
         if state.selectedSetlist?.id == gigId {
             state.selectedSetlist = nil
             state.gigLog = StoredLog()
-        }
-        // An act still pointing at a deleted night would offer an undo for something
-        // that is gone. The poster keeps the act; it just stops claiming a gig,
-        // exactly as `unmarkAct` leaves it.
-        for bill in state.bills where bill.acts.contains(where: { $0.gigId == gigId }) {
-            editBill(bill.id) { b in
-                var edited = b
-                for i in edited.acts.indices where edited.acts[i].gigId == gigId {
-                    edited.acts[i].gigId = nil
-                }
-                return edited
-            }
         }
         Task {
             guard await timelines.deleteGig(gigId, withMedia: true) else { return }
@@ -474,10 +367,10 @@ final class AppModel: ObservableObject {
     /// taking only a setlist.fm link on two grounds. The first still holds —
     /// setlist.fm's search index stops about a day out (#29), so a future gig cannot
     /// be *found*. The second, that typing the details in would invent a second record
-    /// for a gig setlist.fm already has, has not been true since the **Bill** shipped:
-    /// `markActPlayed` mints local **Gig**s for nights setlist.fm has never heard of,
-    /// and `adoptSetlistLink` moves one onto the vendor id when setlist.fm catches up,
-    /// with every photo, offset, calendar link and playlist intact.
+    /// for a gig setlist.fm already has, is no longer true: `createLocalGig` mints
+    /// local **Gig**s for nights setlist.fm has never heard of, and `adoptSetlistLink`
+    /// moves one onto the vendor id when setlist.fm catches up, with every photo,
+    /// offset, calendar link and playlist intact.
     ///
     /// **No attendance is written**, which is the whole difference from `addLocalGig`.
     /// `savePlanned` records `planned` for a gig with no claim on it, and a night I
@@ -507,9 +400,8 @@ final class AppModel: ObservableObject {
     /// A night I was at that setlist.fm has never heard of, typed in.
     ///
     /// The only way into this app that does not end at setlist.fm: no account, no API
-    /// key, no catalogue — the poster in the window, the small venue nobody lists. It
-    /// is the same `createLocalGig` a **Bill** mints an **Act**'s night with, reached
-    /// from the other side.
+    /// key, no catalogue — the small venue nobody lists. It is the same
+    /// `createLocalGig` a planned night is minted with, reached from the other side.
     ///
     /// **Attended**, because that is what typing it in claims. The night therefore
     /// joins the Spine rather than the future lane, which is `spineNights`' whole
@@ -634,209 +526,6 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// A mistap, undone — and what "undone" means depends on where the act came from.
-    ///
-    /// An act off the **Bill** goes back to having no night: the poster still says it is
-    /// playing, so there is something to return to. A **Surprise** was typed by hand and
-    /// has nothing to return to, so the whole act goes with the night.
-    ///
-    /// Refused when the night has media on it. That is not a mistap, and the photographs
-    /// are irreplaceable — the act stops being on the **Bill** and the night stays,
-    /// reachable as an ordinary night above today.
-    func unmarkAct(billId: String, actIndex: Int) {
-        guard let bill = state.bills.first(where: { $0.id == billId }),
-              actIndex < bill.acts.count else { return }
-        let act = bill.acts[actIndex]
-        guard act.gigId != nil || act.surprise else { return }
-        if let gigId = act.gigId {
-            state.plannedGigs.removeAll { $0.id == gigId }
-            state.timelineShows.removeAll { $0.id == gigId }
-            state.attendanceByGig[gigId] = nil
-        }
-        Task {
-            // An undated Surprise — a typo caught before it was ever tapped — has no gig
-            // to strip, only an act to drop.
-            var gone = true
-            if let gigId = act.gigId { gone = await timelines.deleteGig(gigId) }
-            let dropped = gone
-            editBill(billId) { bill in
-                var edited = bill
-                if act.surprise && dropped {
-                    edited.acts.remove(at: actIndex)
-                } else {
-                    edited.acts[actIndex].gigId = nil
-                }
-                return edited
-            }
-            if !gone { state.notice = "That night has photos on it, so it's been kept." }
-        }
-    }
-
-    /// Fills in every unanswered **Act**'s candidate songs from setlist.fm.
-    ///
-    /// Opportunistic, never scheduled: opening a **Bill** that still holds acts nobody
-    /// has an answer for is the reason to think a lookup might work. Not a timer, not a
-    /// background job, no retry loop — in the enclosure it fails once and stops, and
-    /// re-opening the **Bill** is the retry, a gesture someone makes when they have a
-    /// reason to.
-    ///
-    /// An act is skipped once setlist.fm has *answered* about it, empty or not (see
-    /// `StoredAct.tried`) — so a small local act nobody has ever logged costs one lookup
-    /// in its life, while an act missed for want of signal is asked again.
-    ///
-    /// ponytail: sequential, one artist at a time. A lineup is a dozen names and this
-    /// runs on a screen being looked at. Parallelise if a hundred-act bill turns up.
-    func fetchCandidates(_ billId: String) {
-        guard state.billFetching == nil else { return }
-        let pending = (state.bills.first { $0.id == billId }?.acts ?? [])
-            .enumerated()
-            .filter { !$0.element.tried && $0.element.candidates.isEmpty }
-        guard !pending.isEmpty else { return }
-        state.billFetching = billId
-        Task {
-            defer { state.billFetching = nil }
-            for (i, act) in pending {
-                // A thrown request is *no answer*: leave the act untried so the next
-                // open asks again. Only a reply — including "no such artist" — settles
-                // the question.
-                guard let found = try? await setlistFm.searchArtists(act.name) else { continue }
-                // The first exact-name match, and there may be five of them — which
-                // artist this landed on is recorded and shown, because a pool whose
-                // source is unnamed cannot be distrusted.
-                let artist = found.artist.first { $0.name.lowercased() == act.name.lowercased() }
-                var songs: [String] = []
-                if let artist {
-                    guard let sets = try? await setlistFm.artistSetlists(artist.mbid) else { continue }
-                    songs = candidateSongs(sets.setlist)
-                }
-                // Re-read each time: the field may have dated this act in between, and a
-                // stale snapshot written back would undo it.
-                editBill(billId) { bill in
-                    var edited = bill
-                    guard i < edited.acts.count else { return edited }
-                    edited.acts[i].candidates = songs
-                    edited.acts[i].matchedArtist = artist
-                        .map { artistLabel(name: $0.name, disambiguation: $0.disambiguation) } ?? ""
-                    edited.acts[i].mbid = artist?.mbid ?? ""
-                    edited.acts[i].tried = true
-                    return edited
-                }
-            }
-        }
-    }
-
-    /// The name on the poster, corrected — and asked about again.
-    ///
-    /// A lineup is copied off a wall, and the wall is not authoritative about spelling:
-    /// the history says *The* Silent Majority where the programme says Silent Majority,
-    /// and `fetchCandidates` matches on the exact name, so one character is the
-    /// difference between a song pool and "no setlist.fm history". Rather than guess at
-    /// normalising names nobody has seen, let the person standing in front of the stage
-    /// fix it and ask upstream again.
-    ///
-    /// Clearing `tried` is the point: it is what makes the act eligible for a lookup at
-    /// all, and the pool, matched artist and mbid go with it because they describe an
-    /// answer to the *old* name.
-    ///
-    /// The night, if the act already has one, is deliberately untouched — it is a record
-    /// of what happened, not a line on a poster.
-    func renameAct(billId: String, actIndex: Int, name: String) {
-        let corrected = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let bill = state.bills.first(where: { $0.id == billId }),
-              actIndex < bill.acts.count,
-              !corrected.isEmpty, corrected != bill.acts[actIndex].name else { return }
-        editBill(billId) { bill in
-            var edited = bill
-            edited.acts[actIndex].name = corrected
-            edited.acts[actIndex].candidates = []
-            edited.acts[actIndex].matchedArtist = ""
-            edited.acts[actIndex].mbid = ""
-            edited.acts[actIndex].tried = false
-            return edited
-        }
-        fetchCandidates(billId)
-    }
-
-    /// An **Act** that never was on the poster. Added already dated, because a
-    /// **Surprise** is only ever discovered after it has happened — there is no state in
-    /// which an unannounced act is pending.
-    ///
-    /// Dated by the same rule as any other act, and refused outright when there is no
-    /// honest date to give it: a hand-typed act is the easiest place of all to fabricate
-    /// a night, not an exception to the invariant.
-    func addSurpriseAct(billId: String, name: String, chosen: String? = nil,
-                        now: Date = Date()) {
-        let typed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !typed.isEmpty,
-              let bill = state.bills.first(where: { $0.id == billId }),
-              gigNight(bill, chosen: chosen, now: now) != nil else { return }
-        let at = bill.acts.count
-        editBill(billId) { bill in
-            var edited = bill
-            edited.acts.append(StoredAct(name: typed, surprise: true))
-            return edited
-        }
-        markActPlayed(billId: billId, actIndex: at, chosen: chosen, now: now)
-    }
-
-    /// The pool came from the wrong band. Name one song you *know* they play, and the
-    /// right one is found by it.
-    ///
-    /// A picker would ask "which of these five identically-named artists?", which nobody
-    /// standing in a field can answer — the names are identical, that is the entire
-    /// problem. "Name a song you know they play" is always answerable and is
-    /// *meaningful*: it is the fact that actually distinguishes them.
-    ///
-    /// Done by pulling each same-named artist's recent setlists and looking, because
-    /// there is no other way: `/search/setlists` has no song parameter. Cost is one
-    /// extra request per namesake, on a deliberate tap.
-    ///
-    /// The named song is used to *identify* and is never written into the **Log**.
-    /// Naming a song a band is known for is not a claim that they played it tonight, and
-    /// quietly recording it as one would be the exact fabrication this feature avoids.
-    func disambiguateAct(gigId: String, song: String) {
-        let named = song.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !named.isEmpty, state.billFetching == nil,
-              let bill = state.bills.first(where: { b in b.acts.contains { $0.gigId == gigId } }),
-              let index = bill.acts.firstIndex(where: { $0.gigId == gigId })
-        else { return }
-        let act = bill.acts[index]
-        state.billFetching = bill.id
-        Task {
-            defer { state.billFetching = nil }
-            guard let found = try? await setlistFm.searchArtists(act.name) else {
-                state.error = "Couldn't reach setlist.fm to check."
-                return
-            }
-            let namesakes = found.artist.filter { $0.name.lowercased() == act.name.lowercased() }
-            for artist in namesakes {
-                guard let sets = try? await setlistFm.artistSetlists(artist.mbid) else { continue }
-                guard playsSong(sets.setlist, named) else { continue }
-                let label = artistLabel(name: artist.name, disambiguation: artist.disambiguation)
-                let pool = candidateSongs(sets.setlist)
-                editBill(bill.id) { b in
-                    var edited = b
-                    guard index < edited.acts.count else { return edited }
-                    edited.acts[index].candidates = pool
-                    edited.acts[index].matchedArtist = label
-                    edited.acts[index].mbid = artist.mbid
-                    edited.acts[index].tried = true
-                    return edited
-                }
-                // The label, never the bare name. The name is the ambiguous string —
-                // five bands answer to it — so "songs are from Silent Majority" confirms
-                // nothing at all. What distinguishes them is the disambiguation, and the
-                // song count says the swap actually landed.
-                state.notice = "\(label) — \(pool.count) songs, from \"\(named)\"."
-                return
-            }
-            // Honest dead end. The pool is left exactly as it was rather than cleared: a
-            // pool that might be wrong still beats no pool, and it is labelled with
-            // whose it is.
-            state.error = "No band called \(act.name) has \"\(named)\" logged on setlist.fm."
-        }
-    }
-
     /// A night this app minted, now catalogued on setlist.fm, takes their id.
     ///
     /// A pasted link rather than a search by artist and date. #34 sketched the search,
@@ -860,40 +549,7 @@ final class AppModel: ObservableObject {
             state.attendanceByGig[fresh.id] = await timelines.savePlanned(fresh)
             state.plannedGigs = sortedPlanned(state.plannedGigs.filter { $0.id != gigId } + [fresh])
             if state.selectedSetlist?.id == gigId { state.selectedSetlist = fresh }
-            // An **Act** holds the id its night was minted with, and the line above just
-            // changed the id that night is known by. Left alone the poster points at
-            // nothing: the act's "open" leads nowhere, so the songs whoever typed them in
-            // are unreachable — and because the lane hides a ticket only when some act
-            // claims its id, the night draws a second time beside the **Bill** it
-            // belongs to.
-            repointActs(from: gigId, to: fresh.id)
         }
-    }
-
-    /// Moves every **Act**'s pointer from one gig id to another — the other half of
-    /// adoption, which renames a night without moving any of its data.
-    ///
-    /// Touches only the **Bills** that actually point at `from`, so publishing one act
-    /// does not rewrite a festival's whole poster.
-    private func repointActs(from: String, to: String) {
-        for bill in state.bills where bill.acts.contains(where: { $0.gigId == from }) {
-            editBill(bill.id) { b in
-                var edited = b
-                for i in edited.acts.indices where edited.acts[i].gigId == from {
-                    edited.acts[i].gigId = to
-                }
-                return edited
-            }
-        }
-    }
-
-    /// One **Bill**, changed in state and on disk together. Every edit goes through here
-    /// so the two cannot drift.
-    private func editBill(_ billId: String, _ change: (StoredBill) -> StoredBill) {
-        guard let i = state.bills.firstIndex(where: { $0.id == billId }) else { return }
-        let edited = change(state.bills[i])
-        state.bills[i] = edited
-        Task { await timelines.saveBill(edited) }
     }
 
     func addPlannedGig(_ linkOrId: String) {

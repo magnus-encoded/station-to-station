@@ -10,6 +10,35 @@ final class FilingTests: XCTestCase {
         localGigSetlist(gigId: "local-1", artist: artist, date: date, venue: venue, city: city)
     }
 
+    // --- The Gig a local night becomes ------------------------------------------
+
+    func testALocalGigCarriesItsOwnIdAndNoSetlistFmPage() {
+        let g = localGigSetlist(gigId: "local-1", artist: "Velvet Ditch", date: "06-08-2026",
+                                venue: "Nordlys Fields 2026", city: "Norway")
+        XCTAssertEqual("local-1", g.id)
+        XCTAssertEqual("06-08-2026", g.eventDate)
+        XCTAssertEqual("Velvet Ditch", g.artist?.name)
+        XCTAssertEqual("Nordlys Fields 2026", g.venue?.name)
+        XCTAssertNil(g.url)
+        XCTAssertTrue(g.isLocal)
+    }
+
+    func testALocalGigNeverCarriesSongsThoseAreTheLogsNotASetlists() {
+        let g = localGigSetlist(gigId: "local-1", artist: "Halden Drift", date: "07-08-2026",
+                                venue: "Nordlys Fields", city: "")
+        XCTAssertTrue(g.performed().isEmpty)
+        XCTAssertNil(g.sets)
+    }
+
+    func testABlankVenueIsUnknownRatherThanAPlaceTwoGigsShare() {
+        // Nil, not "": empty strings compare equal, so two nights that merely both lack
+        // a venue would cluster as one place (#128).
+        let g = localGigSetlist(gigId: "a", artist: "Nord&Nord", date: "06-08-2026",
+                                venue: "", city: "")
+        XCTAssertNil(g.venue?.name)
+        XCTAssertNil(g.venue?.city?.name)
+    }
+
     // --- The paste -------------------------------------------------------------
 
     func testThePasteIsBareTitlesOnePerLineInTheOrderTheyWerePlayed() {
