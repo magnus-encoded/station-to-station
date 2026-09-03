@@ -1,5 +1,6 @@
 package io.github.magnusencoded.stationtostation.data.exchange
 
+import io.github.magnusencoded.stationtostation.data.AccountsMove
 import io.github.magnusencoded.stationtostation.data.AccountsPayload
 import io.github.magnusencoded.stationtostation.data.SealedManifest
 import kotlinx.serialization.Serializable
@@ -326,6 +327,13 @@ fun readRequest(socket: Socket): List<String> {
  *
  * [countMismatch] is the one field that is not a tally but a verdict: the manifest's own
  * per-category counts, sealed inside the tag, disagreed with the items it listed.
+ *
+ * [accountsMove] is #143 story 9: whether the accounts step was part of this handover and
+ * what became of it, reusing `Accounts.kt`'s own [AccountsMove] rather than a second
+ * vocabulary. [AccountsMove.NOT_OFFERED] is both "the row was not ticked" and "an older
+ * peer's receipt, decoded with no such field" — the same honest default either way: say
+ * nothing about a step that was not offered. **Never a credential value** — this is a
+ * verdict on the step, not the payload that carried it.
  */
 @Serializable
 data class HandoverReceipt(
@@ -339,6 +347,7 @@ data class HandoverReceipt(
     val countMismatch: Boolean = false,
     /** Empty when it went through; otherwise what went wrong, in the receiver's words. */
     val trouble: String = "",
+    val accountsMove: AccountsMove = AccountsMove.NOT_OFFERED,
 )
 
 fun writeReceipt(socket: Socket, receipt: HandoverReceipt) =
