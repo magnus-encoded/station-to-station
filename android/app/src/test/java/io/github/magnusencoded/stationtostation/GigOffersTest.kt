@@ -36,6 +36,7 @@ class GigOffersTest {
         setlistId: String? = null,
         songs: Int = 0,
         calendarEvent: String? = null,
+        ticketQrBytes: ByteArray? = null,
     ) = GigAsKnown(
         window = nightWindow(date),
         provenance = provenance,
@@ -43,6 +44,7 @@ class GigOffersTest {
         setlistId = setlistId,
         songCount = songs,
         calendarEvent = calendarEvent,
+        ticketQrBytes = ticketQrBytes,
     )
 
     private val openLog = StoredLog(songs = listOf("Hollowmoor", ""), closed = false)
@@ -81,6 +83,32 @@ class GigOffersTest {
         assertEquals(Alcove.NONE, o.alcove)
         assertEquals(Curtain.CHECK_EVENT, o.curtain)
         assertTrue(o.room.checkIn)
+    }
+
+    @Test
+    fun `a ticket's QR shows before check-in`() {
+        val o = offers(night(provenance = planned, ticketQrBytes = byteArrayOf(1, 2, 3)))
+        assertTrue(o.room.showQr)
+    }
+
+    @Test
+    fun `no ticket, no QR — never a placeholder`() {
+        val o = offers(night(provenance = planned))
+        assertFalse(o.room.showQr)
+    }
+
+    @Test
+    fun `checking in retires the QR — the claim is already made`() {
+        val o = offers(night(provenance = checkedIn, ticketQrBytes = byteArrayOf(1, 2, 3)))
+        assertFalse(o.room.showQr)
+    }
+
+    @Test
+    fun `the gate is checked-in specifically, not any claim at all`() {
+        // `attended` is not `checkedIn` — an imported night with a ticket byte still
+        // shows the QR, because nothing here has claimed I stood in this room.
+        val o = offers(night(provenance = attended, ticketQrBytes = byteArrayOf(1, 2, 3)))
+        assertTrue(o.room.showQr)
     }
 
     @Test

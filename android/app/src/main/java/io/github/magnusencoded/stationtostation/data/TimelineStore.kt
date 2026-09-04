@@ -58,6 +58,16 @@ data class StoredAttendance(
     /** Geocoded once by #33, reused for its proximity check. Null until resolved. */
     val venueLat: Double? = null,
     val venueLon: Double? = null,
+    /**
+     * The ticket's own QR, decoded off the PDF once and kept — not this device's
+     * check-in QR, the venue's. Preserved even when #411's text parse fails, so the
+     * code is still here for the day-of Room (#413) to show at the door.
+     *
+     * Placeholder shape pending #411 landing on `main`: that issue decodes the QR via
+     * zxing and stores the raw payload "against the resulting attendance/gig record"
+     * without pinning a field name. Reconcile this with whatever #411 actually lands.
+     */
+    val ticketQrBytes: ByteArray? = null,
 ) {
     /** Evidence strength, weakest first. Room for `attested` later; not built yet. */
     object Provenance {
