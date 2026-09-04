@@ -41,11 +41,27 @@ struct StoredLog: Codable, Equatable {
     /// them so: that place is the four functions below, and nothing else may edit
     /// `songs` directly.
     var remembered: [String] = []
+    /// When each entry was typed — epoch millis, set once by `adding` and never
+    /// touched again. Parallel to `songs`, same length.
+    ///
+    /// Deliberately the moment of *entry*, not a guess at when the song started. A
+    /// **Log** is written in the dark, one-handed, often a beat behind the band, so
+    /// "when I typed this" is the one fact the phone can state without asking the user
+    /// to be more certain than they are. Correcting a title (`correctingAt`) does not
+    /// move it — the memory was written at that moment even if the word for it changed
+    /// later. This is the primitive later work (crowd corroboration of a set's timing,
+    /// the landscape walk's photo-to-song reconstruction) builds on; nothing here does
+    /// that inference yet.
+    ///
+    /// An older cache has no `enteredAt` at all, which decodes as "unknown" (`0`) per
+    /// entry — never backfilled, never guessed.
+    var enteredAt: [Int64] = []
 
-    init(songs: [String] = [], closed: Bool = false, remembered: [String] = []) {
+    init(songs: [String] = [], closed: Bool = false, remembered: [String] = [], enteredAt: [Int64] = []) {
         self.songs = songs
         self.closed = closed
         self.remembered = remembered
+        self.enteredAt = enteredAt
     }
 
     // By hand rather than synthesized, so a missing key falls back to the default
@@ -56,6 +72,7 @@ struct StoredLog: Codable, Equatable {
         songs = (try? c.decodeIfPresent([String].self, forKey: .songs)) ?? nil ?? []
         closed = (try? c.decodeIfPresent(Bool.self, forKey: .closed)) ?? nil ?? false
         remembered = (try? c.decodeIfPresent([String].self, forKey: .remembered)) ?? nil ?? []
+        enteredAt = (try? c.decodeIfPresent([Int64].self, forKey: .enteredAt)) ?? nil ?? []
     }
 
     /// Songs actually named. A **Gap** is in the record but is not a title.
@@ -69,18 +86,30 @@ struct StoredLog: Codable, Equatable {
         return remembered[i]
     }
 
+    /// When entry `i` was typed, or nil where no timestamp was ever recorded.
+    func enteredAtOrNull(_ i: Int) -> Int64? {
+        guard i >= 0, i < enteredAt.count, enteredAt[i] != 0 else { return nil }
+        return enteredAt[i]
+    }
+
     /// A song, at the end, in the order it was tapped in.
-    func adding(_ song: String) -> StoredLog {
-        StoredLog(songs: songs + [song], closed: closed, remembered: aligned() + [""])
+    func adding(_ song: String, now: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) -> StoredLog {
+        StoredLog(
+            songs: songs + [song],
+            closed: closed,
+            remembered: aligned() + [""],
+            enteredAt: alignedTimestamps() + [now]
+        )
     }
 
     /// One entry gone, and the words behind it with it.
     func removingAt(_ i: Int) -> StoredLog {
         guard i >= 0, i < songs.count else { return self }
-        var s = songs, r = aligned()
+        var s = songs, r = aligned(), t = alignedTimestamps()
         s.remove(at: i)
         r.remove(at: i)
-        return StoredLog(songs: s, closed: closed, remembered: r)
+        t.remove(at: i)
+        return StoredLog(songs: s, closed: closed, remembered: r, enteredAt: t)
     }
 
     /// `i` becomes `title`, and what was there moves into `remembered`.
@@ -96,7 +125,7 @@ struct StoredLog: Codable, Equatable {
         var s = songs, r = aligned()
         if r[i].isBlank { r[i] = songs[i] }
         s[i] = title
-        return StoredLog(songs: s, closed: closed, remembered: r)
+        return StoredLog(songs: s, closed: closed, remembered: r, enteredAt: alignedTimestamps())
     }
 
     /// The words come back as the entry. A wrong correction is never a one-way door.
@@ -105,12 +134,17 @@ struct StoredLog: Codable, Equatable {
         var s = songs, r = aligned()
         s[i] = line
         r[i] = ""
-        return StoredLog(songs: s, closed: closed, remembered: r)
+        return StoredLog(songs: s, closed: closed, remembered: r, enteredAt: alignedTimestamps())
     }
 
     /// `remembered` at `songs`'s length: an older cache carries none at all.
     private func aligned() -> [String] {
         (0..<songs.count).map { $0 < remembered.count ? remembered[$0] : "" }
+    }
+
+    /// `enteredAt` at `songs`'s length: an older cache carries none at all.
+    private func alignedTimestamps() -> [Int64] {
+        (0..<songs.count).map { $0 < enteredAt.count ? enteredAt[$0] : 0 }
     }
 }
 

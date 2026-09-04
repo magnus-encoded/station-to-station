@@ -143,4 +143,48 @@ final class StoredLogTests: XCTestCase {
 
         XCTAssertEqual(log, try JSONDecoder().decode(StoredLog.self, from: data))
     }
+
+    // MARK: - Entry timestamps (#409)
+
+    func testAddingStampsTheNewEntryWithTheGivenTime() {
+        let log = StoredLog().adding("Vardhavn", now: 1_000)
+
+        XCTAssertEqual(1_000, log.enteredAtOrNull(0))
+    }
+
+    func testCorrectingLeavesAnEntrysTimestampUntouched() {
+        let log = StoredLog(songs: ["all held together by toothpicks"], enteredAt: [1_000])
+            .correctingAt(0, title: "Toothpicks and Gum")
+
+        XCTAssertEqual(1_000, log.enteredAtOrNull(0))
+    }
+
+    func testRestoringLeavesAnEntrysTimestampUntouched() {
+        let log = StoredLog(songs: ["all held together by toothpicks"], enteredAt: [1_000])
+            .correctingAt(0, title: "Toothpicks and Gum")
+            .restoringAt(0)
+
+        XCTAssertEqual(1_000, log.enteredAtOrNull(0))
+    }
+
+    func testALogWrittenBeforeEnteredAtExistedReadsAsUnknownNeverFabricated() {
+        // No `enteredAt` at all decodes as "unknown" per entry — never backfilled.
+        let old = StoredLog(songs: ["Vardhavn", "Paper Cranes"], closed: false, enteredAt: [])
+
+        XCTAssertNil(old.enteredAtOrNull(0))
+        XCTAssertNil(old.enteredAtOrNull(1))
+
+        let added = old.adding("Hollowmoor", now: 2_000)
+        XCTAssertNil(added.enteredAtOrNull(0))
+        XCTAssertNil(added.enteredAtOrNull(1))
+        XCTAssertEqual(2_000, added.enteredAtOrNull(2))
+    }
+
+    func testAMissingEnteredAtKeyDecodesToTheDefaultRatherThanThrowing() throws {
+        let json = Data(#"{"songs":["Vardhavn"]}"#.utf8)
+        let log = try JSONDecoder().decode(StoredLog.self, from: json)
+
+        XCTAssertEqual([], log.enteredAt)
+        XCTAssertNil(log.enteredAtOrNull(0))
+    }
 }
