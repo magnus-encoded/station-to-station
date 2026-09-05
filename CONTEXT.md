@@ -71,6 +71,7 @@ is a destination.
 | **Section** | The **Node** for several **Gigs** in one room on one night with no **Festival identity** behind them — a headline show with support. Billed by its own acts ("Devin Townsend (Haken)"), never by the room, and never spanning two nights. | festival (it is not one), cluster, evening |
 | **Absorb** | What a **Node** of mine does to a friend's: the same **Festival identity**, the same **Gig**, or the same evening in the same room folds in, marking the node shared, instead of sitting beside it as a second node. | merge (reserved for lines), group |
 | **Attended** | On someone's setlist.fm attended list. The *only* thing that makes a **Gig** theirs. | went to, logged |
+| **Ticket** | A PDF shared into the app (#411): rasterized, read for a QR and best-effort text, and — short of a complete, unambiguous read — always put in front of a person to confirm before it becomes anything. A complete parse of a future night with no match mints a **Gig** the same way typing one in by hand does; the QR itself outlives a failed read and stays with whatever **Gig** it ends up against. | boarding pass (unrelated), scan |
 
 ## Departures
 

@@ -38,6 +38,13 @@ import io.github.magnusencoded.stationtostation.data.parseFmDate
 import io.github.magnusencoded.stationtostation.data.plannedLane
 import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.StoredPlaylist
+import io.github.magnusencoded.stationtostation.data.ParsedTicket
+import io.github.magnusencoded.stationtostation.data.TicketRouting
+import io.github.magnusencoded.stationtostation.data.extractTicket
+import io.github.magnusencoded.stationtostation.data.matchKnownNight
+import io.github.magnusencoded.stationtostation.data.parseTicket
+import io.github.magnusencoded.stationtostation.data.routeTicket
+import io.github.magnusencoded.stationtostation.data.toTicketQrBase64
 import io.github.magnusencoded.stationtostation.data.TimelineLogic
 import io.github.magnusencoded.stationtostation.data.TimelineCache
 import io.github.magnusencoded.stationtostation.data.TimelineStore
@@ -378,6 +385,14 @@ data class UiState(
     val coverUploadError: String? = null,
     /** The device handover on screen, if one is running or has just finished (#142). */
     val handover: HandoverUi = HandoverUi(),
+    /**
+     * A shared PDF ticket's best-effort guess, waiting on a person before anything
+     * is written (#411). Set for every parse short of a complete, unambiguous one —
+     * including a parse that found nothing at all, which the confirm screen reads
+     * as "couldn't read this ticket" rather than a silent failure (ADR-0004: a
+     * partial or absent result is a state to show, never an error to hide).
+     */
+    val pendingTicket: PendingTicket? = null,
     // Transient error surfaced as a snackbar
     val error: String? = null,
     // Transient non-error notice (e.g. "Added a friend from that playlist")
@@ -409,6 +424,16 @@ data class HandoverUi(
 }
 
 enum class HandoverRole { SOURCE, RECEIVER }
+
+/**
+ * A ticket pipeline's guess, on screen for confirmation (#411). [possibleMatch] is a
+ * hint, not a decision the dialog is bound by — a person may still say "no, that's a
+ * different night" and get a new plan instead.
+ */
+data class PendingTicket(
+    val parsed: ParsedTicket,
+    val possibleMatch: FmSetlist?,
+)
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -1711,6 +1736,86 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         }
+    }
+
+    /**
+     * A PDF shared into the app via the system share sheet (#411) — MainActivity's
+     * `handleTicketIntent` is the sibling of `handleAuthIntent` that reaches this.
+     *
+     * `extractTicket` is the one rasterization pipeline: it reads the same bitmap
+     * for a QR (zxing) and best-effort text (ML Kit), then `parseTicket`/`routeTicket`
+     * decide what that adds up to. Per #411's clarified spec, only a complete,
+     * unambiguous parse acts on its own — [TicketRouting.AlreadyKnown] merges into
+     * the gig it matched, [TicketRouting.NewPlannedGig] takes the same
+     * local-planned-gig path [addPlannedGigByHand] does. Anything else becomes
+     * [PendingTicket] for a person to confirm; see [confirmPendingTicket].
+     */
+    fun handleSharedTicketPdf(uri: Uri) {
+        viewModelScope.launch {
+            val parsed = parseTicket(extractTicket(getApplication(), uri))
+            val known = _state.value.setlists + _state.value.plannedGigs
+            when (val routing = routeTicket(parsed, known)) {
+                is TicketRouting.AlreadyKnown -> attachTicketQr(routing.gig.id, parsed.qrBytes)
+                is TicketRouting.NewPlannedGig -> {
+                    val night = parseFmDate(routing.date) ?: return@launch
+                    addParsedPlannedGig(routing.artist, routing.venue, night, routing.qrBytes)
+                }
+                is TicketRouting.NeedsConfirmation ->
+                    _state.update { it.copy(pendingTicket = PendingTicket(routing.parsed, routing.possibleMatch)) }
+            }
+        }
+    }
+
+    /**
+     * The confirm dialog's Save — [handleSharedTicketPdf]'s pending guess, corrected
+     * or filled in by hand, then routed the same way a complete auto-parse would be:
+     * matched if it turns out to be a night already known, otherwise a new planned
+     * gig. The QR travels from the original parse regardless of what the person
+     * edited — it is preserved even when the text half of the ticket needed fixing
+     * by hand (#413's day-of view needs it either way).
+     */
+    fun confirmPendingTicket(artist: String, venue: String, date: String) {
+        val pending = _state.value.pendingTicket ?: return
+        val night = parseFmDate(date)
+        if (artist.isBlank() || night == null) {
+            _state.update { it.copy(error = "A night needs who is playing and a date as dd-MM-yyyy.") }
+            return
+        }
+        viewModelScope.launch {
+            val known = _state.value.setlists + _state.value.plannedGigs
+            val matched = pending.possibleMatch
+                ?: matchKnownNight(ParsedTicket(artist = artist.trim(), venue = venue.trim(), date = fmDate(night)), known)
+            if (matched != null) {
+                attachTicketQr(matched.id, pending.parsed.qrBytes)
+            } else {
+                addParsedPlannedGig(artist.trim(), venue.trim(), night, pending.parsed.qrBytes)
+            }
+            _state.update { it.copy(pendingTicket = null) }
+        }
+    }
+
+    /** The confirm dialog's Discard — the guess is dropped, nothing is written. */
+    fun dismissPendingTicket() = _state.update { it.copy(pendingTicket = null) }
+
+    /** [addPlannedGigByHand]'s write, shared by both ticket paths above. */
+    private suspend fun addParsedPlannedGig(artist: String, venue: String, night: LocalDate, qrBytes: ByteArray?) {
+        val gigId = timelines.createLocalGig(fmDate(night), artist, venue)
+        val gig = localGigSetlist(gigId, artist, night, venue, city = "")
+        val attendance = timelines.savePlanned(gig)
+        _state.update {
+            it.copy(
+                plannedGigs = sortedPlanned(it.plannedGigs + gig),
+                attendanceByGig = it.attendanceByGig + (gig.id to attendance),
+            )
+        }
+        attachTicketQr(gig.id, qrBytes)
+    }
+
+    /** No-op when there is no QR to keep — most confirmations and most matches. */
+    private suspend fun attachTicketQr(gigId: String, qrBytes: ByteArray?) {
+        if (qrBytes == null) return
+        val attendance = timelines.attachTicketQr(gigId, qrBytes.toTicketQrBase64())
+        _state.update { it.copy(attendanceByGig = it.attendanceByGig + (gigId to attendance)) }
     }
 
     /**

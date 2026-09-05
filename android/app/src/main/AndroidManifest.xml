@@ -111,6 +111,14 @@
                     android:scheme="setlist2spotify"
                     android:host="friend" />
             </intent-filter>
+            <!-- A PDF ticket shared from an email or wallet app's own share sheet (#411),
+                 handled by MainActivity's handleTicketIntent, the sibling of the deep-link
+                 handler above rather than a rewrite of it. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
         </activity>
 
         <!-- A tap on a filing notification copies that one value and nothing else.

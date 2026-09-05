@@ -145,6 +145,7 @@ import io.github.magnusencoded.stationtostation.CoverCandidate
 import io.github.magnusencoded.stationtostation.GigLink
 import io.github.magnusencoded.stationtostation.MediaThumb
 import io.github.magnusencoded.stationtostation.NOT_STAMPED
+import io.github.magnusencoded.stationtostation.PendingTicket
 import io.github.magnusencoded.stationtostation.data.DeviceLocation
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.FriendArrival
@@ -377,6 +378,13 @@ fun StationTimelineScreen(
                         addingByHand = false
                     },
                     onDismiss = { addingByHand = false },
+                )
+            }
+            state.pendingTicket?.let { pending ->
+                TicketConfirmDialog(
+                    pending = pending,
+                    onConfirm = { artist, venue, date -> viewModel.confirmPendingTicket(artist, venue, date) },
+                    onDismiss = { viewModel.dismissPendingTicket() },
                 )
             }
             when {
@@ -1074,6 +1082,79 @@ private fun AddPlannedGigDialog(
                     },
                     enabled = ready,
                 ) { Text("Add", color = if (ready) Amber else Faint) }
+            }
+        }
+    }
+}
+
+/**
+ * What a shared PDF ticket turned into, put in front of a person before anything is
+ * written (#411, clarified after #408 shipped). `routeTicket` (TicketParsing.kt)
+ * only ever reaches here for a parse that is missing something or whose match is
+ * uncertain — a complete, unambiguous parse skips this dialog entirely.
+ *
+ * Every field starts pre-filled with whatever the parse found and stays editable —
+ * the same fields [AddPlannedGigDialog] and [AddLocalGigDialog] use, wearing a guess
+ * instead of a blank. A [PendingTicket.parsed] that found nothing at all still opens
+ * this dialog with three empty fields, which is what makes "couldn't read this
+ * ticket" an honest state rather than a silent failure.
+ */
+@Composable
+private fun TicketConfirmDialog(
+    pending: PendingTicket,
+    onConfirm: (artist: String, venue: String, date: String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var artist by remember { mutableStateOf(pending.parsed.artist.orEmpty()) }
+    var venue by remember { mutableStateOf(pending.parsed.venue.orEmpty()) }
+    var date by remember { mutableStateOf(pending.parsed.date.orEmpty()) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(Raised)
+                .padding(20.dp),
+        ) {
+            Text("From the shared ticket", fontFamily = Serif, fontSize = 19.sp, color = Ink)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                if (pending.parsed.isEmpty) {
+                    "Couldn't read anything off that PDF. Fill it in by hand, or discard it."
+                } else if (pending.possibleMatch != null) {
+                    "This looks like a night already on your line — check it before saving."
+                } else {
+                    "Here's what the ticket seemed to say. Check it before it's added."
+                },
+                color = Muted,
+                fontSize = 12.sp,
+            )
+            pending.possibleMatch?.let { match ->
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Possible match: ${match.artist?.name.orEmpty()} — ${match.venueLine()} — ${match.eventDate.orEmpty()}",
+                    color = Slate,
+                    fontSize = 12.sp,
+                )
+            }
+            Spacer(Modifier.height(14.dp))
+            StationField(artist, { artist = it }, "who's playing")
+            Spacer(Modifier.height(8.dp))
+            StationField(venue, { venue = it }, "venue (optional)")
+            Spacer(Modifier.height(8.dp))
+            StationField(date, { date = it }, "date (dd-MM-yyyy)", imeDone = true)
+            if (pending.parsed.qrBytes != null) {
+                Spacer(Modifier.height(8.dp))
+                Text("A ticket QR was found and will be kept either way.", color = Faint, fontSize = 11.sp)
+            }
+            Spacer(Modifier.height(4.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("Discard", color = Faint) }
+                val ready = artist.isNotBlank() && date.isNotBlank()
+                TextButton(
+                    onClick = { onConfirm(artist, venue, date) },
+                    enabled = ready,
+                ) { Text("Save", color = if (ready) Amber else Faint) }
             }
         }
     }
