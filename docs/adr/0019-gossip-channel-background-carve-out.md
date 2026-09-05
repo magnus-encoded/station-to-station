@@ -86,6 +86,22 @@ Neither of these is a corner to round off later. They are the price of the carve
 transports built against this decision (#416, #417) inherit that cost rather than discovering
 it.
 
+### Disclosure to the relaying device
+
+Stated plainly, per the #410 review that first named it: relaying a message is not blind
+forwarding of an opaque envelope. A device that relays a `GossipCheckIn` necessarily learns
+the checked-in Contact's **stable public key** — the same key on their Card — along with
+which Gig they were at and roughly when. That device need not be a Contact of the person who
+checked in; the propagation rule only requires *each hop* to be Contact-to-Contact, so a
+message can reach someone two or more hops removed from its author who has never met them.
+
+This is a real disclosure, not a side effect to round off: a stable identity key handed to a
+stranger-of-a-friend is deanonymisable retroactively if that key ever surfaces again
+elsewhere. It is accepted here because the alternative — a fresh, unlinkable key per
+check-in — would make the per-message signature unverifiable by a relay that only holds
+long-lived Contact keys, defeating the point of verifying without a live session. The
+trade-off is named so a future reader does not mistake today's design for an oversight.
+
 ## What this does not cover
 
 Stated explicitly, for the same reason ADR-0016 stated its own list explicitly:
