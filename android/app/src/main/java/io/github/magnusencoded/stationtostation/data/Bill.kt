@@ -197,6 +197,23 @@ data class StoredLog(
      * five functions below; nothing else may edit [songs] directly.
      */
     val remembered: List<String> = emptyList(),
+    /**
+     * When each entry was typed — epoch millis, set once by [adding] and never
+     * touched again. Parallel to [songs], same length.
+     *
+     * Deliberately the moment of *entry*, not a guess at when the song started. A
+     * **Log** is written in the dark, one-handed, often a beat behind the band, so
+     * "when I typed this" is the one fact the phone can state without asking the user
+     * to be more certain than they are. Correcting a title ([correctingAt]) does not
+     * move it — the memory was written at that moment even if the word for it changed
+     * later. This is the primitive later work (crowd corroboration of a set's timing,
+     * the landscape walk's photo-to-song reconstruction) builds on; nothing here does
+     * that inference yet.
+     *
+     * An older cache has no [enteredAt] at all, which decodes as "unknown" (`0L`) per
+     * entry — never backfilled, never guessed.
+     */
+    val enteredAt: List<Long> = emptyList(),
 ) {
     /** Songs actually named. A **Gap** is in the record but is not a title. */
     fun named(): List<String> = songs.filter { it.isNotBlank() }
@@ -205,13 +222,21 @@ data class StoredLog(
     /** The words originally written at [i], or null where the entry is as typed. */
     fun rememberedAt(i: Int): String? = remembered.getOrNull(i)?.takeIf { it.isNotBlank() }
 
+    /** When entry [i] was typed, or null where no timestamp was ever recorded. */
+    fun enteredAtOrNull(i: Int): Long? = enteredAt.getOrNull(i)?.takeIf { it != 0L }
+
     /** A song, at the end, in the order it was tapped in. */
-    fun adding(song: String): StoredLog = copy(songs = songs + song, remembered = aligned() + "")
+    fun adding(song: String, now: Long = System.currentTimeMillis()): StoredLog = copy(
+        songs = songs + song,
+        remembered = aligned() + "",
+        enteredAt = alignedTimestamps() + now,
+    )
 
     /** One entry gone, and the words behind it with it. */
     fun removingAt(i: Int): StoredLog = copy(
         songs = songs.filterIndexed { j, _ -> j != i },
         remembered = aligned().filterIndexed { j, _ -> j != i },
+        enteredAt = alignedTimestamps().filterIndexed { j, _ -> j != i },
     )
 
     /**
@@ -229,18 +254,29 @@ data class StoredLog(
         if (title.isBlank()) return this
         val lines = aligned().toMutableList()
         if (lines[i].isBlank()) lines[i] = was
-        return copy(songs = songs.toMutableList().also { it[i] = title }, remembered = lines)
+        return copy(
+            songs = songs.toMutableList().also { it[i] = title },
+            remembered = lines,
+            enteredAt = alignedTimestamps(),
+        )
     }
 
     /** The words come back as the entry. A wrong correction is never a one-way door. */
     fun restoringAt(i: Int): StoredLog {
         val line = rememberedAt(i) ?: return this
         val lines = aligned().toMutableList().also { it[i] = "" }
-        return copy(songs = songs.toMutableList().also { it[i] = line }, remembered = lines)
+        return copy(
+            songs = songs.toMutableList().also { it[i] = line },
+            remembered = lines,
+            enteredAt = alignedTimestamps(),
+        )
     }
 
     /** [remembered] at [songs]'s length: an older cache carries none at all. */
     private fun aligned(): List<String> = List(songs.size) { remembered.getOrNull(it) ?: "" }
+
+    /** [enteredAt] at [songs]'s length: an older cache carries none at all. */
+    private fun alignedTimestamps(): List<Long> = List(songs.size) { enteredAt.getOrNull(it) ?: 0L }
 }
 
 /**

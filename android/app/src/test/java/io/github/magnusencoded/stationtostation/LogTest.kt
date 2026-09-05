@@ -118,4 +118,45 @@ class LogTest {
         assertNull(corrected.rememberedAt(1))
         assertTrue(corrected.closed)
     }
+
+    // --- Entry timestamps (#409) ---------------------------------------------------
+
+    /** [adding] stamps the new entry with the moment it was typed, and nothing else. */
+    @Test
+    fun `adding stamps the new entry with the given time`() {
+        val log = StoredLog().adding("Hollowmoor", now = 1_000L)
+        assertEquals(1_000L, log.enteredAtOrNull(0))
+    }
+
+    /** Correcting a title does not move when the memory was written. */
+    @Test
+    fun `correcting leaves an entry's timestamp untouched`() {
+        val log = StoredLog(songs = listOf("a line I misheard"), enteredAt = listOf(1_000L))
+            .correctingAt(0, "Vardhavn")
+
+        assertEquals(1_000L, log.enteredAtOrNull(0))
+    }
+
+    /** Restoring the remembered line is not a new entry either. */
+    @Test
+    fun `restoring leaves an entry's timestamp untouched`() {
+        val log = StoredLog(songs = listOf("a line I misheard"), enteredAt = listOf(1_000L))
+            .correctingAt(0, "Vardhavn")
+            .restoringAt(0)
+
+        assertEquals(1_000L, log.enteredAtOrNull(0))
+    }
+
+    /** Nothing on an existing phone is lost or reinterpreted — and never guessed. */
+    @Test
+    fun `a Log written before this feature reads as unknown, never fabricated`() {
+        val old = StoredLog(songs = listOf("Hollowmoor", "Vardhavn"), closed = true)
+        assertNull(old.enteredAtOrNull(0))
+        assertNull(old.enteredAtOrNull(1))
+        // And it still edits correctly with no enteredAt list to align against.
+        val added = old.adding("Paper Cranes", now = 2_000L)
+        assertNull(added.enteredAtOrNull(0))
+        assertNull(added.enteredAtOrNull(1))
+        assertEquals(2_000L, added.enteredAtOrNull(2))
+    }
 }
