@@ -47,6 +47,15 @@ final class GigOffersTests: XCTestCase {
         )
     }
 
+    /// The same night, with a ticket parsed for it. Synthetic bytes: #412 is what puts
+    /// real ones in the store, and nothing here depends on what a ticket actually says.
+    private func ticketed(_ date: String? = nil, _ provenance: String? = nil,
+                          _ setlistId: String? = nil, _ songs: Int = 0) -> GigAsKnown {
+        var gig = night(date, provenance, nil, setlistId, songs)
+        gig.ticketQr = Data("STS-TICKET-0001".utf8)
+        return gig
+    }
+
     private let openLog = StoredLog(songs: ["Hollowmoor", ""], closed: false)
     private let closedLog = StoredLog(songs: ["Hollowmoor", "", "Vardhavn"], closed: true)
     private let checkedIn = "checked_in"
@@ -177,6 +186,68 @@ final class GigOffersTests: XCTestCase {
         // A closed Log that is mostly "one I couldn't name" is still a set.
         let mostlyGaps = StoredLog(songs: ["", "", "Vardhavn", ""], closed: true)
         XCTAssertEqual(.setlistFm, offers(night(threeDaysAgo, checkedIn, mostlyGaps)).alcove)
+    }
+
+    // --- The ticket (#414) ----------------------------------------------------
+
+    func testANightWithNoTicketHoldsNothingUp() {
+        XCTAssertFalse(offers(night(today, planned)).room.qr)
+    }
+
+    func testATicketIsHeldUpUntilTheCheckIn() {
+        XCTAssertTrue(offers(ticketed(today, planned)).room.qr)
+    }
+
+    func testCheckingInRetiresTheTicket() {
+        // The swap the Room renders: one branch, never both at once.
+        let o = offers(ticketed(today, checkedIn))
+        XCTAssertFalse(o.room.qr)
+        XCTAssertFalse(o.room.checkIn)
+    }
+
+    func testATicketIsHeldUpBeforeTheNightsWindowOpens() {
+        // The door opens before the set does. Unlike the check-in beside it, this is
+        // not gated on the window — a QR withheld until the music starts is a QR you
+        // cannot get in with.
+        let o = offers(ticketed(inThreeWeeks, planned))
+        XCTAssertTrue(o.room.qr)
+        XCTAssertFalse(o.room.checkIn)
+    }
+
+    func testATicketDecidesNothingButItself() {
+        // It hangs off a night the way media does. Holding one must not move the
+        // Alcove, the Curtain or the phase.
+        let plain = offers(night(threeDaysAgo, attended, nil, "s1", 15))
+        let withTicket = offers(ticketed(threeDaysAgo, attended, "s1", 15))
+        XCTAssertEqual(plain.alcove, withTicket.alcove)
+        XCTAssertEqual(plain.curtain, withTicket.curtain)
+        XCTAssertEqual(plain.phase, withTicket.phase)
+    }
+
+    func testAnEmptyPayloadIsNotAQRToDraw() {
+        // A barcode that scans as nothing is worse at a door than no barcode, so the
+        // Exchange's generator — widened to bytes for this — declines it.
+        XCTAssertNil(qrImage(Data()))
+        XCTAssertNotNil(qrImage(Data("STS-TICKET-0001".utf8), correction: "H"))
+    }
+
+    func testATicketsBytesSurviveNotBeingText() {
+        // The reason the generator takes Data: a venue's barcode is whatever it
+        // encoded, and rounding it through a String would mangle this.
+        XCTAssertNotNil(qrImage(Data([0x00, 0xFF, 0xFE, 0x80, 0x01])))
+    }
+
+    /// The seam to #412, asserted rather than assumed: what the **Room** reads is the
+    /// same `StoredAttendance.ticketQr` that side writes and Android's #411 already
+    /// wrote, decoded from its base64 by the store rather than by this fold.
+    func testTheRoomReadsTheFieldTheStoreActuallyKeeps() {
+        let claim = StoredAttendance(provenance: planned,
+                                     ticketQr: Data("STS-TICKET-0001".utf8).base64EncodedString())
+        var gig = night(today, claim.provenance)
+        gig.ticketQr = claim.ticketQrBytes
+
+        XCTAssertEqual(Data("STS-TICKET-0001".utf8), gig.ticketQr)
+        XCTAssertTrue(offers(gig).room.qr)
     }
 
     // --- The lattice ----------------------------------------------------------
