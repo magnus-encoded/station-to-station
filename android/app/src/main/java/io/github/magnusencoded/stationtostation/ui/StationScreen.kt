@@ -178,6 +178,7 @@ import io.github.magnusencoded.stationtostation.data.isMyNight
 import io.github.magnusencoded.stationtostation.data.visibleToContacts
 import io.github.magnusencoded.stationtostation.data.withheldFromContacts
 import io.github.magnusencoded.stationtostation.data.gigInviteUri
+import io.github.magnusencoded.stationtostation.data.decodeTicketQrBase64
 import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
 import io.github.magnusencoded.stationtostation.data.musicbrainz.MbArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
@@ -3198,6 +3199,7 @@ fun StationEventScreen(
         setlistId = setlist?.id?.takeUnless { localGig },
         songCount = setlist?.performed()?.size ?: 0,
         calendarEvent = calendarEventUri,
+        ticketQr = setlist?.let { state.attendanceByGig[it.id]?.ticketQr },
     )
     // The phase and the curtain come off the same value as the offers, so they cannot
     // disagree. The alcove is still not dispatched from — the swipe's action order is
@@ -3385,6 +3387,35 @@ fun StationEventScreen(
                         if (checkedIn) {
                             Text("✓ checked in", color = Amber, fontSize = 13.sp, modifier = Modifier.padding(vertical = 6.dp))
                         } else {
+                            // The ticket's own QR, at the door — gone the moment
+                            // checked in swaps this branch for "✓ checked in" above,
+                            // and never drawn at all when there is no ticket to show.
+                            // Plain black-on-white, unlike the Amber exchange card:
+                            // this one has to scan for a venue's own reader, not just
+                            // decode for another phone.
+                            if (offers.room.showQr) {
+                                val ticketQr = remember(setlist.id) {
+                                    gigAsKnown.ticketQr?.decodeTicketQrBase64()?.let { bytes ->
+                                        runCatching { qrBitmap(String(bytes, Charsets.ISO_8859_1), 480) }.getOrNull()
+                                    }
+                                }
+                                if (ticketQr != null) {
+                                    Box(
+                                        Modifier
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .background(Color.White)
+                                            .border(1.dp, LineLit, RoundedCornerShape(14.dp))
+                                            .padding(14.dp),
+                                    ) {
+                                        Image(
+                                            bitmap = ticketQr.asImageBitmap(),
+                                            contentDescription = "Your ticket's QR code",
+                                            modifier = Modifier.size(180.dp),
+                                        )
+                                    }
+                                    Spacer(Modifier.height(10.dp))
+                                }
+                            }
                             Text(
                                 "I'm here — check in",
                                 color = Amber,
