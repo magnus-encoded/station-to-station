@@ -28,6 +28,16 @@ struct GigAsKnown {
     var songCount: Int = 0
     /// The calendar entry made for this night, if one was.
     var calendarEvent: String? = nil
+    /// `StoredAttendance.ticketQr`, carried here only for the one fact below —
+    /// presence, not content. Base64, same as the stored field; decoding it into
+    /// renderable bytes is the rendering side's job, not this fold's. Nil for a night
+    /// with no ticket at all, and for every night imported from setlist.fm rather than
+    /// from a ticket.
+    ///
+    /// A `String?` rather than `Data?` because Android's twin is a `String?` (#413,
+    /// landed): the fold is Grammar, so its facts carry the same shapes under the same
+    /// names on both platforms, and decoding is Expression.
+    var ticketQr: String? = nil
 
     var checkedIn: Bool { provenance == "checked_in" }
     var linked: Bool { setlistId != nil }
@@ -101,6 +111,12 @@ struct Room {
     var checkIn: Bool
     /// The **Log** and the media: only once there is something to record.
     var capture: Bool
+    /// The ticket's own QR, worth showing at the door — pre-check-in, and only for a
+    /// night that actually has one. Once checked in the claim is already made and the
+    /// same conditional branch that flips this off shows "checked in" instead, so
+    /// there is never a moment with both on screen. No ticket at all omits cleanly:
+    /// this is false, not a placeholder QR. Named for Android's twin (#413).
+    var showQr: Bool
 }
 
 /// What a **Gig** offers, decided once, rendered everywhere.
@@ -182,7 +198,13 @@ func gigOffers(_ gig: GigAsKnown, now: Date) -> GigOffers {
             // The night's own window, the same one a check-in already draws. Claiming
             // it later is what `attended` is for, and this never gates on a location.
             checkIn: gig.window?.contains(now) == true && !gig.checkedIn,
-            capture: started
+            capture: started,
+            // Deliberately *not* gated on the window the check-in above reads. A ticket
+            // is scanned at the door, and the door opens before the night's window does
+            // — a QR the **Room** hides until the set starts is a QR you cannot get in
+            // with. The check-in is what retires it, because being inside is the fact
+            // that makes the barcode spent.
+            showQr: gig.ticketQr != nil && !gig.checkedIn
         ),
         alcove: alcove,
         curtain: curtain,

@@ -300,7 +300,12 @@ struct GigView: View {
                 // would offer the playlist where the set still needs handing over.
                 setlistId: show.url == nil ? nil : show.id,
                 songCount: show.performed().count,
-                calendarEvent: model.state.calendarEventByGig[show.id]
+                calendarEvent: model.state.calendarEventByGig[show.id],
+                // Off the same claim `provenance` above is read from, rather than a
+                // map of its own: #412 keeps the QR on `StoredAttendance`, which is
+                // the record this screen already holds for the open night. Android
+                // reaches the same field through `state.attendanceByGig[id]`.
+                ticketQr: model.state.selectedAttendance?.ticketQr
             ),
             now: Date()
         )
@@ -317,13 +322,25 @@ struct GigView: View {
             Text(show.artist?.name ?? "Unknown artist")
                 .font(.system(size: 26, design: .serif)).foregroundStyle(ink)
             Text(show.venueLine()).font(.system(size: 14)).foregroundStyle(muted)
+            // The same swap that was already here, with the ticket now on the near
+            // side of it (#414). Checking in is what retires the barcode — you are
+            // inside — so the checked-in line replaces the QR rather than sitting
+            // under it, and the branch stays the one branch it always was.
             if checkedIn {
                 Text("\u{2713} checked in").font(.system(size: 13)).foregroundStyle(amber)
                     .padding(.top, 6)
-            } else if room?.checkIn == true {
-                Text("I'm here — check in").font(.system(size: 13)).foregroundStyle(amber)
-                    .padding(.top, 6)
-                    .onTapGesture { model.checkIn(show.id) }
+            } else {
+                // The base64 is decoded here and nowhere earlier: the fold carries the
+                // stored string and decides only whether to show it, exactly as
+                // Android's does (#413). A payload that will not decode draws nothing.
+                if room?.showQr == true, let qr = model.state.selectedAttendance?.ticketQrBytes {
+                    TicketQR(payload: qr).padding(.top, 10)
+                }
+                if room?.checkIn == true {
+                    Text("I'm here — check in").font(.system(size: 13)).foregroundStyle(amber)
+                        .padding(.top, 6)
+                        .onTapGesture { model.checkIn(show.id) }
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
