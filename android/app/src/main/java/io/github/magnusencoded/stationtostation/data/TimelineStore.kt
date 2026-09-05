@@ -58,6 +58,13 @@ data class StoredAttendance(
     /** Geocoded once by #33, reused for its proximity check. Null until resolved. */
     val venueLat: Double? = null,
     val venueLon: Double? = null,
+    /**
+     * A ticket PDF's decoded QR, base64 (#411), kept even when the rest of that
+     * PDF's parse failed (#413 needs it for the day-of view regardless). Base64
+     * rather than a raw `ByteArray` field for the same reason [Friends.kt]'s public
+     * keys are: kotlinx.serialization has no default codec for binary.
+     */
+    val ticketQr: String? = null,
 ) {
     /** Evidence strength, weakest first. Room for `attested` later; not built yet. */
     object Provenance {
@@ -851,6 +858,27 @@ class TimelineStore(
     suspend fun markCalendarAdded(gigId: String, eventUri: String): Unit = writeMerged {
         val (c, id) = it.withGig(gigId)
         c.copy(gigCalendarEvent = c.gigCalendarEvent + (id to eventUri))
+    }
+
+    /**
+     * Attaches a ticket's decoded QR (#411) to whatever attendance record the gig
+     * already has, or a fresh [StoredAttendance.Provenance.PLANNED] one if it has
+     * none yet. Kept separate from [savePlanned] because the QR is preserved even
+     * when the rest of a ticket's parse failed (#413's day-of view needs it
+     * regardless) — there may be no artist/venue/date guess worth writing at all,
+     * only a gig this QR is being attached to after the fact.
+     *
+     * Returns the settled record, same reason as [savePlanned]: a caller's own
+     * state must reflect what was actually written, not reinvent it.
+     */
+    suspend fun attachTicketQr(gigId: String, qrBase64: String): StoredAttendance {
+        var settled = StoredAttendance()
+        writeMerged {
+            val (c, id) = it.withGig(gigId)
+            settled = (c.gigAttendance[id] ?: StoredAttendance()).copy(ticketQr = qrBase64)
+            c.copy(gigAttendance = c.gigAttendance + (id to settled))
+        }
+        return settled
     }
 
     /**
