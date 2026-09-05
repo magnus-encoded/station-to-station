@@ -346,11 +346,15 @@ final class TimelineStoreTests: XCTestCase {
             // blind, so it writes the key itself instead of only echoing one it found.
             // Android reads an absent or empty map the same way. `bills` left the list
             // in #391 with `StoredBill`/`StoredAct` themselves: neither twin writes it
-            // any more.
+            // any more. `gigTicketQr` joined in #412 — iOS writes it, so **Android has
+            // to learn it**: until it does, the key survives only by that side's own
+            // unknown-key carrying, and a night's ticket QR is not recoverable from
+            // any upstream if it is ever dropped.
             ["attendanceByGig", "attendedTotals", "calendarEventByGig",
              "festivalIdByShow", "festivalNames", "festivals", "festivalsAsked",
              "gigAttendance", "gigCalendarEvent", "gigLogs", "gigMedia", "gigPhotos", "gigPlanned",
-             "gigPlaylists", "gigSongOffsets", "gigs", "hiddenLines", "photosBySetlist", "plannedShows", "playlistsMade",
+             "gigPlaylists", "gigSongOffsets", "gigTicketQr", "gigs", "hiddenLines",
+             "photosBySetlist", "plannedShows", "playlistsMade",
              "shows", "songOffsetsBySetlist"],
             json?.keys.sorted()
         )
