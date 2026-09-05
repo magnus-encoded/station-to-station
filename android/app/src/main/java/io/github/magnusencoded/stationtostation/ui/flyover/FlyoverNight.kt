@@ -559,3 +559,15 @@ internal fun collectionFlyoverGigs(
     val checkedIn = attendanceByGig[setlist.id]?.provenance == StoredAttendance.Provenance.CHECKED_IN
     buildFlyoverGig(setlist, media, logsByGig[setlist.id] ?: StoredLog(), festivals, attended, checkedIn)
 }
+
+/**
+ * A **Collection**'s whole run, reduced to its media — the portrait face's whole
+ * content (#313 story 5). Combined, and in running order, earliest **Gig** first: a
+ * three-day festival reads as one weekend instead of needing a per-night visit to see
+ * everything it holds.
+ *
+ * The same [runningOrder] the walk lays its depths against, so the portrait face and
+ * the landscape one can never disagree about which **Gig** comes first.
+ */
+internal fun collectionMedia(gigs: List<FlyoverGig>): List<StoredMedia> =
+    runningOrder(gigs).flatMap { it.media }

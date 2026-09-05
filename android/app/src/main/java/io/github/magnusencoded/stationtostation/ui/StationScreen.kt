@@ -12,6 +12,7 @@ import android.util.Log
 import android.widget.MediaController
 import android.widget.Toast
 import android.widget.VideoView
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -31,6 +32,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -182,6 +184,9 @@ import io.github.magnusencoded.stationtostation.data.musicbrainz.MbArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSong
 import io.github.magnusencoded.stationtostation.ui.flyover.CollectionFlyoverScreen
+import io.github.magnusencoded.stationtostation.ui.flyover.collectionBillboard
+import io.github.magnusencoded.stationtostation.ui.flyover.collectionFlyoverGigs
+import io.github.magnusencoded.stationtostation.ui.flyover.collectionMedia
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
 import kotlin.math.roundToInt
@@ -937,16 +942,23 @@ fun StationTimelineScreen(
                     )
                 }
             }
-            // The Collection resolution's landscape face (#313). Entered from the Line
-            // and drawn over it, not pushed and not routed: nothing here ever navigates
-            // away, so leaving — the same reverse-pinch or back gesture that leaves any
-            // resolution — lands you back on the Line at the same scroll position,
-            // because you never left it. The portrait face (combined media across the
-            // run) has no answer yet, so a Collection selected in portrait shows
-            // nothing new until the phone turns — the same gap a Gig already has.
+            // The Collection resolution (#313). Entered from the Line and drawn over it,
+            // not pushed and not routed: nothing here ever navigates away, so leaving —
+            // the same reverse-pinch or back gesture that leaves any resolution — lands
+            // you back on the Line at the same scroll position, because you never left
+            // it. Landscape is the walk; portrait is every Gig's media combined into one
+            // place (story 5) — two faces of the same state, told apart only by
+            // orientation, the same split a single Gig already has between the Room and
+            // its Flyover.
             state.selectedCollection?.let { node ->
                 if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
                     CollectionFlyoverScreen(
+                        viewModel = viewModel,
+                        node = node,
+                        onBack = { viewModel.closeCollectionWalk() },
+                    )
+                } else {
+                    CollectionMediaScreen(
                         viewModel = viewModel,
                         node = node,
                         onBack = { viewModel.closeCollectionWalk() },
@@ -2013,6 +2025,97 @@ private fun PhotoThumb(uri: Uri, size: Dp, loadPreview: suspend (Uri) -> MediaTh
                     .background(Color.Black.copy(alpha = 0.4f)),
             )
         }
+    }
+}
+
+/**
+ * The **Collection resolution**'s portrait face (#313 story 5): every **Gig** in the
+ * run's media, combined into one place, so a three-day festival reads as one weekend
+ * instead of a per-night crawl. Not a screen of its own — drawn over the **Line** in
+ * portrait the same way [io.github.magnusencoded.stationtostation.ui.flyover.CollectionFlyoverScreen]
+ * is drawn over it in landscape, so leaving is the same state change either way.
+ *
+ * **Follows the Room's own grammar rather than inventing a second media surface**:
+ * [GigMediaBands] is the component the **Gig resolution**'s portrait face already
+ * draws media in, called here with the run's combined list. It is read-only — a run
+ * has no single **Gig** to attach into or arrange within — so arranging and adding are
+ * never offered; `editable = false` and every mutating callback is a no-op.
+ */
+@Composable
+internal fun CollectionMediaScreen(viewModel: AppViewModel, node: TimelineNode.Several, onBack: () -> Unit) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+
+    // The platform back affordance leaves the resolution, the same as the landscape
+    // face and for the same reason (#313): this rung was entered by a gesture or a
+    // non-gestural action alike, and the system's own way out must always work.
+    BackHandler(onBack = onBack)
+
+    val gigs = remember(
+        node, state.mediaBySetlist, state.logsByGig, state.festivals,
+        state.showsByFriend, state.attendanceByGig, state.contactLight,
+    ) {
+        collectionFlyoverGigs(
+            node = node,
+            mediaBySetlist = state.mediaBySetlist,
+            logsByGig = state.logsByGig,
+            festivals = state.festivals,
+            showsByFriend = state.showsByFriend,
+            attendanceByGig = state.attendanceByGig,
+            contactLight = state.contactLight,
+        )
+    }
+    val media = remember(gigs) { collectionMedia(gigs) }
+    val billboard = remember(node) { collectionBillboard(node) }
+
+    var viewerUri by remember { mutableStateOf<Uri?>(null) }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(Ground)
+            .swipeRightToBack(onBack = onBack)
+            .verticalScroll(rememberScrollState())
+            .padding(top = 20.dp, bottom = 40.dp),
+    ) {
+        Text(
+            billboard.title,
+            color = Ink,
+            fontFamily = Serif,
+            fontSize = 24.sp,
+            modifier = Modifier.padding(horizontal = 20.dp),
+        )
+        if (billboard.where.isNotBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                billboard.where,
+                color = Muted,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+        }
+        Spacer(Modifier.height(18.dp))
+        GigMediaBands(
+            media = media,
+            loadPreview = viewModel::photoPreview,
+            arranging = false,
+            contactLight = state.contactLight,
+            editable = false,
+            senderName = { key -> state.friends.firstOrNull { it.setlistfm == key }?.name },
+            onArrange = {},
+            onAdd = {},
+            onOpen = { uri -> viewerUri = uri },
+            onRemove = {},
+            onMove = { _, _, _ -> },
+        )
+    }
+
+    viewerUri?.let { uri ->
+        MediaViewerDialog(
+            uri = uri,
+            isVideo = viewModel.isVideo(uri),
+            loadPhoto = viewModel::fullPhoto,
+            onDismiss = { viewerUri = null },
+        )
     }
 }
 
