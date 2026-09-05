@@ -26,7 +26,7 @@ final class TicketParseTests: XCTestCase {
     }
 
     private func ticket(qr: Data? = nil, _ blocks: [String]) -> Ticket {
-        guard case .ticket(let found) = parse(qr: qr, blocks: blocks) else {
+        guard case .ticket(let found) = parse(qr: qr, blocks) else {
             XCTFail("expected a ticket from \(blocks)")
             return Ticket()
         }
