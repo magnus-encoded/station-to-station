@@ -915,16 +915,20 @@ final class AppModel: ObservableObject {
     /// screen while that happens, not after it.
     func offerHandover(_ allow: Set<String>) {
         state.handover = HandoverUi(role: .source)
-        let identities = Identities(setlistFmUser: settings.mySetlistFmUser)
         handoverExchange.offer(
+            allow: allow,
             manifest: { [timelines, weak self] in
                 let cache = await timelines.load()
                 var refs: [String: String] = [:]
                 for item in cache.gigMedia.values.flatMap({ $0 }) { refs[item.id] = item.ref }
                 await self?.rememberHandoverRefs(refs)
+                let identities = await self?.myIdentities() ?? Identities()
                 return await hashedDeviceManifest(cache, allow: allow, identities: identities)
             },
-            identities: identities,
+            accounts: { [weak self] wire in
+                guard let self else { return .notOffered }
+                return try await self.sendHandoverAccounts(wire, payload: await self.accountsPayload(allow))
+            },
             mediaSource: { [weak self] id in
                 guard let self, let ref = await self.handoverRef(id) else { return nil }
                 return await PhotoLibrary.reconcileExport(assetId: ref, mediaId: id)
@@ -951,7 +955,7 @@ final class AppModel: ObservableObject {
                     .compactMap { photoWindow(gigDate: $0.date) }
                 return await PhotoLibrary.galleryItems(dates: windows)
             },
-            storeAccounts: { [weak self] payload in await self?.storeHandoverAccounts(payload) },
+            accounts: { [weak self] wire in try await self?.receiveHandoverAccounts(wire) },
             apply: { [timelines] replan in
                 let written = await timelines.applyHandover(replan)
                 // The grid draws from the durable thumbnail tier and never from `ref`
@@ -1003,6 +1007,58 @@ final class AppModel: ObservableObject {
             state.spotifyConnected = true
             state.grantedScope = payload.credentials.spotifyScope ?? state.grantedScope
         }
+    }
+
+    /// Receiving device's half of the accounts step (#143), mirroring Android's
+    /// `receiveHandoverAccounts`. Reads the frame, stores whatever arrives durably via
+    /// `storeHandoverAccounts` *before* acking — the ack is the promise the source's own
+    /// clear is gated on — and hands the payload back so the receipt can say what became
+    /// of it. Nil only if the connection dropped before any accounts frame arrived; a
+    /// genuinely declined row still arrives as identities-only, not as nil.
+    private func receiveHandoverAccounts(_ wire: ContactConnection) async throws -> AccountsPayload? {
+        guard let payload = try await readJson(wire, AccountsPayload.self) else { return nil }
+        await storeHandoverAccounts(payload)
+        try await wire.writeFrame(accountsAck)
+        return payload
+    }
+
+    /// Sending device's half — the phone being replaced. Sends `payload`, then signs out
+    /// *here* only if the receiver's ack genuinely arrives (`mayClearCredentials`): a
+    /// dropped connection after the send must never clear a credential that may exist
+    /// nowhere else. This is the one call site of a handover-triggered
+    /// `Settings.clearSpotifyAuth` — manual sign-out (`disconnectSpotify`) does not go
+    /// through it and is untouched. Mirrors Android's `sendHandoverAccounts`.
+    private func sendHandoverAccounts(_ wire: ContactConnection, payload: AccountsPayload) async throws -> AccountsMove {
+        try await writeJson(wire, payload)
+        let step: AccountsMove = (try await wire.readFrame() == accountsAck) ? .acknowledged : .sent
+        // The payload, not the step, decides whether there is anything to let go of: an
+        // identities-only frame (the accounts row unticked, #143 story 11) travels and is
+        // acked exactly like a full one, and signing out on that ack would move an
+        // account nobody asked to move.
+        if mayClearCredentials(step), !payload.credentials.isEmpty {
+            settings.clearSpotifyAuth()
+            state.spotifyConnected = false
+            state.grantedScope = nil
+        }
+        return step
+    }
+
+    /// Who I am, for the manifest's `identities` and for the accounts payload — mirrors
+    /// Android's `myIdentities`.
+    private func myIdentities() async -> Identities {
+        let user = try? await spotify.currentUser()
+        return Identities(setlistFmUser: state.mySetlistFmUser.trimmingCharacters(in: .whitespaces).nilIfBlank,
+                          spotifyAccount: user?.id)
+    }
+
+    /// Credentials only when the row was ticked; identities travel either way (#143).
+    /// Mirrors Android's `accountsPayload`.
+    private func accountsPayload(_ allow: Set<String>) async -> AccountsPayload {
+        let identities = await myIdentities()
+        guard allow.contains(categoryAccounts) else { return identitiesOnly(identities) }
+        return AccountsPayload(identities: identities,
+                               credentials: Credentials(spotifyRefreshToken: settings.refreshTokenValue,
+                                                        spotifyScope: settings.grantedScope))
     }
 
     /// A card handed to me. Writes into an empty space, promotes a **Followed line** the
