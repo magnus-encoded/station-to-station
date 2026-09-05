@@ -292,13 +292,27 @@ private struct Radar: View {
     }
 }
 
+/// One context rather than one per call. It owns GPU resources, and a **Room** with a
+/// ticket in it re-renders far more often than the Exchange screen ever did.
+private let qrContext = CIContext()
+
 /// CoreImage does QR codes; no dependency needed for either half of the fallback.
 /// Shared with the handover screen, which shows one for a quite different reason.
-func qrImage(_ text: String) -> UIImage? {
+func qrImage(_ text: String) -> UIImage? { qrImage(Data(text.utf8)) }
+
+/// The same generator over bytes, for a payload that was never text to begin with —
+/// a ticket's barcode is whatever the venue encoded (#414), and rounding it through a
+/// `String` would mangle any of it that is not UTF-8.
+///
+/// Nil for an empty payload: CIQRCodeGenerator will happily encode nothing, and a code
+/// that scans to an empty string is worse at a door than no code at all.
+func qrImage(_ payload: Data, correction: String = "M") -> UIImage? {
+    guard !payload.isEmpty else { return nil }
     let filter = CIFilter.qrCodeGenerator()
-    filter.message = Data(text.utf8)
+    filter.message = payload
+    filter.correctionLevel = correction
     guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)),
-          let cg = CIContext().createCGImage(output, from: output.extent) else { return nil }
+          let cg = qrContext.createCGImage(output, from: output.extent) else { return nil }
     return UIImage(cgImage: cg)
 }
 
