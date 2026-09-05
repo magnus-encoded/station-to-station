@@ -231,10 +231,14 @@ private func rx(_ pattern: String) -> NSRegularExpression {
 
 /// What OCR hands back, made comparable: whitespace collapsed, and the punctuation a
 /// line break leaves stranded taken off either end.
+///
+/// A colon is **not** in that set, deliberately. It is the one piece of stranded
+/// punctuation that means something: `Artist:` on its own line is a label whose value
+/// broke onto the next one, and trimming it turns that line into a word.
 private func tidied(_ text: String) -> String {
     let collapsed = text.split(whereSeparator: { $0.isWhitespace || $0.isNewline })
         .joined(separator: " ")
-    return collapsed.trimmingCharacters(in: CharacterSet(charactersIn: " \t.,;:-–—|·•"))
+    return collapsed.trimmingCharacters(in: CharacterSet(charactersIn: " \t.,;-–—|·•"))
 }
 
 private extension String {
