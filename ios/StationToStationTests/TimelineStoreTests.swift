@@ -550,6 +550,98 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual(["content://photo1", "content://photo2"], after.media()["63de6d5b"]?.map(\.ref))
     }
 
+    // MARK: - The ticket's QR (#412)
+
+    /// The QR goes on the claim the night already has, and takes nothing off it. This
+    /// is `attachTicketQr`'s whole contract, and it is Android's `copy()` semantics
+    /// written out by hand — iOS has no `copy`, so the carrying is explicit and
+    /// therefore assertable.
+    func testTheTicketsQrJoinsTheClaimWithoutDisturbingIt() async {
+        let store = TimelineStore(file: tempFile(contents: "{}"))
+        let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
+        await store.saveAttendance(
+            setlistId: id,
+            attendance: StoredAttendance(provenance: "checked_in", checkedInAt: 42,
+                                         venueLat: 59.9, venueLon: 10.7))
+
+        let settled = await store.attachTicketQr(setlistId: id, qr: Data("TKT-9F31".utf8))
+
+        XCTAssertEqual("checked_in", settled.provenance)
+        XCTAssertEqual(42, settled.checkedInAt)
+        XCTAssertEqual(59.9, settled.venueLat)
+        XCTAssertEqual(Data("TKT-9F31".utf8), settled.ticketQrBytes)
+        XCTAssertEqual(settled, await store.load().gigAttendance[id])
+    }
+
+    /// A gig with no claim yet still takes the QR: the parse may have yielded nothing
+    /// but a barcode, and there is then no artist, venue or date worth writing at all.
+    func testAQrCanBeAttachedToANightWithNoClaimOnItYet() async {
+        let store = TimelineStore(file: tempFile(contents: "{}"))
+        let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
+
+        let settled = await store.attachTicketQr(setlistId: id, qr: Data([0x00, 0xFF, 0xFE]))
+
+        XCTAssertEqual("planned", settled.provenance)
+        XCTAssertEqual(Data([0x00, 0xFF, 0xFE]), settled.ticketQrBytes)
+    }
+
+    /// One night, one QR, replaced. Sharing the same ticket twice is the same ticket.
+    func testASecondQrForOneNightReplacesTheFirst() async {
+        let store = TimelineStore(file: tempFile(contents: "{}"))
+        let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
+        await store.attachTicketQr(setlistId: id, qr: Data("first".utf8))
+
+        await store.attachTicketQr(setlistId: id, qr: Data("second".utf8))
+
+        XCTAssertEqual(Data("second".utf8),
+                       await store.load().gigAttendance[id]?.ticketQrBytes)
+    }
+
+    /// **The cross-platform shape.** Android's #411 landed the QR as a base64 string
+    /// on `StoredAttendance`, inside `gigAttendance` — not as a top-level key. This
+    /// pins that iOS writes the same field in the same place, which is what stops the
+    /// value from being dropped by an Android save: that side has no unknown-key
+    /// carrying, so a key only iOS knew would vanish the first time Android wrote.
+    /// `testWhatWeWriteCarriesEveryKeyAndroidExpects` is deliberately unchanged by
+    /// this feature for the same reason.
+    func testTheQrIsWrittenWhereAndroidAlreadyReadsIt() async throws {
+        let file = tempFile(contents: "{}")
+        let store = TimelineStore(file: file)
+        let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
+        await store.attachTicketQr(setlistId: id, qr: Data("TKT-9F31".utf8))
+
+        let json = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
+        let attendance = (json?["gigAttendance"] as? [String: Any])?[id] as? [String: Any]
+
+        XCTAssertEqual(Data("TKT-9F31".utf8).base64EncodedString(), attendance?["ticketQr"] as? String)
+        XCTAssertNil(json?["gigTicketQr"], "a top-level key of our own is the thing not to do")
+    }
+
+    /// The other direction: a QR Android wrote survives a load and a save from here.
+    /// Before #412 this field was unknown to iOS's `StoredAttendance`, whose decoder
+    /// names its fields one by one — so it was read as nothing and written back as
+    /// nothing, which is the silent loss the twin's key would have suffered.
+    func testAQrAndroidWroteIsNotDroppedByASaveFromHere() async throws {
+        let file = tempFile(contents: """
+        {"shows":{},"gigs":{"g1":{"id":"g1","date":"14-09-2026","artist":"Big Thief",\
+        "venue":"Sentrum Scene","setlistId":null,"createdAt":1}},\
+        "gigAttendance":{"g1":{"provenance":"planned","ticketQr":"VEtULTlGMzE="}}}
+        """)
+        let store = TimelineStore(file: file)
+
+        await store.save(shows: ["dizzi90": [show("a")]])
+
+        XCTAssertEqual(Data("TKT-9F31".utf8),
+                       await store.load().gigAttendance["g1"]?.ticketQrBytes)
+    }
+
+    /// A stored payload that is not base64 is treated as no payload: there is nothing
+    /// to hold up at a door, and a half-decoded barcode is worse than none.
+    func testAQrThatIsNotBase64ReadsAsNoQrAtAll() {
+        XCTAssertNil(StoredAttendance(ticketQr: "not base64 at all!").ticketQrBytes)
+        XCTAssertNil(StoredAttendance().ticketQrBytes)
+    }
+
     // MARK: - Deleting a night this app minted (#172)
 
     /// A **Gig** an **Act** became, taken back off — the mistap path. Two refusals, and

@@ -29,6 +29,7 @@ Issues elsewhere may be edited freely; this rule is for `docs/adr/` only.
 | [0016](0016-presence-is-the-authentication.md) | Presence is the authentication, so the radio is not verified | accepted |
 | [0017](0017-platform-native-at-both-faces.md) | Platform-native at both faces, identical in between | accepted |
 | [0019](0019-gossip-channel-background-carve-out.md) | The gossip channel is a narrow, named carve-out from ADR-0016 | accepted |
+| [0020](0020-the-extension-deposits-the-app-disposes.md) | The extension deposits, the app disposes | accepted |
 
 ## Who it is for
 
@@ -61,7 +62,9 @@ hands over a **Card** — a radio, a link, a code — or before proposing a hand
 right after it before touching the gossip check-in relay — it narrows 0016 rather than replacing it.
 0017 before
 touching UI on either platform, with 0001 and 0006 beside it: the three together are the parity model,
-and 0017 is the one an iOS session most often needs first. The persona ADRs are reference rather
+and 0017 is the one an iOS session most often needs first. 0020 before adding a second process on
+either platform — an extension, a widget, a service — or before proposing that one of them write to
+the store. The persona ADRs are reference rather
 than reading: consult the ones a piece of work touches.
 
 ## Related
