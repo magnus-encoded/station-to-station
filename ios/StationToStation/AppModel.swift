@@ -131,6 +131,11 @@ struct UiState {
     /// only looking at (#327). Decided by `isMyNight`, the one rule, so the grid and
     /// anything else that edits cannot answer it differently.
     var selectedIsMine = false
+    /// **Tickets** waiting to be confirmed, oldest first (#412). A queue rather than
+    /// one slot: several PDFs can be shared before the app is next opened, and
+    /// silently dropping all but the last would lose nights with no sign that it had.
+    /// The prompt shows the first; answering or dismissing it brings the next.
+    var ticketDrafts: [TicketDraft] = []
     /// A gig a location fix just placed me at, tonight — "Are you here?" (#174).
     /// Nil until `offerCheckIn` finds one; presenting it is the whole of the ask.
     var checkInOffer: FmSetlist?
@@ -248,6 +253,12 @@ final class AppModel: ObservableObject {
         // ambient offer just never appears, and the gig's own screen still has
         // a check-in you can press by hand.
         location.onAuthorizationChanged = { [weak self] in self?.offerCheckIn() }
+
+        // The cold-launch half of the inbox drain; the foreground half is in
+        // `App.swift`. A launch that goes straight to active may never register as a
+        // scene-phase *change*, so a ticket shared just before opening the app would
+        // otherwise sit in the box until the next background round trip.
+        drainTicketInbox()
     }
 
     func consumeError() { state.error = nil }
@@ -383,18 +394,107 @@ final class AppModel: ObservableObject {
             state.error = "A night needs who is playing and a date as dd-MM-yyyy."
             return
         }
-        Task {
-            let day = fmDate(night)
-            let gigId = await timelines.createLocalGig(date: day, artist: who, venue: room)
-            let gig = localGigSetlist(gigId: gigId, artist: who, date: day,
-                                      venue: room, city: "")
-            // The claim goes into state as well as onto disk. `plannedLane` filters on
-            // it, so a gig added without it is written correctly and then drawn by
-            // nothing — the night appears only after a restart, which reads as Add
-            // having done nothing at all.
-            state.attendanceByGig[gigId] = await timelines.savePlanned(gig)
-            state.plannedGigs = sortedPlanned(state.plannedGigs + [gig])
+        Task { await mintPlannedGig(artist: who, venue: room, night: night) }
+    }
+
+    /// Minting the planned night itself, with nothing decided in it.
+    ///
+    /// Extracted so a **Ticket** takes *this* path rather than one shaped like it
+    /// (#412). "The same local-planned-gig creation path" is only true if it is
+    /// literally the same code; a second copy is a divergence with a delay on it.
+    @discardableResult
+    private func mintPlannedGig(artist: String, venue: String, night: Date) async -> String {
+        let day = fmDate(night)
+        let gigId = await timelines.createLocalGig(date: day, artist: artist, venue: venue)
+        let gig = localGigSetlist(gigId: gigId, artist: artist, date: day,
+                                  venue: venue, city: "")
+        // The claim goes into state as well as onto disk. `plannedLane` filters on
+        // it, so a gig added without it is written correctly and then drawn by
+        // nothing — the night appears only after a restart, which reads as Add
+        // having done nothing at all.
+        state.attendanceByGig[gigId] = await timelines.savePlanned(gig)
+        state.plannedGigs = sortedPlanned(state.plannedGigs + [gig])
+        return gigId
+    }
+
+    // --- Tickets (#412) ---
+
+    /// Everything the Share Extension has left in the inbox, routed onto the **Line**.
+    ///
+    /// Called on every foreground rather than at launch alone: the share sheet does
+    /// not bring this app forward, so a **Ticket** is almost always deposited while
+    /// the app is in the background and has to be noticed on the way back in.
+    ///
+    /// Draining is destructive — `TicketInbox.drain` empties the box as it reads it —
+    /// so this must not be called speculatively from two places at once.
+    func drainTicketInbox(now: Date = Date()) {
+        let deposits = TicketInbox.drain()
+        guard !deposits.isEmpty else { return }
+        Task { for deposit in deposits { await routeShared(deposit.ticket, now: now) } }
+    }
+
+    private func routeShared(_ ticket: Ticket, now: Date) async {
+        let parse: TicketParse = ticket.isEmpty ? .nothingUsable : .ticket(ticket)
+        switch routeTicket(parse, knownNights: knownNights, now: now) {
+        case .match(let gigId):
+            if let qr = ticket.qr { await timelines.saveTicketQr(setlistId: gigId, qr: qr) }
+            state.notice = "That night is already on your line."
+        case .add(let complete):
+            await put(complete)
+        case .confirm(let found):
+            state.ticketDrafts.append(TicketDraft(ticket: found))
+        case .unreadable:
+            state.ticketDrafts.append(TicketDraft(ticket: Ticket()))
         }
+    }
+
+    /// The nights a **Ticket** is matched against: everything on the **Line**, plans
+    /// above today included. A ticket for a night already planned by hand is the same
+    /// night, not a second one.
+    private var knownNights: [FmSetlist] { state.timelineShows + state.plannedGigs }
+
+    /// What was confirmed — by the parse being complete, or by a person — put on the
+    /// **Line**. The QR rides along whether or not the text parse managed anything.
+    private func put(_ ticket: Ticket) async {
+        guard let artist = ticket.artist, let night = ticket.date else { return }
+        let gigId = await mintPlannedGig(artist: artist, venue: ticket.venue ?? "", night: night)
+        if let qr = ticket.qr { await timelines.saveTicketQr(setlistId: gigId, qr: qr) }
+    }
+
+    /// The prompt answered: what the parse read, corrected and filled in by the person
+    /// holding the ticket.
+    ///
+    /// The match is checked *again* here rather than trusted from `routeTicket`. What
+    /// was routed was a partial parse that matched nothing; what is being confirmed is
+    /// a full one, and it may well name a night that was already there — which is
+    /// exactly the duplicate this feature is supposed to be safe from.
+    func confirmTicket(artist: String, venue: String, date: String) {
+        guard let pending = state.ticketDrafts.first?.ticket else { return }
+        let who = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        let room = venue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !who.isEmpty, let night = gigDay(date.trimmingCharacters(in: .whitespaces)) else {
+            state.error = "A night needs who is playing and a date as dd-MM-yyyy."
+            return
+        }
+        state.ticketDrafts.removeFirst()
+        let confirmed = Ticket(qr: pending.qr, artist: who,
+                               venue: room.nilIfBlank, date: night)
+        Task {
+            if let known = knownNight(confirmed, among: knownNights) {
+                if let qr = confirmed.qr {
+                    await timelines.saveTicketQr(setlistId: known.id, qr: qr)
+                }
+                state.notice = "That night is already on your line."
+                return
+            }
+            await put(confirmed)
+        }
+    }
+
+    /// The prompt dismissed. The **Ticket** is dropped and nothing is written: a PDF
+    /// shared by mistake must cost nothing, and it can always be shared again.
+    func dismissTicket() {
+        if !state.ticketDrafts.isEmpty { state.ticketDrafts.removeFirst() }
     }
 
     /// A night I was at that setlist.fm has never heard of, typed in.

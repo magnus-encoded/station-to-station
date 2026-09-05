@@ -25,6 +25,7 @@ let spotifyGreen = Color(red: 0x1D / 255, green: 0xB9 / 255, blue: 0x54 / 255)
 struct StationToStationApp: App {
     @StateObject private var model = AppModel()
     @StateObject private var nav = Nav()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -122,6 +123,13 @@ struct StationToStationApp: App {
             }
             }
         }
+        // A **Ticket** is deposited while this app is in the background — the share
+        // sheet never brings it forward — so the inbox is read on the way back in
+        // (#412). The cold-launch case is covered from `AppModel.init`, because a
+        // launch that goes straight to active may never register as a *change*.
+        .onChange(of: scenePhase) { phase in
+            if phase == .active { model.drainTicketInbox() }
+        }
     }
 }
 
@@ -170,6 +178,23 @@ private struct BannersModifier: ViewModifier {
                        + "what you have.\n\nNow: \(conflict.existing.name)\n"
                        + "Card: \(conflict.incoming.name)\n\nTheir timeline does not change "
                        + "either way — only the name you see against it.")
+            }
+            // A shared **Ticket**, waiting to be confirmed (#412). Mounted here with
+            // the banners for the reason the card conflict above is: a Ticket arrives
+            // from another process while any screen is up, and the prompt is not the
+            // Timeline's to own.
+            .sheet(item: Binding(
+                get: { model.state.ticketDrafts.first },
+                set: { if $0 == nil { model.dismissTicket() } }
+            )) { draft in
+                ConfirmTicketSheet(ticket: draft.ticket) { artist, venue, date in
+                    model.confirmTicket(artist: artist, venue: venue, date: date)
+                } onCancel: {
+                    model.dismissTicket()
+                }
+                .environmentObject(model)
+                .tint(amber)
+                .preferredColorScheme(.dark)
             }
     }
 }
