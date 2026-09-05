@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleAuthIntent(intent)
+        handleTicketIntent(intent)
         handleHandoverDebugIntent(intent)
         setContent {
             AppTheme {
@@ -62,6 +63,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleAuthIntent(intent)
+        handleTicketIntent(intent)
         handleHandoverDebugIntent(intent)
     }
 
@@ -104,6 +106,31 @@ class MainActivity : ComponentActivity() {
             else -> viewModel.openGigLink(uri)
         }
     }
+
+    /**
+     * A PDF ticket shared in from the system share sheet (#411) — the sibling of
+     * [handleAuthIntent] rather than a change to it, because the two arrive by
+     * different actions and share nothing but "MainActivity is the front door".
+     * `ACTION_SEND` with `application/pdf` is what an email or wallet app's own
+     * "Share" offers; the extra can be `EXTRA_STREAM` (the ordinary attachment path)
+     * or, rarely, a share sending the pdf as the intent's own [Intent.getData].
+     */
+    private fun handleTicketIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND || intent.type != "application/pdf") return
+        val uri = ticketUriExtra(intent) ?: intent.data ?: return
+        viewModel.handleSharedTicketPdf(uri)
+    }
+
+    // Intent.getParcelableExtra(String) is deprecated from API 33 in favour of the
+    // typed overload; minSdk here is 26, so both forms are live depending on the
+    // phone answering the share.
+    @Suppress("DEPRECATION")
+    private fun ticketUriExtra(intent: Intent): android.net.Uri? =
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM, android.net.Uri::class.java)
+        } else {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        }
 
     /**
      * The manual two-device capture rig for #142's own verification procedure — never

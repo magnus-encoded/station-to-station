@@ -204,8 +204,14 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     // Encodes the friend card as a QR the other phone's camera can open — the
-    // deep link is already registered, so no in-app scanner is needed.
+    // deep link is already registered, so no in-app scanner is needed. #411 is its
+    // first *decoding* use, reading a ticket's QR back off a rasterized PDF page.
     implementation("com.google.zxing:core:3.5.4")
+    // Best-effort OCR of the same rasterized ticket page (#411). On-device (no
+    // network round trip, no server to fail best-effort enrichment's own rule),
+    // and the "bundled" Latin model keeps the first run from needing a play-services
+    // module download before it can read anything.
+    implementation("com.google.mlkit:text-recognition:16.0.1")
     // Android-to-Android discovery and the card swap. Raw GATT is still coming for
     // iOS interop (#13/#18) — Nearby is the Android-only fast path, not a
     // replacement for it.
