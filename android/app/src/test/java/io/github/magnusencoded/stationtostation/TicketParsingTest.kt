@@ -81,6 +81,30 @@ class TicketParsingTest {
     }
 
     @Test
+    fun aBannerLineAboveTheEventDetailsDoesNotWinOverTheStyledEventLine() {
+        // Real bug, real ticket (a Norwegian Billettservice/Ticketmaster e-ticket):
+        // OCR reads an instructional banner ahead of the actual event details, and
+        // "first two non-date lines" confidently handed the banner to the confirm
+        // dialog instead of the artist/venue. Both banner lines are ordinary
+        // sentence-case Norwegian; the real event/venue line is vendor-styled caps.
+        val extract = TicketExtract(
+            textBlocks = listOf(
+                "Dette er din billett",
+                "Ta med hele siden til arrangementet",
+                "SKAMBANKT",
+                "PARKTEATRET SCENE",
+                "TORSDAG 29.01.2015",
+            ),
+        )
+
+        val parsed = parseTicket(extract)
+
+        assertEquals("SKAMBANKT", parsed.artist)
+        assertEquals("PARKTEATRET SCENE", parsed.venue)
+        assertEquals("29-01-2015", parsed.date)
+    }
+
+    @Test
     fun aLongFormDateIsRecognisedToo() {
         // Generic date shapes, not any one vendor's — see routeTicket's own doc.
         val parsed = parseTicket(TicketExtract(textBlocks = listOf("Doors 19:00, 24th June 2027")))

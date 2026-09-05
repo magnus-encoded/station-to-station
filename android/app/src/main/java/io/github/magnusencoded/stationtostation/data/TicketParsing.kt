@@ -100,9 +100,31 @@ fun parseTicket(extract: TicketExtract): ParsedTicket {
     val remaining = extract.textBlocks
         .filterIndexed { index, block -> index != dateLineIndex && block.isNotBlank() }
         .map { it.trim() }
-    val artist = remaining.getOrNull(0)
-    val venue = remaining.getOrNull(1)
+    // A vendor commonly styles the event/venue line in caps ("SKAMBANKT",
+    // "PARKTEATRET SCENE") while a banner or instructional line reads as ordinary
+    // sentence-case prose ("Dette er din billett", "Please retain this ticket") —
+    // and OCR reading order puts that banner first on plenty of real tickets. Without
+    // this, "first two non-date lines" confidently hands the banner and the small
+    // print to the confirm dialog instead of the actual artist and venue. Neither
+    // line is discarded, only reordered, so a ticket with no caps-styled line at all
+    // still gets the old "first two" answer.
+    val (shouty, prose) = remaining.partition { isShoutyLabel(it) }
+    val ordered = shouty + prose
+    val artist = ordered.getOrNull(0)
+    val venue = ordered.getOrNull(1)
     return ParsedTicket(qrBytes = extract.qrBytes, artist = artist, venue = venue, date = date)
+}
+
+/**
+ * At least four letters in five uppercase, ignoring non-letters — a vendor's
+ * stylised event/venue line, not the prose above or below it on the page. Needs at
+ * least two letters at all so a bare separator or order-number line never qualifies.
+ */
+private fun isShoutyLabel(text: String): Boolean {
+    val letters = text.filter { it.isLetter() }
+    if (letters.length < 2) return false
+    val upper = letters.count { it.isUpperCase() }
+    return upper.toDouble() / letters.length >= 0.8
 }
 
 private val DATE_PATTERNS: List<Pair<Regex, DateTimeFormatter>> = listOf(
