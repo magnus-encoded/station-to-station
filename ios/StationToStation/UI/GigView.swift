@@ -300,7 +300,8 @@ struct GigView: View {
                 // would offer the playlist where the set still needs handing over.
                 setlistId: show.url == nil ? nil : show.id,
                 songCount: show.performed().count,
-                calendarEvent: model.state.calendarEventByGig[show.id]
+                calendarEvent: model.state.calendarEventByGig[show.id],
+                ticketQr: model.state.ticketQrByGig[show.id]
             ),
             now: Date()
         )
@@ -317,13 +318,22 @@ struct GigView: View {
             Text(show.artist?.name ?? "Unknown artist")
                 .font(.system(size: 26, design: .serif)).foregroundStyle(ink)
             Text(show.venueLine()).font(.system(size: 14)).foregroundStyle(muted)
+            // The same swap that was already here, with the ticket now on the near
+            // side of it (#414). Checking in is what retires the barcode — you are
+            // inside — so the checked-in line replaces the QR rather than sitting
+            // under it, and the branch stays the one branch it always was.
             if checkedIn {
                 Text("\u{2713} checked in").font(.system(size: 13)).foregroundStyle(amber)
                     .padding(.top, 6)
-            } else if room?.checkIn == true {
-                Text("I'm here — check in").font(.system(size: 13)).foregroundStyle(amber)
-                    .padding(.top, 6)
-                    .onTapGesture { model.checkIn(show.id) }
+            } else {
+                if room?.qr == true, let qr = model.state.ticketQrByGig[show.id] {
+                    TicketQR(payload: qr).padding(.top, 10)
+                }
+                if room?.checkIn == true {
+                    Text("I'm here — check in").font(.system(size: 13)).foregroundStyle(amber)
+                        .padding(.top, 6)
+                        .onTapGesture { model.checkIn(show.id) }
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
