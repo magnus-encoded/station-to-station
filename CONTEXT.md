@@ -85,6 +85,7 @@ the timeline; see ADR-0018.
 | **Departures** | The planning surface built from a **Programme**: pick the acts you're going to, and committing mints a **Gig** for each directly — the same way a checked-in night always has. Nothing sits in a waiting room first. | planner, itinerary |
 | **Clash** | Two **Programme** acts on different stages whose times overlap — what a choice costs. Computed from published end times where the source has them, and from the next act on the same stage where it does not. | conflict, overlap |
 | **Log** | My own record of what was played on a night, on this phone — the witness statement, not the published one. Freely editable forever; remembering a song three days later costs nothing. Starts **Open** and only a person may close it, because a set captured by ticking off songs an artist has played before is incomplete by construction. Shown as "Your log of this night". `StoredLog`. | setlist (reserved for setlist.fm's), notes, logcat / `android.util.Log` (unrelated — this collision has already cost one conversation) |
+| **Ticket** | A PDF shared into the app, read for a QR and a best-effort artist, venue and date. **Evidence, never a Gig**: what it yields is confirmed by a person and then minted through the same path a hand-typed night uses. Every field is found independently, so a **Ticket** that gave up only its QR is as real as one that gave up everything — and one that gave up nothing is still shown, blank, because a wrong guess on the **Line** is worse than an honest "couldn't read this". The QR is kept against the night whatever the text parse managed. | booking, order, confirmation, e-ticket, pass |
 | **Gap** | A blank entry in a **Log**: they played something and I could not name it. An acknowledged gap is a true fact; the same song silently missing is the record lying about its own certainty. A song always has a name, so blank is unambiguous. | unknown, blank, missing |
 
 ## The room
@@ -185,6 +186,10 @@ never makes them a **Contact**, and a **Contact** need not be on setlist.fm at a
 - Zooming moves between **Resolutions**; it never pushes a screen.
 - Committing a **Programme** through **Departures** mints a **Gig** directly, one per act
   chosen — never a middle record that later becomes one.
+- A **Ticket** mints nothing by itself. It is matched against the nights already on the
+  **Line** first, and what it does not match is put to a person before it becomes a
+  **Gig** — the one exception being a **Ticket** that read completely, for a night still
+  ahead, matching nothing.
 - A **Log** belongs to one **Gig**, holds **Gaps** among its songs, and is never overwritten
   by setlist.fm.
 - One step **Inner** from a **Gig** is its **Alcove**; **Back out** is one step **Outer**, always.

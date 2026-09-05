@@ -521,6 +521,16 @@ struct TimelineCache: Codable {
     /// sides must move together — the same rule the rest of this file already lives
     /// under, now applying one level deeper.
     var gigLogs: [String: StoredLog] = [:]
+    /// The QR a shared **Ticket** carried, by **Gig** id, base64-encoded (#412).
+    ///
+    /// Base64 rather than raw bytes because this file is read by the Android twin too
+    /// and a JSON string is the shape both sides already agree on. Kept against the
+    /// **Gig** and not the attendance claim: the QR is a fact about the night, and it
+    /// has to survive a check-in, which rewrites the claim.
+    ///
+    /// One per night, replaced. Sharing the ticket for a night twice is the same
+    /// ticket, and there is no reading of "two QRs for one gig" that is not a bug.
+    var gigTicketQr: [String: String] = [:]
 
     init() {}
 
@@ -551,6 +561,7 @@ struct TimelineCache: Codable {
         gigPlanned = map(.gigPlanned, FmSetlist.self)
         gigMedia = map(.gigMedia, [StoredMedia].self)
         gigLogs = map(.gigLogs, StoredLog.self)
+        gigTicketQr = map(.gigTicketQr, String.self)
     }
 
     /// The id this gig is known by *outside* the store: its setlist.fm id where it
@@ -579,6 +590,9 @@ struct TimelineCache: Codable {
     func calendarEvents() -> [String: String] { rekeyed(gigCalendarEvent) }
     func playlists() -> [String: [StoredPlaylist]] { rekeyed(gigPlaylists) }
     func planned() -> [FmSetlist] { Array(gigPlanned.values) }
+    func ticketQrs() -> [String: Data] {
+        rekeyed(gigTicketQr).compactMapValues { Data(base64Encoded: $0) }
+    }
 
     // uniquingKeysWith rather than uniqueKeysWithValues: two gigs claiming one
     // setlist.fm id is a bug, but it must not be a crash on the launch path.
@@ -737,6 +751,21 @@ actor TimelineStore {
             return c
         }
         return settled
+    }
+
+    /// The QR a shared **Ticket** carried, kept against the night (#412).
+    ///
+    /// Written even when the text parse found nothing usable, which is the whole point:
+    /// a ticket whose artist and date had to be typed in by hand still has a QR to
+    /// present at the gate, and losing it because the OCR was poor would be throwing
+    /// away the one thing that was read perfectly.
+    func saveTicketQr(setlistId: String, qr: Data) {
+        writeMerged { cache in
+            var c = cache
+            let gigId = c.withGig(setlistId)
+            c.gigTicketQr[gigId] = qr.base64EncodedString()
+            return c
+        }
     }
 
     /// Forgets a gig I am no longer going to.
