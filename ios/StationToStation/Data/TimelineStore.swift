@@ -49,13 +49,29 @@ struct StoredAttendance: Codable, Equatable {
     var checkedInAt: Int64?
     var venueLat: Double?
     var venueLon: Double?
+    /// A **Ticket** PDF's decoded QR, base64 (#412), kept even when the rest of that
+    /// PDF's parse failed — the day-of view (#414) needs it regardless.
+    ///
+    /// **The field Android already writes** (`StoredAttendance.ticketQr`, landed with
+    /// #411), read and written here under the same name and the same encoding. A
+    /// top-level map of its own was the obvious alternative and is the wrong one: this
+    /// file is read by both twins, Android has no unknown-key carrying on save, and a
+    /// key only iOS knew would vanish the next time an Android build wrote the file.
+    /// Nesting it here also costs the cross-platform key set nothing —
+    /// `testWhatWeWriteCarriesEveryKeyAndroidExpects` is unchanged by this.
+    ///
+    /// Base64 rather than raw bytes for the reason Android gives: JSON has no binary,
+    /// and a string is the shape both sides already agree on.
+    var ticketQr: String?
 
     init(provenance: String = "planned", checkedInAt: Int64? = nil,
-         venueLat: Double? = nil, venueLon: Double? = nil) {
+         venueLat: Double? = nil, venueLon: Double? = nil,
+         ticketQr: String? = nil) {
         self.provenance = provenance
         self.checkedInAt = checkedInAt
         self.venueLat = venueLat
         self.venueLon = venueLon
+        self.ticketQr = ticketQr
     }
 
     init(from decoder: Decoder) throws {
@@ -64,7 +80,13 @@ struct StoredAttendance: Codable, Equatable {
         checkedInAt = (try? c.decodeIfPresent(Int64.self, forKey: .checkedInAt)) ?? nil
         venueLat = (try? c.decodeIfPresent(Double.self, forKey: .venueLat)) ?? nil
         venueLon = (try? c.decodeIfPresent(Double.self, forKey: .venueLon)) ?? nil
+        ticketQr = (try? c.decodeIfPresent(String.self, forKey: .ticketQr)) ?? nil
     }
+
+    /// The QR as bytes, or nil where there is none and where what was stored is not
+    /// base64 at all. A payload that will not decode is treated as no payload: there is
+    /// nothing to hold up at a door, and a half-decoded barcode is worse than none.
+    var ticketQrBytes: Data? { ticketQr.flatMap { Data(base64Encoded: $0) } }
 }
 
 /// One night, as *this app* knows it — the identity everything else hangs off
@@ -733,6 +755,35 @@ actor TimelineStore {
             // Never downgrades: re-storing the record when the night's setlist finally
             // lands must not throw away a check-in that happened in between.
             settled = c.gigAttendance[gigId] ?? StoredAttendance(provenance: "planned")
+            c.gigAttendance[gigId] = settled
+            return c
+        }
+        return settled
+    }
+
+    /// The QR a shared **Ticket** carried, kept against the night (#412).
+    ///
+    /// Field for field with Android's `attachTicketQr`, down to reusing whatever claim
+    /// the gig already has and minting a `planned` one only where it has none. Kept
+    /// apart from `savePlanned` for the reason that side gives too: the QR is preserved
+    /// even when the rest of a ticket's parse failed, so there may be no artist, venue
+    /// or date worth writing at all — only a gig this QR is being attached to after
+    /// the fact.
+    ///
+    /// **Returns the settled claim**, same reason `savePlanned` does: a caller's own
+    /// state has to reflect what was actually written rather than reinvent it, and this
+    /// write changes a record the lanes are drawn from.
+    ///
+    /// One QR per night, replaced. Sharing the same ticket twice is the same ticket,
+    /// and there is no reading of "two QRs for one gig" that is not a bug.
+    @discardableResult
+    func attachTicketQr(setlistId: String, qr: Data) -> StoredAttendance {
+        var settled = StoredAttendance()
+        writeMerged { cache in
+            var c = cache
+            let gigId = c.withGig(setlistId)
+            settled = c.gigAttendance[gigId] ?? StoredAttendance()
+            settled.ticketQr = qr.base64EncodedString()
             c.gigAttendance[gigId] = settled
             return c
         }
