@@ -88,7 +88,14 @@ struct UiState {
     var calendarEventByGig: [String: String] = [:]
     /// The ticket QR's payload for a night that has one, by gig id (#414). Presence is
     /// what the **Room** reads as "there is a ticket to hold up"; absence is the common
-    /// case and draws nothing. Written by ticket parsing (#412), which has not landed.
+    /// case and draws nothing.
+    ///
+    /// **In memory only, and empty until #412 lands.** Ticket parsing owns where this is
+    /// persisted, and that decision cannot be taken here: the cache file is a format
+    /// both twins read, `TimelineStoreTests` asserts the exact key set Android expects,
+    /// and Android's store has no unknown-key carry on save — so a key iOS invented on
+    /// its own would be dropped the next time an Android build wrote the file. The same
+    /// data-loss #107 exists to prevent. #412 adds the key to both sides at once.
     var ticketQrByGig: [String: Data] = [:]
     /// True while `addPlannedGig` is out fetching the setlist.fm record.
     var planningLoading = false
@@ -292,7 +299,6 @@ final class AppModel: ObservableObject {
             state.plannedGigs = sortedPlanned(cache.planned())
             state.attendanceByGig = cache.attendance()
             state.calendarEventByGig = cache.calendarEvents()
-            state.ticketQrByGig = cache.ticketQrs()
             // The Timeline draws keepsakes on its rows, so this has to be here before
             // any night is opened — and this already reads the cache at launch and
             // after every write.

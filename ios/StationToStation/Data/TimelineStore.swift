@@ -497,14 +497,6 @@ struct TimelineCache: Codable {
     var gigAttendance: [String: StoredAttendance] = [:]
     /// Replaces `calendarEventByGig`.
     var gigCalendarEvent: [String: String] = [:]
-    /// The payload of a night's ticket QR, by **Gig** id (#414). `Data`, so JSON carries
-    /// it as base64 and a ticket whose barcode is not text survives the round trip.
-    ///
-    /// **Provisional.** #412 is what fills this in — nothing writes it yet — and the key
-    /// name and encoding here are this platform's proposal, not a settled format. If
-    /// that issue lands a different shape, this is the one place to change and the
-    /// unknown-key carry means an older cache is unharmed either way.
-    var gigTicketQr: [String: Data] = [:]
     /// Replaces `playlistsMade`.
     var gigPlaylists: [String: [StoredPlaylist]] = [:]
     /// Replaces `plannedShows`. A map rather than a list because the gig id is now
@@ -555,7 +547,6 @@ struct TimelineCache: Codable {
         gigSongOffsets = map(.gigSongOffsets, [Int64].self)
         gigAttendance = map(.gigAttendance, StoredAttendance.self)
         gigCalendarEvent = map(.gigCalendarEvent, String.self)
-        gigTicketQr = map(.gigTicketQr, Data.self)
         gigPlaylists = map(.gigPlaylists, [StoredPlaylist].self)
         gigPlanned = map(.gigPlanned, FmSetlist.self)
         gigMedia = map(.gigMedia, [StoredMedia].self)
@@ -586,7 +577,6 @@ struct TimelineCache: Codable {
     func media() -> [String: [StoredMedia]] { rekeyed(gigMedia) }
     func attendance() -> [String: StoredAttendance] { rekeyed(gigAttendance) }
     func calendarEvents() -> [String: String] { rekeyed(gigCalendarEvent) }
-    func ticketQrs() -> [String: Data] { rekeyed(gigTicketQr) }
     func playlists() -> [String: [StoredPlaylist]] { rekeyed(gigPlaylists) }
     func planned() -> [FmSetlist] { Array(gigPlanned.values) }
 
@@ -789,7 +779,6 @@ actor TimelineStore {
             c.gigLogs[id] = nil
             c.gigMedia[id] = nil
             c.gigCalendarEvent[id] = nil
-            c.gigTicketQr[id] = nil
             c.gigPlaylists[id] = nil
             c.gigSongOffsets[id] = nil
             return c
@@ -975,7 +964,6 @@ actor TimelineStore {
             c.gigSongOffsets = c.gigSongOffsets.folded(keep.id, gone.id) { k, _ in k }
             c.gigAttendance = c.gigAttendance.folded(keep.id, gone.id) { k, _ in k }
             c.gigCalendarEvent = c.gigCalendarEvent.folded(keep.id, gone.id) { k, _ in k }
-            c.gigTicketQr = c.gigTicketQr.folded(keep.id, gone.id) { k, _ in k }
             c.gigPlanned = c.gigPlanned.folded(keep.id, gone.id) { k, _ in k }
             return c
         }
