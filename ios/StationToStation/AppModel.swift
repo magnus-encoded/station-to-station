@@ -86,6 +86,10 @@ struct UiState {
     /// The calendar event made for a planned gig, by gig id — EventKit's
     /// `eventIdentifier`. Presence is what the leaf reads as "already added".
     var calendarEventByGig: [String: String] = [:]
+    /// The ticket QR's payload for a night that has one, by gig id (#414). Presence is
+    /// what the **Room** reads as "there is a ticket to hold up"; absence is the common
+    /// case and draws nothing. Written by ticket parsing (#412), which has not landed.
+    var ticketQrByGig: [String: Data] = [:]
     /// True while `addPlannedGig` is out fetching the setlist.fm record.
     var planningLoading = false
     /// Friends' attended shows by setlist.fm username, drawn as Lanes when zoomed
@@ -288,6 +292,7 @@ final class AppModel: ObservableObject {
             state.plannedGigs = sortedPlanned(cache.planned())
             state.attendanceByGig = cache.attendance()
             state.calendarEventByGig = cache.calendarEvents()
+            state.ticketQrByGig = cache.ticketQrs()
             // The Timeline draws keepsakes on its rows, so this has to be here before
             // any night is opened — and this already reads the cache at launch and
             // after every write.
@@ -321,6 +326,7 @@ final class AppModel: ObservableObject {
         state.attendanceByGig[gigId] = nil
         state.mediaBySetlist[gigId] = nil
         state.calendarEventByGig[gigId] = nil
+        state.ticketQrByGig[gigId] = nil
         if state.selectedSetlist?.id == gigId {
             state.selectedSetlist = nil
             state.gigLog = StoredLog()

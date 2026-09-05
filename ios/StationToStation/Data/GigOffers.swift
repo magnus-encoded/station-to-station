@@ -28,6 +28,10 @@ struct GigAsKnown {
     var songCount: Int = 0
     /// The calendar entry made for this night, if one was.
     var calendarEvent: String? = nil
+    /// The payload of the ticket's QR, as the ticket carried it (#414). Nil for a night
+    /// no ticket was parsed for, which is most of them — a night bought at the door, an
+    /// import from 1992, anything typed in by hand.
+    var ticketQr: Data? = nil
 
     var checkedIn: Bool { provenance == "checked_in" }
     var linked: Bool { setlistId != nil }
@@ -101,6 +105,11 @@ struct Room {
     var checkIn: Bool
     /// The **Log** and the media: only once there is something to record.
     var capture: Bool
+    /// Hold the ticket up to be scanned (#414). True before the check-in and only where
+    /// a ticket was actually parsed; the checked-in state is what replaces it, so the
+    /// two are never both showing. A night with no ticket omits it rather than drawing
+    /// an empty frame — there is nothing to hold up.
+    var qr: Bool
 }
 
 /// What a **Gig** offers, decided once, rendered everywhere.
@@ -182,7 +191,13 @@ func gigOffers(_ gig: GigAsKnown, now: Date) -> GigOffers {
             // The night's own window, the same one a check-in already draws. Claiming
             // it later is what `attended` is for, and this never gates on a location.
             checkIn: gig.window?.contains(now) == true && !gig.checkedIn,
-            capture: started
+            capture: started,
+            // Deliberately *not* gated on the window the check-in above reads. A ticket
+            // is scanned at the door, and the door opens before the night's window does
+            // — a QR the **Room** hides until the set starts is a QR you cannot get in
+            // with. The check-in is what retires it, because being inside is the fact
+            // that makes the barcode spent.
+            qr: gig.ticketQr != nil && !gig.checkedIn
         ),
         alcove: alcove,
         curtain: curtain,
