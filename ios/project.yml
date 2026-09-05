@@ -44,6 +44,19 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Simulator builds need no signing (mirrors Android's unsigned debug APK).
         CODE_SIGNING_ALLOWED: "NO"
+    dependencies:
+      # Embeds the Share Extension in the app bundle. An extension is not installable
+      # on its own — it ships inside its host or not at all.
+      - target: TicketShare
+    # The App Group the Share Extension deposits parsed Tickets into, and the only
+    # thing the two processes share (ADR-0020). Declared on both targets; the ids
+    # must be identical or the container resolves to nil on one side and the handover
+    # silently does nothing.
+    entitlements:
+      path: StationToStation.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.io.github.magnusencoded.stationtostation
     info:
       path: StationToStation/Info.plist
       properties:
@@ -109,6 +122,47 @@ targets:
             CFBundleURLSchemes: [station-to-station]
           - CFBundleURLName: io.github.magnusencoded.setlist2spotify
             CFBundleURLSchemes: [setlist2spotify]
+
+  # Sharing a PDF ticket into the app (#412). The extension rasterizes the PDF with
+  # PDFKit, extracts with Vision, parses with the same pure function the app's own
+  # tests assert, and leaves the result in the App Group inbox. It never opens
+  # `timelines.json` — see ADR-0020.
+  TicketShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - TicketShare
+      # The shared half, compiled into both targets rather than pulled out into a
+      # framework: two small files with no dependencies do not earn a module, and a
+      # framework would be the first in this project. Everything in this folder is
+      # shared by construction — routing, which needs FmSetlist, lives outside it.
+      - path: StationToStation/Data/Ticket
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.magnusencoded.stationtostation.ticketshare
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGNING_ALLOWED: "NO"
+    info:
+      path: TicketShare/Info.plist
+      properties:
+        CFBundleDisplayName: Station to Station
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            # PDFs and nothing else. `SupportsFileWithMaxCount` alone would put this
+            # app in the share sheet for every file on the phone, which is how an
+            # extension earns itself a permanent place in the "more" list.
+            NSExtensionActivationRule: >-
+              SUBQUERY(extensionItems, $item,
+              SUBQUERY($item.attachments, $attachment,
+              ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.adobe.pdf"
+              ).@count == 1).@count == 1
+    entitlements:
+      path: TicketShare.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.io.github.magnusencoded.stationtostation
 
   StationToStationTests:
     type: bundle.unit-test
