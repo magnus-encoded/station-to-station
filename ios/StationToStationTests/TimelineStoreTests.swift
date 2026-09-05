@@ -570,7 +570,8 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual(42, settled.checkedInAt)
         XCTAssertEqual(59.9, settled.venueLat)
         XCTAssertEqual(Data("TKT-9F31".utf8), settled.ticketQrBytes)
-        XCTAssertEqual(settled, await store.load().gigAttendance[id])
+        let onDisk = await store.load().gigAttendance[id]
+        XCTAssertEqual(settled, onDisk)
     }
 
     /// A gig with no claim yet still takes the QR: the parse may have yielded nothing
@@ -593,8 +594,8 @@ final class TimelineStoreTests: XCTestCase {
 
         await store.attachTicketQr(setlistId: id, qr: Data("second".utf8))
 
-        XCTAssertEqual(Data("second".utf8),
-                       await store.load().gigAttendance[id]?.ticketQrBytes)
+        let onDisk = await store.load().gigAttendance[id]?.ticketQrBytes
+        XCTAssertEqual(Data("second".utf8), onDisk)
     }
 
     /// **The cross-platform shape.** Android's #411 landed the QR as a base64 string
@@ -631,8 +632,8 @@ final class TimelineStoreTests: XCTestCase {
 
         await store.save(shows: ["dizzi90": [show("a")]])
 
-        XCTAssertEqual(Data("TKT-9F31".utf8),
-                       await store.load().gigAttendance["g1"]?.ticketQrBytes)
+        let onDisk = await store.load().gigAttendance["g1"]?.ticketQrBytes
+        XCTAssertEqual(Data("TKT-9F31".utf8), onDisk)
     }
 
     /// A stored payload that is not base64 is treated as no payload: there is nothing
