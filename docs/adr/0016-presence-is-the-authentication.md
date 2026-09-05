@@ -93,6 +93,9 @@ argued away:
 
 - ADR-0003 no backend for the social layer — why there is no third party who could vouch for anyone.
 - ADR-0014 the Volunteer, ADR-0015 the Holdout — the two protective personas this bounds.
+- ADR-0019 the gossip channel background carve-out — narrows this decision's "nothing
+  advertises, listens or accepts in the background" for a check-in relay between existing
+  Contacts; it does not reopen it. Reconcile itself stays foreground-only, exactly as below.
 - `UBIQUITOUS_LANGUAGE.md`, **Exchange** and **Contact** — the product half of the same sentence.
 - #188 the arrival rule (this decision's companion), #271 a link cannot mint a **Contact**,
   #265 the LAN session that *does* verify, #187 the username at the same trust boundary.
