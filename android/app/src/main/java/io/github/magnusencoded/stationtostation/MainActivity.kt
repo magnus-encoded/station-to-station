@@ -103,21 +103,32 @@ class MainActivity : ComponentActivity() {
             "handover" -> viewModel.joinHandover(uri)
             "gig" -> viewModel.handleGigInvite(uri)
             "callback" -> viewModel.handleAuthRedirect(uri)
+            // A ticketing provider's own confirmation page, linking straight to a gig
+            // with the fields it already knows rather than a PDF for this app to OCR
+            // (see AppViewModel.handleTicketLink) — station-to-station://ticket?artist=
+            // …&venue=…&date=…&qr=…, embeddable in a page the same way "open in app"
+            // links from other services are.
+            "ticket" -> viewModel.handleTicketLink(uri)
             else -> viewModel.openGigLink(uri)
         }
     }
 
     /**
-     * A PDF ticket shared in from the system share sheet (#411) — the sibling of
-     * [handleAuthIntent] rather than a change to it, because the two arrive by
-     * different actions and share nothing but "MainActivity is the front door".
-     * `ACTION_SEND` with `application/pdf` is what an email or wallet app's own
-     * "Share" offers; the extra can be `EXTRA_STREAM` (the ordinary attachment path)
-     * or, rarely, a share sending the pdf as the intent's own [Intent.getData].
+     * A PDF ticket shared in from the system share sheet (#411), or opened directly
+     * ("Open with") — the sibling of [handleAuthIntent] rather than a change to it,
+     * because these arrive by different actions and share nothing but "MainActivity
+     * is the front door". `ACTION_SEND` with `application/pdf` is what an email or
+     * wallet app's own "Share" offers, with the pdf usually as `EXTRA_STREAM` (rarely
+     * as the intent's own [Intent.getData]); `ACTION_VIEW` is a Files app or browser's
+     * "Open with", where the pdf is always [Intent.getData].
      */
     private fun handleTicketIntent(intent: Intent?) {
-        if (intent?.action != Intent.ACTION_SEND || intent.type != "application/pdf") return
-        val uri = ticketUriExtra(intent) ?: intent.data ?: return
+        if (intent?.type != "application/pdf") return
+        val uri = when (intent.action) {
+            Intent.ACTION_SEND -> ticketUriExtra(intent) ?: intent.data
+            Intent.ACTION_VIEW -> intent.data
+            else -> null
+        } ?: return
         viewModel.handleSharedTicketPdf(uri)
     }
 

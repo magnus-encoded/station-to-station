@@ -981,6 +981,26 @@ private fun FuturePrompt(loading: Boolean) {
     )
 }
 
+/** A ticket's barcode, redrawn as a scannable QR — nothing at all when there is none. */
+@Composable
+private fun TicketQrCode(bitmap: Bitmap?) {
+    if (bitmap == null) return
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.White)
+            .border(1.dp, LineLit, RoundedCornerShape(14.dp))
+            .padding(14.dp),
+    ) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = "Your ticket's QR code",
+            modifier = Modifier.size(180.dp),
+        )
+    }
+    Spacer(Modifier.height(10.dp))
+}
+
 /**
  * A gig you're going to: who is playing, where, and when.
  *
@@ -3380,6 +3400,19 @@ fun StationEventScreen(
                     Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    // The ticket's own barcode. Gone the moment checked in — see
+                    // `checkedIn` below — and never drawn at all when there is no
+                    // ticket to show. Plain black-on-white, unlike the Amber exchange
+                    // card: this one has to scan for a venue's own reader, not just
+                    // decode for another phone. Computed once here rather than inside
+                    // either branch below, because it is worth showing on this gig's
+                    // own page as soon as a ticket is attached — not held back until
+                    // the day-of check-in window the way the offer to check in is.
+                    val ticketQr = remember(setlist.id) {
+                        gigAsKnown.ticketQr?.decodeTicketQrBase64()?.let { bytes ->
+                            runCatching { qrBitmap(String(bytes, Charsets.ISO_8859_1), 480) }.getOrNull()
+                        }
+                    }
                     // The manual check-in, and the only one there is when location was
                     // refused or the venue couldn't be geocoded. Same night window as
                     // the ambient offer; no location involved at all.
@@ -3387,35 +3420,7 @@ fun StationEventScreen(
                         if (checkedIn) {
                             Text("✓ checked in", color = Amber, fontSize = 13.sp, modifier = Modifier.padding(vertical = 6.dp))
                         } else {
-                            // The ticket's own QR, at the door — gone the moment
-                            // checked in swaps this branch for "✓ checked in" above,
-                            // and never drawn at all when there is no ticket to show.
-                            // Plain black-on-white, unlike the Amber exchange card:
-                            // this one has to scan for a venue's own reader, not just
-                            // decode for another phone.
-                            if (offers.room.showQr) {
-                                val ticketQr = remember(setlist.id) {
-                                    gigAsKnown.ticketQr?.decodeTicketQrBase64()?.let { bytes ->
-                                        runCatching { qrBitmap(String(bytes, Charsets.ISO_8859_1), 480) }.getOrNull()
-                                    }
-                                }
-                                if (ticketQr != null) {
-                                    Box(
-                                        Modifier
-                                            .clip(RoundedCornerShape(14.dp))
-                                            .background(Color.White)
-                                            .border(1.dp, LineLit, RoundedCornerShape(14.dp))
-                                            .padding(14.dp),
-                                    ) {
-                                        Image(
-                                            bitmap = ticketQr.asImageBitmap(),
-                                            contentDescription = "Your ticket's QR code",
-                                            modifier = Modifier.size(180.dp),
-                                        )
-                                    }
-                                    Spacer(Modifier.height(10.dp))
-                                }
-                            }
+                            if (offers.room.showQr) TicketQrCode(ticketQr)
                             Text(
                                 "I'm here — check in",
                                 color = Amber,
@@ -3425,6 +3430,10 @@ fun StationEventScreen(
                                     .padding(vertical = 6.dp),
                             )
                         }
+                    } else if (!checkedIn) {
+                        // Outside the check-in window: no "I'm here" offer yet, but
+                        // still worth showing that the ticket's barcode was captured.
+                        TicketQrCode(ticketQr)
                     }
                     when (timeState) {
                         // Over: adding a setlist is a past action, so the setlist.fm

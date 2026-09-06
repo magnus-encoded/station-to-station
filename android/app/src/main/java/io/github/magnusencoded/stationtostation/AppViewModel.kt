@@ -41,6 +41,7 @@ import io.github.magnusencoded.stationtostation.data.StoredPlaylist
 import io.github.magnusencoded.stationtostation.data.ParsedTicket
 import io.github.magnusencoded.stationtostation.data.TicketRouting
 import io.github.magnusencoded.stationtostation.data.extractTicket
+import io.github.magnusencoded.stationtostation.data.findDate
 import io.github.magnusencoded.stationtostation.data.matchKnownNight
 import io.github.magnusencoded.stationtostation.data.parseTicket
 import io.github.magnusencoded.stationtostation.data.routeTicket
@@ -1753,16 +1754,46 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun handleSharedTicketPdf(uri: Uri) {
         viewModelScope.launch {
             val parsed = parseTicket(extractTicket(getApplication(), uri))
-            val known = _state.value.setlists + _state.value.plannedGigs
-            when (val routing = routeTicket(parsed, known)) {
-                is TicketRouting.AlreadyKnown -> attachTicketQr(routing.gig.id, parsed.qrBytes)
-                is TicketRouting.NewPlannedGig -> {
-                    val night = parseFmDate(routing.date) ?: return@launch
-                    addParsedPlannedGig(routing.artist, routing.venue, night, routing.qrBytes)
-                }
-                is TicketRouting.NeedsConfirmation ->
-                    _state.update { it.copy(pendingTicket = PendingTicket(routing.parsed, routing.possibleMatch)) }
+            routeParsedTicket(parsed)
+        }
+    }
+
+    /**
+     * A ticketing provider's own confirmation page, linked straight into the app
+     * rather than shared as a PDF for this app to OCR — `station-to-station://ticket
+     * ?artist=…&venue=…&date=…&qr=…`, meant to be embeddable in a page the provider
+     * already controls the same way any other "open in app" link is. `artist`,
+     * `venue` and `date` are the plain fields; `date` is read through the same
+     * [findDate] every PDF ticket's text is, so a provider can send whatever
+     * reasonably-dated shape they already format dates in rather than being made to
+     * learn this app's own dd-MM-yyyy. `qr` is the barcode's own decoded payload
+     * (plain text, not base64) — optional, since a page may not have it at hand.
+     *
+     * Reuses [routeTicket] exactly as the PDF path does: a complete, unambiguous
+     * parse acts on its own, anything less is shown to the person to confirm. A link
+     * a provider gets wrong (a typo'd date, a missing artist) fails exactly the same
+     * safe way an unreadable PDF does — never a silent add.
+     */
+    fun handleTicketLink(uri: Uri) {
+        val artist = uri.getQueryParameter("artist")?.trim()?.ifBlank { null }
+        val venue = uri.getQueryParameter("venue")?.trim()?.ifBlank { null }
+        val date = uri.getQueryParameter("date")?.trim()?.ifBlank { null }?.let { findDate(it) }
+        val qrBytes = uri.getQueryParameter("qr")?.trim()?.ifBlank { null }?.toByteArray(Charsets.UTF_8)
+        val parsed = ParsedTicket(qrBytes = qrBytes, artist = artist, venue = venue, date = date)
+        viewModelScope.launch { routeParsedTicket(parsed) }
+    }
+
+    /** [handleSharedTicketPdf] and [handleTicketLink]'s shared decision, once each has its own [ParsedTicket]. */
+    private suspend fun routeParsedTicket(parsed: ParsedTicket) {
+        val known = _state.value.setlists + _state.value.plannedGigs
+        when (val routing = routeTicket(parsed, known)) {
+            is TicketRouting.AlreadyKnown -> attachTicketQr(routing.gig.id, parsed.qrBytes)
+            is TicketRouting.NewPlannedGig -> {
+                val night = parseFmDate(routing.date) ?: return
+                addParsedPlannedGig(routing.artist, routing.venue, night, routing.qrBytes)
             }
+            is TicketRouting.NeedsConfirmation ->
+                _state.update { it.copy(pendingTicket = PendingTicket(routing.parsed, routing.possibleMatch)) }
         }
     }
 

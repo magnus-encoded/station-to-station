@@ -108,21 +108,71 @@ fun parseTicket(extract: TicketExtract): ParsedTicket {
     // print to the confirm dialog instead of the actual artist and venue. Neither
     // line is discarded, only reordered, so a ticket with no caps-styled line at all
     // still gets the old "first two" answer.
+    //
+    // Caps alone isn't enough on a real ticket bundled with a marketing insert: a
+    // booking code ("OPT2901") and an ad's own tagline ("DEL EN OPPLEVELSE!") are
+    // *also* shouty, and OCR read both ahead of the real event line on the ticket
+    // this heuristic was first written against — confirmed against the real ML Kit
+    // output, not guessed from a PDF's embedded text layer. [isShoutyLabel] additionally
+    // excludes anything with a digit (an event/venue name essentially never carries
+    // one; a code or address always does), anything ending in the vendor's own
+    // structural punctuation (":", "!", "?") — a heading or an ad's tagline, not a
+    // name — and anything with a "/" (a seating category like "STÅPLASS/STANDING" or
+    // a combined entrance like "Inngang 2/Inngang 4", never an event or venue name).
+    //
+    // A second real ticket (an Eventim one) has no shouty line at all — its artist
+    // and venue print in ordinary title case. There [isShoutyLabel] rightly excludes
+    // everything, and the fallback below is what actually finds the answer: on that
+    // layout the date sits **sandwiched** between the artist just before it and the
+    // venue just after it, skipping the vendor's own label lines (a trailing ":",
+    // e.g. "Stageway, ATL & Ramalama presenterer:") on either side.
+    //
+    // That sandwich only fires when both neighbours exist — deliberately, since on a
+    // ticket where the date is the *last* content line (most synthetic and plenty of
+    // real ones), there is no line after it to be a venue, and "closest line before
+    // the date" would otherwise wrongly grab whatever second line is directly above
+    // it instead of the actual first line. Requiring both sides present is what keeps
+    // this narrower and more reliable than "first two non-date lines" instead of just
+    // a different way to be wrong.
     val (shouty, prose) = remaining.partition { isShoutyLabel(it) }
-    val ordered = shouty + prose
-    val artist = ordered.getOrNull(0)
-    val venue = ordered.getOrNull(1)
+    val sandwichArtist = dateLineIndex.takeIf { it != -1 }
+        ?.let { extract.textBlocks.subList(0, it).lastOrNull { line -> line.isUsableNeighbourLine() } }
+    val sandwichVenue = dateLineIndex.takeIf { it != -1 }
+        ?.let { extract.textBlocks.subList(it + 1, extract.textBlocks.size).firstOrNull { line -> line.isUsableNeighbourLine() } }
+    val artist: String?
+    val venue: String?
+    if (shouty.isEmpty() && sandwichArtist != null && sandwichVenue != null) {
+        artist = sandwichArtist.trim()
+        venue = sandwichVenue.trim()
+    } else {
+        val ordered = shouty + prose
+        artist = ordered.getOrNull(0)
+        venue = ordered.getOrNull(1)
+    }
     return ParsedTicket(qrBytes = extract.qrBytes, artist = artist, venue = venue, date = date)
 }
+
+/** A blank line or a vendor's own label line (ending ":") is never the neighbour's answer. */
+private fun String.isUsableNeighbourLine(): Boolean = isNotBlank() && !trim().endsWith(":")
 
 /**
  * At least four letters in five uppercase, ignoring non-letters — a vendor's
  * stylised event/venue line, not the prose above or below it on the page. Needs at
  * least two letters at all so a bare separator or order-number line never qualifies.
+ *
+ * Further exclusions, all confirmed against real tickets' actual OCR output rather
+ * than guessed: a digit anywhere rules a line out (a booking code or an address
+ * carries one; an event/venue name essentially never does), so does a trailing ":",
+ * "!" or "?" (a heading a value sits under, or an ad's own tagline — never the name
+ * itself), and so does a "/" (a seating category or a combined entrance, always an
+ * enumeration of alternatives rather than a name).
  */
 private fun isShoutyLabel(text: String): Boolean {
     val letters = text.filter { it.isLetter() }
     if (letters.length < 2) return false
+    if (text.any { it.isDigit() }) return false
+    if (text.contains('/')) return false
+    if (text.trimEnd().lastOrNull() in setOf(':', '!', '?')) return false
     val upper = letters.count { it.isUpperCase() }
     return upper.toDouble() / letters.length >= 0.8
 }
@@ -145,8 +195,19 @@ private val LONG_DATE_FORMAT = DateTimeFormatter.ofPattern("d MMMM yyyy", Locale
 private val US_DATE = Regex("""\b([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})\b""")
 private val US_DATE_FORMAT = DateTimeFormatter.ofPattern("MMMM d yyyy", Locale.ENGLISH)
 
+// "28. nov. 2026" / "28 nov 2026" — a real ticket's own shape (Eventim), Norwegian
+// vendors' three-letter month abbreviations with an optional trailing period rather
+// than a full month name, which java.time's Norwegian locale data doesn't reliably
+// match on every Android version. Mapped by hand instead of through a
+// DateTimeFormatter for that reason — this is the only date shape here that is.
+private val NB_SHORT_DATE = Regex("""\b(\d{1,2})\.?\s+([A-Za-zæøåÆØÅ]{3,})\.?\s+(\d{4})\b""")
+private val NB_MONTHS = mapOf(
+    "jan" to 1, "feb" to 2, "mar" to 3, "apr" to 4, "mai" to 5, "jun" to 6,
+    "jul" to 7, "aug" to 8, "sep" to 9, "okt" to 10, "nov" to 11, "des" to 12,
+)
+
 /** dd-MM-yyyy, whatever shape the source text used. Null when nothing in [text] parses. */
-private fun findDate(text: String): String? {
+internal fun findDate(text: String): String? {
     for ((regex, format) in DATE_PATTERNS) {
         regex.find(text)?.let { match ->
             val (a, b, c) = match.destructured
@@ -161,6 +222,13 @@ private fun findDate(text: String): String? {
     US_DATE.find(text)?.let { match ->
         val (month, day, year) = match.destructured
         parseWith("$month $day $year", US_DATE_FORMAT)?.let { return fmDate(it) }
+    }
+    NB_SHORT_DATE.find(text)?.let { match ->
+        val (day, month, year) = match.destructured
+        val monthNumber = NB_MONTHS[month.take(3).lowercase(Locale.ROOT)]
+        if (monthNumber != null) {
+            runCatching { LocalDate.of(year.toInt(), monthNumber, day.toInt()) }.getOrNull()?.let { return fmDate(it) }
+        }
     }
     return null
 }
