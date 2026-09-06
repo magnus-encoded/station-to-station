@@ -119,6 +119,16 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="application/pdf" />
             </intent-filter>
+            <!-- The same PDF, opened directly rather than shared — "Open with" from a
+                 Files app or a browser's download tray. No scheme is declared: leaving
+                 it out is what makes Android match the implicit content:// and file://
+                 schemes a VIEW of a local PDF actually arrives as. Same handler as the
+                 SEND filter above; see handleTicketIntent. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
         </activity>
 
         <!-- A tap on a filing notification copies that one value and nothing else.
