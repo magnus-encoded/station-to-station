@@ -105,6 +105,94 @@ class TicketParsingTest {
     }
 
     @Test
+    fun aBookingCodeAndAnAdsTaglineDoNotOutrankTheRealEventLineEither() {
+        // The previous test's fix (prefer caps) was verified against a guess at what
+        // OCR would produce. Run against a real device, this same ticket's actual PDF
+        // also bundles a gift-card ad on the same page, and both an internal booking
+        // code ("OPT2901") and the ad's own tagline ("DEL EN OPPLEVELSE!") are
+        // themselves caps-styled — a caps preference alone hands the confirm dialog
+        // "OPT2901" / "DEL EN OPPLEVELSE!" instead of "SKAMBANKT" / "PARKTEATRET
+        // SCENE". This is that real ML Kit output, trimmed to the blocks that matter
+        // for this decision.
+        val extract = TicketExtract(
+            textBlocks = listOf(
+                "Dette er din billett",
+                "Ta med hele siden til arrangementet",
+                "Magnus Hustveit",
+                "Kundenummer:",
+                "1813111",
+                "Arrangementskode:",
+                "OPT2901",
+                "Kjøpsdato:",
+                "Ordrenummer:",
+                "17424705",
+                "billettservice",
+                "I Gaver",
+                "Gi levende",
+                "underholdningi gave",
+                "DEL EN OPPLEVELSE!",
+                "YNGLING & ØYA UNDER 18:",
+                "SKAMBANKT",
+                "Vi har to forskjellige typer gavekort:",
+                "PARKTEATRET SCENE",
+                "OLAF RYES PLASS 11",
+                "DØRENE ÅPNER KL.18.00",
+                "Send gavekort per post",
+                "TORSDAG 29.01.2015",
+                "FRI ALDERSGRENSE",
+                "KJØPTE BILL. REFUNDERES IKKE",
+            ),
+        )
+
+        val parsed = parseTicket(extract)
+
+        assertEquals("SKAMBANKT", parsed.artist)
+        assertEquals("PARKTEATRET SCENE", parsed.venue)
+        assertEquals("29-01-2015", parsed.date)
+    }
+
+    @Test
+    fun anUnstyledEventimTicketFallsBackToTheLinesBesideTheDate() {
+        // A third real ticket (Eventim), reported alongside the Billettservice one:
+        // no line on this layout is vendor-styled caps at all, so isShoutyLabel finds
+        // nothing to prefer and "first two non-date lines" would hand the confirm
+        // dialog the banner ("Dette er din billett") again. The layout does carry a
+        // different, still-generic signal: the artist prints immediately before the
+        // date and the venue immediately after it. Trimmed to the blocks that matter;
+        // "presenterer:" is the vendor's own label line and must not win instead.
+        val extract = TicketExtract(
+            textBlocks = listOf(
+                "Dette er din billett",
+                "Vis billetten på din telefon eller print den ut",
+                "Booking details",
+                "Magnus Meyer Europa",
+                "Order number: 1102933078",
+                "E-ticket code: NUSA7D2",
+                "Terms and conditions",
+                "Please check the ticket for event, date and time.",
+                "000310038500200020010000",
+                "Stageway, ATL & Ramalama presenterer:",
+                "Dumdumboys – XL [romertallførti]",
+                "28. nov. 2026 kl. 20.00",
+                "Trondheim Spektrum",
+                "Klostergata 90, 7030 Trondheim",
+                "Kunde: Magnus Meyer Europa",
+                "NOK 935,00 - fees included",
+                "Inngang 2/Inngang 4",
+                "STÅPLASS/STANDING",
+                "Dørene åpner 18:00",
+                "OrdreID: 0003081683",
+            ),
+        )
+
+        val parsed = parseTicket(extract)
+
+        assertEquals("Dumdumboys – XL [romertallførti]", parsed.artist)
+        assertEquals("Trondheim Spektrum", parsed.venue)
+        assertEquals("28-11-2026", parsed.date)
+    }
+
+    @Test
     fun aLongFormDateIsRecognisedToo() {
         // Generic date shapes, not any one vendor's — see routeTicket's own doc.
         val parsed = parseTicket(TicketExtract(textBlocks = listOf("Doors 19:00, 24th June 2027")))
