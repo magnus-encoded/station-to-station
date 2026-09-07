@@ -264,8 +264,7 @@ struct WovenRow: Identifiable {
     /// a festival I never went to "3 together".
     var sharedCount: Int {
         guard mine else { return 0 }
-        let alsoTheirs = Set(showsHereByFriends.map(\.id))
-        return shows.filter { alsoTheirs.contains($0.id) }.count
+        return shows.filter { mine in showsHereByFriends.contains { mine.sameAttendance($0) } }.count
     }
 
     /// Shows a friend was at here **and I was not** — which is what Theirs means: a Gig
@@ -277,8 +276,7 @@ struct WovenRow: Identifiable {
     /// not exist. Ported with Android.
     var theirsCount: Int {
         guard mine else { return showsHereByFriends.count }
-        let mineHere = Set(shows.map(\.id))
-        return showsHereByFriends.filter { !mineHere.contains($0.id) }.count
+        return showsHereByFriends.filter { theirs in !shows.contains { $0.sameAttendance(theirs) } }.count
     }
 
     var key: String {
@@ -343,8 +341,51 @@ private func sameEvening(_ node: TimelineNode, _ other: TimelineNode) -> Bool {
     guard let head = all.first, let date = head.localDate() else { return false }
     let venue = head.venue?.name ?? ""
     if venue.isEmpty { return false }
-    return all.allSatisfy {
-        $0.localDate() == date && venue.caseInsensitiveCompare($0.venue?.name ?? "") == .orderedSame
+    return all.allSatisfy { $0.localDate() == date && sameVenueName(venue, $0.venue?.name ?? "") }
+}
+
+/// Whether two venue names are the same room, loosely (#433). A Gig with no
+/// setlist.fm id behind it — typed by hand, or guessed from a ticket — has whatever
+/// venue string a person or an OCR pass produced, and that essentially never matches
+/// a friend's setlist.fm-formatted name character for character: "Parkteatret"
+/// against "Parkteatret Scene, Oslo, Norway" is the same room and used to never fold
+/// together. Loosened to: equal after lowercasing and dropping everything from the
+/// first comma on, or one of those trimmed names contained in the other. Still keyed
+/// on the exact date, so this cannot resurrect the four-day festival window #166
+/// removed — only makes the venue half of the check forgiving.
+private func sameVenueName(_ a: String, _ b: String) -> Bool {
+    func normalize(_ s: String) -> String {
+        (s.split(separator: ",").first.map(String.init) ?? s)
+            .trimmingCharacters(in: .whitespaces)
+            .lowercased()
+    }
+    let na = normalize(a)
+    let nb = normalize(b)
+    if na.isEmpty || nb.isEmpty { return false }
+    return na == nb || na.contains(nb) || nb.contains(na)
+}
+
+/// Whether two shows are the same real-world attendance rather than two different
+/// records that merely landed on the same `hosts`-ed node (#433). An exact id match
+/// is the strongest signal there is; short of that, this only stands in for a
+/// missing id — never for two ids that both claim to be real. `isLocal` is what
+/// tells the two apart: a setlist.fm show always has one, so two of them with
+/// *different* ids at the same venue and date are two different real things (a
+/// shared bill — a friend at a third act I wasn't at, same night, same room — must
+/// stay two attendances, not one). It is only when exactly one side has no id at all
+/// — a local Gig, typed by hand or guessed from a ticket with no setlist.fm account
+/// behind it — that the same date at the same room (per `sameVenueName`) is taken as
+/// good enough: that is exactly the rule `sameEvening` already used to fold the two
+/// *nodes* together, applied per show instead of only at the node level, which is
+/// what keeps a multi-day festival honest too — my day 2 and a friend's day 3 share
+/// neither date nor id nor this asymmetry, so they still count as unshared even
+/// though the festival identity node holds both (#166).
+private extension FmSetlist {
+    func sameAttendance(_ other: FmSetlist) -> Bool {
+        if id == other.id { return true }
+        if isLocal == other.isLocal { return false }
+        guard let date = localDate(), date == other.localDate() else { return false }
+        return sameVenueName(venue?.name ?? "", other.venue?.name ?? "")
     }
 }
 
