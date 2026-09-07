@@ -16,11 +16,15 @@ import org.junit.Test
 /** The zoomed-out spine: my nodes, other people's, and where the two are the same night. */
 class WeaveTimelinesTest {
 
+    // A real setlist.fm show by default — `url` is what `isLocal()` reads, and most
+    // shows in this file stand in for genuine setlist.fm records on both sides. The
+    // #433 tests below build a local (no-account) show explicitly with `url = null`.
     private fun show(id: String, date: String, venue: String) = FmSetlist(
         id = id,
         eventDate = date, // dd-MM-yyyy
         artist = FmArtist(name = "Artist $id"),
         venue = FmVenue(name = venue),
+        url = "https://www.setlist.fm/setlist/$id.html",
     )
 
     private val lemmy = Friend(setlistfm = "Lemmy", name = "Lemmy")
@@ -284,6 +288,32 @@ class WeaveTimelinesTest {
         assertEquals(1, rows.size)
         assertTrue(rows[0].shared)
         assertEquals(1, rows[0].sharedCount)
+    }
+
+    /**
+     * A local **Gig** — no setlist.fm account behind it, so no real setlist.fm id, and
+     * a venue string typed by hand or guessed from a ticket rather than pulled from
+     * setlist.fm's own listing (#433). A friend's night at the same room on the same
+     * date used to draw its own row entirely — "theirs" and nothing else — because the
+     * only fold path besides a shared id, `sameEvening`, required the venue names to
+     * match character for character, and "Parkteatret" never will against
+     * "Parkteatret Scene, Oslo, Norway".
+     */
+    @Test
+    fun `a local gig with no setlist fm id still folds into a friend's night at the same room`() {
+        val mine = show("local-1", "29-01-2027", "Parkteatret").copy(url = null)
+        val theirs = show("sfm-9", "29-01-2027", "Parkteatret Scene, Oslo, Norway")
+        val rows = weaveTimelines(
+            mine = listOf(mine),
+            festivals = Festivals(),
+            friends = listOf(lemmy),
+            theirs = mapOf("Lemmy" to listOf(theirs)),
+        )
+
+        assertEquals(1, rows.size)
+        assertTrue(rows[0].shared)
+        assertEquals(1, rows[0].sharedCount)
+        assertEquals(0, rows[0].theirsCount)
     }
 
     /**
