@@ -762,12 +762,11 @@ final class AppModel: ObservableObject {
 
     // --- Settings ---
 
-    func saveSettings(apiKey: String, clientId: String, setlistFmUser: String = "") {
+    func saveSettings(apiKey: String, clientId: String) {
         settings.saveSetlistFmApiKey(apiKey)
         settings.saveSpotifyClientId(clientId)
         state.setlistFmApiKey = apiKey.trimmingCharacters(in: .whitespaces)
         state.spotifyClientId = clientId.trimmingCharacters(in: .whitespaces)
-        state.userQuery = setlistFmUser.trimmingCharacters(in: .whitespaces)
         state.spotifyLoginReady = settings.spotifyClientIdValue != nil
         state.setlistFmReady = settings.setlistFmApiKeyValue != nil
     }

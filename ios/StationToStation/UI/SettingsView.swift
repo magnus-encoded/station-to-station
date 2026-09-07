@@ -3,7 +3,6 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var model: AppModel
     @State private var apiKey = ""
-    @State private var setlistFmUser = ""
     @State private var clientId = ""
     @State private var clashfinderUser = ""
     @State private var clashfinderPrivateKey = ""
@@ -40,24 +39,17 @@ struct SettingsView: View {
 
             Section("setlist.fm") {
                 if s.bundledSetlistFmKey && apiKey.trimmingCharacters(in: .whitespaces).isEmpty {
-                    Text("Using the bundled setlist.fm API key. To use your own, enter your "
-                        + "username and API key below. Request a free API key at "
-                        + "api.setlist.fm/settings/apps.")
+                    Text("Using the bundled setlist.fm API key. To use your own, paste it below. "
+                        + "Request a free API key at api.setlist.fm/settings/apps.")
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
                     Text("Request a free API key at api.setlist.fm/settings/apps.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                TextField("setlist.fm username", text: $setlistFmUser)
-                    .autocorrectionDisabled().textInputAutocapitalization(.never)
                 SecureField("setlist.fm API key", text: $apiKey)
                     .textContentType(.none)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
-                Button("Save setlist.fm account") {
-                    model.saveSettings(apiKey: apiKey, clientId: clientId, setlistFmUser: setlistFmUser)
-                }
-                .disabled(apiKey.trimmingCharacters(in: .whitespaces).isEmpty)
             }
 
             Section("clashfinder") {
@@ -120,7 +112,6 @@ struct SettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             apiKey = s.setlistFmApiKey ?? ""
-            setlistFmUser = s.userQuery
             clientId = s.spotifyClientId ?? ""
             clashfinderUser = s.clashfinderUser ?? ""
             clashfinderPrivateKey = s.clashfinderPrivateKey ?? ""
