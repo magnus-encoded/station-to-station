@@ -38,19 +38,19 @@ struct SettingsView: View {
             }
 
             Section("setlist.fm") {
-                if s.bundledSetlistFmKey {
-                    Text("Using the bundled setlist.fm API key. The setlist.fm API has no "
-                        + "user login — to load your attended concerts, just enter your "
-                        + "setlist.fm username on the My concerts tab.")
+                if s.bundledSetlistFmKey && apiKey.trimmingCharacters(in: .whitespaces).isEmpty {
+                    Text("Using the bundled setlist.fm API key. To use your own, paste it below. "
+                        + "The setlist.fm API has no user login — to load your attended concerts, "
+                        + "just enter your setlist.fm username on the My concerts tab.")
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
                     Text("Request a free API key at api.setlist.fm/settings/apps.")
                         .font(.caption).foregroundStyle(.secondary)
-                    SecureField("setlist.fm API key", text: $apiKey)
-                        .textContentType(.none)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
                 }
+                SecureField("setlist.fm API key (optional)", text: $apiKey)
+                    .textContentType(.none)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
             }
 
             Section("clashfinder") {
