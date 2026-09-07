@@ -39,11 +39,12 @@ struct SettingsView: View {
 
             Section("setlist.fm") {
                 if s.bundledSetlistFmKey && apiKey.trimmingCharacters(in: .whitespaces).isEmpty {
-                    Text("Using the bundled setlist.fm API key. Enter your setlist.fm username "
-                        + "on the My concerts tab. To use your own key, paste it below.")
+                    Text("Using the bundled setlist.fm API key. The setlist.fm API has no user "
+                        + "login — to load your attended concerts, just enter your setlist.fm "
+                        + "username on the My concerts tab.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                Link("Request a free API key at setlist.fm/settings/apps",
+                Link("Request one at setlist.fm/settings/apps",
                      destination: URL(string: "https://www.setlist.fm/settings/apps")!)
                     .font(.caption)
                 SecureField("setlist.fm API key", text: $apiKey)
