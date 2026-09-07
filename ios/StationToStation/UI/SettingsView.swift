@@ -44,10 +44,12 @@ struct SettingsView: View {
                         + "setlist.fm username on the My concerts tab.")
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
-                    Text("Request a free API key at api.setlist.fm.")
+                    Text("Request a free API key at api.setlist.fm/settings/apps.")
                         .font(.caption).foregroundStyle(.secondary)
-                    TextField("setlist.fm API key", text: $apiKey)
-                        .autocorrectionDisabled().textInputAutocapitalization(.never)
+                    SecureField("setlist.fm API key", text: $apiKey)
+                        .textContentType(.none)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
                 }
             }
 
