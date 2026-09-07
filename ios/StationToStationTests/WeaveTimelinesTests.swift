@@ -6,8 +6,17 @@ import XCTest
 /// cases — the fixtures both platforms have to agree on.
 final class WeaveTimelinesTests: XCTestCase {
 
+    // A real setlist.fm show by default — `url` is what `isLocal` reads, and most
+    // shows in this file stand in for genuine setlist.fm records on both sides. The
+    // #433 test below builds a local (no-account) show explicitly with `url: nil`.
     private func show(_ id: String, _ date: String, _ venue: String) -> FmSetlist {
-        FmSetlist(id: id, eventDate: date, artist: FmArtist(name: "Artist \(id)"), venue: FmVenue(name: venue))
+        FmSetlist(
+            id: id,
+            eventDate: date,
+            artist: FmArtist(name: "Artist \(id)"),
+            venue: FmVenue(name: venue),
+            url: "https://www.setlist.fm/setlist/\(id).html"
+        )
     }
 
     private let lemmy = Friend(setlistfm: "Lemmy", name: "Lemmy")
@@ -241,6 +250,29 @@ final class WeaveTimelinesTests: XCTestCase {
         XCTAssertEqual(1, rows.count)
         XCTAssertTrue(rows[0].hasCompany)
         XCTAssertEqual(1, rows[0].sharedCount)
+    }
+
+    /// A local Gig — no setlist.fm account behind it, so no real setlist.fm id, and
+    /// a venue string typed by hand or guessed from a ticket rather than pulled from
+    /// setlist.fm's own listing (#433). A friend's night at the same room on the
+    /// same date used to draw its own row entirely — "theirs" and nothing else —
+    /// because the only fold path besides a shared id, `sameEvening`, required the
+    /// venue names to match character for character, and "Parkteatret" never will
+    /// against "Parkteatret Scene, Oslo, Norway".
+    func testALocalGigWithNoSetlistFmIdStillFoldsIntoAFriendsNightAtTheSameRoom() {
+        var mine = show("local-1", "29-01-2027", "Parkteatret")
+        mine.url = nil
+        let theirs = show("sfm-9", "29-01-2027", "Parkteatret Scene, Oslo, Norway")
+        let rows = weaveTimelines(
+            mine: [mine],
+            friends: [lemmy],
+            theirs: ["Lemmy": [theirs]]
+        )
+
+        XCTAssertEqual(1, rows.count)
+        XCTAssertTrue(rows[0].hasCompany)
+        XCTAssertEqual(1, rows[0].sharedCount)
+        XCTAssertEqual(0, rows[0].theirsCount)
     }
 
     /// Rows come back newest first whether they are mine or theirs — the one

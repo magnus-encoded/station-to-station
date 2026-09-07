@@ -47,6 +47,7 @@ import io.github.magnusencoded.stationtostation.data.Festivals
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.StoredFestival
 import io.github.magnusencoded.stationtostation.data.billedAs
+import io.github.magnusencoded.stationtostation.data.isLocal
 import io.github.magnusencoded.stationtostation.data.parseFmDate
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import java.time.LocalDate
@@ -269,8 +270,7 @@ data class WovenRow(
     val sharedCount: Int
         get() {
             if (!mine) return 0
-            val alsoTheirs = showsHereByFriends.map { it.id }.toSet()
-            return shows.count { it.id in alsoTheirs }
+            return shows.count { mine -> showsHereByFriends.any { mine.sameAttendance(it) } }
         }
 
     /**
@@ -286,8 +286,7 @@ data class WovenRow(
     val theirsCount: Int
         get() {
             if (!mine) return showsHereByFriends.size
-            val mineHere = shows.map { it.id }.toSet()
-            return showsHereByFriends.count { it.id !in mineHere }
+            return showsHereByFriends.count { theirs -> shows.none { it.sameAttendance(theirs) } }
         }
 
     val key: String get() = when (val n = node) {
@@ -411,7 +410,51 @@ private fun TimelineNode.sameEvening(other: TimelineNode): Boolean {
     val all = shows + other.shows
     val date = all.first().localDate() ?: return false
     val venue = all.first().venue?.name?.takeUnless { it.isBlank() } ?: return false
-    return all.all { it.localDate() == date && venue.equals(it.venue?.name, ignoreCase = true) }
+    return all.all { it.localDate() == date && sameVenueName(venue, it.venue?.name.orEmpty()) }
+}
+
+/**
+ * Whether two venue names are the same room, loosely (#433). A **Gig** with no
+ * setlist.fm id behind it — typed by hand, or guessed from a ticket — has whatever
+ * venue string a person or an OCR pass produced, and that essentially never matches a
+ * friend's setlist.fm-formatted name character for character: "Parkteatret" against
+ * "Parkteatret Scene, Oslo, Norway" is the same room and used to never fold together.
+ *
+ * Loosened to: equal after lowercasing and dropping everything from the first comma
+ * on (the city/country a source tacks on), or one of those trimmed names contained in
+ * the other. Still keyed on the exact date, so this cannot resurrect the four-day
+ * festival window #166 removed — only makes the venue half of the check forgiving.
+ */
+private fun sameVenueName(a: String, b: String): Boolean {
+    val na = a.substringBefore(',').trim().lowercase(Locale.ROOT)
+    val nb = b.substringBefore(',').trim().lowercase(Locale.ROOT)
+    if (na.isEmpty() || nb.isEmpty()) return false
+    return na == nb || na.contains(nb) || nb.contains(na)
+}
+
+/**
+ * Whether two shows are the same real-world attendance rather than two different
+ * records that merely landed on the same [hosts]ed node (#433). An exact id match is
+ * the strongest signal there is; short of that, this only stands in for a missing id
+ * — never for two ids that both claim to be real. [isLocal] is what tells the two
+ * apart: a setlist.fm show always has one, so two of them with *different* ids at the
+ * same venue and date are two different real things (a shared bill — Verandaen's own
+ * test below has a friend at a third act I wasn't at, same night, same room — must
+ * stay two attendances, not one). It is only when exactly one side has no id at all —
+ * a local **Gig**, typed by hand or guessed from a ticket with no setlist.fm account
+ * behind it — that the same date at the same room (per [sameVenueName]) is taken as
+ * good enough: that is exactly the rule [sameEvening] already used to fold the two
+ * *nodes* together, applied per show instead of only at the node level, which is what
+ * keeps a multi-day festival honest too — my day 2 and a friend's day 3 share neither
+ * date nor id nor this asymmetry, so they still count as unshared even though the
+ * festival identity node holds both (#166).
+ */
+private fun FmSetlist.sameAttendance(other: FmSetlist): Boolean {
+    if (id == other.id) return true
+    if (isLocal() == other.isLocal()) return false
+    val date = localDate() ?: return false
+    if (date != other.localDate()) return false
+    return sameVenueName(venue?.name.orEmpty(), other.venue?.name.orEmpty())
 }
 
 /**
