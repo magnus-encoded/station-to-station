@@ -1,7 +1,6 @@
 # Station to Station
 
-A personal record of the concerts you were at. Your timeline lives on your
-phone, not on a server.
+The night you were there
 
 ## Spotify export
 
@@ -28,8 +27,28 @@ first come, first served.
 The redirect URI is the step that goes wrong. It has to match character for
 character, or login fails without saying why.
 
+## Your own setlist.fm or ClashFinder API keys
+
+If you want to use your own API keys instead of relying on shared quotas, you can add
+your own:
+
+**setlist.fm:**
+
+1. Go to [setlist.fm](https://www.setlist.fm) and create an account if you don't have one.
+2. Visit your [API settings](https://www.setlist.fm/settings/apps) and generate an API key.
+3. Copy the API key into Settings in Station to Station, then Save.
+
+**ClashFinder:**
+
+1. Go to [clashfinder.com](https://www.clashfinder.com) and create an account.
+2. Visit your account settings and generate an API key.
+3. Copy the API key into Settings in Station to Station, then Save.
+
+Using your own keys means your requests aren't counted against a shared quota, and you
+have full control over your data flow.
+
 ## Privacy
 
 [Privacy policy](privacy-policy.html). Short version: there is no server, and
 nothing leaves your phone except what you explicitly send to setlist.fm,
-MusicBrainz, or Spotify.
+MusicBrainz, Spotify, ClashFinder, or your contacts via peer-to-peer exchange.

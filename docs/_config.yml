@@ -1,0 +1,10 @@
+title: Station to Station
+description: Your concert-going life as a continuous line
+theme: jekyll-theme-cayman
+markdown: kramdown
+plugins:
+  - jekyll-github-metadata
+
+# Dark mode default
+sass:
+  style: compressed
