@@ -48,7 +48,7 @@ struct SettingsView: View {
                     Text("Request a free API key at api.setlist.fm/settings/apps.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                TextField("setlist.fm username", text: $setlistFmUser)
+                TextField("setlist.fm user ID", text: $setlistFmUser)
                     .autocorrectionDisabled().textInputAutocapitalization(.never)
                 SecureField("setlist.fm API key", text: $apiKey)
                     .textContentType(.none)

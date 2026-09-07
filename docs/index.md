@@ -37,7 +37,7 @@ your own:
 1. Go to [setlist.fm](https://www.setlist.fm) and create an account if you don't have one.
 2. Visit your [API settings](https://www.setlist.fm/settings/apps) and generate an API key.
 3. In Station to Station, go to Settings > setlist.fm.
-4. Enter your setlist.fm username and paste your API key.
+4. Enter your setlist.fm user ID and paste your API key.
 5. Tap "Save setlist.fm account".
 
 **ClashFinder:**
