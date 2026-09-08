@@ -109,9 +109,10 @@ class GossipHeldTest {
             GossipHeld(message("via-carol", author = alice), carol, tonight),
         )
 
+        // Bob handed over the first two, so he hears back only the one that came via Carol.
         assertEquals(
-            listOf("from-alice", "from-carol"),
-            gossipOutboxFor(held, bob, now).map { it.messageId }.sorted(),
+            listOf("via-carol"),
+            gossipOutboxFor(held, bob, now).map { it.messageId },
         )
         assertEquals(
             listOf("from-alice"),
