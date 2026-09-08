@@ -56,8 +56,12 @@ private let maxItemBytes: Int64 = 4 << 30
 func runHandoverSource(
     wire: ContactConnection,
     linkKey: Data,
+    allow: Set<String>,
     manifest: HandoverManifest,
-    accounts: (ContactConnection) async throws -> Bool,
+    /// The accounts step, whole — see `AppModel.sendHandoverAccounts`. Always called;
+    /// what the tick list decides is whether the payload it sends carries a credential
+    /// or only identities (`AccountsMove` then reports what the far end did with it).
+    accounts: (ContactConnection) async throws -> AccountsMove,
     /// A readable local file holding the full-resolution bytes for a media id, or nil if
     /// this device no longer has it. A file rather than a stream because a `PHAsset`'s
     /// bytes are not a path — the caller exports first, and owns cleaning up after.
@@ -67,10 +71,16 @@ func runHandoverSource(
     guard try await verifyLinkKey(wire, linkKey: linkKey) else { return nil }
 
     onProgress(HandoverProgress(phase: .accounts))
+    // Unconditional, whatever was ticked: the frame always travels, carrying identities
+    // only when the row was declined (#143 story 11). What the tick list changes is the
+    // *payload*, not whether it is sent.
+    let step = try await accounts(wire)
     // Accounts complete before bytes begin. A half-finished credential move is the one
     // state worth refusing to build on.
-    guard try await accounts(wire) else {
-        return HandoverReceipt(trouble: "the accounts step did not complete")
+    guard bulkMayStart(allow: allow, step: step) else {
+        // Never `.acknowledged` here — `bulkMayStart` would then be true — so `step` is
+        // exactly #143 story 9's "offered but did not complete".
+        return HandoverReceipt(trouble: "the accounts step did not complete", accountsMove: step)
     }
 
     onProgress(HandoverProgress(phase: .manifest))
@@ -134,9 +144,11 @@ func runHandoverSource(
 func runHandoverReceiver(
     wire: ContactConnection,
     linkKey: Data,
-    /// Stores durably, *then* acks: the ack is the promise the source's credential clear is
-    /// gated on, so it must not be sent a moment before the payload is on disk.
-    accounts: (ContactConnection) async throws -> Void,
+    /// Stores durably, *then* acks: the ack is the promise the source's credential clear
+    /// is gated on, so it must not be sent a moment before the payload is on disk. Nil
+    /// only for a connection dropped before any accounts frame arrived — a genuinely
+    /// declined row still arrives as an (identities-only) payload, not as nil.
+    accounts: (ContactConnection) async throws -> AccountsPayload?,
     mine: TimelineCache,
     gallery: [GalleryItem],
     receivedFile: (String, String) -> URL,
@@ -146,7 +158,12 @@ func runHandoverReceiver(
     try await proveLinkKey(wire, linkKey: linkKey)
 
     onProgress(HandoverProgress(phase: .accounts))
-    try await accounts(wire)
+    // Not "was the row ticked" — this side never sees the tick list — but "did a
+    // credential actually arrive": a declined row still sends an identities-only
+    // payload (#143 story 11), which is the same shape as "not part of this handover"
+    // from the receipt's point of view (#143 story 9).
+    let payload = try await accounts(wire)
+    let accountsMove: AccountsMove = (payload?.credentials.isEmpty == false) ? .acknowledged : .notOffered
 
     onProgress(HandoverProgress(phase: .manifest))
     guard let sealed = try await readJson(wire, SealedManifest.self),
@@ -206,7 +223,8 @@ func runHandoverReceiver(
         refused: landed.refused.count,
         requested: expected.count,
         countMismatch: landed.countMismatch,
-        trouble: trouble
+        trouble: trouble,
+        accountsMove: accountsMove
     )
     // Best effort: if the connection is already gone (the usual reason `trouble` is set),
     // the source simply reports what it sent. Failing to hand back a receipt must not undo

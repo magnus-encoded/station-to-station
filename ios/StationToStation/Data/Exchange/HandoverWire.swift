@@ -147,10 +147,17 @@ struct HandoverReceipt: Codable, Equatable {
     var countMismatch: Bool = false
     /// Empty when it went through; otherwise what went wrong, in the receiver's words.
     var trouble: String = ""
+    /// #143 story 9: whether the accounts step was part of this handover and what became
+    /// of it, reusing `AccountsMove` rather than a second vocabulary. `.notOffered` is
+    /// both "the row was not ticked" and "an older peer's receipt, decoded with no such
+    /// field" — the same honest default either way: say nothing about a step that was
+    /// not offered. **Never a credential value** — this is a verdict on the step, not
+    /// the payload that carried it.
+    var accountsMove: AccountsMove = .notOffered
 
     init(landed: Int = 0, bytes: Int64 = 0, held: Int = 0, fromGallery: Int = 0,
          withheld: Int = 0, refused: Int = 0, requested: Int = 0,
-         countMismatch: Bool = false, trouble: String = "") {
+         countMismatch: Bool = false, trouble: String = "", accountsMove: AccountsMove = .notOffered) {
         self.landed = landed
         self.bytes = bytes
         self.held = held
@@ -160,6 +167,7 @@ struct HandoverReceipt: Codable, Equatable {
         self.requested = requested
         self.countMismatch = countMismatch
         self.trouble = trouble
+        self.accountsMove = accountsMove
     }
 
     init(from decoder: Decoder) throws {
@@ -173,6 +181,7 @@ struct HandoverReceipt: Codable, Equatable {
         requested = (try? c.decodeIfPresent(Int.self, forKey: .requested)) ?? nil ?? 0
         countMismatch = (try? c.decodeIfPresent(Bool.self, forKey: .countMismatch)) ?? nil ?? false
         trouble = (try? c.decodeIfPresent(String.self, forKey: .trouble)) ?? nil ?? ""
+        accountsMove = (try? c.decodeIfPresent(AccountsMove.self, forKey: .accountsMove)) ?? nil ?? .notOffered
     }
 }
 
@@ -182,6 +191,8 @@ struct HandoverReceipt: Codable, Equatable {
 struct Credentials: Codable, Equatable {
     var spotifyRefreshToken: String?
     var spotifyScope: String?
+
+    var isEmpty: Bool { spotifyRefreshToken?.nilIfBlank == nil }
 
     init(spotifyRefreshToken: String? = nil, spotifyScope: String? = nil) {
         self.spotifyRefreshToken = spotifyRefreshToken

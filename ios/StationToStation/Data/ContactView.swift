@@ -71,11 +71,11 @@ func contactMedia(_ media: [String: [StoredMedia]]) -> [String: [StoredMedia]] {
 /// where a **Personal** item is one boolean away from leaving. Sending one to a Contact
 /// requires making it not Personal first, which is an explicit act on that item.
 ///
-/// Android's set has one more row for its own other device: `accounts`, the credential
-/// move of #143. It is absent here on both sides because iOS has no credential move to
-/// offer — a handover from this phone carries `Identities` and never a bearer secret. A
-/// credential arriving *from* an Android source is still stored (see `HandoverSession`);
-/// what is missing is this device's ability to send one.
+/// `accounts` (#143) is the same story: present for my own other device, absent for a
+/// Contact, because a credential moves between my own devices only — the far end being
+/// me is what makes it a move rather than a giveaway. iOS does hold a Spotify credential
+/// worth moving (see `Settings.refreshTokenValue`), so the row is symmetric with
+/// Android's rather than a one-way receive.
 func categoriesFor(contact: Bool) -> Set<String> {
     let shared: Set<String> = [
         categorySetlists, StoredMedia.Kind.photo, StoredMedia.Kind.video, StoredMedia.Kind.note,
@@ -87,6 +87,7 @@ func categoriesFor(contact: Bool) -> Set<String> {
         // A draft I never dragged up. It reaches my own other device and nobody else,
         // which is what keeps privacy from costing me the material I write from (#50).
         categoryOf(kind: StoredMedia.Kind.note, personal: true),
+        categoryAccounts,
     ])
 }
 
