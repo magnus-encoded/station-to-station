@@ -140,3 +140,98 @@ Stated explicitly, for the same reason ADR-0016 stated its own list explicitly:
 - #416, #417 — the Android and iOS transport implementations blocked on this ADR.
 - `UBIQUITOUS_LANGUAGE.md`, **Contact** and **Followed line** — the edge this decision does
   and does not permit gossip to travel along.
+
+## Amendment — 2026-09-08
+
+Written while implementing #417 (iOS), the first of the two transports. Three things this ADR
+left unwritten that both transports need to agree on, and one product fact it named but did not
+quantify. Nothing here reverses a decision above; it fills gaps the transports would otherwise
+have each filled differently.
+
+### 1. The rotating per-Contact token, specified
+
+The ADR requires that gossip travel Contact-to-Contact and never along a **Followed line**, and
+the transports need to recognise a **Contact** over the air to do it. That recognition must not
+be a stable identifier — a device that broadcast one would be trackable by anyone standing near
+it all night, which is a worse disclosure than the one this ADR already accepts.
+
+The token is therefore derived, per **Contact** and per time bucket, from the secret only that
+pair can compute:
+
+```
+secret  = ECDH(my identity private key, their identity public key)   // P-256, raw X, no KDF
+bucket  = floor(unix_seconds / 900)                                   // 15 minutes
+token   = lower_hex(HMAC-SHA256(secret, "station-to-station/gossip-token/1" || "\n" || bucket)[0..16])
+```
+
+- **Raw ECDH, not X9.63-with-KDF.** Android's `KeyAgreement.getInstance("ECDH")` produces the
+  bare X coordinate; iOS matches it with `SecKeyCopyKeyExchangeResult(.ecdhKeyExchangeStandard)`.
+  A KDF on one side only would produce two phones that never recognise each other, silently.
+- **`floor`, not truncation.** Both languages divide toward zero, which disagrees with `floor`
+  for pre-epoch instants. Both twins floor explicitly.
+- **A writer publishes its current bucket; a reader accepts ±1.** Fifteen minutes of clock skew
+  is tolerated, an hour is not.
+- **The domain separator is load-bearing.** The same secret must never produce a value that is
+  valid in two places — the argument `gossipPayloadV1` already makes for the signed payload.
+
+Fixed cross-platform vector, asserted by `GossipTokenTests` and its Android twin:
+
+```
+secret = 00 01 02 … 1f      bucket = 1987284      → cd60b9fef6f960c7b6803f1b45608f0f
+```
+
+**What this discloses**, stated because it is not nothing: a device that connects learns *how
+many* Contacts the other holds, because the offer is one token per Contact. It cannot learn who
+any of them are, and the count is only visible to something close enough to hold a BLE
+connection open. This is smaller than the disclosure "Disclosure to the relaying device" above
+already accepts.
+
+### 2. Messages are held until they expire, not relayed once
+
+`gossipStormGate` (#410) deliberately does not decide this and names the transports as its
+owners. The decision: an accepted message is **held and offered to every Contact met before it
+expires**, with per-Contact delivery recorded so it is never offered to the same person twice.
+
+The alternative — relay at the moment of acceptance — was rejected because on iOS the moment a
+message is accepted is almost never a moment when the Contact who needs it is in range. A relay
+that fired only at acceptance would deliver to whoever happened to be standing there, which is
+the population that least needs it.
+
+The bound is the same expiry the gate applies, so nothing is held past the night it is about,
+and the store is pruned on every read and every write rather than on a schedule. This is a
+record of other people's whereabouts and it is treated as one.
+
+### 3. The per-peer rate bound
+
+The other thing the gate names and does not do. Both transports bound a **Contact** to one
+handover per 30 seconds and 240 offered messages per rolling hour, charged on what was offered
+rather than what was accepted. That is the real ceiling on the taken-over-phone attack the gate
+describes: 240 signature verifications an hour, however many batches arrive.
+
+### 4. "OS-throttled and opportunistic", quantified for iOS
+
+"Platform cost, stated plainly" above is right and is not specific enough to set an expectation
+with. On iOS, concretely:
+
+- A backgrounded scan is coalesced with every other app's; a peer found in under a second in the
+  foreground can take minutes in the background, or the length of the meeting.
+- Duplicate advertisements are never delivered in the background, so a meeting that fails is not
+  retried by the radio.
+- **A backgrounded iPhone is invisible to an Android scanner.** iOS moves a backgrounded app's
+  service UUID into a manufacturer-specific overflow area that only another iOS device
+  explicitly scanning for that exact UUID can read. iOS↔Android gossip works when the iPhone is
+  the one scanning, or when it is in the foreground. iPhone↔iPhone works both ways, slowly.
+- Force-quitting the app ends background delivery until the next manual launch. So do Low Power
+  Mode and a Bluetooth toggle.
+
+**The product consequence, which is the part that matters:** a check-in reaches a Contact
+*eventually and probably*, if the two phones are in the same place for long enough. Nothing in
+the app may tell a user their arrival "was sent" or "will reach" anyone. The walk-home case this
+ADR exists for is exactly the case this delivers; a message channel is exactly what it is not.
+
+### Still open
+
+- **No user-facing switch.** The gossip radio runs whenever the device holds at least one
+  **Contact**, and the only way to stop it is to remove every Contact or deny the Bluetooth
+  permission. A per-feature toggle is a product question this ADR did not settle and #417 did
+  not invent; it should be raised as its own issue.

@@ -57,6 +57,44 @@ enum ContactIdentity {
                                      data as CFData, nil) as Data?
     }
 
+    /// The secret this device shares with one **Contact**, and nobody else: raw ECDH over
+    /// the two identity keys — the 32-byte X coordinate, no KDF (#417).
+    ///
+    /// Both ends compute the same bytes from opposite halves of the pair, which is what makes
+    /// `gossipToken` a value two phones can recognise each other by without either of them
+    /// broadcasting anything followable. Nothing is derived here beyond the raw agreement:
+    /// `gossipToken`'s HMAC is the KDF, it names its own domain, and doing it in two places
+    /// would be two chances for the twins to disagree.
+    ///
+    /// Raw `ecdhKeyExchangeStandard` deliberately, not the `cofactorX963SHA256` variants —
+    /// Android's `KeyAgreement.getInstance("ECDH").generateSecret()` produces exactly the X
+    /// coordinate, and a KDF on one side only is two devices that never recognise each other.
+    ///
+    /// The same enclave key that signs, used for a second purpose, which is safe only because
+    /// the two purposes cannot be confused: a signature is over bytes beginning with
+    /// `gossipPayloadV1`, and this key never signs anything for gossip at all.
+    ///
+    /// Nil for a key that will not parse, and on the platforms or configurations where the
+    /// enclave refuses key exchange — a **Contact** whose secret cannot be computed is simply
+    /// one this device will not recognise over the gossip channel.
+    ///
+    /// **Not unit-tested**, like everything else in this file: the private half never leaves
+    /// the enclave. `GossipTokenTests` covers what is done with the bytes.
+    static func sharedSecret(with publicKeyBase64: String) -> Data? {
+        guard let key = key(), let peer = decodeContactPublicKey(publicKeyBase64) else { return nil }
+        let attributes: [String: Any] = [
+            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+            kSecAttrKeyClass as String: kSecAttrKeyClassPublic,
+            kSecAttrKeySizeInBits as String: 256,
+        ]
+        guard let peerKey = SecKeyCreateWithData(peer.x963Representation as CFData,
+                                                 attributes as CFDictionary, nil),
+              SecKeyIsAlgorithmSupported(key, .keyExchange, .ecdhKeyExchangeStandard)
+        else { return nil }
+        return SecKeyCopyKeyExchangeResult(key, .ecdhKeyExchangeStandard, peerKey,
+                                           [:] as CFDictionary, nil) as Data?
+    }
+
     private static func key() -> SecKey? {
         lock.lock()
         defer { lock.unlock() }

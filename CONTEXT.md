@@ -161,6 +161,17 @@ carry, how they are established, and what they permit.
 A person can be a **Followed line**, a **Contact**, both, or neither. Following someone
 never makes them a **Contact**, and a **Contact** need not be on setlist.fm at all.
 
+### Gossip
+
+The one thing that travels between **Contacts** without either of them doing anything, and
+the only part of this app that runs while nobody is looking at it (ADR-0019).
+
+| Term | Definition | Aliases to avoid |
+| ---- | ---------- | ---------------- |
+| **Gossip** | Passing a signed check-in fact along the **Contact** edge, in the background, so it reaches people who were never in the room. Carries a check-in and nothing else — never media, never a **Note**, never along a **Followed line**. Delivery is *eventual and probable*, never promised: it is a rumour that travels, which is the whole of what the word claims. | sync, push, broadcast, message, notification |
+| **Gossip token** | The rotating value two **Contacts** recognise each other by over the air: an HMAC of the secret only that pair can compute and a 15-minute time bucket. A recogniser, not an authenticator — it says *"we have met"* and nothing more; the signature on each check-in is what says who checked in. Rotating because a stable one would let anyone standing nearby follow a phone all night. | id, address, handle, beacon |
+| **Storm gate** | The pure decision every gossiped message passes: is the sender a **Contact**, is the id really the hash of what was signed, have I seen it, does the signature hold, has the night ended. The one place a message is judged; the transports move bytes and judge nothing. | filter, validator, firewall |
+
 ## Media
 
 | Term | Definition | Aliases to avoid |

@@ -64,20 +64,47 @@ targets:
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
-        # The Exchange: BLE is how an iPhone and a Pixel find each other, the
-        # camera is the QR fallback when the radio sulks. Both are foreground-only
-        # and only ever on the Exchange screen.
+        # Bluetooth is now two things, and the difference matters enough to say here
+        # rather than only in the ADR:
+        #
+        #   * The Exchange — BLE is how an iPhone and a Pixel find each other and swap
+        #     cards, with the camera as the QR fallback when the radio sulks. Still
+        #     foreground-only, still only ever on the Exchange screen.
+        #   * The gossip channel (#417) — the one carve-out, argued in ADR-0019: it runs
+        #     in the background, on its own service UUID, and carries nothing but signed
+        #     check-ins between people who have already met in person. It is why
+        #     UIBackgroundModes below exists, and it is the reason this comment no longer
+        #     says "foreground-only" without qualification.
+        #
+        # Reconcile — the other half of the Exchange screen, and the heavier one — is
+        # deliberately NOT in the carve-out and stays foreground-only. See NSLocalNetwork
+        # below.
         NSBluetoothAlwaysUsageDescription:
-          Station to Station uses Bluetooth to find people standing next to you and
-          swap timeline cards directly, with no server in between.
+          Station to Station uses Bluetooth to find people standing next to you and swap
+          timeline cards directly, with no server in between. Once you've swapped cards,
+          it also passes on check-ins between the two of you in the background, so a
+          friend can see you made it to a gig even with no signal in the room.
+        # The gossip channel's background carve-out (#417, ADR-0019). Both halves are
+        # needed: a phone that only scanned would take and never give, and two phones that
+        # only scanned would never meet at all. iOS throttles both heavily in the
+        # background and that is expected, not a bug — `GossipTransport.swift` states what
+        # delivery actually looks like, in detail, and nothing in the app promises more.
+        UIBackgroundModes:
+          - bluetooth-central
+          - bluetooth-peripheral
         NSCameraUsageDescription:
           Station to Station uses the camera to scan a friend's card when Bluetooth
           can't reach them.
         # Reconcile over the same WiFi (#265): both keys are required before iOS will
         # let NWBrowser or NWListener touch the local network at all. The service type
         # is Android's constant verbatim — the two have to match or the phones never
-        # see each other. Foreground-only and Exchange-screen-only, like the radios above,
-        # and only started once there is a Contact worth searching for.
+        # see each other. Foreground-only and Exchange-screen-only, and only started once
+        # there is a Contact worth searching for.
+        #
+        # Unchanged by #417 on purpose: the gossip carve-out is Bluetooth alone. Reconcile
+        # moves photos and timelines between two phones that trust each other, and ADR-0019
+        # argues that belongs to a moment the user chose — not to a radio running while the
+        # phone is in a pocket.
         NSLocalNetworkUsageDescription:
           Station to Station finds contacts you've already swapped cards with on the same
           WiFi, so their photos from a night you shared arrive without waiting on the cloud.
