@@ -90,6 +90,19 @@ private const val TEST_COMPANY_ID = 0xFFFF
  */
 private const val GOSSIP_PUSH_TIMEOUT_MS = 20_000L
 
+/**
+ * The Core Spec's ceiling on one attribute *value*, which is a different limit from the MTU
+ * and is the one a CoreBluetooth peripheral enforces.
+ *
+ * `attMtu - 3` is how much fits in a single write PDU; this is how large the value itself is
+ * permitted to be. The two agree until the negotiated MTU passes 515 — and [requestMtu] asks
+ * for 517, so a chunk sized by the MTU alone is 514 bytes. An iPhone rejects that with
+ * `Invalid Attribute Value Length` before `didReceiveWrite` is ever called, which presents
+ * as a push that dies in "pass" against an iOS peer and never against an Android one. Both
+ * bounds are real, so both are applied.
+ */
+private const val GOSSIP_MAX_ATTRIBUTE_BYTES = 512
+
 private const val TAG = "GossipRadio"
 
 /** What a listener accepted: a peer that proved itself, and what it pushed. */
@@ -105,6 +118,15 @@ internal fun ByteArray.intoChunks(size: Int): List<ByteArray> {
     if (size <= 0 || isEmpty()) return listOf(copyOf())
     return (indices step size).map { copyOfRange(it, minOf(it + size, this.size)) }
 }
+
+/**
+ * How many bytes may go in one write to a peer, given the negotiated MTU.
+ *
+ * Both bounds at once: three bytes of ATT header come off the MTU, *and* an attribute value
+ * may never exceed [GOSSIP_MAX_ATTRIBUTE_BYTES] however large the MTU got. Taking only the
+ * first is what made a push to an iPhone die in "pass" — see [GOSSIP_MAX_ATTRIBUTE_BYTES].
+ */
+internal fun gossipWriteLimit(attMtu: Int): Int = minOf(attMtu - 3, GOSSIP_MAX_ATTRIBUTE_BYTES)
 
 /**
  * The listening half: advertise, and take pushes from **Contacts** that prove themselves.
@@ -179,6 +201,9 @@ class GossipPeripheral(
                 )
             }
             val payload = challenges[device.address] ?: ByteArray(0)
+            if (offset == 0) {
+                Log.i(TAG, "a peer read our challenge (${payload.size} bytes offered)")
+            }
             sendResponse(device, requestId, offset, sliceForOffset(payload, offset))
         }
 
@@ -210,6 +235,11 @@ class GossipPeripheral(
                 return
             }
             inbox[device.address] = accumulated + chunk
+            Log.i(
+                TAG,
+                "pass chunk in: ${chunk.size} bytes at offset $offset, " +
+                    "${accumulated.size + chunk.size} accumulated, prepared=$preparedWrite",
+            )
             // Withholding the response on a write-with-response hangs the pusher until its
             // own timeout — the same trap [BleCardPeripheral] documents.
             if (responseNeeded) sendResponse(device, requestId, offset, chunk)
@@ -222,7 +252,16 @@ class GossipPeripheral(
         }
 
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
-            if (newState == BluetoothProfile.STATE_DISCONNECTED) forget(device.address)
+            // The only evidence this device gets about the other direction: a peer that never
+            // appears here never tried to push to us, which is a different fault from one that
+            // connects and then fails.
+            when (newState) {
+                BluetoothProfile.STATE_CONNECTED -> Log.i(TAG, "a peer connected to our server")
+                BluetoothProfile.STATE_DISCONNECTED -> {
+                    Log.i(TAG, "a peer disconnected from our server (status=$status)")
+                    forget(device.address)
+                }
+            }
         }
     }
 
@@ -256,12 +295,19 @@ class GossipPeripheral(
             Log.w(TAG, "unreadable pass (${payload.size} bytes), dropped")
             return
         }
-        if (pass.from !in contacts()) return
-        val signature = runCatching { Base64.getDecoder().decode(pass.proof) }.getOrNull() ?: return
+        if (pass.from !in contacts()) {
+            Log.w(TAG, "a pass came from a key that is not one of my contacts, dropped")
+            return
+        }
+        val signature = runCatching { Base64.getDecoder().decode(pass.proof) }.getOrNull() ?: run {
+            Log.w(TAG, "a pass carried an undecodable proof, dropped")
+            return
+        }
         if (!verifyChallenge(gossipAuthPayload(nonce), signature, pass.from)) {
             Log.w(TAG, "a pass failed the possession proof, dropped")
             return
         }
+        Log.i(TAG, "accepted a pass of ${pass.batch.size} message(s) from a contact")
         // Spent: a nonce answers exactly one **Pass**, so a peer that pushes twice on one
         // connection has to read a new challenge for the second.
         nonces.remove(address)
@@ -330,7 +376,8 @@ class GossipPeripheral(
             .addManufacturerData(TEST_COMPANY_ID, token)
             .build()
         runCatching { advertiser?.startAdvertising(settings, advertisement, scanResponse, advertiseCallback) }
-            .onSuccess { advertising = true }
+            .onSuccess { advertising = true; Log.i(TAG, "advertising a token for one contact") }
+            .onFailure { Log.w(TAG, "gossip advertising could not start: $it") }
         main.postDelayed(rotation, GOSSIP_ADVERTISE_SLOT.toMillis())
     }
 
@@ -408,8 +455,19 @@ class GossipCentral(
      */
     private val attempted = mutableMapOf<String, Instant>()
 
+    /** Addresses already named in the log, so a scan does not repeat itself every second. */
+    private val logged = mutableSetOf<String>()
+
     private val callback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
+            if (logged.add(result.device.address)) {
+                val kind = if (result.scanRecord?.getManufacturerSpecificData(TEST_COMPANY_ID) != null) {
+                    "android, token in the scan response"
+                } else {
+                    "no token — an iPhone, or an android with nobody to advertise to"
+                }
+                Log.i(TAG, "saw a gossip radio ($kind)")
+            }
             if (busy) return
             val advertised = result.scanRecord?.getManufacturerSpecificData(TEST_COMPANY_ID)
             if (advertised != null) {
@@ -465,7 +523,8 @@ class GossipCentral(
             .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
             .build()
         runCatching { manager.adapter?.bluetoothLeScanner?.startScan(listOf(filter), settings, callback) }
-            .onSuccess { scanning = true }
+            .onSuccess { scanning = true; Log.i(TAG, "gossip scan started") }
+            .onFailure { Log.w(TAG, "gossip scan could not start: $it") }
     }
 
     @SuppressLint("MissingPermission")
@@ -476,6 +535,7 @@ class GossipCentral(
         busy = false
         table = emptyMap()
         attempted.clear()
+        logged.clear()
     }
 
     /**
@@ -517,8 +577,13 @@ class GossipCentral(
             runCatching { gattRef?.disconnect(); gattRef?.close() }
             busy = false
             val who = peer
-            if (pushed && who != null) onPushed(who)
-            else Log.w(TAG, "gossip push to a peer gave up in \"$phase\"")
+            if (pushed && who != null) {
+                Log.i(TAG, "push delivered to a contact")
+                onPushed(who)
+            } else {
+                val known = if (peer != null) "contact resolved" else "peer never resolved"
+                Log.w(TAG, "gossip push to a peer gave up in \"$phase\" ($known)")
+            }
         }
 
         main.postDelayed({ finish(false) }, GOSSIP_PUSH_TIMEOUT_MS)
@@ -543,6 +608,7 @@ class GossipCentral(
                 // Three bytes of ATT header come off whatever was negotiated. A refusal
                 // leaves the default 23, which still works — it is just more round trips.
                 if (status == BluetoothGatt.GATT_SUCCESS && mtu > 3) attMtu = mtu
+                Log.i(TAG, "mtu negotiated to $mtu (status=$status), using $attMtu")
                 phase = "services"
                 if (!gatt.discoverServices()) finish(false)
             }
@@ -560,17 +626,43 @@ class GossipCentral(
                 characteristic: BluetoothGattCharacteristic,
                 status: Int,
             ) {
-                if (status != BluetoothGatt.GATT_SUCCESS) return finish(false)
-                val challenge = decodeGossipChallenge(characteristic.value) ?: return finish(false)
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    Log.w(TAG, "challenge read failed, status=$status")
+                    return finish(false)
+                }
+                val challenge = decodeGossipChallenge(characteristic.value) ?: run {
+                    Log.w(TAG, "challenge unreadable (${characteristic.value?.size ?: 0} bytes)")
+                    return finish(false)
+                }
                 // Who this is, decided here and nowhere else on this path. A stranger's offer
                 // resolves to nobody, which is the ordinary case and not an error.
-                val who = gossipResolveOffer(challenge.tokens, currentTable()) ?: return finish(false)
-                if (expected != null && expected != who) return finish(false)
+                val table = currentTable()
+                val who = gossipResolveOffer(challenge.tokens, table) ?: run {
+                    Log.i(
+                        TAG,
+                        "challenge offered ${challenge.tokens.size} token(s), none of my " +
+                            "${table.size} — a stranger, or a contact we disagree about",
+                    )
+                    return finish(false)
+                }
+                if (expected != null && expected != who) {
+                    Log.w(TAG, "peer advertised one contact and offered another")
+                    return finish(false)
+                }
                 peer = who
-                if (!due(who)) return finish(false)
+                if (!due(who)) {
+                    Log.i(TAG, "contact resolved but still inside the push cooldown")
+                    return finish(false)
+                }
                 val batch = outboxFor(who)
-                if (batch.isEmpty()) return finish(false)
-                val signature = sign(gossipAuthPayload(challenge.nonce)) ?: return finish(false)
+                if (batch.isEmpty()) {
+                    Log.i(TAG, "contact resolved, nothing in the outbox for them")
+                    return finish(false)
+                }
+                val signature = sign(gossipAuthPayload(challenge.nonce)) ?: run {
+                    Log.w(TAG, "could not sign the nonce")
+                    return finish(false)
+                }
                 val payload = encodeGossipPass(
                     GossipPass(
                         from = myKey(),
@@ -583,8 +675,14 @@ class GossipCentral(
                 // framing a CoreBluetooth peripheral reads the same way — see
                 // `GossipWire.kt`'s header. The empty chunk at the end is part of the
                 // protocol, not padding.
-                chunks = payload.intoChunks(attMtu - 3) + listOf(ByteArray(0))
+                val limit = gossipWriteLimit(attMtu)
+                chunks = payload.intoChunks(limit) + listOf(ByteArray(0))
                 sent = 0
+                Log.i(
+                    TAG,
+                    "push: ${batch.size} message(s), ${payload.size} bytes in " +
+                        "${chunks.size} chunk(s) of $limit, mtu=$attMtu",
+                )
                 if (!writeNext(gatt)) finish(false)
             }
 
@@ -593,7 +691,11 @@ class GossipCentral(
                 characteristic: BluetoothGattCharacteristic,
                 status: Int,
             ) {
-                if (status != BluetoothGatt.GATT_SUCCESS) return finish(false)
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    // 7 = INVALID_ATTRIBUTE_LENGTH, what an over-512 chunk earns from iOS.
+                    Log.w(TAG, "pass chunk ${sent - 1} of ${chunks.size} refused, status=$status")
+                    return finish(false)
+                }
                 if (sent >= chunks.size) return finish(true)
                 if (!writeNext(gatt)) finish(false)
             }

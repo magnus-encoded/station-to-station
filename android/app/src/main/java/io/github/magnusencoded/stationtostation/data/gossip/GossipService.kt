@@ -253,7 +253,13 @@ class GossipService : Service() {
          */
         fun sync(context: Context, contacts: Int, holding: Boolean, gigTonight: Boolean, alwaysRelay: Boolean) {
             val intent = Intent(context, GossipService::class.java)
-            if (gossipRelayShouldRun(contacts, holding, gigTonight, alwaysRelay)) {
+            val run = gossipRelayShouldRun(contacts, holding, gigTonight, alwaysRelay)
+            Log.i(
+                TAG,
+                "relay should run: $run (contacts=$contacts, holding=$holding, " +
+                    "gigTonight=$gigTonight, alwaysRelay=$alwaysRelay)",
+            )
+            if (run) {
                 runCatching { context.startForegroundService(intent) }
                     .onFailure { Log.w(TAG, "could not start the gossip service: $it") }
             } else {
