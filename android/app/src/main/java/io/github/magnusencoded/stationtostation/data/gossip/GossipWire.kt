@@ -16,14 +16,15 @@ import java.util.Base64
  * [isSafeGossipId][io.github.magnusencoded.stationtostation.data.isSafeGossipId], so no
  * field can carry its own separator.
  *
- * **The transport is push-only, and this is the whole of it.** Nothing is read back from a
- * peer: every device runs both halves of the radio, so a device with something to say
- * connects and writes, and a device with nothing to say never has to be trusted for
- * anything. That removes the authenticated-read direction entirely — there is no "prove
+ * **Push-only, and this is the whole of it.** No *message* is ever read back from a peer:
+ * every device runs both halves of the radio, so a device with something to say connects and
+ * writes, and a device with nothing to say never has to be trusted for anything. The one
+ * thing that is read is the challenge below, which is unsigned, names nobody and is believed
+ * about nothing. That removes the authenticated-read direction entirely — there is no "prove
  * yourself to me so I can believe what you hand back", only "prove yourself to me before I
  * read what you pushed".
  *
- * ## The meeting, in two GATT operations
+ * ## The meeting, in two GATT operations — and they are iOS's two
  *
  * 1. The connecting side **reads the challenge** and gets [GossipChallenge]: a fresh nonce
  *    and the listener's token offer. It resolves the offer against its own token table. No
@@ -33,6 +34,23 @@ import java.util.Base64
  *    [gossipAuthPayload] of that nonce, and the batch. The listener checks the key is a
  *    **Contact**, checks the signature against the nonce it issued, and hands `(from,
  *    batch)` to the storm-gate.
+ *
+ * ## The advertised token is a shortcut, not the path
+ *
+ * [gossipAdvertisedToken][io.github.magnusencoded.stationtostation.data.gossip.gossipAdvertisedToken]
+ * puts one token in this device's scan response, which lets an Android scanner recognise
+ * another Android without opening a connection at all. **An iPhone cannot do that.**
+ * CoreBluetooth's `startAdvertising` honours a local name and a service-UUID list and nothing
+ * else, and a *backgrounded* iPhone drops the name and moves its service UUIDs into an
+ * overflow area only another iOS device can read.
+ *
+ * So a scanner that treated missing manufacturer data as "not a **Contact**" would never
+ * speak to an iPhone. The challenge read above is the path both platforms share; the
+ * advertisement is a faster Android-only route beside it carrying the same token bytes.
+ * Exactly the shape the **Card** already has — one payload, a cross-platform BLE route, and
+ * an Android-only Nearby route beside it
+ * ([NearbyPeers][io.github.magnusencoded.stationtostation.data.nearby.NearbyPeers],
+ * ADR-0016).
  *
  * ## Framing, because a **Pass** does not fit in an MTU
  *

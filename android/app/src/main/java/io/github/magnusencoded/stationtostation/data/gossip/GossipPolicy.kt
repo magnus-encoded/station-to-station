@@ -32,6 +32,11 @@ import java.time.ZoneId
  * arrived in between. It is also the sending side's cooldown — there is no point pushing to
  * someone who will not read it.
  *
+ * **iOS holds the same minute** (`gossipPeerCooldown` in `Data/Gossip/GossipBudget.swift`).
+ * Local admission policy rather than a wire term, so the two *could* differ — but because it
+ * is the sending cooldown as well, a platform with a shorter one spends a connection, a nonce
+ * and a signature on every push the other refuses. They are kept equal for that reason.
+ *
  * A refused **Pass** is not remembered. Nothing is written, so the same messages are
  * accepted normally on the next connection, exactly as a
  * [BATCH_LIMIT][io.github.magnusencoded.stationtostation.data.GossipReject.BATCH_LIMIT]
