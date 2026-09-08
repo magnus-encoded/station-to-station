@@ -241,7 +241,8 @@ final class GossipLedgerTests: XCTestCase {
         let later = now.addingTimeInterval(gossipPeerWindow + 60)
         _ = await store.seen(now: later)
 
-        XCTAssertEqual(await store.budget(for: bob.publicKey, now: later), GossipPeerBudget())
+        let forgotten = await store.budget(for: bob.publicKey, now: later)
+        XCTAssertEqual(forgotten, GossipPeerBudget())
     }
 
     // --- Forgetting ---
