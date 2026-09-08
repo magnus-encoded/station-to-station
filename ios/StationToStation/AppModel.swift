@@ -297,6 +297,9 @@ final class AppModel: ObservableObject {
         Task {
             let cache = await timelines.load()
             state.plannedGigs = sortedPlanned(cache.planned())
+            // The Contact list is read at launch, but the nights are not there until here,
+            // and the gossip channel wants both (#417).
+            gossipContactsChanged()
             state.attendanceByGig = cache.attendance()
             state.calendarEventByGig = cache.calendarEvents()
             // The Timeline draws keepsakes on its rows, so this has to be here before
@@ -452,6 +455,21 @@ final class AppModel: ObservableObject {
     /// above today included. A ticket for a night already planned by hand is the same
     /// night, not a second one.
     private var knownNights: [FmSetlist] { state.timelineShows + state.plannedGigs }
+
+    /// The gossip channel's whole lifecycle, in one line: it follows the **Contact** list and
+    /// nothing else (#417, ADR-0019). Up when there is somebody to gossip with, down when
+    /// there is not, and never tied to a screen the way the Exchange and Reconcile are.
+    ///
+    /// The nights go with it because the storm gate uses them as an expiry ceiling — a gig
+    /// this device knows the date of expires when that night does, not `gossipMaxLifetime`
+    /// later.
+    private func gossipContactsChanged() {
+        GossipTransport.shared.contactsChanged(state.friends)
+        let ends = knownNights.reduce(into: [String: Date]()) { ends, gig in
+            if let date = gig.eventDate, let end = gossipExpiry(gigDate: date) { ends[gig.id] = end }
+        }
+        Task { await GossipChannel.shared.setNightEnds(ends) }
+    }
 
     /// The QR onto the night's attendance record, and into state with it (#412).
     ///
@@ -1214,6 +1232,7 @@ final class AppModel: ObservableObject {
         let next = state.friends.filter { $0.setlistfm.lowercased() != friend.setlistfm.lowercased() } + [incoming]
         settings.saveFriends(next)
         state.friends = next
+        gossipContactsChanged()
     }
 
     func addFriendByUsername(_ username: String) {
@@ -1265,6 +1284,7 @@ final class AppModel: ObservableObject {
         let next = state.friends.filter { $0.setlistfm != friend.setlistfm }
         settings.saveFriends(next)
         state.friends = next
+        gossipContactsChanged()
     }
 
     /// Loads the concerts both `friend` and I attended into the setlists list, so
@@ -1606,6 +1626,11 @@ final class AppModel: ObservableObject {
             // being a plan, and the lane it leaves is drawn from this map.
             state.attendanceByGig[gigId] = attendance
             if state.selectedSetlist?.id == gigId { state.selectedAttendance = attendance }
+            // And into the gossip channel, signed, to be carried by whoever this phone meets
+            // between now and the end of this night (#417). Nothing is promised by this: see
+            // `GossipTransport` on what iOS background delivery actually is.
+            let gigDate = knownNights.first { $0.id == gigId }?.eventDate
+            await GossipChannel.shared.checkedIn(gigId: gigId, gigDate: gigDate)
         }
     }
 

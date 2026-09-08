@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum Route: Hashable { case friends, setlists, confirm, settings, station, search, gig, exchange, programme, handover }
 
@@ -21,8 +22,28 @@ private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
 /// once now that five files want the same exception to the tint.
 let spotifyGreen = Color(red: 0x1D / 255, green: 0xB9 / 255, blue: 0x54 / 255)
 
+/// The one thing SwiftUI's `App` cannot do: be present during
+/// `didFinishLaunchingWithOptions`.
+///
+/// CoreBluetooth only hands back a restored background session to a manager created inside
+/// that call, synchronously — a manager built a moment later gets no `willRestoreState`, and
+/// the gossip channel silently degrades to "works while the app is open", which is precisely
+/// what ADR-0019's carve-out exists to avoid. Hence a delegate, for one line (#417).
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?)
+    -> Bool {
+        // Does nothing at all on a phone that has never met anybody — including raising the
+        // Bluetooth permission prompt, which stays where it belongs, on the Exchange screen
+        // with a person standing in front of it.
+        GossipTransport.shared.wakeAtLaunch()
+        return true
+    }
+}
+
 @main
 struct StationToStationApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = AppModel()
     @StateObject private var nav = Nav()
     @Environment(\.scenePhase) private var scenePhase
