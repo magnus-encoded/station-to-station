@@ -140,3 +140,60 @@ Stated explicitly, for the same reason ADR-0016 stated its own list explicitly:
 - #416, #417 — the Android and iOS transport implementations blocked on this ADR.
 - `UBIQUITOUS_LANGUAGE.md`, **Contact** and **Followed line** — the edge this decision does
   and does not permit gossip to travel along.
+
+---
+
+## Amendment — 2026-09-08: the advertising Token is keyed on the two public keys, not on an ECDH shared secret
+
+Added while implementing #416 (Android) and #417 (iOS). The body above is unchanged; this
+section adds the one thing it left unspecified and corrects the answer the issues assumed.
+
+**What the issues said.** #408 and #416 both describe the rotating per-Contact advertising
+value as ~~"an HMAC of the ECDH-shared-secret and a time bucket, truncated"~~, on the
+grounds that it needs "no new pairing step, reuses what Exchange already establishes".
+
+**Why that is not implementable against what Exchange actually establishes.** The durable
+Contact identity is a single AndroidKeyStore / Secure Enclave keypair created with a
+**signing** purpose only (`KeyProperties.PURPOSE_SIGN`, `SHA256withECDSA` over P-256).
+Three consequences, all load-bearing:
+
+- Those keys are immutable. An existing key cannot be granted key agreement after the fact,
+  and this key is already on every phone that has ever made a Contact.
+- `PURPOSE_AGREE_KEY` requires API 31; the app's minSdk is 26.
+- A second, agreement-capable keypair would have to be carried on the **Card** handed over
+  in person — which is precisely the new pairing step the issue rules out, and it would
+  leave every Contact made before that change unable to gossip until the two people met
+  again.
+
+So the premise "reuses what Exchange already establishes" is the part that survives, and
+"ECDH" is the part that does not.
+
+**What is implemented instead.** The **Token** is
+`HMAC-SHA256(key = <lower key> "\n" <higher key>, msg = "station-to-station/gossip-token/1\n" <bucket>)`,
+truncated to its first 8 bytes, where the two keys are the peers' base64 Contact identity
+public keys sorted lexicographically and the bucket is `floorDiv(epochSecond, 900)` — a
+quarter of an hour. A scanner matches against a table covering the previous, current and
+next bucket, so a clock a few minutes out still recognises a Contact. Both platforms must
+produce these bytes identically; it is a wire format, not an implementation detail.
+
+**What this costs, stated plainly.** A shared secret is computable only by the two of them.
+This value is computable by anyone holding *both* public keys — a mutual Contact of both,
+or, under this ADR's own "Disclosure to the relaying device" section, a device that relayed
+a message authored by one of them and separately holds the other's key. What such a device
+learns is that those two people are within radio range of it. It cannot forge a **Pass**
+(that needs a signature over a nonce it cannot produce) and it cannot mint a **Check-in**
+(same key, same reason). It is a linkability weakening of the advertisement, not a break of
+the trust model, and it is accepted here for the same reason the disclosure above is: the
+alternative costs every existing Contact a second in-person meeting.
+
+**What would change this.** If the Contact identity ever gains an agreement-capable
+counterpart for other reasons — a raised minSdk plus a Card format change, say — the Token
+should move to the ECDH form the issues originally described, and only the derivation
+changes; nothing else in this ADR depends on it.
+
+**Also settled here, because both platforms have to agree:** the **Pass** header
+`station-to-station/gossip-pass/1`, the possession-proof domain separator
+`station-to-station/gossip-auth/1`, a 32-byte nonce, and tab-separated fields in
+newline-separated records. The per-peer rate the storm-gate explicitly delegated to #416 and
+#417 is one minute, which with `GOSSIP_MAX_BATCH` puts the ceiling at 64 messages per minute
+per peer.

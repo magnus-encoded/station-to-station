@@ -161,6 +161,28 @@ carry, how they are established, and what they permit.
 A person can be a **Followed line**, a **Contact**, both, or neither. Following someone
 never makes them a **Contact**, and a **Contact** need not be on setlist.fm at all.
 
+## Gossip
+
+How a **Check-in** reaches a **Contact** who is not standing next to you, with no server
+and no session (ADR-0019). The one part of the app that runs in the background, and the
+only thing that ever travels this way is a **Check-in**.
+
+| Term | Definition | Aliases to avoid |
+| ---- | ---------- | ---------------- |
+| **Check-in** | *I am at this **Gig**, now.* Signed by the **Contact** identity key, expiring at the end of that **Gig**'s own night, and the only thing the **Gossip** channel carries. A fact about a person and a place — never a message, never a post, and never anything anyone replies to. | status, presence, ping, post |
+| **Gossip** | The channel a **Check-in** travels along: phone to phone, in radio range, hop by hop. Nobody is asked and nothing is coordinated — a device holds what it has and offers it to the next **Contact** it meets. | broadcast, mesh (fine informally), sync, feed |
+| **Carry** | Holding another person's **Check-in** in order to hand it on. A device carries what it accepted until that **Check-in** expires, which is what lets news cross a room in two hops instead of one. **Carrying is not attending** — nothing carried ever lands on the carrier's own **Line**. | cache, store, queue |
+| **Pass** | One handful of **Check-ins** handed from one device to one **Contact** in range, with a proof of who is handing it over. The unit of transfer. Deliberately not "handover", which in this app means moving to a new phone. | handover, sync, message |
+| **Token** | The rotating value a device advertises so a **Contact** can recognise it without anyone broadcasting an identity. Derived per pair of **Contacts** from key material they already hold, changing every quarter of an hour. A stranger's radio sees a number that means nothing and is different later. | beacon, id, address |
+| **Storm gate** | The pure rule that decides what a **Pass** is allowed to leave behind: the signature, the expiry, the dedup, the **Contact** test. It lives in one place and the radio never argues with it. | filter, validator, firewall |
+
+**A **Check-in** only ever travels between **Contacts**, never along a **Followed line***.
+That is the same rule as everywhere else in this app, and it is the rule the whole channel
+is built to make true hop by hop: a device relays only to people it has met in person, so a
+**Check-in** reaches a stranger only as bytes they carry and cannot read into a timeline.
+The disclosure this does buy — a carrier learns *who* checked in *where*, roughly *when* —
+is stated and accepted in ADR-0019.
+
 ## Media
 
 | Term | Definition | Aliases to avoid |
@@ -190,6 +212,8 @@ never makes them a **Contact**, and a **Contact** need not be on setlist.fm at a
   by setlist.fm.
 - One step **Inner** from a **Gig** is its **Alcove**; **Back out** is one step **Outer**, always.
 - A **Followed line** grants nothing; only a **Contact** can receive media.
+- A **Check-in** travels only between **Contacts**, and a device that **Carries** one has
+  not **Attended** anything.
 - **Attach** puts media on a **Gig** in one **Band** or the other; the shared one reaches
   the **Audience**, the vault reaches nobody. Dragging it between them is what changes its
   mind, and is the only way to stop offering something.

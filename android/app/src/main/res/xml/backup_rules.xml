@@ -17,12 +17,21 @@
   credential and are exactly what someone reinstalling wants back.
 
   cloud and device are both excluded: device-to-device transfer carries the same file.
+
+  The gossip store is excluded for a different reason (#416). It is not a credential —
+  it is other people's whereabouts. A relayed check-in names a Contact's identity key,
+  a Gig and the minute they arrived, and every entry expires within a night. A copy in
+  a backup would outlive the thing itself by years, and would move facts about people
+  who are not this phone's owner off the device they were relayed to. Losing it costs
+  one night of already-relayed messages being accepted a second time.
 -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="file" path="datastore/credentials.preferences_pb" />
+        <exclude domain="file" path="datastore/gossip.preferences_pb" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="datastore/credentials.preferences_pb" />
+        <exclude domain="file" path="datastore/gossip.preferences_pb" />
     </device-transfer>
 </data-extraction-rules>
