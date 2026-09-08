@@ -20,6 +20,7 @@ import io.github.magnusencoded.stationtostation.ui.flyover.WallGap
 import io.github.magnusencoded.stationtostation.ui.flyover.buildFlyoverGig
 import io.github.magnusencoded.stationtostation.ui.flyover.collectionBillboard
 import io.github.magnusencoded.stationtostation.ui.flyover.collectionFlyoverGigs
+import io.github.magnusencoded.stationtostation.ui.flyover.collectionMedia
 import io.github.magnusencoded.stationtostation.ui.flyover.flyoverMarkers
 import io.github.magnusencoded.stationtostation.ui.flyover.flyoverNight
 import io.github.magnusencoded.stationtostation.ui.flyover.flyoverNotes
@@ -733,5 +734,32 @@ class FlyoverNightTest {
             contactLight = true,
         )
         assertEquals(listOf("shared"), lit.first().media.map { it.id })
+    }
+
+    // --- The portrait face: every Gig's media, combined (#313 story 5) ---
+
+    /** The whole claim: a three-day festival's media reads as one weekend, in one list. */
+    @Test
+    fun `a Collection's combined media holds every Gig's, in running order`() {
+        val media = collectionMedia(
+            listOf(
+                gig("sat", date = saturday, media = listOf(photo("from-saturday"))),
+                gig("fri", date = friday, media = listOf(photo("from-friday"))),
+            ),
+        )
+        assertEquals(listOf("from-friday", "from-saturday"), media.map { it.id })
+    }
+
+    /** A Gig with nothing attached contributes nothing — the combined list is not
+     *  padded out to one slot per night. */
+    @Test
+    fun `a Gig with no media adds nothing to the combined run`() {
+        val media = collectionMedia(
+            listOf(
+                gig("fri", date = friday, media = listOf(photo("p"))),
+                gig("sat", date = saturday, media = emptyList()),
+            ),
+        )
+        assertEquals(listOf("p"), media.map { it.id })
     }
 }
