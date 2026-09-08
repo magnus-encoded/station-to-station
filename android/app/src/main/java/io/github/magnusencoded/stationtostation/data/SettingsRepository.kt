@@ -52,6 +52,7 @@ class SettingsRepository(private val context: Context) {
         val CLASHFINDER_PUBLIC_KEY = stringPreferencesKey("clashfinder_public_key")
         val FRIENDS = stringPreferencesKey("friends")
         val ONBOARDED = booleanPreferencesKey("onboarded")
+        val ALWAYS_RELAY = booleanPreferencesKey("always_relay")
     }
 
     /**
@@ -92,6 +93,22 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setOnboarded() {
         context.dataStore.edit { it[Keys.ONBOARDED] = true }
+    }
+
+    /**
+     * Carry **Contacts**' check-ins whenever the phone is on, not only on a night with a
+     * **Gig** on it (#416).
+     *
+     * Off by default, and the only one of
+     * [gossipRelayShouldRun][io.github.magnusencoded.stationtostation.data.gossip.gossipRelayShouldRun]'s
+     * three reasons that means "run all the time" — which is why it is a thing the user
+     * turns on rather than a thing they discover has been on.
+     */
+    val alwaysRelay: Flow<Boolean> =
+        context.dataStore.data.map { it[Keys.ALWAYS_RELAY] ?: false }
+
+    suspend fun saveAlwaysRelay(value: Boolean) {
+        context.dataStore.edit { it[Keys.ALWAYS_RELAY] = value }
     }
 
     val mySetlistFmUser: Flow<String?> =

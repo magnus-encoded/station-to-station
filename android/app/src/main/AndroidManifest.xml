@@ -36,6 +36,14 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <!-- The gossip channel (#416, ADR-0019). A check-in is only worth relaying to
+         somebody standing in the same room now, so the radio has to run when the app
+         does not — and on Android that means a foreground service with a notification
+         the user can see and stop. connectedDevice is the type: the whole job is
+         talking to another phone over BLE. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+
     <!-- Two users, one permission. Nearby Connections needs location to scan on 32
          and below (on 33+ the neverForLocation flags on BLUETOOTH_SCAN and
          NEARBY_WIFI_DEVICES stand in for it). #33's check-in needs it on every
@@ -138,6 +146,15 @@
         <receiver
             android:name=".data.CopyReceiver"
             android:exported="false" />
+
+        <!-- The gossip radio (#416). Not exported: the only thing that starts it is this
+             app deciding, through gossipRelayShouldRun, that there is a reason to. Its
+             own Stop action goes through the same class, which is why it needs no
+             receiver of its own — a stop is just a start with an action on it. -->
+        <service
+            android:name=".data.gossip.GossipService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
 
         <!-- Photo-picker uris only grant us read access for the current process — gone
              on relaunch, which is why keepsakes went blank. Gig photos are copied into

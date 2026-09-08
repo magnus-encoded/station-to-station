@@ -1,4 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Station to Station</string>
+
+    <!-- The gossip channel's foreground service (#416). ADR-0019 lets this run in the
+         background; the notification is what makes that visible rather than a silent
+         drain, so the wording says plainly what the radio is doing. -->
+    <string name="gossip_channel_name">Passing on check-ins</string>
+    <string name="gossip_channel_description">Shown while your phone is carrying contacts\' check-ins between people at a gig.</string>
+    <string name="gossip_notification_title">Passing on check-ins</string>
+    <string name="gossip_notification_idle">Listening for contacts nearby</string>
+    <string name="gossip_notification_carrying">Carrying %1$d check-in(s) for contacts nearby</string>
+    <string name="gossip_notification_stop">Stop</string>
 </resources>

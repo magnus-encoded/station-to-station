@@ -25,6 +25,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -310,6 +311,42 @@ fun SettingsScreen(
                         ) { Text("Remove") }
                     }
                 }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(24.dp))
+
+            // The one gossip decision that is the user's rather than the app's (#416): the
+            // other two reasons the radio runs are consequences of what they already did
+            // (checked in, or have a gig on tonight), and this is the one that means
+            // "run all the time". Shown here, with what it costs said out loud, because a
+            // background radio nobody remembers agreeing to is the failure to avoid.
+            Text("Passing on check-ins", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Always carry", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        if (state.alwaysRelay)
+                            "Your phone listens for contacts' check-ins whenever it's on, and " +
+                                "passes them along to other contacts nearby. A notification " +
+                                "shows while it does."
+                        else
+                            "Only on a night you've checked in or have a gig on. Turn this on " +
+                                "to carry contacts' check-ins any time — it keeps Bluetooth " +
+                                "working, and shows a notification while it runs.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(
+                    checked = state.alwaysRelay,
+                    onCheckedChange = viewModel::setAlwaysRelay,
+                    modifier = Modifier.semantics { contentDescription = "Always carry check-ins" },
+                )
             }
 
             Spacer(Modifier.height(24.dp))

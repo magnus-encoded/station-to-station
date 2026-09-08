@@ -91,6 +91,15 @@ import io.github.magnusencoded.stationtostation.data.exchange.ContactExchange
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangePeer
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangeSession
 import io.github.magnusencoded.stationtostation.data.exchange.contactIdentityPublicKeyBase64
+import io.github.magnusencoded.stationtostation.data.exchange.signWithContactIdentity
+import io.github.magnusencoded.stationtostation.data.contactKeysOf
+import io.github.magnusencoded.stationtostation.data.gossipExpiry
+import io.github.magnusencoded.stationtostation.data.gossip.GossipHeld
+import io.github.magnusencoded.stationtostation.data.gossip.GossipService
+import io.github.magnusencoded.stationtostation.data.gossip.GossipStore
+import io.github.magnusencoded.stationtostation.data.gossip.gigDatesOf
+import io.github.magnusencoded.stationtostation.data.gossip.gossipGigTonight
+import io.github.magnusencoded.stationtostation.data.gossip.mintGossipCheckIn
 import io.github.magnusencoded.stationtostation.data.contactManifest
 import io.github.magnusencoded.stationtostation.data.GalleryItem
 import io.github.magnusencoded.stationtostation.data.exchange.readAccountsAck
@@ -122,6 +131,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.Socket
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 
@@ -400,6 +410,8 @@ data class UiState(
     val notice: String? = null,
     // True once the splash has been passed (Spotify login or skip).
     val onboarded: Boolean = false,
+    // Carry contacts' check-ins whenever the phone is on, not only on a gig night (#416).
+    val alwaysRelay: Boolean = false,
 ) {
     /** Who is currently tapped out. Derived so there is only [hiddenAt] to keep in step. */
     val hiddenLines: Set<String> get() = hiddenAt.keys
@@ -504,6 +516,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         onLanded = { landing -> timelines.mergeContactMedia(landing) },
     )
 
+    /**
+     * What this phone carries on the gossip channel (#416).
+     *
+     * The view model's only business with gossip is the two ends of it: minting this phone's
+     * own check-in, and telling the service whether it has a reason to run. Everything in
+     * between — advertising, accepting, relaying, forgetting — is the service's, which is why
+     * nothing about a relayed message reaches [UiState].
+     */
+    private val gossip = GossipStore(application)
+
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
@@ -539,9 +561,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     mySetlistFmUser = settings.mySetlistFmUser.first() ?: "",
                     friends = settings.friends.first(),
                     onboarded = settings.onboarded.first(),
+                    alwaysRelay = settings.alwaysRelay.first(),
                 )
             }
             restoreTimelines()
+            // After the timeline is back, because whether a **Gig** is on tonight is one of
+            // the three reasons the radio runs.
+            syncGossip()
         }
         // The radios' outputs, mirrored into UiState.
         viewModelScope.launch {
@@ -1320,6 +1346,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(justConnected = true, connectingWith = null) }
         loadFriendTimelines()
         exchange.stop()
+        // A first **Contact** is the moment the gossip radio stops being pointless (#416).
+        syncGossip()
     }
 
     fun consumeJustConnected() = _state.update { it.copy(justConnected = false) }
@@ -2355,6 +2383,63 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 provenance = StoredAttendance.Provenance.CHECKED_IN,
                 checkedInAt = System.currentTimeMillis(),
             )
+        }
+        viewModelScope.launch { gossipAbout(gigId) }
+    }
+
+    /**
+     * Mint this phone's own check-in and start carrying it (#416).
+     *
+     * Held in the same store a relayed message lands in, and pushed by the same radio, so
+     * "mine" and "someone else's" differ in exactly one field —
+     * [GossipHeld.arrivedFrom][io.github.magnusencoded.stationtostation.data.gossip.GossipHeld.arrivedFrom]
+     * — and there is no second path to keep working.
+     *
+     * Quietly does nothing where there is nothing to do: a **Gig** with no date to expire
+     * against, no **Contact** to tell, or a signer that refuses. A check-in is a fact about
+     * this timeline first; whether anyone hears about it is secondary, and an error about the
+     * secondary thing would be noise on a night out.
+     */
+    private suspend fun gossipAbout(gigId: String) {
+        val gigDate = _state.value.plannedGigs.firstOrNull { it.id == gigId }?.localDate()
+            ?: return
+        val mine = runCatching { contactIdentityPublicKeyBase64() }.getOrNull() ?: return
+        val message = mintGossipCheckIn(
+            gigId = gigId,
+            checkedInBy = mine,
+            checkedInAt = Instant.now(),
+            expiresAt = gossipExpiry(gigDate),
+            sign = { payload -> runCatching { signWithContactIdentity(payload) }.getOrNull() },
+        ) ?: return
+        gossip.update { held -> held + GossipHeld(message, arrivedFrom = null, expiry = message.expiresAt) }
+        syncGossip()
+    }
+
+    /**
+     * Bring the gossip radio into line with the three reasons it may run.
+     *
+     * Called from every place one of those answers can change: a launch, a check-in, a new
+     * **Contact**, the setting being toggled. The decision itself is
+     * [gossipRelayShouldRun][io.github.magnusencoded.stationtostation.data.gossip.gossipRelayShouldRun],
+     * which is where it is argued and where a reviewer should push back on it.
+     */
+    private suspend fun syncGossip() {
+        val now = Instant.now()
+        GossipService.sync(
+            context = getApplication<Application>(),
+            contacts = contactKeysOf(_state.value.friends).size,
+            holding = gossip.held(now).isNotEmpty(),
+            gigTonight = gossipGigTonight(gigDatesOf(timelines), now),
+            alwaysRelay = _state.value.alwaysRelay,
+        )
+    }
+
+    /** See [SettingsRepository.alwaysRelay] — the one reason that means "run all the time". */
+    fun setAlwaysRelay(value: Boolean) {
+        _state.update { it.copy(alwaysRelay = value) }
+        viewModelScope.launch {
+            settings.saveAlwaysRelay(value)
+            syncGossip()
         }
     }
 
