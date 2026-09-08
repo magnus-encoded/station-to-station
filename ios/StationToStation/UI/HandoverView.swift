@@ -45,6 +45,9 @@ struct HandoverView: View {
                             categoryOf(kind: StoredMedia.Kind.video, personal: true),
                             categoryOf(kind: StoredMedia.Kind.note, personal: true)],
                ticked: false),
+        Choice(id: "accounts", title: "Accounts",
+               detail: "Spotify moves rather than copies: this phone signs out once the other one has it.",
+               categories: [categoryAccounts], ticked: false),
     ]
 
     private var allow: Set<String> {
@@ -103,9 +106,9 @@ struct HandoverView: View {
                 model.offerHandover(allow)
             } label: {
                 // The verb names what happens on *this* device, which is the surprising
-                // part — a handover copies the records and removes nothing. iOS has no
-                // credential move to offer (#143), so there is no second verb here.
-                Text("Copy to the new phone")
+                // part — the records are copied and nothing is removed, while the
+                // accounts genuinely leave. Same rule as Android's `approvalVerb`.
+                Text(approvalVerb(allow))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
             }
@@ -187,6 +190,12 @@ struct HandoverView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     line("Arrived", "\(receipt.landed) item\(receipt.landed == 1 ? "" : "s")"
                         + " (\(humanBytes(receipt.bytes)))")
+                    // Nothing when accounts were not part of this handover — declining
+                    // the row is a supported outcome (#143 story 11) and the receipt
+                    // should not mention a step that never ran (#143 story 9).
+                    if receipt.accountsMove != .notOffered {
+                        line("Accounts", receipt.accountsMove == .acknowledged ? "Arrived" : "Did not complete")
+                    }
                     if receipt.fromGallery > 0 {
                         line("Already in the library", "\(receipt.fromGallery) — no bytes needed")
                     }

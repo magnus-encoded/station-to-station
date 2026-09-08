@@ -41,10 +41,13 @@ final class HandoverExchange {
     /// port the system picks, hands back the invite for the QR, and runs one handover.
     ///
     /// `manifest` is built by the caller from the tick list (`deviceManifest`), so nothing
-    /// this function does can widen what was approved.
+    /// this function does can widen what was approved. `accounts`, likewise built by the
+    /// caller (`AppModel.sendHandoverAccounts`) so the credential itself and the gated
+    /// `clearSpotifyAuth` stay device-layer concerns, not this socket-and-lifetime file's.
     func offer(
+        allow: Set<String>,
         manifest: @escaping () async -> HandoverManifest,
-        identities: Identities,
+        accounts: @escaping (ContactConnection) async throws -> AccountsMove,
         mediaSource: @escaping (String) async -> URL?,
         invite: @MainActor @escaping (String) -> Void,
         progress: @MainActor @escaping (HandoverProgress) -> Void,
@@ -108,14 +111,9 @@ final class HandoverExchange {
                         let receipt = try await runHandoverSource(
                             wire: wire,
                             linkKey: linkKey,
+                            allow: allow,
                             manifest: await manifest(),
-                            accounts: { wire in
-                                // iOS carries who I am and never a bearer secret — there is
-                                // no credential move on this platform to offer (#143). The
-                                // frame still travels, because the receiver always reads one.
-                                try await writeJson(wire, AccountsPayload(identities: identities))
-                                return try await wire.readFrame() == accountsAck
-                            },
+                            accounts: accounts,
                             mediaSource: mediaSource,
                             onProgress: { p in Task { @MainActor in progress(p) } }
                         )
@@ -138,7 +136,9 @@ final class HandoverExchange {
         _ invite: HandoverInvite,
         mine: @escaping () async -> TimelineCache,
         gallery: @escaping () async -> [GalleryItem],
-        storeAccounts: @escaping (AccountsPayload) async -> Void,
+        /// Stores durably, then acks — see `AppModel.receiveHandoverAccounts` — and hands
+        /// back whatever arrived so the receipt can say what became of it (#143 story 9).
+        accounts: @escaping (ContactConnection) async throws -> AccountsPayload?,
         /// Writes the union and whatever else a landing needs — see `AppModel`, which also
         /// cuts the thumbnails off the plan this returns.
         apply: @escaping (@escaping (TimelineCache) -> HandoverPlan) async -> Void,
@@ -164,14 +164,7 @@ final class HandoverExchange {
                 let receipt = try await runHandoverReceiver(
                     wire: wire,
                     linkKey: invite.linkKey,
-                    accounts: { wire in
-                        // Stored durably, *then* acked: the ack is what the source's own
-                        // sign-out is gated on, so it must not go a moment early.
-                        if let payload = try await readJson(wire, AccountsPayload.self) {
-                            await storeAccounts(payload)
-                        }
-                        try await wire.writeFrame(accountsAck)
-                    },
+                    accounts: accounts,
                     mine: await mine(),
                     gallery: await gallery(),
                     receivedFile: { id, kind in PhotoLibrary.receivedMediaFile(id: id, kind: kind) },
