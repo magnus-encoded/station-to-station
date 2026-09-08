@@ -51,27 +51,35 @@ import Foundation
 // should tell someone their arrival "was sent".
 //
 // ============================================================================
-// The meeting, in three GATT operations
+// The meeting, in two GATT operations — and they are Android's two
 // ============================================================================
 //
-//   1. The central reads `token` and gets the peripheral's `gossipTokenOffer` — one token per
-//      **Contact** the peripheral holds, for the current bucket. It resolves that against its
-//      own secrets. No match, and it hangs up having learnt nothing but "some Station to
-//      Station device is nearby", which is what it already knew from the advertisement.
-//   2. The central writes `inbox`: the single token for the pair it just resolved, then its
-//      batch. That token is what tells the peripheral who is talking — the secret is symmetric,
-//      so the same value resolves from either end.
-//   3. The central reads `outbox`, which the peripheral prepared in step 2 for exactly that
-//      **Contact**. A connection that never resolved reads zero bytes.
+//   1. The central **reads the challenge** and gets a fresh nonce plus the peripheral's
+//      `gossipTokenOffer` — one token per **Contact** the peripheral holds, for the current
+//      bucket. It resolves that against its own token table. No match, and it hangs up having
+//      learnt nothing but "some Station to Station device is nearby", which is what it already
+//      knew from the advertisement.
+//   2. The central **writes one Pass**: its own identity key, a signature over
+//      `gossipAuthPayload` of that nonce, and its batch. The peripheral checks the key is a
+//      **Contact**, checks the signature against the nonce *it* issued, and hands the batch to
+//      the gate.
 //
-// The central resolves first and the peripheral second, deliberately: the side that initiated
-// the connection is the side that spends its own privacy first. A device that connects, reads
-// the offer and leaves has learnt nothing it could not have learnt by standing there.
+// **Push-only, which is what removed the third step this file used to have.** Every device runs
+// both halves of the radio, so a device with something to say connects and writes; there is no
+// authenticated read-back to design, and a device with nothing to say never has to be believed
+// about anything. The peripheral will push its own news the next time *it* is the one scanning.
+//
+// The peripheral never names itself in the challenge. The obvious answer — "my identity key and
+// a nonce" — would hand a stable, lifelong identifier to any radio that connects, all night, in
+// the background, which is the exact disclosure the rotating token exists to prevent.
+//
+// This is the same protocol `GossipRadio.kt` speaks, characteristic for characteristic and byte
+// for byte (ADR-0019, "Token derivation", 2026-09-08). Change one side of it and the phones stop
+// talking to each other, silently, in the only situation nobody is watching.
 
 private let gossipService = CBUUID(string: gossipServiceUUIDString)
-private let gossipTokenCharacteristic = CBUUID(string: gossipTokenCharacteristicUUIDString)
-private let gossipInboxCharacteristic = CBUUID(string: gossipInboxCharacteristicUUIDString)
-private let gossipOutboxCharacteristic = CBUUID(string: gossipOutboxCharacteristicUUIDString)
+private let gossipChallengeCharacteristic = CBUUID(string: gossipChallengeCharacteristicUUIDString)
+private let gossipPassCharacteristic = CBUUID(string: gossipPassCharacteristicUUIDString)
 
 /// The restore identifiers. These are names iOS holds on this app's behalf across launches;
 /// changing one is telling the system this is a different radio, and any session it was holding
@@ -92,7 +100,7 @@ private let gossipEnabledKey = "gossip.hasContacts"
 
 /// How long one meeting may take before it is abandoned.
 ///
-/// Three GATT round trips over a background connection; `exchangeTimeout` is sized for a human
+/// A read and a chunked write over a background connection; `exchangeTimeout` is sized for a human
 /// waiting on a screen and is far too short. Nobody is watching this one, so it can afford to
 /// be patient — but not unbounded, because a peer that stalls mid-write holds a connection slot
 /// and iOS gives a backgrounded app very few.
@@ -137,15 +145,25 @@ final class GossipTransport: NSObject {
     /// something to write down.
     private var lastMet: [UUID: Date] = [:]
 
-    /// Long writes arrive as a series of separate write operations (CoreBluetooth does not
+    /// A **Pass** arrives as a series of separate write operations (CoreBluetooth does not
     /// perform prepared writes), so the peripheral half accumulates per central and finalises on
     /// a zero-length write. Bounded by `gossipMaxWireBytes` and dropped when the meeting ends.
     private var inbox: [UUID: Data] = [:]
     private var inboxStartedAt: [UUID: Date] = [:]
-    /// What the peripheral half has prepared for one central, once its write resolved it to a
-    /// **Contact**.
-    private var outbox: [UUID: Data] = [:]
-    private var outboxContact: [UUID: String] = [:]
+
+    /// The nonce this listener last issued to each central, and the bytes it answered the
+    /// challenge read with.
+    ///
+    /// Per central rather than global: two **Contacts** can be pushing at once, and a shared
+    /// nonce would mean whichever read last decided what the other one had to sign. Spent on
+    /// one **Pass**, so a peer that pushes twice has to read a new challenge for the second.
+    ///
+    /// A `CBPeripheralManager` gets no disconnect callback, so these are pruned by age instead
+    /// — an unanswered challenge is dead once no meeting could still be using it, and a night
+    /// in a crowded room must not accumulate one entry per stranger who read it.
+    private var nonces: [UUID: Data] = [:]
+    private var challenges: [UUID: Data] = [:]
+    private var challengedAt: [UUID: Date] = [:]
 
     private let channel = GossipChannel.shared
 
@@ -219,8 +237,9 @@ final class GossipTransport: NSObject {
         advertising = false
         inbox.removeAll()
         inboxStartedAt.removeAll()
-        outbox.removeAll()
-        outboxContact.removeAll()
+        nonces.removeAll()
+        challenges.removeAll()
+        challengedAt.removeAll()
     }
 
     private func scanLocked() {
@@ -234,16 +253,14 @@ final class GossipTransport: NSObject {
 
     private func advertiseLocked() {
         guard let peripheral, peripheral.state == .poweredOn, !advertising else { return }
-        let token = CBMutableCharacteristic(type: gossipTokenCharacteristic, properties: .read,
-                                            value: nil, permissions: .readable)
-        let inboxCharacteristic = CBMutableCharacteristic(type: gossipInboxCharacteristic,
-                                                          properties: .write, value: nil,
-                                                          permissions: .writeable)
-        let outboxCharacteristic = CBMutableCharacteristic(type: gossipOutboxCharacteristic,
-                                                           properties: .read, value: nil,
-                                                           permissions: .readable)
+        let challenge = CBMutableCharacteristic(type: gossipChallengeCharacteristic,
+                                                properties: .read, value: nil,
+                                                permissions: .readable)
+        let passing = CBMutableCharacteristic(type: gossipPassCharacteristic,
+                                              properties: .write, value: nil,
+                                              permissions: .writeable)
         let service = CBMutableService(type: gossipService, primary: true)
-        service.characteristics = [token, inboxCharacteristic, outboxCharacteristic]
+        service.characteristics = [challenge, passing]
         peripheral.removeAllServices()
         peripheral.add(service)
         // No `CBAdvertisementDataLocalNameKey`. The Exchange advertises a display name because a
@@ -276,37 +293,37 @@ final class GossipTransport: NSObject {
         central?.connect(peripheral, options: nil)
     }
 
-    /// Step 2: the offer resolved to a **Contact**, so write our own token and batch to them.
+    /// Step 2: the challenge resolved to a **Contact**, so sign their nonce and push.
     ///
     /// Chunked by hand. `writeValue(_:type:.withResponse)` silently truncates anything past the
     /// negotiated MTU — CoreBluetooth performs no prepared write — which `BleExchange.swift`
     /// records for the Exchange's 130-byte card and which a 20 kB batch would fall straight
-    /// into. Each chunk is acknowledged before the next goes out, and a zero-length write ends
-    /// the message.
-    private func send(_ meeting: GossipMeeting, to contact: String) {
+    /// into. Each chunk is acknowledged before the next goes out, and a **zero-length write
+    /// ends the Pass**: that terminator is part of the protocol, not padding, and Android's
+    /// peripheral half is written to expect it.
+    ///
+    /// Nothing to say is a reason to hang up rather than to write. An empty **Pass** would cost
+    /// a listener a signature verification to learn nothing, and the peer is still advertising
+    /// a minute from now.
+    private func send(_ meeting: GossipMeeting, to contact: String, nonce: Data) {
         Task { [weak self] in
             guard let self else { return }
-            let payload = await self.channel.outgoing(for: contact, now: Date())
+            let payload = await self.channel.pass(to: contact, nonce: nonce, now: Date())
             self.queue.async {
-                guard self.meetings[meeting.peripheral.identifier] != nil,
-                      let characteristic = meeting.inbox
-                else { return }
+                let id = meeting.peripheral.identifier
+                guard self.meetings[id] != nil, let characteristic = meeting.pass,
+                      let payload
+                else { self.abandon(id); return }
                 let limit = max(20, meeting.peripheral.maximumWriteValueLength(for: .withResponse))
                 meeting.contact = contact
-                meeting.pending = payload.map { $0.chunked(by: limit) } ?? []
-                // The terminator, always: an empty batch is still a meeting, and the peripheral
-                // has to know the write finished before it can prepare a reply.
-                meeting.pending.append(Data())
+                meeting.pending = payload.gossipChunks(by: limit) + [Data()]
                 self.writeNext(meeting, characteristic)
             }
         }
     }
 
     private func writeNext(_ meeting: GossipMeeting, _ characteristic: CBCharacteristic) {
-        guard !meeting.pending.isEmpty else {
-            meeting.peripheral.readValue(for: meeting.outbox ?? characteristic)
-            return
-        }
+        guard !meeting.pending.isEmpty else { return }
         let chunk = meeting.pending.removeFirst()
         meeting.peripheral.writeValue(chunk, for: characteristic, type: .withResponse)
     }
@@ -316,22 +333,12 @@ final class GossipTransport: NSObject {
 /// mutate it in place.
 private final class GossipMeeting {
     let peripheral: CBPeripheral
-    var inbox: CBCharacteristic?
-    var outbox: CBCharacteristic?
+    var pass: CBCharacteristic?
     var contact: String?
     var pending: [Data] = []
     var timeout: DispatchWorkItem?
 
     init(peripheral: CBPeripheral) { self.peripheral = peripheral }
-}
-
-private extension Data {
-    func chunked(by size: Int) -> [Data] {
-        guard size > 0, !isEmpty else { return isEmpty ? [] : [self] }
-        return stride(from: 0, to: count, by: size).map {
-            subdata(in: $0..<Swift.min($0 + size, count))
-        }
-    }
 }
 
 extension GossipTransport: CBCentralManagerDelegate {
@@ -347,7 +354,7 @@ extension GossipTransport: CBCentralManagerDelegate {
         for peripheral in restored {
             peripheral.delegate = self
             // Restarted rather than resumed: the restored connection carries no memory of which
-            // GATT operation was in flight, and a meeting is three ordered steps. Beginning
+            // GATT operation was in flight, and a meeting is two ordered steps. Beginning
             // again is cheap and idempotent — the gate throws away everything already seen.
             let meeting = GossipMeeting(peripheral: peripheral)
             let id = peripheral.identifier
@@ -392,51 +399,35 @@ extension GossipTransport: CBPeripheralDelegate {
               let service = peripheral.services?.first(where: { $0.uuid == gossipService })
         else { abandon(peripheral.identifier); return }
         peripheral.discoverCharacteristics(
-            [gossipTokenCharacteristic, gossipInboxCharacteristic, gossipOutboxCharacteristic],
-            for: service)
+            [gossipChallengeCharacteristic, gossipPassCharacteristic], for: service)
     }
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService,
                     error: Error?) {
         guard error == nil, let meeting = meetings[peripheral.identifier],
               let characteristics = service.characteristics,
-              let token = characteristics.first(where: { $0.uuid == gossipTokenCharacteristic })
+              let challenge = characteristics.first(where: { $0.uuid == gossipChallengeCharacteristic }),
+              let pass = characteristics.first(where: { $0.uuid == gossipPassCharacteristic })
         else { abandon(peripheral.identifier); return }
-        meeting.inbox = characteristics.first { $0.uuid == gossipInboxCharacteristic }
-        meeting.outbox = characteristics.first { $0.uuid == gossipOutboxCharacteristic }
-        guard meeting.inbox != nil, meeting.outbox != nil else {
-            abandon(peripheral.identifier); return
-        }
-        peripheral.readValue(for: token)
+        meeting.pass = pass
+        peripheral.readValue(for: challenge)
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic,
                     error: Error?) {
         let id = peripheral.identifier
-        guard error == nil, let meeting = meetings[id], let value = characteristic.value
+        guard error == nil, characteristic.uuid == gossipChallengeCharacteristic,
+              let meeting = meetings[id], let value = characteristic.value,
+              let challenge = decodeGossipChallenge(value)
         else { abandon(id); return }
-
-        if characteristic.uuid == gossipTokenCharacteristic {
-            guard let offered = decodeGossipTokens(value) else { abandon(id); return }
-            Task { [weak self] in
-                guard let self else { return }
-                let contact = await self.channel.resolve(offered, now: Date())
-                self.queue.async {
-                    // Nobody I have met. Hang up having learnt nothing, and — importantly — say
-                    // nothing: no token of ours goes out to a device we could not place.
-                    guard let contact else { self.abandon(id); return }
-                    self.send(meeting, to: contact)
-                }
-            }
-            return
-        }
-
-        if characteristic.uuid == gossipOutboxCharacteristic {
-            guard let contact = meeting.contact else { abandon(id); return }
-            Task { [weak self] in
-                guard let self else { return }
-                _ = await self.channel.receive(value, expecting: contact, now: Date())
-                self.queue.async { self.abandon(id) }
+        Task { [weak self] in
+            guard let self else { return }
+            let contact = await self.channel.resolve(challenge.tokens, now: Date())
+            self.queue.async {
+                // Nobody I have met. Hang up having learnt nothing, and — importantly — say
+                // nothing: this device's key does not go out to a peer it could not place.
+                guard let contact else { self.abandon(id); return }
+                self.send(meeting, to: contact, nonce: challenge.nonce)
             }
         }
     }
@@ -445,18 +436,14 @@ extension GossipTransport: CBPeripheralDelegate {
                     error: Error?) {
         let id = peripheral.identifier
         guard error == nil, let meeting = meetings[id] else { abandon(id); return }
-        if meeting.pending.isEmpty {
-            // Everything is across. Only now is the batch marked delivered, so a handover that
-            // died halfway is offered again the next time these two phones meet.
-            if let contact = meeting.contact, let outbox = meeting.outbox {
-                Task { [weak self] in await self?.channel.confirmDelivery(to: contact) }
-                peripheral.readValue(for: outbox)
-                return
-            }
-            abandon(id)
-            return
+        guard meeting.pending.isEmpty else { writeNext(meeting, characteristic); return }
+        // The terminator is across, so the whole **Pass** is. Only now is the batch marked
+        // delivered — a handover that died halfway is offered again the next time these two
+        // phones are in the same room.
+        if let contact = meeting.contact {
+            Task { [weak self] in await self?.channel.confirmDelivery(to: contact) }
         }
-        writeNext(meeting, characteristic)
+        abandon(id)
     }
 }
 
@@ -477,30 +464,51 @@ extension GossipTransport: CBPeripheralManagerDelegate {
         advertiseLocked()
     }
 
+    /// The challenge read: a fresh nonce at offset 0, and the same answer for the slices that
+    /// follow it.
+    ///
+    /// Re-reading from the start is what asks for a new nonce, which is also what makes a
+    /// recorded exchange useless the moment the connection it belonged to ends. The answer is
+    /// built asynchronously because the token offer needs the **Contact** list from the actor;
+    /// a long read is a series of requests and CoreBluetooth is content for the response to
+    /// come a moment later.
     func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveRead request: CBATTRequest) {
-        switch request.characteristic.uuid {
-        case gossipTokenCharacteristic:
-            Task { [weak self] in
-                guard let self else { return }
-                let offer = await self.channel.tokenOffer(now: Date())
-                self.queue.async { self.answer(peripheral, request, with: offer) }
-            }
-        case gossipOutboxCharacteristic:
-            // Empty for a central that never resolved: a stranger gets zero bytes, not an error
-            // and not a batch. Nothing about this device's **Contacts** is inferable from it.
-            let id = request.central.identifier
-            let payload = outbox[id] ?? Data()
-            answer(peripheral, request, with: payload)
-            // The last slice of a long read is the only evidence this side gets that the batch
-            // actually arrived, so it is where delivery is recorded. A central that gave up
-            // halfway leaves the messages undelivered and is offered them again.
-            if request.offset + (request.value?.count ?? 0) >= payload.count,
-               let contact = outboxContact[id] {
-                outboxContact[id] = nil
-                Task { [weak self] in await self?.channel.confirmDelivery(to: contact) }
-            }
-        default:
+        guard request.characteristic.uuid == gossipChallengeCharacteristic else {
             peripheral.respond(to: request, withResult: .attributeNotFound)
+            return
+        }
+        let id = request.central.identifier
+        if request.offset > 0, let prepared = challenges[id] {
+            answer(peripheral, request, with: prepared)
+            return
+        }
+        forgetStaleChallenges()
+        var nonce = Data(count: gossipNonceBytes)
+        let generated = nonce.withUnsafeMutableBytes {
+            SecRandomCopyBytes(kSecRandomDefault, gossipNonceBytes, $0.baseAddress!)
+        }
+        guard generated == errSecSuccess else {
+            peripheral.respond(to: request, withResult: .unlikelyError)
+            return
+        }
+        nonces[id] = nonce
+        challengedAt[id] = Date()
+        Task { [weak self] in
+            guard let self else { return }
+            let payload = await self.channel.challenge(nonce: nonce, now: Date())
+            self.queue.async {
+                self.challenges[id] = payload
+                self.answer(peripheral, request, with: payload)
+            }
+        }
+    }
+
+    private func forgetStaleChallenges() {
+        let cutoff = Date().addingTimeInterval(-gossipMeetingTimeout)
+        for (id, issued) in challengedAt where issued < cutoff {
+            challengedAt[id] = nil
+            nonces[id] = nil
+            challenges[id] = nil
         }
     }
 
@@ -518,7 +526,7 @@ extension GossipTransport: CBPeripheralManagerDelegate {
 
     func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveWrite requests: [CBATTRequest]) {
         guard let first = requests.first else { return }
-        guard requests.allSatisfy({ $0.characteristic.uuid == gossipInboxCharacteristic }) else {
+        guard requests.allSatisfy({ $0.characteristic.uuid == gossipPassCharacteristic }) else {
             peripheral.respond(to: first, withResult: .attributeNotFound)
             return
         }
@@ -547,19 +555,15 @@ extension GossipTransport: CBPeripheralManagerDelegate {
         guard finished else { return }
         inbox[id] = nil
         inboxStartedAt[id] = nil
+        // Spent: one nonce answers exactly one **Pass**, so a peer that pushes twice on one
+        // connection has to read a new challenge for the second.
+        guard let nonce = nonces.removeValue(forKey: id) else { return }
+        challenges[id] = nil
         Task { [weak self] in
-            guard let self else { return }
-            let now = Date()
-            guard let contact = await self.channel.receive(accumulated, expecting: nil, now: now)
-            else { return }
-            // Prepared only after the gate has had the batch, so the reply is one this device
-            // stands behind — including anything it just accepted and this **Contact** has not
-            // had. The central reads it as step 3.
-            let reply = await self.channel.outgoing(for: contact, now: now)
-            self.queue.async {
-                self.outbox[id] = reply ?? Data()
-                self.outboxContact[id] = contact
-            }
+            // Everything that decides whether these bytes are worth anything — the possession
+            // proof, the **Contact** check, the gate — happens in the actor. Nothing is
+            // reported back to the peer either way: a diagnosis is a probe's oracle.
+            _ = await self?.channel.receive(accumulated, nonce: nonce, now: Date())
         }
     }
 }

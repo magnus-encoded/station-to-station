@@ -3,47 +3,66 @@ import Foundation
 // The wire layer of the gossip channel (#417), and the cross-platform contract two phones
 // have to agree on byte for byte before a single check-in crosses between them. Pure Swift
 // with no CoreBluetooth in sight, exactly as `CardWire.swift` is pure against
-// `BleExchange.swift` (ADR-0001) — and for the harder reason as well: the transport above
-// it cannot be asserted without two phones and a gig, so everything that *can* be decided
-// from bytes alone is decided here, where XCTest reaches it.
+// `BleExchange.swift` (ADR-0001) — and for the harder reason as well: the transport above it
+// cannot be asserted without two phones and a gig, so everything that *can* be decided from
+// bytes alone is decided here, where XCTest reaches it.
 //
-// Android's twin is `data/GossipWire.kt`, and the assertions in `GossipWireTests` are the
-// assertions Android runs on the JVM.
+// Android's twin is `data/gossip/GossipWire.kt`, and the assertions in `GossipWireTests` are
+// the assertions Android runs on the JVM.
 //
-// Wire shape:
-//   advertisement  — the 128-bit service UUID, and nothing else. See below.
-//   token (read)   — this device's `gossipTokenOffer`, one token per line.
-//   inbox (write)  — the writer's own token for the resolved pair, then its batch.
-//   outbox (read)  — the reader's token as the peripheral computed it, then its batch.
+// ## The meeting, in two GATT operations
 //
-// **Why the token is not in the advertisement, on this platform.** It would be the obvious
-// place, and on Android it is one. CoreBluetooth's `startAdvertising` honours exactly two
-// keys — a local name and a list of service UUIDs — so an iPhone cannot put arbitrary bytes
-// in an advertisement at all (`BleExchange.swift` records the same fact for the Exchange's
-// display name). Worse, a *backgrounded* iPhone drops the local name entirely and moves its
-// service UUIDs into a special "overflow" area that only another iOS device explicitly
-// scanning for that exact UUID can see. So on iOS the token cannot ride the advertisement,
-// and it rides the first GATT read instead. The derivation is identical to Android's — that
-// is the part that must match — and only the carrier differs, the same way the Exchange's
-// name rides manufacturer data on one platform and a local name on the other.
+//   1. The connecting side **reads the challenge** and gets a fresh nonce and the listener's
+//      `gossipTokenOffer`. It resolves that offer against its own token table. No match, and
+//      it hangs up having learnt nothing but "some Station to Station device is nearby",
+//      which is what it already knew from the advertisement.
+//   2. It **writes one Pass**: its own identity key, a signature over `gossipAuthPayload` of
+//      that nonce, and the batch. The listener checks the key belongs to a **Contact**,
+//      checks the signature against the nonce *it* issued, and hands `(from, batch)` to
+//      `gossipStormGate` — the only thing that judges a message.
 //
-// **Framing, since a batch does not fit in an MTU.** Both directions are a byte stream over
-// one attribute, and the two directions are framed differently because GATT frames them
-// differently:
+// **The listener never names itself.** The obvious challenge — "my identity key and a nonce"
+// — would hand a stable, lifelong identifier to any radio that connects, in the background,
+// all night. That is the exact disclosure the rotating token exists to prevent, so the
+// listener publishes per-pair tokens instead and a stranger reads numbers that mean nothing
+// and are different in a quarter of an hour.
+//
+// **Push-only.** Every device runs both halves of the radio, so a device with something to
+// say connects and writes, and a device with nothing to say never has to be believed about
+// anything. There is no "prove yourself so I can trust what you hand back", only "prove
+// yourself before I read what you pushed".
+//
+// ## Why the token is not in the advertisement, on this platform
+//
+// It would be the obvious place, and on Android it is one. CoreBluetooth's `startAdvertising`
+// honours exactly two keys — a local name and a list of service UUIDs — so an iPhone cannot
+// put arbitrary bytes in an advertisement at all (`BleExchange.swift` records the same fact
+// for the Exchange's display name). Worse, a *backgrounded* iPhone drops the local name
+// entirely and moves its service UUIDs into an overflow area that only another iOS device
+// explicitly scanning for that exact UUID can see.
+//
+// So Android's scan-response token is a shortcut that saves *Android* a connection when it
+// meets another Android, and the challenge read is the path both platforms share. An Android
+// scanner that treated missing manufacturer data as "not a Contact" would never speak to an
+// iPhone; it connects and reads instead. Same shape as the **Card**: one payload, a
+// cross-platform BLE route, and a faster Android-only route beside it carrying identical
+// bytes.
+//
+// ## Framing, since a batch does not fit in an MTU
+//
+// The two directions are framed differently because GATT frames them differently:
 //
 //   * A **read** is a long read: the reader asks again at a rising offset until it gets a
 //     short answer. The whole payload is addressable, so the writer serves slices of it and
 //     the offset means what it says (`sliceForOffset`).
 //   * A **write** is a sequence of appends, each at offset 0, terminated by a zero-length
-//     write. Not offsets: CoreBluetooth does not perform prepared writes and silently
-//     truncates a `writeValue` past the MTU, so the sender chunks by hand and every chunk
-//     arrives at the peripheral looking like the start of the value. Append-and-terminate is
-//     the one framing that reads identically on both platforms. Android's twin must chunk its
-//     writes the same way — sequential, offset 0, empty write to finish — or an iPhone will
-//     see only the last chunk of every batch it is handed.
+//     write. Not offsets: CoreBluetooth performs no prepared writes and silently truncates a
+//     `writeValue` past the MTU, so the sender chunks by hand and every chunk arrives at the
+//     peripheral looking like the start of the value. Append-and-terminate is the one framing
+//     that reads identically on both platforms, and Android's peripheral appends to match.
 //
 // A zero-length write is therefore meaningful and never ignored: it is what says "that was
-// the whole batch, you may prepare the reply now".
+// the whole Pass".
 
 /// Fixed on both platforms, and deliberately not the Exchange's service. Change either and
 /// the phones stop seeing each other.
@@ -55,127 +74,165 @@ import Foundation
 /// listing every pocket in the venue as a peer to tap.
 let gossipServiceUUIDString = "7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7721"
 
-/// Read first, by the connecting side: whose Contacts this device could be.
-let gossipTokenCharacteristicUUIDString = "7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7722"
+/// Read first, by the connecting side: a fresh nonce and whose **Contacts** this device could
+/// be. Never this device's own key.
+let gossipChallengeCharacteristicUUIDString = "7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7722"
 
-/// Written second, by the connecting side, once it knows who it is talking to: its token for
-/// this pair, then everything it has to offer.
-let gossipInboxCharacteristicUUIDString = "7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7723"
+/// Written second, by the connecting side, once it knows who it is talking to: who it is, its
+/// proof, and everything it has to offer.
+let gossipPassCharacteristicUUIDString = "7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7723"
 
-/// Read third: what the advertising side has to offer back, prepared once the write above
-/// told it who is asking. Empty for a connection that never resolved to a **Contact** — a
-/// stranger gets a zero-length read, not a batch and not an error.
-let gossipOutboxCharacteristicUUIDString = "7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7724"
-
-/// The most bytes read or accepted in one direction of one meeting.
+/// The hard ceiling on one **Pass**, in bytes.
 ///
-/// `gossipMaxBatch` already bounds how many messages are *judged*; this bounds what is
-/// allocated before anything has been judged at all, which is the part a peer controls. A
-/// full 64-message batch is around 22 kB, so this is roughly one and a half of those — over
-/// BLE, generous.
-let gossipMaxWireBytes = 32 * 1024
+/// Not the same bound as `gossipMaxBatch` and not a substitute for it: that one is the gate's
+/// rule about how many messages are *judged*, this one is the transport's rule about how much
+/// memory a peer's write is allowed to cost before anything has been decided at all. A hostile
+/// **Contact** must not be able to make this device hold a megabyte because it opened a GATT
+/// connection.
+///
+/// Sixty-four messages at their realistic worst — a 64-character id, a 64-character gig id, a
+/// ~124-character key, two timestamps and a ~96-character signature — is a little over 32 kB,
+/// so this leaves room without leaving a hole. Anything larger is refused whole rather than
+/// truncated: half a **Pass** is not a **Pass**.
+let gossipMaxWireBytes = 40_000
 
-/// The header every token offer starts with.
-let gossipTokenListV1 = "station-to-station/gossip-tokens/1"
+/// The header every challenge starts with.
+let gossipChallengeV1 = "station-to-station/gossip-challenge/1"
 
-/// The header every batch starts with. A version in the string so a later envelope is a
+/// The header every **Pass** starts with. A version in the string so a later envelope is a
 /// different document rather than an ambiguous one, exactly as `gossipPayloadV1` is.
-let gossipBatchV1 = "station-to-station/gossip-batch/1"
+let gossipPassV1 = "station-to-station/gossip-pass/1"
 
-/// One peer's whole offer: who it says it is on this edge, and what it is handing over.
+/// The domain separator for the possession proof.
 ///
-/// `token` is not trusted as an identity by this file — `gossipResolveToken` turns it into a
-/// **Contact** key, and `gossipStormGate` decides what that key is worth. This type only
-/// says the bytes parsed.
-struct GossipBatch: Equatable {
-    var token: String
-    var messages: [GossipCheckIn]
+/// The **Contact** identity key also answers the LAN reconcile challenge (#265) and signs
+/// gossip payloads (`gossipPayloadV1`). Three uses, three prefixes, so a signature made for
+/// one can never be presented as an answer to another. Reconcile's nonce is a certificate
+/// fingerprint — raw digest bytes — so producing one that begins with this ASCII prefix would
+/// take a preimage, not a choice.
+let gossipAuthV1 = "station-to-station/gossip-auth/1"
+
+/// How many bytes of nonce a listener demands back.
+///
+/// Thirty-two, matching the digest the signature is taken over anyway. The nonce exists so
+/// that a recording of yesterday's **Pass** cannot be replayed as today's identity; the only
+/// property that has to hold is that a listener never issues the same one twice, which at
+/// this width it will not.
+let gossipNonceBytes = 32
+
+/// What a listener answers the challenge read with.
+///
+/// `tokens` is not an identity by itself — `gossipResolveOffer` turns it into a **Contact**
+/// key, and even then the key is only a hint until the **Pass** proves possession.
+struct GossipChallenge: Equatable {
+    var nonce: Data
+    var tokens: [String]
 }
 
-/// The token offer, as it goes over the read.
-///
-/// Line-separated because a token is 32 hex characters and can contain nothing else, so
-/// there is no escaping problem to get wrong on one platform and not the other.
-func encodeGossipTokens(_ tokens: [String]) -> Data {
-    Data(([gossipTokenListV1] + tokens.filter(isSafeGossipToken)).joined(separator: "\n").utf8)
+/// One **Pass**: who claims to be pushing, their proof, and what they push.
+struct GossipPass: Equatable {
+    /// The pushing peer's identity key, base64 X.509 SubjectPublicKeyInfo.
+    var from: String
+    /// Base64 DER over `gossipAuthPayload` of the nonce this device issued.
+    var proof: String
+    var batch: [GossipCheckIn]
 }
 
-/// Nil for anything that is not a token offer. Malformed lines are dropped rather than
-/// failing the whole read: a peer running a later build may publish something this one does
-/// not understand, and the tokens it *does* understand are still worth resolving.
-func decodeGossipTokens(_ data: Data) -> [String]? {
-    guard data.count <= gossipMaxWireBytes else { return nil }
-    var lines = String(decoding: data, as: UTF8.self).split(separator: "\n",
-                                                            omittingEmptySubsequences: false)
-    guard lines.first == gossipTokenListV1[...] else { return nil }
-    lines.removeFirst()
-    return lines.map(String.init).filter(isSafeGossipToken)
+/// The bytes a peer signs to prove it holds the key it claims.
+///
+/// The nonce is base64'd rather than concatenated raw so that the payload is text throughout
+/// and the two platforms cannot disagree about byte order or padding in the middle of a
+/// signed value.
+func gossipAuthPayload(_ nonce: Data) -> Data {
+    Data("\(gossipAuthV1)\n\(nonce.base64EncodedString())".utf8)
 }
 
-/// A batch as it goes over the wire: the header, the sender's token for this edge, then one
-/// tab-separated line per message.
+/// The challenge on the wire: the header, the base64 nonce, then one token per line.
 ///
-/// Tab-separated, and safe to be: a `messageId` is hex, a `gigId` has been through
-/// `isSafeGossipId`, a key and a signature are base64, and the times are decimals — none of
-/// which can contain a tab or a newline. The fields that could (`gigId`, `checkedInBy`) are
-/// checked anyway, here and in `gossipPayload`, because "cannot happen" is how a separator
-/// injection gets written.
-///
-/// Times are epoch **seconds**, decimal — the same representation `gossipPayload` signs over,
-/// so a message that survives this encoding round-trips to the identical id and the identical
-/// signature check. Nil for a message that cannot be canonically encoded at all, which is the
-/// same message `gossipPayload` refuses.
-func encodeGossipBatch(token: String, messages: [GossipCheckIn]) -> Data? {
-    guard isSafeGossipToken(token) else { return nil }
-    var lines = [gossipBatchV1, token]
-    for message in messages.prefix(gossipMaxBatch) {
-        guard let line = gossipBatchLine(message) else { return nil }
-        lines.append(line)
-    }
+/// Line-separated with no escaping problem to get wrong: base64 contains no newline, and a
+/// token is 16 hex characters and can contain nothing else.
+func encodeGossipChallenge(_ challenge: GossipChallenge) -> Data {
+    let lines = [gossipChallengeV1, challenge.nonce.base64EncodedString()]
+        + challenge.tokens.filter(isSafeGossipToken)
     return Data(lines.joined(separator: "\n").utf8)
 }
 
-private func gossipBatchLine(_ message: GossipCheckIn) -> String? {
-    guard isSafeGossipId(message.gigId), !message.messageId.isEmpty,
-          !message.checkedInBy.isEmpty, !message.signature.isEmpty,
-          let checkedInAt = gossipEpochSeconds(message.checkedInAt),
+/// Nil for anything that is not a challenge, or whose nonce is not `gossipNonceBytes`.
+///
+/// Malformed token lines are dropped rather than failing the whole read: a peer running a
+/// later build may publish something this one does not understand, and the tokens it *does*
+/// understand are still worth resolving.
+func decodeGossipChallenge(_ data: Data) -> GossipChallenge? {
+    guard !data.isEmpty, data.count <= gossipMaxWireBytes else { return nil }
+    var lines = String(decoding: data, as: UTF8.self).split(separator: "\n",
+                                                            omittingEmptySubsequences: false)
+    guard lines.count >= 2, lines[0] == gossipChallengeV1[...],
+          let nonce = Data(base64Encoded: String(lines[1])), nonce.count == gossipNonceBytes
+    else { return nil }
+    lines.removeFirst(2)
+    return GossipChallenge(nonce: nonce, tokens: lines.map(String.init).filter(isSafeGossipToken))
+}
+
+/// A **Pass** as it goes over the wire: the header, the claim line, then one tab-separated
+/// line per message.
+///
+/// Tab-separated, and safe to be: a `messageId` is hex, a `gigId` has been through
+/// `isSafeGossipId`, a key and a signature are base64, and the times are decimals — none of
+/// which can contain a tab or a newline. The fields that could are checked anyway, here and in
+/// `gossipPayload`, because "cannot happen" is how a separator injection gets written.
+///
+/// Times are epoch **seconds**, decimal — the same representation `gossipPayload` signs over,
+/// so a message that survives this encoding round-trips to the identical id and the identical
+/// signature check.
+///
+/// A message that cannot be canonically encoded is **dropped from the batch** rather than
+/// failing the whole **Pass**: the rest of the night's news is still worth pushing. Nil only
+/// for a claim line that cannot be written, or a **Pass** over the size ceiling.
+func encodeGossipPass(_ pass: GossipPass) -> Data? {
+    guard !pass.from.isEmpty, !pass.proof.isEmpty,
+          isWireSafe(pass.from), isWireSafe(pass.proof)
+    else { return nil }
+    let records = pass.batch.compactMap(gossipPassLine)
+    let text = ([gossipPassV1, "\(pass.from)\t\(pass.proof)"] + records).joined(separator: "\n")
+    let bytes = Data(text.utf8)
+    return bytes.count > gossipMaxWireBytes ? nil : bytes
+}
+
+private func gossipPassLine(_ message: GossipCheckIn) -> String? {
+    guard let checkedInAt = gossipEpochSeconds(message.checkedInAt),
           let expiresAt = gossipEpochSeconds(message.expiresAt)
     else { return nil }
     let fields = [message.messageId, message.gigId, message.checkedInBy,
                   String(checkedInAt), String(expiresAt), message.signature]
-    guard fields.allSatisfy({ !$0.contains("\t") && !$0.contains("\n") }) else { return nil }
+    guard fields.allSatisfy({ !$0.isEmpty && isWireSafe($0) }) else { return nil }
     return fields.joined(separator: "\t")
 }
 
-/// Nil for anything that is not a batch. A malformed *line* is dropped, not fatal, for the
-/// same forward-compatibility reason `decodeGossipTokens` drops one — and because a peer that
-/// can invalidate a whole handover with one bad line is a peer that can stop a night's
-/// check-ins reaching anybody.
+/// Nil for anything that is not a **Pass**: the wrong header, no claim line, an oversized
+/// write, or bytes that are not UTF-8.
 ///
-/// Nothing here judges a message. Every field it produces is still the author's claim, and
-/// `gossipStormGate` is the only thing that decides otherwise: this refuses bytes it cannot
-/// read, and passes on bytes it can.
-func decodeGossipBatch(_ data: Data) -> GossipBatch? {
-    guard data.count <= gossipMaxWireBytes else { return nil }
+/// Individual records that do not parse are **skipped, not fatal**. The alternative — one
+/// unreadable record discarding a peer's whole batch — hands any device in the chain a way to
+/// stop a message it does not like by corrupting the one next to it. Nothing is trusted either
+/// way: what survives here still has to get past `gossipStormGate`, which recomputes every id
+/// and checks every signature, and which is also where `gossipMaxBatch` is applied.
+func decodeGossipPass(_ data: Data) -> GossipPass? {
+    guard !data.isEmpty, data.count <= gossipMaxWireBytes else { return nil }
     var lines = String(decoding: data, as: UTF8.self).split(separator: "\n",
                                                             omittingEmptySubsequences: false)
-    guard lines.count >= 2, lines[0] == gossipBatchV1[...] else { return nil }
-    let token = String(lines[1])
-    guard isSafeGossipToken(token) else { return nil }
+    guard lines.count >= 2, lines[0] == gossipPassV1[...] else { return nil }
+    let claim = lines[1].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+    guard claim.count == 2, !claim[0].isEmpty, !claim[1].isEmpty else { return nil }
     lines.removeFirst(2)
-    // Truncated at `gossipMaxBatch` rather than rejected wholesale: the gate rejects the
-    // overflow as `.batchLimit` anyway, and refusing the read would throw away the 64
-    // messages that were fine along with the ones over the line.
-    let messages = lines.prefix(gossipMaxBatch).compactMap(gossipMessageFromLine)
-    return GossipBatch(token: token, messages: messages)
+    return GossipPass(from: claim[0], proof: claim[1],
+                      batch: lines.compactMap(gossipMessageFromLine))
 }
 
 private func gossipMessageFromLine(_ line: Substring) -> GossipCheckIn? {
     let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-    guard fields.count == 6,
+    guard fields.count == 6, fields.allSatisfy({ !$0.isEmpty }),
           let checkedInAt = Int64(fields[3]), let expiresAt = Int64(fields[4]),
-          abs(checkedInAt) <= gossipMaxEpochSecond, abs(expiresAt) <= gossipMaxEpochSecond,
-          !fields[0].isEmpty, !fields[2].isEmpty, !fields[5].isEmpty
+          abs(checkedInAt) <= gossipMaxEpochSecond, abs(expiresAt) <= gossipMaxEpochSecond
     else { return nil }
     return GossipCheckIn(
         messageId: fields[0],
@@ -187,6 +244,10 @@ private func gossipMessageFromLine(_ line: Substring) -> GossipCheckIn? {
     )
 }
 
+private func isWireSafe(_ value: String) -> Bool {
+    !value.contains("\t") && !value.contains("\n")
+}
+
 /// My own arrival, ready to travel: the message a check-in mints for the gossip channel.
 ///
 /// The one place a message is *authored* rather than relayed, so it is the one place the id
@@ -196,8 +257,8 @@ private func gossipMessageFromLine(_ line: Substring) -> GossipCheckIn? {
 ///
 /// `expiresAt` is the gig's own night end where this device knows the date (`gossipExpiry`),
 /// and `gossipMaxLifetime` from the check-in where it does not. Never longer: the ceiling in
-/// `gossipStormGate` would cap it on arrival anyway, and a claim nobody honours is a claim
-/// not worth signing.
+/// `gossipStormGate` would cap it on arrival anyway, and a claim nobody honours is a claim not
+/// worth signing.
 ///
 /// `sign` is `ContactIdentity.sign` in the app and a test's own key in a test — the same
 /// injection `gossipStormGate` takes for `verify`, for the same reason: the Secure Enclave
@@ -219,4 +280,19 @@ func gossipCheckInMessage(gigId: String, gigDate: String?, publicKey: String, no
     message.messageId = messageId
     message.signature = signature.base64EncodedString()
     return message
+}
+
+extension Data {
+    /// The payload in pieces that fit one ATT write, in order.
+    ///
+    /// Chunked by hand because a CoreBluetooth central performs no long write: `writeValue`
+    /// silently truncates anything past the negotiated MTU. The empty chunk that ends a
+    /// **Pass** is added by the caller, not here — it is part of the protocol, not of
+    /// splitting a buffer.
+    func gossipChunks(by size: Int) -> [Data] {
+        guard size > 0, !isEmpty else { return [self] }
+        return stride(from: 0, to: count, by: size).map {
+            subdata(in: $0..<Swift.min($0 + size, count))
+        }
+    }
 }

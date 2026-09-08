@@ -1,7 +1,8 @@
 import Foundation
 
-/// The bound `gossipStormGate` says it cannot draw, drawn here (#417; the Android twin is
-/// `data/GossipBudget.kt`, and #416 owns the other half of the same rule).
+/// The bound `gossipStormGate` says it cannot draw, drawn here (#417; Android draws the same
+/// bound as `GOSSIP_PEER_COOLDOWN` in `data/gossip/GossipPolicy.kt`, and #416 owns the other
+/// half of the same rule).
 ///
 /// The gate's own note, quoted so the two files stay one argument: *"Every gate here is
 /// decided by the message, and every field of the message is the author's except its key's
@@ -24,11 +25,17 @@ import Foundation
 ///
 /// Two phones in the same pocket-range for a whole set will meet many times as iOS wakes the
 /// scan; without this, each meeting is a full batch of signature verifications for messages
-/// that were almost all already seen. Thirty seconds is short enough that a check-in minted
-/// while two people stand together still moves in near-real time, and long enough that a
-/// device parked next to another one all night costs a couple of hundred reads, not tens of
-/// thousands.
-let gossipPeerCooldown: TimeInterval = 30
+/// that were almost all already seen. A minute rather than a second because a **Pass** carries
+/// the peer's *whole* live outbox, not an increment: two phones that meet have said everything
+/// they have to say to each other on the first connection, and a second one a minute later
+/// exists only to catch what arrived in between.
+///
+/// **One minute, matching Android's `GOSSIP_PEER_COOLDOWN` exactly**, and that is not
+/// decoration. This is also the *sending* side's cooldown, so a value shorter than the other
+/// platform's would mean every second push an iPhone made to a Pixel was refused as `cooling`
+/// — a connection, a nonce and a signature spent on nothing, all night. It is local admission
+/// policy rather than a wire term, so the two could differ; they cost something when they do.
+let gossipPeerCooldown: TimeInterval = 60
 
 /// The rolling window the ceiling below is counted over.
 let gossipPeerWindow: TimeInterval = 3600

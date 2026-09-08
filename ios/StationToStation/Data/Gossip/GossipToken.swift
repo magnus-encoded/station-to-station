@@ -5,34 +5,57 @@ import Foundation
 /// server recognise each other over a radio, without either of them broadcasting anything a
 /// stranger can follow (#417, #416, ADR-0019).
 ///
-/// Pure, and pure on purpose. The keychain half — turning two **Contact** identity keys into
-/// the shared secret this file consumes — is `ContactIdentity.sharedSecret`, which needs an
-/// enclave and cannot be asserted off a phone. Everything that decides *what the bytes are*
-/// lives here, so the one thing that must be byte-identical on two platforms is the one
-/// thing a plain XCTest run can pin. Android's twin is `data/GossipToken.kt`.
+/// Pure, and pure on purpose: this is the half that must agree byte for byte with Android,
+/// and a rule that can only be exercised by standing between two phones is a rule that gets
+/// checked once and then drifts. Android's twin is `data/gossip/GossipToken.kt`, and
+/// `GossipTokenTests` asserts the same fixed vector its JVM twin does.
 ///
 /// **What the token is for.** The gossip channel has no session and no directory: a device
 /// wakes up, sees another Station to Station radio, and has to answer "is this one of the
 /// people I have actually met, and which one" before it will hand over a single byte. The
 /// obvious answer — advertise my public key — is the one thing this app has spent ADR-0016
 /// and ADR-0019 refusing, because a stable identifier in the air is a device anyone can
-/// follow down a street. So the answer is a value that changes every `gossipTokenBucket`,
-/// that only the two ends of one **Contact** edge can compute, and that means nothing at all
-/// to anyone else.
+/// follow down a street. So the answer is a value that changes every quarter of an hour,
+/// that only people who have met can compute, and that means nothing at all to anyone else.
 ///
-/// **Symmetric, which is what makes the handshake cheap.** ECDH gives Alice and Bob the same
-/// secret from opposite ends, so `gossipToken` gives them the same token for the same bucket.
-/// One value therefore serves as both "here is who I am" and "here is who I think you are" —
-/// there is no direction to get wrong, and no second derivation to keep in step.
+/// **Symmetric, which is what makes the handshake cheap.** Both ends sort the same two keys
+/// and get the same bytes, so one value serves as both "here is who I am" and "here is who I
+/// think you are" — there is no direction to get wrong and no second derivation to keep in
+/// step.
 ///
-/// **What it does not do.** It is a recogniser, not an authenticator. A token proves the
-/// presenter has held the pair secret at some point in the last half hour; it does not prove
-/// possession of a private key in the way `verifyChallenge` does. That is deliberate and it
-/// is safe *here* because the token gates nothing but a conversation: every message that
-/// crosses it is separately signed and separately checked by `gossipStormGate`. A replayed
-/// token buys a stranger the right to be handed a batch of messages they cannot read the
-/// authors of and cannot forge — which is exactly the disclosure ADR-0019 already names and
-/// accepts. Do not reuse this to gate anything a signature does not already cover.
+/// ## Why this is keyed on two public keys and not on an ECDH shared secret
+///
+/// #408 and #417 both describe the token as "an HMAC of the ECDH-shared-secret and a time
+/// bucket". This file did that first, and it was reconciled away on 2026-09-08 (ADR-0019,
+/// "Token derivation") because **Android cannot compute it at all**:
+///
+/// - The durable **Contact** identity there is one AndroidKeyStore EC P-256 key created with
+///   `PURPOSE_SIGN` and nothing else. AndroidKeyStore keys are immutable, so it cannot be
+///   taught key agreement, and it is already on every phone that has ever made a **Contact**.
+/// - `PURPOSE_AGREE_KEY` needs API 31; that app's minSdk is 26.
+/// - A second, agreement-capable keypair would have to ride the **Card** handed over in
+///   person — the new pairing step the issue rules out — and would strand every existing
+///   **Contact** until the two people met again.
+///
+/// iOS *can* do ECDH against its own Secure Enclave key, which is exactly why this needed
+/// deciding rather than discovering: a derivation only one of the two platforms can compute
+/// is not a wire format, it is two apps that never recognise each other. The constraint is
+/// about *key material*, not about a radio, so unlike the advertisement (see
+/// `gossipTokenOffer`) there is no platform-specific layer that could paper over it. The
+/// shared answer is the material both ends demonstrably hold and nobody else was given:
+/// **each other's public keys**.
+///
+/// **What that costs, stated plainly.** A shared secret would be unguessable to everyone but
+/// the pair; this is computable by anyone holding *both* public keys — a mutual **Contact**
+/// of both people, or, per ADR-0019's own disclosure clause, a device that once relayed a
+/// check-in authored by one of them and separately holds the other's key. Such a device can
+/// tell that these two people are within radio range of it, and nothing more.
+///
+/// **So it is a recogniser, never an authenticator.** A token says "we have met"; it does
+/// not prove possession of a private key. That is why every **Pass** additionally carries a
+/// signature over a nonce the listener issued (`gossipAuthV1`), and why every message
+/// inside one is verified again by `gossipStormGate`. Do not reuse this to gate anything a
+/// signature does not already cover.
 let gossipTokenV1 = "station-to-station/gossip-token/1"
 
 /// How long one token stands before the next one replaces it.
@@ -57,10 +80,12 @@ let gossipTokenSkewBuckets: Int64 = 1
 
 /// Truncation, in bytes, of the HMAC that becomes a token.
 ///
-/// 16 bytes — 128 bits — is far beyond what a collision needs to be uninteresting here (the
-/// population is one person's **Contact** list), and it keeps the published set small enough
-/// that a device with thirty Contacts still fits its whole offer in one BLE read.
-let gossipTokenBytes = 16
+/// Eight, and this is Android's constraint rather than a preference of this platform's: a
+/// BLE scan response has 31 bytes to spend and a manufacturer-data record costs 4 of them
+/// before any payload. A truncated MAC is normally a real weakening; here it is not, because
+/// a collision costs one pointless connection that then fails the possession proof. The
+/// population being distinguished is one person's **Contact** list.
+let gossipTokenBytes = 8
 
 /// Which bucket a moment falls in: whole `gossipTokenBucketSeconds` since the epoch,
 /// **floored**.
@@ -80,84 +105,109 @@ func gossipTokenBucket(_ now: Date) -> Int64? {
     return remainder != 0 && (seconds < 0) ? quotient - 1 : quotient
 }
 
-/// The token for one **Contact** edge in one bucket: HMAC-SHA256 over the domain separator
-/// and the bucket number, keyed by the pair's ECDH secret, truncated and hex-encoded.
+/// The token one **Contact** edge shows in one bucket: HMAC-SHA256 over the domain separator
+/// and the bucket number, keyed by the two identity keys in sorted order, truncated and
+/// hex-encoded.
+///
+/// **Sorted, so both ends compute the same value.** Whichever of the two is speaking, the
+/// HMAC key is the same pair of strings in the same order — otherwise a token would only
+/// ever be recognised in one direction, which is the kind of bug that looks like a flaky
+/// radio.
+///
+/// Newlines are refused rather than escaped: the two keys are joined with one, so a key
+/// containing a newline could make a different pair encode identically. The same reasoning,
+/// and the same answer, as `gossipPayload`.
 ///
 /// The bucket is decimal, unpadded — the one representation of an integer that cannot drift
 /// between a `String(Int64)` and a `Long.toString()`. Lower-case hex out, so a token is
 /// comparable as a plain string on both sides with no case rule to remember.
-///
-/// The domain separator is not decoration. The same secret is the only thing standing
-/// between this app's two uses of a **Contact**'s key material, and a value signed or MAC'd
-/// for one purpose must never be a valid answer to the other — the same argument
-/// `gossipPayloadV1` makes against `verifyChallenge`'s nonces.
-func gossipToken(secret: Data, bucket: Int64) -> String {
+func gossipToken(mine: String, theirs: String, bucket: Int64) -> String? {
+    guard !mine.isEmpty, !theirs.isEmpty,
+          !mine.contains("\n"), !theirs.contains("\n")
+    else { return nil }
+    let pair = mine <= theirs ? "\(mine)\n\(theirs)" : "\(theirs)\n\(mine)"
     let message = Data("\(gossipTokenV1)\n\(bucket)".utf8)
-    let mac = HMAC<SHA256>.authenticationCode(for: message, using: SymmetricKey(data: secret))
+    let mac = HMAC<SHA256>.authenticationCode(for: message,
+                                              using: SymmetricKey(data: Data(pair.utf8)))
     return mac.prefix(gossipTokenBytes).map { String(format: "%02x", $0) }.joined()
 }
 
-/// Every token this device will still recognise for one **Contact**, oldest bucket first.
+/// Every token this device would recognise right now: token → the **Contact** key that
+/// produced it.
 ///
-/// What a *reader* computes. The writer publishes one token — its current bucket — and this
-/// is the set that token is looked up in, which is where `gossipTokenSkewBuckets` earns its
-/// keep.
-func gossipTokens(secret: Data, now: Date) -> [String] {
-    guard let bucket = gossipTokenBucket(now) else { return [] }
-    return (-gossipTokenSkewBuckets...gossipTokenSkewBuckets).map {
-        gossipToken(secret: secret, bucket: bucket + $0)
+/// Built once per scan rather than per hit, because a scanner sees far more radios than it
+/// has **Contacts** and the alternative is an HMAC per hit per contact per bucket.
+///
+/// **Three buckets, not one.** Two phones at the same gig can disagree by a minute either
+/// way, and a token is only computed from whole quarter-hours — so a device whose clock sits
+/// just the wrong side of a boundary would go unrecognised for as long as the disagreement
+/// lasts. Accepting the neighbours costs three times the table and removes the whole class of
+/// failure. It does not widen anything that matters: a token grants a connection, not trust.
+///
+/// A **Contact** whose key is blank contributes nothing — that is a **Followed line**, and it
+/// has no key to derive from, which is the same way the propagation rule is enforced in
+/// `contactKeysOf`.
+func gossipTokenTable(mine: String, contacts: [String], now: Date) -> [String: String] {
+    guard let bucket = gossipTokenBucket(now) else { return [:] }
+    var table: [String: String] = [:]
+    for contact in contacts where !contact.trimmingCharacters(in: .whitespaces).isEmpty {
+        for offset in -gossipTokenSkewBuckets...gossipTokenSkewBuckets {
+            guard let token = gossipToken(mine: mine, theirs: contact, bucket: bucket + offset)
+            else { continue }
+            table[token] = contact
+        }
     }
+    return table
 }
 
 /// What this device publishes when somebody connects: its current-bucket token for every
-/// **Contact** it holds, sorted, deduplicated.
+/// **Contact** it holds, sorted and deduplicated.
 ///
-/// One per **Contact**, because the secret is per-pair and a device advertising has no idea
-/// which of its Contacts is standing in front of it. Sorted rather than in Contact order,
-/// which is the point: the position of a token in the list must say nothing about which
-/// **Contact** it belongs to, or the ordering would leak the shape of a private list to
+/// **This is the cross-platform half of recognition, and the advertisement is not.** Android
+/// additionally puts one of these in its scan response, so that an Android meeting another
+/// Android can decide not to connect without paying for a connection. This platform cannot:
+/// `startAdvertising` honours a local name and a service UUID list and nothing else, and a
+/// *backgrounded* iPhone drops the name and moves its service UUID into an overflow area only
+/// another iOS device reads. So the advertisement is a shortcut on one platform and the
+/// challenge read is the contract on both — the same split the **Card** already lives with,
+/// where one payload rides a shared BLE route and a faster Android-only route beside it.
+///
+/// One token per **Contact**, because the token is per pair and a listening device has no
+/// idea which of its **Contacts** has just connected. Sorted rather than in **Contact**
+/// order, which is the point: the position of a token in the list must say nothing about
+/// which **Contact** produced it, or the ordering would leak the shape of a private list to
 /// anyone who connects twice.
 ///
-/// **What connecting to this discloses, plainly:** the *number* of Contacts this device
-/// holds. There is no way to publish a per-pair token set and hide its size, short of
-/// padding to a fixed count that would then bound how many Contacts anyone may have. Named
-/// here rather than left to be found — it is a smaller disclosure than the one ADR-0019
-/// already accepts under "Disclosure to the relaying device", and it is bounded to devices
-/// close enough to hold a BLE connection open.
-func gossipTokenOffer(secrets: [String: Data], now: Date) -> [String] {
+/// **What connecting to this discloses, plainly:** the *number* of **Contacts** this device
+/// holds. There is no way to publish a per-pair token set and hide its size short of padding
+/// to a fixed count, which would then cap how many **Contacts** anyone may have. It is named
+/// here rather than left to be found, and it is smaller than the disclosure ADR-0019 already
+/// accepts under "Disclosure to the relaying device". What it deliberately does *not*
+/// disclose is this device's own identity key.
+func gossipTokenOffer(mine: String, contacts: [String], now: Date) -> [String] {
     guard let bucket = gossipTokenBucket(now) else { return [] }
-    return Set(secrets.values.map { gossipToken(secret: $0, bucket: bucket) }).sorted()
+    let tokens = contacts
+        .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        .compactMap { gossipToken(mine: mine, theirs: $0, bucket: bucket) }
+    return Set(tokens).sorted()
 }
 
 /// Which **Contact**, if any, an offered set of tokens belongs to.
 ///
 /// Nil when nothing matches, which is the ordinary case and not an error: most Station to
-/// Station radios in range belong to people this device has never met, and the right
-/// response to one is to hang up having learnt nothing.
+/// Station radios in range belong to people this device has never met, and the right response
+/// to one is to hang up having learnt nothing.
 ///
-/// Ambiguity resolves to nil as well. Two Contacts whose tokens both appear in one offer is
-/// either a 128-bit collision or a device presenting a set it assembled from elsewhere, and
-/// guessing between them would attribute a batch of messages to the wrong person — which is
-/// precisely the `from` argument `gossipStormGate` trusts to be right.
-func gossipResolveOffer(_ offered: [String], secrets: [String: Data], now: Date) -> String? {
-    var found: String?
-    for (contact, secret) in secrets.sorted(by: { $0.key < $1.key }) {
-        let mine = Set(gossipTokens(secret: secret, now: now))
-        guard offered.contains(where: { mine.contains($0) }) else { continue }
-        if found != nil { return nil }
-        found = contact
-    }
-    return found
+/// **Ambiguity resolves to nil as well.** Two **Contacts** whose tokens both appear in one
+/// offer is either a collision or a device presenting a set it assembled from elsewhere, and
+/// guessing between them would attribute a **Pass** to the wrong person — which is precisely
+/// the `from` argument `gossipStormGate` trusts to be right.
+func gossipResolveOffer(_ offered: [String], table: [String: String]) -> String? {
+    let matches = Set(offered.compactMap { table[$0] })
+    return matches.count == 1 ? matches.first : nil
 }
 
-/// Which **Contact** a single presented token belongs to — the mirror of
-/// `gossipResolveOffer`, for the direction where the presenter already knows who it is
-/// talking to and says so with one value.
-func gossipResolveToken(_ token: String, secrets: [String: Data], now: Date) -> String? {
-    gossipResolveOffer([token], secrets: secrets, now: now)
-}
-
-/// The shape of a token, checked before it is compared or logged: 32 lower-case hex
+/// The shape of a token, checked before it is compared or logged: 16 lower-case hex
 /// characters and nothing else.
 ///
 /// A token arrives from a radio and is used as a dictionary key, so it gets the same

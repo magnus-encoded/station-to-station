@@ -1,32 +1,38 @@
 import Foundation
 
-/// The gossip channel: the one place that holds a **Contact**'s shared secret, the ledger,
-/// and the storm gate together, and the only thing `GossipTransport` is allowed to ask
-/// questions of.
+/// The gossip channel: the one place that holds the **Contact** list, the ledger, and the
+/// storm gate together, and the only thing `GossipTransport` is allowed to ask questions of.
 ///
 /// An actor, and a single one, because the radio calls into it from a background queue while
-/// the app calls into it from the main one, and because the per-**Contact** ECDH secrets are
-/// the most sensitive thing this feature computes: one place that derives them, no copies
-/// handed out, and `setContacts` is the whole of both granting and revoking.
+/// the app calls into it from the main one, and because `GossipLedger` is a mutable store that
+/// two meetings at once would otherwise interleave writes into.
 ///
 /// Nothing here decides anything either. Admission is `gossipAdmit`, acceptance is
-/// `gossipStormGate`, retention is `GossipLedger`, and identity is `GossipToken`. This is the
-/// wiring between them, kept out of the CoreBluetooth file so that file is only ever about
+/// `gossipStormGate`, retention is `GossipLedger`, and recognition is `GossipToken`. This is
+/// the wiring between them, kept out of the CoreBluetooth file so that file is only ever about
 /// CoreBluetooth.
+///
+/// **It does own one judgement the gate cannot make for itself:** whether the peer handing
+/// over a batch is who it says it is. `gossipStormGate` takes `from` as already-established
+/// fact, so somebody has to establish it — `receive` is that somebody, and it is the reason
+/// the possession proof exists.
 actor GossipChannel {
 
     static let shared = GossipChannel()
 
     private let ledger: GossipLedger
 
-    /// Contact public key → the 32 bytes only that pair can compute. Derived once when the
-    /// **Contact** list changes rather than per meeting: `SecKeyCopyKeyExchangeResult` touches
-    /// the Secure Enclave, and a background relaunch has milliseconds to spend.
+    /// The **Contacts** this device holds, by public key — the same base64 SPKI strings
+    /// `Friend.publicKey` carries and the wire moves.
     ///
-    /// Memory only. It is recomputable from the identity key and the Friend list at any time,
-    /// and a shared secret written to disk is a shared secret that outlives deleting the
-    /// **Contact** that produced it.
-    private var secrets: [String: Data] = [:]
+    /// Plain keys, not derived secrets. This file used to hold one ECDH shared secret per
+    /// **Contact**; the reconciliation with Android (ADR-0019, 2026-09-08) replaced that
+    /// derivation with one keyed on the pair of *public* keys, because Android's identity key
+    /// is `PURPOSE_SIGN`-only and cannot perform key agreement at all. See `GossipToken.swift`
+    /// for the whole argument. The practical consequence here is that there is no longer any
+    /// secret material in this actor to be careful with, and removing a **Contact** is still
+    /// the whole of revocation.
+    private var contacts: Set<String> = []
 
     /// Gig id → the end of that night, for the gigs this device happens to know about. The
     /// gate uses it as a ceiling; nil for everything else, which is the ordinary case on a
@@ -41,16 +47,10 @@ actor GossipChannel {
 
     // --- What the app tells the channel ---
 
-    /// Re-derive from the current **Contact** list. Removing a Friend removes their secret
-    /// here, and with it every token that would have recognised them — the same "removing the
-    /// Contact is the whole of revocation" that `Friend.publicKey` already documents.
-    func setContacts(_ friends: [Friend]) {
-        let keys = contactKeysOf(friends)
-        secrets = secrets.filter { keys.contains($0.key) }
-        for key in keys where secrets[key] == nil {
-            secrets[key] = ContactIdentity.sharedSecret(with: key)
-        }
-    }
+    /// Take the current **Contact** list. Removing a Friend removes their key here, and with
+    /// it every token that would have recognised them — the same "removing the Contact is the
+    /// whole of revocation" that `Friend.publicKey` already documents.
+    func setContacts(_ friends: [Friend]) { contacts = contactKeysOf(friends) }
 
     func setNightEnds(_ ends: [String: Date]) { nightEnds = ends }
 
@@ -70,57 +70,51 @@ actor GossipChannel {
 
     /// Forget the whole channel. Called when the last **Contact** goes.
     func forgetAll() async {
-        secrets.removeAll()
+        contacts.removeAll()
         pending.removeAll()
         await ledger.forgetAll()
     }
 
-    // --- What the radio asks ---
+    // --- What the radio asks, as a listener ---
 
-    /// The offer a connecting device reads first: one token per **Contact**, current bucket.
-    func tokenOffer(now: Date) -> Data {
-        encodeGossipTokens(gossipTokenOffer(secrets: secrets, now: now))
-    }
-
-    /// Which **Contact**, if any, an offer names.
-    func resolve(_ offered: [String], now: Date) -> String? {
-        gossipResolveOffer(offered, secrets: secrets, now: now)
-    }
-
-    /// The batch for one **Contact**, addressed with the token that pair shares so the far end
-    /// can tell who is speaking without either side sending a name.
-    func outgoing(for contact: String, now: Date) async -> Data? {
-        guard let secret = secrets[contact], let bucket = gossipTokenBucket(now) else { return nil }
-        let messages = await ledger.offer(to: contact, now: now)
-        pending[contact] = messages.map { $0.messageId }
-        return encodeGossipBatch(token: gossipToken(secret: secret, bucket: bucket),
-                                 messages: messages)
-    }
-
-    /// The bytes landed. Only now is anything marked delivered — a handover that died halfway
-    /// is offered again the next time these two phones are in the same room.
-    func confirmDelivery(to contact: String) async {
-        guard let ids = pending.removeValue(forKey: contact) else { return }
-        await ledger.delivered(ids, to: contact)
-    }
-
-    /// A batch arrived. Returns the **Contact** it came from, or nil if it was not one.
+    /// The challenge a connecting device reads first: the nonce it will have to sign, and one
+    /// token per **Contact** for the current bucket.
     ///
-    /// `expecting` is set when this device already resolved the peer (it is the central and
-    /// spent its own token first) and nil when the batch itself is the introduction. Either
-    /// way the token in the batch has to resolve, and it has to resolve to the same
-    /// **Contact** — a peer that answers a meeting for one Contact with a batch addressed
-    /// from another is not having its word taken for it.
-    func receive(_ data: Data, expecting: String?, now: Date) async -> String? {
-        guard let batch = decodeGossipBatch(data),
-              let contact = gossipResolveToken(batch.token, secrets: secrets, now: now),
-              expecting == nil || expecting == contact
+    /// The nonce is the caller's, not this actor's, because it belongs to one connection: the
+    /// peripheral half issues one per central and spends it on one **Pass**. A nonce shared
+    /// between two centrals would mean whichever read last decided what the other had to sign.
+    func challenge(nonce: Data, now: Date) -> Data {
+        guard let me = ContactIdentity.publicKeyBase64() else {
+            return encodeGossipChallenge(GossipChallenge(nonce: nonce, tokens: []))
+        }
+        let offer = gossipTokenOffer(mine: me, contacts: Array(contacts), now: now)
+        return encodeGossipChallenge(GossipChallenge(nonce: nonce, tokens: offer))
+    }
+
+    /// A **Pass** arrived. Returns the **Contact** it came from, or nil if it was not one.
+    ///
+    /// **This is where "the transport proves possession before calling" is actually done** —
+    /// the sentence `gossipStormGate`'s `from` parameter is written against. Three things have
+    /// to hold, and a failure of any of them is silent: a readable envelope, a claimed key that
+    /// is a **Contact**, and a signature over the nonce *this* connection issued. Nothing is
+    /// reported back, for the reason the gate gives for its own rejections — a diagnosis is a
+    /// probe's oracle.
+    ///
+    /// The proof is what makes a token safe to be only a hint. A token is derived from public
+    /// material, so any device holding both keys could present one; a signature over a fresh
+    /// nonce is not something it can produce.
+    func receive(_ data: Data, nonce: Data, now: Date) async -> String? {
+        guard let pass = decodeGossipPass(data), contacts.contains(pass.from),
+              let signature = Data(base64Encoded: pass.proof),
+              verifyChallenge(gossipAuthPayload(nonce), signature: signature,
+                              publicKeyBase64: pass.from)
         else { return nil }
+        let contact = pass.from
 
         // The bound the storm gate says in so many words it cannot apply: how *often* a peer
         // may hand something over. Charged on what was offered, not what survived, so a peer
         // that floods with rubbish pays for the rubbish.
-        switch gossipAdmit(await ledger.budget(for: contact, now: now), offered: batch.messages.count,
+        switch gossipAdmit(await ledger.budget(for: contact, now: now), offered: pass.batch.count,
                            now: now) {
         case .cooling, .flooding:
             return contact
@@ -128,10 +122,47 @@ actor GossipChannel {
             await ledger.spend(spent, for: contact, now: now)
         }
 
-        let plan = gossipStormGate(seen: await ledger.seen(now: now), batch: batch.messages,
-                                   from: contact, now: now, contacts: Set(secrets.keys),
+        let plan = gossipStormGate(seen: await ledger.seen(now: now), batch: pass.batch,
+                                   from: contact, now: now, contacts: contacts,
                                    nightEndFor: { [nightEnds] in nightEnds[$0] })
         await ledger.record(plan, from: contact, now: now)
         return contact
+    }
+
+    // --- What the radio asks, as a pusher ---
+
+    /// Which **Contact**, if any, a challenge's offer names.
+    func resolve(_ offered: [String], now: Date) -> String? {
+        guard let me = ContactIdentity.publicKeyBase64() else { return nil }
+        return gossipResolveOffer(offered,
+                                  table: gossipTokenTable(mine: me, contacts: Array(contacts),
+                                                          now: now))
+    }
+
+    /// The **Pass** for one **Contact**: this device's key, its signature over the nonce that
+    /// **Contact** just issued, and everything held for them.
+    ///
+    /// Nil when there is nothing to say, which is the ordinary reason to hang up without
+    /// writing: an empty batch is a connection spent for nothing, and the peer is still
+    /// advertising a minute later.
+    func pass(to contact: String, nonce: Data, now: Date) async -> Data? {
+        guard contacts.contains(contact), let me = ContactIdentity.publicKeyBase64() else {
+            return nil
+        }
+        let batch = await ledger.offer(to: contact, now: now)
+        guard !batch.isEmpty, let signature = ContactIdentity.sign(gossipAuthPayload(nonce))
+        else { return nil }
+        guard let payload = encodeGossipPass(
+            GossipPass(from: me, proof: signature.base64EncodedString(), batch: batch)
+        ) else { return nil }
+        pending[contact] = batch.map { $0.messageId }
+        return payload
+    }
+
+    /// The bytes landed. Only now is anything marked delivered — a handover that died halfway
+    /// is offered again the next time these two phones are in the same room.
+    func confirmDelivery(to contact: String) async {
+        guard let ids = pending.removeValue(forKey: contact) else { return }
+        await ledger.delivered(ids, to: contact)
     }
 }

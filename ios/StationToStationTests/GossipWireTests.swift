@@ -3,13 +3,15 @@ import Foundation
 import XCTest
 @testable import StationToStation
 
-/// The bytes two phones actually exchange (#417). The twin of Android's `GossipWireTest`: the
-/// encoders on both sides must produce the same lines, so these assert the literal text rather
-/// than only a round trip — a round trip passes happily while both ends are wrong together.
+/// The bytes two phones actually exchange (#417, #416). The twin of Android's
+/// `GossipWireTest`: the encoders on both sides must produce the same lines, so these assert
+/// the literal grammar — the header, the field order, the separators — rather than only a
+/// round trip. A round trip passes just as happily against a format the other platform cannot
+/// read.
 final class GossipWireTests: XCTestCase {
 
     private let now = Date(timeIntervalSince1970: 1_788_555_600)
-    private let token = "cd60b9fef6f960c7b6803f1b45608f0f"
+    private let nonce = Data((0..<32).map { UInt8($0) })
 
     private struct Identity {
         let publicKey: String
@@ -23,6 +25,7 @@ final class GossipWireTests: XCTestCase {
     }
 
     private lazy var alice = identity()
+    private let proof = "c2lnbmF0dXJl"
 
     private func text(_ data: Data?) -> String {
         guard let data else { return "<nil>" }
@@ -41,56 +44,109 @@ final class GossipWireTests: XCTestCase {
         return message
     }
 
-    // --- Token offers ---
+    // --- The challenge ---
 
-    func testATokenOfferIsTheHeaderThenOneTokenPerLine() {
-        let encoded = encodeGossipTokens([token, "b800c538b1881751fafc9247cb75f58f"])
+    func testAChallengeSurvivesTheRoundTrip() {
+        let challenge = GossipChallenge(nonce: nonce, tokens: ["00112233445566aa"])
 
-        XCTAssertEqual(text(encoded),
-                       "station-to-station/gossip-tokens/1\n"
-                       + "cd60b9fef6f960c7b6803f1b45608f0f\n"
-                       + "b800c538b1881751fafc9247cb75f58f")
+        XCTAssertEqual(decodeGossipChallenge(encodeGossipChallenge(challenge)), challenge)
     }
 
-    func testATokenOfferRoundTrips() {
-        XCTAssertEqual(decodeGossipTokens(encodeGossipTokens([token])), [token])
+    /// The grammar itself, because these bytes are the contract with Android: the header, the
+    /// base64 nonce, then one hex token per line.
+    func testTheChallengeGrammarIsTheHeaderTheNonceThenOneTokenPerLine() {
+        let challenge = GossipChallenge(nonce: nonce,
+                                        tokens: ["00112233445566aa", "aabbccddeeff0011"])
+
+        let lines = text(encodeGossipChallenge(challenge))
+            .split(separator: "\n", omittingEmptySubsequences: false)
+
+        XCTAssertEqual(String(lines[0]), "station-to-station/gossip-challenge/1")
+        XCTAssertEqual(String(lines[1]), nonce.base64EncodedString())
+        XCTAssertEqual(lines.dropFirst(2).map(String.init),
+                       ["00112233445566aa", "aabbccddeeff0011"])
     }
 
-    func testADeviceWithNoContactsStillSendsAWellFormedEmptyOffer() {
-        XCTAssertEqual(decodeGossipTokens(encodeGossipTokens([])), [])
-    }
+    /// The listener answers with tokens and never with its own key — the whole reason the
+    /// challenge is shaped this way. A stable identifier readable by any radio that connects
+    /// is what ADR-0019 refuses.
+    func testAChallengeNamesNobody() {
+        let encoded = text(encodeGossipChallenge(
+            GossipChallenge(nonce: nonce, tokens: ["00112233445566aa"])))
 
-    func testBytesThatAreNotATokenOfferDecodeToNil() {
-        XCTAssertNil(decodeGossipTokens(Data("hello".utf8)))
-        XCTAssertNil(decodeGossipTokens(Data()))
-        XCTAssertNil(decodeGossipTokens(Data("station-to-station/gossip-batch/1\n\(token)".utf8)))
+        XCTAssertFalse(encoded.contains(alice.publicKey))
     }
 
     /// Forward compatibility, deliberately: a later build may publish a line this one cannot
     /// read, and the tokens it *can* read are still worth resolving.
-    func testAnUnreadableLineIsDroppedRatherThanFailingTheWholeOffer() {
-        let data = Data("station-to-station/gossip-tokens/1\nsomething-new\n\(token)".utf8)
+    func testAMalformedTokenLineIsDroppedRatherThanFailingTheWholeChallenge() {
+        let data = Data(["station-to-station/gossip-challenge/1",
+                         nonce.base64EncodedString(),
+                         "00112233445566aa",
+                         "not-a-token",
+                         "AABBCCDDEEFF0011"].joined(separator: "\n").utf8)
 
-        XCTAssertEqual(decodeGossipTokens(data), [token])
+        XCTAssertEqual(decodeGossipChallenge(data)?.tokens, ["00112233445566aa"])
     }
 
-    func testAnOfferLargerThanTheWireLimitIsRefused() {
-        let huge = Data(String(repeating: "a", count: gossipMaxWireBytes + 1).utf8)
-
-        XCTAssertNil(decodeGossipTokens(huge))
-        XCTAssertNil(decodeGossipBatch(huge))
+    func testAChallengeWithTheWrongHeaderOrAShortNonceIsRefused() {
+        XCTAssertNil(decodeGossipChallenge(Data("wrong\n\(nonce.base64EncodedString())".utf8)))
+        XCTAssertNil(decodeGossipChallenge(Data(
+            "station-to-station/gossip-challenge/1\n\(Data(count: 31).base64EncodedString())".utf8)))
+        XCTAssertNil(decodeGossipChallenge(Data("station-to-station/gossip-challenge/1".utf8)))
+        XCTAssertNil(decodeGossipChallenge(Data()))
     }
 
-    // --- Batches ---
+    func testTheNonceIsThirtyTwoBytesOnBothPlatforms() {
+        XCTAssertEqual(gossipNonceBytes, 32)
+    }
 
-    func testABatchIsTheHeaderTheSendersTokenThenSixTabSeparatedFieldsPerMessage() {
+    // --- The possession proof ---
+
+    /// The identity key answers the LAN reconcile challenge and signs gossip payloads too.
+    /// Three uses, three prefixes, so a signature made for one can never be presented as an
+    /// answer to another.
+    func testThePossessionProofIsDomainSeparatedFromEveryOtherUseOfTheIdentityKey() {
+        let payload = text(gossipAuthPayload(nonce))
+
+        XCTAssertTrue(payload.hasPrefix("station-to-station/gossip-auth/1\n"))
+        XCTAssertEqual(payload,
+                       "station-to-station/gossip-auth/1\n\(nonce.base64EncodedString())")
+        XCTAssertNotEqual(gossipAuthPayload(nonce), gossipAuthPayload(Data(count: 32)))
+    }
+
+    /// End to end, with real key material: the signature a pusher makes over the nonce is the
+    /// signature the listener verifies. `verifyChallenge` is the Exchange's, reused rather
+    /// than restated.
+    func testAProofOverTheIssuedNonceVerifiesAndOverAnotherDoesNot() {
+        let signature = signChallenge(gossipAuthPayload(nonce), privateKey: alice.privateKey)!
+
+        XCTAssertTrue(verifyChallenge(gossipAuthPayload(nonce), signature: signature,
+                                      publicKeyBase64: alice.publicKey))
+        XCTAssertFalse(verifyChallenge(gossipAuthPayload(Data(count: 32)), signature: signature,
+                                       publicKeyBase64: alice.publicKey))
+        XCTAssertFalse(verifyChallenge(gossipAuthPayload(nonce), signature: signature,
+                                       publicKeyBase64: identity().publicKey))
+    }
+
+    // --- The Pass ---
+
+    func testAPassSurvivesTheRoundTrip() {
+        let pass = GossipPass(from: alice.publicKey, proof: proof,
+                              batch: [minted(gigId: "3ba1f9ca"), minted(gigId: "77bb0142")])
+
+        XCTAssertEqual(decodeGossipPass(encodeGossipPass(pass)!), pass)
+    }
+
+    func testTheGrammarIsTheHeaderTheClaimLineThenOneRecordPerLine() {
         let message = minted()
 
-        let encoded = text(encodeGossipBatch(token: token, messages: [message]))
-        let lines = encoded.split(separator: "\n", omittingEmptySubsequences: false)
+        let lines = text(encodeGossipPass(GossipPass(from: alice.publicKey, proof: proof,
+                                                     batch: [message])))
+            .split(separator: "\n", omittingEmptySubsequences: false)
 
-        XCTAssertEqual(String(lines[0]), "station-to-station/gossip-batch/1")
-        XCTAssertEqual(String(lines[1]), token)
+        XCTAssertEqual(String(lines[0]), "station-to-station/gossip-pass/1")
+        XCTAssertEqual(String(lines[1]), "\(alice.publicKey)\t\(proof)")
         XCTAssertEqual(lines.count, 3)
         let fields = lines[2].split(separator: "\t", omittingEmptySubsequences: false)
         XCTAssertEqual(fields.count, 6)
@@ -102,60 +158,100 @@ final class GossipWireTests: XCTestCase {
         XCTAssertEqual(String(fields[5]), message.signature)
     }
 
-    func testABatchRoundTripsToTheIdenticalMessages() {
-        let messages = [minted(gigId: "3ba1f9ca"), minted(gigId: "77bb0142")]
-
-        let decoded = decodeGossipBatch(encodeGossipBatch(token: token, messages: messages)!)
-
-        XCTAssertEqual(decoded, GossipBatch(token: token, messages: messages))
-    }
-
     /// The one property the whole channel rests on: a message that has been over the wire is
     /// byte-for-byte the message that was signed, so its id still recomputes and its signature
     /// still verifies on the far end.
     func testAMessageSurvivesTheWireWithItsIdAndSignatureIntact() {
         let message = minted()
+        let pass = GossipPass(from: alice.publicKey, proof: proof, batch: [message])
 
-        let decoded = decodeGossipBatch(encodeGossipBatch(token: token, messages: [message])!)
-        let arrived = decoded?.messages.first
+        let arrived = decodeGossipPass(encodeGossipPass(pass)!)?.batch.first
 
         XCTAssertEqual(gossipMessageId(arrived!), arrived?.messageId)
         XCTAssertTrue(verifyGossipSignature(arrived!))
     }
 
-    func testAnEmptyBatchIsStillAMeeting() {
-        let decoded = decodeGossipBatch(encodeGossipBatch(token: token, messages: [])!)
-
-        XCTAssertEqual(decoded, GossipBatch(token: token, messages: []))
-    }
-
-    func testABatchWithoutAWellFormedTokenIsNeitherEncodedNorDecoded() {
-        XCTAssertNil(encodeGossipBatch(token: "not-a-token", messages: []))
-        XCTAssertNil(decodeGossipBatch(Data("station-to-station/gossip-batch/1\nnot-a-token".utf8)))
-    }
-
-    func testBytesThatAreNotABatchDecodeToNil() {
-        XCTAssertNil(decodeGossipBatch(Data()))
-        XCTAssertNil(decodeGossipBatch(Data("station-to-station/gossip-batch/1".utf8)))
-        XCTAssertNil(decodeGossipBatch(encodeGossipTokens([token])))
-    }
-
-    /// A peer that can invalidate a whole handover with one bad line is a peer that can stop a
-    /// night's check-ins reaching anybody.
-    func testAMalformedLineIsDroppedAndTheRestOfTheBatchSurvives() {
+    func testTimesCrossAsEpochSecondsSoTheTwoPlatformsCannotDisagreeOnAFormat() {
         let message = minted()
-        let good = text(encodeGossipBatch(token: token, messages: [message]))
-        let data = Data((good + "\nnot\ta\tmessage").utf8)
+        let pass = GossipPass(from: alice.publicKey, proof: proof, batch: [message])
 
-        XCTAssertEqual(decodeGossipBatch(data)?.messages, [message])
+        XCTAssertEqual(decodeGossipPass(encodeGossipPass(pass)!)?.batch.first?.checkedInAt, now)
     }
 
-    func testABatchOverTheLimitIsTruncatedRatherThanRefused() {
-        let messages = (0..<(gossipMaxBatch + 10)).map { _ in minted() }
+    func testTheWrongHeaderIsNotAPass() {
+        XCTAssertNil(decodeGossipPass(
+            Data("station-to-station/gossip-pass/2\n\(alice.publicKey)\t\(proof)".utf8)))
+    }
 
-        let encoded = encodeGossipBatch(token: token, messages: messages)
+    func testAPassWithNoClaimLineIsRefused() {
+        XCTAssertNil(decodeGossipPass(Data("station-to-station/gossip-pass/1".utf8)))
+        XCTAssertNil(decodeGossipPass(
+            Data("station-to-station/gossip-pass/1\n\(alice.publicKey)".utf8)))
+        XCTAssertNil(decodeGossipPass(Data("station-to-station/gossip-pass/1\n\t\(proof)".utf8)))
+        XCTAssertNil(decodeGossipPass(Data()))
+    }
 
-        XCTAssertEqual(decodeGossipBatch(encoded!)?.messages.count, gossipMaxBatch)
+    /// The whole reason a bad record is skipped rather than fatal: otherwise any device in the
+    /// chain can stop a message it dislikes by corrupting the one next to it.
+    func testAnUnreadableRecordIsSkippedAndTheRestOfTheBatchSurvives() {
+        let messages = [minted(gigId: "3ba1f9ca"), minted(gigId: "77bb0142")]
+        let good = text(encodeGossipPass(GossipPass(from: alice.publicKey, proof: proof,
+                                                    batch: messages)))
+        let lines = good.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let withRubbish = (lines.prefix(3) + ["not\ta\trecord"] + lines.suffix(1))
+            .joined(separator: "\n")
+
+        XCTAssertEqual(decodeGossipPass(Data(withRubbish.utf8))?.batch, messages)
+    }
+
+    /// A `Date` is a `Double`, so a peer's `1e30` is a constructible value and `Int64(_:)` on
+    /// it would abort the process. Every date here arrived over a radio.
+    func testAPeersDecimalCannotBecomeATrap() {
+        let record = ["abc123", "3ba1f9ca", alice.publicKey,
+                      "\(gossipMaxEpochSecond + 1)", "1788580800", "c2lnbmVk"]
+            .joined(separator: "\t")
+        let absurd = ["station-to-station/gossip-pass/1",
+                      "\(alice.publicKey)\t\(proof)",
+                      record].joined(separator: "\n")
+
+        XCTAssertEqual(decodeGossipPass(Data(absurd.utf8))?.batch, [])
+    }
+
+    func testAFieldCarryingASeparatorIsDroppedRatherThanEncodedAmbiguously() {
+        let split = GossipCheckIn(messageId: "abc123", gigId: "gig\tid",
+                                  checkedInBy: alice.publicKey, checkedInAt: now,
+                                  expiresAt: now.addingTimeInterval(3600), signature: "c2lnbmVk")
+
+        XCTAssertEqual(decodeGossipPass(encodeGossipPass(
+            GossipPass(from: alice.publicKey, proof: proof, batch: [split]))!)?.batch, [])
+        XCTAssertNil(encodeGossipPass(GossipPass(from: "bo\tb", proof: proof, batch: [])))
+        XCTAssertNil(encodeGossipPass(GossipPass(from: alice.publicKey, proof: "pro\nof",
+                                                 batch: [])))
+        XCTAssertNil(encodeGossipPass(GossipPass(from: "", proof: proof, batch: [])))
+    }
+
+    func testAnOversizedWriteIsRefusedWholeBeforeAnythingHasBeenDecided() {
+        let huge = Data(String(repeating: "x", count: gossipMaxWireBytes + 1).utf8)
+
+        XCTAssertNil(decodeGossipPass(huge))
+        XCTAssertNil(decodeGossipChallenge(huge))
+        XCTAssertNil(encodeGossipPass(GossipPass(from: alice.publicKey, proof: proof,
+                                                 batch: (0..<2000).map { _ in minted() })))
+    }
+
+    /// A **Pass** is written in pieces and ended by an empty one, because that is the only
+    /// framing a CoreBluetooth peripheral and an Android GATT server read the same way.
+    /// Reassembly is concatenation, so the pieces have to put the bytes back exactly.
+    func testAPassChunkedForTheWireReassemblesToItself() {
+        let pass = GossipPass(from: alice.publicKey, proof: proof,
+                              batch: (0..<8).map { _ in minted() })
+        let payload = encodeGossipPass(pass)!
+
+        let chunks = payload.gossipChunks(by: 20)
+
+        XCTAssertGreaterThan(chunks.count, 1)
+        XCTAssertTrue(chunks.allSatisfy { $0.count <= 20 })
+        XCTAssertEqual(decodeGossipPass(chunks.reduce(Data(), +)), pass)
     }
 
     // --- Minting my own arrival ---
@@ -201,9 +297,9 @@ final class GossipWireTests: XCTestCase {
 
     func testTheServiceAndCharacteristicUUIDsAreTheOnesAndroidLooksFor() {
         XCTAssertEqual(gossipServiceUUIDString, "7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7721")
-        XCTAssertEqual(gossipTokenCharacteristicUUIDString, "7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7722")
-        XCTAssertEqual(gossipInboxCharacteristicUUIDString, "7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7723")
-        XCTAssertEqual(gossipOutboxCharacteristicUUIDString, "7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7724")
+        XCTAssertEqual(gossipChallengeCharacteristicUUIDString,
+                       "7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7722")
+        XCTAssertEqual(gossipPassCharacteristicUUIDString, "7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7723")
     }
 
     /// The gossip service is not the Exchange's. Opposite lifetimes — one is a screen a person
