@@ -22,10 +22,39 @@ import java.util.Base64
  * anything. That removes the authenticated-read direction entirely — there is no "prove
  * yourself to me so I can believe what you hand back", only "prove yourself to me before I
  * read what you pushed".
+ *
+ * ## The meeting, in two GATT operations
+ *
+ * 1. The connecting side **reads the challenge** and gets [GossipChallenge]: a fresh nonce
+ *    and the listener's token offer. It resolves the offer against its own token table. No
+ *    match and it hangs up, having learnt nothing it did not already know from the
+ *    advertisement.
+ * 2. It **writes one [GossipPass]**: its own identity key, a signature over
+ *    [gossipAuthPayload] of that nonce, and the batch. The listener checks the key is a
+ *    **Contact**, checks the signature against the nonce it issued, and hands `(from,
+ *    batch)` to the storm-gate.
+ *
+ * ## Framing, because a **Pass** does not fit in an MTU
+ *
+ * A **Pass** is written as **sequential chunks, every one at offset 0, terminated by a
+ * zero-length write**. Not offsets, and this is not a free choice: a CoreBluetooth central
+ * performs no prepared writes and silently truncates a `writeValue` past the negotiated MTU,
+ * so an iPhone has to chunk by hand and every chunk it sends arrives looking like the start
+ * of the value. Append-and-terminate is the one framing that reads identically on both
+ * platforms, so Android writes and accepts it too. A zero-length write is therefore
+ * meaningful and never ignored — it is what says "that was the whole **Pass**".
+ *
+ * The challenge, going the other way, *is* offset-addressed: a GATT read is a long read, the
+ * reader asks again at a rising offset until it gets a short answer, and the whole payload is
+ * addressable. The two directions are framed differently because GATT frames them
+ * differently.
  */
 
 /** The header a **Pass** starts with. Version in the string, same reasoning as elsewhere. */
 const val GOSSIP_PASS_V1 = "station-to-station/gossip-pass/1"
+
+/** The header a challenge starts with. */
+const val GOSSIP_CHALLENGE_V1 = "station-to-station/gossip-challenge/1"
 
 /**
  * The domain separator for the possession proof.
@@ -65,6 +94,57 @@ const val GOSSIP_NONCE_BYTES = 32
  * rather than truncated: half a **Pass** is not a **Pass**.
  */
 const val GOSSIP_MAX_WIRE_BYTES = 40_000
+
+/**
+ * What a listener answers the challenge read with: a fresh nonce, and its
+ * [gossipTokenOffer] for the current bucket.
+ *
+ * **The listener never names itself here, and that is the point.** The obvious challenge —
+ * "my identity key and a nonce" — would hand a stable, lifelong identifier to any radio that
+ * connects, all night, in the background, which is the exact disclosure the rotating
+ * **Token** exists to prevent and which ADR-0019 refuses. Instead the listener publishes the
+ * per-pair tokens only its **Contacts** can resolve; a stranger reads a set of numbers that
+ * mean nothing and are different in a quarter of an hour.
+ *
+ * The connecting side resolves the offer against its own
+ * [gossipTokenTable][io.github.magnusencoded.stationtostation.data.gossip.gossipTokenTable],
+ * learns *which* **Contact** it has met, and only then decides what to hand over — which is
+ * what [GossipHeld]'s outbox rule needs in order to not hand a message back to its author.
+ */
+data class GossipChallenge(val nonce: ByteArray, val tokens: List<String>) {
+    override fun equals(other: Any?): Boolean =
+        other is GossipChallenge && nonce.contentEquals(other.nonce) && tokens == other.tokens
+
+    override fun hashCode(): Int = 31 * nonce.contentHashCode() + tokens.hashCode()
+}
+
+/**
+ * The challenge on the wire: the header, the base64 nonce, then one hex token per line.
+ *
+ * Line-separated with no escaping problem to get wrong: base64 contains no newline and a
+ * token is 16 hex characters and can contain nothing else.
+ */
+fun encodeGossipChallenge(challenge: GossipChallenge): ByteArray =
+    (listOf(GOSSIP_CHALLENGE_V1, Base64.getEncoder().encodeToString(challenge.nonce)) +
+        challenge.tokens.filter(::isSafeGossipToken))
+        .joinToString("\n")
+        .toByteArray(Charsets.UTF_8)
+
+/**
+ * Null for anything that is not a challenge, or whose nonce is not [GOSSIP_NONCE_BYTES].
+ *
+ * Malformed token lines are dropped rather than failing the whole read: a peer on a later
+ * build may publish something this one does not understand, and the tokens it *does*
+ * understand are still worth resolving.
+ */
+fun decodeGossipChallenge(bytes: ByteArray?): GossipChallenge? {
+    if (bytes == null || bytes.isEmpty() || bytes.size > GOSSIP_MAX_WIRE_BYTES) return null
+    val lines = String(bytes, Charsets.UTF_8).split('\n')
+    if (lines.size < 2 || lines[0] != GOSSIP_CHALLENGE_V1) return null
+    val nonce = runCatching { Base64.getDecoder().decode(lines[1]) }.getOrNull() ?: return null
+    if (nonce.size != GOSSIP_NONCE_BYTES) return null
+    return GossipChallenge(nonce, lines.drop(2).filter(::isSafeGossipToken))
+}
 
 /** One **Pass**: who claims to be pushing, their proof, and what they push. */
 data class GossipPass(

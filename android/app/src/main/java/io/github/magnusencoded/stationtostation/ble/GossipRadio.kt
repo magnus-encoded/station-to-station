@@ -26,12 +26,19 @@ import android.util.Log
 import io.github.magnusencoded.stationtostation.data.GossipCheckIn
 import io.github.magnusencoded.stationtostation.data.exchange.verifyChallenge
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_ADVERTISE_SLOT
+import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_MAX_WIRE_BYTES
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_NONCE_BYTES
+import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_PEER_COOLDOWN
+import io.github.magnusencoded.stationtostation.data.gossip.GossipChallenge
 import io.github.magnusencoded.stationtostation.data.gossip.GossipPass
+import io.github.magnusencoded.stationtostation.data.gossip.decodeGossipChallenge
 import io.github.magnusencoded.stationtostation.data.gossip.decodeGossipPass
+import io.github.magnusencoded.stationtostation.data.gossip.encodeGossipChallenge
 import io.github.magnusencoded.stationtostation.data.gossip.encodeGossipPass
 import io.github.magnusencoded.stationtostation.data.gossip.gossipAdvertisedToken
 import io.github.magnusencoded.stationtostation.data.gossip.gossipAuthPayload
+import io.github.magnusencoded.stationtostation.data.gossip.gossipResolveOffer
+import io.github.magnusencoded.stationtostation.data.gossip.gossipTokenOffer
 import io.github.magnusencoded.stationtostation.data.gossip.gossipTokenOwner
 import io.github.magnusencoded.stationtostation.data.gossip.gossipTokenTable
 import java.security.SecureRandom
@@ -64,7 +71,7 @@ import java.util.UUID
 /** The gossip service. Deliberately not the Exchange's UUID — see the file comment. */
 internal val GOSSIP_SERVICE_UUID: UUID = UUID.fromString("7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7721")
 
-/** Read: this listener's identity key and a fresh nonce, tab-separated. */
+/** Read: a fresh nonce and this listener's token offer — never its own key. */
 internal val GOSSIP_CHALLENGE_UUID: UUID = UUID.fromString("7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7722")
 
 /** Write: the pusher's key, its signature over that nonce, and its batch. */
@@ -87,6 +94,17 @@ private const val TAG = "GossipRadio"
 
 /** What a listener accepted: a peer that proved itself, and what it pushed. */
 data class GossipDelivery(val from: String, val batch: List<GossipCheckIn>)
+
+/**
+ * The payload in pieces that fit one ATT write, in order.
+ *
+ * Not `Iterable.chunked`, which would box every byte on the way through — a **Pass** is tens
+ * of kilobytes and this runs on a phone that is trying to stay asleep.
+ */
+internal fun ByteArray.intoChunks(size: Int): List<ByteArray> {
+    if (size <= 0 || isEmpty()) return listOf(copyOf())
+    return (indices step size).map { copyOfRange(it, minOf(it + size, this.size)) }
+}
 
 /**
  * The listening half: advertise, and take pushes from **Contacts** that prove themselves.
@@ -153,9 +171,12 @@ class GossipPeripheral(
             if (offset == 0) {
                 val nonce = ByteArray(GOSSIP_NONCE_BYTES).also(random::nextBytes)
                 nonces[device.address] = nonce
-                challenges[device.address] =
-                    "${myKey()}\t${Base64.getEncoder().encodeToString(nonce)}"
-                        .toByteArray(Charsets.UTF_8)
+                // The offer, never this device's own key: a stranger who connects and reads
+                // must not walk away holding a stable identifier for this phone. See
+                // [gossipTokenOffer].
+                challenges[device.address] = encodeGossipChallenge(
+                    GossipChallenge(nonce, gossipTokenOffer(myKey(), contacts(), Instant.now())),
+                )
             }
             val payload = challenges[device.address] ?: ByteArray(0)
             sendResponse(device, requestId, offset, sliceForOffset(payload, offset))
@@ -175,11 +196,24 @@ class GossipPeripheral(
                 if (responseNeeded) sendResponse(device, requestId, offset, chunk)
                 return
             }
-            inbox[device.address] = writeAtOffset(inbox[device.address] ?: ByteArray(0), offset, chunk)
+            // Append-and-terminate, not write-at-offset: a CoreBluetooth central cannot
+            // perform a long write and sends every chunk at offset 0, so the offset is
+            // ignored here on purpose and a zero-length write is what ends the **Pass**.
+            // Writing at the offset a peer states would mean an iPhone's whole batch
+            // overwrote itself down to its last chunk. See `GossipWire.kt`'s header.
+            val accumulated = inbox[device.address] ?: ByteArray(0)
+            if (accumulated.size + chunk.size > GOSSIP_MAX_WIRE_BYTES) {
+                // Refused whole rather than truncated, and the peer is not told which of the
+                // two it was — the same silence every other rejection here keeps.
+                inbox.remove(device.address)
+                if (responseNeeded) sendResponse(device, requestId, offset, chunk)
+                return
+            }
+            inbox[device.address] = accumulated + chunk
             // Withholding the response on a write-with-response hangs the pusher until its
             // own timeout — the same trap [BleCardPeripheral] documents.
             if (responseNeeded) sendResponse(device, requestId, offset, chunk)
-            if (!preparedWrite) deliver(device.address)
+            if (chunk.isEmpty()) deliver(device.address)
         }
 
         override fun onExecuteWrite(device: BluetoothDevice, requestId: Int, execute: Boolean) {
@@ -321,7 +355,13 @@ class GossipPeripheral(
 }
 
 /**
- * The pushing half: scan for a recognised token, connect, prove who we are, hand over.
+ * The pushing half: find a gossip radio, connect, learn whose it is, prove who we are, hand
+ * over.
+ *
+ * Two ways in, and the second is the one that matters for reaching an iPhone. A peer that put
+ * a token in its scan response is recognised before a connection is opened; a peer that could
+ * not — every iPhone, which cannot advertise bytes at all — is connected to and identified
+ * from its challenge instead. The first is a shortcut, the second is the contract.
  *
  * [outboxFor] is asked what to send only once the peer's key is known, because what is sent
  * depends on who is listening — a message is never handed back to the **Contact** it came
@@ -355,14 +395,43 @@ class GossipCentral(
     private var table: Map<String, String> = emptyMap()
     private var tableAt = Instant.EPOCH
 
+    /**
+     * When each device address was last connected to, for peers whose identity is not known
+     * until after the connection.
+     *
+     * The token-in-the-advertisement path can ask [due] before spending anything, because it
+     * already knows *who* it is looking at. The cross-platform path cannot — an iPhone
+     * advertises a service UUID and nothing else — so without this a phone would reconnect to
+     * every iPhone in the room on every scan result. Keyed by BLE address rather than by
+     * **Contact**, because an address is the only name this side has yet; the real per-peer
+     * bound is still [due], applied the moment the challenge resolves.
+     */
+    private val attempted = mutableMapOf<String, Instant>()
+
     private val callback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
+            if (busy) return
             val advertised = result.scanRecord?.getManufacturerSpecificData(TEST_COMPANY_ID)
-            val peer = gossipTokenOwner(currentTable(), advertised) ?: return
-            if (busy || !due(peer)) return
-            if (outboxFor(peer).isEmpty()) return
+            if (advertised != null) {
+                // The Android-to-Android shortcut: the peer named itself in its scan
+                // response, so everything can be decided before paying for a connection.
+                val peer = gossipTokenOwner(currentTable(), advertised) ?: return
+                if (!due(peer) || outboxFor(peer).isEmpty()) return
+                busy = true
+                push(result.device.address, peer)
+                return
+            }
+            // No manufacturer data. Either an iPhone — which cannot put bytes in an
+            // advertisement at all — or an Android with nobody to advertise to. Connect and
+            // read the challenge, which is the path both platforms share; who this is, and
+            // whether there is anything to say to them, is settled there.
+            val address = result.device.address
+            val now = Instant.now()
+            val last = attempted[address]
+            if (last != null && now.isBefore(last.plus(GOSSIP_PEER_COOLDOWN))) return
+            attempted[address] = now
             busy = true
-            push(result.device.address, peer)
+            push(address, null)
         }
 
         override fun onScanFailed(errorCode: Int) {
@@ -406,25 +475,40 @@ class GossipCentral(
         main.removeCallbacksAndMessages(null)
         busy = false
         table = emptyMap()
+        attempted.clear()
     }
 
     /**
-     * Connect, read the challenge, sign it, write the batch, let go.
+     * Connect, read the challenge, resolve who this is, sign the nonce, write the **Pass**,
+     * let go.
      *
-     * The listener's key is checked against the one the token predicted before anything is
-     * signed. A token is derived from public material (see [gossipToken][io.github.magnusencoded.stationtostation.data.gossip.gossipToken]),
-     * so a device that holds both keys could advertise one it has no business advertising;
-     * what stops that going anywhere is that the batch is then encrypted to nobody and
-     * signed by nobody it can impersonate — but there is no reason to hand it over at all,
-     * and the check costs a string comparison.
+     * [expected] is the **Contact** the advertisement already named, on the Android-only fast
+     * path, and null on the cross-platform path where nothing is known until the challenge is
+     * read. Either way the challenge has to resolve, and when both are present they have to
+     * agree — a device that advertises one **Contact**'s token and then offers another's is
+     * not having its word taken for it.
+     *
+     * A token is derived from public material (see [gossipToken][io.github.magnusencoded.stationtostation.data.gossip.gossipToken]),
+     * so a device holding both keys could present one it has no business presenting. What
+     * stops that mattering is that a **Pass** is signed by a key it cannot impersonate and
+     * every message inside it is verified again by the storm-gate — but there is no reason to
+     * hand anything over to it, and the check costs a map lookup.
      */
     @SuppressLint("MissingPermission")
-    private fun push(address: String, peer: String) {
+    private fun push(address: String, expected: String?) {
         val device = runCatching { manager.adapter?.getRemoteDevice(address) }.getOrNull()
         if (device == null) { busy = false; return }
         var gattRef: BluetoothGatt? = null
         var done = false
         var phase = "connect"
+
+        /** Who the challenge said this is. Null until it has been read and resolved. */
+        var peer: String? = null
+
+        /** The **Pass**, in MTU-sized pieces, and how far through them this connection is. */
+        var chunks: List<ByteArray> = emptyList()
+        var sent = 0
+        var attMtu = 23
 
         fun finish(pushed: Boolean) {
             if (done) return
@@ -432,7 +516,9 @@ class GossipCentral(
             main.removeCallbacksAndMessages(null)
             runCatching { gattRef?.disconnect(); gattRef?.close() }
             busy = false
-            if (pushed) onPushed(peer) else Log.w(TAG, "gossip push to a peer gave up in \"$phase\"")
+            val who = peer
+            if (pushed && who != null) onPushed(who)
+            else Log.w(TAG, "gossip push to a peer gave up in \"$phase\"")
         }
 
         main.postDelayed({ finish(false) }, GOSSIP_PUSH_TIMEOUT_MS)
@@ -454,6 +540,9 @@ class GossipCentral(
             }
 
             override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+                // Three bytes of ATT header come off whatever was negotiated. A refusal
+                // leaves the default 23, which still works — it is just more round trips.
+                if (status == BluetoothGatt.GATT_SUCCESS && mtu > 3) attMtu = mtu
                 phase = "services"
                 if (!gatt.discoverServices()) finish(false)
             }
@@ -472,13 +561,16 @@ class GossipCentral(
                 status: Int,
             ) {
                 if (status != BluetoothGatt.GATT_SUCCESS) return finish(false)
-                val parts = String(characteristic.value ?: ByteArray(0), Charsets.UTF_8).split('\t')
-                if (parts.size != 2 || parts[0] != peer) return finish(false)
-                val nonce = runCatching { Base64.getDecoder().decode(parts[1]) }.getOrNull()
-                if (nonce == null || nonce.size != GOSSIP_NONCE_BYTES) return finish(false)
-                val signature = sign(gossipAuthPayload(nonce)) ?: return finish(false)
-                val batch = outboxFor(peer)
+                val challenge = decodeGossipChallenge(characteristic.value) ?: return finish(false)
+                // Who this is, decided here and nowhere else on this path. A stranger's offer
+                // resolves to nobody, which is the ordinary case and not an error.
+                val who = gossipResolveOffer(challenge.tokens, currentTable()) ?: return finish(false)
+                if (expected != null && expected != who) return finish(false)
+                peer = who
+                if (!due(who)) return finish(false)
+                val batch = outboxFor(who)
                 if (batch.isEmpty()) return finish(false)
+                val signature = sign(gossipAuthPayload(challenge.nonce)) ?: return finish(false)
                 val payload = encodeGossipPass(
                     GossipPass(
                         from = myKey(),
@@ -487,11 +579,13 @@ class GossipCentral(
                     ),
                 ) ?: return finish(false)
                 phase = "pass"
-                val outbound = gatt.getService(GOSSIP_SERVICE_UUID)
-                    ?.getCharacteristic(GOSSIP_PASS_UUID) ?: return finish(false)
-                outbound.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                outbound.value = payload
-                if (!gatt.writeCharacteristic(outbound)) finish(false)
+                // Chunked by hand and terminated by an empty write, because that is the one
+                // framing a CoreBluetooth peripheral reads the same way — see
+                // `GossipWire.kt`'s header. The empty chunk at the end is part of the
+                // protocol, not padding.
+                chunks = payload.intoChunks(attMtu - 3) + listOf(ByteArray(0))
+                sent = 0
+                if (!writeNext(gatt)) finish(false)
             }
 
             override fun onCharacteristicWrite(
@@ -499,7 +593,21 @@ class GossipCentral(
                 characteristic: BluetoothGattCharacteristic,
                 status: Int,
             ) {
-                finish(status == BluetoothGatt.GATT_SUCCESS)
+                if (status != BluetoothGatt.GATT_SUCCESS) return finish(false)
+                if (sent >= chunks.size) return finish(true)
+                if (!writeNext(gatt)) finish(false)
+            }
+
+            /** The next piece, or false when there was nothing left to send. */
+            @Suppress("DEPRECATION") // as onCharacteristicRead
+            fun writeNext(gatt: BluetoothGatt): Boolean {
+                if (sent >= chunks.size) return false
+                val outbound = gatt.getService(GOSSIP_SERVICE_UUID)
+                    ?.getCharacteristic(GOSSIP_PASS_UUID) ?: return false
+                outbound.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                outbound.value = chunks[sent]
+                sent += 1
+                return gatt.writeCharacteristic(outbound)
             }
         }, BluetoothDevice.TRANSPORT_LE)
     }

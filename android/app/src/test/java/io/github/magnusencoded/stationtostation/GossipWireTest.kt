@@ -2,15 +2,22 @@ package io.github.magnusencoded.stationtostation
 
 import io.github.magnusencoded.stationtostation.data.GOSSIP_MAX_EPOCH_SECOND
 import io.github.magnusencoded.stationtostation.data.GossipCheckIn
+import io.github.magnusencoded.stationtostation.ble.intoChunks
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_AUTH_V1
+import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_CHALLENGE_V1
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_MAX_WIRE_BYTES
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_PASS_V1
+import io.github.magnusencoded.stationtostation.data.gossip.GossipChallenge
 import io.github.magnusencoded.stationtostation.data.gossip.GossipPass
+import io.github.magnusencoded.stationtostation.data.gossip.decodeGossipChallenge
 import io.github.magnusencoded.stationtostation.data.gossip.decodeGossipPass
+import io.github.magnusencoded.stationtostation.data.gossip.encodeGossipChallenge
 import io.github.magnusencoded.stationtostation.data.gossip.encodeGossipPass
 import io.github.magnusencoded.stationtostation.data.gossip.gossipAuthPayload
 import java.time.Instant
+import java.util.Base64
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -146,5 +153,90 @@ class GossipWireTest {
             String(gossipAuthPayload(nonce)),
             String(gossipAuthPayload(ByteArray(32) { (it + 1).toByte() })),
         )
+    }
+
+    @Test
+    fun `a challenge survives the round trip`() {
+        val challenge = GossipChallenge(ByteArray(32) { it.toByte() }, listOf("00112233445566aa"))
+
+        assertEquals(challenge, decodeGossipChallenge(encodeGossipChallenge(challenge)))
+    }
+
+    /**
+     * The grammar itself, because these bytes are the contract with iOS: the header, the
+     * base64 nonce, then one hex token per line.
+     */
+    @Test
+    fun `the challenge grammar is the header, the nonce, then one token per line`() {
+        val challenge = GossipChallenge(
+            ByteArray(32) { it.toByte() },
+            listOf("00112233445566aa", "aabbccddeeff0011"),
+        )
+        val lines = String(encodeGossipChallenge(challenge)).split('\n')
+
+        assertEquals(GOSSIP_CHALLENGE_V1, lines[0])
+        assertEquals(Base64.getEncoder().encodeToString(challenge.nonce), lines[1])
+        assertEquals(listOf("00112233445566aa", "aabbccddeeff0011"), lines.drop(2))
+    }
+
+    /**
+     * The listener answers with tokens and never with its own key — the whole reason the
+     * challenge is shaped this way. A stable identifier readable by any radio that connects
+     * is what ADR-0019 refuses.
+     */
+    @Test
+    fun `a challenge names nobody`() {
+        val encoded = String(
+            encodeGossipChallenge(
+                GossipChallenge(ByteArray(32) { it.toByte() }, listOf("00112233445566aa")),
+            ),
+        )
+
+        assertFalse(encoded.contains(alice))
+        assertFalse(encoded.contains(bob))
+    }
+
+    @Test
+    fun `a malformed token line is dropped rather than failing the whole challenge`() {
+        val bytes = listOf(
+            GOSSIP_CHALLENGE_V1,
+            Base64.getEncoder().encodeToString(ByteArray(32)),
+            "00112233445566aa",
+            "not-a-token",
+            "AABBCCDDEEFF0011",
+        ).joinToString("\n").toByteArray()
+
+        assertEquals(listOf("00112233445566aa"), decodeGossipChallenge(bytes)?.tokens)
+    }
+
+    @Test
+    fun `a challenge with the wrong header or a short nonce is refused`() {
+        val nonce = Base64.getEncoder().encodeToString(ByteArray(32))
+
+        assertNull(decodeGossipChallenge("wrong\n$nonce".toByteArray()))
+        assertNull(
+            decodeGossipChallenge(
+                "$GOSSIP_CHALLENGE_V1\n${Base64.getEncoder().encodeToString(ByteArray(31))}"
+                    .toByteArray(),
+            ),
+        )
+        assertNull(decodeGossipChallenge(GOSSIP_CHALLENGE_V1.toByteArray()))
+        assertNull(decodeGossipChallenge(null))
+    }
+
+    /**
+     * A **Pass** is written in pieces and ended by an empty one, because that is the only
+     * framing a CoreBluetooth peripheral reads the same way. Reassembly is concatenation,
+     * so the pieces have to put the bytes back exactly.
+     */
+    @Test
+    fun `a Pass chunked for the wire reassembles to itself`() {
+        val pass = GossipPass(bob, proof, List(8) { message(id = "id$it") })
+        val payload = encodeGossipPass(pass)!!
+        val chunks = payload.intoChunks(20)
+
+        assertTrue(chunks.size > 1)
+        assertTrue(chunks.all { it.size <= 20 })
+        assertEquals(pass, decodeGossipPass(chunks.reduce { a, b -> a + b }))
     }
 }

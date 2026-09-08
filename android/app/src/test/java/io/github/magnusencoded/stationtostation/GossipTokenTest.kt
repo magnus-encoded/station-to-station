@@ -4,15 +4,19 @@ import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_ADVERTISE_SLO
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_TOKEN_BUCKET
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_TOKEN_BYTES
 import io.github.magnusencoded.stationtostation.data.gossip.gossipAdvertisedToken
+import io.github.magnusencoded.stationtostation.data.gossip.gossipResolveOffer
 import io.github.magnusencoded.stationtostation.data.gossip.gossipToken
 import io.github.magnusencoded.stationtostation.data.gossip.gossipTokenBucket
 import io.github.magnusencoded.stationtostation.data.gossip.gossipTokenHex
+import io.github.magnusencoded.stationtostation.data.gossip.gossipTokenOffer
 import io.github.magnusencoded.stationtostation.data.gossip.gossipTokenOwner
 import io.github.magnusencoded.stationtostation.data.gossip.gossipTokenTable
+import io.github.magnusencoded.stationtostation.data.gossip.isSafeGossipToken
 import java.time.Duration
 import java.time.Instant
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -147,5 +151,77 @@ class GossipTokenTest {
     fun `nobody to advertise to is nothing to advertise`() {
         assertNull(gossipAdvertisedToken(mine, emptyList(), now))
         assertNull(gossipAdvertisedToken(mine, listOf("", "  "), now))
+    }
+
+    /**
+     * **The cross-platform vector.** `GossipTokenTests.swift` asserts this exact string from
+     * the same two keys and the same bucket, and it is the only assertion in either suite
+     * that would catch the two platforms drifting apart — every other test here would pass
+     * just as happily against a derivation iOS cannot reproduce.
+     *
+     * Bucket 1987284 is epoch second 1788555600, which is the `now` both suites already
+     * build their fixtures on. Do not change these values to make a failure go away: a
+     * failure here means one platform has stopped being able to talk to the other.
+     */
+    @Test
+    fun `the token matches the fixed cross-platform vector`() {
+        assertEquals(
+            "09f8a789e6db4230",
+            gossipTokenHex(gossipToken("AAAAkey-mine", "ZZZZkey-theirs", 1987284)!!),
+        )
+        assertEquals(1987284L, gossipTokenBucket(Instant.ofEpochSecond(1_788_555_600)))
+    }
+
+    @Test
+    fun `an offer names every Contact once, sorted, and never this device`() {
+        val offer = gossipTokenOffer(mine, listOf(stranger, theirs, theirs), now)
+        val bucket = gossipTokenBucket(now)
+
+        assertEquals(2, offer.size)
+        assertEquals(offer.sorted(), offer)
+        assertEquals(
+            setOf(
+                gossipTokenHex(gossipToken(mine, theirs, bucket)!!),
+                gossipTokenHex(gossipToken(mine, stranger, bucket)!!),
+            ),
+            offer.toSet(),
+        )
+        assertTrue(offer.none { it.contains(mine) })
+    }
+
+    /** The cross-platform path: whoever reads the offer works out who published it. */
+    @Test
+    fun `an offer resolves to the Contact that published it, and a stranger's to nobody`() {
+        val theirTable = gossipTokenTable(theirs, listOf(mine), now)
+
+        assertEquals(mine, gossipResolveOffer(gossipTokenOffer(mine, listOf(theirs), now), theirTable))
+        assertNull(gossipResolveOffer(gossipTokenOffer("nobody", listOf(stranger), now), theirTable))
+        assertNull(gossipResolveOffer(emptyList(), theirTable))
+    }
+
+    /**
+     * Two **Contacts** in one offer is a device presenting a set it assembled from
+     * elsewhere, and guessing between them would attribute a **Pass** to the wrong person.
+     */
+    @Test
+    fun `an ambiguous offer resolves to nobody rather than to a guess`() {
+        val table = gossipTokenTable(mine, listOf(theirs, stranger), now)
+        val bucket = gossipTokenBucket(now)
+        val both = listOf(
+            gossipTokenHex(gossipToken(mine, theirs, bucket)!!),
+            gossipTokenHex(gossipToken(mine, stranger, bucket)!!),
+        )
+
+        assertNull(gossipResolveOffer(both, table))
+    }
+
+    @Test
+    fun `a token is safe only as sixteen lower-case hex characters`() {
+        assertTrue(isSafeGossipToken("09f8a789e6db4230"))
+        assertFalse(isSafeGossipToken("09F8A789E6DB4230"))
+        assertFalse(isSafeGossipToken("09f8a789e6db42"))
+        assertFalse(isSafeGossipToken("09f8a789e6db4230ff"))
+        assertFalse(isSafeGossipToken(""))
+        assertFalse(isSafeGossipToken("09f8a789e6db423g"))
     }
 }

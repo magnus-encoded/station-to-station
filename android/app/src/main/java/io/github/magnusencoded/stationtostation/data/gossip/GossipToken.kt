@@ -47,6 +47,17 @@ import javax.crypto.spec.SecretKeySpec
  * device that once relayed a `GossipCheckIn` authored by one of them and holds the other's
  * key. Such a device can tell that these two specific people are within radio range of it.
  * It learns nothing further: no message is readable, and nothing is accepted from it.
+ *
+ * **This is the cross-platform scheme, not an Android dialect.** iOS *can* perform ECDH
+ * against its own Secure Enclave identity, and #417 originally did; that was reconciled away
+ * on 2026-09-08 rather than kept, because a derivation only one of the two platforms can
+ * compute is not a wire format — it is two apps that never recognise each other. The
+ * constraint above is about *key material*, not about a radio, so there is no Android-only
+ * layer that could paper over it: iOS derives the identical bytes from the identical two
+ * public keys, and `GossipTokenTests` asserts the same fixed vector this file's test does.
+ * Because the token is therefore computable by a third party who holds both keys, it is a
+ * **rendezvous hint and never an authenticator** — which is why every **Pass** additionally
+ * carries a signature over a nonce the listener issued. See ADR-0019's amendment.
  */
 
 /**
@@ -126,6 +137,72 @@ fun gossipToken(mine: String, theirs: String, bucket: Long): ByteArray? {
 fun gossipTokenHex(token: ByteArray): String = token.joinToString("") { "%02x".format(it) }
 
 /**
+ * The shape of a token once it is text, checked before it is compared or used as a key: 16
+ * lower-case hex characters and nothing else.
+ *
+ * A token in this form arrives from a radio — it is what a peer publishes in its challenge —
+ * so it gets the same treatment
+ * [isSafeGossipId][io.github.magnusencoded.stationtostation.data.isSafeGossipId] gives a gig
+ * id. ASCII only, so the two platforms cannot read the same bytes differently.
+ */
+fun isSafeGossipToken(token: String): Boolean =
+    token.length == GOSSIP_TOKEN_BYTES * 2 &&
+        token.all { it in '0'..'9' || it in 'a'..'f' }
+
+/**
+ * What this device publishes when somebody connects: its current-bucket token for every
+ * **Contact** it holds, sorted and deduplicated.
+ *
+ * **This is the cross-platform half of recognition, and the advertisement is not.** An
+ * iPhone cannot put arbitrary bytes in a BLE advertisement at all — CoreBluetooth honours a
+ * local name and a service UUID list and nothing else — so [gossipAdvertisedToken] is an
+ * Android-to-Android shortcut, not the contract. Every device, on both platforms, answers
+ * the challenge read with this, and that is what a connecting device actually resolves
+ * against. The same split the **Card** already lives with: one payload, a shared BLE path,
+ * and a faster Android-only path beside it that carries the identical bytes.
+ *
+ * One token per **Contact**, because the token is per pair and a listening device has no
+ * idea which of its **Contacts** has just connected. Sorted rather than in **Contact**
+ * order, which is the point: the position of a token in the list must say nothing about
+ * which **Contact** produced it, or the ordering would leak the shape of a private list to
+ * anyone who connects twice.
+ *
+ * **What connecting to this discloses, plainly:** the *number* of **Contacts** this device
+ * holds. There is no way to publish a per-pair token set and hide its size short of padding
+ * to a fixed count, which would then cap how many **Contacts** anyone may have. It is named
+ * here rather than left to be found, and it is a smaller disclosure than the one ADR-0019
+ * already accepts under "Disclosure to the relaying device". What it deliberately does *not*
+ * disclose is this device's own identity key: a stranger who connects and reads learns a set
+ * of numbers that mean nothing to them and are different in a quarter of an hour.
+ */
+fun gossipTokenOffer(mine: String, contacts: Collection<String>, now: Instant): List<String> {
+    val bucket = gossipTokenBucket(now)
+    return contacts.filter { it.isNotBlank() }
+        .mapNotNull { gossipToken(mine, it, bucket)?.let(::gossipTokenHex) }
+        .distinct()
+        .sorted()
+}
+
+/**
+ * Which **Contact**, if any, an offered set of tokens belongs to.
+ *
+ * Null when nothing matches, which is the ordinary case and not an error: most Station to
+ * Station radios in range belong to people this device has never met, and the right response
+ * to one is to hang up having learnt nothing.
+ *
+ * **Ambiguity resolves to null as well.** Two **Contacts** whose tokens both appear in one
+ * offer is either a collision or a device presenting a set it assembled from elsewhere, and
+ * guessing between them would attribute a **Pass** to the wrong person — which is precisely
+ * the `from` argument
+ * [gossipStormGate][io.github.magnusencoded.stationtostation.data.gossipStormGate] trusts to
+ * be right.
+ */
+fun gossipResolveOffer(offered: Collection<String>, table: Map<String, String>): String? {
+    val matches = offered.mapNotNull(table::get).distinct()
+    return matches.singleOrNull()
+}
+
+/**
  * Every token this device would recognise right now: hex token → the **Contact** key that
  * produced it.
  *
@@ -170,6 +247,16 @@ fun gossipTokenOwner(table: Map<String, String>, advertised: ByteArray?): String
 
 /**
  * The order this device advertises its **Contacts**' tokens in, and which one is up now.
+ *
+ * **An Android-only shortcut, not the wire contract.** The bytes are the same bytes
+ * [gossipTokenOffer] publishes — one [gossipToken] for one pair in the current bucket — but
+ * putting them in a scan response is something only an Android peripheral can do. An iPhone
+ * advertises a service UUID and nothing else, so a scanner that treated a missing
+ * manufacturer-data record as "not a **Contact**" would never speak to an iPhone at all.
+ * This exists so that an Android scanner meeting another Android can decide *not to connect*
+ * without paying for a connection; when it is absent, the scanner connects and reads the
+ * challenge, which is the path every platform shares. The **Card** is already split this way
+ * — one payload, the cross-platform BLE route, and a faster Android-only route beside it.
  *
  * A token is *per pair*, so a phone with several **Contacts** has several to show and one
  * advertisement to show them in. It cycles: [GOSSIP_ADVERTISE_SLOT] on each, sorted so the
