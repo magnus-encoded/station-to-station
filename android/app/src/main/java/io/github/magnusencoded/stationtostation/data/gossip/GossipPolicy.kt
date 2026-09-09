@@ -122,3 +122,31 @@ fun gossipGigTonight(
     val opens = nightWindow(date).start.atZone(zone).toInstant()
     !now.isBefore(opens) && now.isBefore(gossipExpiry(date, zone))
 }
+
+/**
+ * How long a **Contact** counts as still being here after the last time these two phones
+ * actually spoke.
+ *
+ * Longer than [GOSSIP_PEER_COOLDOWN] on purpose, and a multiple of it rather than a round
+ * number: two phones in the same room speak about once a minute, so a window of one minute
+ * would blink out between every pair of exchanges and report an empty room half the time.
+ * Five gives a missed connection — a pocket, a wall, a radio busy elsewhere — room to be a
+ * missed connection rather than a departure.
+ *
+ * It is deliberately not a presence protocol. Nothing announces leaving, because nothing can:
+ * a phone that walks away says nothing on its way out, so the only honest account of who is
+ * here is who was heard from recently.
+ */
+val GOSSIP_NEARBY_WINDOW: Duration = Duration.ofMinutes(5)
+
+/**
+ * Which **Contacts** to call present, given when each was last heard from.
+ *
+ * Ordered most recent first, so a caller that has room for two names shows the two people
+ * most likely to still be standing there.
+ */
+fun gossipNearby(metAt: Map<String, Instant>, now: Instant): List<String> =
+    metAt.entries
+        .filter { now.isBefore(it.value.plus(GOSSIP_NEARBY_WINDOW)) }
+        .sortedByDescending { it.value }
+        .map { it.key }
