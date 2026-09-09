@@ -26,11 +26,13 @@ private val Amber = Color(0xFFE7B24C)
 /**
  * "Ange is also here" — the one thing about the gossip relay a person actually wants told.
  *
- * Its own file because it belongs on more than one screen and must say the same thing on
- * each. The gig page is the important one: that is the screen somebody has open while
- * standing at the venue, and "who else is here" is the question being asked there. The
- * **Exchange** screen carries it too, but that screen is for *adding* a person, which is a
- * different question that happens to have the same answer.
+ * It lives on the gig page: that is the screen somebody has open while standing at the
+ * venue, and "who else is here" is the question being asked there. Its own file rather than
+ * a composable inside that screen, because the notification says the same sentence from the
+ * same [GossipPresence] map — two surfaces, one answer, and nowhere for them to drift apart.
+ *
+ * Deliberately *not* on the **Exchange** screen, which is for adding somebody you have not
+ * met yet. That screen shows what the radios are doing; this one shows who is in the room.
  *
  * It says nothing when nobody is nearby, deliberately. "Nobody is here" is a claim this phone
  * cannot make — a **Contact** in the same room with their phone in a pocket, or out of
