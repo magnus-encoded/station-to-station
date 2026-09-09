@@ -10,5 +10,9 @@
     <string name="gossip_notification_title">Passing on check-ins</string>
     <string name="gossip_notification_idle">Listening for contacts nearby</string>
     <string name="gossip_notification_carrying">Carrying %1$d check-in(s) for contacts nearby</string>
+    <string name="gossip_notification_someone">Someone</string>
+    <string name="gossip_notification_here_one">%1$s is at this gig with you</string>
+    <string name="gossip_notification_here_two">%1$s and %2$s are at this gig with you</string>
+    <string name="gossip_notification_here_many">%1$s and %2$d others are at this gig with you</string>
     <string name="gossip_notification_stop">Stop</string>
 </resources>

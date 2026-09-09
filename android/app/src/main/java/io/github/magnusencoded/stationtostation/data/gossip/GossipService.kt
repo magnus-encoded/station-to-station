@@ -26,8 +26,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.Instant
@@ -83,6 +86,14 @@ class GossipService : Service() {
     /** Live outbox, kept in memory so a scan hit can be answered without touching disk. */
     @Volatile private var held: List<GossipHeld> = emptyList()
 
+    /**
+     * Contact key to the name to show for them, refreshed alongside [contacts].
+     *
+     * The radio deals in keys, because a key is what a signature proves; a name is what the
+     * **Exchange** wrote down next to it. The notification is the one place the two meet.
+     */
+    @Volatile private var names: Map<String, String> = emptyMap()
+
     private val spokenAt = mutableMapOf<String, Instant>()
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -115,6 +126,7 @@ class GossipService : Service() {
         central?.stop()
         peripheral = null
         central = null
+        GossipPresence.forget()
         scope.cancel()
         super.onDestroy()
     }
@@ -145,8 +157,23 @@ class GossipService : Service() {
             sign = { payload -> runCatching { signWithContactIdentity(payload) }.getOrNull() },
             outboxFor = { peer -> gossipOutboxFor(held, peer, Instant.now()) },
             due = { peer -> synchronized(spokenAt) { gossipPassDue(spokenAt[peer], Instant.now()) } },
-            onPushed = { peer -> synchronized(spokenAt) { spokenAt[peer] = Instant.now() } },
+            onPushed = { peer ->
+                val now = Instant.now()
+                synchronized(spokenAt) { spokenAt[peer] = now }
+                GossipPresence.met(peer, now)
+                startForegroundNotification(held.size)
+            },
         ).also { it.start() }
+
+        // Presence lapses in silence — nobody announces leaving — so the notification has to
+        // be rebuilt on a clock as well as on events, or a **Contact** who walked off would
+        // be named in the shade until the next thing happened, which may be never.
+        scope.launch {
+            while (isActive) {
+                delay(GOSSIP_NEARBY_WINDOW.toMillis() / 5)
+                withContext(Dispatchers.Main) { startForegroundNotification(held.size) }
+            }
+        }
     }
 
     /**
@@ -158,6 +185,10 @@ class GossipService : Service() {
      */
     private suspend fun accept(delivery: GossipDelivery) = gate.withLock {
         val now = Instant.now()
+        // Presence is recorded before the cooldown is consulted: a **Contact** who pushed
+        // again too soon is a **Contact** who is still standing there, which is the question
+        // the notification answers. Whether to *read* what they said is the next line's.
+        GossipPresence.met(delivery.from, now)
         val due = synchronized(spokenAt) { gossipPassDue(spokenAt[delivery.from], now) }
         if (!due) return@withLock
         synchronized(spokenAt) { spokenAt[delivery.from] = now }
@@ -186,9 +217,32 @@ class GossipService : Service() {
 
     /** Re-read the two things that decide what is worth saying, and to whom. */
     private suspend fun refresh() {
-        contacts = contactKeysOf(settings.friends.first())
+        val friends = settings.friends.first()
+        contacts = contactKeysOf(friends)
+        names = friends.mapNotNull { friend -> friend.publicKey?.let { it to friend.name } }.toMap()
         nightEnds = gossipNightEnds(gigDatesOf(timeline))
         held = store.held()
+    }
+
+    /**
+     * The one line the notification gets.
+     *
+     * Who is here beats what is being carried, because it is the thing the owner of this
+     * phone can act on — the carried count is bookkeeping, and it is still what shows when
+     * the room is empty. A **Contact** with no name to show is "someone" rather than being
+     * left out: dropping them would report an empty room while a radio was plainly busy.
+     */
+    private fun presenceText(carrying: Int): String {
+        val here = gossipNearby(GossipPresence.metAt.value, Instant.now())
+            .map { names[it] ?: getString(R.string.gossip_notification_someone) }
+        return when {
+            here.isEmpty() && carrying > 0 ->
+                getString(R.string.gossip_notification_carrying, carrying)
+            here.isEmpty() -> getString(R.string.gossip_notification_idle)
+            here.size == 1 -> getString(R.string.gossip_notification_here_one, here[0])
+            here.size == 2 -> getString(R.string.gossip_notification_here_two, here[0], here[1])
+            else -> getString(R.string.gossip_notification_here_many, here[0], here.size - 1)
+        }
     }
 
     private fun startForegroundNotification(carrying: Int) {
@@ -218,10 +272,11 @@ class GossipService : Service() {
         val notification = Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_sync_noanim)
             .setContentTitle(getString(R.string.gossip_notification_title))
-            .setContentText(
-                if (carrying > 0) getString(R.string.gossip_notification_carrying, carrying)
-                else getString(R.string.gossip_notification_idle),
-            )
+            .setContentText(presenceText(carrying))
+            // The content names people this phone has been near. That belongs behind the
+            // lock screen: the shade is the audit trail ADR-0019 promised its owner, not a
+            // list of who somebody is with, readable off a table by anyone walking past.
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
             .setContentIntent(open)
             .addAction(
                 Notification.Action.Builder(null, getString(R.string.gossip_notification_stop), stop)
