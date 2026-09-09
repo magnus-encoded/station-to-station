@@ -1,13 +1,16 @@
 # Handoff: gossip check-ins do not cross between the Pixel and the iPhone
 
 **Status:** Android → iOS is fixed and **confirmed on hardware**. iOS → Android is narrowed to
-one line of Swift and is neither confirmed nor fixed.
+one line of Swift and is neither confirmed nor fixed. The Android *central* path is now also
+confirmed end-to-end against a synthetic peer — see *The rig*.
 **Written:** 2026-09-09, out of a debugging session on `gossip-ble-diagnostics`. Updated the
-same day with the live-capture results.
+same day with the live-capture results, and again that evening with the debugging rig.
 **Branches:** `gossip-write-limit` (`566ab67`) is the fix alone and is **PR #438** to `main`.
-`gossip-ble-diagnostics` carries the logging, the on-screen relay panel, and the presence work.
-**Constraint from the user:** the logging **stays off `main`**. Honoured — see *Next steps* for
-the three-way split, including which part of this branch *is* product and should follow.
+`gossip-presence` is the presence work alone and is **PR #439** to `main`.
+`gossip-ble-diagnostics` carries the logging and the on-screen relay panel, and is the branch
+this doc lives on.
+**Constraint from the user:** the logging **stays off `main`**. Honoured — both PRs above are
+clean of it; see *Next steps*.
 
 ## The symptom
 
@@ -174,10 +177,149 @@ Also: `startScan` / `startAdvertising` `runCatching` blocks now log failures (`:
 instead of swallowing them, and `GossipService.sync()` logs the run decision with all four
 inputs.
 
+## The rig
+
+Built 2026-09-09 on the CachyOS box, because the edit → CI → download-artifact → sideload loop
+was costing minutes per question in a problem that needs dozens of questions.
+
+### `st2s`, at `~/.local/bin/st2s`
+
+One script, three targets. `st2s` with no argument prints the commands.
+
+| Command | What it is for |
+| --- | --- |
+| `st2s test` | JVM unit tests. **~1.8 s** on a no-change rerun with the configuration cache warm. The real fast loop for `GossipPolicy` / storm-gate / write-limit work. |
+| `st2s push` | Build the debug APK and install it straight onto the Pixel over wireless adb. Replaces the whole CI-artifact cycle. |
+| `st2s plog` | Live gossip events off the Pixel, with the 4-second advertise heartbeat filtered out. |
+| `st2s pstate` | What the Pixel's own BT stack says it is doing, from `dumpsys`, rather than from our logs. |
+| `st2s ui` / `up` / `down` | The Waydroid container. UI only — see below. |
+
+The Pixel endpoint is `ST2S_PIXEL`, currently `192.168.1.216:32907`. It **moves whenever
+Android's wireless debugging restarts** — re-read it from Developer options and re-export.
+The box reaches it through pinet's NAT out to the 192.168.1.x LAN, which works.
+
+### Waydroid runs the app but can never test the radio
+
+LineageOS 20 / Android 13, VANILLA, session managed by `waydroid-container`. Good for the
+presence line, the gig screen, the relay notification, navigation.
+
+**It has no Bluetooth stack at all**, and this is structural, not a configuration miss:
+`/vendor/bin/hw/` ships 17 HAL services and `android.hardware.bluetooth` is not among them,
+there is no bluetooth apex, and `service list` registers no bluetooth service. A USB dongle
+does not help — Waydroid is an LXC container sharing the host kernel, so the host would see
+the dongle fine, but there is nothing on the Android side for it to bind to. Do not re-derive
+this; the answer is no.
+
+`GossipPresence.met()` only fires on a real BLE exchange, so `NearbyContacts` renders empty in
+Waydroid no matter what. Seeing the "also here" line there needs a `BuildConfig.DEBUG`-guarded
+seeding intent modelled on `handleHandoverDebugIntent` (`MainActivity.kt:169-190`). Offered,
+deliberately not written — it is diagnostics, and would have to stay off `main`.
+
+### 8 GB is the binding constraint
+
+Firefox + a booted Android container + a Gradle daemon do not fit. Measured: a full
+`assembleDebug` with the session up took a **global OOM** that killed two container processes
+and then the Gradle daemon at 1.45 GB RSS, surfacing as *"Gradle build daemon disappeared
+unexpectedly"*. Two mitigations, both in place:
+
+- `free_ram_for_build()` in `st2s` stops the Waydroid session around a build and restarts it
+  after. `ST2S_KEEP_SESSION=1` skips it.
+- `~/.gradle/gradle.properties` sets `kotlin.compiler.execution.strategy=in-process`, which
+  collapses two JVMs (daemon 1.4 GB + Kotlin daemon 0.9 GB) into one bounded heap. It lives in
+  `GRADLE_USER_HOME` **on purpose**: values there beat the project's, so CI runners keep the
+  committed `-Xmx2048m` while this box gets settings that fit 8 GB.
+
+The real fix is the RAM upgrade already noted in `CLAUDE.md` (2× DDR4 SO-DIMM, ~EUR 25).
+
+### The Pi is now a BLE peer
+
+`pinet` has a BCM43455 (WiFi and Bluetooth on one chip). Its controller was dead on arrival
+and is now fixed permanently.
+
+**Root cause.** `/proc/device-tree/soc/serial@7e201000/bluetooth/local-bd-address` is six zero
+bytes on this board — the Pi firmware never filled it in. So `btbcm` fell back to Broadcom's
+placeholder `43:45:C0:00:1F:AC`, set `HCI_QUIRK_INVALID_BDADDR`, and the kernel parked the
+controller as `HCI_UNCONFIGURED`. Nothing was faulty; the radio simply had no identity. The
+symptoms all follow from that and are individually misleading:
+
+```
+hciconfig hci0        -> DOWN RAW, ACL MTU 0:0
+hciconfig hci0 up     -> Can't init device hci0: Operation not supported (95)
+bluetoothctl show     -> No default controller available
+btmgmt info           -> Index list with 0 items      # it is on the *unconfigured* list
+btmgmt config         -> Unconfigured controller, missing options: public-address
+```
+
+Firmware *did* load at boot (`BCM4345C0 … Patch`, build 0382) and rfkill was clear
+(`soft=0 hard=0`) — both dead ends, do not chase them again.
+
+**Fix.** `/etc/systemd/system/bt-bdaddr.service`, enabled, hands it
+`B8:27:EB:7E:4B:0D` at boot — the Raspberry Pi OUI plus this board's serial-derived suffix,
+one past `eth0`'s. A BD_ADDR is a different address space from an Ethernet MAC, so it cannot
+collide on the LAN. `bluetoothd` sees the index-added and powers the controller on by itself.
+Verified: `UP RUNNING`, ACL MTU 1021:8, roles central **and** peripheral, 13 devices in a 10 s
+scan. **The WiFi uplink is unaffected** — different driver (`brcmfmac` over SDIO vs `hci_uart`
+over UART) despite the shared silicon.
+
+**Driving it** (all need `sudo`, and `--index 0`):
+
+```
+btmgmt --index 0 add-adv -u 7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7721 -c -g 1   # advertise gossip
+btmgmt --index 0 rm-adv 1                                                  # stop
+btmgmt --index 0 advinfo                                                   # instances
+btmgmt --index 0 find -l                                                   # LE scan
+```
+
+**Two `btmgmt` gotchas that cost time.** It is interactive by default, so `btmgmt --help`
+looks like a hang — it is sitting at its own prompt. And **never redirect its stdin from
+`/dev/null`**: it runs a mainloop and exits on EOF *before the mgmt reply arrives*, so the
+command silently does nothing and still exits 0.
+
+### What the Pi peer confirmed, and what it did not
+
+A peer advertising the gossip service UUID with **no manufacturer data** lands in exactly the
+branch `GossipRadio.onScanResult` reserves for iPhones — `push(address, null)`. So the Pi is a
+faithful stand-in for a *foregrounded* iPhone up to the point where a real GATT service would
+be needed, with no crypto to reimplement.
+
+Live off the Pixel, running the `gossip-ble-diagnostics` build 1.8.0.860:
+
+```
+17:47:16.069  saw a gossip radio (no token — an iPhone, or an android with nobody to advertise to)
+17:47:17.402  a peer connected to our server
+17:47:17.471  mtu negotiated to 517 (status=0), using 517
+17:47:17.895  gossip push to a peer gave up in "challenge" (peer never resolved)
+17:47:29.351  a peer disconnected from our server (status=0)
+```
+
+Scan filter matched, iPhone branch taken, connect and MTU negotiation both fine, and it gave up
+exactly where it should — the Pi advertises the UUID with nothing behind it. **The Android
+central path works end to end**, and the `why` strings on this branch name the stage correctly.
+
+**This does not re-open the struck discovery hypothesis.** A control run with the same radio
+advertising *without* the service UUID produced no `saw a gossip radio` line and no connection,
+with the 60 s cooldown already expired — but that outcome is guaranteed by
+`ScanFilter.setServiceUuid` and is a sanity check, not a finding. Discovery was already proven
+not to be the problem by the iPhone connecting ~40 times in five minutes.
+
+**The pairing prompt on the Pixel is not ours.** Both characteristics are declared
+`PERMISSION_READ` / `PERMISSION_WRITE` with no encryption, so gossip never requires a bond. The
+prompt and the subsequent `Detect bonding failure` lines come from Android's companion-device
+layer (`CDM_BluetoothOobPairing*`) reacting to an unknown device, and changed nothing about the
+test. Fortnite and Fitbit also wake up for stray BLE peers on that phone — ambient noise in any
+capture, not evidence.
+
+**What the Pi still cannot do.** It cannot answer the open iOS question, which is why the
+iPhone's `batch` is empty — that is iOS app logic. What it *could* do, with work, is serve a
+real gossip GATT service and push a well-formed Pass, which would exercise the Android
+**server** side (`deliver()`'s four drop reasons and the accept line) without needing a second
+phone. That harness is not written.
+
 ## Getting a live log off the Pixel, without a PC
 
-The bug report dance below is superseded. **Shizuku + `rish` in Termux** gives a uid-2000
-shell on the phone itself, which is `adb shell` in everything that matters here:
+Superseded by `st2s plog` above whenever the box is available. Still the right route with no PC
+to hand. The bug report dance is superseded by both. **Shizuku + `rish` in Termux** gives a
+uid-2000 shell on the phone itself, which is `adb shell` in everything that matters here:
 
 1. Shizuku app → start via **wireless debugging** (its own pairing flow works; `adb pair` from
    Termux does not — see the dead end below).
@@ -210,15 +352,18 @@ showing no push is not evidence of anything. Force-stop the app first.
 
 ## Next steps
 
-1. **Install the branch APK on the Pixel.** Every push to every branch builds one — Android CI,
-   artifact `app-debug`, 7-day retention. Get the current one with
-   `gh run list --branch gossip-ble-diagnostics` then
+1. **Install the branch APK on the Pixel.** From the box this is now just `st2s push` — build
+   and install in one step, no CI round trip. The APK on the phone as of 2026-09-09 15:48 is
+   1.8.0.860 off `gossip-ble-diagnostics`.
+
+   Without the box: every push to every branch builds one — Android CI, artifact `app-debug`,
+   7-day retention. `gh run list --branch gossip-ble-diagnostics` then
    `gh run download <id> -n app-debug`, or from the run page in a browser (the GitHub mobile
    app cannot download artifacts). **The nightly.link and run URLs in earlier versions of this
    doc are stale and 404** — artifact ids change every run, so never hard-code one here again.
 
-   Same committed debug key as the current build, so it installs over the top and keeps app
-   data and Contacts.
+   Same committed debug key throughout, so any of these install over the top and keep app data
+   and Contacts.
 
 2. **Run the fresh-gig test** described under *Still unexplained*: a new gig dated today on the
    iPhone, checked into, both apps in the foreground, `rish` logcat running on the Pixel.
@@ -233,11 +378,20 @@ showing no push is not evidence of anything. Force-stop the app first.
    The on-screen relay panel (this branch) shows the same thing without a terminal: live
    connections, the last event with an age, and the gate reason when the relay is off.
 
-4. **Branch split — done.** `gossip-write-limit` (`566ab67`) carries the fix and its test alone
-   and is open as PR #438. The logging and the relay panel stay here and are not for `main`.
-   The presence work — `gossipNearby`, `GossipPresence`, the notification and the "also here"
-   line — is product rather than diagnostics, is isolated in `2610710` with policy tests, and
-   should go to `main` as its own PR once it has been seen working on a phone.
+4. **Branch split — done, and both PRs are open.** `gossip-write-limit` (`566ab67`) carries the
+   512-byte fix and its test alone: **PR #438**. The presence work — `gossipNearby`,
+   `GossipPresence`, the notification and the "also here" line — is product rather than
+   diagnostics and went out as **PR #439** (`gossip-presence`, `7d13933`). Both await review.
+   The logging and the relay panel stay on `gossip-ble-diagnostics` and are **not for `main`**.
+
+   Note the presence work has still not been *seen* working on a phone, because
+   `GossipPresence.met()` only fires on a real BLE exchange and Waydroid has no radio. Its
+   policy is covered by unit tests; the rendering is not.
+
+5. **Unblocked by the rig, if it is worth doing.** A gossip GATT service on the Pi would let
+   the Android accept path be tested without a second phone — see *What the Pi still cannot
+   do*. Worth it only if the iOS side stays unfixable for a while; the fresh-gig test in step 2
+   is cheaper and answers the live question.
 
 ## Files that matter
 
@@ -251,5 +405,14 @@ showing no push is not evidence of anything. Force-stop the app first.
 | Wire grammar and the regression test | `android/app/src/test/.../GossipWireTest.kt` |
 | The LAN path, which is *not* gossip | `android/.../data/ContactReconcile.kt` |
 | The design this all serves | `docs/adr/0019-gossip-channel-background-carve-out.md` |
+
+Rig files, deliberately **not** in the repo — they are machine-local to the CachyOS box and to
+pinet, and belong to neither `main` nor this branch:
+
+| Thing | Where |
+| --- | --- |
+| The build/install/log loop | `~/.local/bin/st2s` on the CachyOS box |
+| Memory settings that keep a build from OOMing | `~/.gradle/gradle.properties` on that box |
+| The Pi's BD address fix | `/etc/systemd/system/bt-bdaddr.service` on pinet |
 
 Issues: #416 (Android gossip transport), #417 (iOS), #415 (the ADR).
