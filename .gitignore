@@ -227,3 +227,9 @@ desktop.ini
 *.jks
 keystore.properties
 *.aab
+
+# Cursor editor workspace config
+.cursor/
+
+# Untracked scratch note, see its own header
+testflight-setup.txt
