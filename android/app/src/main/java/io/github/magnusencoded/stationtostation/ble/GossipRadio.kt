@@ -635,7 +635,14 @@ class GossipCentral(
             }
         }
 
-        main.postDelayed({ finish(false) }, GOSSIP_PUSH_TIMEOUT_MS)
+        main.postDelayed({
+            // The phase is the whole story here: nothing answered, and this says what we
+            // were waiting on. Assigning unconditionally is safe — every other `why` is
+            // set immediately before its own `finish`, so if one of those ran first the
+            // `done` guard drops this before the value is ever read.
+            why = "no answer while waiting on \"$phase\""
+            finish(false)
+        }, GOSSIP_PUSH_TIMEOUT_MS)
 
         gattRef = device.connectGatt(context, false, object : BluetoothGattCallback() {
             override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
@@ -649,6 +656,7 @@ class GossipCentral(
                         if (!gatt.discoverServices()) finish(false)
                     }
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                    why = "they dropped the connection during \"$phase\""
                     finish(false)
                 }
             }
@@ -666,7 +674,18 @@ class GossipCentral(
                 phase = "challenge"
                 val characteristic = gatt.getService(GOSSIP_SERVICE_UUID)
                     ?.getCharacteristic(GOSSIP_CHALLENGE_UUID)
-                if (characteristic == null || !gatt.readCharacteristic(characteristic)) finish(false)
+                // Told apart because they mean opposite things. No characteristic is *their*
+                // side: the service was not there to read, so this is not a gossip peer at
+                // all — or their server went away between the advertisement and the connect.
+                // A refused read is *our* side, and points at this phone's stack.
+                if (characteristic == null) {
+                    why = "they have no gossip challenge to read (status=$status)"
+                    return finish(false)
+                }
+                if (!gatt.readCharacteristic(characteristic)) {
+                    why = "could not start the challenge read"
+                    return finish(false)
+                }
             }
 
             @Suppress("DEPRECATION") // the API 33 ByteArray overload does not exist on minSdk 26
