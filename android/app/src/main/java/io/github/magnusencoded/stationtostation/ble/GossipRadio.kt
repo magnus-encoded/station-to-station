@@ -31,6 +31,7 @@ import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_NONCE_BYTES
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_PEER_COOLDOWN
 import io.github.magnusencoded.stationtostation.data.gossip.GossipChallenge
 import io.github.magnusencoded.stationtostation.data.gossip.GossipPass
+import io.github.magnusencoded.stationtostation.data.gossip.GossipRadioStatus
 import io.github.magnusencoded.stationtostation.data.gossip.decodeGossipChallenge
 import io.github.magnusencoded.stationtostation.data.gossip.decodeGossipPass
 import io.github.magnusencoded.stationtostation.data.gossip.encodeGossipChallenge
@@ -173,6 +174,8 @@ class GossipPeripheral(
     private val advertiseCallback = object : AdvertiseCallback() {
         override fun onStartFailure(errorCode: Int) {
             Log.w(TAG, "gossip advertising failed, error=$errorCode")
+            GossipRadioStatus.advertising(false)
+            GossipRadioStatus.note("could not advertise (error $errorCode)")
         }
     }
 
@@ -256,9 +259,13 @@ class GossipPeripheral(
             // appears here never tried to push to us, which is a different fault from one that
             // connects and then fails.
             when (newState) {
-                BluetoothProfile.STATE_CONNECTED -> Log.i(TAG, "a peer connected to our server")
+                BluetoothProfile.STATE_CONNECTED -> {
+                    Log.i(TAG, "a peer connected to our server")
+                    GossipRadioStatus.peerArrived(device.address)
+                }
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     Log.i(TAG, "a peer disconnected from our server (status=$status)")
+                    GossipRadioStatus.peerLeft(device.address)
                     forget(device.address)
                 }
             }
@@ -293,21 +300,27 @@ class GossipPeripheral(
         val nonce = nonces[address] ?: return
         val pass = decodeGossipPass(payload) ?: run {
             Log.w(TAG, "unreadable pass (${payload.size} bytes), dropped")
+            GossipRadioStatus.note("dropped an unreadable pass")
             return
         }
         if (pass.from !in contacts()) {
             Log.w(TAG, "a pass came from a key that is not one of my contacts, dropped")
+            GossipRadioStatus.note("dropped a pass from a stranger")
             return
         }
         val signature = runCatching { Base64.getDecoder().decode(pass.proof) }.getOrNull() ?: run {
             Log.w(TAG, "a pass carried an undecodable proof, dropped")
+            GossipRadioStatus.note("dropped a pass with an unreadable proof")
             return
         }
         if (!verifyChallenge(gossipAuthPayload(nonce), signature, pass.from)) {
             Log.w(TAG, "a pass failed the possession proof, dropped")
+            GossipRadioStatus.note("dropped a pass that failed its proof")
             return
         }
         Log.i(TAG, "accepted a pass of ${pass.batch.size} message(s) from a contact")
+        GossipRadioStatus.peerNamed(address, pass.from)
+        GossipRadioStatus.note("took ${pass.batch.size} message(s)")
         // Spent: a nonce answers exactly one **Pass**, so a peer that pushes twice on one
         // connection has to read a new challenge for the second.
         nonces.remove(address)
@@ -353,6 +366,7 @@ class GossipPeripheral(
             // Nobody to advertise to yet. Come back anyway rather than stopping the timer:
             // a **Contact** made while the service is running is one this loop picks up on
             // its next turn, and dying here would mean the radio silently never woke.
+            GossipRadioStatus.advertising(false)
             main.postDelayed(rotation, GOSSIP_ADVERTISE_SLOT.toMillis())
             return
         }
@@ -376,8 +390,15 @@ class GossipPeripheral(
             .addManufacturerData(TEST_COMPANY_ID, token)
             .build()
         runCatching { advertiser?.startAdvertising(settings, advertisement, scanResponse, advertiseCallback) }
-            .onSuccess { advertising = true; Log.i(TAG, "advertising a token for one contact") }
-            .onFailure { Log.w(TAG, "gossip advertising could not start: $it") }
+            .onSuccess {
+                advertising = true
+                Log.i(TAG, "advertising a token for one contact")
+                GossipRadioStatus.advertising(true)
+            }
+            .onFailure {
+                Log.w(TAG, "gossip advertising could not start: $it")
+                GossipRadioStatus.advertising(false)
+            }
         main.postDelayed(rotation, GOSSIP_ADVERTISE_SLOT.toMillis())
     }
 
@@ -398,6 +419,9 @@ class GossipPeripheral(
         inbox.clear()
         nonces.clear()
         challenges.clear()
+        // Not in [stopAdvertising]: [rotate] stops and starts on every slot, and a status
+        // that went false four times a minute would be reporting the rotation, not the radio.
+        GossipRadioStatus.advertising(false)
     }
 }
 
@@ -495,6 +519,8 @@ class GossipCentral(
         override fun onScanFailed(errorCode: Int) {
             Log.w(TAG, "gossip scan failed, error=$errorCode")
             scanning = false
+            GossipRadioStatus.scanning(false)
+            GossipRadioStatus.note("the scan failed (error $errorCode)")
         }
     }
 
@@ -523,8 +549,15 @@ class GossipCentral(
             .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
             .build()
         runCatching { manager.adapter?.bluetoothLeScanner?.startScan(listOf(filter), settings, callback) }
-            .onSuccess { scanning = true; Log.i(TAG, "gossip scan started") }
-            .onFailure { Log.w(TAG, "gossip scan could not start: $it") }
+            .onSuccess {
+                scanning = true
+                Log.i(TAG, "gossip scan started")
+                GossipRadioStatus.scanning(true)
+            }
+            .onFailure {
+                Log.w(TAG, "gossip scan could not start: $it")
+                GossipRadioStatus.scanning(false)
+            }
     }
 
     @SuppressLint("MissingPermission")
@@ -536,6 +569,8 @@ class GossipCentral(
         table = emptyMap()
         attempted.clear()
         logged.clear()
+        GossipRadioStatus.scanning(false)
+        GossipRadioStatus.pushClosed()
     }
 
     /**
@@ -558,6 +593,7 @@ class GossipCentral(
     private fun push(address: String, expected: String?) {
         val device = runCatching { manager.adapter?.getRemoteDevice(address) }.getOrNull()
         if (device == null) { busy = false; return }
+        GossipRadioStatus.pushOpened(address)
         var gattRef: BluetoothGatt? = null
         var done = false
         var phase = "connect"
@@ -576,13 +612,16 @@ class GossipCentral(
             main.removeCallbacksAndMessages(null)
             runCatching { gattRef?.disconnect(); gattRef?.close() }
             busy = false
+            GossipRadioStatus.pushClosed()
             val who = peer
             if (pushed && who != null) {
                 Log.i(TAG, "push delivered to a contact")
+                GossipRadioStatus.note("handed over ${chunks.size - 1} chunk(s)")
                 onPushed(who)
             } else {
                 val known = if (peer != null) "contact resolved" else "peer never resolved"
                 Log.w(TAG, "gossip push to a peer gave up in \"$phase\" ($known)")
+                GossipRadioStatus.note("gave up in \"$phase\"")
             }
         }
 
@@ -650,6 +689,7 @@ class GossipCentral(
                     return finish(false)
                 }
                 peer = who
+                GossipRadioStatus.pushNamed(who)
                 if (!due(who)) {
                     Log.i(TAG, "contact resolved but still inside the push cooldown")
                     return finish(false)

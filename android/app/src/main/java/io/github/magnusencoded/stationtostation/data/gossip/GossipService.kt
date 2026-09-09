@@ -127,6 +127,7 @@ class GossipService : Service() {
         peripheral = null
         central = null
         GossipPresence.forget()
+        GossipRadioStatus.radioStopped()
         scope.cancel()
         super.onDestroy()
     }
@@ -164,6 +165,8 @@ class GossipService : Service() {
                 startForegroundNotification(held.size)
             },
         ).also { it.start() }
+
+        GossipRadioStatus.radioStarted()
 
         // Presence lapses in silence — nobody announces leaving — so the notification has to
         // be rebuilt on a clock as well as on events, or a **Contact** who walked off would
@@ -313,6 +316,10 @@ class GossipService : Service() {
                 TAG,
                 "relay should run: $run (contacts=$contacts, holding=$holding, " +
                     "gigTonight=$gigTonight, alwaysRelay=$alwaysRelay)",
+            )
+            GossipRadioStatus.gate(
+                "contacts=$contacts, holding=$holding, gigTonight=$gigTonight, " +
+                    "alwaysRelay=$alwaysRelay",
             )
             if (run) {
                 runCatching { context.startForegroundService(intent) }

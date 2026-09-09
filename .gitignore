@@ -219,6 +219,7 @@ ship.sh
 *.apk
 .obsidian/
 .vscode/
+.claude/
 desktop.ini
 
 # Play upload key and its credentials. Never committed: the keystore signs
