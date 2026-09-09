@@ -66,7 +66,10 @@ import com.google.zxing.MultiFormatWriter
 import io.github.magnusencoded.stationtostation.AppViewModel
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangePeer
+import io.github.magnusencoded.stationtostation.data.gossip.GossipPresence
+import io.github.magnusencoded.stationtostation.data.gossip.gossipNearby
 import kotlinx.coroutines.delay
+import java.time.Instant
 
 private val Ground = Color(0xFF0E0B14)
 private val Raised = Color(0xFF17121F)
@@ -163,6 +166,8 @@ fun ExchangeScreen(
                     .padding(horizontal = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                Spacer(Modifier.height(8.dp))
+                NearbyContacts(friends = state.friends)
                 val connecting = state.connectingWith
                 // Scanning runs whether or not I have a card, so the radar is honest for
                 // everyone. What changes without a username is only that I am not
@@ -212,6 +217,51 @@ fun ExchangeScreen(
             }
         }
     }
+}
+
+/**
+ * "Ange is also here" — the one thing about the relay a person actually wants told.
+ *
+ * Not what the radios are doing: who is in the room. Everything below this on the screen is
+ * about machinery, and none of it is what somebody standing at a venue is asking.
+ *
+ * It says nothing when nobody is nearby, deliberately. "Nobody is here" is a claim this phone
+ * cannot make — a **Contact** in the same room with their phone in a pocket, or out of
+ * Bluetooth range across a hall, is not absent — so an empty room gets silence rather than a
+ * line asserting emptiness.
+ *
+ * A **Contact** without a name shows as "Someone" rather than being dropped: they were heard
+ * from, and losing them would report a quieter room than the one being stood in.
+ */
+@Composable
+private fun NearbyContacts(friends: List<Friend>) {
+    val metAt by GossipPresence.metAt.collectAsStateWithLifecycle()
+    // Presence is measured in minutes, so this only has to be often enough that somebody who
+    // walked off stops being named within a few seconds of the window running out.
+    var now by remember { mutableStateOf(Instant.now()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = Instant.now()
+            delay(10_000)
+        }
+    }
+
+    val here = gossipNearby(metAt, now).map { key ->
+        friends.firstOrNull { it.publicKey == key }?.name ?: "Someone"
+    }
+    if (here.isEmpty()) return
+
+    Text(
+        when (here.size) {
+            1 -> "${here[0]} is also here"
+            2 -> "${here[0]} and ${here[1]} are also here"
+            else -> "${here[0]} and ${here.size - 1} others are also here"
+        },
+        color = Amber,
+        fontSize = 15.sp,
+        fontWeight = FontWeight.Medium,
+    )
+    Spacer(Modifier.height(16.dp))
 }
 
 /** The ambient "looking around you" state and the live list — one radar, one list of rows. */
