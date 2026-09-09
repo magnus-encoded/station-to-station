@@ -598,6 +598,16 @@ class GossipCentral(
         var done = false
         var phase = "connect"
 
+        /**
+         * The outcome in words, for the screen, when there is one worth telling apart.
+         *
+         * The phase name alone is not enough to read a panel by: five different things end a
+         * push in `"challenge"`, and one of them — the cooldown — is the radio working. A line
+         * that cannot separate "we spoke a minute ago" from "I could not sign the nonce" is a
+         * line that has to be checked against logcat, which is what the panel exists to avoid.
+         */
+        var why: String? = null
+
         /** Who the challenge said this is. Null until it has been read and resolved. */
         var peer: String? = null
 
@@ -621,7 +631,7 @@ class GossipCentral(
             } else {
                 val known = if (peer != null) "contact resolved" else "peer never resolved"
                 Log.w(TAG, "gossip push to a peer gave up in \"$phase\" ($known)")
-                GossipRadioStatus.note("gave up in \"$phase\"")
+                GossipRadioStatus.note(why ?: "gave up in \"$phase\"")
             }
         }
 
@@ -667,10 +677,12 @@ class GossipCentral(
             ) {
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     Log.w(TAG, "challenge read failed, status=$status")
+                    why = "could not read their challenge (status=$status)"
                     return finish(false)
                 }
                 val challenge = decodeGossipChallenge(characteristic.value) ?: run {
                     Log.w(TAG, "challenge unreadable (${characteristic.value?.size ?: 0} bytes)")
+                    why = "their challenge was unreadable"
                     return finish(false)
                 }
                 // Who this is, decided here and nowhere else on this path. A stranger's offer
@@ -682,25 +694,30 @@ class GossipCentral(
                         "challenge offered ${challenge.tokens.size} token(s), none of my " +
                             "${table.size} — a stranger, or a contact we disagree about",
                     )
+                    why = "a stranger, or a contact we disagree about"
                     return finish(false)
                 }
                 if (expected != null && expected != who) {
                     Log.w(TAG, "peer advertised one contact and offered another")
+                    why = "advertised one contact and offered another"
                     return finish(false)
                 }
                 peer = who
                 GossipRadioStatus.pushNamed(who)
                 if (!due(who)) {
                     Log.i(TAG, "contact resolved but still inside the push cooldown")
+                    why = "spoke to them recently, waiting out the cooldown"
                     return finish(false)
                 }
                 val batch = outboxFor(who)
                 if (batch.isEmpty()) {
                     Log.i(TAG, "contact resolved, nothing in the outbox for them")
+                    why = "nothing to tell them"
                     return finish(false)
                 }
                 val signature = sign(gossipAuthPayload(challenge.nonce)) ?: run {
                     Log.w(TAG, "could not sign the nonce")
+                    why = "could not sign their nonce"
                     return finish(false)
                 }
                 val payload = encodeGossipPass(
