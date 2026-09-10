@@ -1,6 +1,6 @@
 # ADR-0019: The gossip channel is a narrow, named carve-out from ADR-0016
 
-**Status:** accepted (2026-09-04)
+**Status:** accepted (2026-09-04); ~~Contact-only propagation~~ **superseded by ADR-0021** (amended 2026-09-11)
 
 ## Context
 
@@ -52,24 +52,25 @@ Exchange screen open and no human watching.
 
 ### Propagation rule
 
-A gossip message is accepted from, and relayed to, a **Contact only — never a Followed
+~~A gossip message is accepted from, and relayed to, a **Contact only — never a Followed
 line.** A Followed line is one-sided and requires no consent; extending gossip relay to it
 would let attendance facts propagate to people who never exchanged keys with anyone in the
 chain, which is exactly the kind of trust-without-presence ADR-0016 exists to prevent. The
 edge a gossip message travels along must be the same mutual, in-person edge ADR-0016
 authenticates — gossip only ever rides on trust presence already built, it does not create
-any of its own.
+any of its own.~~ **Superseded by ADR-0021 — see the amendment of 2026-09-11 below.**
 
 Because a relay hop by definition has no live session with the message's original sender,
 trust cannot be established the way Reconcile establishes it (a fingerprint-bound
 challenge-response, per ADR-0016 §"what this does not cover"). Instead, each message is
-verified **per-message, by signature**: the envelope carries `checkedInBy` (the checking-in
+verified **per-message, by signature**: ~~the envelope carries `checkedInBy` (the checking-in
 Contact's public key) and a `signature` over the payload, checked against a key the receiving
-device already holds for a known Contact. There is no live session to trust and none is
+device already holds for a known Contact.~~ **v2 signs with a per-Gig temporary key and seals
+the durable attribution; see ADR-0021.** There is no live session to trust and none is
 needed — the signature is the only thing that has to survive the hop. Dedup, TTL, and
-signature verification are a pure decision function with no I/O — the storm-gate module
-tracked in #410 — so that the rule above is enforced the same way, and testably, on both
-platforms.
+signature verification are a pure decision function with no I/O — ~~the storm-gate module
+tracked in #410~~ **`PublicGossipState.receive` and `GossipEnvelope.valid()`** — so that the
+rule above is enforced the same way, and testably, on both platforms.
 
 ### Platform cost, stated plainly
 
@@ -112,31 +113,39 @@ Stated explicitly, for the same reason ADR-0016 stated its own list explicitly:
 - **It does not apply to Reconcile.** The LAN Reconcile session keeps its own
   fingerprint-bound, foreground-only verification. Gossip's per-message signature check is
   not a substitute for it and is not being proposed as one anywhere else in the system.
-- **It does not permit any payload beyond a check-in fact.** The gossip channel exists to
+- ~~**It does not permit any payload beyond a check-in fact.** The gossip channel exists to
   move `GossipCheckIn` messages — Gig id, checking-in Contact, timestamp, expiry, signature —
   and nothing else. It is not a general-purpose background messaging channel, and a future
   proposal to widen its payload should be read as a new decision, not an extension of this
-  one.
+  one.~~ **Widened by ADR-0021 to four kinds — `log`, `request`, `witness`, `receipt` — as
+  its own decision, which is exactly the "new decision" this clause asked for.**
 
 ## Consequences
 
 - **Two transport issues (#416 Android, #417 iOS) are blocked on this ADR** and implement
-  exactly the boundary drawn above — the propagation rule, the per-message signature check
-  via the #410 storm-gate function, and no more.
+  exactly the boundary drawn above — ~~the propagation rule, the per-message signature check
+  via the #410 storm-gate function~~ **the per-message signature check, now in
+  `PublicGossipState.receive`**, and no more.
 - **A future proposal to relay anything other than a check-in fact, or to relay across a
   Followed line, is a new decision**, not a reading of this one. It should be argued on its
   own, the way this ADR had to be argued against ADR-0016 rather than assumed from it.
-- **The thing to watch is the payload and the edge.** As long as gossip only ever carries a
+  **ADR-0021 is that decision, made 2026-09-10.**
+- ~~**The thing to watch is the payload and the edge.** As long as gossip only ever carries a
   signed check-in fact and only ever travels Contact-to-Contact, this carve-out stays exactly
-  as narrow as it is today.
+  as narrow as it is today.~~ **Both widened by ADR-0021: the payload is four kinds, and the
+  edge is any device in range. What stays narrow is the background permission this ADR
+  granted, which ADR-0021 did not touch.**
 
 ## Related
 
 - ADR-0016 — the decision this narrows; presence still authenticates the Contact edge gossip
   relays along.
 - #408 — the epic this ADR is part of.
-- #410 — the storm-gate module (dedup/TTL/signature, pure function) that enforces the
-  propagation rule.
+- ~~#410 — the storm-gate module (dedup/TTL/signature, pure function) that enforces the
+  propagation rule.~~ **Deleted in #449; the same decision now lives in
+  `PublicGossipState.receive` and `GossipEnvelope.valid()`.**
+- ADR-0021 — supersedes the propagation rule below; gossip facts are public and carried by
+  blind relays.
 - #416, #417 — the Android and iOS transport implementations blocked on this ADR.
 - `UBIQUITOUS_LANGUAGE.md`, **Contact** and **Followed line** — the edge this decision does
   and does not permit gossip to travel along.
@@ -388,3 +397,73 @@ not.
 - **No cross-platform integration test.** Both sides assert the same fixed Token vector and
   the same wire grammar from the same fixtures, which is what catches a drift in the bytes. It
   is not the same as two phones in a room, and nothing in CI can be.
+
+---
+
+## Amendment — 2026-09-11: the propagation rule is superseded, and the storm gate is gone
+
+Written after #449 deleted the v1 pipeline. Two things above are no longer true, and the
+house rule is that they stay on the page struck through rather than disappear. Nothing here
+reopens the background permission this ADR exists to grant — that survives intact and is
+still the only thing on this page load-bearing for the current design.
+
+### 1. Contact-only propagation is superseded by ADR-0021
+
+The body argues, at length, that a gossip message must travel only along the mutual,
+in-person edge ADR-0016 authenticates. **ADR-0021 reverses that**: gossip facts are public,
+signed assertions carried by *any* device in BLE range, including devices that hold no
+Contact relationship with the author and cannot tell who the author is.
+
+The reasoning that replaced it is on ADR-0021's own page and belongs there, but the short
+form is the one this ADR could not see: Contact-to-Contact relay is a rendezvous problem, and
+in a sparsely adopted venue the set of devices that are both a Contact *and* in range is
+usually empty. The carve-out this ADR won was for the walk home; the rule it paired with the
+carve-out meant almost nothing made the walk.
+
+What replaced the trust argument is not a weaker version of it. A fact is signed by a
+**temporary per-Gig key**, and the durable Contact key that proves authorship is *sealed*
+into the attribution field under a key derived from the author's Card public key. A blind
+relay carries bytes it cannot attribute; a Contact who already holds that Card key recognises
+the author permanently, including after removing the Contact. So the disclosure this ADR
+accepted under "Disclosure to the relaying device" — a stable identity key handed to a
+stranger-of-a-friend — is one v2 does not make. That section is now describing a cost the
+design no longer pays, and it is the one place where being superseded made the record
+*better*.
+
+**Block** consequently changed meaning: it governs local application admission only. A
+blocked author's facts still cross the radio, they simply never enter this device's record.
+
+### 2. The storm gate is not a module any more
+
+The body names `gossipStormGate` (#410) three times as the pure decision function enforcing
+all of this. That module was deleted in **#449**, along with the rest of the v1 pipeline it
+belonged to, having been unreachable since `2a1838e` replaced the v1 transport.
+
+The decision it held did not go anywhere — it was not weakened and it was not spread around.
+It moved into two named places, both still pure and still asserted from both platforms'
+suites:
+
+- **`GossipEnvelope.valid()`** — the per-Envelope grammar: field bounds, the content hash
+  matching the signed bytes, the signature, and the recursive check that a `witness` embeds a
+  real `request` it did not author.
+- **`PublicGossipState.receive()`** — the stateful half: dedup against `seen`, expiry and
+  clock-skew bounds, one-hop enforcement for `request` and `receipt`, the `blocked` check, and
+  admission to the outbox.
+
+`CONTEXT.md` keeps the term **Storm gate** for the rule, because the rule is what the
+vocabulary was ever about. It is no longer the name of a file.
+
+### What did not change
+
+- **The background permission.** A device may still advertise, listen and relay with no
+  Exchange screen open and nobody watching. Every word of "Platform cost, stated plainly" and
+  of §6 in the 2026-09-08 amendment still applies unchanged.
+- **Reconcile, media and Notes.** Still foreground-only, still Contact-scoped, still
+  fingerprint-bound. ADR-0021 says so explicitly, and it is the boundary that makes widening
+  gossip affordable: the private things never moved.
+- **A Contact is still only ever minted in person.** Gossip mints nothing and carries no Card.
+- **§1 of the 2026-09-08 amendment is now history rather than specification.** The pairwise
+  **Token** it settled, and the fixed cross-platform vector it turns on, described v1
+  recognition. v2 has no Contact tokens on the air at all — Android advertises the service
+  continuously — so nothing derives that value any more. The argument for why a derivation
+  only one platform can compute is not a wire format is worth keeping; the derivation is not.
