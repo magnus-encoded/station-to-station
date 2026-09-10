@@ -101,7 +101,7 @@ struct PublicGossipDelivery {
 func encodePublicGossipPass(_ pass: PublicGossipPass) -> Data? {
     guard [pass.from, pass.proof].allSatisfy({ !$0.isEmpty && $0.utf8.count <= 256 && !$0.contains("\t") && !$0.contains("\n") }) else { return nil }
     var bytes = Data("\(publicGossipPassHeader)\n\(pass.from)\t\(pass.proof)".utf8)
-    for envelope in pass.batch.prefix(64) {
+    for envelope in pass.batch.prefix(gossipMaxBatch) {
         let record = Data(envelope.record().utf8)
         guard record.count <= 8192, bytes.count + record.count + 1 <= gossipMaxWireBytes else { break }
         bytes.append(10)
@@ -115,7 +115,7 @@ func decodePublicGossipPass(_ bytes: Data) -> PublicGossipPass? {
     guard lines.count >= 2, lines[0] == publicGossipPassHeader else { return nil }
     let claim = lines[1].components(separatedBy: "\t")
     guard claim.count == 2, claim.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 256 }) else { return nil }
-    return PublicGossipPass(from: claim[0], proof: claim[1], batch: lines.dropFirst(2).prefix(64).compactMap(decodePublicEnvelope))
+    return PublicGossipPass(from: claim[0], proof: claim[1], batch: lines.dropFirst(2).prefix(gossipMaxBatch).compactMap(decodePublicEnvelope))
 }
 struct PublicHeld: Codable {
     var envelope: GossipEnvelope
@@ -160,7 +160,7 @@ struct PublicGossipState: Codable {
         // The encoder owns the byte budget, including the actual relay proof header.
         return Array(held.values.filter { !$0.delivered.contains(peer) }.sorted {
             ($0.envelope.createdAt, $0.envelope.id) > ($1.envelope.createdAt, $1.envelope.id)
-        }.prefix(64).map { $0.envelope })
+        }.prefix(gossipMaxBatch).map { $0.envelope })
     }
     mutating func delivered(to peer: String, ids: [String]) {
         for id in ids { held[id]?.delivered.insert(peer) }

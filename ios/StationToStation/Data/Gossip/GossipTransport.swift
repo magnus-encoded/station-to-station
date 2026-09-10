@@ -1,10 +1,16 @@
 import CoreBluetooth
 import Foundation
 
-// The CoreBluetooth half of the gossip channel (#417) — the plumbing under `GossipWire.swift`
-// and `gossipStormGate`, which are where every decision actually lives (ADR-0001). Nothing in
-// this file judges a message. It moves bytes, hands them to the gate, and keeps what the gate
-// says to keep.
+// The CoreBluetooth half of the gossip channel (#417) — the plumbing under `GossipGatt.swift`
+// and `PublicGossip.swift`, which are where every decision actually lives (ADR-0001). Nothing
+// in this file judges a fact. It moves bytes and hands them to `GossipChannel`, which hands
+// them to `PublicGossipState.receive`, and keeps what that says to keep.
+//
+// It does own exactly one check, because nothing above it can: whether the peer that pushed a
+// **Pass** holds the key it claims. `peripheralManager(_:didReceiveWrite:)` verifies the peer's
+// signature over `publicGossipAuthPayload` of the nonce *this* device issued, and drops the
+// whole Pass if it does not verify — so `from` is established fact by the time any envelope is
+// named to the ledger.
 //
 // The Exchange's own radio is `BleExchange.swift` and stays exactly as ADR-0016 left it:
 // foreground, screen-gated, its own service UUID, untouched by anything here. This is the one
@@ -93,9 +99,11 @@ private let gossipMaxConcurrentMeetings = 4
 /// otherwise creates the bug.
 ///
 /// Not unit-tested, and the file is arranged so that this is not a gap: every value it computes
-/// comes from `GossipToken`/`GossipWire`, every decision from `gossipStormGate`, every retention
-/// rule from `GossipLedger` and `GossipBudget` — all of which are asserted without a radio. What
-/// is left here is CoreBluetooth's own behaviour, which only two real phones can exercise.
+/// comes from `GossipGatt`/`PublicGossip`, every decision from `PublicGossipState.receive` and
+/// `GossipEnvelope.valid()`, every retention rule from `GossipLedger` and `GossipBudget` — all
+/// of which are asserted without a radio. What is left here is CoreBluetooth's own behaviour,
+/// which only two real phones can exercise, plus the possession check above, which needs a
+/// second phone to exercise honestly.
 final class GossipTransport: NSObject {
 
     static let shared = GossipTransport()
@@ -521,8 +529,6 @@ extension GossipTransport: CBPeripheralManagerDelegate {
             }
             onPublicDelivery?(PublicGossipDelivery(from: publicPass.from, pass: publicPass))
             Task { [channel] in await channel.receivePublic(publicPass, from: publicPass.from) }
-            return
         }
-
     }
 }

@@ -91,15 +91,12 @@ import io.github.magnusencoded.stationtostation.data.exchange.ContactExchange
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangePeer
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangeSession
 import io.github.magnusencoded.stationtostation.data.exchange.contactIdentityPublicKeyBase64
-import io.github.magnusencoded.stationtostation.data.exchange.signWithContactIdentity
-import io.github.magnusencoded.stationtostation.data.contactKeysOf
-import io.github.magnusencoded.stationtostation.data.gossipExpiry
-import io.github.magnusencoded.stationtostation.data.gossip.GossipHeld
+import io.github.magnusencoded.stationtostation.data.gossip.contactKeysOf
+import io.github.magnusencoded.stationtostation.data.gossip.gossipExpiry
 import io.github.magnusencoded.stationtostation.data.gossip.GossipService
 import io.github.magnusencoded.stationtostation.data.gossip.GossipStore
 import io.github.magnusencoded.stationtostation.data.gossip.gigDatesOf
 import io.github.magnusencoded.stationtostation.data.gossip.gossipGigTonight
-import io.github.magnusencoded.stationtostation.data.gossip.mintGossipCheckIn
 import io.github.magnusencoded.stationtostation.data.gossip.GigIdentity
 import io.github.magnusencoded.stationtostation.data.gossip.GossipEnvelope
 import io.github.magnusencoded.stationtostation.data.contactManifest
@@ -2390,41 +2387,38 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Mint this phone's own check-in and start carrying it (#416).
+     * Author this phone's own check-in as a public **Envelope** and start carrying it (#416).
      *
-     * Held in the same store a relayed message lands in, and pushed by the same radio, so
-     * "mine" and "someone else's" differ in exactly one field —
-     * [GossipHeld.arrivedFrom][io.github.magnusencoded.stationtostation.data.gossip.GossipHeld.arrivedFrom]
-     * — and there is no second path to keep working.
+     * It goes into the same store, and through the same
+     * [receive][io.github.magnusencoded.stationtostation.data.gossip.PublicGossipState.receive],
+     * that an envelope arriving off the radio does — `local = true` marking only that the
+     * transport did not vouch for the sender, because there was no transport. There is no
+     * second authoring path to keep working, and no way for a check-in this device made to
+     * be shaped differently from one it relays.
+     *
+     * **The author is a temporary **Gig** key, not this device's **Contact** identity.** The
+     * scope is bound to the *local* **Gig** rather than its external id, so a setlist.fm id
+     * arriving later does not rotate who the night's entries were written by; the durable
+     * Contact key appears nowhere on the wire, only inside the masked attribution proof.
      *
      * Quietly does nothing where there is nothing to do: a **Gig** with no date to expire
-     * against, no **Contact** to tell, or a signer that refuses. A check-in is a fact about
-     * this timeline first; whether anyone hears about it is secondary, and an error about the
-     * secondary thing would be noise on a night out.
+     * against, no local **Gig** to bind a scope to, or a signer that refuses. A check-in is a
+     * fact about this timeline first; whether anyone hears about it is secondary, and an
+     * error about the secondary thing would be noise on a night out.
      */
     private suspend fun gossipAbout(gigId: String) {
         val gigDate = _state.value.plannedGigs.firstOrNull { it.id == gigId }?.localDate()
             ?: return
-        val mine = runCatching { contactIdentityPublicKeyBase64() }.getOrNull() ?: return
-        val message = mintGossipCheckIn(
-            gigId = gigId,
-            checkedInBy = mine,
-            checkedInAt = Instant.now(),
-            expiresAt = gossipExpiry(gigDate),
-            sign = { payload -> runCatching { signWithContactIdentity(payload) }.getOrNull() },
-        ) ?: return
-        gossip.update { held -> held + GossipHeld(message, arrivedFrom = null, expiry = message.expiresAt) }
-        // The public v2 assertion is kept alongside the legacy control message. Its
-        // temporary Gig key follows this local Gig representation; the durable Contact key
-        // exists only inside the masked attribution proof.
         val cache = timelines.load()
         val localGig = cache.gigs[gigId] ?: cache.gigForSetlist(gigId) ?: return
         val scope = gossip.authorScope(localGig.id)
         val identity = GigIdentity(scope)
-        val author = identity.publicKey()
+        // The same night-end ceiling a relay would have capped the claim at, so this device
+        // asks for exactly as long as a stranger carrying for it would have allowed.
+        val createdAt = Instant.now()
         val public = GossipEnvelope(
-            gigId = gigId, scope = scope, author = author,
-            createdAt = message.checkedInAt.toEpochMilli(), expiresAt = message.expiresAt.toEpochMilli(),
+            gigId = gigId, scope = scope, author = identity.publicKey(),
+            createdAt = createdAt.toEpochMilli(), expiresAt = gossipExpiry(gigDate).toEpochMilli(),
             kind = "log", line = 0, text = "Checked in",
             attribution = identity.attribution(),
         ).signed(identity::sign)

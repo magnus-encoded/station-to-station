@@ -8,15 +8,17 @@ import kotlinx.serialization.json.Json
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import kotlinx.coroutines.flow.first
-import java.time.Instant
 import java.util.UUID
 
 /**
  * Device-local gossip state, excluded from backup by both Android backup rule files.
  * Public v2 application facts survive relay expiry here, while seen IDs, outbox entries
  * and usefulness expire independently. Raw relay state does not enter timeline exports.
- * The legacy held key is retained for existing callers while authoring is replaced.
+ *
+ * One key, `public_v2`, plus the author-scope bindings. The v1 `held` key is gone with the
+ * v1 pipeline: nothing read it, and a preferences key nobody reads is a stale copy of the
+ * night waiting to be mistaken for the live one. An existing install's leftover `held`
+ * entry is simply never touched again, and goes when the app's data does.
  */
 private val Context.gossipStore by preferencesDataStore(name = "gossip")
 
@@ -33,7 +35,6 @@ class GossipStore(private val data: DataStore<Preferences>) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     private object Keys {
-        val HELD = stringPreferencesKey("held")
         val PUBLIC = stringPreferencesKey("public_v2")
         val SCOPES = stringPreferencesKey("author_scopes_v2")
     }
@@ -73,31 +74,5 @@ class GossipStore(private val data: DataStore<Preferences>) {
             edit(state)
             prefs[Keys.PUBLIC] = json.encodeToString(PublicGossipState.serializer(), state)
         }
-    }
-
-    /** Everything still live, pruned on the way out — a read is also a chance to forget. */
-    suspend fun held(now: Instant = Instant.now()): List<GossipHeld> =
-        pruneGossipHeld(decodeGossipHeld(data.data.first()[Keys.HELD]), now)
-
-    /**
-     * Read, prune, edit and write as one operation.
-     *
-     * `edit` rather than a read followed by a save: the radio's two halves both land here —
-     * a peer pushing to this device and this device minting its own check-in — and a
-     * read-modify-write pair would let one of them overwrite the other's message with a
-     * list it had already read. Returns what was actually stored, so the caller acts on the
-     * same list the disk now holds.
-     */
-    suspend fun update(
-        now: Instant = Instant.now(),
-        edit: (List<GossipHeld>) -> List<GossipHeld>,
-    ): List<GossipHeld> {
-        var written = emptyList<GossipHeld>()
-        data.edit { prefs ->
-            val current = pruneGossipHeld(decodeGossipHeld(prefs[Keys.HELD]), now)
-            written = pruneGossipHeld(edit(current), now)
-            prefs[Keys.HELD] = encodeGossipHeld(written)
-        }
-        return written
     }
 }

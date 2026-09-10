@@ -2,10 +2,10 @@ import Foundation
 import XCTest
 @testable import StationToStation
 
-/// The per-peer rate bound (#417). `gossipStormGate` says in its own doc comment that it
-/// cannot apply this one — nothing in a pure function of a single batch knows the time
-/// between calls — and names #416/#417 as the owners. This is that, and it is a pure function
-/// too, so the bound is assertable without a radio on either platform.
+/// The per-peer rate bound (#417). No decision taken on a single batch can apply this one —
+/// nothing in a pure function of one handover knows the time between calls — so `GossipBudget`
+/// owns it, as #416/#417 named it. It is a pure function too, so the bound is assertable
+/// without a radio on either platform.
 final class GossipBudgetTests: XCTestCase {
 
     private let now = Date(timeIntervalSince1970: 1_788_555_600)
