@@ -803,3 +803,21 @@ by green native CI as specified above. Only the intentionally untracked `pc/`,
   No networking, firmware or kernel-driver changes were made. Restoring a usable
   Pi controller is needed before rerunning; previous successful BLE evidence does
   not establish this new guard. Pixel app relaunched after instrumentation.
+
+
+### Direct-control BLE retry passed (2026-09-10, 23:35 Oslo)
+
+- After Claude restored the Pi controller address, independently confirmed BlueZ
+  exposes B8:27:EB:7E:4B:0D. Reused the temporary `Channels = 1` wrapper; no boot
+  service or networking changes made here.
+- Pi `gossip_v2_peer.py --controls`: **4/4 completed**, each 629 bytes in 20-byte
+  writes plus empty terminator. Trial durations 8.96, 7.64, 7.09, 7.21 seconds.
+- Pixel `indirectControlsAreRejectedWithoutPoisoningDirectDelivery`, with
+  `manual_ble_controls=true`: **OK (1 test), 42.894 seconds**. Verified admission
+  `[false, true, false, true]` for relayed/direct request then relayed/direct receipt,
+  two seen IDs, no durable facts or held controls, and only the direct receipt's
+  usefulness credit. This supersedes the preceding hardware-blocked attempt.
+- Wrapper confirmed original Bluetooth configuration restored byte-for-byte.
+  Pixel app relaunched. This proves the real receive/framing/authentication/state
+  boundary under plain ATT; it does not prove production check-in authoring,
+  persistence/UI projection, the phone central/send path, or iOS radio behaviour.
