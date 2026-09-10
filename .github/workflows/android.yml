@@ -38,7 +38,7 @@ jobs:
           # "Log in with Spotify" and a bundled setlist.fm API key.
           SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
           SETLISTFM_API_KEY: ${{ secrets.SETLISTFM_API_KEY }}
-        run: ./gradlew --no-daemon assembleDebug
+        run: ./gradlew --no-daemon assembleDebug assembleDebugAndroidTest
 
       # retention-days because this runs on every push to every branch and the APK
       # is ~21MB: at the 90-day default it was 631 copies and 11GB, against a 0.5GB
@@ -49,6 +49,14 @@ jobs:
         with:
           name: app-debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
+
+      # Compile the Keystore device test here; execution requires an attached device.
+      - name: Upload device test APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-debug-androidTest
+          path: android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           retention-days: 7
 
       # The same code non-debuggable. Costs about a minute a run, and buys the only

@@ -17,8 +17,9 @@ import javax.crypto.spec.SecretKeySpec
 
 /** Per-Gig signing key. Durable identity is disclosed only to a holder of the exchanged Card key. */
 class GigIdentity(private val scope: String) {
+    private companion object { val keyCreationLock = Any() }
     private val alias = "gossip-gig-$scope"
-    private fun store(): KeyStore = KeyStore.getInstance("AndroidKeyStore").apply {
+    private fun store(): KeyStore = synchronized(keyCreationLock) { KeyStore.getInstance("AndroidKeyStore").apply {
         load(null)
         if (!containsAlias(alias)) {
             KeyPairGenerator.getInstance("EC", "AndroidKeyStore").apply {
@@ -26,7 +27,7 @@ class GigIdentity(private val scope: String) {
                     .setDigests(KeyProperties.DIGEST_SHA256).setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1")).build())
             }.generateKeyPair()
         }
-    }
+    } }
     fun publicKey(): String = gossipBase64(store().getCertificate(alias).publicKey.encoded)
     fun sign(bytes: ByteArray): ByteArray = Signature.getInstance("SHA256withECDSA").run {
         initSign(store().getKey(alias, null) as PrivateKey); update(bytes); sign()

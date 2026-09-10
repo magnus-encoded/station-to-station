@@ -42,6 +42,7 @@ android {
         applicationId = "io.github.magnusencoded.stationtostation"
         minSdk = 26
         targetSdk = 36
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Play requires versionCode to be strictly increasing and never accepts the
         // same one twice, so on a release build it comes from the commit count —
         // an int that only climbs, resets never, and can be recovered from any
@@ -218,4 +219,6 @@ dependencies {
     implementation("com.google.android.gms:play-services-nearby:19.3.0")
 
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
 }
