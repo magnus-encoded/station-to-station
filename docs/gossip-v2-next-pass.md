@@ -680,3 +680,42 @@ real-DataStore regression coverage, but has not yet run on the Pixel. iOS durabl
 state, correct request/witness authoring, stable random local Gig bindings,
 attribution/blocking/projection/UI, receipts/priority and corrected simulator
 sweeps remain unfinished. No PR has been opened.
+
+### Simulator slice (2026-09-10, 17:38) — done by another session
+
+`276b0ff` closes work-order section 6. It touches only `sim/` and the parameter
+paragraphs of `docs/gossip-public-wire.md`, so it triggered no CI run; that is the
+path filter, and green on `android/` and `ios/` is unchanged.
+
+The coverage reducer counted nodes against a fact/recipient-pair denominator. Every
+number it produced is withdrawn rather than re-scaled, including the sweep the spec
+cited for the 15-minute Carry window: that run compared 60 and 900 seconds on a
+trace whose only encounter was at t=1, where the two cannot differ. The spec now
+says so.
+
+Added: relay depth and an optional hop limit on Facts, witness receipts modelled as
+messages that spread under their own hop budget and die at the author, usefulness as
+a standalone predicate with the spec's random tie, nearest-rank percentiles, and a
+clustered venue trace. Sixteen tests, all pytest. `cd sim && python -m
+station_to_station_sim.sweeps` reprints every table across five independent traces;
+`sim/SWEEPS.md` records them with the method and the caveats.
+
+**Read the tables and draw your own conclusions.** The absolute levels are one
+synthetic crowd model with invented meeting probabilities, encounter bandwidth and
+Fact size; only the knees are stable across seeds. Where a table and the Pixel or
+the Pi disagree, the hardware is right. Where the sweeps plausibly bear on code,
+most-confident first:
+
+1. Anything that shortens the effective Carry window — iOS background scheduling in
+   `GossipChannel`, outbox eviction under the 128-envelope and 128 KB caps, the
+   storm gate's removal of a duplicated copy, and `GossipService` pruning.
+2. Whether a hop count or TTL belongs on the wire. The Envelope has none today; the
+   relay-depth table is what one would cost, and `mean_hops` says how deep real
+   deliveries go.
+3. Receipts, which are unbuilt. The receipt-hop table sweeps that budget with its
+   cost in bytes and in duplicate arrivals at the author — including whether they
+   need the seen-ID treatment Facts get.
+4. What "recent" means in projection and UI: median and p95 seconds from authoring.
+5. The usefulness window. Lowest confidence, and the sweep is explicitly inconclusive
+   — `focus` exhausts its copy budget before the window decides anything, so the
+   spec's two-minute default remains unsupported.
