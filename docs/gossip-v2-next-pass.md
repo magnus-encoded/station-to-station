@@ -552,8 +552,9 @@ Neither behaviour was landed.
   Android projection must read GossipStore.publicStates, not that placeholder.
 - Current “check-in” authoring creates a log at line 0 saying “Checked in”. This is
   not the agreed direct request/witness flow and collides with real Log lines.
-- Current author scopes derive from external gigId; they must instead be random,
-  persistent bindings to the stable local Gig, surviving external ID changes.
+- Author scopes now use random persisted bindings to the stable local Gig on both
+  platforms (`feddf42`, `11c2f78`), resolving either a local or external UI key before
+  authoring. Gig merges and former-ID propagation still need integration coverage.
 - Successful v2 handoffs are recorded in memory. Receipts, neighbour priority,
   direct-only verification, attribution, blocking, persisted projection and UI remain unwired.
 - Pixel Keystore test actually passed: `OK (1 test)`, 0.163 seconds, on the debug
@@ -728,3 +729,26 @@ those stale clauses silently reinstate Contact gating or check-in-only payloads.
 The current radio and shared Android persistence source commits are both covered
 by green native CI as specified above. Only the intentionally untracked `pc/`,
 `scratchpad/` and `sideload-iphone.sh` remain outside commits.
+
+
+### Local author scope slice (2026-09-10, 18:25 Oslo)
+
+- Read `sim/SWEEPS.md` and the implementation signposts; reproduced all 16 tests
+  using `sim/.venv/bin/python -m pytest -q` and completed the five-seed sweeps.
+  The 120-user encounter model does not establish behaviour with 3 users among
+  300 concertgoers. Reducing `users` alone retains a fixed encounter-attempt rate
+  and increases attempts per user; it is not a low-adoption experiment.
+- `feddf42`: iOS persists random author scopes in the ledger, preserves old ledger
+  decoding, retains scopes on Contact removal, and fails closed on a failed initial
+  scope write. AppModel resolves the stable local Gig before calling the channel.
+- `11c2f78`: Android uses an atomic DataStore binding, independent of relay expiry.
+  AppViewModel resolves the stable local Gig. Both PublicGossipStore tests passed
+  locally (9m29s); the Keystore instrumentation test now obtains its scopes from
+  the store. Native CI and the updated Pixel test are pending at this checkpoint.
+- Pixel is connected. Confirmed today's local `GossipRelay Test` at `Pinet`, without
+  a setlist.fm ID. Only read the fixture; no end-to-end check-in claim is warranted.
+- Next check-in slice must fix more than `kind = "log"`: a Pass proves the relay's
+  key, whereas the request is signed by the Gig author. Establish direct authorship
+  before witnessing; currently receive does not enforce that distinction. Keep the
+  direct witness response separate from the usefulness receipt sweep. The bogus
+  line-0 authoring, iOS public-state persistence and witness projection remain open.
