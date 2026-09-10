@@ -665,8 +665,9 @@ store. The radio observes committed snapshots for offers; successful handoff IDs
 are written back atomically. Notification counts and service-start eligibility use
 the public outbox. Periodic pruning retains application facts. All 23 selected
 PublicGossipStore/PublicGossip/GossipPolicy tests passed locally (3m42s), including
-compilation of both production callers. Android CI is pending for this last commit;
-iOS was not triggered and remains green on `2a1838e`.
+compilation of both production callers. Android CI passed for `040a76d` (`34471107690`, 5m29s) and for `73ee8bc`
+(`34470732035`, 6m08s). iOS was not triggered by these Android-only commits and
+remains green on `2a1838e` (`34444445648`).
 
 The raw public state stays in the existing device-local `gossip.preferences_pb`,
 already excluded by both backup rule files, instead of being mixed into timeline
@@ -719,3 +720,11 @@ most-confident first:
 5. The usefulness window. Lowest confidence, and the sweep is explicitly inconclusive
    — `focus` exhausts its copy budget before the window decides anything, so the
    spec's two-minute default remains unsupported.
+
+At the user's request, CONTEXT.md was reread in full. Its Gossip definitions and
+Contact-only relationship clauses still describe v1 and conflict with the agreed
+v2 model. Update that authored vocabulary along with the final ADR; do not let
+those stale clauses silently reinstate Contact gating or check-in-only payloads.
+The current radio and shared Android persistence source commits are both covered
+by green native CI as specified above. Only the intentionally untracked `pc/`,
+`scratchpad/` and `sideload-iphone.sh` remain outside commits.
