@@ -563,15 +563,15 @@ extension GossipTransport: CBPeripheralManagerDelegate {
         // connection has to read a new challenge for the second.
         guard let nonce = nonces.removeValue(forKey: id) else { return }
         challenges[id] = nil
-        if let public = decodePublicGossipPass(accumulated) {
-            guard let proof = Data(base64Encoded: public.proof),
+        if let publicPass = decodePublicGossipPass(accumulated) {
+            guard let proof = Data(base64Encoded: publicPass.proof),
                   verifyChallenge(gossipAuthPayload(nonce), signature: proof,
-                                  publicKeyBase64: public.from) else {
+                                  publicKeyBase64: publicPass.from) else {
                 GossipRadioStatus.note("dropped public v2 pass with invalid proof")
                 return
             }
-            GossipRadioStatus.note("accepted public v2 pass of \(public.batch.count) envelope(s)")
-            onPublicDelivery?(PublicGossipDelivery(from: public.from, pass: public))
+            GossipRadioStatus.note("accepted public v2 pass of \(publicPass.batch.count) envelope(s)")
+            onPublicDelivery?(PublicGossipDelivery(from: publicPass.from, pass: publicPass))
             return
         }
         Task { [weak self] in
