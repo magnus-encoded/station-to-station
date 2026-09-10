@@ -48,6 +48,22 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertTrue(cache.festivalNames.isEmpty)
     }
 
+    func testPublicGossipSurvivesRestartAndAnUnrelatedTimelineSave() async {
+        let file = tempFile()
+        let first = store(file)
+        await first.updatePublicGossip { state in
+            state.seen["already-relayed"] = 100000
+            state.blocked.insert("blocked-author")
+            state.recognition["gig-author"] = "contact-key"
+        }
+        let restarted = store(file)
+        await restarted.save(shows: ["me": [show("a")]])
+        let restored = await store(file).load().publicGossip
+        XCTAssertEqual(restored.seen["already-relayed"], 100000)
+        XCTAssertEqual(restored.blocked, ["blocked-author"])
+        XCTAssertEqual(restored.recognition["gig-author"], "contact-key")
+    }
+
     func testASavedTimelineRoundTrips() async {
         let s = store()
         await s.save(shows: ["magnus": [show("a"), show("b")]])

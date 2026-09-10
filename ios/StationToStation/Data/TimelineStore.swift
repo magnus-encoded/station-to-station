@@ -575,6 +575,7 @@ struct TimelineCache: Codable {
         gigPlanned = map(.gigPlanned, FmSetlist.self)
         gigMedia = map(.gigMedia, [StoredMedia].self)
         gigLogs = map(.gigLogs, StoredLog.self)
+        publicGossip = try c.decodeIfPresent(PublicGossipState.self, forKey: .publicGossip) ?? PublicGossipState()
     }
 
     /// The id this gig is known by *outside* the store: its setlist.fm id where it
