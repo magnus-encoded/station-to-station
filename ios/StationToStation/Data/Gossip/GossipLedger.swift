@@ -51,14 +51,37 @@ actor GossipLedger {
         var bindings = next.authorScopes ?? [:]
         bindings[localGigId] = scope
         next.authorScopes = bindings
-        do {
-            let data = try JSONEncoder().encode(next)
-            try data.write(to: file, options: .atomic)
-            cache = next
-            return scope
-        } catch {
-            return nil
+        return persist(next) ? scope : nil
+    }
+
+    /// Detached public state for projection and radio offers. Relay expiry keeps facts.
+    func publicSnapshot(now: Int64) -> PublicGossipState {
+        var state = load().publicState ?? PublicGossipState()
+        state.prune(now: now)
+        return state
+    }
+
+    /// One actor transaction for the whole Pass, shared with local authoring.
+    @discardableResult
+    func receivePublic(_ batch: [GossipEnvelope], from: String, now: Int64,
+                       local: Bool = false) -> Int {
+        var next = load()
+        var state = next.publicState ?? PublicGossipState()
+        state.prune(now: now)
+        var accepted = 0
+        for envelope in batch {
+            if state.receive(envelope, from: from, now: now, local: local) { accepted += 1 }
         }
+        next.publicState = state
+        return persist(next) ? accepted : 0
+    }
+
+    func deliveredPublic(_ ids: [String], to peer: String) {
+        var next = load()
+        var state = next.publicState ?? PublicGossipState()
+        state.delivered(to: peer, ids: ids)
+        next.publicState = state
+        _ = persist(next)
     }
 
     /// The seen set as `gossipStormGate` wants it, already pruned.
@@ -158,8 +181,9 @@ actor GossipLedger {
     /// Clear legacy transport memory while retaining local Gig identity bindings.
     func forgetAll() {
         // Removing Contacts clears the old transport, not the local Gig's identity.
-        if let bindings = load().authorScopes, !bindings.isEmpty {
-            write { _ in StoredGossip(authorScopes: bindings) }
+        let stored = load()
+        if stored.authorScopes != nil || stored.publicState != nil {
+            write { _ in StoredGossip(authorScopes: stored.authorScopes, publicState: stored.publicState) }
         } else {
             cache = StoredGossip()
             try? FileManager.default.removeItem(at: file)
@@ -182,12 +206,20 @@ actor GossipLedger {
     }
 
     private func write(_ change: (StoredGossip) -> StoredGossip) {
-        let next = change(load())
-        cache = next
+        _ = persist(change(load()))
+    }
+
+    private func persist(_ next: StoredGossip) -> Bool {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(next) else { return }
-        try? data.write(to: file, options: .atomic)
+        do {
+            let data = try encoder.encode(next)
+            try data.write(to: file, options: .atomic)
+            cache = next
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// Pruned on every read and every write, never on a timer: an entry past its expiry can
@@ -224,6 +256,7 @@ let gossipMaxHeld = 512
 private struct StoredGossip: Codable {
     // Optional so existing ledgers decode without discarding their held/seen state.
     var authorScopes: [String: String]? = nil
+    var publicState: PublicGossipState? = nil
     var seen: [String: Int64] = [:]
     var held: [HeldGossip] = []
     var budgets: [String: GossipPeerBudget] = [:]
