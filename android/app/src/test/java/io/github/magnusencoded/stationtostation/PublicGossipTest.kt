@@ -56,10 +56,29 @@ class PublicGossipTest {
         assertTrue(bytes.size + envelope.record().toByteArray().size + 1 > GOSSIP_MAX_WIRE_BYTES)
         assertNull(encodePublicGossipPass(pass.copy(from = "k".repeat(257))))
     }
-    private fun fact(text: String = "Karma Police", at: Long = 1000): GossipEnvelope {
+    private fun fact(text: String = "Karma Police", at: Long = 1000, kind: String = "log"): GossipEnvelope {
         val draft = GossipEnvelope(gigId = "gig", scope = "scope", author = Base64.getEncoder().encodeToString(key.public.encoded),
-            createdAt = at, expiresAt = 100000, kind = "log", line = 0, text = text)
+            createdAt = at, expiresAt = 100000, kind = kind, line = if (kind == "log") 0 else -1, text = text)
         return draft.signed { bytes -> Signature.getInstance("SHA256withECDSA").run { initSign(key.private); update(bytes); sign() } }!!
+    }
+
+    @Test fun oneHopControlsRequireTheirAuthorWithoutPoisoningTheStormGate() {
+        for (kind in listOf("request", "receipt")) {
+            val envelope = fact(text = "useful-neighbour", kind = kind)
+            val receiver = PublicGossipState()
+            assertFalse(receiver.receive(envelope, "blind-relay", 2000))
+            assertTrue(receiver.seen.isEmpty())
+            assertTrue(receiver.useful.isEmpty())
+            assertTrue(receiver.receive(envelope, envelope.author, 2001))
+            assertTrue(receiver.facts.isEmpty())
+            assertTrue(receiver.held.isEmpty())
+            if (kind == "receipt") assertTrue(receiver.useful.containsKey("useful-neighbour"))
+
+            val author = PublicGossipState()
+            assertTrue(author.receive(envelope, "", 2000, local = true))
+            assertFalse(author.receive(envelope, "blind-relay", 2001))
+            assertEquals(listOf(envelope), author.offer("recipient", 2002))
+        }
     }
 
     @Test fun strangerCanCarryAndSecondCopyClosesStormGate() {

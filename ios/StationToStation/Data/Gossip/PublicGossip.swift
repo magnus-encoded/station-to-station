@@ -139,6 +139,8 @@ struct PublicGossipState: Codable {
     mutating func receive(_ envelope: GossipEnvelope, from: String, now: Int64, local: Bool = false) -> Bool {
         prune(now: now)
         guard envelope.valid(), envelope.expiresAt > now, envelope.createdAt <= now + 300000 else { return false }
+        // The transport has proved `from`; only the author can deliver one-hop controls.
+        if !local && ["request", "receipt"].contains(envelope.kind) && from != envelope.author { return false }
         if seen[envelope.id] != nil { held.removeValue(forKey: envelope.id); return false }
         guard seen.count < 8192 else { return false }
         seen[envelope.id] = envelope.expiresAt
