@@ -438,6 +438,42 @@ service started, BLE GATT app registered, no `FATAL` or `AndroidRuntime`.
 `local.properties` sets `sdk.dir=/opt/android-sdk` and that is what Gradle used —
 the mismatch with `ANDROID_HOME` is a non-issue, ignore it.
 
+### The APK on the phone, and the faster way to replace it
+
+The debug variant on the Pixel was installed at **02:13 on 2026-09-10** from this
+branch, so it already matches HEAD's code — every commit since is docs-only. The
+release variant (`versionCode=470`, last updated 2026-09-07) is the shipped `v1.8.0`
+and contains no gossip transport at all; leave it alone, it is useful precisely as a
+thing that does not speak v2.
+
+**CI green does not mean the phone is current** — they are independent, and they only
+agree here by accident of timing. But you have a shortcut for keeping them in step.
+Android CI uploads the debug and measure APKs as artifacts (`android.yml:47-69`),
+and `android/app/debug.keystore` is **committed on purpose**, so a CI-built APK is
+signed with the same key as your local build:
+
+```kotlin
+// Committed debug key so every machine and CI build signs identically,
+// letting `adb install -r` update a device without wiping app data.
+```
+
+Verified: the keystore's fingerprint `DE:F9:E5:8D…` is the signature of the APK
+currently installed. So this works, updates in place, and **keeps app data** —
+which matters more than usual here, because the app's data is where `GigIdentity`'s
+Android Keystore entry and the Contact the radio advertises for actually live. An
+uninstall/reinstall would silently destroy the on-device state you are trying to
+prove things about.
+
+```sh
+gh run download --repo <this repo> -n app-debug --dir /tmp/apk
+adb -s 192.168.1.216:39851 install -r /tmp/apk/app-debug.apk
+```
+
+Use it when CI has already built the commit you want. It is **not** a substitute for
+`installDebug` while iterating — pushing and waiting for a runner is slower than the
+4m34s local build. Its value is at the end of a slice, when you want the phone
+running exactly the artifact CI signed off on rather than something from your tree.
+
 ### If adb has dropped
 
 Wireless adb here is a **paired wireless-debugging session** on port 39851, not a
