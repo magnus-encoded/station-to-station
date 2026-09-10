@@ -69,9 +69,17 @@ fun decodePublicEnvelope(record: String): GossipEnvelope? {
 
 data class PublicGossipPass(val from: String, val proof: String, val batch: List<GossipEnvelope>)
 fun encodePublicGossipPass(pass: PublicGossipPass): ByteArray? {
-    if (listOf(pass.from, pass.proof).any { it.isBlank() || it.contains('\n') || it.contains('\t') }) return null
-    val bytes = (listOf(PUBLIC_GOSSIP_PASS, "${pass.from}\t${pass.proof}") + pass.batch.map { it.record() }).joinToString("\n").toByteArray(Charsets.UTF_8)
-    return bytes.takeIf { it.size <= GOSSIP_MAX_WIRE_BYTES }
+    if (listOf(pass.from, pass.proof).any { it.isBlank() || it.toByteArray(Charsets.UTF_8).size > 256 || it.contains('\n') || it.contains('\t') }) return null
+    val encoded = StringBuilder("$PUBLIC_GOSSIP_PASS\n${pass.from}\t${pass.proof}")
+    var size = encoded.toString().toByteArray(Charsets.UTF_8).size
+    for (envelope in pass.batch.take(64)) {
+        val record = envelope.record()
+        val bytes = record.toByteArray(Charsets.UTF_8).size
+        if (bytes > 8192 || size + bytes + 1 > GOSSIP_MAX_WIRE_BYTES) break
+        encoded.append('\n').append(record)
+        size += bytes + 1
+    }
+    return encoded.toString().toByteArray(Charsets.UTF_8)
 }
 fun decodePublicGossipPass(bytes: ByteArray?): PublicGossipPass? {
     if (bytes == null || bytes.size > GOSSIP_MAX_WIRE_BYTES) return null
@@ -117,11 +125,10 @@ data class PublicGossipState(
     }
     fun offer(peer: String, now: Long): List<GossipEnvelope> {
         prune(now)
-        var bytes = 512
-        return held.values.filter { peer !in it.delivered }.sortedByDescending { it.envelope.createdAt }.mapNotNull {
-            val size = it.envelope.record().toByteArray().size + 1
-            if (bytes + size > GOSSIP_MAX_WIRE_BYTES) null else { bytes += size; it.envelope }
-        }.take(64)
+        // The encoder owns the byte budget, including the actual relay proof header.
+        return held.values.filter { peer !in it.delivered }
+            .sortedWith(compareByDescending<PublicHeld> { it.envelope.createdAt }.thenByDescending { it.envelope.id })
+            .take(64).map { it.envelope }
     }
     fun delivered(peer: String, ids: List<String>) { ids.forEach { held[it]?.delivered?.add(peer) } }
     fun project(gigIds: Set<String>): List<GossipEnvelope> {

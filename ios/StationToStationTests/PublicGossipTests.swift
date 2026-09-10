@@ -3,7 +3,44 @@ import CryptoKit
 @testable import StationToStation
 
 final class PublicGossipTests: XCTestCase {
+    func testSharedSignedPassVerifiesAndRoundTripsExactly() throws {
+        let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("fixtures/gossip/signed-pass")
+        let bytes = try Data(contentsOf: dir.appendingPathComponent("pass.txt"))
+        let pass = try XCTUnwrap(decodePublicGossipPass(bytes))
+        XCTAssertEqual(pass.batch.count, 3)
+        XCTAssertTrue(pass.batch.allSatisfy { $0.valid() })
+        XCTAssertNotEqual(pass.from, pass.batch.first?.author)
+        XCTAssertTrue(verifyChallenge(try Data(contentsOf: dir.appendingPathComponent("proof-payload.txt")),
+                                     signature: try XCTUnwrap(Data(base64Encoded: pass.proof)),
+                                     publicKeyBase64: pass.from))
+        XCTAssertEqual(encodePublicGossipPass(pass), bytes)
+        XCTAssertEqual(try String(contentsOf: dir.appendingPathComponent("envelope.txt"), encoding: .utf8),
+                       pass.batch.first?.record())
+        XCTAssertEqual(pass.batch.first?.text, "Björk — Jóga 🎵")
+        XCTAssertEqual(pass.batch[1].text, "")
+        XCTAssertEqual(pass.batch[2].line, -1)
+        var altered = pass.batch[0]
+        altered.text = "tampered"
+        XCTAssertFalse(altered.valid())
+    }
+
     private let key = P256.Signing.PrivateKey()
+    func testOversizedPassKeepsTheBatchPrefixThatFitsItsActualHeader() throws {
+        let envelope = fact(String(repeating: "x", count: 512))
+        var pass = PublicGossipPass(from: String(repeating: "k", count: 256),
+                                    proof: String(repeating: "s", count: 256),
+                                    batch: Array(repeating: envelope, count: 64))
+        let bytes = try XCTUnwrap(encodePublicGossipPass(pass))
+        let decoded = try XCTUnwrap(decodePublicGossipPass(bytes))
+        XCTAssertLessThanOrEqual(bytes.count, gossipMaxWireBytes)
+        XCTAssertTrue((1...63).contains(decoded.batch.count))
+        XCTAssertEqual(decoded.batch, Array(pass.batch.prefix(decoded.batch.count)))
+        XCTAssertGreaterThan(bytes.count + envelope.record().utf8.count + 1, gossipMaxWireBytes)
+        pass.from += "k"
+        XCTAssertNil(encodePublicGossipPass(pass))
+    }
     private func fact(_ text: String = "Karma Police", at: Int64 = 1000) -> GossipEnvelope {
         GossipEnvelope(gigId: "gig", scope: "scope", author: key.publicKey.derRepresentation.base64EncodedString(),
                        createdAt: at, expiresAt: 100000, kind: "log", line: 0, text: text)

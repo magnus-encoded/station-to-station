@@ -6,9 +6,40 @@ import org.junit.Test
 import java.security.KeyPairGenerator
 import java.security.Signature
 import java.util.Base64
+import java.io.File
+import io.github.magnusencoded.stationtostation.data.exchange.verifyChallenge
 
 class PublicGossipTest {
+    @Test fun sharedSignedPassVerifiesAndRoundTripsExactly() {
+        val dir = generateSequence(File("").absoluteFile) { it.parentFile }
+            .map { File(it, "fixtures/gossip/signed-pass") }.first { it.isDirectory }
+        val bytes = File(dir, "pass.txt").readBytes()
+        val pass = requireNotNull(decodePublicGossipPass(bytes))
+        assertEquals(3, pass.batch.size)
+        assertTrue(pass.batch.all { it.valid() })
+        assertNotEquals(pass.from, pass.batch.first().author)
+        assertTrue(verifyChallenge(File(dir, "proof-payload.txt").readBytes(),
+            requireNotNull(gossipUnbase64(pass.proof)), pass.from))
+        assertArrayEquals(bytes, encodePublicGossipPass(pass))
+        assertEquals(File(dir, "envelope.txt").readText(), pass.batch.first().record())
+        assertEquals("Björk — Jóga 🎵", pass.batch.first().text)
+        assertEquals("", pass.batch[1].text)
+        assertEquals(-1, pass.batch[2].line)
+        assertFalse(pass.batch.first().copy(text = "tampered").valid())
+    }
+
     private val key = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+    @Test fun oversizedPassKeepsTheBatchPrefixThatFitsItsActualHeader() {
+        val envelope = fact("x".repeat(512))
+        val pass = PublicGossipPass("k".repeat(256), "s".repeat(256), List(64) { envelope })
+        val bytes = requireNotNull(encodePublicGossipPass(pass))
+        val decoded = requireNotNull(decodePublicGossipPass(bytes))
+        assertTrue(bytes.size <= GOSSIP_MAX_WIRE_BYTES)
+        assertTrue(decoded.batch.size in 1..63)
+        assertEquals(pass.batch.take(decoded.batch.size), decoded.batch)
+        assertTrue(bytes.size + envelope.record().toByteArray().size + 1 > GOSSIP_MAX_WIRE_BYTES)
+        assertNull(encodePublicGossipPass(pass.copy(from = "k".repeat(257))))
+    }
     private fun fact(text: String = "Karma Police", at: Long = 1000): GossipEnvelope {
         val draft = GossipEnvelope(gigId = "gig", scope = "scope", author = Base64.getEncoder().encodeToString(key.public.encoded),
             createdAt = at, expiresAt = 100000, kind = "log", line = 0, text = text)
