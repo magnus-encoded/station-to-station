@@ -571,7 +571,7 @@ No feature PR has been opened. Do not close #408 while these gaps remain.
 
 ### Current transport slice (resumed 07:52)
 
-The working tree now replaces radio decoding/sending with v2 on both platforms,
+`2a1838e` replaces radio decoding/sending with v2 on both platforms,
 uses signed challenges and temporary nightly relay keys, and removes Android's
 Contact-token advertisement rotation. Android allows a no-Contact relay at its
 Gig; iOS can likewise start for a known current night. V2 handoff IDs are now
@@ -584,6 +584,18 @@ passed (17m52s on this host). Both pushed CI workflows still need checking. A ma
 peer lives at `docs/prototypes/gossip_v2_peer.py` and is copied to `/home/pi/`.
 It verifies a signed v2 challenge and sends a signed synthetic Fact through 20-byte
 ATT writes plus an empty terminator, with separate connection trials and no hidden
-retries. Its actual hardware result is still pending. At this morning's hour the
-app may correctly decide no Gig is current; explicitly start the debug service for
-the radio experiment, then stop it again, rather than changing the user's settings.
+retries. Its actual hardware result is still pending. The debug APK built from this
+transport source is installed in place. At this morning's hour normal lifecycle
+correctly leaves the service off (contacts=1, holding=false, gigTonight=false,
+alwaysRelay=false). `am start-foreground-service` cannot start its non-exported
+component; `run-as ... am` also fails the shell calling-package check. Do not change
+exported status or the user's settings to bypass that.
+
+An opt-in `GossipRadioDeviceTest` is now being compiled. It hosts the production
+GossipPeripheral directly under instrumentation, waits for six verified Pi Passes,
+asserts one durable in-memory Fact and an empty outbox after duplicate reception,
+then stops the radio and removes only its test key. Run with `-e manual_ble_peer true`
+and `-e class io.github.magnusencoded.stationtostation.GossipRadioDeviceTest`, alongside
+`python3 /home/pi/gossip_v2_peer.py 6`. This tests the radio and state-machine receive
+path; it does not exercise the GossipService lifecycle or the phone's central/send
+path. The service's morning refusal is expected, not a radio defect.
