@@ -1,15 +1,15 @@
 import Foundation
 
-/// The bound `gossipStormGate` says it cannot draw, drawn here (#417; Android draws the same
+/// The bound a per-batch decision cannot draw, drawn here (#417; Android draws the same
 /// bound as `GOSSIP_PEER_COOLDOWN` in `data/gossip/GossipPolicy.kt`, and #416 owns the other
 /// half of the same rule).
 ///
-/// The gate's own note, quoted so the two files stay one argument: *"Every gate here is
-/// decided by the message, and every field of the message is the author's except its key's
-/// membership of my Contact list. So a Contact whose phone has been taken over can sign fifty
-/// thousand check-ins that differ only in `checkedInAt` … `gossipMaxBatch` caps what one
-/// handover costs; what it cannot cap is how often a peer is allowed to hand one over,
-/// because nothing in a pure function knows the time between calls."*
+/// The argument, which the deleted v1 gate stated and which `PublicGossipState.receive`
+/// inherits unchanged: every check is decided by the envelope in front of it, and every field
+/// of that envelope is the author's. So an author whose phone has been taken over can sign
+/// fifty thousand facts that differ only in `createdAt`. `gossipMaxBatch` caps what one
+/// handover costs; what it cannot cap is how often a peer is allowed to hand one over, because
+/// nothing in a pure function knows the time between calls.
 ///
 /// This is that: how often, per peer. Pure in the same sense — the budget arrives as a value
 /// and leaves as a value, `now` arrives as an argument — so the rate rule is assertable

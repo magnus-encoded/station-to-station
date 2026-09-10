@@ -7,7 +7,7 @@ import io.github.magnusencoded.stationtostation.data.gossip.gossipNearby
 import io.github.magnusencoded.stationtostation.data.gossip.gossipNightEnds
 import io.github.magnusencoded.stationtostation.data.gossip.gossipPassDue
 import io.github.magnusencoded.stationtostation.data.gossip.gossipRelayShouldRun
-import io.github.magnusencoded.stationtostation.data.gossipExpiry
+import io.github.magnusencoded.stationtostation.data.gossip.gossipExpiry
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
