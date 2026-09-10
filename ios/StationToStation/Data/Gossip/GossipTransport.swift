@@ -571,10 +571,8 @@ extension GossipTransport: CBPeripheralManagerDelegate {
             guard let proof = Data(base64Encoded: publicPass.proof),
                   verifyChallenge(gossipAuthPayload(nonce), signature: proof,
                                   publicKeyBase64: publicPass.from) else {
-                GossipRadioStatus.note("dropped public v2 pass with invalid proof")
                 return
             }
-            GossipRadioStatus.note("accepted public v2 pass of \(publicPass.batch.count) envelope(s)")
             onPublicDelivery?(PublicGossipDelivery(from: publicPass.from, pass: publicPass))
             Task { [channel] in await channel.receivePublic(publicPass, from: publicPass.from) }
             return
