@@ -70,6 +70,11 @@ struct PublicGossipPass {
     var proof: String
     var batch: [GossipEnvelope]
 }
+
+struct PublicGossipDelivery {
+    let from: String
+    let pass: PublicGossipPass
+}
 func encodePublicGossipPass(_ pass: PublicGossipPass) -> Data? {
     guard [pass.from, pass.proof].allSatisfy({ !$0.isEmpty && !$0.contains("\t") && !$0.contains("\n") }) else { return nil }
     let bytes = Data(([publicGossipPassHeader, "\(pass.from)\t\(pass.proof)"] + pass.batch.map { $0.record() }).joined(separator: "\n").utf8)
