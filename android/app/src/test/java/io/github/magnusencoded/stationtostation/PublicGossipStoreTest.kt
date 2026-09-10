@@ -13,6 +13,37 @@ import java.io.File
 class PublicGossipStoreTest {
     @get:Rule val temporary = TemporaryFolder()
 
+    @Test fun authorScopeSurvivesConcurrentCallersExpiryAndRestart() = runBlocking {
+        val file = File(temporary.root, "scopes.preferences_pb")
+        val job = SupervisorJob()
+        val data = PreferenceDataStoreFactory.create(scope = CoroutineScope(Dispatchers.IO + job)) { file }
+        val first = GossipStore(data)
+        val second = GossipStore(data)
+        val scope: String
+        try {
+            val scopes = coroutineScope {
+                listOf(async { first.authorScope("local-gig") },
+                    async { second.authorScope("local-gig") }).awaitAll()
+            }
+            scope = scopes.first()
+            assertEquals(scope, scopes.last())
+            assertNotEquals("local-gig", scope)
+            assertNotEquals(scope, second.authorScope("another-local-gig"))
+            first.updatePublic(Long.MAX_VALUE) { }
+            assertEquals(scope, first.authorScope("local-gig"))
+        } finally {
+            job.cancelAndJoin()
+        }
+        val reopenedJob = SupervisorJob()
+        try {
+            val reopened = GossipStore(PreferenceDataStoreFactory.create(
+                scope = CoroutineScope(Dispatchers.IO + reopenedJob)) { file })
+            assertEquals(scope, reopened.authorScope("local-gig"))
+        } finally {
+            reopenedJob.cancelAndJoin()
+        }
+    }
+
     @Test fun authorAndRadioUpdatesShareOneTransactionStreamAndSurviveRestart() = runBlocking {
         val file = File(temporary.root, "gossip.preferences_pb")
         val job = SupervisorJob()
