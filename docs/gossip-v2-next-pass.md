@@ -77,14 +77,34 @@ the empty-optional encoding are all places where two independently written
 implementations agree until the day they don't. A fixture in CI is the only thing
 that catches that; two phones on a desk will not, because failure is silent.
 
-### 3. Wire v2 into the radio, both platforms, with version negotiation
+### 3. Wire v2 into the radio, both platforms — and do not preserve v1
 
 Android: `GossipRadio.kt` → `GossipWire.kt` / `GossipMint.kt` / `GossipStormGate.kt`.
-iOS: `GossipWire.swift` (entirely `gossip-challenge/1`) plus the negotiation at
-`GossipChannel.swift:109`.
+iOS: `GossipWire.swift` (entirely `gossip-challenge/1`) plus `GossipChannel.swift:109`.
 
-A v1 client must never mistake a v2 Pass for a v1 one. The `/2` suffix in the
-header strings gives you the discriminator; the dispatch has to be written.
+**Check before you build compatibility machinery: the gossip transport has never
+shipped.** `v1.8.0` — the latest release, 2026-09-07 — contains exactly five gossip
+paths: `GossipStormGate` on both platforms with its tests, and ADR-0019.
+`GossipRadio.kt`, `GossipWire.kt` and `GossipToken.kt` are in **no tag at all**.
+Verify it yourself in one line:
+
+```sh
+git ls-tree -r --name-only v1.8.0 | grep -i gossip
+```
+
+So there is no installed base to negotiate with. **Replace v1; do not write version
+dispatch to coexist with it.** A discriminator that protects nobody is code that
+has to be carried, tested and eventually removed. The `/1` and `/2` header strings
+still differ, which is enough to make a stale build fail closed rather than
+misparse — that is all the safety this needs.
+
+The one real caveat, worth naming rather than assuming away: `sideload-iphone.sh`
+re-signs the newest CI build onto the user's own iPhone, and `testflight-setup.txt`
+describes the same path. So a handful of the user's personal devices may be running
+non-release builds that speak v1. That is a fleet of two that a reinstall fixes,
+not an installed base — but say so in the PR rather than letting someone discover
+it when their phone goes quiet.
+
 `GOSSIP_MAX_WIRE_BYTES = 40_000` already exists at `GossipWire.kt:114` and matches
 the spec's Pass limit — reuse it, don't redeclare it. The existing GATT
 chunk-and-empty-terminator framing and the 512-byte attribute ceiling stay as they
@@ -186,8 +206,15 @@ So this branch owes an ADR: either an amendment to 0019 or a new one that
 supersedes the Contact-only part of it, saying what the widened boundary is and why
 masked attribution is a sufficient answer to the objection 0016 raises. House rule,
 stated in `docs/festival-model-handoff.md`: **ADRs are appended and amended, never
-rewritten.** Write it before the PR, not after — if the argument cannot be made in
-an ADR, that is a finding about the design, not about the document.
+rewritten.**
+
+**But it is not a gate, and it does not come first.** The design is still moving and
+none of it is in the wild, which is the cheapest this will ever be to change —
+spending the pass writing down a boundary that the next hour's work moves is worse
+than useless, because a wrong ADR is harder to dislodge than no ADR. Get the design
+right while it is still free, then write the ADR as the record of where it landed,
+in time for the PR. If the argument turns out not to be makeable, that is a finding
+about the design and worth surfacing immediately — not a reason to keep drafting.
 
 ## Landing it
 
