@@ -5,6 +5,10 @@ implementation session hit its 5-hour quota mid-flight.
 **Branch** `gossip-ble-diagnostics`. **Normative spec** [`gossip-public-wire.md`](gossip-public-wire.md).
 **Simulator brief** [`../handoff.md`](../handoff.md).
 
+**Current checkpoint:** see the progress sections at the end. The original survey
+below describes `19abda1`, not today's branch. V2 radio transport now runs on both
+platforms; Android public state now has a shared persisted owner.
+
 Nothing in this document is a decision. It is a survey of where the work actually
 stands, written so the next pass does not spend its first hour rediscovering it.
 Findings below were produced by reading the code, not by running it — where one
@@ -542,9 +546,10 @@ Neither behaviour was landed.
 
 ### Remaining integration work — these are verified gaps
 
-- Android AppViewModel and GossipService own separate in-memory public states.
-  The timeline persistence methods are still unused by production gossip callers.
-  iOS GossipChannel also retains public state only in memory.
+- Android AppViewModel and GossipService now share persisted public state through
+  GossipStore (details below). iOS GossipChannel still retains public state only in
+  memory. TimelineCache.publicGossip remains an unused placeholder on both platforms;
+  Android projection must read GossipStore.publicStates, not that placeholder.
 - Current “check-in” authoring creates a log at line 0 saying “Checked in”. This is
   not the agreed direct request/witness flow and collides with real Log lines.
 - Current author scopes derive from external gigId; they must instead be random,
@@ -645,3 +650,33 @@ root-owned backup; it was subsequently compared and removed with sudo. Networkin
 was untouched. For future runs, change its cleanup to `sudo -n rm -f "$backup"`.
 The peer harness now reports failure stage/byte offset and exits nonzero when any
 trial fails. Its executable copy remains `/home/pi/gossip_v2_peer.py`.
+
+### Android persistence slice (2026-09-10, 13:24)
+
+`73ee8bc` adds atomic public-v2 transactions and detached snapshots to the existing
+GossipStore DataStore. The test first failed at the absent API, then passed against
+the real file-backed implementation (3m04s). Two store callers concurrently add
+facts, record a handoff and a duplicate, close the DataStore, and reopen it. The
+test verifies retained facts, delivered-peer suppression, the closed storm gate,
+snapshot isolation and independent expiry of relay memory.
+
+`040a76d` wires AppViewModel authoring and GossipService receiving to that shared
+store. The radio observes committed snapshots for offers; successful handoff IDs
+are written back atomically. Notification counts and service-start eligibility use
+the public outbox. Periodic pruning retains application facts. All 23 selected
+PublicGossipStore/PublicGossip/GossipPolicy tests passed locally (3m42s), including
+compilation of both production callers. Android CI is pending for this last commit;
+iOS was not triggered and remains green on `2a1838e`.
+
+The raw public state stays in the existing device-local `gossip.preferences_pb`,
+already excluded by both backup rule files, instead of being mixed into timeline
+exports. This deliberately avoids TimelineStore's per-instance read/write lock
+(which is not safe for simultaneous ViewModel and Service instances). The earlier
+TimelineCache slot is still unused and must not be mistaken for this state owner.
+
+The Pixel hardware result above predates these persistence changes: it exercised
+the transport source, not the service's new storage wiring. That wiring has local
+real-DataStore regression coverage, but has not yet run on the Pixel. iOS durable
+state, correct request/witness authoring, stable random local Gig bindings,
+attribution/blocking/projection/UI, receipts/priority and corrected simulator
+sweeps remain unfinished. No PR has been opened.
