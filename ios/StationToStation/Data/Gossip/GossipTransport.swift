@@ -312,7 +312,11 @@ final class GossipTransport: NSObject {
     private func send(_ meeting: GossipMeeting, to contact: String, nonce: Data) {
         Task { [weak self] in
             guard let self else { return }
-            let payload = await self.channel.pass(to: contact, nonce: nonce, now: Date())
+            // v2 is the only wire spoken by new builds. Keep the old path as a local
+            // fallback while a device has no public facts yet; the discriminator makes
+            // this fail closed against a stale implementation.
+            let payload = await self.channel.publicPass(to: contact, nonce: nonce, now: Date())
+                ?? await self.channel.pass(to: contact, nonce: nonce, now: Date())
             self.queue.async {
                 let id = meeting.peripheral.identifier
                 guard self.meetings[id] != nil, let characteristic = meeting.pass,
@@ -572,6 +576,7 @@ extension GossipTransport: CBPeripheralManagerDelegate {
             }
             GossipRadioStatus.note("accepted public v2 pass of \(publicPass.batch.count) envelope(s)")
             onPublicDelivery?(PublicGossipDelivery(from: publicPass.from, pass: publicPass))
+            Task { [channel] in await channel.receivePublic(publicPass, from: publicPass.from) }
             return
         }
         Task { [weak self] in

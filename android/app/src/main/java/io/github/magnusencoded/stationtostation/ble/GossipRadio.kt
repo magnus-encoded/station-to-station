@@ -33,6 +33,7 @@ import io.github.magnusencoded.stationtostation.data.gossip.GossipChallenge
 import io.github.magnusencoded.stationtostation.data.gossip.GossipPass
 import io.github.magnusencoded.stationtostation.data.gossip.PublicGossipPass
 import io.github.magnusencoded.stationtostation.data.gossip.decodePublicGossipPass
+import io.github.magnusencoded.stationtostation.data.gossip.encodePublicGossipPass
 import io.github.magnusencoded.stationtostation.data.gossip.GossipRadioStatus
 import io.github.magnusencoded.stationtostation.data.gossip.decodeGossipChallenge
 import io.github.magnusencoded.stationtostation.data.gossip.decodeGossipPass
@@ -463,6 +464,7 @@ class GossipCentral(
     private val contacts: () -> Set<String>,
     private val sign: (ByteArray) -> ByteArray?,
     private val outboxFor: (String) -> List<GossipCheckIn>,
+    private val publicPassFor: ((String, ByteArray) -> ByteArray?)? = null,
     /** Whether this peer's cooldown has elapsed — [gossipPassDue][io.github.magnusencoded.stationtostation.data.gossip.gossipPassDue]. */
     private val due: (String) -> Boolean,
     private val onPushed: (String) -> Unit,
@@ -747,7 +749,16 @@ class GossipCentral(
                     why = "spoke to them recently, waiting out the cooldown"
                     return finish(false)
                 }
+                val publicPayload = publicPassFor?.invoke(who, challenge.nonce)
                 val batch = outboxFor(who)
+                if (publicPayload != null) {
+                    phase = "pass"
+                    val limit = gossipWriteLimit(attMtu)
+                    chunks = publicPayload.intoChunks(limit) + listOf(ByteArray(0))
+                    sent = 0
+                    if (!writeNext(gatt)) finish(false)
+                    return
+                }
                 if (batch.isEmpty()) {
                     Log.i(TAG, "contact resolved, nothing in the outbox for them")
                     why = "nothing to tell them"

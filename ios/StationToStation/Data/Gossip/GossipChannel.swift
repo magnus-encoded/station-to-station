@@ -21,6 +21,7 @@ actor GossipChannel {
     static let shared = GossipChannel()
 
     private let ledger: GossipLedger
+    private var publicState = PublicGossipState()
 
     /// The **Contacts** this device holds, by public key — the same base64 SPKI strings
     /// `Friend.publicKey` carries and the wire moves.
@@ -65,7 +66,34 @@ actor GossipChannel {
                                                  now: now, sign: ContactIdentity.sign)
         else { return false }
         await ledger.hold(message, now: now)
+        let scope = "gig-\(gigId)"
+        if GigIdentity.key(scope: scope) != nil,
+           let author = GigIdentity.publicKeyBase64(scope: scope) {
+            let seconds = Int64(now.timeIntervalSince1970 * 1000)
+            let expiry = Int64((gossipExpiry(gigDate: gigDate ?? "")?.timeIntervalSince1970 ?? now.timeIntervalSince1970 + 86400) * 1000)
+            var fact = GossipEnvelope(gigId: gigId, scope: scope, author: author,
+                                      createdAt: seconds, expiresAt: expiry,
+                                      kind: "log", line: 0, text: "Checked in")
+            fact.attribution = GigIdentity.attribution(scope: scope, author: author) ?? ""
+            if let signed = fact.signed({ GigIdentity.sign(scope: scope, $0) }) {
+                publicState.receive(signed, from: "", now: seconds, local: true)
+            }
+        }
         return true
+    }
+
+    /// A public v2 pass uses the same authenticated transport peer as v1, but carries
+    /// temporary Gig-authored envelopes and never exposes a durable author key.
+    func publicPass(to contact: String, nonce: Data, now: Date = Date()) async -> Data? {
+        guard contacts.contains(contact), let me = ContactIdentity.publicKeyBase64() else { return nil }
+        let batch = await publicState.offer(to: contact, now: Int64(now.timeIntervalSince1970 * 1000))
+        guard !batch.isEmpty, let proof = ContactIdentity.sign(gossipAuthPayload(nonce)) else { return nil }
+        return encodePublicGossipPass(PublicGossipPass(from: me, proof: proof.base64EncodedString(), batch: batch))
+    }
+
+    func receivePublic(_ pass: PublicGossipPass, from: String, now: Date = Date()) {
+        let millis = Int64(now.timeIntervalSince1970 * 1000)
+        for envelope in pass.batch { _ = publicState.receive(envelope, from: from, now: millis) }
     }
 
     /// Forget the whole channel. Called when the last **Contact** goes.

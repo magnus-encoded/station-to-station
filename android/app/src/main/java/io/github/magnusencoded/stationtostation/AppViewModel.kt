@@ -100,6 +100,9 @@ import io.github.magnusencoded.stationtostation.data.gossip.GossipStore
 import io.github.magnusencoded.stationtostation.data.gossip.gigDatesOf
 import io.github.magnusencoded.stationtostation.data.gossip.gossipGigTonight
 import io.github.magnusencoded.stationtostation.data.gossip.mintGossipCheckIn
+import io.github.magnusencoded.stationtostation.data.gossip.GigIdentity
+import io.github.magnusencoded.stationtostation.data.gossip.GossipEnvelope
+import io.github.magnusencoded.stationtostation.data.gossip.PublicGossipState
 import io.github.magnusencoded.stationtostation.data.contactManifest
 import io.github.magnusencoded.stationtostation.data.GalleryItem
 import io.github.magnusencoded.stationtostation.data.exchange.readAccountsAck
@@ -525,6 +528,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * nothing about a relayed message reaches [UiState].
      */
     private val gossip = GossipStore(application)
+    private val publicState = PublicGossipState()
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -2412,6 +2416,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             sign = { payload -> runCatching { signWithContactIdentity(payload) }.getOrNull() },
         ) ?: return
         gossip.update { held -> held + GossipHeld(message, arrivedFrom = null, expiry = message.expiresAt) }
+        // The public v2 assertion is kept alongside the legacy control message. Its
+        // temporary Gig key follows this local Gig representation; the durable Contact key
+        // exists only inside the masked attribution proof.
+        val scope = "gig-$gigId"
+        val identity = GigIdentity(scope)
+        val author = identity.publicKey()
+        val public = GossipEnvelope(
+            gigId = gigId, scope = scope, author = author,
+            createdAt = message.checkedInAt.toEpochMilli(), expiresAt = message.expiresAt.toEpochMilli(),
+            kind = "log", line = 0, text = "Checked in",
+            attribution = identity.attribution(),
+        ).signed(identity::sign)
+        if (public != null) publicState.receive(public, "", System.currentTimeMillis(), local = true)
         syncGossip()
     }
 
