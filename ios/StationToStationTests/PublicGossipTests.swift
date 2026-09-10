@@ -27,6 +27,22 @@ final class PublicGossipTests: XCTestCase {
     }
 
     private let key = P256.Signing.PrivateKey()
+    func testPublicChallengeProvesTemporaryKeyAndRejectsTampering() throws {
+        let nonce = Data((0..<32).map(UInt8.init))
+        let author = key.publicKey.derRepresentation.base64EncodedString()
+        let bytes = try XCTUnwrap(encodePublicGossipChallenge(nonce: nonce, from: author) {
+            try? self.key.signature(for: $0).derRepresentation
+        })
+        let decoded = try XCTUnwrap(decodePublicGossipChallenge(bytes))
+        XCTAssertEqual(decoded.from, author)
+        XCTAssertEqual(decoded.nonce, nonce)
+        let text = String(decoding: bytes, as: UTF8.self)
+        XCTAssertNil(decodePublicGossipChallenge(Data(text.replacingOccurrences(
+            of: nonce.base64EncodedString(), with: Data(repeating: 0, count: 32).base64EncodedString()).utf8)))
+        XCTAssertNil(decodePublicGossipChallenge(Data(text.replacingOccurrences(of: "challenge/2", with: "challenge/1").utf8)))
+        let proof = try XCTUnwrap(Data(base64Encoded: text.components(separatedBy: "\n").last!))
+        XCTAssertFalse(verifyChallenge(publicGossipAuthPayload(nonce), signature: proof, publicKeyBase64: author))
+    }
     func testOversizedPassKeepsTheBatchPrefixThatFitsItsActualHeader() throws {
         let envelope = fact(String(repeating: "x", count: 512))
         var pass = PublicGossipPass(from: String(repeating: "k", count: 256),

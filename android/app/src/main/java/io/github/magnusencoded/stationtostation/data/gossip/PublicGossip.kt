@@ -12,6 +12,30 @@ const val PUBLIC_CARRY_MS = 15 * 60 * 1000L
 const val PUBLIC_MAX_HELD = 128
 const val PUBLIC_MAX_SEEN = 8192
 
+fun publicGossipAuthPayload(nonce: ByteArray): ByteArray =
+    "station-to-station/gossip-auth/2\n${gossipBase64(nonce)}".toByteArray(Charsets.UTF_8)
+
+data class PublicGossipChallenge(val nonce: ByteArray, val from: String)
+private fun publicChallengeProof(nonce: ByteArray) =
+    "station-to-station/gossip-challenge-proof/2\n${gossipBase64(nonce)}".toByteArray(Charsets.UTF_8)
+
+fun encodePublicGossipChallenge(nonce: ByteArray, from: String, sign: (ByteArray) -> ByteArray?): ByteArray? {
+    if (nonce.size != 32) return null
+    val proof = sign(publicChallengeProof(nonce)) ?: return null
+    return "station-to-station/gossip-challenge/2\n${gossipBase64(nonce)}\n$from\n${gossipBase64(proof)}"
+        .toByteArray(Charsets.UTF_8).takeIf { it.size <= 512 }
+}
+
+fun decodePublicGossipChallenge(bytes: ByteArray?): PublicGossipChallenge? {
+    if (bytes == null || bytes.size > 512) return null
+    val fields = bytes.toString(Charsets.UTF_8).split('\n')
+    if (fields.size != 4 || fields[0] != "station-to-station/gossip-challenge/2") return null
+    val nonce = gossipUnbase64(fields[1])?.takeIf { it.size == 32 } ?: return null
+    val proof = gossipUnbase64(fields[3]) ?: return null
+    if (!verifyChallenge(publicChallengeProof(nonce), proof, fields[2])) return null
+    return PublicGossipChallenge(nonce, fields[2])
+}
+
 /** One public assertion. The author is a Gig key; attribution contains no readable durable key. */
 @Serializable
 data class GossipEnvelope(

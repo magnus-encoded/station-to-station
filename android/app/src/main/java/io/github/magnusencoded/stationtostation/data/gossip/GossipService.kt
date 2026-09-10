@@ -74,6 +74,8 @@ class GossipService : Service() {
     private lateinit var timeline: TimelineStore
     private lateinit var store: GossipStore
     private val publicState = PublicGossipState()
+    private val publicLock = Any()
+    private val publicPending = mutableMapOf<String, List<String>>()
 
     private var peripheral: GossipPeripheral? = null
     private var central: GossipCentral? = null
@@ -134,25 +136,22 @@ class GossipService : Service() {
     }
 
     private fun startRadio() {
-        val myKey = runCatching { contactIdentityPublicKeyBase64() }.getOrNull()
-        if (myKey == null) {
-            // No identity means no Exchange has ever happened, so there is nobody to gossip
-            // with and nothing to sign with. Nothing to report — this is a state, not a fault.
-            stopSelf()
-            return
-        }
+        fun relayIdentity(): GigIdentity = GigIdentity("relay-" +
+            java.time.ZonedDateTime.now().minusHours(6).toLocalDate().toString())
         scope.launch { refresh() }
 
         peripheral = GossipPeripheral(
             context = applicationContext,
-            myKey = { myKey },
-            contacts = { contacts },
+            myKey = { relayIdentity().publicKey() },
+            sign = { relayIdentity().sign(it) },
         ).also {
-            it.onDelivery = { delivery -> scope.launch { accept(delivery) } }
             it.onPublicDelivery = { delivery ->
                 scope.launch {
                     val now = System.currentTimeMillis()
-                    delivery.pass.batch.forEach { envelope -> publicState.receive(envelope, delivery.from, now) }
+                    val accepted = synchronized(publicLock) {
+                        delivery.pass.batch.count { envelope -> publicState.receive(envelope, delivery.from, now) }
+                    }
+                    Log.i(TAG, "accepted $accepted of ${delivery.pass.batch.size} public envelopes")
                 }
             }
             it.start()
@@ -160,21 +159,22 @@ class GossipService : Service() {
 
         central = GossipCentral(
             context = applicationContext,
-            myKey = { myKey },
-            contacts = { contacts },
-            sign = { payload -> runCatching { signWithContactIdentity(payload) }.getOrNull() },
-            outboxFor = { peer -> gossipOutboxFor(held, peer, Instant.now()) },
-            publicPassFor = { peer, nonce ->
+            publicPassFor = { peer, nonce -> synchronized(publicLock) {
                 val batch = publicState.offer(peer, System.currentTimeMillis())
-                val proof = runCatching { signWithContactIdentity(gossipAuthPayload(nonce)) }.getOrNull()
+                val identity = relayIdentity()
+                val proof = runCatching { identity.sign(publicGossipAuthPayload(nonce)) }.getOrNull()
                 if (batch.isEmpty() || proof == null) null
-                else encodePublicGossipPass(PublicGossipPass(myKey, gossipBase64(proof), batch))
-            },
+                else encodePublicGossipPass(PublicGossipPass(identity.publicKey(), gossipBase64(proof), batch))?.also { bytes ->
+                    publicPending[peer] = decodePublicGossipPass(bytes)?.batch.orEmpty().map { it.id }
+                }
+            } },
             due = { peer -> synchronized(spokenAt) { gossipPassDue(spokenAt[peer], Instant.now()) } },
             onPushed = { peer ->
                 val now = Instant.now()
                 synchronized(spokenAt) { spokenAt[peer] = now }
-                GossipPresence.met(peer, now)
+                synchronized(publicLock) {
+                    publicState.delivered(peer, publicPending.remove(peer).orEmpty())
+                }
                 startForegroundNotification(held.size)
             },
         ).also { it.start() }

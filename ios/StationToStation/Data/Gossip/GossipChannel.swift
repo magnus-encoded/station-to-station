@@ -82,13 +82,21 @@ actor GossipChannel {
         return true
     }
 
-    /// A public v2 pass uses the same authenticated transport peer as v1, but carries
-    /// temporary Gig-authored envelopes and never exposes a durable author key.
-    func publicPass(to contact: String, nonce: Data, now: Date = Date()) async -> Data? {
-        guard contacts.contains(contact), let me = ContactIdentity.publicKeyBase64() else { return nil }
-        let batch = await publicState.offer(to: contact, now: Int64(now.timeIntervalSince1970 * 1000))
-        guard !batch.isEmpty, let proof = ContactIdentity.sign(gossipAuthPayload(nonce)) else { return nil }
-        return encodePublicGossipPass(PublicGossipPass(from: me, proof: proof.base64EncodedString(), batch: batch))
+    /// Independent nightly relay key: no durable Contact identity on the public wire.
+    private func relayScope(_ now: Date) -> String {
+        let day = Calendar.current.startOfDay(for: now.addingTimeInterval(-6 * 3600))
+        return "relay-\(Int64(day.timeIntervalSince1970))"
+    }
+
+    func publicPass(to peer: String, nonce: Data, now: Date = Date()) -> Data? {
+        let scope = relayScope(now)
+        guard let me = GigIdentity.publicKeyBase64(scope: scope) else { return nil }
+        let batch = publicState.offer(to: peer, now: Int64(now.timeIntervalSince1970 * 1000))
+        guard !batch.isEmpty, let proof = GigIdentity.sign(scope: scope, publicGossipAuthPayload(nonce)),
+              let bytes = encodePublicGossipPass(PublicGossipPass(from: me, proof: proof.base64EncodedString(), batch: batch)),
+              let encoded = decodePublicGossipPass(bytes) else { return nil }
+        pending[peer] = encoded.batch.map { $0.id }
+        return bytes
     }
 
     func receivePublic(_ pass: PublicGossipPass, from: String, now: Date = Date()) {
@@ -112,85 +120,16 @@ actor GossipChannel {
     /// peripheral half issues one per central and spends it on one **Pass**. A nonce shared
     /// between two centrals would mean whichever read last decided what the other had to sign.
     func challenge(nonce: Data, now: Date) -> Data {
-        guard let me = ContactIdentity.publicKeyBase64() else {
-            return encodeGossipChallenge(GossipChallenge(nonce: nonce, tokens: []))
-        }
-        let offer = gossipTokenOffer(mine: me, contacts: Array(contacts), now: now)
-        return encodeGossipChallenge(GossipChallenge(nonce: nonce, tokens: offer))
-    }
-
-    /// A **Pass** arrived. Returns the **Contact** it came from, or nil if it was not one.
-    ///
-    /// **This is where "the transport proves possession before calling" is actually done** —
-    /// the sentence `gossipStormGate`'s `from` parameter is written against. Three things have
-    /// to hold, and a failure of any of them is silent: a readable envelope, a claimed key that
-    /// is a **Contact**, and a signature over the nonce *this* connection issued. Nothing is
-    /// reported back, for the reason the gate gives for its own rejections — a diagnosis is a
-    /// probe's oracle.
-    ///
-    /// The proof is what makes a token safe to be only a hint. A token is derived from public
-    /// material, so any device holding both keys could present one; a signature over a fresh
-    /// nonce is not something it can produce.
-    func receive(_ data: Data, nonce: Data, now: Date) async -> String? {
-        guard let pass = decodeGossipPass(data), contacts.contains(pass.from),
-              let signature = Data(base64Encoded: pass.proof),
-              verifyChallenge(gossipAuthPayload(nonce), signature: signature,
-                              publicKeyBase64: pass.from)
-        else { return nil }
-        let contact = pass.from
-
-        // The bound the storm gate says in so many words it cannot apply: how *often* a peer
-        // may hand something over. Charged on what was offered, not what survived, so a peer
-        // that floods with rubbish pays for the rubbish.
-        switch gossipAdmit(await ledger.budget(for: contact, now: now), offered: pass.batch.count,
-                           now: now) {
-        case .cooling, .flooding:
-            return contact
-        case .admit(let spent):
-            await ledger.spend(spent, for: contact, now: now)
-        }
-
-        let plan = gossipStormGate(seen: await ledger.seen(now: now), batch: pass.batch,
-                                   from: contact, now: now, contacts: contacts,
-                                   nightEndFor: { [nightEnds] in nightEnds[$0] })
-        await ledger.record(plan, from: contact, now: now)
-        return contact
-    }
-
-    // --- What the radio asks, as a pusher ---
-
-    /// Which **Contact**, if any, a challenge's offer names.
-    func resolve(_ offered: [String], now: Date) -> String? {
-        guard let me = ContactIdentity.publicKeyBase64() else { return nil }
-        return gossipResolveOffer(offered,
-                                  table: gossipTokenTable(mine: me, contacts: Array(contacts),
-                                                          now: now))
-    }
-
-    /// The **Pass** for one **Contact**: this device's key, its signature over the nonce that
-    /// **Contact** just issued, and everything held for them.
-    ///
-    /// Nil when there is nothing to say, which is the ordinary reason to hang up without
-    /// writing: an empty batch is a connection spent for nothing, and the peer is still
-    /// advertising a minute later.
-    func pass(to contact: String, nonce: Data, now: Date) async -> Data? {
-        guard contacts.contains(contact), let me = ContactIdentity.publicKeyBase64() else {
-            return nil
-        }
-        let batch = await ledger.offer(to: contact, now: now)
-        guard !batch.isEmpty, let signature = ContactIdentity.sign(gossipAuthPayload(nonce))
-        else { return nil }
-        guard let payload = encodeGossipPass(
-            GossipPass(from: me, proof: signature.base64EncodedString(), batch: batch)
-        ) else { return nil }
-        pending[contact] = batch.map { $0.messageId }
-        return payload
+        let scope = relayScope(now)
+        guard let me = GigIdentity.publicKeyBase64(scope: scope) else { return Data() }
+        return encodePublicGossipChallenge(nonce: nonce, from: me,
+                                          sign: { GigIdentity.sign(scope: scope, $0) }) ?? Data()
     }
 
     /// The bytes landed. Only now is anything marked delivered — a handover that died halfway
     /// is offered again the next time these two phones are in the same room.
     func confirmDelivery(to contact: String) async {
         guard let ids = pending.removeValue(forKey: contact) else { return }
-        await ledger.delivered(ids, to: contact)
+        publicState.delivered(to: contact, ids: ids)
     }
 }

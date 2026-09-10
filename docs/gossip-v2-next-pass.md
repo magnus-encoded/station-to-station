@@ -523,18 +523,67 @@ is *reviewed*, not about hoarding it in the working tree until the end.
 - The full per-platform gap analyses that this document condenses are in
   `docs/notes/` alongside it, if you want the clause-by-clause detail.
 
-## Progress from the resumed pass
+## Progress after the model restart (2026-09-10)
 
-The branch now has iOS DER/SPKI Gig identity authoring, public v2 Envelope and Pass
-decoding on both BLE peripherals, public check-in minting on both application models,
-v2 Pass selection on both central senders, and a Codable/JSON persistence slot in both
-timeline caches. The simulator has deterministic carry-window and coverage reducers;
-its first sweep retains the 15-minute Carry default. `docs/adr/0021-public-gossip-facts.md`
-records the widened trust boundary.
+`82ac167` restored the iOS persistence-key parity assertion; CI passed. `139381a`
+fixed a separate data-loss defect: TimelineCache encoded publicGossip but its custom
+Swift decoder ignored it. The restart/unrelated-save regression passed iOS CI.
 
-Remaining work is explicit: v2 public state is not yet loaded into the existing timeline
-view models on launch, the UI does not render projected Facts, the v2 sender does not yet
-replace every legacy v1 fallback, and no instrumented Pixel test has exercised Keystore
-Gig signing. The Pi can exercise the v2 receive framing; it cannot author or relay a Pass.
-The Android advertisement rotation/connect race remains unresolved and should be fixed
-before treating delivery metrics as representative.
+`0e23e9d` adds required shared OpenSSL-signed Envelope/Pass vectors under
+`fixtures/gossip/`, asserted byte-for-byte on both platforms. The encoder now owns
+one exact byte budget and trims the batch to a fitting prefix; offer no longer
+reserves a guessed 512-byte header. Local Android PublicGossip/TimelineStore tests
+passed. Both native CI workflows passed for this commit.
+
+The four interrupted production edits were reviewed and withdrawn before fixing CI.
+Their diff is preserved locally; the Android edit referenced an undefined batch,
+and the proposed usefulness ordering indexed envelope IDs instead of neighbour IDs.
+Neither behaviour was landed.
+
+### Remaining integration work — these are verified gaps
+
+- Android AppViewModel and GossipService own separate in-memory public states.
+  The timeline persistence methods are still unused by production gossip callers.
+  iOS GossipChannel also retains public state only in memory.
+- Current “check-in” authoring creates a log at line 0 saying “Checked in”. This is
+  not the agreed direct request/witness flow and collides with real Log lines.
+- Current author scopes derive from external gigId; they must instead be random,
+  persistent bindings to the stable local Gig, surviving external ID changes.
+- Passes still use durable Contact keys, Contact-based discovery and v1 fallbacks.
+  Replace the old transport, including its token advertising rotation. Nothing
+  has shipped that requires v1 negotiation.
+- Successful v2 handoffs are not recorded; receipts, neighbour priority, direct-only
+  verification, attribution, blocking, persisted projection and UI remain unwired.
+- Pixel Keystore test actually passed: `OK (1 test)`, 0.163 seconds, on the debug
+  app installed in place. It checked concurrent first use, reopening the same key,
+  distinct scopes, valid DER signing and tamper rejection. Only its test keys were
+  removed. `867125c` adds it and CI compilation/artifacts. Android CI passed.
+  iOS initially failed because the simulator host lacks Keychain entitlement
+  (-34018); `65361cb` probes that precise limitation before skipping the Keychain
+  test. Its iOS CI passed. Software-key wire/signature tests still run normally.
+- Simulator coverage counts nodes rather than fact/recipient pairs and its receipt
+  metric is not a model of routing receipts. The claimed 15-minute “measured default”
+  is unsupported. Complete the planned sweeps and correct the spec and ADR to match
+  the resulting implementation. Do not treat the earlier progress paragraph as
+  evidence that persistence, public check-ins or simulation decisions were finished.
+
+No feature PR has been opened. Do not close #408 while these gaps remain.
+
+### Current transport slice (resumed 07:52)
+
+The working tree now replaces radio decoding/sending with v2 on both platforms,
+uses signed challenges and temporary nightly relay keys, and removes Android's
+Contact-token advertisement rotation. Android allows a no-Contact relay at its
+Gig; iOS can likewise start for a known current night. V2 handoff IDs are now
+recorded in memory after the empty terminator completes. Android public-state
+callback access is serialized. State persistence/application authoring remains the
+next separate slice; no claim of full feature completion is warranted.
+
+Local Android compile, APK build and all 22 selected PublicGossip/GossipPolicy tests
+passed (17m52s on this host). Both pushed CI workflows still need checking. A manual Pi
+peer lives at `docs/prototypes/gossip_v2_peer.py` and is copied to `/home/pi/`.
+It verifies a signed v2 challenge and sends a signed synthetic Fact through 20-byte
+ATT writes plus an empty terminator, with separate connection trials and no hidden
+retries. Its actual hardware result is still pending. At this morning's hour the
+app may correctly decide no Gig is current; explicitly start the debug service for
+the radio experiment, then stop it again, rather than changing the user's settings.

@@ -5,6 +5,29 @@ let publicGossipHeader = "station-to-station/gossip-fact/2"
 let publicGossipPassHeader = "station-to-station/gossip-pass/2"
 let publicCarryMs: Int64 = 15 * 60 * 1000
 
+func publicGossipAuthPayload(_ nonce: Data) -> Data {
+    Data("station-to-station/gossip-auth/2\n\(nonce.base64EncodedString())".utf8)
+}
+struct PublicGossipChallenge { var nonce: Data; var from: String }
+private func publicChallengeProof(_ nonce: Data) -> Data {
+    Data("station-to-station/gossip-challenge-proof/2\n\(nonce.base64EncodedString())".utf8)
+}
+func encodePublicGossipChallenge(nonce: Data, from: String, sign: (Data) -> Data?) -> Data? {
+    guard nonce.count == 32, let proof = sign(publicChallengeProof(nonce)) else { return nil }
+    let bytes = Data("station-to-station/gossip-challenge/2\n\(nonce.base64EncodedString())\n\(from)\n\(proof.base64EncodedString())".utf8)
+    return bytes.count <= 512 ? bytes : nil
+}
+func decodePublicGossipChallenge(_ bytes: Data) -> PublicGossipChallenge? {
+    guard bytes.count <= 512, let text = String(data: bytes, encoding: .utf8) else { return nil }
+    let fields = text.components(separatedBy: "\n")
+    guard fields.count == 4, fields[0] == "station-to-station/gossip-challenge/2",
+          let nonce = Data(base64Encoded: fields[1]), nonce.count == 32,
+          let proof = Data(base64Encoded: fields[3]),
+          verifyChallenge(publicChallengeProof(nonce), signature: proof, publicKeyBase64: fields[2])
+    else { return nil }
+    return PublicGossipChallenge(nonce: nonce, from: fields[2])
+}
+
 struct GossipEnvelope: Codable, Equatable, Identifiable {
     var id = ""
     var gigId: String

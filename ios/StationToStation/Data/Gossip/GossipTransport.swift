@@ -51,31 +51,11 @@ import Foundation
 // should tell someone their arrival "was sent".
 //
 // ============================================================================
-// The meeting, in two GATT operations — and they are Android's two
+// Public v2: read a nonce and proof from a temporary relay key, then write a Pass
+// signed by this device's temporary relay key. No Contact token or durable key is
+// transmitted. Each Envelope retains its own independent author signature.
+// Writes are bounded chunks followed by one empty terminator.
 // ============================================================================
-//
-//   1. The central **reads the challenge** and gets a fresh nonce plus the peripheral's
-//      `gossipTokenOffer` — one token per **Contact** the peripheral holds, for the current
-//      bucket. It resolves that against its own token table. No match, and it hangs up having
-//      learnt nothing but "some Station to Station device is nearby", which is what it already
-//      knew from the advertisement.
-//   2. The central **writes one Pass**: its own identity key, a signature over
-//      `gossipAuthPayload` of that nonce, and its batch. The peripheral checks the key is a
-//      **Contact**, checks the signature against the nonce *it* issued, and hands the batch to
-//      the gate.
-//
-// **Push-only, which is what removed the third step this file used to have.** Every device runs
-// both halves of the radio, so a device with something to say connects and writes; there is no
-// authenticated read-back to design, and a device with nothing to say never has to be believed
-// about anything. The peripheral will push its own news the next time *it* is the one scanning.
-//
-// The peripheral never names itself in the challenge. The obvious answer — "my identity key and
-// a nonce" — would hand a stable, lifelong identifier to any radio that connects, all night, in
-// the background, which is the exact disclosure the rotating token exists to prevent.
-//
-// This is the same protocol `GossipRadio.kt` speaks, characteristic for characteristic and byte
-// for byte (ADR-0019, "Token derivation", 2026-09-08). Change one side of it and the phones stop
-// talking to each other, silently, in the only situation nobody is watching.
 
 private let gossipService = CBUUID(string: gossipServiceUUIDString)
 private let gossipChallengeCharacteristic = CBUUID(string: gossipChallengeCharacteristicUUIDString)
@@ -87,15 +67,8 @@ private let gossipPassCharacteristic = CBUUID(string: gossipPassCharacteristicUU
 private let gossipCentralRestoreId = "io.github.magnusencoded.stationtostation.gossip.central"
 private let gossipPeripheralRestoreId = "io.github.magnusencoded.stationtostation.gossip.peripheral"
 
-/// Whether this device has ever held a **Contact**, in `UserDefaults` rather than behind the
-/// timeline cache's `async` load.
-///
-/// Load-bearing, not a cache: the managers below have to be constructed *during* launch for iOS
-/// to hand back a restored session, and the contact list is not readable that early. Just as
-/// important, it is what stops a phone that has never met anybody from constructing a
-/// `CBCentralManager` at all — which would raise the Bluetooth permission prompt on first
-/// launch, for a background feature the user has no Contacts to use. Today the prompt happens
-/// where it belongs, on the Exchange screen, with a person in front of them.
+/// Persist the last relay eligibility decision so CoreBluetooth restoration can begin
+/// during launch, before the timeline's asynchronous load supplies tonight's state.
 private let gossipEnabledKey = "gossip.hasContacts"
 
 /// How long one meeting may take before it is abandoned.
@@ -184,29 +157,13 @@ final class GossipTransport: NSObject {
         start()
     }
 
-    /// Bring the radio up, or take it down, according to whether there is anybody to gossip
-    /// with. Safe to call repeatedly; called whenever the **Contact** list changes.
-    ///
-    /// **The lifecycle, stated for review:** the gossip radio runs whenever this device holds at
-    /// least one **Contact** — a **Friend** with a `publicKey`, which only an in-person Exchange
-    /// can produce — and never otherwise. It is not tied to a gig, a check-in, or a screen. That
-    /// is deliberate: a relay that only ran during one's own nights out would carry only one's
-    /// own check-ins, and the whole point is the hop that happens on somebody else's walk home.
-    /// The cost is honest and named in ADR-0019 — this is always-on infrastructure, and on iOS
-    /// its battery cost is whatever the system decides to spend on a throttled background scan.
-    func contactsChanged(_ friends: [Friend]) {
-        let keys = contactKeysOf(friends)
-        UserDefaults.standard.set(!keys.isEmpty, forKey: gossipEnabledKey)
-        // The last **Contact** leaving takes the held messages with it: they are other people's
-        // check-ins, kept only so they could be passed on, and there is nobody left to pass
-        // them to. Same shape as `Friend.publicKey`'s "removing the Contact is the whole of
-        // revocation", one level up.
-        Task { [channel] in
-            if keys.isEmpty { await channel.forgetAll() } else { await channel.setContacts(friends) }
-        }
+    /// Contacts control attribution, independently of public relay participation.
+    func contactsChanged(_ friends: [Friend], relayEnabled: Bool = true) {
+        UserDefaults.standard.set(relayEnabled, forKey: gossipEnabledKey)
+        Task { [channel] in await channel.setContacts(friends) }
         queue.async { [weak self] in
             guard let self else { return }
-            if keys.isEmpty { self.stopLocked() } else { self.startLocked() }
+            if relayEnabled { self.startLocked() } else { self.stopLocked() }
         }
     }
 
@@ -312,19 +269,13 @@ final class GossipTransport: NSObject {
     private func send(_ meeting: GossipMeeting, to contact: String, nonce: Data) {
         Task { [weak self] in
             guard let self else { return }
-            // v2 is the only wire spoken by new builds. Keep the old path as a local
-            // fallback while a device has no public facts yet; the discriminator makes
-            // this fail closed against a stale implementation.
-            let publicPayload = await self.channel.publicPass(to: contact, nonce: nonce, now: Date())
-            let payload: Data?
-            if let publicPayload { payload = publicPayload }
-            else { payload = await self.channel.pass(to: contact, nonce: nonce, now: Date()) }
+            let payload = await self.channel.publicPass(to: contact, nonce: nonce, now: Date())
             self.queue.async {
                 let id = meeting.peripheral.identifier
                 guard self.meetings[id] != nil, let characteristic = meeting.pass,
                       let payload
                 else { self.abandon(id); return }
-                let limit = max(20, meeting.peripheral.maximumWriteValueLength(for: .withResponse))
+                let limit = min(512, max(20, meeting.peripheral.maximumWriteValueLength(for: .withResponse)))
                 meeting.contact = contact
                 meeting.pending = payload.gossipChunks(by: limit) + [Data()]
                 self.writeNext(meeting, characteristic)
@@ -428,18 +379,9 @@ extension GossipTransport: CBPeripheralDelegate {
         let id = peripheral.identifier
         guard error == nil, characteristic.uuid == gossipChallengeCharacteristic,
               let meeting = meetings[id], let value = characteristic.value,
-              let challenge = decodeGossipChallenge(value)
+              let challenge = decodePublicGossipChallenge(value)
         else { abandon(id); return }
-        Task { [weak self] in
-            guard let self else { return }
-            let contact = await self.channel.resolve(challenge.tokens, now: Date())
-            self.queue.async {
-                // Nobody I have met. Hang up having learnt nothing, and — importantly — say
-                // nothing: this device's key does not go out to a peer it could not place.
-                guard let contact else { self.abandon(id); return }
-                self.send(meeting, to: contact, nonce: challenge.nonce)
-            }
-        }
+        send(meeting, to: challenge.from, nonce: challenge.nonce)
     }
 
     func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic,
@@ -556,6 +498,8 @@ extension GossipTransport: CBPeripheralManagerDelegate {
         guard accumulated.count <= gossipMaxWireBytes else {
             inbox[id] = nil
             inboxStartedAt[id] = nil
+            nonces[id] = nil
+            challenges[id] = nil
             peripheral.respond(to: first, withResult: .insufficientResources)
             return
         }
@@ -571,7 +515,7 @@ extension GossipTransport: CBPeripheralManagerDelegate {
         challenges[id] = nil
         if let publicPass = decodePublicGossipPass(accumulated) {
             guard let proof = Data(base64Encoded: publicPass.proof),
-                  verifyChallenge(gossipAuthPayload(nonce), signature: proof,
+                  verifyChallenge(publicGossipAuthPayload(nonce), signature: proof,
                                   publicKeyBase64: publicPass.from) else {
                 return
             }
@@ -579,11 +523,6 @@ extension GossipTransport: CBPeripheralManagerDelegate {
             Task { [channel] in await channel.receivePublic(publicPass, from: publicPass.from) }
             return
         }
-        Task { [weak self] in
-            // Everything that decides whether these bytes are worth anything — the possession
-            // proof, the **Contact** check, the gate — happens in the actor. Nothing is
-            // reported back to the peer either way: a diagnosis is a probe's oracle.
-            _ = await self?.channel.receive(accumulated, nonce: nonce, now: Date())
-        }
+
     }
 }

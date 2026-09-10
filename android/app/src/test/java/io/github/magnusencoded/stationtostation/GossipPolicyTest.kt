@@ -31,8 +31,10 @@ class GossipPolicyTest {
     private val gigs = mapOf("3ba1f9ca" to gigDate)
 
     @Test
-    fun `with no Contacts there is nothing the radio could do`() {
-        assertFalse(gossipRelayShouldRun(contacts = 0, holding = true, gigTonight = true, alwaysRelay = true))
+    fun `a public relay needs no Contacts`() {
+        assertTrue(gossipRelayShouldRun(contacts = 0, holding = true, gigTonight = true, alwaysRelay = true))
+        assertTrue(gossipRelayShouldRun(contacts = 0, holding = false, gigTonight = true, alwaysRelay = false))
+        assertFalse(gossipRelayShouldRun(contacts = 0, holding = false, gigTonight = false, alwaysRelay = false))
     }
 
     @Test
