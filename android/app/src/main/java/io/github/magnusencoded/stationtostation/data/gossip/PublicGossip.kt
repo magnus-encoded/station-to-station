@@ -87,7 +87,7 @@ data class PublicHeld(val envelope: GossipEnvelope, val until: Long, val deliver
 
 /** Transport memory and durable application assertions have deliberately different lifetimes. */
 @Serializable
-class PublicGossipState(
+data class PublicGossipState(
     val facts: MutableMap<String, GossipEnvelope> = linkedMapOf(),
     val seen: MutableMap<String, Long> = linkedMapOf(),
     val held: MutableMap<String, PublicHeld> = linkedMapOf(),
