@@ -247,18 +247,23 @@ Available, and verified working at 02:30 on 2026-09-10:
   gossip advertisement**. Log in with `ssh -i ~/.ssh/id_ed25519_pinet pi@pinet.local`
   — the key is on this box; the default key name is not, so the `-i` is required.
 
-`bleak` is installed there (`pip3 install --break-system-packages bleak`), and two
-scripts are left in `/home/pi/`:
+`bleak` is installed there (`pip3 install --break-system-packages bleak`), and four
+scripts are left in `/home/pi/`, each about thirty lines and meant to be edited:
 
 ```sh
 ssh -i ~/.ssh/id_ed25519_pinet pi@pinet.local 'python3 /home/pi/gossip-scan.py 25'
 ssh -i ~/.ssh/id_ed25519_pinet pi@pinet.local 'python3 /home/pi/gossip-connect.py'
+ssh -i ~/.ssh/id_ed25519_pinet pi@pinet.local 'python3 /home/pi/gossip-race.py'
+ssh -i ~/.ssh/id_ed25519_pinet pi@pinet.local 'python3 /home/pi/gossip-challenge.py'
 ```
 
 `gossip-scan.py` filters adverts by the two service UUIDs from `GossipRadio.kt:73`
 and `BleProbe.kt:47` and prints address, RSSI and manufacturer data.
 `gossip-connect.py` finds a gossip advertiser, connects, and looks for the gossip
-service in its GATT database, retrying up to four times. What the two actually
+service in its GATT database, retrying up to four times. `gossip-race.py` and
+`gossip-challenge.py` are the connect-timing and challenge-read experiments below.
+Writing a Pass to `…7723` is the obvious fifth, and is left for you because its
+bytes depend on the wire format you are about to change. What the first two
 returned:
 
 ```
@@ -293,13 +298,17 @@ will cost you time if you meet them cold:
   logging `advertising a token for one contact`. So the phone was there and
   advertising throughout — the connect specifically is what failed.
 
-  The likely cause is in our own code. `GOSSIP_ADVERTISE_SLOT` is **four seconds**
+  The first hypothesis was a stale address, and it is worth following because the
+  *mechanism* it identifies is real even though the conclusion turned out to be
+  wrong. `GOSSIP_ADVERTISE_SLOT` is **four seconds**
   (`GossipToken.kt:295`), and `rotate()` stops and restarts the advertiser on that
   cadence to show the next Contact's token (`GossipRadio.kt:362-402`). Android
   regenerates its resolvable private address when the advertiser restarts, which is
   why one phone showed up as seven addresses in twenty-five seconds. A central that
   discovers an address therefore has **at most four seconds, and on average two**,
-  to complete a connection before the address it holds is gone.
+  to complete a connection before the address it holds is gone. That much is
+  certain. What does not follow — and what the next experiment disproves — is that
+  the staleness is what breaks the connection.
 
   **The obvious explanation has been tested and does not hold.** A third script,
   `/home/pi/gossip-race.py`, connects from inside the detection callback instead of
