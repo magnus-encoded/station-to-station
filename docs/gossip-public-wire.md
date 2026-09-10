@@ -42,5 +42,10 @@ outbox eviction until message expiry. Durable admitted facts survive both timers
 
 Resource defaults remain tunable: 128 Envelopes / 128 KB carried, 8,192 live seen IDs,
 per-peer cooldown and bounded BLE sessions. Capacity exhaustion drops incoming transport
-work rather than evicting seen IDs and allowing repeated re-entry. Usefulness lasts two
-minutes, binary, with random ties; receipts are one-hop pending further simulation.
+work rather than evicting seen IDs and allowing repeated re-entry. The first deterministic
+sweep in `sim/` keeps the 15-minute Carry window: its 60-second and 900-second runs have
+identical coverage when the next encounter is immediate, while the 60-second run correctly
+drops a later encounter. Usefulness lasts two minutes, binary, with random ties. Receipts
+remain one-hop until a trace with receipt hops exists; the simulator currently measures
+receipt probability only as delivery of a witnessed Fact. These are measured defaults, not
+claims about iOS background scheduling, which remains OS-throttled.

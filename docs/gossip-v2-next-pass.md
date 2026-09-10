@@ -522,3 +522,19 @@ is *reviewed*, not about hoarding it in the working tree until the end.
   "LF will be replaced by CRLF" warnings are expected and are not a problem.
 - The full per-platform gap analyses that this document condenses are in
   `docs/notes/` alongside it, if you want the clause-by-clause detail.
+
+## Progress from the resumed pass
+
+The branch now has iOS DER/SPKI Gig identity authoring, public v2 Envelope and Pass
+decoding on both BLE peripherals, public check-in minting on both application models,
+v2 Pass selection on both central senders, and a Codable/JSON persistence slot in both
+timeline caches. The simulator has deterministic carry-window and coverage reducers;
+its first sweep retains the 15-minute Carry default. `docs/adr/0021-public-gossip-facts.md`
+records the widened trust boundary.
+
+Remaining work is explicit: v2 public state is not yet loaded into the existing timeline
+view models on launch, the UI does not render projected Facts, the v2 sender does not yet
+replace every legacy v1 fallback, and no instrumented Pixel test has exercised Keystore
+Gig signing. The Pi can exercise the v2 receive framing; it cannot author or relay a Pass.
+The Android advertisement rotation/connect race remains unresolved and should be fixed
+before treating delivery metrics as representative.
