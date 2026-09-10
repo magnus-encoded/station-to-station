@@ -216,6 +216,58 @@ right while it is still free, then write the ADR as the record of where it lande
 in time for the PR. If the argument turns out not to be makeable, that is a finding
 about the design and worth surfacing immediately — not a reason to keep drafting.
 
+## Verifying on the Pixel
+
+A Pixel 7 Pro is attached over **wireless** adb at `192.168.1.216:39851`, Android 17
+/ API 37, with both `io.github.magnusencoded.stationtostation` and its `.debug`
+variant installed — the debug build is `1.8.0.860` from 2026-09-09 15:48.
+
+**Bluetooth is on and every runtime permission the radio needs is already granted**
+on the debug variant: `BLUETOOTH_SCAN`, `BLUETOOTH_ADVERTISE`, `BLUETOOTH_CONNECT`,
+`ACCESS_FINE_LOCATION`, `POST_NOTIFICATIONS`. That matters more than it looks,
+because an unattended agent cannot tap a permission dialog. If v2 adds a
+permission, grant it from the shell — `adb shell pm grant <pkg> <permission>` —
+rather than installing and waiting for a prompt nobody will answer.
+
+### There is no second radio, so do not plan around one
+
+Gossip needs two peers. There is exactly one BLE device available:
+
+- no iPhone attached — `idevice_id -l` returns `Unable to retrieve device list`
+- **this host has no Bluetooth hardware at all** — `rfkill list` is empty,
+  `bluetoothctl list` shows no controller, no USB Bluetooth device
+
+So a real two-phone v2 Pass exchange **cannot be tested tonight**. Don't spend the
+pass building toward a demonstration that has no second endpoint. Say so in the PR
+as an explicit gap rather than implying the path was exercised.
+
+### What one Pixel does prove, and it is the thing CI cannot
+
+`GigIdentity` generates and signs with a P-256 key in the **Android Keystore**,
+which does not exist in a JVM unit test. CI has therefore never executed that code
+— the green Android run proves it compiles, not that it can mint a key or produce a
+signature that `verifyChallenge` accepts. The Pixel is the only place that can be
+established before this ships, and it is the highest-value use of the device.
+
+Also reachable on one phone: install and launch without crashing, instrumented
+tests on real hardware, the encode/decode round-trip against the shared fixture,
+the radio actually starting to advertise and scan, and the push-failure diagnostics
+this branch already added.
+
+### If adb has dropped
+
+Wireless adb does not survive the phone changing address, and may not survive it
+sleeping. The launcher reconnects before handing over, but if the link is gone
+mid-pass:
+
+```sh
+adb connect 192.168.1.216:39851 && adb devices -l
+```
+
+If that fails, the phone needs wireless debugging re-paired by hand. That is a
+human task — note it and carry on with what does not need the device rather than
+burning the pass on it.
+
 ## Landing it
 
 One PR for the whole feature at the end — not a PR per slice. `Fixes #408.` in the
