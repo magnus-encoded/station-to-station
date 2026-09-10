@@ -229,17 +229,96 @@ because an unattended agent cannot tap a permission dialog. If v2 adds a
 permission, grant it from the shell — `adb shell pm grant <pkg> <permission>` —
 rather than installing and waiting for a prompt nobody will answer.
 
-### There is no second radio, so do not plan around one
+### There is a second BLE radio, and it is not a phone
 
-Gossip needs two peers. There is exactly one BLE device available:
+Gossip needs two peers. Neither of the obvious candidates is available — but a
+third one is, and it changes what is testable tonight.
+
+Not available:
 
 - no iPhone attached — `idevice_id -l` returns `Unable to retrieve device list`
 - **this host has no Bluetooth hardware at all** — `rfkill list` is empty,
   `bluetoothctl list` shows no controller, no USB Bluetooth device
 
-So a real two-phone v2 Pass exchange **cannot be tested tonight**. Don't spend the
-pass building toward a demonstration that has no second endpoint. Say so in the PR
-as an explicit gap rather than implying the path was exercised.
+Available, and verified working at 02:30 on 2026-09-10:
+
+- **`pi@pinet.local`** (Raspberry Pi 3B+, BlueZ 5.66, controller
+  `B8:27:EB:7E:4B:0D`, powered) is in BLE range of the Pixel and **already sees the
+  gossip advertisement**. Log in with `ssh -i ~/.ssh/id_ed25519_pinet pi@pinet.local`
+  — the key is on this box; the default key name is not, so the `-i` is required.
+
+`bleak` is installed there (`pip3 install --break-system-packages bleak`), and two
+scripts are left in `/home/pi/`:
+
+```sh
+ssh -i ~/.ssh/id_ed25519_pinet pi@pinet.local 'python3 /home/pi/gossip-scan.py 25'
+ssh -i ~/.ssh/id_ed25519_pinet pi@pinet.local 'python3 /home/pi/gossip-connect.py'
+```
+
+`gossip-scan.py` filters adverts by the two service UUIDs from `GossipRadio.kt:73`
+and `BleProbe.kt:47` and prints address, RSSI and manufacturer data.
+`gossip-connect.py` finds a gossip advertiser, connects, and looks for the gossip
+service in its GATT database, retrying up to four times. What the two actually
+returned:
+
+```
+GOSSIP 43:99:60:54:F3:E4 rssi=-67 mfg={65535: '12b4c67c7606cd72'}
+GOSSIP 58:10:05:8A:A2:59 rssi=-63 mfg={65535: '12b4c67c7606cd72'}
+… 7 addresses in 25 seconds, all the same manufacturer payload
+
+attempt 1: connecting to 7B:42:C3:3E:50:76
+  connected, mtu 23
+  GOSSIP SERVICE FOUND
+    char 7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7723 ['write']
+    char 7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7722 ['read']
+```
+
+Read that carefully, because it tells you several things at once. The service UUID
+is in the advertisement, not the scan response, exactly as `GossipRadio.kt:381-384`
+builds it. The token rides manufacturer data under company ID `0xFFFF`
+(`TEST_COMPANY_ID`), as `:389-391` intends. The seven addresses are **one phone**:
+Android rotates its BLE address, and the constant token across all seven is what
+makes them recognisable as the same advertiser — the privacy property the design
+relies on, observed from outside for the first time. And a stranger with no Contact
+and no app can reach both characteristics: pass at `…7723` write-only, challenge at
+`…7722` read-only, matching `GossipRadio.kt:76` and `:79`.
+
+`-63 dBm` is a comfortable margin, so range is not the constraint. Two caveats that
+will cost you time if you meet them cold:
+
+- **Connects fail intermittently, and the address rotation is why.** One run
+  timed out in `BleakClient.connect` because the address it had just discovered
+  had already rotated out from under it. The script retries; keep that, and treat
+  a single `TimeoutError` as noise rather than a finding.
+- **That `mtu 23` is bleak's default, not a negotiated value** — it warns as much.
+  Call `_acquire_mtu()` before believing any MTU number, and do not conclude
+  anything about chunking from 23 until you have.
+
+### What that buys you, and what it does not
+
+It is not a second copy of the app, so it cannot complete a v2 Pass on its own. But
+it is a **real, scriptable, third-party GATT peer**, and that covers most of what a
+second phone would have proved:
+
+- that the advert is well-formed and the phone discoverable — **done, above**
+- that a stranger can connect and reach the gossip characteristics — **done**
+- **that the chunk-and-empty-terminator framing survives a real ATT ceiling on a
+  real link** — the most valuable thing left here, because that framing is the part
+  of the transport a JVM test cannot exercise and the part most likely to be wrong
+- that a malformed, oversized or truncated Pass is rejected the way the spec says,
+  which is *easier* from a script than from a second phone, because you can send
+  exactly the bytes you want to send
+
+Writing a synthetic Pass to `…7723` from the Pi and watching the Pixel accept or
+reject it in logcat is a genuine end-to-end test of the receive path, and it is
+reachable tonight. Authoring, signing, relaying onward and projecting still have no
+second endpoint — say so in the PR rather than implying the whole path was
+exercised.
+
+**Do not restart networking on pinet.** It is this machine's only route to the
+internet (`CachyOs --eth--> pinet --wifi--> router`). Bluetooth work is unrelated
+to that and safe; `systemctl restart` of anything network-shaped is not. The Pi is
+a 3B+ with 856 MB RAM, so keep scripts small and do not build anything there.
 
 ### What one Pixel does prove, and it is the thing CI cannot
 
@@ -249,24 +328,74 @@ which does not exist in a JVM unit test. CI has therefore never executed that co
 signature that `verifyChallenge` accepts. The Pixel is the only place that can be
 established before this ships, and it is the highest-value use of the device.
 
-Also reachable on one phone: install and launch without crashing, instrumented
-tests on real hardware, the encode/decode round-trip against the shared fixture,
-the radio actually starting to advertise and scan, and the push-failure diagnostics
-this branch already added.
+**But there is no instrumented test to put it in: `android/app/src/androidTest/`
+does not exist.** This repo has no on-device test source set at all, so
+`connectedDebugAndroidTest` is not a thing you can run — don't try. Two ways to
+close that, and they are not equivalent:
+
+- **Create the source set** and write the first instrumented test. It is standard
+  Gradle wiring, it is the durable answer, and every later Keystore or radio change
+  gets to reuse it. It is also new infrastructure for this project, which makes it a
+  judgement call rather than a chore — if you do it, keep it minimal and say why in
+  the PR.
+- **Exercise it from the running app and read logcat.** Cheaper, needs no new
+  infrastructure, proves the same single fact tonight, and leaves nothing behind.
+
+Prefer the first if the pass is going well, the second if it is not. Either way,
+*something* must execute that Keystore path before the PR, because nothing ever has.
+
+The real log tags are **`GossipRadio`** and **`GossipService`** — the on-device docs
+name no gossip-specific filter, so use these:
+
+```sh
+adb logcat -c && adb logcat -s GossipRadio:V GossipService:V
+```
+
+Also reachable on one phone: install and launch without crashing, the encode/decode
+round-trip against the shared fixture via the existing JVM unit tests, the radio
+actually starting to advertise and scan, and the push-failure diagnostics this
+branch already added.
+
+### Verified command sequence
+
+Run and confirmed working at 02:15 on 2026-09-10, against this branch. Note the
+timings — a build-install-launch cycle is **over six minutes**, so budget for it
+rather than looping on it.
+
+```sh
+cd /home/dizzi90/Documents/station-to-station/android
+./gradlew :app:assembleDebug     # BUILD SUCCESSFUL in 4m34s
+./gradlew :app:installDebug      # BUILD SUCCESSFUL in 1m49s, to 'Pixel 7 Pro - 17'
+adb -s 192.168.1.216:39851 shell am start \
+  -n io.github.magnusencoded.stationtostation.debug/io.github.magnusencoded.stationtostation.MainActivity
+```
+
+Launch was clean: `Displayed …MainActivity +1s155ms`, `GossipService` foreground
+service started, BLE GATT app registered, no `FATAL` or `AndroidRuntime`.
+`local.properties` sets `sdk.dir=/opt/android-sdk` and that is what Gradle used —
+the mismatch with `ANDROID_HOME` is a non-issue, ignore it.
 
 ### If adb has dropped
 
-Wireless adb does not survive the phone changing address, and may not survive it
-sleeping. The launcher reconnects before handing over, but if the link is gone
-mid-pass:
+Wireless adb here is a **paired wireless-debugging session** on port 39851, not a
+classic `adb tcpip 5555`. The launcher reconnects before handing over; mid-pass:
 
 ```sh
 adb connect 192.168.1.216:39851 && adb devices -l
 ```
 
-If that fails, the phone needs wireless debugging re-paired by hand. That is a
-human task — note it and carry on with what does not need the device rather than
-burning the pass on it.
+If that fails the phone needs re-pairing by hand, which is a human task — note it
+and carry on with what does not need the device rather than burning the pass on it.
+
+**The link is more robust tonight than it looks.** The phone is on a wireless
+charger at 100%, and a charging device does not enter Doze — which is the main
+thing that would otherwise kill the connection while you work.
+
+One thing deliberately **not** changed: `stay_on_while_plugged_in` is `0`, so the
+screen locks after its 30-minute timeout. Leave it that way. `GossipService` is a
+foreground service and ADR-0019 exists precisely so this runs with nobody looking
+at the phone — forcing the screen awake would make the observation less
+representative, not more.
 
 ## Landing it
 
