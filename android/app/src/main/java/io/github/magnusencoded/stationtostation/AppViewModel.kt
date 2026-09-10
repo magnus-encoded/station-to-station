@@ -102,7 +102,6 @@ import io.github.magnusencoded.stationtostation.data.gossip.gossipGigTonight
 import io.github.magnusencoded.stationtostation.data.gossip.mintGossipCheckIn
 import io.github.magnusencoded.stationtostation.data.gossip.GigIdentity
 import io.github.magnusencoded.stationtostation.data.gossip.GossipEnvelope
-import io.github.magnusencoded.stationtostation.data.gossip.PublicGossipState
 import io.github.magnusencoded.stationtostation.data.contactManifest
 import io.github.magnusencoded.stationtostation.data.GalleryItem
 import io.github.magnusencoded.stationtostation.data.exchange.readAccountsAck
@@ -528,7 +527,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * nothing about a relayed message reaches [UiState].
      */
     private val gossip = GossipStore(application)
-    private val publicState = PublicGossipState()
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -2428,7 +2426,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             kind = "log", line = 0, text = "Checked in",
             attribution = identity.attribution(),
         ).signed(identity::sign)
-        if (public != null) publicState.receive(public, "", System.currentTimeMillis(), local = true)
+        if (public != null) {
+            val now = System.currentTimeMillis()
+            gossip.updatePublic(now) { it.receive(public, "", now, local = true) }
+        }
         syncGossip()
     }
 
@@ -2445,7 +2446,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         GossipService.sync(
             context = getApplication<Application>(),
             contacts = contactKeysOf(_state.value.friends).size,
-            holding = gossip.held(now).isNotEmpty(),
+            holding = gossip.publicStates.first().apply { prune(now.toEpochMilli()) }.held.isNotEmpty(),
             gigTonight = gossipGigTonight(gigDatesOf(timelines), now),
             alwaysRelay = _state.value.alwaysRelay,
         )

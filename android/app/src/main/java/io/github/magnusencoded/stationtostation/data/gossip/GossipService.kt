@@ -73,7 +73,7 @@ class GossipService : Service() {
     private lateinit var settings: SettingsRepository
     private lateinit var timeline: TimelineStore
     private lateinit var store: GossipStore
-    private val publicState = PublicGossipState()
+    private var publicState = PublicGossipState()
     private val publicLock = Any()
     private val publicPending = mutableMapOf<String, List<String>>()
 
@@ -116,7 +116,7 @@ class GossipService : Service() {
         // Before anything else, and on every delivery of the intent: Android kills a service
         // that has not called this within five seconds, and an already-started service being
         // asked to start again is normal.
-        startForegroundNotification(held.size)
+        startForegroundNotification(publicCount())
         if (peripheral == null) startRadio()
         // NOT_STICKY, matching "deliberately not a boot receiver" in GossipPolicy: a service
         // the system killed for resources should not silently reappear. Opening the app is
@@ -139,6 +139,12 @@ class GossipService : Service() {
         fun relayIdentity(): GigIdentity = GigIdentity("relay-" +
             java.time.ZonedDateTime.now().minusHours(6).toLocalDate().toString())
         scope.launch { refresh() }
+        scope.launch {
+            store.publicStates.collect { state ->
+                synchronized(publicLock) { publicState = state }
+                startForegroundNotification(publicCount())
+            }
+        }
 
         peripheral = GossipPeripheral(
             context = applicationContext,
@@ -148,8 +154,9 @@ class GossipService : Service() {
             it.onPublicDelivery = { delivery ->
                 scope.launch {
                     val now = System.currentTimeMillis()
-                    val accepted = synchronized(publicLock) {
-                        delivery.pass.batch.count { envelope -> publicState.receive(envelope, delivery.from, now) }
+                    var accepted = 0
+                    store.updatePublic(now) { state ->
+                        accepted = delivery.pass.batch.count { envelope -> state.receive(envelope, delivery.from, now) }
                     }
                     Log.i(TAG, "accepted $accepted of ${delivery.pass.batch.size} public envelopes")
                 }
@@ -172,10 +179,10 @@ class GossipService : Service() {
             onPushed = { peer ->
                 val now = Instant.now()
                 synchronized(spokenAt) { spokenAt[peer] = now }
-                synchronized(publicLock) {
-                    publicState.delivered(peer, publicPending.remove(peer).orEmpty())
+                val ids = synchronized(publicLock) { publicPending.remove(peer).orEmpty() }
+                scope.launch {
+                    store.updatePublic(now.toEpochMilli()) { it.delivered(peer, ids) }
                 }
-                startForegroundNotification(held.size)
             },
         ).also { it.start() }
 
@@ -187,7 +194,8 @@ class GossipService : Service() {
         scope.launch {
             while (isActive) {
                 delay(GOSSIP_NEARBY_WINDOW.toMillis() / 5)
-                withContext(Dispatchers.Main) { startForegroundNotification(held.size) }
+                store.updatePublic(System.currentTimeMillis()) { }
+                withContext(Dispatchers.Main) { startForegroundNotification(publicCount()) }
             }
         }
     }
@@ -227,7 +235,7 @@ class GossipService : Service() {
             Log.i(TAG, "accepted $accepted of ${delivery.batch.size} from a contact")
             // A newly accepted message is news to push on, and the notification is the only
             // honest account of what this service is doing with the battery it is spending.
-            startForegroundNotification(held.size)
+            startForegroundNotification(publicCount())
         }
     }
 
@@ -248,6 +256,8 @@ class GossipService : Service() {
      * the room is empty. A **Contact** with no name to show is "someone" rather than being
      * left out: dropping them would report an empty room while a radio was plainly busy.
      */
+    private fun publicCount(): Int = synchronized(publicLock) { publicState.held.size }
+
     private fun presenceText(carrying: Int): String {
         val here = gossipNearby(GossipPresence.metAt.value, Instant.now())
             .map { names[it] ?: getString(R.string.gossip_notification_someone) }
