@@ -301,11 +301,38 @@ will cost you time if you meet them cold:
   discovers an address therefore has **at most four seconds, and on average two**,
   to complete a connection before the address it holds is gone.
 
+  **The obvious explanation has been tested and does not hold.** A third script,
+  `/home/pi/gossip-race.py`, connects from inside the detection callback instead of
+  scanning to completion first, closing the window to almost nothing. Six trials:
+
+```
+trial 1: OK   scan-stop 0.02s  connect+read 4.23s  challenge 99B
+trial 2: FAIL scan-stop 0.03s  gave up 12.05s  TimeoutError
+trial 3: FAIL scan-stop 0.01s  gave up 12.02s  TimeoutError
+trial 4: OK   scan-stop 0.05s  connect+read 4.01s  challenge 99B
+trial 5: FAIL scan-stop 0.02s  gave up 12.03s  TimeoutError
+trial 6: FAIL scan-stop 0.01s  gave up 12.02s  TimeoutError
+=== 2/6 connected ===
+```
+
+  So "the central was too slow" is out: the gap between seeing the advert and
+  starting the connection was twenty to fifty *milliseconds*, and it still failed
+  two thirds of the time. Note what the successes cost — **4.01 s and 4.23 s**,
+  within a rounding error of one `GOSSIP_ADVERTISE_SLOT`. That is the shape of a
+  connection that only completes once the advertiser has cycled, not one that races
+  a rotation and wins.
+
+  The reading that fits is that `rotate()`'s stop/start leaves a dead window in
+  which the phone is not connectable at all, and a connection request that arrives
+  inside it is simply lost. Four times a minute, for a night, on a transport whose
+  entire purpose is opportunistic contact between passers-by who may be in range
+  for only a few seconds.
+
   Do not file that as a test-harness annoyance and move on. `GOSSIP_PUSH_TIMEOUT_MS`
   is 20 s (`GossipRadio.kt:92`), which budgets generously for the whole push but
   cannot help if the *connect* has to land inside a two-second residual window. It
-  is worth establishing whether Android's own scan-then-`connectGatt` path is
-  subject to the same race — it may not be, since it can connect by resolved
+  is still worth establishing whether Android's own scan-then-`connectGatt` path is
+  subject to the same window — it may not be, since it can connect by resolved
   identity rather than by the address it happened to observe — but "it works
   between two Androids" would be a happy accident of platform behaviour, not a
   property the transport design has earned. If it is real, it is a v2 transport bug
@@ -324,6 +351,11 @@ second phone would have proved:
 
 - that the advert is well-formed and the phone discoverable — **done, above**
 - that a stranger can connect and reach the gossip characteristics — **done**
+- that an unauthenticated stranger can **read the challenge**: 99 bytes beginning
+  `station-to-station/gossi…`, read from `…7722` by a device that has never paired,
+  bonded or exchanged a Card. Presumably intended, since a peer must have the
+  challenge to sign it — but it is now an observed fact rather than an assumption,
+  and the ADR should say so out loud
 - **that the chunk-and-empty-terminator framing survives a real ATT ceiling on a
   real link** — the most valuable thing left here, because that framing is the part
   of the transport a JVM test cannot exercise and the part most likely to be wrong
