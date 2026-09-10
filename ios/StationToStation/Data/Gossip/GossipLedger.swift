@@ -41,6 +41,26 @@ actor GossipLedger {
         return dir.appendingPathComponent("gossip.json")
     }
 
+    /// A local Gig keeps its random signing scope when its external ID changes.
+    /// Only return a new scope once it is durable, so a failed write cannot rotate it.
+    func authorScope(localGigId: String) -> String? {
+        guard !localGigId.isEmpty else { return nil }
+        var next = load()
+        if let scope = next.authorScopes?[localGigId] { return scope }
+        let scope = UUID().uuidString.lowercased()
+        var bindings = next.authorScopes ?? [:]
+        bindings[localGigId] = scope
+        next.authorScopes = bindings
+        do {
+            let data = try JSONEncoder().encode(next)
+            try data.write(to: file, options: .atomic)
+            cache = next
+            return scope
+        } catch {
+            return nil
+        }
+    }
+
     /// The seen set as `gossipStormGate` wants it, already pruned.
     func seen(now: Date) -> [String: Date] {
         Dictionary(uniqueKeysWithValues: pruned(load(), now: now).seen.map {
@@ -135,11 +155,15 @@ actor GossipLedger {
         }
     }
 
-    /// Everything, gone. The whole of forgetting a night: no separate revocation, no server
-    /// to ask.
+    /// Clear legacy transport memory while retaining local Gig identity bindings.
     func forgetAll() {
-        cache = StoredGossip()
-        try? FileManager.default.removeItem(at: file)
+        // Removing Contacts clears the old transport, not the local Gig's identity.
+        if let bindings = load().authorScopes, !bindings.isEmpty {
+            write { _ in StoredGossip(authorScopes: bindings) }
+        } else {
+            cache = StoredGossip()
+            try? FileManager.default.removeItem(at: file)
+        }
     }
 
     // --- The file ---
@@ -198,6 +222,8 @@ let gossipMaxHeld = 512
 /// never disagree about — a property of whichever encoder happened to touch it. Epoch seconds
 /// here, exactly as on the wire and exactly as in the signed payload.
 private struct StoredGossip: Codable {
+    // Optional so existing ledgers decode without discarding their held/seen state.
+    var authorScopes: [String: String]? = nil
     var seen: [String: Int64] = [:]
     var held: [HeldGossip] = []
     var budgets: [String: GossipPeerBudget] = [:]

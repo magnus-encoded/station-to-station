@@ -1636,7 +1636,9 @@ final class AppModel: ObservableObject {
             // between now and the end of this night (#417). Nothing is promised by this: see
             // `GossipTransport` on what iOS background delivery actually is.
             let gigDate = knownNights.first { $0.id == gigId }?.eventDate
-            await GossipChannel.shared.checkedIn(gigId: gigId, gigDate: gigDate)
+            let cache = await timelines.load()
+            guard let localGig = cache.gigs[gigId] ?? cache.gigForSetlist(gigId) else { return }
+            await GossipChannel.shared.checkedIn(gigId: gigId, localGigId: localGig.id, gigDate: gigDate)
         }
     }
 
