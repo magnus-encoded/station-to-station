@@ -1,21 +1,25 @@
 import Foundation
 
-/// The gossip channel: the one place that holds the **Contact** list, the ledger, and the
-/// storm gate together, and the only thing `GossipTransport` is allowed to ask questions of.
+/// The gossip channel: the one place that holds the **Contact** list, the ledger and this
+/// device's signing scopes together, and the only thing `GossipTransport` is allowed to ask
+/// questions of.
 ///
 /// An actor, and a single one, because the radio calls into it from a background queue while
 /// the app calls into it from the main one, and because `GossipLedger` is a mutable store that
 /// two meetings at once would otherwise interleave writes into.
 ///
-/// Nothing here decides anything either. Admission is `gossipAdmit`, acceptance is
-/// `gossipStormGate`, retention is `GossipLedger`, and recognition is `GossipToken`. This is
-/// the wiring between them, kept out of the CoreBluetooth file so that file is only ever about
-/// CoreBluetooth.
+/// Nothing here decides anything. Acceptance is `PublicGossipState.receive`, which judges every
+/// envelope `GossipEnvelope.valid()` lets through; retention and pruning are `GossipLedger`;
+/// the wire format is `PublicGossip.swift`. This is the wiring between them, kept out of the
+/// CoreBluetooth file so that file is only ever about CoreBluetooth.
 ///
-/// **It does own one judgement the gate cannot make for itself:** whether the peer handing
-/// over a batch is who it says it is. `gossipStormGate` takes `from` as already-established
-/// fact, so somebody has to establish it — `receive` is that somebody, and it is the reason
-/// the possession proof exists.
+/// **The one judgement that is not here either, and where it went:** whether the peer handing
+/// over a batch is who it says it is. `receive` takes `from` as already-established fact, so
+/// somebody has to establish it — `GossipTransport.peripheralManager(_:didReceiveWrite:)` is
+/// that somebody, checking the peer's signature over `publicGossipAuthPayload` of the nonce
+/// this device issued before a single envelope reaches this actor. That check is the reason the
+/// possession proof exists, and it is deliberately at the radio's edge: nothing that failed it
+/// is ever named to the ledger at all.
 actor GossipChannel {
 
     static let shared = GossipChannel()
@@ -28,15 +32,19 @@ actor GossipChannel {
     /// Plain keys, not derived secrets. This file used to hold one ECDH shared secret per
     /// **Contact**; the reconciliation with Android (ADR-0019, 2026-09-08) replaced that
     /// derivation with one keyed on the pair of *public* keys, because Android's identity key
-    /// is `PURPOSE_SIGN`-only and cannot perform key agreement at all. See `GossipToken.swift`
-    /// for the whole argument. The practical consequence here is that there is no longer any
+    /// is `PURPOSE_SIGN`-only and cannot perform key agreement at all. The practical
+    /// consequence here is that there is no longer any
     /// secret material in this actor to be careful with, and removing a **Contact** is still
     /// the whole of revocation.
     private var contacts: Set<String> = []
 
-    /// Gig id → the end of that night, for the gigs this device happens to know about. The
-    /// gate uses it as a ceiling; nil for everything else, which is the ordinary case on a
-    /// relay hop and is exactly what the gate expects.
+    /// Gig id → the end of that night, for the gigs this device happens to know about.
+    ///
+    /// Kept, and currently read by nothing: it was the v1 gate's expiry ceiling, and the v2
+    /// envelope carries its own `expiresAt` that `PublicGossipState.prune` enforces instead.
+    /// `AppModel` still supplies it every time the **Line** changes, which costs nothing and
+    /// leaves the ceiling available to a v2 rule that wants to cap a peer's claimed expiry at
+    /// what this device believes about the night. Delete it only together with that decision.
     private var nightEnds: [String: Date] = [:]
 
     /// What has been handed to a **Contact** but not yet acknowledged. Delivery is recorded
@@ -47,24 +55,28 @@ actor GossipChannel {
 
     // --- What the app tells the channel ---
 
-    /// Take the current **Contact** list. Removing a Friend removes their key here, and with
-    /// it every token that would have recognised them — the same "removing the Contact is the
-    /// whole of revocation" that `Friend.publicKey` already documents.
+    /// Take the current **Contact** list — the audience, and the answer to "is there anybody
+    /// to gossip with at all". Removing a Friend removes their key here, which is the whole of
+    /// revocation, the same way `Friend.publicKey` already documents.
+    ///
+    /// The public channel does not gate a **Pass** on this set (a v2 fact is signed by a Gig
+    /// scope, not by a Contact, and is meant to travel further than one hop). It is what
+    /// `AppModel` turns into "run the radio or do not".
     func setContacts(_ friends: [Friend]) { contacts = contactKeysOf(friends) }
 
     func setNightEnds(_ ends: [String: Date]) { nightEnds = ends }
 
     /// I checked in. Mint the signed envelope and hold it — this device is now the first hop.
     ///
-    /// Returns whether anything entered the channel, which is false on a phone with no
-    /// identity key or for a gig id the wire format will not carry.
+    /// Returns whether anything entered the channel, which is false on a phone that cannot mint
+    /// a signing scope for this Gig, or for a gig id the wire format will not carry.
+    ///
+    /// The author is the Gig's own scope key, never the durable **Contact** identity: what
+    /// travels the public channel is attributable to whoever already holds the scope and to
+    /// nobody else (`GigIdentity`). A phone that has never met me learns a random per-Gig key
+    /// and the night, not a key that also sits on my **Card**.
     @discardableResult
     func checkedIn(gigId: String, localGigId: String, gigDate: String?, now: Date = Date()) async -> Bool {
-        guard let me = ContactIdentity.publicKeyBase64(),
-              let message = gossipCheckInMessage(gigId: gigId, gigDate: gigDate, publicKey: me,
-                                                 now: now, sign: ContactIdentity.sign)
-        else { return false }
-        await ledger.hold(message, now: now)
         guard let scope = await ledger.authorScope(localGigId: localGigId) else { return false }
         if GigIdentity.key(scope: scope) != nil,
            let author = GigIdentity.publicKeyBase64(scope: scope) {

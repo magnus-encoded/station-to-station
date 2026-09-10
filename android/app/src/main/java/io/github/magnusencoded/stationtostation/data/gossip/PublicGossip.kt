@@ -1,10 +1,50 @@
 package io.github.magnusencoded.stationtostation.data.gossip
 
 import io.github.magnusencoded.stationtostation.data.exchange.verifyChallenge
-import io.github.magnusencoded.stationtostation.data.isSafeGossipId
 import kotlinx.serialization.Serializable
 import java.security.MessageDigest
 import java.util.Base64
+
+/**
+ * How many bytes of nonce a listener demands back.
+ *
+ * Thirty-two, matching the digest the signature is taken over anyway. The nonce exists so
+ * that a recording of yesterday's **Pass** cannot be replayed as today's, and so that the
+ * listener's own challenge proof is fresh; the only property that has to hold is that a
+ * listener never issues the same one twice, which at this width it will not.
+ */
+const val GOSSIP_NONCE_BYTES = 32
+
+/**
+ * The hard ceiling on one **Pass**, in bytes.
+ *
+ * The transport's rule about how much memory a peer's write is allowed to cost before
+ * anything has been decided at all — distinct from, and not a substitute for, the batch and
+ * per-record bounds [encodePublicGossipPass] applies once the bytes are in hand. A hostile
+ * relay must not be able to make this device hold a megabyte because it opened a GATT
+ * connection.
+ *
+ * Sixty-four envelopes at the 8 KB per-record ceiling would be far more than this, so it is
+ * this bound that ends a **Pass** in practice: the encoder stops appending records when the
+ * next one would cross it. Anything larger arriving is refused whole rather than truncated —
+ * half a **Pass** is not a **Pass**.
+ */
+const val GOSSIP_MAX_WIRE_BYTES = 40_000
+
+/**
+ * The most facts one **Pass** carries — the encoder's cap, the decoder's truncation, and the
+ * most [PublicGossipState.offer] will hand over at once.
+ *
+ * A bound on *judgement* rather than on memory, which is what separates it from
+ * [GOSSIP_MAX_WIRE_BYTES]: it is what stops one meeting costing this device an unbounded
+ * number of signature verifications. The byte budget usually bites first; this is the backstop
+ * for a **Pass** of very small records.
+ *
+ * **iOS holds the same sixty-four** (`gossipMaxBatch` in `Data/Gossip/GossipGatt.swift`). It is
+ * a wire term — a peer that truncates at a different number hands over a **Pass** the other
+ * side reads differently — so unlike the peer cooldown, the two cannot legitimately differ.
+ */
+const val GOSSIP_MAX_BATCH = 64
 
 const val PUBLIC_GOSSIP_HEADER = "station-to-station/gossip-fact/2"
 const val PUBLIC_GOSSIP_PASS = "station-to-station/gossip-pass/2"
@@ -96,7 +136,7 @@ fun encodePublicGossipPass(pass: PublicGossipPass): ByteArray? {
     if (listOf(pass.from, pass.proof).any { it.isBlank() || it.toByteArray(Charsets.UTF_8).size > 256 || it.contains('\n') || it.contains('\t') }) return null
     val encoded = StringBuilder("$PUBLIC_GOSSIP_PASS\n${pass.from}\t${pass.proof}")
     var size = encoded.toString().toByteArray(Charsets.UTF_8).size
-    for (envelope in pass.batch.take(64)) {
+    for (envelope in pass.batch.take(GOSSIP_MAX_BATCH)) {
         val record = envelope.record()
         val bytes = record.toByteArray(Charsets.UTF_8).size
         if (bytes > 8192 || size + bytes + 1 > GOSSIP_MAX_WIRE_BYTES) break
@@ -111,7 +151,7 @@ fun decodePublicGossipPass(bytes: ByteArray?): PublicGossipPass? {
     if (lines.size < 2 || lines[0] != PUBLIC_GOSSIP_PASS) return null
     val claim = lines[1].split('\t')
     if (claim.size != 2 || claim.any { it.isBlank() || it.length > 256 }) return null
-    return PublicGossipPass(claim[0], claim[1], lines.drop(2).take(64).mapNotNull(::decodePublicEnvelope))
+    return PublicGossipPass(claim[0], claim[1], lines.drop(2).take(GOSSIP_MAX_BATCH).mapNotNull(::decodePublicEnvelope))
 }
 
 @Serializable
@@ -154,7 +194,7 @@ data class PublicGossipState(
         // The encoder owns the byte budget, including the actual relay proof header.
         return held.values.filter { peer !in it.delivered }
             .sortedWith(compareByDescending<PublicHeld> { it.envelope.createdAt }.thenByDescending { it.envelope.id })
-            .take(64).map { it.envelope }
+            .take(GOSSIP_MAX_BATCH).map { it.envelope }
     }
     fun delivered(peer: String, ids: List<String>) { ids.forEach { held[it]?.delivered?.add(peer) } }
     fun project(gigIds: Set<String>): List<GossipEnvelope> {

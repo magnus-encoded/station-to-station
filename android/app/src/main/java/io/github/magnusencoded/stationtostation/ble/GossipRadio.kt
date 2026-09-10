@@ -23,7 +23,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
 import android.util.Log
-import io.github.magnusencoded.stationtostation.data.GossipCheckIn
 import io.github.magnusencoded.stationtostation.data.exchange.verifyChallenge
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_MAX_WIRE_BYTES
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_NONCE_BYTES
@@ -41,38 +40,49 @@ import java.util.Base64
 import java.util.UUID
 
 /**
- * The gossip channel's radio (#416): advertise a rotating token, scan for **Contacts**,
- * and push this device's live check-ins to whoever answers.
+ * The gossip channel's radio (#416): advertise the gossip service, scan for anyone else
+ * advertising it, and push this device's live envelopes to whoever answers.
+ *
+ * **It no longer looks for **Contacts**.** The v1 channel advertised a rotating per-pair
+ * token so a scanner could tell a **Contact** from a stranger before connecting, because
+ * v1 relayed only across Contact edges. Public gossip v2 relays across any edge — an
+ * envelope is authored under a temporary **Gig** key and carries its own proof — so there
+ * is nothing to recognise in an advertisement and nothing gained by trying. What is left is
+ * a bare connectable service UUID, which is also the only thing a backgrounded iPhone can
+ * be relied on to broadcast.
  *
  * Modelled on [BleCardPeripheral]/[BleCardCentral] rather than reusing them, and on purpose
  * — this is a **different service, on a different UUID, with a different trust rule**. The
  * Exchange's server accepts a card from any radio in range because being on that screen is
- * the consent (ADR-0016); this one accepts nothing from anyone who has not first proved
- * possession of a key already on a **Friend** record. Sharing a GATT service between the
- * two would put the foreground-only rule and the background carve-out behind one door.
+ * the consent (ADR-0016); this one runs in the background and accepts only
+ * self-proving envelopes. Sharing a GATT service between the two would put the
+ * foreground-only rule and the background carve-out behind one door.
  *
  * **Push-only.** Every device runs both halves at once, so there is no authenticated read
  * to design: a device with something to say connects and writes, and a device with nothing
  * to say never has to be believed about anything. The one thing that *is* read is the
  * listener's challenge, and reading that grants nothing.
  *
- * Nothing in this file decides whether a message is any good. It hands `(from, batch)` to
- * its owner, which runs
- * [gossipStormGate][io.github.magnusencoded.stationtostation.data.gossipStormGate] — the
- * one place that rule lives.
+ * Nothing in this file decides whether an envelope is any good. It proves the transport
+ * identity — the challenge is signed, and the **Pass** carries a signature over the nonce
+ * this device issued — and then hands `(from, pass)` to its owner as a
+ * [PublicGossipDelivery]. Every question about the *content* belongs to
+ * [PublicGossipState.receive][io.github.magnusencoded.stationtostation.data.gossip.PublicGossipState.receive]:
+ * an envelope's own signature by its temporary **Gig** key, its expiry, whether it has been
+ * seen, and the one-hop rule that a `request` or `receipt` is believed only from its own
+ * author. When you are tempted to add an `if` about an envelope to this file, it belongs
+ * there — the same division the v1 storm-gate was written to enforce, kept across the move
+ * to public gossip v2.
  */
 
 /** The gossip service. Deliberately not the Exchange's UUID — see the file comment. */
 internal val GOSSIP_SERVICE_UUID: UUID = UUID.fromString("7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7721")
 
-/** Read: a fresh nonce and this listener's token offer — never its own key. */
+/** Read: a fresh nonce, this listener's temporary relay key, and its proof of holding it. */
 internal val GOSSIP_CHALLENGE_UUID: UUID = UUID.fromString("7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7722")
 
-/** Write: the pusher's key, its signature over that nonce, and its batch. */
+/** Write: the pusher's temporary relay key, its signature over that nonce, and its batch. */
 internal val GOSSIP_PASS_UUID: UUID = UUID.fromString("7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7723")
-
-/** 0xFFFF is the SIG's "reserved for internal/testing use" company id, as in [BleCardPeripheral]. */
-private const val TEST_COMPANY_ID = 0xFFFF
 
 /**
  * How long one push may take before it is abandoned.
@@ -98,9 +108,6 @@ private const val GOSSIP_PUSH_TIMEOUT_MS = 20_000L
 private const val GOSSIP_MAX_ATTRIBUTE_BYTES = 512
 
 private const val TAG = "GossipRadio"
-
-/** What a listener accepted: a peer that proved itself, and what it pushed. */
-data class GossipDelivery(val from: String, val batch: List<GossipCheckIn>)
 
 /** Public v2 delivery. The sender is a transport identity; envelope authors are temporary Gig keys. */
 data class PublicGossipDelivery(val from: String, val pass: PublicGossipPass)
