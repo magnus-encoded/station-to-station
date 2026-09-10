@@ -464,10 +464,16 @@ final class AppModel: ObservableObject {
     /// this device knows the date of expires when that night does, not `gossipMaxLifetime`
     /// later.
     private func gossipContactsChanged() {
-        GossipTransport.shared.contactsChanged(state.friends)
         let ends = knownNights.reduce(into: [String: Date]()) { ends, gig in
             if let date = gig.eventDate, let end = gossipExpiry(gigDate: date) { ends[gig.id] = end }
         }
+        let now = Date()
+        let gigTonight = knownNights.contains {
+            guard let date = $0.eventDate else { return false }
+            return withinCheckInWindow(now: now, gigDate: date)
+        }
+        GossipTransport.shared.contactsChanged(state.friends,
+            relayEnabled: gigTonight || !contactKeysOf(state.friends).isEmpty)
         Task { await GossipChannel.shared.setNightEnds(ends) }
     }
 

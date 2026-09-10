@@ -28,6 +28,15 @@ blank text is a Gap. A witness embeds the complete signed direct request as its 
 relay cannot invent the subject's attendance. Requests and receipts are one-hop only.
 A received receipt affects neighbour priority, never the referenced Envelope's outbox.
 
+A central first reads `station-to-station/gossip-challenge/2`, a base64 32-byte
+nonce, the peripheral's temporary SPKI relay key, and a base64 DER signature, each
+on its own line. The signature covers `station-to-station/gossip-challenge-proof/2`
+plus a newline and the base64 nonce. The complete challenge fits 512 bytes.
+A Pass proof instead signs `station-to-station/gossip-auth/2` plus a newline and
+that nonce; the separate domains prevent using a challenge signature as a Pass proof.
+A v1 header is rejected. Android advertises the service continuously, without
+Contact tokens or an application-driven four-second advertisement restart.
+
 A Pass starts `station-to-station/gossip-pass/2`, then the relay's temporary public key and
 nonce signature separated by a tab, followed by Envelope records. A relay has a separate
 night-scoped key; carrying an Envelope never makes it its author. Pass limit is 40,000 bytes,

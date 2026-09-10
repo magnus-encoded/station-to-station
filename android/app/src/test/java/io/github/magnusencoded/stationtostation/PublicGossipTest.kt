@@ -29,6 +29,22 @@ class PublicGossipTest {
     }
 
     private val key = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+    @Test fun publicChallengeProvesTemporaryKeyAndRejectsTampering() {
+        val nonce = ByteArray(32) { it.toByte() }
+        val author = gossipBase64(key.public.encoded)
+        val bytes = requireNotNull(encodePublicGossipChallenge(nonce, author) { payload ->
+            Signature.getInstance("SHA256withECDSA").run { initSign(key.private); update(payload); sign() }
+        })
+        val decoded = requireNotNull(decodePublicGossipChallenge(bytes))
+        assertEquals(author, decoded.from)
+        assertArrayEquals(nonce, decoded.nonce)
+        assertNull(decodePublicGossipChallenge(bytes.toString(Charsets.UTF_8)
+            .replace(gossipBase64(nonce), gossipBase64(ByteArray(32))).toByteArray()))
+        assertNull(decodePublicGossipChallenge(bytes.toString(Charsets.UTF_8)
+            .replace("challenge/2", "challenge/1").toByteArray()))
+        assertFalse(verifyChallenge(publicGossipAuthPayload(nonce),
+            requireNotNull(gossipUnbase64(bytes.toString(Charsets.UTF_8).substringAfterLast('\n'))), author))
+    }
     @Test fun oversizedPassKeepsTheBatchPrefixThatFitsItsActualHeader() {
         val envelope = fact("x".repeat(512))
         val pass = PublicGossipPass("k".repeat(256), "s".repeat(256), List(64) { envelope })

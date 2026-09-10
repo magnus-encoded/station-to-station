@@ -60,9 +60,7 @@ fun gossipPassDue(lastAt: Instant?, now: Instant): Boolean =
  * persistent notification is the price ADR-0019 named, and the honest way to pay it is to
  * only charge it on the nights the feature does anything.
  *
- * [contacts] gates everything: with nobody to gossip with, the radio has no possible job,
- * and this is the case the issue calls out by name. Beyond that, any one of three reasons
- * is enough:
+ * Public relays do not require Contacts. Any one of three reasons is enough:
  *
  * - [holding] — this device carries at least one live message. That covers the sender: a
  *   check-in mints a message, which starts the service, which runs until that message
@@ -90,7 +88,7 @@ fun gossipRelayShouldRun(
     holding: Boolean,
     gigTonight: Boolean,
     alwaysRelay: Boolean,
-): Boolean = contacts > 0 && (holding || gigTonight || alwaysRelay)
+): Boolean = holding || gigTonight || alwaysRelay
 
 /**
  * The storm-gate's `nightEndFor`, built from the **Gigs** this timeline knows about.
