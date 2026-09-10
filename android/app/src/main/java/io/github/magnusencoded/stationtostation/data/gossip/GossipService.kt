@@ -73,6 +73,7 @@ class GossipService : Service() {
     private lateinit var settings: SettingsRepository
     private lateinit var timeline: TimelineStore
     private lateinit var store: GossipStore
+    private val publicState = PublicGossipState()
 
     private var peripheral: GossipPeripheral? = null
     private var central: GossipCentral? = null
@@ -148,6 +149,12 @@ class GossipService : Service() {
             contacts = { contacts },
         ).also {
             it.onDelivery = { delivery -> scope.launch { accept(delivery) } }
+            it.onPublicDelivery = { delivery ->
+                scope.launch {
+                    val now = System.currentTimeMillis()
+                    delivery.pass.batch.forEach { envelope -> publicState.receive(envelope, delivery.from, now) }
+                }
+            }
             it.start()
         }
 
@@ -157,6 +164,12 @@ class GossipService : Service() {
             contacts = { contacts },
             sign = { payload -> runCatching { signWithContactIdentity(payload) }.getOrNull() },
             outboxFor = { peer -> gossipOutboxFor(held, peer, Instant.now()) },
+            publicPassFor = { peer, nonce ->
+                val batch = publicState.offer(peer, System.currentTimeMillis())
+                val proof = runCatching { signWithContactIdentity(gossipAuthPayload(nonce)) }.getOrNull()
+                if (batch.isEmpty() || proof == null) null
+                else encodePublicGossipPass(PublicGossipPass(myKey, gossipBase64(proof), batch))
+            },
             due = { peer -> synchronized(spokenAt) { gossipPassDue(spokenAt[peer], Instant.now()) } },
             onPushed = { peer ->
                 val now = Instant.now()
