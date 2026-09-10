@@ -57,11 +57,30 @@ final class PublicGossipTests: XCTestCase {
         pass.from += "k"
         XCTAssertNil(encodePublicGossipPass(pass))
     }
-    private func fact(_ text: String = "Karma Police", at: Int64 = 1000) -> GossipEnvelope {
+    private func fact(_ text: String = "Karma Police", at: Int64 = 1000, kind: String = "log") -> GossipEnvelope {
         GossipEnvelope(gigId: "gig", scope: "scope", author: key.publicKey.derRepresentation.base64EncodedString(),
-                       createdAt: at, expiresAt: 100000, kind: "log", line: 0, text: text)
+                       createdAt: at, expiresAt: 100000, kind: kind, line: kind == "log" ? 0 : -1, text: text)
             .signed { try? self.key.signature(for: $0).derRepresentation }!
     }
+    func testOneHopControlsRequireTheirAuthorWithoutPoisoningTheStormGate() {
+        for kind in ["request", "receipt"] {
+            let envelope = fact("useful-neighbour", kind: kind)
+            var receiver = PublicGossipState()
+            XCTAssertFalse(receiver.receive(envelope, from: "blind-relay", now: 2000))
+            XCTAssertTrue(receiver.seen.isEmpty)
+            XCTAssertTrue(receiver.useful.isEmpty)
+            XCTAssertTrue(receiver.receive(envelope, from: envelope.author, now: 2001))
+            XCTAssertTrue(receiver.facts.isEmpty)
+            XCTAssertTrue(receiver.held.isEmpty)
+            if kind == "receipt" { XCTAssertNotNil(receiver.useful["useful-neighbour"]) }
+
+            var author = PublicGossipState()
+            XCTAssertTrue(author.receive(envelope, from: "", now: 2000, local: true))
+            XCTAssertFalse(author.receive(envelope, from: "blind-relay", now: 2001))
+            XCTAssertEqual(author.offer(to: "recipient", now: 2002), [envelope])
+        }
+    }
+
     func testStrangerCarriesAndSecondCopyClosesStormGate() {
         var state = PublicGossipState()
         let envelope = fact()

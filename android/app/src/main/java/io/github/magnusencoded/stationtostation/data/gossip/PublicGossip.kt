@@ -135,6 +135,8 @@ data class PublicGossipState(
     fun receive(envelope: GossipEnvelope, from: String, now: Long, local: Boolean = false): Boolean {
         prune(now)
         if (!envelope.valid() || envelope.expiresAt <= now || envelope.createdAt > now + 300000) return false
+        // The transport has proved `from`; only the author can deliver one-hop controls.
+        if (!local && envelope.kind in setOf("request", "receipt") && from != envelope.author) return false
         if (seen.containsKey(envelope.id)) { held.remove(envelope.id); return false }
         if (seen.size >= PUBLIC_MAX_SEEN) return false
         seen[envelope.id] = envelope.expiresAt
