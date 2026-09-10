@@ -48,7 +48,10 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: app-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          # A glob rather than a filename: `splits.abi` in build.gradle.kts puts the
+          # ABI in the name (app-arm64-v8a-debug.apk), and a glob survives that list
+          # changing without another workflow edit.
+          path: android/app/build/outputs/apk/debug/*.apk
           retention-days: 7
 
       # The same code non-debuggable. Costs about a minute a run, and buys the only
@@ -66,5 +69,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: app-measure
-          path: android/app/build/outputs/apk/measure/app-measure.apk
+          path: android/app/build/outputs/apk/measure/*.apk
           retention-days: 7

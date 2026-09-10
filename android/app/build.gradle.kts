@@ -159,6 +159,57 @@ android {
         }
     }
 
+    // One APK per ABI instead of one carrying every ABI (#437). The universal APK
+    // shipped for v1.8.0 was 58,971,446 bytes, and 30,012,200 of that was native
+    // code for three architectures the installing device cannot execute — it
+    // downloads them and throws them away. Almost all of it is ML Kit's OCR
+    // pipeline, which is ~11 MB per ABI.
+    //
+    // Native libraries are the only part of the artifact that pays full freight:
+    // AGP 8 packages them `Stored` rather than `Deflated` (extractNativeLibs=false),
+    // so the APK doubles as the on-disk copy and nothing is unpacked at install.
+    // Good for install size, but it means these bytes do not compress on the wire
+    // the way dex does — 54 MB of dex is 15 MB in the file, 41 MB of .so is 41 MB.
+    //
+    // Deliberately NOT `defaultConfig.ndk.abiFilters`, which is the more obvious
+    // spelling: that drops the ABIs from every output including `bundleRelease`,
+    // permanently narrowing who Play can serve. It would also be pointless, because
+    // Play already generates per-device splits from the .aab — a store install never
+    // paid for the extra ABIs. The 56 MiB was only ever the .apk on the Releases
+    // page, which is the artifact someone installs from a link handed to them at a
+    // gig, and the one #437 is about. The `splits` block is ignored for bundles, so
+    // the .aab stays universal and the Play path is untouched.
+    //
+    // arm64-v8a alone, on every variant rather than only in CI. armeabi-v7a and x86
+    // are 32-bit, minSdk is 26, and Play has required 64-bit since August 2019, so no
+    // device that can install this app needs either.
+    //
+    // x86_64 was included in an earlier pass for the local emulator and then dropped,
+    // because it turns out to cost nothing. The android-36 google_apis x86_64 system
+    // image declares:
+    //
+    //     ro.system.product.cpu.abilist=x86_64,arm64-v8a
+    //     ro.dalvik.vm.native.bridge=libndk_translation.so
+    //
+    // so an x86_64 AVD advertises arm64-v8a through ARM binary translation and
+    // installs an arm64-only APK. That has held on x86_64 images since API 30. A
+    // second artifact no phone should ever download is not worth carrying to serve
+    // a case the emulator already handles.
+    //
+    // isUniversalApk stays false. Emitting the fat APK alongside these would keep
+    // producing exactly the artifact this removes, and leave two files on the
+    // Releases page where the larger one is never the right download.
+    splits {
+        abi {
+            isEnable = true
+            // Without reset() these are added to AGP's default "every ABI" list
+            // rather than replacing it, which quietly builds all four again.
+            reset()
+            include("arm64-v8a")
+            isUniversalApk = false
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
