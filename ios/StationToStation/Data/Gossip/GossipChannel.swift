@@ -21,7 +21,6 @@ actor GossipChannel {
     static let shared = GossipChannel()
 
     private let ledger: GossipLedger
-    private var publicState = PublicGossipState()
 
     /// The **Contacts** this device holds, by public key — the same base64 SPKI strings
     /// `Friend.publicKey` carries and the wire moves.
@@ -76,10 +75,11 @@ actor GossipChannel {
                                       kind: "log", line: 0, text: "Checked in")
             fact.attribution = GigIdentity.attribution(scope: scope, author: author) ?? ""
             if let signed = fact.signed({ GigIdentity.sign(scope: scope, $0) }) {
-                publicState.receive(signed, from: "", now: seconds, local: true)
+                let accepted = await ledger.receivePublic([signed], from: "", now: seconds, local: true)
+                return accepted == 1
             }
         }
-        return true
+        return false
     }
 
     /// Independent nightly relay key: no durable Contact identity on the public wire.
@@ -88,10 +88,12 @@ actor GossipChannel {
         return "relay-\(Int64(day.timeIntervalSince1970))"
     }
 
-    func publicPass(to peer: String, nonce: Data, now: Date = Date()) -> Data? {
+    func publicPass(to peer: String, nonce: Data, now: Date = Date()) async -> Data? {
         let scope = relayScope(now)
         guard let me = GigIdentity.publicKeyBase64(scope: scope) else { return nil }
-        let batch = publicState.offer(to: peer, now: Int64(now.timeIntervalSince1970 * 1000))
+        let millis = Int64(now.timeIntervalSince1970 * 1000)
+        var state = await ledger.publicSnapshot(now: millis)
+        let batch = state.offer(to: peer, now: millis)
         guard !batch.isEmpty, let proof = GigIdentity.sign(scope: scope, publicGossipAuthPayload(nonce)),
               let bytes = encodePublicGossipPass(PublicGossipPass(from: me, proof: proof.base64EncodedString(), batch: batch)),
               let encoded = decodePublicGossipPass(bytes) else { return nil }
@@ -99,9 +101,9 @@ actor GossipChannel {
         return bytes
     }
 
-    func receivePublic(_ pass: PublicGossipPass, from: String, now: Date = Date()) {
+    func receivePublic(_ pass: PublicGossipPass, from: String, now: Date = Date()) async {
         let millis = Int64(now.timeIntervalSince1970 * 1000)
-        for envelope in pass.batch { _ = publicState.receive(envelope, from: from, now: millis) }
+        await ledger.receivePublic(pass.batch, from: from, now: millis)
     }
 
     /// Forget the whole channel. Called when the last **Contact** goes.
@@ -130,6 +132,6 @@ actor GossipChannel {
     /// is offered again the next time these two phones are in the same room.
     func confirmDelivery(to contact: String) async {
         guard let ids = pending.removeValue(forKey: contact) else { return }
-        publicState.delivered(to: contact, ids: ids)
+        await ledger.deliveredPublic(ids, to: contact)
     }
 }

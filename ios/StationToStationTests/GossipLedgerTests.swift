@@ -96,6 +96,43 @@ final class GossipLedgerTests: XCTestCase {
         XCTAssertNil(failed)
     }
 
+    func testPublicAuthorAndRadioStateSurvivesRestartAndRelayExpiry() async throws {
+        let millis: Int64 = 1000
+        let first = try XCTUnwrap(GossipEnvelope(gigId: "local-gig", scope: "scope",
+            author: alice.publicKey, createdAt: millis, expiresAt: 100000,
+            kind: "log", line: 1, text: "Karma Police").signed {
+                try? self.alice.privateKey.signature(for: $0).derRepresentation
+            })
+        let second = try XCTUnwrap(GossipEnvelope(gigId: "local-gig", scope: "scope",
+            author: alice.publicKey, createdAt: millis, expiresAt: 100000,
+            kind: "log", line: 2, text: "Paranoid Android").signed {
+                try? self.alice.privateKey.signature(for: $0).derRepresentation
+            })
+        let store = ledger()
+        async let authored = store.receivePublic([first], from: "", now: millis, local: true)
+        async let received = store.receivePublic([second], from: "supplier", now: millis)
+        let counts = await (authored, received)
+        XCTAssertEqual(counts.0, 1)
+        XCTAssertEqual(counts.1, 1)
+        await store.deliveredPublic([first.id], to: "recipient")
+        await store.receivePublic([second], from: "duplicate", now: millis)
+        var detached = await store.publicSnapshot(now: millis)
+        detached.facts.removeAll()
+        let reopened = ledger()
+        var restored = await reopened.publicSnapshot(now: millis)
+        XCTAssertEqual(restored.facts.count, 2)
+        XCTAssertNil(restored.held[second.id])
+        XCTAssertTrue(restored.offer(to: "recipient", now: millis).isEmpty)
+        await reopened.receivePublic([], from: "", now: 100001)
+        let expired = await ledger().publicSnapshot(now: 100001)
+        XCTAssertTrue(expired.held.isEmpty)
+        XCTAssertTrue(expired.seen.isEmpty)
+        XCTAssertEqual(expired.facts.count, 2)
+        await reopened.forgetAll()
+        let afterContactRemoval = await ledger().publicSnapshot(now: 100001)
+        XCTAssertEqual(afterContactRemoval.facts.count, 2)
+    }
+
     // --- My own arrival ---
 
     func testMyOwnCheckInIsHeldForOnwardRelayButNeverOfferedBackToMe() async {
