@@ -59,9 +59,15 @@ strings, and the nonce‖ciphertext‖tag layout. Leave it alone.
 
 ### 2. Prove parity with a shared fixture before wiring anything
 
+**This project already decided how to do this.** #435/#436 reconciled two
+incompatible Android and iOS gossip schemes and settled it with a fixed vector
+asserted identically on both platforms — "Both platforms assert the fixed vector
+`09f8a789e6db4230`". Do the same for v2 rather than inventing a third approach.
+
 `fixtures/gossip/` exists and is empty — the previous pass created it and never
-filled it. `fixtures/weave/` is the precedent to copy: named case directories, a
-`README.md`, and a loader per platform (`WeaveFixture.kt` and its Swift twin).
+filled it. `fixtures/weave/` is the precedent for the file layout: named case
+directories, a `README.md`, and a loader per platform (`WeaveFixture.kt` and its
+Swift twin).
 
 Write a fixture holding a signed Envelope and a signed Pass, and have both
 platforms' tests decode it, re-encode it, and assert byte equality. Field order,
@@ -159,6 +165,39 @@ Shortest path, all additive:
 When the sweeps produce defensible values, amend `gossip-public-wire.md` to state
 them and say what produced them, so the next reader finds a decision instead of
 another provisional default.
+
+### 7. ADR-0019 does not cover what v2 does
+
+This is not paperwork, and nothing in `gossip-public-wire.md` addresses it.
+
+ADR-0019 is **accepted**, and its entire justification is Contact-gated: it carves
+gossip out of ADR-0016's "nothing advertises, listens or accepts in the background"
+specifically to relay "a check-in fact — *this Contact was at this Gig* — from the
+Contact who checked in to other Contacts". Every sentence of that carve-out assumes
+both endpoints are Contacts.
+
+v2 discards that premise. Facts are public, any user is a blind relay, and a
+stranger's phone now carries and forwards bytes on behalf of people it has never
+exchanged with. ADR-0016 — *presence is the authentication* — is precisely the
+decision blind relay puts under load, and ADR-0019's carve-out was written narrow
+on purpose so that it would not silently widen.
+
+So this branch owes an ADR: either an amendment to 0019 or a new one that
+supersedes the Contact-only part of it, saying what the widened boundary is and why
+masked attribution is a sufficient answer to the objection 0016 raises. House rule,
+stated in `docs/festival-model-handoff.md`: **ADRs are appended and amended, never
+rewritten.** Write it before the PR, not after — if the argument cannot be made in
+an ADR, that is a finding about the design, not about the document.
+
+## Landing it
+
+One PR for the whole feature at the end — not a PR per slice. `Fixes #408.` in the
+body. #436 is the model for shape and depth: prose that argues the design
+decisions, a `## What is here` section annotating the files, and the reasoning for
+anything that diverges from what the issue assumed. Do not merge it.
+
+Commit incrementally along the way regardless; the single PR is about how the work
+is *reviewed*, not about hoarding it in the working tree until the end.
 
 ## Rules of engagement
 
