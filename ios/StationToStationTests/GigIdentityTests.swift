@@ -5,6 +5,18 @@ import Security
 final class GigIdentityTests: XCTestCase {
     func testPersistedGigKeyExportsSPKIAndSignsDEREnvelopes() throws {
         let scopes = (0..<2).map { _ in "instrumented-\(UUID().uuidString)" }
+        #if targetEnvironment(simulator)
+        let probe: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                    kSecAttrService as String: "station-to-station.gossip-test-probe",
+                                    kSecAttrAccount as String: scopes[0],
+                                    kSecValueData as String: Data([1])]
+        let status = SecItemAdd(probe as CFDictionary, nil)
+        if status == errSecMissingEntitlement {
+            throw XCTSkip("Simulator test host has no Keychain entitlement (-34018)")
+        }
+        XCTAssertEqual(status, errSecSuccess)
+        SecItemDelete(probe as CFDictionary)
+        #endif
         defer {
             for scope in scopes {
                 SecItemDelete([kSecClass as String: kSecClassGenericPassword,
