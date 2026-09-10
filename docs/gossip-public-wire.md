@@ -51,10 +51,25 @@ outbox eviction until message expiry. Durable admitted facts survive both timers
 
 Resource defaults remain tunable: 128 Envelopes / 128 KB carried, 8,192 live seen IDs,
 per-peer cooldown and bounded BLE sessions. Capacity exhaustion drops incoming transport
-work rather than evicting seen IDs and allowing repeated re-entry. The first deterministic
-sweep in `sim/` keeps the 15-minute Carry window: its 60-second and 900-second runs have
-identical coverage when the next encounter is immediate, while the 60-second run correctly
-drops a later encounter. Usefulness lasts two minutes, binary, with random ties. Receipts
-remain one-hop until a trace with receipt hops exists; the simulator currently measures
-receipt probability only as delivery of a witnessed Fact. These are measured defaults, not
-claims about iOS background scheduling, which remains OS-throttled.
+work rather than evicting seen IDs and allowing repeated re-entry.
+
+The Carry window's 15 minutes is now a measured knee rather than a guess. Across five
+synthetic venue traces, 900 seconds reaches 94.9-95.6% of fact/recipient pairs, 300
+seconds reaches 36-52%, and an unlimited window reaches 99.7-100%: shortening it costs
+far more than lengthening it gains. Median delivery is about 20 minutes from authoring
+and p95 about 39 minutes, at a mean relay depth of 7.5-8.3 hops. There is no hop count
+on the wire, and the same sweeps show what imposing one would cost. Usefulness lasts two
+minutes, binary, with random ties. Receipts remain one-hop; the sweep of receipt hop
+budgets, with what each extra hop costs in bytes and in duplicate arrivals at the author,
+is the input to settling that and the implementation has not yet settled it.
+
+The earlier claim that a `sim/` sweep supported the 15-minute window is withdrawn: it
+compared 60 and 900 seconds on a trace whose only encounter happened at t=1, where the
+two cannot differ. Its coverage reducer also counted nodes against a fact/recipient-pair
+denominator, so no figure it produced should be re-scaled or reused.
+
+All of this is one synthetic crowd model. The knees are stable across seeds; the absolute
+levels are not evidence about a real venue, and none of it is a claim about iOS
+background scheduling, which remains OS-throttled. Method, tables and caveats are in
+[`sim/SWEEPS.md`](../sim/SWEEPS.md); reproduce with
+`cd sim && python -m station_to_station_sim.sweeps`.
