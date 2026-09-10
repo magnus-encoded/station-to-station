@@ -352,6 +352,9 @@ fun TimelineCache.festivalIdentities(): Festivals =
 
 @Serializable
 data class TimelineCache(
+    /** Public Gig facts and their durable projection; transport expiry is handled inside the state. */
+    val publicGossip: io.github.magnusencoded.stationtostation.data.gossip.PublicGossipState =
+        io.github.magnusencoded.stationtostation.data.gossip.PublicGossipState(),
     /** Attended shows by setlist.fm username — mine and every friend's alike. */
     val shows: Map<String, List<FmSetlist>> = emptyMap(),
     /**
@@ -1013,6 +1016,9 @@ class TimelineStore(
         val (c, id) = it.withGig(gigId)
         c.copy(gigLogs = c.gigLogs + (id to log))
     }
+
+    suspend fun updatePublicGossip(edit: (io.github.magnusencoded.stationtostation.data.gossip.PublicGossipState) -> Unit) =
+        writeMerged { cache -> cache.copy(publicGossip = cache.publicGossip.also(edit)) }
 
     /**
      * Drops one playlist link from a night — the Spotify playlist itself was deleted

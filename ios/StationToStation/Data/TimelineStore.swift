@@ -543,6 +543,8 @@ struct TimelineCache: Codable {
     /// sides must move together — the same rule the rest of this file already lives
     /// under, now applying one level deeper.
     var gigLogs: [String: StoredLog] = [:]
+    /// Public Gig facts; transport state and durable application facts share one Codable slot.
+    var publicGossip: PublicGossipState = PublicGossipState()
 
     init() {}
 
@@ -1019,6 +1021,15 @@ actor TimelineStore {
             return c
         }
         return survivor
+    }
+
+    /// Atomically persist public transport and application facts alongside the timeline.
+    func updatePublicGossip(_ edit: (inout PublicGossipState) -> Void) {
+        writeMerged { cache in
+            var next = cache
+            edit(&next.publicGossip)
+            return next
+        }
     }
 
     private func writeMerged(_ transform: (TimelineCache) -> TimelineCache) {
