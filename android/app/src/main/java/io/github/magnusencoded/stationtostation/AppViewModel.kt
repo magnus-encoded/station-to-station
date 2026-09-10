@@ -2417,7 +2417,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         // The public v2 assertion is kept alongside the legacy control message. Its
         // temporary Gig key follows this local Gig representation; the durable Contact key
         // exists only inside the masked attribution proof.
-        val scope = "gig-$gigId"
+        val cache = timelines.load()
+        val localGig = cache.gigs[gigId] ?: cache.gigForSetlist(gigId) ?: return
+        val scope = gossip.authorScope(localGig.id)
         val identity = GigIdentity(scope)
         val author = identity.publicKey()
         val public = GossipEnvelope(

@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.first
 import java.time.Instant
+import java.util.UUID
 
 /**
  * Device-local gossip state, excluded from backup by both Android backup rule files.
@@ -34,6 +35,28 @@ class GossipStore(private val data: DataStore<Preferences>) {
     private object Keys {
         val HELD = stringPreferencesKey("held")
         val PUBLIC = stringPreferencesKey("public_v2")
+        val SCOPES = stringPreferencesKey("author_scopes_v2")
+    }
+
+    /** Bind a random signing scope to the local Gig, never its mutable external ID.
+     * Kept separately from relay state: expiry must not rotate an author's identity.
+     */
+    suspend fun authorScope(localGigId: String): String {
+        require(localGigId.isNotBlank())
+        var scope = ""
+        data.edit { prefs ->
+            val bindings = prefs[Keys.SCOPES]?.let {
+                json.decodeFromString<Map<String, String>>(it)
+            }.orEmpty()
+            scope = bindings[localGigId] ?: UUID.randomUUID().toString()
+            if (localGigId !in bindings) {
+                prefs[Keys.SCOPES] = json.encodeToString(
+                    kotlinx.serialization.serializer<Map<String, String>>(),
+                    bindings + (localGigId to scope),
+                )
+            }
+        }
+        return scope
     }
 
     /** Detached snapshots: radio and author observe the same committed transaction stream. */
