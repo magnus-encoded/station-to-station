@@ -583,7 +583,7 @@ commit `c8af2a0` (`34445013383`); that commit did not trigger iOS. A manual Pi
 peer lives at `docs/prototypes/gossip_v2_peer.py` and is copied to `/home/pi/`.
 It verifies a signed v2 challenge and sends a signed synthetic Fact through 20-byte
 ATT writes plus an empty terminator, with separate connection trials and no hidden
-retries. Its actual hardware result is still pending. The debug APK built from this
+retries. Its hardware result is recorded below. The debug APK built from this
 transport source is installed in place. At this morning's hour normal lifecycle
 correctly leaves the service off (contacts=1, holding=false, gigTonight=false,
 alwaysRelay=false). `am start-foreground-service` cannot start its non-exported
@@ -616,3 +616,32 @@ rotation, and a controlled plain-ATT comparison is pending. Temporary Pi script
 `/tmp/gossip-plain-att.sh` sets BlueZ GATT Channels=1 for six trials and restores
 the original config and Bluetooth service via an EXIT trap. No networking changes.
 BlueZ documents that setting in its [configuration source](https://github.com/bluez/bluez/blob/5.66/src/main.conf).
+
+The controlled comparison **passed** with the production APK unchanged. Six
+plain-ATT trials completed, each writing 1,164 bytes in 20-byte chunks and an
+empty terminator:
+
+| Trial | Discovery through verified challenge | Through complete Pass |
+| --- | --- | --- |
+| 1 | 5.58 s | 11.51 s |
+| 2 | 3.78 s | 9.77 s |
+| 3 | 7.40 s | 14.16 s |
+| 4 | 4.93 s | 11.55 s |
+| 5 | 5.13 s | 11.07 s |
+| 6 | 3.47 s | 9.41 s |
+
+Pixel instrumentation: **OK (1 test), 81.387 seconds**. Six verified Passes reached
+PublicGossipState, one Fact remained, and the duplicate closed the outbox storm
+gate. This proves signed challenge/Pass interoperability with an independent
+Python signer, real ATT framing above 512 total bytes, and receive-side admission.
+It does not prove durable persistence, UI projection, phone central/send, iOS radio,
+or malformed-frame rejection over ATT. Six successful connections support the
+continuous-advertisement change, but the original v1 measurements did not control
+for BlueZ EATT, so they do not prove rotation alone caused the earlier failures.
+
+The Pi config was restored byte-for-byte to its saved original (`#Channels = 3`),
+and Bluetooth is active. The temporary script's cleanup could not unlink its
+root-owned backup; it was subsequently compared and removed with sudo. Networking
+was untouched. For future runs, change its cleanup to `sudo -n rm -f "$backup"`.
+The peer harness now reports failure stage/byte offset and exits nonzero when any
+trial fails. Its executable copy remains `/home/pi/gossip_v2_peer.py`.
