@@ -546,16 +546,16 @@ Neither behaviour was landed.
 
 ### Remaining integration work — these are verified gaps
 
-- Android AppViewModel and GossipService now share persisted public state through
-  GossipStore (details below). iOS GossipChannel still retains public state only in
-  memory. TimelineCache.publicGossip remains an unused placeholder on both platforms;
-  Android projection must read GossipStore.publicStates, not that placeholder.
+- Android authoring and reception share GossipStore; iOS GossipChannel now uses
+  GossipLedger for durable public state (`bb46b8a`). TimelineCache.publicGossip is
+  still an unused placeholder on both platforms. Projection must use these actual
+  stores, not the placeholder.
 - Current “check-in” authoring creates a log at line 0 saying “Checked in”. This is
   not the agreed direct request/witness flow and collides with real Log lines.
 - Author scopes now use random persisted bindings to the stable local Gig on both
   platforms (`feddf42`, `11c2f78`), resolving either a local or external UI key before
   authoring. Gig merges and former-ID propagation still need integration coverage.
-- Successful v2 handoffs are recorded in memory. Receipts, neighbour priority,
+- Successful v2 handoffs persist in the public stores. Receipts, neighbour priority,
   direct-only verification, attribution, blocking, persisted projection and UI remain unwired.
 - Pixel Keystore test actually passed: `OK (1 test)`, 0.163 seconds, on the debug
   app installed in place. It checked concurrent first use, reopening the same key,
@@ -744,11 +744,30 @@ by green native CI as specified above. Only the intentionally untracked `pc/`,
 - `11c2f78`: Android uses an atomic DataStore binding, independent of relay expiry.
   AppViewModel resolves the stable local Gig. Both PublicGossipStore tests passed
   locally (9m29s); the Keystore instrumentation test now obtains its scopes from
-  the store. Native CI and the updated Pixel test are pending at this checkpoint.
+  the store. Android CI `34502024630` passed (5m59s); iOS scope CI `34501554881`
+  passed (7m38s).
 - Pixel is connected. Confirmed today's local `GossipRelay Test` at `Pinet`, without
   a setlist.fm ID. Only read the fixture; no end-to-end check-in claim is warranted.
 - Next check-in slice must fix more than `kind = "log"`: a Pass proves the relay's
   key, whereas the request is signed by the Gig author. Establish direct authorship
   before witnessing; currently receive does not enforce that distinction. Keep the
   direct witness response separate from the usefulness receipt sweep. The bogus
-  line-0 authoring, iOS public-state persistence and witness projection remain open.
+  line-0 authoring and witness projection remain open.
+
+### iOS persistence and Pixel verification (2026-09-10, 18:35 Oslo)
+
+- `bb46b8a` replaces GossipChannel's memory-only public state with GossipLedger
+  transactions. Local authoring, received Passes and successful handoffs persist;
+  offers read detached snapshots. Facts survive relay expiry and Contact removal.
+  Failed file writes no longer publish an uncommitted ledger cache. A regression
+  test covers concurrent author/radio admission, reopening, duplicate suppression,
+  delivery suppression and retained facts after expiry.
+- Local Android app/test APK build passed (5m29s). Installed both in place with
+  `adb install -r`; ran `GigIdentityDeviceTest` on the Pixel: **OK (1 test),
+  0.285 seconds**. This now exercises GossipStore scope lookup before real Android
+  Keystore key creation/signing, including concurrent key access and tamper rejection.
+  Only temporary test storage and test-created keys were removed. Relaunched the app;
+  all 88 Gigs and today's test Gig remain. This does not verify the real check-in UI
+  or witness flow, which is still incomplete; no synthetic check-in was added to it.
+- iOS persistence CI `34502349823` passed in full (6m6s), including the device build. No PR opened: check-in semantics and the remaining
+  projection/routing/UI work still prevent calling #408 complete.
