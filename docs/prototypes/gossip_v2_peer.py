@@ -6,6 +6,10 @@ GossipRadioDeviceTest instrumentation (manual_ble_peer=true). Use plain ATT: Blu
 docs/gossip-v2-next-pass.md for the measured comparison. No retry is hidden: each printed trial is one discovery/connection.
 Acceptance must be checked in Pixel logcat; an ATT acknowledgement alone is not
 application admission. This does not test the phone's central/send path.
+
+Use --controls with manual_ble_controls=true and the device test
+indirectControlsAreRejectedWithoutPoisoningDirectDelivery: four Passes send each
+control through a different signer first, then directly from its author.
 """
 import asyncio
 import base64
@@ -26,7 +30,7 @@ def b64(value):
     return base64.b64encode(value).decode("ascii")
 
 
-async def main(trials):
+async def main(trials, controls=False):
     key = ec.generate_private_key(ec.SECP256R1())
     author = b64(key.public_key().public_bytes(serialization.Encoding.DER,
                                               serialization.PublicFormat.SubjectPublicKeyInfo))
@@ -36,6 +40,16 @@ async def main(trials):
     payload = ("station-to-station/gossip-fact/2\n" + "\n".join(fields)).encode()
     record = "\t".join([hashlib.sha256(payload).hexdigest(), *fields,
                         b64(key.sign(payload, ec.ECDSA(hashes.SHA256())))])
+    relay_key = ec.generate_private_key(ec.SECP256R1())
+    relay_author = b64(relay_key.public_key().public_bytes(serialization.Encoding.DER,
+                                                        serialization.PublicFormat.SubjectPublicKeyInfo))
+    controls_records = []
+    for kind in ("request", "receipt"):
+        control_fields = ["transport-test", "", "transport-test", author, str(now),
+                          str(now + 300_000), kind, "-1", b64(b"useful-peer"), ""]
+        control_payload = ("station-to-station/gossip-fact/2\n" + "\n".join(control_fields)).encode()
+        controls_records.append("\t".join([hashlib.sha256(control_payload).hexdigest(),
+            *control_fields, b64(key.sign(control_payload, ec.ECDSA(hashes.SHA256())))]))
     successes = 0
     for trial in range(1, trials + 1):
         started = time.monotonic()
@@ -58,10 +72,15 @@ async def main(trials):
                              ("station-to-station/gossip-challenge-proof/2\n" + challenge[1]).encode(),
                              ec.ECDSA(hashes.SHA256()))
                 connected = time.monotonic() - started
-                proof = key.sign(("station-to-station/gossip-auth/2\n" + challenge[1]).encode(),
+                # Replay first, then deliver the identical control directly. Rejection
+                # must not poison the receiver's seen set.
+                signer = relay_key if controls and trial % 2 else key
+                sender = relay_author if controls and trial % 2 else author
+                current_record = controls_records[(trial - 1) // 2] if controls else record
+                proof = signer.sign(("station-to-station/gossip-auth/2\n" + challenge[1]).encode(),
                                  ec.ECDSA(hashes.SHA256()))
-                packet = ("station-to-station/gossip-pass/2\n" + author + "\t" + b64(proof)
-                          + "\n" + record).encode()
+                packet = ("station-to-station/gossip-pass/2\n" + sender + "\t" + b64(proof)
+                          + "\n" + current_record).encode()
                 # Twenty bytes fit even the minimum ATT MTU. No guessed MTU value.
                 for offset in range(0, len(packet), 20):
                     stage = f"write at byte {offset}/{len(packet)}"
@@ -79,7 +98,8 @@ async def main(trials):
 
 
 if __name__ == "__main__":
-    trials = int(sys.argv[1]) if len(sys.argv) > 1 else 6
+    controls = "--controls" in sys.argv[1:]
+    trials = 4 if controls else (int(sys.argv[1]) if len(sys.argv) > 1 else 6)
     if trials < 1:
         raise SystemExit("trials must be positive")
-    raise SystemExit(0 if asyncio.run(main(trials)) else 1)
+    raise SystemExit(0 if asyncio.run(main(trials, controls)) else 1)

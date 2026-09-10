@@ -771,3 +771,35 @@ by green native CI as specified above. Only the intentionally untracked `pc/`,
   or witness flow, which is still incomplete; no synthetic check-in was added to it.
 - iOS persistence CI `34502349823` passed in full (6m6s), including the device build. No PR opened: check-in semantics and the remaining
   projection/routing/UI work still prevent calling #408 complete.
+
+
+### Direct control admission slice (2026-09-10, resumed evening)
+
+- `a5dd811` makes both state machines reject remote `request` and `receipt`
+  envelopes unless the authenticated Pass sender is their author. This happens
+  before seen/storm-gate changes: a relayed replay cannot suppress a later direct
+  delivery or retire a locally held control. Ordinary facts remain relayable.
+- Matching Android/iOS regression tests cover replay-before-direct delivery and
+  local outbox preservation. Android focused PublicGossip tests passed locally
+  (2m13s); Android CI `34531330532` passed. iOS CI `34531330596` passed (6m30s).
+- This is an admission boundary only. Existing app authoring still emits the bogus
+  line-0 check-in Log; direct request authoring, appropriate Pass signing and witness
+  responses remain the next integration slice. Do not claim check-in is complete.
+
+- Added opt-in `GossipRadioDeviceTest.indirectControlsAreRejectedWithoutPoisoningDirectDelivery`
+  (`manual_ble_controls=true`) and Pi harness `--controls`: four authenticated
+  Passes deliver indirect/direct copies of a request, then of a usefulness receipt.
+  Assertions require admission `[false, true, false, true]`, exactly two seen IDs,
+  no facts/outbox entries, and one usefulness credit. Local app/test build passed
+  (4m2s); both APKs installed with `adb install -r`.
+- **Actual device attempt did not verify this behaviour.** The Pi delivered 0/4:
+  Bleak reported no Bluetooth adapters, and the Pixel assertion timed out after
+  90.077s. The temporary plain-ATT Bluetooth configuration was restored byte-for-byte.
+  `bluetoothctl list` was empty; `btmgmt info` reported zero indices; `hciconfig`
+  showed UART hci0 DOWN RAW, default address 43:45:C0:00:1F:AC, zero ACL MTU.
+  Kernel logs show default-address initialization at the Pi's 22:01 boot, before
+  this test. Bluetooth service is active; hciuart service inactive (kernel serdev
+  owns this controller). Do not blindly start a competing UART attach process.
+  No networking, firmware or kernel-driver changes were made. Restoring a usable
+  Pi controller is needed before rerunning; previous successful BLE evidence does
+  not establish this new guard. Pixel app relaunched after instrumentation.
