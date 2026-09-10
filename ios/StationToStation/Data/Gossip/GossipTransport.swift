@@ -315,8 +315,10 @@ final class GossipTransport: NSObject {
             // v2 is the only wire spoken by new builds. Keep the old path as a local
             // fallback while a device has no public facts yet; the discriminator makes
             // this fail closed against a stale implementation.
-            let payload = await self.channel.publicPass(to: contact, nonce: nonce, now: Date())
-                ?? await self.channel.pass(to: contact, nonce: nonce, now: Date())
+            let publicPayload = await self.channel.publicPass(to: contact, nonce: nonce, now: Date())
+            let payload: Data?
+            if let publicPayload { payload = publicPayload }
+            else { payload = await self.channel.pass(to: contact, nonce: nonce, now: Date()) }
             self.queue.async {
                 let id = meeting.peripheral.identifier
                 guard self.meetings[id] != nil, let characteristic = meeting.pass,
