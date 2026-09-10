@@ -76,9 +76,15 @@ struct PublicGossipDelivery {
     let pass: PublicGossipPass
 }
 func encodePublicGossipPass(_ pass: PublicGossipPass) -> Data? {
-    guard [pass.from, pass.proof].allSatisfy({ !$0.isEmpty && !$0.contains("\t") && !$0.contains("\n") }) else { return nil }
-    let bytes = Data(([publicGossipPassHeader, "\(pass.from)\t\(pass.proof)"] + pass.batch.map { $0.record() }).joined(separator: "\n").utf8)
-    return bytes.count <= gossipMaxWireBytes ? bytes : nil
+    guard [pass.from, pass.proof].allSatisfy({ !$0.isEmpty && $0.utf8.count <= 256 && !$0.contains("\t") && !$0.contains("\n") }) else { return nil }
+    var bytes = Data("\(publicGossipPassHeader)\n\(pass.from)\t\(pass.proof)".utf8)
+    for envelope in pass.batch.prefix(64) {
+        let record = Data(envelope.record().utf8)
+        guard record.count <= 8192, bytes.count + record.count + 1 <= gossipMaxWireBytes else { break }
+        bytes.append(10)
+        bytes.append(record)
+    }
+    return bytes
 }
 func decodePublicGossipPass(_ bytes: Data) -> PublicGossipPass? {
     guard bytes.count <= gossipMaxWireBytes, let text = String(data: bytes, encoding: .utf8) else { return nil }
@@ -126,15 +132,10 @@ struct PublicGossipState: Codable {
     }
     mutating func offer(to peer: String, now: Int64) -> [GossipEnvelope] {
         prune(now: now)
-        var bytes = 512
+        // The encoder owns the byte budget, including the actual relay proof header.
         return Array(held.values.filter { !$0.delivered.contains(peer) }.sorted {
             ($0.envelope.createdAt, $0.envelope.id) > ($1.envelope.createdAt, $1.envelope.id)
-        }.compactMap { entry -> GossipEnvelope? in
-            let size = entry.envelope.record().utf8.count + 1
-            guard bytes + size <= gossipMaxWireBytes else { return nil }
-            bytes += size
-            return entry.envelope
-        }.prefix(64))
+        }.prefix(64).map { $0.envelope })
     }
     mutating func delivered(to peer: String, ids: [String]) {
         for id in ids { held[id]?.delivered.insert(peer) }
