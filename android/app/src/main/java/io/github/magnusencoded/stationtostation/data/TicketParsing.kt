@@ -24,6 +24,13 @@ fun String.decodeTicketQrBase64(): ByteArray? = runCatching { Base64.getDecoder(
  */
 data class TicketExtract(
     val qrBytes: ByteArray? = null,
+    /**
+     * zxing's own name for the symbology [qrBytes] was read in ("QR_CODE",
+     * "CODE_128", …), or null when nothing was read. Kept because a venue's scanner
+     * reads the symbology it was told to expect: the same digits re-drawn as a QR
+     * are not the Code 128 the door is looking for (#411).
+     */
+    val qrFormat: String? = null,
     val textBlocks: List<String> = emptyList(),
 ) {
     // ByteArray has no structural equals/hashCode; generated data class ones do not
@@ -33,9 +40,11 @@ data class TicketExtract(
     override fun equals(other: Any?): Boolean =
         other is TicketExtract &&
             qrBytes.contentEqualsOrBothNull(other.qrBytes) &&
+            qrFormat == other.qrFormat &&
             textBlocks == other.textBlocks
 
-    override fun hashCode(): Int = (qrBytes?.contentHashCode() ?: 0) * 31 + textBlocks.hashCode()
+    override fun hashCode(): Int =
+        ((qrBytes?.contentHashCode() ?: 0) * 31 + qrFormat.hashCode()) * 31 + textBlocks.hashCode()
 }
 
 private fun ByteArray?.contentEqualsOrBothNull(other: ByteArray?): Boolean =
@@ -51,6 +60,8 @@ private fun ByteArray?.contentEqualsOrBothNull(other: ByteArray?): Boolean =
  */
 data class ParsedTicket(
     val qrBytes: ByteArray? = null,
+    /** The symbology [qrBytes] came in — see [TicketExtract.qrFormat]. */
+    val qrFormat: String? = null,
     val artist: String? = null,
     val venue: String? = null,
     val date: String? = null,
@@ -58,12 +69,13 @@ data class ParsedTicket(
     override fun equals(other: Any?): Boolean =
         other is ParsedTicket &&
             qrBytes.contentEqualsOrBothNull(other.qrBytes) &&
+            qrFormat == other.qrFormat &&
             artist == other.artist &&
             venue == other.venue &&
             date == other.date
 
     override fun hashCode(): Int =
-        listOf(qrBytes?.contentHashCode(), artist, venue, date).hashCode()
+        listOf(qrBytes?.contentHashCode(), qrFormat, artist, venue, date).hashCode()
 
     /** Nothing at all came out of the page — the honest "couldn't read this" (story 9). */
     val isEmpty: Boolean get() = qrBytes == null && artist == null && venue == null && date == null
@@ -149,7 +161,13 @@ fun parseTicket(extract: TicketExtract): ParsedTicket {
         artist = ordered.getOrNull(0)
         venue = ordered.getOrNull(1)
     }
-    return ParsedTicket(qrBytes = extract.qrBytes, artist = artist, venue = venue, date = date)
+    return ParsedTicket(
+        qrBytes = extract.qrBytes,
+        qrFormat = extract.qrFormat,
+        artist = artist,
+        venue = venue,
+        date = date,
+    )
 }
 
 /** A blank line or a vendor's own label line (ending ":") is never the neighbour's answer. */
@@ -257,6 +275,7 @@ sealed interface TicketRouting {
         val venue: String,
         val date: String,
         val qrBytes: ByteArray?,
+        val qrFormat: String?,
     ) : TicketRouting
 
     /**
@@ -306,7 +325,13 @@ fun routeTicket(
         if (match != null) return TicketRouting.AlreadyKnown(match)
         val night = parseFmDate(parsed.date!!)
         if (night != null && night.isAfter(today)) {
-            return TicketRouting.NewPlannedGig(parsed.artist!!, parsed.venue!!, parsed.date, parsed.qrBytes)
+            return TicketRouting.NewPlannedGig(
+                parsed.artist!!,
+                parsed.venue!!,
+                parsed.date,
+                parsed.qrBytes,
+                parsed.qrFormat,
+            )
         }
     }
     return TicketRouting.NeedsConfirmation(parsed, match)

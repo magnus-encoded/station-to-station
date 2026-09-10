@@ -476,17 +476,38 @@ internal fun qrBitmap(
     sizePx: Int,
     ink: Int = android.graphics.Color.BLACK,
     paper: Int = android.graphics.Color.WHITE,
+): Bitmap = barcodeBitmap(content, BarcodeFormat.QR_CODE, sizePx, sizePx, ink, paper)
+
+/**
+ * The same encode, in whatever symbology the payload was read in (#411). A ticket's
+ * barcode has to scan at the door, and a door's scanner reads the symbology it was
+ * told to expect — the 24 digits off a Code 128 ticket, re-drawn as a QR, are not a
+ * ticket any Eventim scanner will accept. So the format travels with the payload
+ * from [extractTicket] all the way to here rather than being assumed square.
+ *
+ * Throws (via zxing) for a payload a format cannot carry — Code 128 has no encoding
+ * for a character outside Latin-1, for instance. Every caller already goes through
+ * `runCatching`, because "this barcode can't be redrawn" is a thing to draw nothing
+ * for, never to crash on.
+ */
+internal fun barcodeBitmap(
+    content: String,
+    format: BarcodeFormat,
+    widthPx: Int,
+    heightPx: Int,
+    ink: Int = android.graphics.Color.BLACK,
+    paper: Int = android.graphics.Color.WHITE,
 ): Bitmap {
-    val matrix = MultiFormatWriter().encode(content, BarcodeFormat.QR_CODE, sizePx, sizePx)
-    val pixels = IntArray(sizePx * sizePx)
-    for (y in 0 until sizePx) {
-        val row = y * sizePx
-        for (x in 0 until sizePx) {
+    val matrix = MultiFormatWriter().encode(content, format, widthPx, heightPx)
+    val pixels = IntArray(widthPx * heightPx)
+    for (y in 0 until heightPx) {
+        val row = y * widthPx
+        for (x in 0 until widthPx) {
             pixels[row + x] = if (matrix[x, y]) ink else paper
         }
     }
-    return Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888).apply {
-        setPixels(pixels, 0, sizePx, 0, 0, sizePx, sizePx)
+    return Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888).apply {
+        setPixels(pixels, 0, widthPx, 0, 0, widthPx, heightPx)
     }
 }
 

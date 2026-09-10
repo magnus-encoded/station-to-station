@@ -50,6 +50,36 @@ class TicketParsingTest {
     }
 
     @Test
+    fun theSymbologyTravelsWithThePayload() {
+        // #411: a real Eventim ticket's barcode is CODE_128, not a QR. The day-of
+        // view has to redraw it in the symbology the door's scanner expects, so the
+        // format has to survive the parse alongside the bytes.
+        val parsed = parseTicket(
+            TicketExtract(
+                qrBytes = qr("000310038500200020010000"),
+                qrFormat = "CODE_128",
+                textBlocks = listOf("Kaizers Orchestra", "Sentrum Scene, Oslo", "24-06-2027"),
+            ),
+        )
+
+        assertEquals("CODE_128", parsed.qrFormat)
+
+        val routing = routeTicket(parsed, emptyList(), today = LocalDate.of(2027, 1, 1))
+
+        assertEquals("CODE_128", (routing as TicketRouting.NewPlannedGig).qrFormat)
+    }
+
+    @Test
+    fun aTicketWithNoBarcodeHasNoSymbologyEither() {
+        val parsed = parseTicket(
+            TicketExtract(textBlocks = listOf("Kaizers Orchestra", "Sentrum Scene, Oslo", "24-06-2027")),
+        )
+
+        assertNull(parsed.qrBytes)
+        assertNull(parsed.qrFormat)
+    }
+
+    @Test
     fun qrOnlyWithNoUsableTextIsIncompleteNotEmpty() {
         val parsed = parseTicket(TicketExtract(qrBytes = qr(), textBlocks = emptyList()))
 

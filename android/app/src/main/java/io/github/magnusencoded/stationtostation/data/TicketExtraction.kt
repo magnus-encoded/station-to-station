@@ -9,6 +9,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.google.zxing.BinaryBitmap
+import com.google.zxing.DecodeHintType
 import com.google.zxing.MultiFormatReader
 import com.google.zxing.NotFoundException
 import com.google.zxing.RGBLuminanceSource
@@ -38,16 +39,16 @@ suspend fun extractTicket(context: Context, uri: Uri): TicketExtract = withConte
             return@withContext TicketExtract()
         }
         renderer.use { r ->
-            var qrBytes: ByteArray? = null
+            var barcode: DecodedBarcode? = null
             val textBlocks = mutableListOf<String>()
             val pageCount = minOf(r.pageCount, MAX_PAGES)
             for (index in 0 until pageCount) {
                 val bitmap = renderPage(r, index)
-                if (qrBytes == null) qrBytes = decodeQr(bitmap)
+                if (barcode == null) barcode = decodeBarcode(bitmap)
                 textBlocks += recognizeText(bitmap)
                 bitmap.recycle()
             }
-            TicketExtract(qrBytes = qrBytes, textBlocks = textBlocks)
+            TicketExtract(qrBytes = barcode?.bytes, qrFormat = barcode?.format, textBlocks = textBlocks)
         }
     }
 }
@@ -74,7 +75,18 @@ private fun renderPage(renderer: PdfRenderer, index: Int): Bitmap {
     return bitmap
 }
 
-private fun decodeQr(bitmap: Bitmap): ByteArray? {
+/** One page's barcode: the payload to re-show, and the symbology to re-show it in. */
+private class DecodedBarcode(val bytes: ByteArray, val format: String)
+
+// zxing's unhinted single pass is tuned for a camera frame — a barcode filling much
+// of a roughly-focused image. A ticket PDF is the opposite: a small, pixel-perfect
+// symbol in one corner of a page of text, and the plain scan misses it. Measured
+// against both real tickets (#411): unhinted, zxing found nothing on any of the four
+// pages; with TRY_HARDER it read all four. The cost is a slower scan of a page that
+// has no barcode at all, which the MAX_PAGES cap already bounds.
+private val DECODE_HINTS = mapOf<DecodeHintType, Any>(DecodeHintType.TRY_HARDER to true)
+
+private fun decodeBarcode(bitmap: Bitmap): DecodedBarcode? {
     val width = bitmap.width
     val height = bitmap.height
     val pixels = IntArray(width * height)
@@ -82,12 +94,16 @@ private fun decodeQr(bitmap: Bitmap): ByteArray? {
     val source = RGBLuminanceSource(width, height, pixels)
     val binaryBitmap = BinaryBitmap(HybridBinarizer(source))
     return try {
-        val result = MultiFormatReader().decode(binaryBitmap)
-        // rawBytes is null for formats zxing decoded straight to text (most QRs
-        // carrying a URL or plain payload); the text form is what every ticket QR
-        // this pipeline has ever needed to preserve actually is, so it is what is
-        // kept — a QR is stored to be re-shown, not re-decoded as binary.
-        result.rawBytes ?: result.text?.toByteArray(Charsets.UTF_8)
+        val result = MultiFormatReader().decode(binaryBitmap, DECODE_HINTS)
+        // The decoded *payload*, not `rawBytes`. rawBytes is the symbol's own
+        // codewords — error correction, mode and length headers and all — which is
+        // not what a scanner at the door reads back out, so re-encoding it would
+        // produce a barcode carrying something no ticketing system has ever heard
+        // of. A barcode is stored here to be re-shown, so the text form is the
+        // thing to keep; ISO-8859-1 because that is the charset it round-trips
+        // through on the way back out (see `barcodeBitmap`).
+        val text = result.text ?: return null
+        DecodedBarcode(text.toByteArray(Charsets.ISO_8859_1), result.barcodeFormat.name)
     } catch (e: NotFoundException) {
         null
     }

@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.zxing.BarcodeFormat
 import io.github.magnusencoded.stationtostation.data.Band
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.FriendArrival
@@ -1806,8 +1807,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val artist = uri.getQueryParameter("artist")?.trim()?.ifBlank { null }
         val venue = uri.getQueryParameter("venue")?.trim()?.ifBlank { null }
         val date = uri.getQueryParameter("date")?.trim()?.ifBlank { null }?.let { findDate(it) }
-        val qrBytes = uri.getQueryParameter("qr")?.trim()?.ifBlank { null }?.toByteArray(Charsets.UTF_8)
-        val parsed = ParsedTicket(qrBytes = qrBytes, artist = artist, venue = venue, date = date)
+        // ISO-8859-1, matching the PDF path: one charset in, the same charset back
+        // out when `barcodeBitmap` re-encodes it. A link carries no symbology of its
+        // own, so it is taken as a QR — which is what the parameter is named for.
+        val qrBytes = uri.getQueryParameter("qr")?.trim()?.ifBlank { null }?.toByteArray(Charsets.ISO_8859_1)
+        val parsed = ParsedTicket(
+            qrBytes = qrBytes,
+            qrFormat = qrBytes?.let { BarcodeFormat.QR_CODE.name },
+            artist = artist,
+            venue = venue,
+            date = date,
+        )
         viewModelScope.launch { routeParsedTicket(parsed) }
     }
 
@@ -1815,10 +1825,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun routeParsedTicket(parsed: ParsedTicket) {
         val known = _state.value.setlists + _state.value.plannedGigs
         when (val routing = routeTicket(parsed, known)) {
-            is TicketRouting.AlreadyKnown -> attachTicketQr(routing.gig.id, parsed.qrBytes)
+            is TicketRouting.AlreadyKnown -> attachTicketQr(routing.gig.id, parsed.qrBytes, parsed.qrFormat)
             is TicketRouting.NewPlannedGig -> {
                 val night = parseFmDate(routing.date) ?: return
-                addParsedPlannedGig(routing.artist, routing.venue, night, routing.qrBytes)
+                addParsedPlannedGig(routing.artist, routing.venue, night, routing.qrBytes, routing.qrFormat)
             }
             is TicketRouting.NeedsConfirmation ->
                 _state.update { it.copy(pendingTicket = PendingTicket(routing.parsed, routing.possibleMatch)) }
@@ -1845,9 +1855,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val matched = pending.possibleMatch
                 ?: matchKnownNight(ParsedTicket(artist = artist.trim(), venue = venue.trim(), date = fmDate(night)), known)
             if (matched != null) {
-                attachTicketQr(matched.id, pending.parsed.qrBytes)
+                attachTicketQr(matched.id, pending.parsed.qrBytes, pending.parsed.qrFormat)
             } else {
-                addParsedPlannedGig(artist.trim(), venue.trim(), night, pending.parsed.qrBytes)
+                addParsedPlannedGig(
+                    artist.trim(),
+                    venue.trim(),
+                    night,
+                    pending.parsed.qrBytes,
+                    pending.parsed.qrFormat,
+                )
             }
             _state.update { it.copy(pendingTicket = null) }
         }
@@ -1857,7 +1873,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun dismissPendingTicket() = _state.update { it.copy(pendingTicket = null) }
 
     /** [addPlannedGigByHand]'s write, shared by both ticket paths above. */
-    private suspend fun addParsedPlannedGig(artist: String, venue: String, night: LocalDate, qrBytes: ByteArray?) {
+    private suspend fun addParsedPlannedGig(
+        artist: String,
+        venue: String,
+        night: LocalDate,
+        qrBytes: ByteArray?,
+        qrFormat: String?,
+    ) {
         val gigId = timelines.createLocalGig(fmDate(night), artist, venue)
         val gig = localGigSetlist(gigId, artist, night, venue, city = "")
         val attendance = timelines.savePlanned(gig)
@@ -1867,13 +1889,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 attendanceByGig = it.attendanceByGig + (gig.id to attendance),
             )
         }
-        attachTicketQr(gig.id, qrBytes)
+        attachTicketQr(gig.id, qrBytes, qrFormat)
     }
 
     /** No-op when there is no QR to keep — most confirmations and most matches. */
-    private suspend fun attachTicketQr(gigId: String, qrBytes: ByteArray?) {
+    private suspend fun attachTicketQr(gigId: String, qrBytes: ByteArray?, qrFormat: String?) {
         if (qrBytes == null) return
-        val attendance = timelines.attachTicketQr(gigId, qrBytes.toTicketQrBase64())
+        val attendance = timelines.attachTicketQr(gigId, qrBytes.toTicketQrBase64(), qrFormat)
         _state.update { it.copy(attendanceByGig = it.attendanceByGig + (gigId to attendance)) }
     }
 
