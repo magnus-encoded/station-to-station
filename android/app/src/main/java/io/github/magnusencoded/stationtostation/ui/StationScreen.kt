@@ -48,6 +48,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -152,6 +153,7 @@ import io.github.magnusencoded.stationtostation.data.DeviceLocation
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.FriendArrival
 import io.github.magnusencoded.stationtostation.data.FutureRow
+import com.google.zxing.BarcodeFormat
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.isLocal
@@ -993,7 +995,31 @@ private fun FuturePrompt(loading: Boolean) {
     )
 }
 
-/** A ticket's barcode, redrawn as a scannable QR — nothing at all when there is none. */
+/**
+ * A ticket's barcode, redrawn in the symbology it was captured in — and the shape
+ * that symbology needs: a square for the matrix formats, a wide short strip for the
+ * linear ones, which is what a Code 128 has to be to scan at all.
+ *
+ * [storedFormat] is [StoredAttendance.ticketQrFormat] — null for a record written
+ * before the format was kept, and for an unrecognised name, both of which mean the
+ * only thing the old pipeline could ever have stored: a QR.
+ */
+private fun ticketBarcode(content: String, storedFormat: String?): Bitmap {
+    val format = storedFormat
+        ?.let { name -> runCatching { BarcodeFormat.valueOf(name) }.getOrNull() }
+        ?: BarcodeFormat.QR_CODE
+    return if (format.isSquare()) {
+        barcodeBitmap(content, format, 480, 480)
+    } else {
+        barcodeBitmap(content, format, 960, 320)
+    }
+}
+
+/** The matrix symbologies, which are drawn square; everything else here is a linear strip. */
+private fun BarcodeFormat.isSquare(): Boolean =
+    this == BarcodeFormat.QR_CODE || this == BarcodeFormat.AZTEC || this == BarcodeFormat.DATA_MATRIX
+
+/** A ticket's barcode as captured — nothing at all when there is none. */
 @Composable
 private fun TicketQrCode(bitmap: Bitmap?) {
     if (bitmap == null) return
@@ -1004,10 +1030,18 @@ private fun TicketQrCode(bitmap: Bitmap?) {
             .border(1.dp, LineLit, RoundedCornerShape(14.dp))
             .padding(14.dp),
     ) {
+        // Square for a QR, wide and short for a linear code — the bitmap's own
+        // aspect, rather than a fixed box that would squash a Code 128 into
+        // unreadable slivers.
+        val ratio = bitmap.width.toFloat() / bitmap.height
         Image(
             bitmap = bitmap.asImageBitmap(),
-            contentDescription = "Your ticket's QR code",
-            modifier = Modifier.size(180.dp),
+            contentDescription = "Your ticket's barcode",
+            modifier = if (ratio > 1.5f) {
+                Modifier.width(260.dp).aspectRatio(ratio)
+            } else {
+                Modifier.size(180.dp)
+            },
         )
     }
     Spacer(Modifier.height(10.dp))
@@ -3511,9 +3545,13 @@ fun StationEventScreen(
                     // either branch below, because it is worth showing on this gig's
                     // own page as soon as a ticket is attached — not held back until
                     // the day-of check-in window the way the offer to check in is.
-                    val ticketQr = remember(setlist.id) {
+                    // Redrawn in the symbology it was read in, not always a QR: a
+                    // Code 128 ticket re-encoded as a QR carries the right digits in
+                    // a shape the door's scanner does not read (#411).
+                    val ticketQrFormat = state.attendanceByGig[setlist.id]?.ticketQrFormat
+                    val ticketQr = remember(setlist.id, gigAsKnown.ticketQr, ticketQrFormat) {
                         gigAsKnown.ticketQr?.decodeTicketQrBase64()?.let { bytes ->
-                            runCatching { qrBitmap(String(bytes, Charsets.ISO_8859_1), 480) }.getOrNull()
+                            runCatching { ticketBarcode(String(bytes, Charsets.ISO_8859_1), ticketQrFormat) }.getOrNull()
                         }
                     }
                     // The manual check-in, and the only one there is when location was

@@ -65,6 +65,12 @@ data class StoredAttendance(
      * keys are: kotlinx.serialization has no default codec for binary.
      */
     val ticketQr: String? = null,
+    /**
+     * zxing's name for the symbology [ticketQr] was read in ("QR_CODE", "CODE_128",
+     * …). Null on records written before #411 kept it, and read as "QR_CODE" there —
+     * that was the only thing the old pipeline could store.
+     */
+    val ticketQrFormat: String? = null,
 ) {
     /** Evidence strength, weakest first. Room for `attested` later; not built yet. */
     object Provenance {
@@ -871,11 +877,12 @@ class TimelineStore(
      * Returns the settled record, same reason as [savePlanned]: a caller's own
      * state must reflect what was actually written, not reinvent it.
      */
-    suspend fun attachTicketQr(gigId: String, qrBase64: String): StoredAttendance {
+    suspend fun attachTicketQr(gigId: String, qrBase64: String, format: String?): StoredAttendance {
         var settled = StoredAttendance()
         writeMerged {
             val (c, id) = it.withGig(gigId)
-            settled = (c.gigAttendance[id] ?: StoredAttendance()).copy(ticketQr = qrBase64)
+            settled = (c.gigAttendance[id] ?: StoredAttendance())
+                .copy(ticketQr = qrBase64, ticketQrFormat = format)
             c.copy(gigAttendance = c.gigAttendance + (id to settled))
         }
         return settled
