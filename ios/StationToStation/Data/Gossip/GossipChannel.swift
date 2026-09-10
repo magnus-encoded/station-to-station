@@ -60,13 +60,13 @@ actor GossipChannel {
     /// Returns whether anything entered the channel, which is false on a phone with no
     /// identity key or for a gig id the wire format will not carry.
     @discardableResult
-    func checkedIn(gigId: String, gigDate: String?, now: Date = Date()) async -> Bool {
+    func checkedIn(gigId: String, localGigId: String, gigDate: String?, now: Date = Date()) async -> Bool {
         guard let me = ContactIdentity.publicKeyBase64(),
               let message = gossipCheckInMessage(gigId: gigId, gigDate: gigDate, publicKey: me,
                                                  now: now, sign: ContactIdentity.sign)
         else { return false }
         await ledger.hold(message, now: now)
-        let scope = "gig-\(gigId)"
+        guard let scope = await ledger.authorScope(localGigId: localGigId) else { return false }
         if GigIdentity.key(scope: scope) != nil,
            let author = GigIdentity.publicKeyBase64(scope: scope) {
             let seconds = Int64(now.timeIntervalSince1970 * 1000)

@@ -61,6 +61,41 @@ final class GossipLedgerTests: XCTestCase {
 
     private func ledger() -> GossipLedger { GossipLedger(file: file) }
 
+    func testAuthorScopePersistsWithoutDiscardingExistingLedger() async throws {
+        let store = ledger()
+        let mine = signed(by: alice)
+        await store.hold(mine, now: now)
+        let scope = await store.authorScope(localGigId: "local-gig")
+        XCTAssertNotNil(scope)
+        XCTAssertNotEqual(scope, "local-gig")
+        let again = await store.authorScope(localGigId: "local-gig")
+        let other = await store.authorScope(localGigId: "other-gig")
+        XCTAssertEqual(scope, again)
+        XCTAssertNotEqual(scope, other)
+        let reopened = ledger()
+        let restored = await reopened.authorScope(localGigId: "local-gig")
+        let held = await reopened.offer(to: bob.publicKey, now: now)
+        XCTAssertEqual(scope, restored)
+        XCTAssertEqual(held, [mine])
+        let afterExpiry = await reopened.offer(to: bob.publicKey, now: tonight.addingTimeInterval(1))
+        XCTAssertTrue(afterExpiry.isEmpty)
+        let retained = await reopened.authorScope(localGigId: "local-gig")
+        XCTAssertEqual(scope, retained)
+        await reopened.forgetAll()
+        let afterContactRemoval = await ledger().authorScope(localGigId: "local-gig")
+        XCTAssertEqual(scope, afterContactRemoval)
+    }
+
+    func testAuthorScopeReadsOldLedgerAndFailsClosedWhenItCannotPersist() async throws {
+        try Data(#"{"seen":{},"held":[],"budgets":{}}"#.utf8).write(to: file)
+        let scope = await ledger().authorScope(localGigId: "local-gig")
+        XCTAssertNotNil(scope)
+        let missingDirectory = file.appendingPathComponent("missing/gossip.json")
+        let unavailable = GossipLedger(file: missingDirectory)
+        let failed = await unavailable.authorScope(localGigId: "local-gig")
+        XCTAssertNil(failed)
+    }
+
     // --- My own arrival ---
 
     func testMyOwnCheckInIsHeldForOnwardRelayButNeverOfferedBackToMe() async {
