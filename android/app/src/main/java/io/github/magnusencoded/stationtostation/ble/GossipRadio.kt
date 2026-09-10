@@ -31,6 +31,8 @@ import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_NONCE_BYTES
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_PEER_COOLDOWN
 import io.github.magnusencoded.stationtostation.data.gossip.GossipChallenge
 import io.github.magnusencoded.stationtostation.data.gossip.GossipPass
+import io.github.magnusencoded.stationtostation.data.gossip.PublicGossipPass
+import io.github.magnusencoded.stationtostation.data.gossip.decodePublicGossipPass
 import io.github.magnusencoded.stationtostation.data.gossip.GossipRadioStatus
 import io.github.magnusencoded.stationtostation.data.gossip.decodeGossipChallenge
 import io.github.magnusencoded.stationtostation.data.gossip.decodeGossipPass
@@ -109,6 +111,9 @@ private const val TAG = "GossipRadio"
 /** What a listener accepted: a peer that proved itself, and what it pushed. */
 data class GossipDelivery(val from: String, val batch: List<GossipCheckIn>)
 
+/** Public v2 delivery. The sender is a transport identity; envelope authors are temporary Gig keys. */
+data class PublicGossipDelivery(val from: String, val pass: PublicGossipPass)
+
 /**
  * The payload in pieces that fit one ATT write, in order.
  *
@@ -156,6 +161,7 @@ class GossipPeripheral(
 
     /** Fires on a binder thread. The service hops to a coroutine before doing anything. */
     var onDelivery: ((GossipDelivery) -> Unit)? = null
+    var onPublicDelivery: ((PublicGossipDelivery) -> Unit)? = null
 
     /**
      * The nonce this listener last issued to each device address, and the bytes it answered
@@ -298,6 +304,19 @@ class GossipPeripheral(
     private fun deliver(address: String) {
         val payload = inbox.remove(address) ?: return
         val nonce = nonces[address] ?: return
+        // v2 is public and blind-relayable. It is intentionally checked before the legacy
+        // Contact-only decoder; a v1 parser must never reinterpret a v2 record.
+        decodePublicGossipPass(payload)?.let { public ->
+            val proof = runCatching { Base64.getDecoder().decode(public.proof) }.getOrNull()
+            if (proof != null && verifyChallenge(gossipAuthPayload(nonce), proof, public.from)) {
+                nonces.remove(address)
+                GossipRadioStatus.note("accepted public v2 pass of ${public.batch.size} envelope(s)")
+                onPublicDelivery?.invoke(PublicGossipDelivery(public.from, public))
+            } else {
+                GossipRadioStatus.note("dropped public v2 pass with invalid proof")
+            }
+            return
+        }
         val pass = decodeGossipPass(payload) ?: run {
             Log.w(TAG, "unreadable pass (${payload.size} bytes), dropped")
             GossipRadioStatus.note("dropped an unreadable pass")

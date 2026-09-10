@@ -151,6 +151,10 @@ final class GossipTransport: NSObject {
     private var inbox: [UUID: Data] = [:]
     private var inboxStartedAt: [UUID: Date] = [:]
 
+    /// Public v2 is delivered separately from the legacy check-in callback. This keeps
+    /// application admission (including Block and projection) out of CoreBluetooth.
+    var onPublicDelivery: ((PublicGossipDelivery) -> Void)?
+
     /// The nonce this listener last issued to each central, and the bytes it answered the
     /// challenge read with.
     ///
@@ -559,6 +563,17 @@ extension GossipTransport: CBPeripheralManagerDelegate {
         // connection has to read a new challenge for the second.
         guard let nonce = nonces.removeValue(forKey: id) else { return }
         challenges[id] = nil
+        if let public = decodePublicGossipPass(accumulated) {
+            guard let proof = Data(base64Encoded: public.proof),
+                  verifyChallenge(gossipAuthPayload(nonce), signature: proof,
+                                  publicKeyBase64: public.from) else {
+                GossipRadioStatus.note("dropped public v2 pass with invalid proof")
+                return
+            }
+            GossipRadioStatus.note("accepted public v2 pass of \(public.batch.count) envelope(s)")
+            onPublicDelivery?(PublicGossipDelivery(from: public.from, pass: public))
+            return
+        }
         Task { [weak self] in
             // Everything that decides whether these bytes are worth anything — the possession
             // proof, the **Contact** check, the gate — happens in the actor. Nothing is

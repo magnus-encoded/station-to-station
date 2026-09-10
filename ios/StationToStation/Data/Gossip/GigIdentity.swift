@@ -25,6 +25,20 @@ enum GigIdentity {
         write[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         return SecItemAdd(write as CFDictionary, nil) == errSecSuccess ? key : nil
     }
+
+    /// SPKI public key used in the public envelope. The wire carries DER rather than
+    /// CryptoKit's compact raw point so Android can parse and verify it identically.
+    static func publicKeyBase64(scope: String) -> String? {
+        key(scope: scope)?.publicKey.derRepresentation.base64EncodedString()
+    }
+
+    /// DER ECDSA signature over the canonical envelope payload.
+    static func sign(scope: String, _ payload: Data) -> Data? {
+        guard let key = key(scope: scope),
+              let signature = try? key.signature(for: payload)
+        else { return nil }
+        return signature.derRepresentation
+    }
     static func attribution(scope: String, author: String) -> String? {
         guard let durable = ContactIdentity.publicKeyBase64(),
               let proof = ContactIdentity.sign(identityBinding(scope: scope, author: author)),
