@@ -286,10 +286,32 @@ and no app can reach both characteristics: pass at `…7723` write-only, challen
 `-63 dBm` is a comfortable margin, so range is not the constraint. Two caveats that
 will cost you time if you meet them cold:
 
-- **Connects fail intermittently, and the address rotation is why.** One run
-  timed out in `BleakClient.connect` because the address it had just discovered
-  had already rotated out from under it. The script retries; keep that, and treat
-  a single `TimeoutError` as noise rather than a finding.
+- **Discovery is reliable; connecting is not, and that may be telling you
+  something.** Scanning found the phone on every single attempt. Connecting
+  succeeded twice and then failed four times in a row with `TimeoutError`, while
+  scanning from the same host in the same minute kept working and the phone kept
+  logging `advertising a token for one contact`. So the phone was there and
+  advertising throughout — the connect specifically is what failed.
+
+  The likely cause is in our own code. `GOSSIP_ADVERTISE_SLOT` is **four seconds**
+  (`GossipToken.kt:295`), and `rotate()` stops and restarts the advertiser on that
+  cadence to show the next Contact's token (`GossipRadio.kt:362-402`). Android
+  regenerates its resolvable private address when the advertiser restarts, which is
+  why one phone showed up as seven addresses in twenty-five seconds. A central that
+  discovers an address therefore has **at most four seconds, and on average two**,
+  to complete a connection before the address it holds is gone.
+
+  Do not file that as a test-harness annoyance and move on. `GOSSIP_PUSH_TIMEOUT_MS`
+  is 20 s (`GossipRadio.kt:92`), which budgets generously for the whole push but
+  cannot help if the *connect* has to land inside a two-second residual window. It
+  is worth establishing whether Android's own scan-then-`connectGatt` path is
+  subject to the same race — it may not be, since it can connect by resolved
+  identity rather than by the address it happened to observe — but "it works
+  between two Androids" would be a happy accident of platform behaviour, not a
+  property the transport design has earned. If it is real, it is a v2 transport bug
+  that predates your work and is worth fixing while the wire is still free to
+  change: the fix is to keep the advertiser up across token changes, or to widen the
+  slot, not to retry harder on the far side.
 - **That `mtu 23` is bleak's default, not a negotiated value** — it warns as much.
   Call `_acquire_mtu()` before believing any MTU number, and do not conclude
   anything about chunking from 23 until you have.
