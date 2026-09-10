@@ -549,11 +549,8 @@ Neither behaviour was landed.
   not the agreed direct request/witness flow and collides with real Log lines.
 - Current author scopes derive from external gigId; they must instead be random,
   persistent bindings to the stable local Gig, surviving external ID changes.
-- Passes still use durable Contact keys, Contact-based discovery and v1 fallbacks.
-  Replace the old transport, including its token advertising rotation. Nothing
-  has shipped that requires v1 negotiation.
-- Successful v2 handoffs are not recorded; receipts, neighbour priority, direct-only
-  verification, attribution, blocking, persisted projection and UI remain unwired.
+- Successful v2 handoffs are recorded in memory. Receipts, neighbour priority,
+  direct-only verification, attribution, blocking, persisted projection and UI remain unwired.
 - Pixel Keystore test actually passed: `OK (1 test)`, 0.163 seconds, on the debug
   app installed in place. It checked concurrent first use, reopening the same key,
   distinct scopes, valid DER signing and tamper rejection. Only its test keys were
@@ -580,7 +577,9 @@ callback access is serialized. State persistence/application authoring remains t
 next separate slice; no claim of full feature completion is warranted.
 
 Local Android compile, APK build and all 22 selected PublicGossip/GossipPolicy tests
-passed (17m52s on this host). Both pushed CI workflows still need checking. A manual Pi
+passed (17m52s on this host). Both CI workflows passed for `2a1838e`: Android
+`34444445691`, iOS `34444445648`. Android also passed for the opt-in device test
+commit `c8af2a0` (`34445013383`); that commit did not trigger iOS. A manual Pi
 peer lives at `docs/prototypes/gossip_v2_peer.py` and is copied to `/home/pi/`.
 It verifies a signed v2 challenge and sends a signed synthetic Fact through 20-byte
 ATT writes plus an empty terminator, with separate connection trials and no hidden
@@ -591,11 +590,29 @@ alwaysRelay=false). `am start-foreground-service` cannot start its non-exported
 component; `run-as ... am` also fails the shell calling-package check. Do not change
 exported status or the user's settings to bypass that.
 
-An opt-in `GossipRadioDeviceTest` is now being compiled. It hosts the production
+The opt-in `GossipRadioDeviceTest` compiled and its APK is installed in place. It hosts the production
 GossipPeripheral directly under instrumentation, waits for six verified Pi Passes,
-asserts one durable in-memory Fact and an empty outbox after duplicate reception,
+asserts one retained in-memory Fact and an empty outbox after duplicate reception,
 then stops the radio and removes only its test key. Run with `-e manual_ble_peer true`
 and `-e class io.github.magnusencoded.stationtostation.GossipRadioDeviceTest`, alongside
 `python3 /home/pi/gossip_v2_peer.py 6`. This tests the radio and state-machine receive
 path; it does not exercise the GossipService lifecycle or the phone's central/send
 path. The service's morning refusal is expected, not a radio defect.
+
+### Real ATT investigation (2026-09-10, 13:00)
+
+The first six v2 Pi trials all connected and verified the signed challenge, but
+all failed during writes with BlueZ `UNLIKELY_ERROR`: 9.16, 6.71, 7.28, 6.18,
+7.28, 9.29 seconds. No complete Pass reached the receiver. The device assertion
+failed after 90 seconds. This is **not** a hardware pass despite green CI.
+
+A seventh, traced trial reproduced it. `btmon` showed the Pi opening EATT
+channels, Android refusing them for insufficient authentication, and the Pi
+initiating pairing. Pairing failed (no confirmation agent); Android then
+disconnected while normal 20-byte ATT writes were still being acknowledged.
+There was no ATT Unlikely Error response in that trace: BlueZ reported it after
+the remote disconnection. This isolates a different failure from advertisement
+rotation, and a controlled plain-ATT comparison is pending. Temporary Pi script
+`/tmp/gossip-plain-att.sh` sets BlueZ GATT Channels=1 for six trials and restores
+the original config and Bluetooth service via an EXIT trap. No networking changes.
+BlueZ documents that setting in its [configuration source](https://github.com/bluez/bluez/blob/5.66/src/main.conf).
