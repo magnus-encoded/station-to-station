@@ -821,3 +821,43 @@ by green native CI as specified above. Only the intentionally untracked `pc/`,
   Pixel app relaunched. This proves the real receive/framing/authentication/state
   boundary under plain ATT; it does not prove production check-in authoring,
   persistence/UI projection, the phone central/send path, or iOS radio behaviour.
+
+### Authored check-in and direct witness (2026-09-11, 07:50 Oslo)
+
+Issue #442. Check-in no longer authors a synthetic Log at line 0. It authors a
+`request` under the checked-in Gig identity, and the radio's Pass is signed by that
+same key whenever the batch carries a locally-authored request, so the Pass proves
+the request author rather than the nightly relay. Other facts still travel under the
+relay key; a Pass never carries two different authors' requests.
+
+- A `request` is now durable evidence and enters `facts`. Arriving directly is not
+  itself a witness: the witness is a separate signed fact embedding the complete
+  signed request, produced only by a device holding its own local claim for the same
+  Gig. `checkInEvidence` returns `(asserted, witnessed)` as two independent answers,
+  so self-asserted attendance stays distinct from witnessed check-in.
+- `localAuthors` is persisted, so a process restored by the radio after restart can
+  still tell its own claim from a stranger's. Covered by the Android store test and
+  the iOS ledger test.
+- Receipts are unchanged and still excluded from the record: the witness response and
+  the usefulness receipt remain separate signals.
+
+`GossipRadioDeviceTest.indirectControlsAreRejectedWithoutPoisoningDirectDelivery` was
+updated for this: the direct request is now expected as exactly one durable fact, the
+direct receipt still is not. Without that change the retained regression would have
+failed on the new admission rule rather than on a defect.
+
+- Android `:app:testDebugUnitTest`: full suite green on this host.
+- Pi `gossip_v2_peer.py --controls`: first attempt **0/4**, all four failing mid-write
+  with BlueZ `UNLIKELY_ERROR` at bytes 540/480/520/500 of 629. This is the documented
+  EATT failure, not a regression — the earlier run's `Channels = 1` workaround had
+  been restored to the packaged default. The wrapper now lives at
+  `/home/pi/gossip-plain-att.sh` rather than `/tmp`, with the `sudo -n rm -f` cleanup
+  the previous run recommended.
+- Rerun under that wrapper: **4/4 completed**, 629 bytes each, trials 8.50, 8.05,
+  8.65, 6.87 seconds. Pixel `indirectControlsAreRejectedWithoutPoisoningDirectDelivery`
+  with `manual_ble_controls=true`: **OK (1 test), 76.055 seconds**. BlueZ config
+  confirmed restored to `#Channels = 3` and Bluetooth active.
+- **iOS is unverified on hardware here.** This host is Linux; the Swift changes mirror
+  the Kotlin ones and carry matching unit tests, but they have only CI to prove them.
+- Still not proven: UI projection of witnessed check-in, the phone central/send path
+  for a request, and the iOS radio. The issue defers projection to a later slice.

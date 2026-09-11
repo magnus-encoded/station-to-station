@@ -64,13 +64,14 @@ class PublicGossipTest {
 
     @Test fun oneHopControlsRequireTheirAuthorWithoutPoisoningTheStormGate() {
         for (kind in listOf("request", "receipt")) {
-            val envelope = fact(text = "useful-neighbour", kind = kind)
+            val envelope = fact(text = if (kind == "receipt") "useful-neighbour" else "", kind = kind)
             val receiver = PublicGossipState()
             assertFalse(receiver.receive(envelope, "blind-relay", 2000))
             assertTrue(receiver.seen.isEmpty())
             assertTrue(receiver.useful.isEmpty())
             assertTrue(receiver.receive(envelope, envelope.author, 2001))
-            assertTrue(receiver.facts.isEmpty())
+            if (kind == "request") assertEquals(listOf(envelope), receiver.facts.values.toList())
+            else assertTrue(receiver.facts.isEmpty())
             assertTrue(receiver.held.isEmpty())
             if (kind == "receipt") assertTrue(receiver.useful.containsKey("useful-neighbour"))
 
@@ -120,5 +121,31 @@ class PublicGossipTest {
         state.receive(envelope, "Carol", 2000)
         assertFalse(state.receive(envelope.copy(text = "forged"), "Dave", 2001))
         assertEquals(listOf(envelope), state.offer("Bob", 2002))
+    }
+
+    @Test fun directRequestIsPersistedWitnessedAndProjectedSeparatelyFromSelfAssertion() {
+        val witnessKey = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        fun signedBy(pair: java.security.KeyPair, author: String, kind: String, text: String = "") =
+            GossipEnvelope(gigId = "gig", scope = "scope-${author.take(6)}",
+                author = gossipBase64(pair.public.encoded), createdAt = 1000, expiresAt = 100000,
+                kind = kind, text = text).signed { bytes ->
+                Signature.getInstance("SHA256withECDSA").run { initSign(pair.private); update(bytes); sign() }
+            }!!
+        val request = signedBy(key, "request", "request")
+        val local = signedBy(witnessKey, "witness", "request")
+        val state = PublicGossipState()
+        assertTrue(state.receive(local, "", 1500, local = true))
+        assertFalse(state.receive(request, "relay", 1600))
+        assertTrue(state.receive(request, request.author, 1601))
+        assertEquals(false, state.checkInEvidence(setOf("gig"), request.author).second)
+        val witness = requireNotNull(witnessRequest(request, local, 1700) { bytes ->
+            Signature.getInstance("SHA256withECDSA").run { initSign(witnessKey.private); update(bytes); sign() }
+        })
+        assertTrue(state.receive(witness, witness.author, 1701))
+        assertEquals(true to true, state.checkInEvidence(setOf("gig"), request.author))
+        assertTrue(state.facts.containsKey(request.id))
+        assertTrue(state.facts.containsKey(witness.id))
+        assertFalse(state.held.containsKey(request.id))
+        assertTrue(state.held.containsKey(witness.id))
     }
 }

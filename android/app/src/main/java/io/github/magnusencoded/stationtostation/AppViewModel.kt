@@ -2419,7 +2419,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val public = GossipEnvelope(
             gigId = gigId, scope = scope, author = identity.publicKey(),
             createdAt = createdAt.toEpochMilli(), expiresAt = gossipExpiry(gigDate).toEpochMilli(),
-            kind = "log", line = 0, text = "Checked in",
+            kind = "request",
             attribution = identity.attribution(),
         ).signed(identity::sign)
         if (public != null) {

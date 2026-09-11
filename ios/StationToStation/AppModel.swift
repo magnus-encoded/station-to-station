@@ -1639,7 +1639,9 @@ final class AppModel: ObservableObject {
             let gigDate = knownNights.first { $0.id == gigId }?.eventDate
             let cache = await timelines.load()
             guard let localGig = cache.gigs[gigId] ?? cache.gigForSetlist(gigId) else { return }
-            await GossipChannel.shared.checkedIn(gigId: gigId, localGigId: localGig.id, gigDate: gigDate)
+            if await GossipChannel.shared.checkedIn(gigId: gigId, localGigId: localGig.id, gigDate: gigDate) {
+                GossipTransport.shared.checkInStarted()
+            }
         }
     }
 

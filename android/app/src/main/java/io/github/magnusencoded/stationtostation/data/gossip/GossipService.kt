@@ -141,7 +141,20 @@ class GossipService : Service() {
                     val now = System.currentTimeMillis()
                     var accepted = 0
                     store.updatePublic(now) { state ->
-                        accepted = delivery.pass.batch.count { envelope -> state.receive(envelope, delivery.from, now) }
+                        val directRequests = delivery.pass.batch.filter { envelope ->
+                            envelope.kind == "request" && state.receive(envelope, delivery.from, now)
+                        }
+                        accepted += directRequests.size
+                        delivery.pass.batch.filter { it.kind != "request" }.forEach { envelope ->
+                            if (state.receive(envelope, delivery.from, now)) accepted++
+                        }
+                        directRequests.forEach { request ->
+                            val local = state.localClaimFor(request) ?: return@forEach
+                            val identity = GigIdentity(local.scope)
+                            witnessRequest(request, local, now, identity::sign)?.let { witness ->
+                                state.receive(witness, "", now, local = true)
+                            }
+                        }
                     }
                     Log.i(TAG, "accepted $accepted of ${delivery.pass.batch.size} public envelopes")
                 }
@@ -152,8 +165,12 @@ class GossipService : Service() {
         central = GossipCentral(
             context = applicationContext,
             publicPassFor = { peer, nonce -> synchronized(publicLock) {
-                val batch = publicState.offer(peer, System.currentTimeMillis())
-                val identity = relayIdentity()
+                var batch = publicState.offer(peer, System.currentTimeMillis())
+                // A one-hop request is admissible only when the Pass proves the request
+                // author's key. Other facts may still travel under the nightly relay key.
+                val request = batch.firstOrNull { it.kind == "request" && it.author in publicState.localAuthors }
+                if (request != null) batch = batch.filter { it.kind != "request" || it.author == request.author }
+                val identity = request?.let { GigIdentity(it.scope) } ?: relayIdentity()
                 val proof = runCatching { identity.sign(publicGossipAuthPayload(nonce)) }.getOrNull()
                 if (batch.isEmpty() || proof == null) null
                 else encodePublicGossipPass(PublicGossipPass(identity.publicKey(), gossipBase64(proof), batch))?.also { bytes ->

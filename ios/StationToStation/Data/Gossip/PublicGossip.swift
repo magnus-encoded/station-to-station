@@ -69,6 +69,8 @@ struct GossipEnvelope: Codable, Equatable, Identifiable {
               verifyChallenge(payload(), signature: signature, publicKeyBase64: author)
         else { return false }
         if kind == "log" && (line < 0 || text.utf8.count > 512) { return false }
+        if kind == "request" && line != -1 { return false }
+        if ["witness", "receipt"].contains(kind) && line != -1 { return false }
         if kind == "witness" {
             guard let claim = decodePublicEnvelope(text), claim.kind == "request", claim.author != author,
                   claim.valid(), sameGig(claim), createdAt >= claim.createdAt,
@@ -129,6 +131,9 @@ struct PublicGossipState: Codable {
     var blocked: Set<String> = []
     var recognition: [String: String] = [:]
     var useful: [String: Int64] = [:]
+    /// Authors backed by a private Gig key on this phone. Durable so a CoreBluetooth
+    /// restoration can still tell my claim from a stranger's after relaunch.
+    var localAuthors: Set<String> = []
 
     mutating func prune(now: Int64) {
         seen = seen.filter { $0.value > now }
@@ -144,7 +149,8 @@ struct PublicGossipState: Codable {
         if seen[envelope.id] != nil { held.removeValue(forKey: envelope.id); return false }
         guard seen.count < 8192 else { return false }
         seen[envelope.id] = envelope.expiresAt
-        if ["log", "witness"].contains(envelope.kind) && !blocked.contains(envelope.author) { facts[envelope.id] = envelope }
+        if envelope.kind != "receipt" && !blocked.contains(envelope.author) { facts[envelope.id] = envelope }
+        if local { localAuthors.insert(envelope.author) }
         if local || !["request", "receipt"].contains(envelope.kind) {
             held[envelope.id] = PublicHeld(envelope: envelope, until: min(envelope.expiresAt, now + publicCarryMs), delivered: [from])
             while held.count > 128 || held.values.reduce(0, { $0 + $1.envelope.record().utf8.count }) > 128000 {
@@ -176,4 +182,34 @@ struct PublicGossipState: Codable {
         return lines.values.compactMap { $0.max(by: { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }) }
             .sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
     }
+
+    func localClaim(for request: GossipEnvelope) -> GossipEnvelope? {
+        facts.values.filter { $0.kind == "request" && localAuthors.contains($0.author) && $0.sameGig(request) }
+            .max { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+    }
+
+    /// Self-asserted and witnessed are deliberately independent answers.
+    func checkInEvidence(gigIds: Set<String>, author: String) -> (asserted: Bool, witnessed: Bool) {
+        let claims = facts.values.filter {
+            $0.kind == "request" && $0.author == author && !Set($0.formerIds + [$0.gigId]).intersection(gigIds).isEmpty
+        }
+        let ids = Set(claims.map(\.id))
+        let witnessed = facts.values.contains {
+            $0.kind == "witness" && decodePublicEnvelope($0.text).map { ids.contains($0.id) } == true
+        }
+        return (!claims.isEmpty, witnessed)
+    }
+}
+
+/// A witness is a separate signed fact containing the complete signed request.
+func witnessRequest(_ request: GossipEnvelope, with witness: GossipEnvelope, now: Int64,
+                    sign: (Data) -> Data?) -> GossipEnvelope? {
+    guard request.kind == "request", witness.kind == "request", request.valid(),
+          request.author != witness.author, request.sameGig(witness), now >= request.createdAt,
+          now < request.expiresAt else { return nil }
+    var result = GossipEnvelope(gigId: witness.gigId, formerIds: witness.formerIds,
+        scope: witness.scope, author: witness.author, createdAt: now,
+        expiresAt: min(request.expiresAt, witness.expiresAt), kind: "witness",
+        text: request.record(), attribution: witness.attribution)
+    return result.signed(sign)
 }

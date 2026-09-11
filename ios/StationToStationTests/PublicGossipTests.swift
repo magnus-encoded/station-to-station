@@ -64,13 +64,14 @@ final class PublicGossipTests: XCTestCase {
     }
     func testOneHopControlsRequireTheirAuthorWithoutPoisoningTheStormGate() {
         for kind in ["request", "receipt"] {
-            let envelope = fact("useful-neighbour", kind: kind)
+            let envelope = fact(kind == "receipt" ? "useful-neighbour" : "", kind: kind)
             var receiver = PublicGossipState()
             XCTAssertFalse(receiver.receive(envelope, from: "blind-relay", now: 2000))
             XCTAssertTrue(receiver.seen.isEmpty)
             XCTAssertTrue(receiver.useful.isEmpty)
             XCTAssertTrue(receiver.receive(envelope, from: envelope.author, now: 2001))
-            XCTAssertTrue(receiver.facts.isEmpty)
+            if kind == "request" { XCTAssertEqual(Array(receiver.facts.values), [envelope]) }
+            else { XCTAssertTrue(receiver.facts.isEmpty) }
             XCTAssertTrue(receiver.held.isEmpty)
             if kind == "receipt" { XCTAssertNotNil(receiver.useful["useful-neighbour"]) }
 
@@ -119,5 +120,33 @@ final class PublicGossipTests: XCTestCase {
         forged.text = "forged"
         XCTAssertFalse(state.receive(forged, from: "Dave", now: 2001))
         XCTAssertEqual(state.offer(to: "Bob", now: 2002), [envelope])
+    }
+
+    func testDirectRequestPersistsAndWitnessEvidenceStaysSeparate() throws {
+        let witnessKey = P256.Signing.PrivateKey()
+        func request(_ signingKey: P256.Signing.PrivateKey, scope: String) -> GossipEnvelope {
+            GossipEnvelope(gigId: "gig", scope: scope,
+                author: signingKey.publicKey.derRepresentation.base64EncodedString(),
+                createdAt: 1000, expiresAt: 100000, kind: "request")
+                .signed { try? signingKey.signature(for: $0).derRepresentation }!
+        }
+        let claim = request(key, scope: "claim-scope")
+        let local = request(witnessKey, scope: "witness-scope")
+        var state = PublicGossipState()
+        XCTAssertTrue(state.receive(local, from: "", now: 1500, local: true))
+        XCTAssertFalse(state.receive(claim, from: "blind-relay", now: 1600))
+        XCTAssertTrue(state.receive(claim, from: claim.author, now: 1601))
+        XCTAssertEqual(state.checkInEvidence(gigIds: ["gig"], author: claim.author).witnessed, false)
+        let witness = try XCTUnwrap(witnessRequest(claim, with: local, now: 1700) {
+            try? witnessKey.signature(for: $0).derRepresentation
+        })
+        XCTAssertTrue(state.receive(witness, from: witness.author, now: 1701))
+        let evidence = state.checkInEvidence(gigIds: ["gig"], author: claim.author)
+        XCTAssertTrue(evidence.asserted)
+        XCTAssertTrue(evidence.witnessed)
+        XCTAssertNotNil(state.facts[claim.id])
+        XCTAssertNotNil(state.facts[witness.id])
+        XCTAssertNil(state.held[claim.id])
+        XCTAssertNotNil(state.held[witness.id])
     }
 }

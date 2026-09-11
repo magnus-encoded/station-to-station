@@ -41,7 +41,9 @@ class GossipRadioDeviceTest {
             synchronized(state) {
                 assertEquals(listOf(false, true, false, true), admitted)
                 assertEquals(2, state.seen.size)
-                assertTrue(state.facts.isEmpty())
+                // The direct request is durable evidence of what its author asserted;
+                // the direct receipt is a one-hop signal and stays out of the record.
+                assertEquals(listOf("request"), state.facts.values.map { it.kind })
                 assertTrue(state.held.isEmpty())
                 assertEquals(setOf("useful-peer"), state.useful.keys)
             }

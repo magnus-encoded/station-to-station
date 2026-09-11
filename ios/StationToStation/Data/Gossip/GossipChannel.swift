@@ -84,7 +84,7 @@ actor GossipChannel {
             let expiry = Int64((gossipExpiry(gigDate: gigDate ?? "")?.timeIntervalSince1970 ?? now.timeIntervalSince1970 + 86400) * 1000)
             var fact = GossipEnvelope(gigId: gigId, scope: scope, author: author,
                                       createdAt: seconds, expiresAt: expiry,
-                                      kind: "log", line: 0, text: "Checked in")
+                                      kind: "request")
             fact.attribution = GigIdentity.attribution(scope: scope, author: author) ?? ""
             if let signed = fact.signed({ GigIdentity.sign(scope: scope, $0) }) {
                 let accepted = await ledger.receivePublic([signed], from: "", now: seconds, local: true)
@@ -101,11 +101,13 @@ actor GossipChannel {
     }
 
     func publicPass(to peer: String, nonce: Data, now: Date = Date()) async -> Data? {
-        let scope = relayScope(now)
-        guard let me = GigIdentity.publicKeyBase64(scope: scope) else { return nil }
         let millis = Int64(now.timeIntervalSince1970 * 1000)
         var state = await ledger.publicSnapshot(now: millis)
-        let batch = state.offer(to: peer, now: millis)
+        var batch = state.offer(to: peer, now: millis)
+        let request = batch.first { $0.kind == "request" && state.localAuthors.contains($0.author) }
+        let scope = request?.scope ?? relayScope(now)
+        if let request { batch = batch.filter { $0.kind != "request" || $0.author == request.author } }
+        guard let me = GigIdentity.publicKeyBase64(scope: scope) else { return nil }
         guard !batch.isEmpty, let proof = GigIdentity.sign(scope: scope, publicGossipAuthPayload(nonce)),
               let bytes = encodePublicGossipPass(PublicGossipPass(from: me, proof: proof.base64EncodedString(), batch: batch)),
               let encoded = decodePublicGossipPass(bytes) else { return nil }
@@ -115,7 +117,15 @@ actor GossipChannel {
 
     func receivePublic(_ pass: PublicGossipPass, from: String, now: Date = Date()) async {
         let millis = Int64(now.timeIntervalSince1970 * 1000)
-        await ledger.receivePublic(pass.batch, from: from, now: millis)
+        _ = await ledger.receivePublic(pass.batch, from: from, now: millis)
+        var state = await ledger.publicSnapshot(now: millis)
+        for request in pass.batch where request.kind == "request" && request.author == from {
+            guard let local = state.localClaim(for: request),
+                  let witness = witnessRequest(request, with: local, now: millis,
+                    sign: { GigIdentity.sign(scope: local.scope, $0) }) else { continue }
+            _ = await ledger.receivePublic([witness], from: "", now: millis, local: true)
+            state = await ledger.publicSnapshot(now: millis)
+        }
     }
 
     /// Forget the whole channel. Called when the last **Contact** goes.

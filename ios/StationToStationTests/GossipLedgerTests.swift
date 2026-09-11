@@ -101,6 +101,7 @@ final class GossipLedgerTests: XCTestCase {
         let reopened = ledger()
         var restored = await reopened.publicSnapshot(now: millis)
         XCTAssertEqual(restored.facts.count, 2)
+        XCTAssertEqual(restored.localAuthors, Set([first.author]))
         XCTAssertNil(restored.held[second.id])
         XCTAssertTrue(restored.offer(to: "recipient", now: millis).isEmpty)
         await reopened.receivePublic([], from: "", now: 100001)
