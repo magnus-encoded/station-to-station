@@ -327,7 +327,9 @@ struct GigView: View {
             // inside — so the checked-in line replaces the QR rather than sitting
             // under it, and the branch stays the one branch it always was.
             if checkedIn {
-                Text("\u{2713} checked in").font(.system(size: 13)).foregroundStyle(amber)
+                Text(model.state.witnessedGigs.contains(show.id)
+                     ? "\u{2713} checked in \u{00B7} witnessed" : "\u{2713} checked in")
+                    .font(.system(size: 13)).foregroundStyle(amber)
                     .padding(.top, 6)
             } else {
                 // The base64 is decoded here and nowhere earlier: the fold carries the

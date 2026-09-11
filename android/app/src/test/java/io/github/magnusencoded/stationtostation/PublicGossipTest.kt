@@ -147,5 +147,43 @@ class PublicGossipTest {
         assertTrue(state.facts.containsKey(witness.id))
         assertFalse(state.held.containsKey(request.id))
         assertTrue(state.held.containsKey(witness.id))
+        // This device witnessed someone else. Its own night is not witnessed by that.
+        assertEquals(emptySet<String>(), state.witnessedGigIds())
+    }
+
+    @Test fun onlyMyOwnWitnessedClaimProjects() {
+        val strangerKey = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        fun signedBy(pair: java.security.KeyPair, kind: String, text: String = "", gigId: String = "gig",
+                     formerIds: List<String> = emptyList()) =
+            GossipEnvelope(gigId = gigId, formerIds = formerIds, scope = "scope-$kind-${text.length}",
+                author = gossipBase64(pair.public.encoded), createdAt = 1000, expiresAt = 100000,
+                kind = kind, text = text).signed { bytes ->
+                Signature.getInstance("SHA256withECDSA").run { initSign(pair.private); update(bytes); sign() }
+            }!!
+        val mine = signedBy(key, "request", formerIds = listOf("local-gig"))
+        val state = PublicGossipState()
+        assertTrue(state.receive(mine, "", 1500, local = true))
+        // Claimed, but nobody has signed for it yet.
+        assertEquals(emptySet<String>(), state.witnessedGigIds())
+        val witness = requireNotNull(witnessRequest(mine, signedBy(strangerKey, "request"), 1700) { bytes ->
+            Signature.getInstance("SHA256withECDSA").run { initSign(strangerKey.private); update(bytes); sign() }
+        })
+        assertTrue(state.receive(witness, witness.author, 1701))
+        // Both the id it carries now and the one it was known by before, so a setlist.fm id
+        // arriving after the night still matches the row.
+        assertEquals(setOf("gig", "local-gig"), state.witnessedGigIds())
+    }
+
+    @Test fun aPassIsSignedForTheRequestItCarriesAndCarriesNoOtherAuthorsRequest() {
+        val log = fact().copy(kind = "log")
+        val mine = fact().copy(kind = "request", line = -1, author = "me")
+        val theirs = fact().copy(kind = "request", line = -1, author = "them")
+        // Nothing of mine to prove: sign as the relay, and drop a request I cannot prove
+        // rather than spend the Pass on bytes the receiver is bound to reject.
+        assertEquals(null, passAuthor(listOf(log, theirs), setOf("me")))
+        assertEquals(listOf(log), passBatch(listOf(log, theirs), null))
+        // Mine to prove: sign as its author. Facts still ride along under that key.
+        assertEquals(mine, passAuthor(listOf(log, mine, theirs), setOf("me")))
+        assertEquals(listOf(log, mine), passBatch(listOf(log, mine, theirs), mine))
     }
 }

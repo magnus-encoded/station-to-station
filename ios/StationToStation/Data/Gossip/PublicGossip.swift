@@ -194,11 +194,47 @@ struct PublicGossipState: Codable {
             $0.kind == "request" && $0.author == author && !Set($0.formerIds + [$0.gigId]).intersection(gigIds).isEmpty
         }
         let ids = Set(claims.map(\.id))
-        let witnessed = facts.values.contains {
-            $0.kind == "witness" && decodePublicEnvelope($0.text).map { ids.contains($0.id) } == true
-        }
-        return (!claims.isEmpty, witnessed)
+        return (!claims.isEmpty, witnessedClaims().contains { ids.contains($0.id) })
     }
+
+    /// The claims some directly-present device signed a witness for, whoever wrote them.
+    private func witnessedClaims() -> [GossipEnvelope] {
+        facts.values.filter { $0.kind == "witness" }.compactMap { decodePublicEnvelope($0.text) }
+    }
+
+    /// Every **Gig** id this phone claimed and a directly-present device witnessed (#442).
+    ///
+    /// One pass for the whole timeline, because asking per **Gig** would mint a **Gig**
+    /// identity per row just to learn its author key. Both the claim's current id and the
+    /// ids it was known by before are returned, so a setlist.fm id arriving after the night
+    /// still matches the row it belongs to.
+    ///
+    /// Self-assertion is deliberately not in here. That is `StoredAttendance`'s answer and
+    /// this decorates it; a night nobody witnessed is still a night the user says they
+    /// were at.
+    func witnessedGigIds() -> Set<String> {
+        Set(witnessedClaims().filter { localAuthors.contains($0.author) }
+            .flatMap { $0.formerIds + [$0.gigId] })
+    }
+}
+
+/// Which of this device's own claims a **Pass** is signed for (#442).
+///
+/// A one-hop request is admissible to the receiver only when the **Pass** proves the request
+/// author's key, so carrying a request means signing as its author rather than as the nightly
+/// relay. Returns the request to sign as, or `nil` to sign as the relay.
+func passAuthor(_ batch: [GossipEnvelope], localAuthors: Set<String>) -> GossipEnvelope? {
+    batch.first { $0.kind == "request" && localAuthors.contains($0.author) }
+}
+
+/// The batch `passAuthor` leaves admissible, given the request it chose to sign as.
+///
+/// Only one author can be proved per **Pass**, so any *other* device's request is dropped
+/// from this batch — not lost, simply waiting for a **Pass** of its own. Everything that is
+/// not a request travels either way: a fact does not need its author on the envelope.
+func passBatch(_ batch: [GossipEnvelope], request: GossipEnvelope?) -> [GossipEnvelope] {
+    guard let request else { return batch.filter { $0.kind != "request" } }
+    return batch.filter { $0.kind != "request" || $0.author == request.author }
 }
 
 /// A witness is a separate signed fact containing the complete signed request.

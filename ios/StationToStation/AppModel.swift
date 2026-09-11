@@ -83,6 +83,12 @@ struct UiState {
     /// lane and joins the Spine — so a write that changes a claim has to land here too,
     /// or the night stays put until the next cold start.
     var attendanceByGig: [String: StoredAttendance] = [:]
+    /// **Gigs** whose own check-in a directly-present device witnessed (#442).
+    ///
+    /// A decoration on `attendanceByGig`, never a substitute for it: the user saying they
+    /// were there and a stranger's phone agreeing are two different claims, and a night
+    /// with nobody else running the radio is still a night they attended.
+    var witnessedGigs: Set<String> = []
     /// The calendar event made for a planned gig, by gig id — EventKit's
     /// `eventIdentifier`. Presence is what the leaf reads as "already added".
     var calendarEventByGig: [String: String] = [:]
@@ -476,6 +482,13 @@ final class AppModel: ObservableObject {
         GossipTransport.shared.contactsChanged(state.friends,
             relayEnabled: gigTonight || !contactKeysOf(state.friends).isEmpty)
         Task { await GossipChannel.shared.setNightEnds(ends) }
+        // Read back rather than pushed at the moment of witnessing, so a phone that was
+        // closed when the witness arrived projects it the same way after a relaunch.
+        Task { [weak self] in
+            await GossipChannel.shared.observeWitnessed { witnessed in
+                Task { @MainActor in self?.state.witnessedGigs = witnessed }
+            }
+        }
     }
 
     /// The QR onto the night's attendance record, and into state with it (#412).

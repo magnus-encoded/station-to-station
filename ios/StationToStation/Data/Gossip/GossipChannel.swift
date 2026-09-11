@@ -51,7 +51,27 @@ actor GossipChannel {
     /// when the bytes are known to have landed, never when they were prepared.
     private var pending: [String: [String]] = [:]
 
+    /// Told whenever the set of this device's witnessed check-ins may have changed (#442).
+    ///
+    /// A callback rather than the app polling, because a witness lands on the radio's queue
+    /// at a moment nothing on the main one is watching for. `AppModel` is the only caller;
+    /// the set it receives is the whole answer, so a missed call costs a repaint and not a
+    /// fact — the ledger is still the record, and the next launch reads it back.
+    private var onWitnessed: (@Sendable (Set<String>) -> Void)?
+
     init(ledger: GossipLedger = GossipLedger()) { self.ledger = ledger }
+
+    /// Watch this device's witnessed check-ins, and answer once with what is already known.
+    func observeWitnessed(_ handler: @escaping @Sendable (Set<String>) -> Void) async {
+        onWitnessed = handler
+        await publishWitnessed(now: Date())
+    }
+
+    private func publishWitnessed(now: Date) async {
+        guard let onWitnessed else { return }
+        let millis = Int64(now.timeIntervalSince1970 * 1000)
+        onWitnessed(await ledger.publicSnapshot(now: millis).witnessedGigIds())
+    }
 
     // --- What the app tells the channel ---
 
@@ -103,10 +123,10 @@ actor GossipChannel {
     func publicPass(to peer: String, nonce: Data, now: Date = Date()) async -> Data? {
         let millis = Int64(now.timeIntervalSince1970 * 1000)
         var state = await ledger.publicSnapshot(now: millis)
-        var batch = state.offer(to: peer, now: millis)
-        let request = batch.first { $0.kind == "request" && state.localAuthors.contains($0.author) }
+        let offered = state.offer(to: peer, now: millis)
+        let request = passAuthor(offered, localAuthors: state.localAuthors)
+        let batch = passBatch(offered, request: request)
         let scope = request?.scope ?? relayScope(now)
-        if let request { batch = batch.filter { $0.kind != "request" || $0.author == request.author } }
         guard let me = GigIdentity.publicKeyBase64(scope: scope) else { return nil }
         guard !batch.isEmpty, let proof = GigIdentity.sign(scope: scope, publicGossipAuthPayload(nonce)),
               let bytes = encodePublicGossipPass(PublicGossipPass(from: me, proof: proof.base64EncodedString(), batch: batch)),
@@ -126,6 +146,10 @@ actor GossipChannel {
             _ = await ledger.receivePublic([witness], from: "", now: millis, local: true)
             state = await ledger.publicSnapshot(now: millis)
         }
+        // A witness for *this* device's own claim arrives in the same batch as anything
+        // else, so the repaint is asked for after the whole batch rather than only when
+        // this device was the one doing the witnessing.
+        await publishWitnessed(now: now)
     }
 
     /// Forget the whole channel. Called when the last **Contact** goes.

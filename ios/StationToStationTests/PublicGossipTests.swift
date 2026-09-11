@@ -148,5 +148,44 @@ final class PublicGossipTests: XCTestCase {
         XCTAssertNotNil(state.facts[witness.id])
         XCTAssertNil(state.held[claim.id])
         XCTAssertNotNil(state.held[witness.id])
+        // This device witnessed someone else. Its own night is not witnessed by that.
+        XCTAssertEqual(state.witnessedGigIds(), [])
+    }
+
+    func testOnlyMyOwnWitnessedClaimProjects() throws {
+        let strangerKey = P256.Signing.PrivateKey()
+        func request(_ signingKey: P256.Signing.PrivateKey, scope: String,
+                     formerIds: [String] = []) -> GossipEnvelope {
+            GossipEnvelope(gigId: "gig", formerIds: formerIds, scope: scope,
+                author: signingKey.publicKey.derRepresentation.base64EncodedString(),
+                createdAt: 1000, expiresAt: 100000, kind: "request")
+                .signed { try? signingKey.signature(for: $0).derRepresentation }!
+        }
+        let mine = request(key, scope: "mine", formerIds: ["local-gig"])
+        var state = PublicGossipState()
+        XCTAssertTrue(state.receive(mine, from: "", now: 1500, local: true))
+        // Claimed, but nobody has signed for it yet.
+        XCTAssertEqual(state.witnessedGigIds(), [])
+        let witness = try XCTUnwrap(witnessRequest(mine, with: request(strangerKey, scope: "theirs"),
+                                                   now: 1700) {
+            try? strangerKey.signature(for: $0).derRepresentation
+        })
+        XCTAssertTrue(state.receive(witness, from: witness.author, now: 1701))
+        // Both the id it carries now and the one it was known by before, so a setlist.fm
+        // id arriving after the night still matches the row.
+        XCTAssertEqual(state.witnessedGigIds(), ["gig", "local-gig"])
+    }
+
+    func testAPassIsSignedForTheRequestItCarriesAndCarriesNoOtherAuthorsRequest() {
+        var log = fact(); log.kind = "log"
+        var mine = fact(); mine.kind = "request"; mine.line = -1; mine.author = "me"
+        var theirs = fact(); theirs.kind = "request"; theirs.line = -1; theirs.author = "them"
+        // Nothing of mine to prove: sign as the relay, and drop a request I cannot prove
+        // rather than spend the Pass on bytes the receiver is bound to reject.
+        XCTAssertNil(passAuthor([log, theirs], localAuthors: ["me"]))
+        XCTAssertEqual(passBatch([log, theirs], request: nil), [log])
+        // Mine to prove: sign as its author. Facts still ride along under that key.
+        XCTAssertEqual(passAuthor([log, mine, theirs], localAuthors: ["me"]), mine)
+        XCTAssertEqual(passBatch([log, mine, theirs], request: mine), [log, mine])
     }
 }
