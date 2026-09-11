@@ -2154,7 +2154,7 @@ internal fun CollectionMediaScreen(viewModel: AppViewModel, node: TimelineNode.S
 
     val gigs = remember(
         node, state.mediaBySetlist, state.logsByGig, state.festivals,
-        state.showsByFriend, state.attendanceByGig, state.contactLight,
+        state.showsByFriend, state.attendanceByGig, state.witnessedGigs, state.contactLight,
     ) {
         collectionFlyoverGigs(
             node = node,
@@ -2163,6 +2163,7 @@ internal fun CollectionMediaScreen(viewModel: AppViewModel, node: TimelineNode.S
             festivals = state.festivals,
             showsByFriend = state.showsByFriend,
             attendanceByGig = state.attendanceByGig,
+            witnessedGigs = state.witnessedGigs,
             contactLight = state.contactLight,
         )
     }

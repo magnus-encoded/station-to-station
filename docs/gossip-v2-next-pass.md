@@ -861,3 +861,46 @@ failed on the new admission rule rather than on a defect.
   the Kotlin ones and carry matching unit tests, but they have only CI to prove them.
 - Still not proven: UI projection of witnessed check-in, the phone central/send path
   for a request, and the iOS radio. The issue defers projection to a later slice.
+
+### Witnessed check-in reaches the screens (2026-09-11, 09:20 Oslo)
+
+The remaining half of #442. The ledger knew which check-ins were witnessed; nothing
+asked it.
+
+- `PublicGossipState.witnessedGigIds()` on both platforms answers for the whole
+  timeline in one pass. Asking per **Gig** would have meant minting a **Gig** identity
+  per row just to learn its author key, which is why the projection is a set and not a
+  predicate. It returns each witnessed claim's current id *and* its `formerIds`, so a
+  setlist.fm id arriving after the night still matches the row.
+- Only claims whose author is in `localAuthors` project. Witnessing a stranger is not
+  evidence about your own night, and the Android and iOS tests both assert that
+  direction explicitly — it is the easy thing to get backwards.
+- `checkInEvidence(gigIds:author:)` is unchanged and still answers for any author. The
+  two questions share `witnessedClaims()` but not its filter; collapsing them into one
+  filtered helper broke the existing test, which was right to break.
+- Android: `UiState.witnessedGigs`, collected from `GossipStore.publicStates` so a
+  witness that lands while the app is closed still projects on the next launch. The
+  chip reads `checked in · witnessed`.
+- iOS: `GossipChannel.observeWitnessed`, a callback rather than polling because a
+  witness arrives on the radio's queue. `AppModel.state.witnessedGigs`; `GigView`'s
+  existing `✓ checked in` line becomes `✓ checked in · witnessed`.
+- Self-assertion is untouched on both. `StoredAttendance.CHECKED_IN` remains the
+  record and this only decorates it — a night nobody else was running the radio for is
+  still a night the user attended.
+
+The **Pass** author rule was inline in a `GossipService` lambda and in
+`GossipChannel.publicPass`, so the acceptance criterion about proving the request
+author's key had no unit coverage on either platform. Extracted to `passAuthor` /
+`passBatch` in the shared wire file and tested. One behaviour follows from making it
+explicit: a **Pass** signed by the relay now drops requests instead of carrying them.
+`offer` can only return this device's own held requests, so nothing changes in
+practice, but a foreign request in that batch would have been bytes the receiver was
+bound to reject.
+
+- Android `:app:testDebugUnitTest`: full suite green, three new tests.
+- Pixel `indirectControlsAreRejectedWithoutPoisoningDirectDelivery` rerun after the
+  refactor, Pi **4/4**: **OK (1 test), 51.714 seconds**. BlueZ restored to
+  `#Channels = 3`, Bluetooth active.
+- iOS again has only CI. Still unproven on hardware: the phone's own central/send path
+  for a request, and the iOS radio. Verifying the central path needs the Pi to run a
+  GATT *server* the phone connects to, which the current peer harness does not do.

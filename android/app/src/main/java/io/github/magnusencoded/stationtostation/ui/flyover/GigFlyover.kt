@@ -129,6 +129,7 @@ fun GigFlyoverScreen(viewModel: AppViewModel, onBack: () -> Unit) {
 
     val checkedIn = state.attendanceByGig[setlist.id]?.provenance ==
         StoredAttendance.Provenance.CHECKED_IN
+    val witnessed = setlist.id in state.witnessedGigs
 
     // Who else was here. A floor line means **attended** now (#313), and the woven
     // timelines are where that is known — so the lanes are asked for, cached-and-
@@ -136,7 +137,8 @@ fun GigFlyoverScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     // to hand over a photograph.
     LaunchedEffect(Unit) { viewModel.loadFriendTimelines() }
     val night = remember(
-        media, state.friends, setlist.id, log, state.showsByFriend, checkedIn, state.festivals,
+        media, state.friends, setlist.id, log, state.showsByFriend, checkedIn, witnessed,
+        state.festivals,
     ) {
         flyoverNight(
             // One night is the N=1 case of the run. There is no second composer, and
@@ -153,6 +155,7 @@ fun GigFlyoverScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                         .filterValues { shows -> shows.any { it.id == setlist.id } }
                         .keys,
                     checkedIn = checkedIn,
+                    witnessed = witnessed,
                 ),
             ),
             friends = state.friends,
@@ -201,6 +204,7 @@ fun CollectionFlyoverScreen(viewModel: AppViewModel, node: TimelineNode.Several,
                 festivals = state.festivals,
                 showsByFriend = state.showsByFriend,
                 attendanceByGig = state.attendanceByGig,
+                witnessedGigs = state.witnessedGigs,
                 contactLight = state.contactLight,
             ),
             friends = state.friends,

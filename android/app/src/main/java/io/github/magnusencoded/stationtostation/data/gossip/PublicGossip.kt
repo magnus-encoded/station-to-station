@@ -224,12 +224,49 @@ data class PublicGossipState(
         val claims = facts.values.filter {
             it.kind == "request" && it.author == author && (it.formerIds + it.gigId).any(gigIds::contains)
         }
-        val witnessed = facts.values.any { witness ->
-            witness.kind == "witness" && decodePublicEnvelope(witness.text)?.id in claims.map { it.id }.toSet()
-        }
-        return (claims.isNotEmpty() to witnessed)
+        val mine = claims.map { it.id }.toSet()
+        return (claims.isNotEmpty() to witnessedClaims().any { it.id in mine })
     }
+
+    /** The claims some directly-present device signed a witness for, whoever wrote them. */
+    private fun witnessedClaims(): List<GossipEnvelope> = facts.values
+        .filter { it.kind == "witness" }
+        .mapNotNull { decodePublicEnvelope(it.text) }
+
+    /**
+     * Every **Gig** id this phone claimed and a directly-present device witnessed (#442).
+     *
+     * One pass for the whole timeline, because the alternative - asking per **Gig** - would
+     * mint a **Gig** identity per row just to learn its author key. Both the claim's current
+     * id and the ids it was known by before are returned, so a setlist.fm id arriving after
+     * the night still matches the row it belongs to.
+     *
+     * Self-assertion is deliberately not in here. That is StoredAttendance's answer and this
+     * decorates it; a night nobody witnessed is still a night the user says they were at.
+     */
+    fun witnessedGigIds(): Set<String> = witnessedClaims()
+        .filter { it.author in localAuthors }
+        .flatMap { it.formerIds + it.gigId }.toSet()
 }
+
+/**
+ * Which of this device's own claims a **Pass** is signed for, and what may ride with it (#442).
+ *
+ * A one-hop request is admissible to the receiver only when the **Pass** proves the request
+ * author's key, so carrying a request means signing as its author rather than as the nightly
+ * relay. Only one author can be proved per **Pass**, so any *other* device's request is
+ * dropped from this batch — it is not lost, it simply waits for a **Pass** of its own.
+ *
+ * Returns the request to sign as, or `null` to sign as the relay. Everything that is not a
+ * request travels either way: a fact does not need its author on the envelope to be believed.
+ */
+fun passAuthor(batch: List<GossipEnvelope>, localAuthors: Set<String>): GossipEnvelope? =
+    batch.firstOrNull { it.kind == "request" && it.author in localAuthors }
+
+/** The batch [passAuthor] leaves admissible, given the request it chose to sign as. */
+fun passBatch(batch: List<GossipEnvelope>, request: GossipEnvelope?): List<GossipEnvelope> =
+    if (request == null) batch.filterNot { it.kind == "request" }
+    else batch.filter { it.kind != "request" || it.author == request.author }
 
 /** A direct witness is its own signed fact and embeds the complete signed claim. */
 fun witnessRequest(

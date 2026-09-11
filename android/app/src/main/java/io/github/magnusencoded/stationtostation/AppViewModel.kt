@@ -331,6 +331,14 @@ data class UiState(
      * start rather than being a thing the screen remembers until it doesn't.
      */
     val attendanceByGig: Map<String, StoredAttendance> = emptyMap(),
+    /**
+     * **Gigs** whose own check-in a directly-present device witnessed (#442).
+     *
+     * A decoration on [attendanceByGig], never a substitute for it: the user saying they
+     * were there and a stranger's phone agreeing are two different claims, and a night
+     * with nobody else running the radio is still a night they attended.
+     */
+    val witnessedGigs: Set<String> = emptySet(),
     /** The calendar event made for a gig, by gig id → its content URI; restored from disk. */
     val calendarEventByGig: Map<String, String> = emptyMap(),
     /**
@@ -518,10 +526,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * What this phone carries on the gossip channel (#416).
      *
-     * The view model's only business with gossip is the two ends of it: minting this phone's
-     * own check-in, and telling the service whether it has a reason to run. Everything in
-     * between — advertising, accepting, relaying, forgetting — is the service's, which is why
-     * nothing about a relayed message reaches [UiState].
+     * The view model's only business with gossip is the three ends of it: minting this
+     * phone's own check-in, telling the service whether it has a reason to run, and reading
+     * back which of its own check-ins were witnessed (#442). Everything in between —
+     * advertising, accepting, relaying, forgetting — is the service's, which is why nothing
+     * else about a relayed message reaches [UiState].
      */
     private val gossip = GossipStore(application)
 
@@ -567,6 +576,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             // After the timeline is back, because whether a **Gig** is on tonight is one of
             // the three reasons the radio runs.
             syncGossip()
+        }
+        // Witnessed check-in is the one gossip answer the screens ask for. Read from the
+        // store rather than pushed at the moment of witnessing, so a phone that was closed
+        // when the witness arrived projects it the same way after a restart.
+        viewModelScope.launch {
+            gossip.publicStates.collect { public ->
+                val witnessed = public.apply { prune(System.currentTimeMillis()) }.witnessedGigIds()
+                _state.update { if (it.witnessedGigs == witnessed) it else it.copy(witnessedGigs = witnessed) }
+            }
         }
         // The radios' outputs, mirrored into UiState.
         viewModelScope.launch {

@@ -165,11 +165,9 @@ class GossipService : Service() {
         central = GossipCentral(
             context = applicationContext,
             publicPassFor = { peer, nonce -> synchronized(publicLock) {
-                var batch = publicState.offer(peer, System.currentTimeMillis())
-                // A one-hop request is admissible only when the Pass proves the request
-                // author's key. Other facts may still travel under the nightly relay key.
-                val request = batch.firstOrNull { it.kind == "request" && it.author in publicState.localAuthors }
-                if (request != null) batch = batch.filter { it.kind != "request" || it.author == request.author }
+                val offered = publicState.offer(peer, System.currentTimeMillis())
+                val request = passAuthor(offered, publicState.localAuthors)
+                val batch = passBatch(offered, request)
                 val identity = request?.let { GigIdentity(it.scope) } ?: relayIdentity()
                 val proof = runCatching { identity.sign(publicGossipAuthPayload(nonce)) }.getOrNull()
                 if (batch.isEmpty() || proof == null) null
