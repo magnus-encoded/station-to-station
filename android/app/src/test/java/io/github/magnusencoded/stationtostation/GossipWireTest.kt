@@ -2,6 +2,7 @@ package io.github.magnusencoded.stationtostation
 
 import io.github.magnusencoded.stationtostation.data.GOSSIP_MAX_EPOCH_SECOND
 import io.github.magnusencoded.stationtostation.data.GossipCheckIn
+import io.github.magnusencoded.stationtostation.ble.gossipWriteLimit
 import io.github.magnusencoded.stationtostation.ble.intoChunks
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_AUTH_V1
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_CHALLENGE_V1
@@ -238,5 +239,22 @@ class GossipWireTest {
         assertTrue(chunks.size > 1)
         assertTrue(chunks.all { it.size <= 20 })
         assertEquals(pass, decodeGossipPass(chunks.reduce { a, b -> a + b }))
+    }
+
+    /**
+     * The regression this exists for: a **Pass** written in `attMtu - 3` pieces is 514 bytes
+     * at the 517 the radio requests, and 514 is not a legal attribute value. An iPhone
+     * refuses it before its write handler runs, so the push dies with nothing on the other
+     * phone to show for it — the failure this test makes impossible to reintroduce silently.
+     */
+    @Test
+    fun `a write is bounded by the attribute limit as well as the MTU`() {
+        assertEquals(512, gossipWriteLimit(517))
+        assertEquals(512, gossipWriteLimit(1024))
+        // Below the crossover the MTU is still the binding constraint, including the 23 every
+        // connection starts at before a negotiation has happened.
+        assertEquals(20, gossipWriteLimit(23))
+        assertEquals(197, gossipWriteLimit(200))
+        assertEquals(512, gossipWriteLimit(515))
     }
 }
