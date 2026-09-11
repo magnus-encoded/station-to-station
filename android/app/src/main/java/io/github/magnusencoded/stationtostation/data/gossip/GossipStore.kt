@@ -1,68 +1,78 @@
 package io.github.magnusencoded.stationtostation.data.gossip
 
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import kotlinx.coroutines.flow.map
+import kotlinx.serialization.json.Json
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import kotlinx.coroutines.flow.first
-import java.time.Instant
+import java.util.UUID
 
 /**
- * A file of its own, and excluded from backup — see `backup_rules.xml`.
+ * Device-local gossip state, excluded from backup by both Android backup rule files.
+ * Public v2 application facts survive relay expiry here, while seen IDs, outbox entries
+ * and usefulness expire independently. Raw relay state does not enter timeline exports.
  *
- * Not because it holds a credential, but because of what it holds *about other people*: a
- * relayed `GossipCheckIn` names a **Contact**'s stable identity key, a **Gig**, and the
- * minute they arrived, and some of those people are, by ADR-0019's disclosure clause,
- * strangers to the owner of this phone. Every entry expires within a night, so a copy in a
- * cloud backup would outlive the thing itself by years and would move other people's
- * whereabouts off the device they were relayed to. There is nothing here worth restoring: a
- * reinstall with an empty seen set costs one round of already-relayed messages being
- * accepted again, and they expire on their own that night.
+ * One key, `public_v2`, plus the author-scope bindings. The v1 `held` key is gone with the
+ * v1 pipeline: nothing read it, and a preferences key nobody reads is a stale copy of the
+ * night waiting to be mistaken for the live one. An existing install's leftover `held`
+ * entry is simply never touched again, and goes when the app's data does.
  */
 private val Context.gossipStore by preferencesDataStore(name = "gossip")
 
 /**
- * The device's memory of the gossip channel: what it still carries, and when it last spoke
- * to each **Contact** (#416).
- *
- * A thin door onto DataStore, in the shape [SettingsRepository][io.github.magnusencoded.stationtostation.data.SettingsRepository]
- * already established — every decision about what belongs in the list is in
- * [GossipHeld.kt][GossipHeld], and this only writes it down.
- *
- * The per-peer cooldown is **not** persisted, and that is deliberate: it exists to bound
- * what one peer can spend of this device's battery and CPU while the radio is on, and the
- * radio stopping is already the harder version of that bound. Persisting it would only
- * delay the first **Pass** after a restart, which is the moment there is most to say.
+ * One transactional store shared by app authoring and background radio reception.
+ * Every Context-backed instance uses the same DataStore delegate. The injectable
+ * DataStore constructor lets restart/concurrency tests exercise real disk transactions.
+ * Per-peer connection cooldowns stay in the radio; successful Envelope handoffs persist.
  */
-class GossipStore(private val context: Context) {
+class GossipStore(private val data: DataStore<Preferences>) {
+
+    constructor(context: Context) : this(context.applicationContext.gossipStore)
+
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     private object Keys {
-        val HELD = stringPreferencesKey("held")
+        val PUBLIC = stringPreferencesKey("public_v2")
+        val SCOPES = stringPreferencesKey("author_scopes_v2")
     }
 
-    /** Everything still live, pruned on the way out — a read is also a chance to forget. */
-    suspend fun held(now: Instant = Instant.now()): List<GossipHeld> =
-        pruneGossipHeld(decodeGossipHeld(context.gossipStore.data.first()[Keys.HELD]), now)
-
-    /**
-     * Read, prune, edit and write as one operation.
-     *
-     * `edit` rather than a read followed by a save: the radio's two halves both land here —
-     * a peer pushing to this device and this device minting its own check-in — and a
-     * read-modify-write pair would let one of them overwrite the other's message with a
-     * list it had already read. Returns what was actually stored, so the caller acts on the
-     * same list the disk now holds.
+    /** Bind a random signing scope to the local Gig, never its mutable external ID.
+     * Kept separately from relay state: expiry must not rotate an author's identity.
      */
-    suspend fun update(
-        now: Instant = Instant.now(),
-        edit: (List<GossipHeld>) -> List<GossipHeld>,
-    ): List<GossipHeld> {
-        var written = emptyList<GossipHeld>()
-        context.gossipStore.edit { prefs ->
-            val current = pruneGossipHeld(decodeGossipHeld(prefs[Keys.HELD]), now)
-            written = pruneGossipHeld(edit(current), now)
-            prefs[Keys.HELD] = encodeGossipHeld(written)
+    suspend fun authorScope(localGigId: String): String {
+        require(localGigId.isNotBlank())
+        var scope = ""
+        data.edit { prefs ->
+            val bindings = prefs[Keys.SCOPES]?.let {
+                json.decodeFromString<Map<String, String>>(it)
+            }.orEmpty()
+            scope = bindings[localGigId] ?: UUID.randomUUID().toString()
+            if (localGigId !in bindings) {
+                prefs[Keys.SCOPES] = json.encodeToString(
+                    kotlinx.serialization.serializer<Map<String, String>>(),
+                    bindings + (localGigId to scope),
+                )
+            }
         }
-        return written
+        return scope
+    }
+
+    /** Detached snapshots: radio and author observe the same committed transaction stream. */
+    val publicStates = data.data.map { prefs -> decodePublic(prefs[Keys.PUBLIC]) }
+
+    private fun decodePublic(value: String?): PublicGossipState =
+        value?.let { json.decodeFromString<PublicGossipState>(it) } ?: PublicGossipState()
+
+    /** Atomic across every caller. Expiring relay memory never deletes application facts. */
+    suspend fun updatePublic(now: Long, edit: (PublicGossipState) -> Unit) {
+        data.edit { prefs ->
+            val state = decodePublic(prefs[Keys.PUBLIC])
+            state.prune(now)
+            edit(state)
+            prefs[Keys.PUBLIC] = json.encodeToString(PublicGossipState.serializer(), state)
+        }
     }
 }

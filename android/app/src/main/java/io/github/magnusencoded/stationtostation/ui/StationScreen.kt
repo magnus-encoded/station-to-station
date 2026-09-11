@@ -2154,7 +2154,7 @@ internal fun CollectionMediaScreen(viewModel: AppViewModel, node: TimelineNode.S
 
     val gigs = remember(
         node, state.mediaBySetlist, state.logsByGig, state.festivals,
-        state.showsByFriend, state.attendanceByGig, state.contactLight,
+        state.showsByFriend, state.attendanceByGig, state.witnessedGigs, state.contactLight,
     ) {
         collectionFlyoverGigs(
             node = node,
@@ -2163,6 +2163,7 @@ internal fun CollectionMediaScreen(viewModel: AppViewModel, node: TimelineNode.S
             festivals = state.festivals,
             showsByFriend = state.showsByFriend,
             attendanceByGig = state.attendanceByGig,
+            witnessedGigs = state.witnessedGigs,
             contactLight = state.contactLight,
         )
     }
@@ -3522,6 +3523,13 @@ fun StationEventScreen(
                     if (canCheckInManually(setlist, LocalDateTime.now())) {
                         if (checkedIn) {
                             Text("✓ checked in", color = Amber, fontSize = 13.sp, modifier = Modifier.padding(vertical = 6.dp))
+                            // Who else is here, on the one screen somebody has open while
+                            // standing at the venue. It is the question this whole relay
+                            // exists to answer, and the check-in line is the moment it
+                            // becomes askable — the phone only knows the room because it
+                            // has been in it. Silent when nobody is nearby, so a quiet
+                            // night reads exactly as it does today.
+                            NearbyContacts(state.friends)
                         } else {
                             if (offers.room.showQr) TicketQrCode(ticketQr)
                             Text(

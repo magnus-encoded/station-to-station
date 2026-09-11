@@ -15,21 +15,17 @@ import io.github.magnusencoded.stationtostation.MainActivity
 import io.github.magnusencoded.stationtostation.R
 import io.github.magnusencoded.stationtostation.data.SettingsRepository
 import io.github.magnusencoded.stationtostation.data.TimelineStore
-import io.github.magnusencoded.stationtostation.data.contactKeysOf
-import io.github.magnusencoded.stationtostation.data.exchange.contactIdentityPublicKeyBase64
-import io.github.magnusencoded.stationtostation.data.exchange.signWithContactIdentity
-import io.github.magnusencoded.stationtostation.data.gossipStormGate
 import io.github.magnusencoded.stationtostation.ble.GossipCentral
-import io.github.magnusencoded.stationtostation.ble.GossipDelivery
 import io.github.magnusencoded.stationtostation.ble.GossipPeripheral
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -39,9 +35,15 @@ import java.time.format.DateTimeFormatter
  * notification the user can see and stop (#416).
  *
  * **What it does not do.** Not one acceptance decision is made here. Everything that arrives
- * goes to [gossipStormGate], which was built and tested for exactly that in #410; this class
- * moves bytes, keeps a clock, and writes the answer down. When you are tempted to add an
- * `if` about a message to this file, the `if` belongs in the gate.
+ * goes to [PublicGossipState.receive] inside a [GossipStore.updatePublic] transaction, which
+ * is the one place an envelope is judged — its own signature, its expiry, whether it has been
+ * seen, and the rule that a one-hop `request` or `receipt` is believed only from its own
+ * author. This class moves bytes, keeps a clock, and writes the answer down. When you are
+ * tempted to add an `if` about an envelope to this file, the `if` belongs in `receive`.
+ *
+ * That division was the v1 storm-gate's argument and it did not change when the transport
+ * did: a rule that grows a second copy inside a BLE service is a rule that will disagree
+ * with itself.
  *
  * **Why a service and not a worker.** WorkManager schedules against Doze, and a check-in is
  * only worth relaying to somebody standing in the same room *now*. A radio that wakes up
@@ -49,27 +51,22 @@ import java.time.format.DateTimeFormatter
  * on Android's side, and the notification is the price it named.
  *
  * **Its state is not a source of truth.** [GossipStore] is, and every fold through it is one
- * atomic read-edit-write. The service holds only what would be pointless to persist: the last
- * time it spoke to each peer (see [GOSSIP_PEER_COOLDOWN]) and a snapshot of the timeline it
- * refreshes as it goes.
+ * atomic read-edit-write — which is also why nothing here serialises the folds by hand:
+ * [PublicGossipState] is read, edited and written inside a single `updatePublic`, so two
+ * overlapping deliveries cannot interleave a read with each other's write. The service holds
+ * only what would be pointless to persist: the last time it spoke to each peer (see
+ * [GOSSIP_PEER_COOLDOWN]) and a snapshot of the **Contacts** it refreshes as it goes.
  */
 class GossipService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    /**
-     * Serialises the fold.
-     *
-     * Deliveries arrive on binder threads and can overlap; [GossipStore.update] is atomic per
-     * call, but a delivery is a *read the timeline, run the gate, then write* — and two of
-     * those interleaved would run the gate twice against the same seen set and accept the
-     * same message twice.
-     */
-    private val gate = Mutex()
-
     private lateinit var settings: SettingsRepository
     private lateinit var timeline: TimelineStore
     private lateinit var store: GossipStore
+    private var publicState = PublicGossipState()
+    private val publicLock = Any()
+    private val publicPending = mutableMapOf<String, List<String>>()
 
     private var peripheral: GossipPeripheral? = null
     private var central: GossipCentral? = null
@@ -77,11 +74,13 @@ class GossipService : Service() {
     /** Refreshed on every fold, so a **Contact** made tonight is gossiped with tonight. */
     @Volatile private var contacts: Set<String> = emptySet()
 
-    /** Gig id to the end of its night — the gate's `nightEndFor`. */
-    @Volatile private var nightEnds: Map<String, Instant> = emptyMap()
-
-    /** Live outbox, kept in memory so a scan hit can be answered without touching disk. */
-    @Volatile private var held: List<GossipHeld> = emptyList()
+    /**
+     * Contact key to the name to show for them, refreshed alongside [contacts].
+     *
+     * The radio deals in keys, because a key is what a signature proves; a name is what the
+     * **Exchange** wrote down next to it. The notification is the one place the two meet.
+     */
+    @Volatile private var names: Map<String, String> = emptyMap()
 
     private val spokenAt = mutableMapOf<String, Instant>()
 
@@ -102,7 +101,7 @@ class GossipService : Service() {
         // Before anything else, and on every delivery of the intent: Android kills a service
         // that has not called this within five seconds, and an already-started service being
         // asked to start again is normal.
-        startForegroundNotification(held.size)
+        startForegroundNotification(publicCount())
         if (peripheral == null) startRadio()
         // NOT_STICKY, matching "deliberately not a boot receiver" in GossipPolicy: a service
         // the system killed for resources should not silently reappear. Opening the app is
@@ -115,80 +114,127 @@ class GossipService : Service() {
         central?.stop()
         peripheral = null
         central = null
+        GossipPresence.forget()
+        GossipRadioStatus.radioStopped()
         scope.cancel()
         super.onDestroy()
     }
 
     private fun startRadio() {
-        val myKey = runCatching { contactIdentityPublicKeyBase64() }.getOrNull()
-        if (myKey == null) {
-            // No identity means no Exchange has ever happened, so there is nobody to gossip
-            // with and nothing to sign with. Nothing to report — this is a state, not a fault.
-            stopSelf()
-            return
-        }
+        fun relayIdentity(): GigIdentity = GigIdentity("relay-" +
+            java.time.ZonedDateTime.now().minusHours(6).toLocalDate().toString())
         scope.launch { refresh() }
+        scope.launch {
+            store.publicStates.collect { state ->
+                synchronized(publicLock) { publicState = state }
+                startForegroundNotification(publicCount())
+            }
+        }
 
         peripheral = GossipPeripheral(
             context = applicationContext,
-            myKey = { myKey },
-            contacts = { contacts },
+            myKey = { relayIdentity().publicKey() },
+            sign = { relayIdentity().sign(it) },
         ).also {
-            it.onDelivery = { delivery -> scope.launch { accept(delivery) } }
+            it.onPublicDelivery = { delivery ->
+                scope.launch {
+                    val now = System.currentTimeMillis()
+                    var accepted = 0
+                    store.updatePublic(now) { state ->
+                        val directRequests = delivery.pass.batch.filter { envelope ->
+                            envelope.kind == "request" && state.receive(envelope, delivery.from, now)
+                        }
+                        accepted += directRequests.size
+                        delivery.pass.batch.filter { it.kind != "request" }.forEach { envelope ->
+                            if (state.receive(envelope, delivery.from, now)) accepted++
+                        }
+                        directRequests.forEach { request ->
+                            val local = state.localClaimFor(request) ?: return@forEach
+                            val identity = GigIdentity(local.scope)
+                            witnessRequest(request, local, now, identity::sign)?.let { witness ->
+                                state.receive(witness, "", now, local = true)
+                            }
+                        }
+                    }
+                    Log.i(TAG, "accepted $accepted of ${delivery.pass.batch.size} public envelopes")
+                }
+            }
             it.start()
         }
 
         central = GossipCentral(
             context = applicationContext,
-            myKey = { myKey },
-            contacts = { contacts },
-            sign = { payload -> runCatching { signWithContactIdentity(payload) }.getOrNull() },
-            outboxFor = { peer -> gossipOutboxFor(held, peer, Instant.now()) },
+            publicPassFor = { peer, nonce -> synchronized(publicLock) {
+                val offered = publicState.offer(peer, System.currentTimeMillis())
+                val request = passAuthor(offered, publicState.localAuthors)
+                val batch = passBatch(offered, request)
+                val identity = request?.let { GigIdentity(it.scope) } ?: relayIdentity()
+                val proof = runCatching { identity.sign(publicGossipAuthPayload(nonce)) }.getOrNull()
+                if (batch.isEmpty() || proof == null) null
+                else encodePublicGossipPass(PublicGossipPass(identity.publicKey(), gossipBase64(proof), batch))?.also { bytes ->
+                    publicPending[peer] = decodePublicGossipPass(bytes)?.batch.orEmpty().map { it.id }
+                }
+            } },
             due = { peer -> synchronized(spokenAt) { gossipPassDue(spokenAt[peer], Instant.now()) } },
-            onPushed = { peer -> synchronized(spokenAt) { spokenAt[peer] = Instant.now() } },
+            onPushed = { peer ->
+                val now = Instant.now()
+                synchronized(spokenAt) { spokenAt[peer] = now }
+                val ids = synchronized(publicLock) { publicPending.remove(peer).orEmpty() }
+                scope.launch {
+                    store.updatePublic(now.toEpochMilli()) { it.delivered(peer, ids) }
+                }
+            },
         ).also { it.start() }
+
+        GossipRadioStatus.radioStarted()
+
+        // Presence lapses in silence — nobody announces leaving — so the notification has to
+        // be rebuilt on a clock as well as on events, or a **Contact** who walked off would
+        // be named in the shade until the next thing happened, which may be never.
+        scope.launch {
+            while (isActive) {
+                delay(GOSSIP_NEARBY_WINDOW.toMillis() / 5)
+                store.updatePublic(System.currentTimeMillis()) { }
+                withContext(Dispatchers.Main) { startForegroundNotification(publicCount()) }
+            }
+        }
     }
 
     /**
-     * A **Contact** in range handed over a batch, and proved it was them.
+     * Re-read who this device has met.
      *
-     * The proof happened in [GossipPeripheral] — that is the sentence the gate's `from`
-     * parameter is written against — so everything left is the gate's, and this is where the
-     * cooldown the gate delegated is charged.
+     * Only the names and the count survive the move to public gossip v2: an envelope is no
+     * longer addressed to a **Contact**, so there is no audience to recompute — but the
+     * notification still names the **Contacts** who have been heard from, and
+     * [gossipRelayShouldRun] still asks how many exist.
      */
-    private suspend fun accept(delivery: GossipDelivery) = gate.withLock {
-        val now = Instant.now()
-        val due = synchronized(spokenAt) { gossipPassDue(spokenAt[delivery.from], now) }
-        if (!due) return@withLock
-        synchronized(spokenAt) { spokenAt[delivery.from] = now }
-
-        refresh()
-        var accepted = 0
-        held = store.update(now) { current ->
-            val plan = gossipStormGate(
-                seen = seenFrom(current),
-                batch = delivery.batch,
-                from = delivery.from,
-                now = now,
-                contacts = contacts,
-                nightEndFor = { gigId -> nightEnds[gigId] },
-            )
-            accepted = plan.accepted.size
-            gossipHold(current, plan, delivery.from)
-        }
-        if (accepted > 0) {
-            Log.i(TAG, "accepted $accepted of ${delivery.batch.size} from a contact")
-            // A newly accepted message is news to push on, and the notification is the only
-            // honest account of what this service is doing with the battery it is spending.
-            startForegroundNotification(held.size)
-        }
+    private suspend fun refresh() {
+        val friends = settings.friends.first()
+        contacts = contactKeysOf(friends)
+        names = friends.mapNotNull { friend -> friend.publicKey?.let { it to friend.name } }.toMap()
     }
 
-    /** Re-read the two things that decide what is worth saying, and to whom. */
-    private suspend fun refresh() {
-        contacts = contactKeysOf(settings.friends.first())
-        nightEnds = gossipNightEnds(gigDatesOf(timeline))
-        held = store.held()
+    /**
+     * The one line the notification gets.
+     *
+     * Who is here beats what is being carried, because it is the thing the owner of this
+     * phone can act on — the carried count is bookkeeping, and it is still what shows when
+     * the room is empty. A **Contact** with no name to show is "someone" rather than being
+     * left out: dropping them would report an empty room while a radio was plainly busy.
+     */
+    private fun publicCount(): Int = synchronized(publicLock) { publicState.held.size }
+
+    private fun presenceText(carrying: Int): String {
+        val here = gossipNearby(GossipPresence.metAt.value, Instant.now())
+            .map { names[it] ?: getString(R.string.gossip_notification_someone) }
+        return when {
+            here.isEmpty() && carrying > 0 ->
+                getString(R.string.gossip_notification_carrying, carrying)
+            here.isEmpty() -> getString(R.string.gossip_notification_idle)
+            here.size == 1 -> getString(R.string.gossip_notification_here_one, here[0])
+            here.size == 2 -> getString(R.string.gossip_notification_here_two, here[0], here[1])
+            else -> getString(R.string.gossip_notification_here_many, here[0], here.size - 1)
+        }
     }
 
     private fun startForegroundNotification(carrying: Int) {
@@ -218,10 +264,11 @@ class GossipService : Service() {
         val notification = Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_sync_noanim)
             .setContentTitle(getString(R.string.gossip_notification_title))
-            .setContentText(
-                if (carrying > 0) getString(R.string.gossip_notification_carrying, carrying)
-                else getString(R.string.gossip_notification_idle),
-            )
+            .setContentText(presenceText(carrying))
+            // The content names people this phone has been near. That belongs behind the
+            // lock screen: the shade is the audit trail ADR-0019 promised its owner, not a
+            // list of who somebody is with, readable off a table by anyone walking past.
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
             .setContentIntent(open)
             .addAction(
                 Notification.Action.Builder(null, getString(R.string.gossip_notification_stop), stop)
@@ -253,7 +300,17 @@ class GossipService : Service() {
          */
         fun sync(context: Context, contacts: Int, holding: Boolean, gigTonight: Boolean, alwaysRelay: Boolean) {
             val intent = Intent(context, GossipService::class.java)
-            if (gossipRelayShouldRun(contacts, holding, gigTonight, alwaysRelay)) {
+            val run = gossipRelayShouldRun(contacts, holding, gigTonight, alwaysRelay)
+            Log.i(
+                TAG,
+                "relay should run: $run (contacts=$contacts, holding=$holding, " +
+                    "gigTonight=$gigTonight, alwaysRelay=$alwaysRelay)",
+            )
+            GossipRadioStatus.gate(
+                "contacts=$contacts, holding=$holding, gigTonight=$gigTonight, " +
+                    "alwaysRelay=$alwaysRelay",
+            )
+            if (run) {
                 runCatching { context.startForegroundService(intent) }
                     .onFailure { Log.w(TAG, "could not start the gossip service: $it") }
             } else {
@@ -267,7 +324,7 @@ class GossipService : Service() {
 private val GIG_DATE = DateTimeFormatter.ofPattern("dd-MM-yyyy")
 
 /**
- * Every **Gig** on this timeline that has a date, by the id a gossip message would name it by.
+ * Every **Gig** on this timeline that has a date, by the id a gossip envelope would name it by.
  *
  * [TimelineCache.keyOf][io.github.magnusencoded.stationtostation.data.TimelineCache.keyOf],
  * because that is the id the rest of the app shares with other people — a setlist.fm id where

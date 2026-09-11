@@ -6,14 +6,16 @@ import XCTest
 /// What the gossip channel remembers between one meeting and the next (#417).
 ///
 /// The store is given a temporary file rather than the real one, which is the whole reason
-/// `GossipLedger.init` takes a URL: the rules worth asserting — never offer the same message
-/// to the same **Contact** twice, never echo one back to whoever handed it over, never keep
-/// anything past the night it is about — are rules about a file, and on iOS that file has to
-/// survive the app being relaunched by the radio mid-night.
+/// `GossipLedger.init` takes a URL: the rules worth asserting — a Gig's signing scope never
+/// rotating, a fact never being offered to the same peer twice, nothing surviving past the
+/// night it is about, a peer's spend outliving the process — are rules about a file, and on
+/// iOS that file has to survive the app being relaunched by the radio mid-night.
+///
+/// What each fact *is* and when it is refused belongs to `PublicGossipTests`; this file only
+/// asserts that the disk keeps and forgets the right things.
 final class GossipLedgerTests: XCTestCase {
 
     private let now = Date(timeIntervalSince1970: 1_788_555_600)
-    private var tonight: Date { now.addingTimeInterval(8 * 3600) }
     private var file: URL!
 
     override func setUp() {
@@ -40,181 +42,76 @@ final class GossipLedgerTests: XCTestCase {
 
     private lazy var alice = identity()
     private lazy var bob = identity()
-    private lazy var carol = identity()
-
-    private func signed(by author: Identity, gigId: String = "3ba1f9ca",
-                        expiresAt: Date? = nil) -> GossipCheckIn {
-        var message = GossipCheckIn(messageId: "", gigId: gigId, checkedInBy: author.publicKey,
-                                    checkedInAt: now.addingTimeInterval(-600),
-                                    expiresAt: expiresAt ?? tonight, signature: "")
-        guard let payload = gossipPayload(message),
-              let signature = signChallenge(payload, privateKey: author.privateKey),
-              let messageId = gossipMessageId(message)
-        else {
-            XCTFail("could not sign the fixture")
-            return message
-        }
-        message.messageId = messageId
-        message.signature = signature.base64EncodedString()
-        return message
-    }
 
     private func ledger() -> GossipLedger { GossipLedger(file: file) }
 
-    // --- My own arrival ---
-
-    func testMyOwnCheckInIsHeldForOnwardRelayButNeverOfferedBackToMe() async {
+    func testAuthorScopePersistsWithoutDiscardingExistingLedger() async throws {
         let store = ledger()
-        let mine = signed(by: alice)
-
-        await store.hold(mine, now: now)
-
-        let toBob = await store.offer(to: bob.publicKey, now: now)
-        let toMyself = await store.offer(to: alice.publicKey, now: now)
-        XCTAssertEqual(toBob, [mine])
-        XCTAssertEqual(toMyself, [])
+        let scope = await store.authorScope(localGigId: "local-gig")
+        XCTAssertNotNil(scope)
+        XCTAssertNotEqual(scope, "local-gig")
+        let again = await store.authorScope(localGigId: "local-gig")
+        let other = await store.authorScope(localGigId: "other-gig")
+        XCTAssertEqual(scope, again)
+        XCTAssertNotEqual(scope, other)
+        let reopened = ledger()
+        let restored = await reopened.authorScope(localGigId: "local-gig")
+        XCTAssertEqual(scope, restored)
+        let retained = await reopened.authorScope(localGigId: "local-gig")
+        XCTAssertEqual(scope, retained)
+        await reopened.forgetAll()
+        let afterContactRemoval = await ledger().authorScope(localGigId: "local-gig")
+        XCTAssertEqual(scope, afterContactRemoval)
     }
 
-    /// The store-and-forward decision `gossipStormGate` leaves to the transport, asserted:
-    /// a message is offered every time this device meets somebody who has not had it, not
-    /// once at the moment it arrived.
-    func testAHeldMessageIsStillOfferedAtTheNextMeetingHoursLater() async {
+    func testAuthorScopeReadsOldLedgerAndFailsClosedWhenItCannotPersist() async throws {
+        // A ledger written by the v1 pipeline: its `seen`/`held` keys are gone from
+        // `StoredGossip` and are ignored on decode rather than failing the read.
+        try Data(#"{"seen":{},"held":[],"budgets":{}}"#.utf8).write(to: file)
+        let scope = await ledger().authorScope(localGigId: "local-gig")
+        XCTAssertNotNil(scope)
+        let missingDirectory = file.appendingPathComponent("missing/gossip.json")
+        let unavailable = GossipLedger(file: missingDirectory)
+        let failed = await unavailable.authorScope(localGigId: "local-gig")
+        XCTAssertNil(failed)
+    }
+
+    func testPublicAuthorAndRadioStateSurvivesRestartAndRelayExpiry() async throws {
+        let millis: Int64 = 1000
+        let first = try XCTUnwrap(GossipEnvelope(gigId: "local-gig", scope: "scope",
+            author: alice.publicKey, createdAt: millis, expiresAt: 100000,
+            kind: "log", line: 1, text: "Karma Police").signed {
+                try? self.alice.privateKey.signature(for: $0).derRepresentation
+            })
+        let second = try XCTUnwrap(GossipEnvelope(gigId: "local-gig", scope: "scope",
+            author: alice.publicKey, createdAt: millis, expiresAt: 100000,
+            kind: "log", line: 2, text: "Paranoid Android").signed {
+                try? self.alice.privateKey.signature(for: $0).derRepresentation
+            })
         let store = ledger()
-        await store.hold(signed(by: alice), now: now)
-
-        let later = await store.offer(to: bob.publicKey, now: now.addingTimeInterval(6 * 3600))
-
-        XCTAssertEqual(later.count, 1)
-    }
-
-    // --- The gate's decision, kept ---
-
-    func testWhatTheGateAcceptedIsHeldAndWhatItSawIsRemembered() async {
-        let store = ledger()
-        let message = signed(by: alice)
-        let plan = gossipStormGate(seen: [:], batch: [message], from: bob.publicKey, now: now,
-                                   contacts: [alice.publicKey, bob.publicKey, carol.publicKey])
-
-        await store.record(plan, from: bob.publicKey, now: now)
-
-        let seen = await store.seen(now: now)
-        let toCarol = await store.offer(to: carol.publicKey, now: now)
-        XCTAssertEqual(seen[message.messageId], message.expiresAt)
-        XCTAssertEqual(toCarol, [message])
-    }
-
-    /// Never back to the peer that handed it over, and never to its own author. Both survive
-    /// being written to disk, which is the point of storing them rather than the gate's
-    /// audience list.
-    func testAMessageIsNeverOfferedBackToItsCarrierOrItsAuthor() async {
-        let store = ledger()
-        let message = signed(by: alice)
-        let plan = gossipStormGate(seen: [:], batch: [message], from: bob.publicKey, now: now,
-                                   contacts: [alice.publicKey, bob.publicKey, carol.publicKey])
-
-        await store.record(plan, from: bob.publicKey, now: now)
-
-        let toBob = await store.offer(to: bob.publicKey, now: now)
-        let toAlice = await store.offer(to: alice.publicKey, now: now)
-        XCTAssertEqual(toBob, [])
-        XCTAssertEqual(toAlice, [])
-    }
-
-    func testTheSeenSetSurvivesTheProcessDyingBetweenMeetings() async {
-        let message = signed(by: alice)
-        let plan = gossipStormGate(seen: [:], batch: [message], from: bob.publicKey, now: now,
-                                   contacts: [alice.publicKey, bob.publicKey])
-        await ledger().record(plan, from: bob.publicKey, now: now)
-
-        // A whole new actor over the same file: what iOS does every time it relaunches this
-        // app into the background.
-        let relaunched = await ledger().seen(now: now)
-
-        XCTAssertEqual(relaunched[message.messageId], message.expiresAt)
-    }
-
-    /// The storm the gate is named for, arriving through the back door: without a seen set
-    /// that outlives the process, the same check-in is accepted and re-relayed all night.
-    func testAMessageAlreadySeenIsRejectedAfterARelaunch() async {
-        let message = signed(by: alice)
-        let contacts: Set<String> = [alice.publicKey, bob.publicKey]
-        let first = gossipStormGate(seen: [:], batch: [message], from: bob.publicKey, now: now,
-                                    contacts: contacts)
-        await ledger().record(first, from: bob.publicKey, now: now)
-
-        let seen = await ledger().seen(now: now)
-        let again = gossipStormGate(seen: seen, batch: [message], from: bob.publicKey, now: now,
-                                    contacts: contacts)
-
-        XCTAssertEqual(again.accepted, [])
-        XCTAssertEqual(again.rejected, [GossipRejected(messageId: message.messageId,
-                                                       reason: .alreadySeen)])
-    }
-
-    // --- Delivery ---
-
-    func testAMessageIsNotOfferedTwiceToTheSameContact() async {
-        let store = ledger()
-        let message = signed(by: alice)
-        await store.hold(message, now: now)
-
-        await store.delivered([message.messageId], to: bob.publicKey)
-
-        let toBob = await store.offer(to: bob.publicKey, now: now)
-        let toCarol = await store.offer(to: carol.publicKey, now: now)
-        XCTAssertEqual(toBob, [])
-        XCTAssertEqual(toCarol, [message])
-    }
-
-    /// A handover that died halfway is a handover to try again next time these two phones are
-    /// in the same room — which on iOS is the common case, not the exception.
-    func testAHandoverThatWasNeverConfirmedIsOfferedAgain() async {
-        let store = ledger()
-        let message = signed(by: alice)
-        await store.hold(message, now: now)
-
-        _ = await store.offer(to: bob.publicKey, now: now)
-
-        let again = await store.offer(to: bob.publicKey, now: now)
-        XCTAssertEqual(again, [message])
-    }
-
-    // --- Expiry, and how little is kept ---
-
-    func testNothingIsKeptPastTheNightItIsAbout() async {
-        let store = ledger()
-        let message = signed(by: alice, expiresAt: now.addingTimeInterval(60))
-        await store.hold(message, now: now)
-
-        let afterwards = now.addingTimeInterval(120)
-        let held = await store.offer(to: bob.publicKey, now: afterwards)
-        let seen = await store.seen(now: afterwards)
-        XCTAssertEqual(held, [])
-        XCTAssertEqual(seen, [:])
-    }
-
-    func testAnOfferIsBoundedByWhatTheFarEndWillAcceptInOneBatch() async {
-        let store = ledger()
-        for index in 0..<(gossipMaxBatch + 5) {
-            await store.hold(signed(by: alice, gigId: "gig\(index)"), now: now)
-        }
-
-        let offer = await store.offer(to: bob.publicKey, now: now)
-
-        XCTAssertEqual(offer.count, gossipMaxBatch)
-    }
-
-    /// Truncation drops the messages that had least night left, not an arbitrary tail.
-    func testAnOfferKeepsTheMessagesWithTheMostNightLeft() async {
-        let store = ledger()
-        let soon = signed(by: alice, gigId: "soon", expiresAt: now.addingTimeInterval(60))
-        let late = signed(by: alice, gigId: "late", expiresAt: tonight)
-        await store.hold(soon, now: now)
-        await store.hold(late, now: now)
-
-        let offer = await store.offer(to: bob.publicKey, now: now)
-
-        XCTAssertEqual(offer.first, late)
+        async let authored = store.receivePublic([first], from: "", now: millis, local: true)
+        async let received = store.receivePublic([second], from: "supplier", now: millis)
+        let counts = await (authored, received)
+        XCTAssertEqual(counts.0, 1)
+        XCTAssertEqual(counts.1, 1)
+        await store.deliveredPublic([first.id], to: "recipient")
+        await store.receivePublic([second], from: "duplicate", now: millis)
+        var detached = await store.publicSnapshot(now: millis)
+        detached.facts.removeAll()
+        let reopened = ledger()
+        var restored = await reopened.publicSnapshot(now: millis)
+        XCTAssertEqual(restored.facts.count, 2)
+        XCTAssertEqual(restored.localAuthors, Set([first.author]))
+        XCTAssertNil(restored.held[second.id])
+        XCTAssertTrue(restored.offer(to: "recipient", now: millis).isEmpty)
+        await reopened.receivePublic([], from: "", now: 100001)
+        let expired = await ledger().publicSnapshot(now: 100001)
+        XCTAssertTrue(expired.held.isEmpty)
+        XCTAssertTrue(expired.seen.isEmpty)
+        XCTAssertEqual(expired.facts.count, 2)
+        await reopened.forgetAll()
+        let afterContactRemoval = await ledger().publicSnapshot(now: 100001)
+        XCTAssertEqual(afterContactRemoval.facts.count, 2)
     }
 
     // --- Budgets ---
@@ -239,7 +136,6 @@ final class GossipLedgerTests: XCTestCase {
         await store.spend(spent, for: bob.publicKey, now: now)
 
         let later = now.addingTimeInterval(gossipPeerWindow + 60)
-        _ = await store.seen(now: later)
 
         let forgotten = await store.budget(for: bob.publicKey, now: later)
         XCTAssertEqual(forgotten, GossipPeerBudget())
@@ -247,14 +143,20 @@ final class GossipLedgerTests: XCTestCase {
 
     // --- Forgetting ---
 
+    /// A ledger holding nothing but transport memory is deleted outright when the last
+    /// **Contact** goes. (A ledger that also holds this device's own facts keeps them — that
+    /// half is asserted above, because a Gig I was at is mine and not a Contact's.)
     func testForgettingTakesEverythingWithIt() async {
         let store = ledger()
-        await store.hold(signed(by: alice), now: now)
+        guard case .admit(let spent) = gossipAdmit(GossipPeerBudget(), offered: 7, now: now) else {
+            return XCTFail("the first handover should be admitted")
+        }
+        await store.spend(spent, for: bob.publicKey, now: now)
 
         await store.forgetAll()
 
-        let held = await store.offer(to: bob.publicKey, now: now)
-        XCTAssertEqual(held, [])
+        let budget = await store.budget(for: bob.publicKey, now: now)
+        XCTAssertEqual(budget, GossipPeerBudget())
         XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
     }
 }

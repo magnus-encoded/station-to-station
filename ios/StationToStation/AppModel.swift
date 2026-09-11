@@ -83,6 +83,12 @@ struct UiState {
     /// lane and joins the Spine — so a write that changes a claim has to land here too,
     /// or the night stays put until the next cold start.
     var attendanceByGig: [String: StoredAttendance] = [:]
+    /// **Gigs** whose own check-in a directly-present device witnessed (#442).
+    ///
+    /// A decoration on `attendanceByGig`, never a substitute for it: the user saying they
+    /// were there and a stranger's phone agreeing are two different claims, and a night
+    /// with nobody else running the radio is still a night they attended.
+    var witnessedGigs: Set<String> = []
     /// The calendar event made for a planned gig, by gig id — EventKit's
     /// `eventIdentifier`. Presence is what the leaf reads as "already added".
     var calendarEventByGig: [String: String] = [:]
@@ -460,15 +466,29 @@ final class AppModel: ObservableObject {
     /// nothing else (#417, ADR-0019). Up when there is somebody to gossip with, down when
     /// there is not, and never tied to a screen the way the Exchange and Reconcile are.
     ///
-    /// The nights go with it because the storm gate uses them as an expiry ceiling — a gig
-    /// this device knows the date of expires when that night does, not `gossipMaxLifetime`
-    /// later.
+    /// The nights go with it because a gig this device knows the date of has a real expiry —
+    /// the end of that night (`gossipExpiry`) — and that is what a fact authored here claims,
+    /// rather than a flat day from now. See `GossipChannel.setNightEnds` for what the channel
+    /// currently does with the rest of them.
     private func gossipContactsChanged() {
-        GossipTransport.shared.contactsChanged(state.friends)
         let ends = knownNights.reduce(into: [String: Date]()) { ends, gig in
             if let date = gig.eventDate, let end = gossipExpiry(gigDate: date) { ends[gig.id] = end }
         }
+        let now = Date()
+        let gigTonight = knownNights.contains {
+            guard let date = $0.eventDate else { return false }
+            return withinCheckInWindow(now: now, gigDate: date)
+        }
+        GossipTransport.shared.contactsChanged(state.friends,
+            relayEnabled: gigTonight || !contactKeysOf(state.friends).isEmpty)
         Task { await GossipChannel.shared.setNightEnds(ends) }
+        // Read back rather than pushed at the moment of witnessing, so a phone that was
+        // closed when the witness arrived projects it the same way after a relaunch.
+        Task { [weak self] in
+            await GossipChannel.shared.observeWitnessed { witnessed in
+                Task { @MainActor in self?.state.witnessedGigs = witnessed }
+            }
+        }
     }
 
     /// The QR onto the night's attendance record, and into state with it (#412).
@@ -1630,7 +1650,11 @@ final class AppModel: ObservableObject {
             // between now and the end of this night (#417). Nothing is promised by this: see
             // `GossipTransport` on what iOS background delivery actually is.
             let gigDate = knownNights.first { $0.id == gigId }?.eventDate
-            await GossipChannel.shared.checkedIn(gigId: gigId, gigDate: gigDate)
+            let cache = await timelines.load()
+            guard let localGig = cache.gigs[gigId] ?? cache.gigForSetlist(gigId) else { return }
+            if await GossipChannel.shared.checkedIn(gigId: gigId, localGigId: localGig.id, gigDate: gigDate) {
+                GossipTransport.shared.checkInStarted()
+            }
         }
     }
 

@@ -219,6 +219,7 @@ ship.sh
 *.apk
 .obsidian/
 .vscode/
+.claude/
 desktop.ini
 
 # Play upload key and its credentials. Never committed: the keystore signs
@@ -226,3 +227,9 @@ desktop.ini
 *.jks
 keystore.properties
 *.aab
+
+# Cursor editor workspace config
+.cursor/
+
+# Untracked scratch note, see its own header
+testflight-setup.txt

@@ -163,25 +163,41 @@ never makes them a **Contact**, and a **Contact** need not be on setlist.fm at a
 
 ## Gossip
 
-How a **Check-in** reaches a **Contact** who is not standing next to you, with no server and
-no session (ADR-0019). The one part of the app that runs while nobody is looking at it, and
-the only thing that ever travels this way is a **Check-in**.
+How a **Fact** about a **Gig** reaches someone who is not standing next to you, with no
+server and no session (ADR-0019 for the background permission, **ADR-0021** for what may
+travel and how far). The one part of the app that runs while nobody is looking at it.
+
+Facts are **public and signed, carried by any device in range** — not only by **Contacts**.
+A carrier usually cannot tell who wrote what it is carrying, which is what makes handing it
+to a stranger acceptable.
 
 | Term | Definition | Aliases to avoid |
 | ---- | ---------- | ---------------- |
-| **Check-in** | *I am at this **Gig**, now.* Signed by the **Contact** identity key, expiring at the end of that **Gig**'s own night, and the only thing the **Gossip** channel carries. A fact about a person and a place — never a message, never a post, and never anything anyone replies to. | status, presence, ping, post |
-| **Gossip** | The channel a **Check-in** travels along: phone to phone, in radio range, hop by hop, in the background. Nobody is asked and nothing is coordinated — a device holds what it has and offers it to the next **Contact** it meets. Delivery is *eventual and probable*, never promised: it is a rumour that travels, which is the whole of what the word claims, and nothing in the app may say a check-in "was sent" or "will reach" anyone. | broadcast, mesh (fine informally), sync, push, feed, notification |
-| **Carry** | Holding another person's **Check-in** in order to hand it on. A device carries what it accepted until that **Check-in** expires, which is what lets news cross a room in two hops instead of one. **Carrying is not attending** — nothing carried ever lands on the carrier's own **Line**. | cache, store, queue |
-| **Pass** | One handful of **Check-ins** handed from one device to one **Contact** in range, with a proof of who is handing it over. The unit of transfer. Deliberately not "handover", which in this app means moving to a new phone. | handover, sync, message |
-| **Token** | The rotating value two **Contacts** recognise each other by over the air: derived per pair from the two identity public keys they already hold, changing every quarter of an hour. **A recogniser, not an authenticator** — it says *"we have met"* and nothing more; the proof of who is speaking is a signature over a fresh nonce, and the proof of who checked in is the signature on the **Check-in** itself. Rotating because a stable one would let anyone standing nearby follow a phone all night; a stranger's radio sees a number that means nothing and is different later. | beacon, id, address, handle |
-| **Storm gate** | The one pure rule that decides what a **Pass** is allowed to leave behind: is the sender a **Contact**, is the id really the hash of what was signed, have I seen it, does the signature hold, has the night ended. It lives in one place, the transports move bytes and judge nothing, and the radio never argues with it. | filter, validator, firewall |
+| **Fact** | One signed assertion about one **Gig**, and the unit **Gossip** moves. Four kinds and no more: a **Log** line, a **request** to be witnessed, the **witness** that attests one, and a **receipt** saying something was useful. Never a message, never a post, and never anything anyone replies to — a **Fact** is about a night, not addressed to a person. | message, event, post, update |
+| **Check-in** | *I was at this **Gig**.* No longer its own payload: attendance is what a **Log** line or a **witness** already evidences. Kept as a word for the human act, not as a thing on the wire. | status, presence, ping, post |
+| **Gossip** | The channel a **Fact** travels along: phone to phone, in radio range, hop by hop, in the background. Nobody is asked and nothing is coordinated — a device holds what it has and offers it to the next device it meets, **Contact or stranger**. Delivery is *eventual and probable*, never promised: it is a rumour that travels, which is the whole of what the word claims, and nothing in the app may say a **Fact** "was sent" or "will reach" anyone. | broadcast, mesh (fine informally), sync, push, feed, notification |
+| **Carry** | Holding another person's **Fact** in order to hand it on. A device carries what it accepted for a bounded window, capped by that **Fact**'s own expiry, which is what lets news cross a room in two hops instead of one. **Carrying is not attending, and carrying is not authoring** — nothing carried ever lands on the carrier's own **Line**, and a carrier signs nothing it passes on. | cache, store, queue |
+| **Blind relay** | Any device carrying a **Fact** it cannot attribute. The normal case, and the reason the edge may be a stranger: the durable identity never crosses in the clear, so what a relay learns is a **Gig**, a time and some text — never *whose*. | forwarder, node, peer (fine) |
+| **Pass** | One handful of **Facts** handed from one device to one other in range, with a proof that the sender holds the night-scoped key it is claiming. The unit of transfer. Deliberately not "handover", which in this app means moving to a new phone. | handover, sync, message |
+| **Attribution** | How a **Fact** says who wrote it *without saying it out loud*. Each **Gig** gets its own temporary signing key, and the durable **Card** key signs that binding once; the signature is sealed under a key only someone who already holds the author's **Card** public key can derive. So a **Contact** recognises authorship permanently — including after removing the **Contact** — and everyone else carries bytes that name nobody. **Recognition, not confidentiality**: the text is public, only the *whose* is sealed. | encryption, identity, signature (the signature is a different thing) |
+| **Storm gate** | The one pure rule that decides what a **Pass** is allowed to leave behind: is the id really the hash of what was signed, does the signature hold, have I seen it, has the night ended, did a one-hop kind come from anyone but its author. The name of a **rule**, not of a file — it lives in `GossipEnvelope.valid()` and `PublicGossipState.receive()`. The transports move bytes and judge nothing, and the radio never argues with it. | filter, validator, firewall |
+| **Block** | Refusing an author's **Facts** *here*. Local admission only: blocked **Facts** still cross the radio and are still carried, they simply never enter this device's record. Blocking is not a thing anyone else can observe. | ban, mute (fine), report |
 
-**A **Check-in** only ever travels between **Contacts**, never along a **Followed line***.
-That is the same rule as everywhere else in this app, and it is the rule the whole channel
-is built to make true hop by hop: a device relays only to people it has met in person, so a
-**Check-in** reaches a stranger only as bytes they carry and cannot read into a timeline.
-The disclosure this does buy — a carrier learns *who* checked in *where*, roughly *when* —
-is stated and accepted in ADR-0019.
+**A Fact travels along any radio edge; what it never does is name its author to someone who
+has not already met them** (ADR-0021). This reads like the opposite of the rest
+of the app and is not: everywhere else, a **Contact** is who may *receive* a thing, and here
+a **Contact** is who may *understand* one. A stranger carrying a **Fact** holds text, a
+**Gig** and a time, with the **Attribution** sealed — so it reaches them as bytes they can
+relay and cannot read into anyone's timeline.
+
+The private half of the app is untouched by this and stays Contact-scoped: **Reconcile**,
+media, and **Notes**. Gossip is the public channel, and it is the only one.
+
+*Superseded:* ADR-0019 originally required each hop to be Contact-to-Contact, and accepted
+that a relay would learn the author's durable key as the price. Both are gone — the first
+because a Contact in range is usually nobody in a room full of strangers, the second because
+a **Blind relay** verifies a **Fact** against its temporary per-**Gig** key, which names
+nobody — so the durable key it used to need never has to cross at all.
 
 ## Media
 
@@ -212,8 +228,10 @@ is stated and accepted in ADR-0019.
   by setlist.fm.
 - One step **Inner** from a **Gig** is its **Alcove**; **Back out** is one step **Outer**, always.
 - A **Followed line** grants nothing; only a **Contact** can receive media.
-- A **Check-in** travels only between **Contacts**, and a device that **Carries** one has
-  not **Attended** anything.
+- A **Fact** travels along any radio edge, and a device that **Carries** one has neither
+  **Attended** anything nor authored anything.
+- A **Fact**'s **Attribution** is legible only to someone already holding the author's
+  **Card** key; **Block** decides what this device records, never what it carries.
 - **Attach** puts media on a **Gig** in one **Band** or the other; the shared one reaches
   the **Audience**, the vault reaches nobody. Dragging it between them is what changes its
   mind, and is the only way to stop offering something.
