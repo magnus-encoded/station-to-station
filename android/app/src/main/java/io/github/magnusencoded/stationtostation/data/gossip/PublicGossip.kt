@@ -104,6 +104,8 @@ data class GossipEnvelope(
         if (createdAt < 0 || expiresAt <= createdAt || expiresAt - createdAt > 108_000_000) return false
         if (author.length > 256 || attribution.length > 1024 || signature.length > 256 || record().toByteArray().size > 8192) return false
         if (kind == "log" && (line < 0 || text.toByteArray(Charsets.UTF_8).size > 512)) return false
+        if (kind == "request" && line != -1) return false
+        if (kind in setOf("witness", "receipt") && line != -1) return false
         if (fields().any { it.contains('\n') || it.contains('\t') }) return false
         if (id != gossipHash(payload())) return false
         val sig = gossipUnbase64(signature) ?: return false
@@ -166,6 +168,9 @@ data class PublicGossipState(
     val blocked: MutableSet<String> = mutableSetOf(),
     val recognition: MutableMap<String, String> = mutableMapOf(),
     val useful: MutableMap<String, Long> = mutableMapOf(),
+    /** Gig authors whose private key is on this device. Persisted so a radio-restored
+     * process can still distinguish my claim from a stranger's after restart. */
+    val localAuthors: MutableSet<String> = mutableSetOf(),
 ) {
     fun prune(now: Long) {
         seen.entries.removeAll { it.value <= now }
@@ -180,8 +185,10 @@ data class PublicGossipState(
         if (seen.containsKey(envelope.id)) { held.remove(envelope.id); return false }
         if (seen.size >= PUBLIC_MAX_SEEN) return false
         seen[envelope.id] = envelope.expiresAt
-        // Direct requests and usefulness signals never enter the durable Gig record.
-        if (envelope.kind in setOf("log", "witness") && envelope.author !in blocked) facts[envelope.id] = envelope
+        // A request is durable evidence of what its author asserted. It is not witnessed
+        // merely because it arrived directly; the separate witness is what strengthens it.
+        if (envelope.kind != "receipt" && envelope.author !in blocked) facts[envelope.id] = envelope
+        if (local) localAuthors.add(envelope.author)
         if (local || envelope.kind !in setOf("request", "receipt")) {
             held[envelope.id] = PublicHeld(envelope, minOf(envelope.expiresAt, now + PUBLIC_CARRY_MS), mutableSetOf(from))
             while (held.size > PUBLIC_MAX_HELD || held.values.sumOf { it.envelope.record().toByteArray().size } > 128000) held.remove(held.keys.first())
@@ -205,4 +212,38 @@ data class PublicGossipState(
             .values.map { versions -> versions.maxWith(compareBy<GossipEnvelope> { it.createdAt }.thenBy { it.id }) }
             .sortedWith(compareBy<GossipEnvelope> { it.createdAt }.thenBy { it.id })
     }
+
+    /** The locally-authored claim that can witness [request], if this phone checked into
+     * the same Gig. A remote request is never enough to make this device a witness. */
+    fun localClaimFor(request: GossipEnvelope): GossipEnvelope? = facts.values
+        .filter { it.kind == "request" && it.author in localAuthors && it.sameGig(request) }
+        .maxWithOrNull(compareBy<GossipEnvelope> { it.createdAt }.thenBy { it.id })
+
+    /** Preserve self-assertion and witnessed evidence as two answers. */
+    fun checkInEvidence(gigIds: Set<String>, author: String): Pair<Boolean, Boolean> {
+        val claims = facts.values.filter {
+            it.kind == "request" && it.author == author && (it.formerIds + it.gigId).any(gigIds::contains)
+        }
+        val witnessed = facts.values.any { witness ->
+            witness.kind == "witness" && decodePublicEnvelope(witness.text)?.id in claims.map { it.id }.toSet()
+        }
+        return (claims.isNotEmpty() to witnessed)
+    }
+}
+
+/** A direct witness is its own signed fact and embeds the complete signed claim. */
+fun witnessRequest(
+    request: GossipEnvelope,
+    witness: GossipEnvelope,
+    now: Long,
+    sign: (ByteArray) -> ByteArray?,
+): GossipEnvelope? {
+    if (request.kind != "request" || witness.kind != "request" || !request.valid() ||
+        request.author == witness.author || !request.sameGig(witness) || now < request.createdAt || now >= request.expiresAt
+    ) return null
+    return GossipEnvelope(
+        gigId = witness.gigId, formerIds = witness.formerIds, scope = witness.scope,
+        author = witness.author, createdAt = now, expiresAt = minOf(request.expiresAt, witness.expiresAt),
+        kind = "witness", text = request.record(), attribution = witness.attribution,
+    ).signed(sign)
 }

@@ -73,6 +73,7 @@ class PublicGossipStoreTest {
         try {
             val restored = reopened.publicStates.first()
             assertEquals(2, restored.facts.size)
+            assertEquals(setOf(envelopes[0].author), restored.localAuthors)
             assertTrue(restored.offer("recipient", now).isEmpty())
             assertFalse(restored.receive(envelopes[1], "late-duplicate", now))
             assertTrue(restored.held.containsKey(envelopes[0].id))

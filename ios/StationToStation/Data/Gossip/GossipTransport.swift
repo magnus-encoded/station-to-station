@@ -175,6 +175,12 @@ final class GossipTransport: NSObject {
         }
     }
 
+    /// Check in is participation consent even when this phone has no Contacts yet.
+    func checkInStarted() {
+        UserDefaults.standard.set(true, forKey: gossipEnabledKey)
+        start()
+    }
+
     private func start() { queue.async { [weak self] in self?.startLocked() } }
 
     private func startLocked() {
