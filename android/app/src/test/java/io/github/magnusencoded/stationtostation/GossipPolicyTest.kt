@@ -1,7 +1,9 @@
 package io.github.magnusencoded.stationtostation
 
+import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_NEARBY_WINDOW
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_PEER_COOLDOWN
 import io.github.magnusencoded.stationtostation.data.gossip.gossipGigTonight
+import io.github.magnusencoded.stationtostation.data.gossip.gossipNearby
 import io.github.magnusencoded.stationtostation.data.gossip.gossipNightEnds
 import io.github.magnusencoded.stationtostation.data.gossip.gossipPassDue
 import io.github.magnusencoded.stationtostation.data.gossip.gossipRelayShouldRun
@@ -94,5 +96,47 @@ class GossipPolicyTest {
     @Test
     fun `an empty timeline has no gig on tonight`() {
         assertFalse(gossipGigTonight(emptyMap(), Instant.parse("2026-09-04T21:00:00Z"), zone))
+    }
+
+    @Test
+    fun `somebody counts as here until the window since they were last heard from runs out`() {
+        val now = Instant.parse("2026-09-04T21:00:00Z")
+        val met = now.minus(GOSSIP_NEARBY_WINDOW).plusSeconds(1)
+        val gone = now.minus(GOSSIP_NEARBY_WINDOW)
+
+        assertEquals(listOf("here"), gossipNearby(mapOf("here" to met), now))
+        assertTrue(gossipNearby(mapOf("gone" to gone), now).isEmpty())
+    }
+
+    @Test
+    fun `the window outlasts the cooldown, so a pair mid-exchange never blinks out`() {
+        // Two phones in a room speak about once a cooldown. If the window were the cooldown,
+        // presence would lapse in the gap between every pair of exchanges.
+        val now = Instant.parse("2026-09-04T21:00:00Z")
+        assertTrue(GOSSIP_NEARBY_WINDOW > GOSSIP_PEER_COOLDOWN)
+        assertEquals(
+            listOf("mid-exchange"),
+            gossipNearby(mapOf("mid-exchange" to now.minus(GOSSIP_PEER_COOLDOWN)), now),
+        )
+    }
+
+    @Test
+    fun `the most recently heard from come first, so a short list shows the likeliest`() {
+        val now = Instant.parse("2026-09-04T21:00:00Z")
+        val nearby = gossipNearby(
+            mapOf(
+                "oldest" to now.minusSeconds(200),
+                "newest" to now.minusSeconds(5),
+                "middle" to now.minusSeconds(100),
+            ),
+            now,
+        )
+
+        assertEquals(listOf("newest", "middle", "oldest"), nearby)
+    }
+
+    @Test
+    fun `a device that has spoken to nobody reports an empty room`() {
+        assertTrue(gossipNearby(emptyMap(), Instant.parse("2026-09-04T21:00:00Z")).isEmpty())
     }
 }
