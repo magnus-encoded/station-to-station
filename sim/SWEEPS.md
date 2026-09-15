@@ -92,3 +92,63 @@ around 61 transmissions. Its copy budget is exhausted long before usefulness dec
 anything, so **this sweep does not measure the two-minute window** — it measures a policy
 that is not moving Facts. The spec's two-minute default is still unsupported, and would
 need either a working copy-budget policy or a different trace to test it.
+
+## Sparse adoption — 2026-09-15
+
+Run from `sim/`:
+
+```sh
+PYTHONPATH=src .venv/bin/python -m station_to_station_sim.sparse_sweeps > /tmp/gossip-sparse-sweeps.csv
+```
+
+630 runs: seeds 7, 11, 23, 42, 99; three and ten app users sampled from crowds
+of 120, 300 and 1,000. Each adoption level filters the same full-crowd trace.
+Non-users do not relay. The full crowd has eight fixed clusters, one pair-sampling
+round every ten seconds, `round(crowd / 3)` attempted pairs per round, and acceptance
+probabilities 0.55 within a cluster and 0.06 across clusters. Encounters are recorded
+in both directions, one second apart. These are synthetic successful opportunities;
+OS throttling, discovery failures and locked-iPhone availability are not modelled.
+
+Each participant authors one 600-byte fact in the first two hours of a four-hour
+trace. All participants recognize one another (an optimistic Contact graph), and
+all other participants are intended recipients. Encounters allow 4,000 bytes.
+There is no platform-specific radio contention or lifecycle grace-period model.
+
+Coverage ranges across five seeds for **300 concertgoers**:
+
+| Carry seconds | Three app users | Ten app users |
+| --- | --- | --- |
+| 60 | 0% | 0–1.11% |
+| 300 | 0–16.67% | 0–2.22% |
+| 900 | 0–16.67% | 2.22–3.33% |
+| 1,800 | 0–33.33% | 2.22–7.78% |
+| 3,600 | 0–33.33% | 5.56–23.33% |
+
+The denominator is six fact/recipient pairs with three users and ninety with ten.
+Latency columns in the output include only delivered pairs; a missing value means
+no delivery. Low latency among a few successes does not imply broad convergence.
+The output also records connections, bytes, duplicates, evictions, peak measured
+outbox bytes and receipt probability. Estimated joules use the simulator's input
+costs and are not measured phone battery drain.
+
+At the 900-second baseline, sweeping 1/4/16/128 held facts and
+600/2,400/9,600/128,000 carried bytes leaves coverage unchanged in the 300-person
+traces. This workload puts too little pressure on storage to choose its limits.
+Seen-ID limits and peer cooldown are not modelled by this simulator and are not
+validated by these runs.
+
+Receipt budgets of one, two and three hops leave fact coverage unchanged. For ten
+users, aggregate traffic ranges are 1,920–3,360 bytes at one hop and
+2,160–3,840 at three. These are the simulator's **relayed witness receipts**, not
+production direct check-in witnesses or the production usefulness signal. They
+cannot settle either production mechanism's hop rule.
+
+The focus-policy usefulness windows of 30/60/120/300/600 seconds also produce
+identical coverage here. This sparse workload adds no evidence for choosing the
+120-second decay. The dense focus-policy copy-budget limitation described above
+still applies; neither experiment proves neighbour-priority effectiveness.
+
+**Decision:** keep carry, usefulness and storage values provisional. The former
+95% dense-trace coverage does not describe sparse adoption. These runs establish
+that this particular sparse trace is opportunity-limited and that a longer carry
+window alone does not ensure delivery; they do not establish venue performance.

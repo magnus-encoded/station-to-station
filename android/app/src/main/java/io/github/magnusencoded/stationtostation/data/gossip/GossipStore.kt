@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
+import androidx.datastore.preferences.core.longPreferencesKey
 import kotlinx.serialization.json.Json
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -35,9 +37,13 @@ class GossipStore(private val data: DataStore<Preferences>) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     private object Keys {
+        val STOPPED = longPreferencesKey("manually_stopped_at")
         val PUBLIC = stringPreferencesKey("public_v2")
         val SCOPES = stringPreferencesKey("author_scopes_v2")
     }
+
+    suspend fun stoppedAt(): Long = data.data.first()[Keys.STOPPED] ?: 0
+    suspend fun stopParticipation(now: Long) { data.edit { it[Keys.STOPPED] = now } }
 
     /** Bind a random signing scope to the local Gig, never its mutable external ID.
      * Kept separately from relay state: expiry must not rotate an author's identity.

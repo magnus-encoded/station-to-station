@@ -135,6 +135,20 @@ struct PublicGossipState: Codable {
     /// restoration can still tell my claim from a stranger's after relaunch.
     var localAuthors: Set<String> = []
 
+    func isBlocked(_ author: String) -> Bool {
+        blocked.contains(author) || recognition[author].map { blocked.contains($0) } == true
+    }
+
+    mutating func recognizeContacts(_ contacts: Set<String>) {
+        let envelopes = Array(facts.values) + held.values.map(\.envelope)
+        let claims = envelopes.filter { $0.kind == "witness" && $0.valid() }.compactMap { decodePublicEnvelope($0.text) }
+        for envelope in envelopes + claims where recognition[envelope.author] == nil {
+            if envelope.valid(), let durable = recognizeGossip(envelope, contacts: contacts) {
+                recognition[envelope.author] = durable
+            }
+        }
+    }
+
     mutating func prune(now: Int64) {
         seen = seen.filter { $0.value > now }
         held = held.filter { $0.value.until > now && $0.value.envelope.expiresAt > now }
@@ -149,7 +163,7 @@ struct PublicGossipState: Codable {
         if seen[envelope.id] != nil { held.removeValue(forKey: envelope.id); return false }
         guard seen.count < 8192 else { return false }
         seen[envelope.id] = envelope.expiresAt
-        if envelope.kind != "receipt" && !blocked.contains(envelope.author) { facts[envelope.id] = envelope }
+        if envelope.kind != "receipt" && !isBlocked(envelope.author) { facts[envelope.id] = envelope }
         if local { localAuthors.insert(envelope.author) }
         if local || !["request", "receipt"].contains(envelope.kind) {
             held[envelope.id] = PublicHeld(envelope: envelope, until: min(envelope.expiresAt, now + publicCarryMs), delivered: [from])
@@ -176,7 +190,7 @@ struct PublicGossipState: Codable {
         let eligible = scopes.values.flatMap { versions -> [GossipEnvelope] in
             guard let latest = versions.max(by: { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }),
                   !Set(latest.formerIds + [latest.gigId]).intersection(gigIds).isEmpty else { return [] }
-            return versions.filter { !blocked.contains($0.author) }
+            return versions.filter { !isBlocked($0.author) }
         }
         let lines = Dictionary(grouping: eligible, by: { $0.author + "\n" + $0.scope + "\n" + ($0.kind == "log" ? "line:\($0.line)" : $0.id) })
         return lines.values.compactMap { $0.max(by: { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }) }
@@ -186,6 +200,22 @@ struct PublicGossipState: Codable {
     func localClaim(for request: GossipEnvelope) -> GossipEnvelope? {
         facts.values.filter { $0.kind == "request" && localAuthors.contains($0.author) && $0.sameGig(request) }
             .max { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+    }
+
+    /// A relayed witness carries the arrival even when its one-hop request never reached us.
+    func arrivals(gigIds: Set<String>) -> [GossipEnvelope] {
+        var seen = Set<String>()
+        return project(gigIds: gigIds).compactMap { fact -> GossipEnvelope? in
+            let claim: GossipEnvelope?
+            switch fact.kind {
+            case "request": claim = fact
+            case "witness": claim = decodePublicEnvelope(fact.text)
+            default: claim = nil
+            }
+            guard let claim, !isBlocked(claim.author), !localAuthors.contains(claim.author),
+                  seen.insert(claim.id).inserted else { return nil }
+            return claim
+        }
     }
 
     /// Self-asserted and witnessed are deliberately independent answers.
@@ -199,7 +229,7 @@ struct PublicGossipState: Codable {
 
     /// The claims some directly-present device signed a witness for, whoever wrote them.
     private func witnessedClaims() -> [GossipEnvelope] {
-        facts.values.filter { $0.kind == "witness" }.compactMap { decodePublicEnvelope($0.text) }
+        facts.values.filter { $0.kind == "witness" && !isBlocked($0.author) }.compactMap { decodePublicEnvelope($0.text) }
     }
 
     /// Every **Gig** id this phone claimed and a directly-present device witnessed (#442).
@@ -248,4 +278,35 @@ func witnessRequest(_ request: GossipEnvelope, with witness: GossipEnvelope, now
         expiresAt: min(request.expiresAt, witness.expiresAt), kind: "witness",
         text: request.record(), attribution: witness.attribution)
     return result.signed(sign)
+}
+
+func gossipLogChanges(before: StoredLog, after: StoredLog) -> [Int: String] {
+    let old = Dictionary(uniqueKeysWithValues: before.songs.indices.map { (before.lineNumberAt($0), before.songs[$0]) })
+    let new = Dictionary(uniqueKeysWithValues: after.songs.indices.map { (after.lineNumberAt($0), after.songs[$0]) })
+    return Dictionary(uniqueKeysWithValues: Set(old.keys).union(new.keys).compactMap { line in
+        old[line] == new[line] ? nil : (line, new[line] ?? "")
+    })
+}
+
+
+struct GossipLogRow {
+    var base: Int?
+    var text: String?
+    var facts: [GossipEnvelope] = []
+}
+
+/// Align complete author sequences, keeping reprises and the source of each observation.
+func weaveGossip(base: [String?], facts: [GossipEnvelope]) -> [GossipLogRow] {
+    var rows = base.enumerated().map { GossipLogRow(base: $0.offset, text: $0.element) }
+    let authors = Dictionary(grouping: facts.filter { $0.kind == "log" }, by: { $0.author + "\n" + $0.scope })
+    for author in authors.keys.sorted() {
+        let source = authors[author]!.sorted { $0.line < $1.line }
+        rows = weaveSetlist(published: rows.map(\.text), logged: source.map(\.text)).map { match in
+            let previous = match.published.map { rows[$0] }
+            let fact = match.logged.map { source[$0] }
+            return GossipLogRow(base: previous?.base, text: previous?.text ?? fact?.text,
+                facts: (previous?.facts ?? []) + (fact.map { [$0] } ?? []))
+        }
+    }
+    return rows
 }

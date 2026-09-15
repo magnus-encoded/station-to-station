@@ -904,3 +904,53 @@ bound to reject.
 - iOS again has only CI. Still unproven on hardware: the phone's own central/send path
   for a request, and the iOS radio. Verifying the central path needs the Pi to run a
   GATT *server* the phone connects to, which the current peer harness does not do.
+
+### Completion resumed (2026-09-15)
+
+The workspace already contained an uncommitted Android/iOS implementation of public
+Log authoring/display, stable line numbers, blocking and participation deadlines,
+plus an untracked sparse-adoption sweep. Those changes were preserved. They are
+not all accepted or verified simply because the unit tests pass.
+
+This pass closes a projection gap in that work: both screens now use
+`PublicGossipState.arrivals` to include the request embedded in a relayed witness.
+The direct request need never arrive at this device. Direct and witnessed copies
+are deduplicated by claim ID, a block on the claimant suppresses the arrival, and
+received evidence remains durable after transport expiry. Contact recognition now
+also examines verified embedded claims, so a later Exchange attributes the actual
+claimant as well as the witness. It does not undo a temporary-author block.
+Matching Android/iOS regression cases cover these behaviours, including a real
+AES-GCM sealed attribution binding using generated P-256 test keys.
+
+The expanded sparse sweep produced 630 runs across three crowd sizes, two adoption
+levels and five seeds, varying carry, receipt budget, usefulness decay and storage
+limits. `sim/SWEEPS.md` records the command, assumptions, results and unmodelled
+parameters. `docs/gossip-public-wire.md` no longer presents the dense model's carry
+knee as sufficient evidence for sparse adoption. No routing defaults were changed.
+
+Validation:
+
+- Full Android `:app:testDebugUnitTest`: 761 tests, zero failures/errors/skips,
+  build successful in 4m59s. This includes the relayed-arrival projection cases.
+- Simulator: 17 tests passed after updating the adoption regression to 300 people.
+- The additional cryptographic recognition regression was added after the full
+  Android run. Focused `PublicGossipTest` rerun: 14 tests, zero failures/errors/skips;
+  build successful in 29s.
+- No Android device is connected (`adb devices` is empty). `idevice_id -l` cannot
+  retrieve a device list. No Swift compiler/Xcode is available on this Linux host.
+  No iOS build, locked-phone relay, device central/send flow or battery measurement
+  is claimed by this pass.
+
+Remaining completion work:
+
+- **Reopening resolved by the user, 2026-09-15:** resume gossip until the 06:00
+  night cutoff. `StoredLog.completing(false)` clears `completedAt`; matching
+  Android/iOS regressions assert the restored deadline and its hard cutoff.
+- Finish #443's explicit Gig merge/adoption integration and store-level publication
+  tests. Existing scopes are persistent, but that alone does not settle merges of
+  two already-authored local Gig representations.
+- Implement #444 usefulness generation and visible-neighbour priority after the
+  early iPhone viability experiment required by #448. The current simulator does
+  not select a supported decay value or validate radio performance.
+- Complete #446 device verification and #448 lifecycle/application tests, then
+  align #415's final record with the accepted implementation. Keep #408 open.

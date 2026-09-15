@@ -194,3 +194,12 @@ func venueMapsQuery(venueName: String?, city: String?) -> String? {
         .filter { !$0.isEmpty }
     return parts.isEmpty ? nil : parts.joined(separator: ", ")
 }
+
+/// Check-in starts participation; completion allows 30 minutes, capped by the Gig night.
+/// A legacy closed Log has no known completion time, so it cannot earn a fresh grace period.
+func gossipParticipationUntil(checkedInAt: Int64?, closed: Bool, completedAt: Int64?,
+                              nightEnd: Date, stoppedAt: Int64 = 0) -> Date? {
+    guard let checkedInAt, checkedInAt > stoppedAt, !closed || completedAt != nil else { return nil }
+    guard let completedAt else { return nightEnd }
+    return min(nightEnd, Date(timeIntervalSince1970: Double(completedAt) / 1000 + 1800))
+}

@@ -31,31 +31,29 @@ class GossipPolicyTest {
     private val gigs = mapOf("3ba1f9ca" to gigDate)
 
     @Test
-    fun `a public relay needs no Contacts`() {
-        assertTrue(gossipRelayShouldRun(contacts = 0, holding = true, gigTonight = true, alwaysRelay = true))
-        assertTrue(gossipRelayShouldRun(contacts = 0, holding = false, gigTonight = true, alwaysRelay = false))
-        assertFalse(gossipRelayShouldRun(contacts = 0, holding = false, gigTonight = false, alwaysRelay = false))
-    }
-
-    @Test
-    fun `carrying a live message is enough — that is the sender's case`() {
-        assertTrue(gossipRelayShouldRun(contacts = 1, holding = true, gigTonight = false, alwaysRelay = false))
-    }
-
-    @Test
-    fun `a gig on tonight is enough — that is what makes a relay chain possible`() {
-        assertTrue(gossipRelayShouldRun(contacts = 1, holding = false, gigTonight = true, alwaysRelay = false))
-    }
-
-    @Test
-    fun `always carry is opt-in and enough on its own`() {
-        assertTrue(gossipRelayShouldRun(contacts = 1, holding = false, gigTonight = false, alwaysRelay = true))
-    }
-
-    /** The service stops on its own when the night's messages expire — nothing schedules it. */
-    @Test
-    fun `a Contact with nothing on and nothing carried does not run a radio`() {
-        assertFalse(gossipRelayShouldRun(contacts = 3, holding = false, gigTonight = false, alwaysRelay = false))
+    fun `only checked in participation starts a radio and completion cannot renew it`() {
+        val end = gossipExpiry(gigDate, zone)
+        val now = end.minusSeconds(3600)
+        fun until(checked: Long? = now.toEpochMilli(), closed: Boolean = false, done: Long? = null) =
+            io.github.magnusencoded.stationtostation.data.gossip.gossipParticipationUntil(checked, closed, done, end)
+        assertFalse(gossipRelayShouldRun(until(checked = null), now))
+        assertTrue(gossipRelayShouldRun(until(), now))
+        assertFalse(gossipRelayShouldRun(until(closed = true), now))
+        val done = now.toEpochMilli()
+        assertTrue(gossipRelayShouldRun(until(closed = true, done = done), now.plusSeconds(1799)))
+        assertFalse(gossipRelayShouldRun(until(closed = true, done = done), now.plusSeconds(1800)))
+        assertFalse(gossipRelayShouldRun(until(done = done), now.plusSeconds(1800)))
+        val log = io.github.magnusencoded.stationtostation.data.StoredLog().completing(true, done)
+        assertEquals(done, log.completing(true, done + 500).completedAt)
+        val reopened = log.completing(false, done + 1900000)
+        assertEquals(end, until(closed = reopened.closed, done = reopened.completedAt))
+        assertTrue(gossipRelayShouldRun(until(closed = reopened.closed, done = reopened.completedAt), now.plusSeconds(1900)))
+        assertFalse(gossipRelayShouldRun(until(closed = reopened.closed, done = reopened.completedAt), end))
+        assertEquals(done + 2000000, reopened.completing(true, done + 2000000).completedAt)
+        assertFalse(gossipRelayShouldRun(until(), end))
+        assertEquals(end, until(closed = true, done = end.minusSeconds(60).toEpochMilli()))
+        assertEquals(null, io.github.magnusencoded.stationtostation.data.gossip.gossipParticipationUntil(
+            now.toEpochMilli(), false, null, end, now.toEpochMilli()))
     }
 
     @Test

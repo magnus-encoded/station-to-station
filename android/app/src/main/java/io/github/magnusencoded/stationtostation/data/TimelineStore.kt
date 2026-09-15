@@ -633,7 +633,8 @@ internal fun unionPlaylists(kept: List<StoredPlaylist>, dropped: List<StoredPlay
  */
 internal fun unionLog(kept: StoredLog, dropped: StoredLog): StoredLog =
     (if (dropped.songs.size > kept.songs.size) dropped else kept)
-        .copy(closed = kept.closed && dropped.closed)
+        .copy(closed = kept.closed && dropped.closed,
+            completedAt = listOfNotNull(kept.completedAt, dropped.completedAt).minOrNull())
 
 /**
  * One claim about one night, and the stronger evidence wins: a check-in reached by

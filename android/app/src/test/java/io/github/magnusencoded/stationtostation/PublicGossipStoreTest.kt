@@ -29,6 +29,7 @@ class PublicGossipStoreTest {
             assertEquals(scope, scopes.last())
             assertNotEquals("local-gig", scope)
             assertNotEquals(scope, second.authorScope("another-local-gig"))
+            first.stopParticipation(1234)
             first.updatePublic(Long.MAX_VALUE) { }
             assertEquals(scope, first.authorScope("local-gig"))
         } finally {
@@ -39,6 +40,7 @@ class PublicGossipStoreTest {
             val reopened = GossipStore(PreferenceDataStoreFactory.create(
                 scope = CoroutineScope(Dispatchers.IO + reopenedJob)) { file })
             assertEquals(scope, reopened.authorScope("local-gig"))
+            assertEquals(1234L, reopened.stoppedAt())
         } finally {
             reopenedJob.cancelAndJoin()
         }

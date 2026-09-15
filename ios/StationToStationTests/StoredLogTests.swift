@@ -7,6 +7,16 @@ import XCTest
 /// holds on one side and not the other is a corruption with extra steps. Every song
 /// title here is invented — this repository is public.
 final class StoredLogTests: XCTestCase {
+    func testDeletingDoesNotRenumberOrReuseObservationIdentity() throws {
+        let original = StoredLog(songs: ["A", "B", "A"], enteredAt: [10, 20, 30])
+        let removed = original.removingAt(1)
+        let restored = try JSONDecoder().decode(StoredLog.self, from: JSONEncoder().encode(removed))
+        let encore = restored.adding("B", now: 40).correctingAt(1, title: "A reprise")
+        XCTAssertEqual(encore.songs.indices.map(encore.lineNumberAt), [0, 2, 3])
+        XCTAssertEqual(encore.enteredAt, [10, 30, 40])
+        XCTAssertEqual(gossipLogChanges(before: removed, after: encore), [2: "A reprise", 3: "B"])
+    }
+
 
     // MARK: - Gaps
 

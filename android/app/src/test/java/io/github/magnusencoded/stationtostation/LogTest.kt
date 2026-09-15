@@ -10,6 +10,27 @@ import org.junit.Test
 
 /** The Log: what I saw, and what it admits about itself — and the Remembered Line (#126). */
 class LogTest {
+    @Test fun `deleting a line never renumbers another observation or reuses its identity`() {
+        val original = StoredLog(songs = listOf("A", "B", "A"), enteredAt = listOf(10, 20, 30))
+        val removed = original.removingAt(1)
+        val restored = kotlinx.serialization.json.Json.decodeFromString<StoredLog>(
+            kotlinx.serialization.json.Json.encodeToString(StoredLog.serializer(), removed))
+        val encore = restored.adding("B", 40).correctingAt(1, "A reprise")
+        assertEquals(listOf(0, 2, 3), encore.songs.indices.map(encore::lineNumberAt))
+        assertEquals(listOf(10L, 30L, 40L), encore.enteredAt)
+        assertEquals(mapOf(2 to "A reprise", 3 to "B"),
+            io.github.magnusencoded.stationtostation.data.gossip.gossipLogChanges(removed, encore))
+    }
+
+    @Test fun `ordinary edits preserve completion across restart`() {
+        val closed = StoredLog(songs = listOf("A"), closed = true, completedAt = 1000)
+        val edited = closed.adding("B", 1200).correctingAt(0, "C").removingAt(1)
+        val restored = kotlinx.serialization.json.Json.decodeFromString<StoredLog>(
+            kotlinx.serialization.json.Json.encodeToString(StoredLog.serializer(), edited))
+        assertEquals(1000L, restored.completedAt)
+        assertTrue(restored.closed)
+    }
+
 
     @Test
     fun `a log starts Open — a capture built from prompts is never complete by default`() {

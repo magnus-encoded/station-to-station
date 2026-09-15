@@ -52,42 +52,19 @@ val GOSSIP_PEER_COOLDOWN: Duration = Duration.ofMinutes(1)
 fun gossipPassDue(lastAt: Instant?, now: Instant): Boolean =
     lastAt == null || !now.isBefore(lastAt.plus(GOSSIP_PEER_COOLDOWN))
 
-/**
- * Should the foreground service be running?
- *
- * **The lifecycle chosen, stated for review, because the issue asks for exactly that.** A
- * persistent notification is the price ADR-0019 named, and the honest way to pay it is to
- * only charge it on the nights the feature does anything.
- *
- * Public relays do not require Contacts. Any one of three reasons is enough:
- *
- * - [holding] — this device carries at least one live message. That covers the sender: a
- *   check-in mints a message, which starts the service, which runs until that message
- *   expires at the end of its own night and then stops on its own. Nothing schedules that
- *   shutdown; it falls out of the expiry the gate already enforces.
- * - [gigTonight] — a **Gig** on this timeline is inside its night window right now. That
- *   covers the receiver, and it is the condition that makes a relay chain possible at all:
- *   without it, a **Contact** standing at the same gig would not be listening when the
- *   person next to them checked in.
- * - [alwaysRelay] — the user has said they want to carry other people's news whenever they
- *   have their phone on them. Off by default, because it is the one setting that means "run
- *   all the time", and a background radio nobody asked for is precisely the failure this
- *   whole decision is trying to avoid.
- *
- * **Deliberately not a reason: the app being open.** Gossip is not a foreground feature and
- * tying it to a screen would recreate exactly the limitation ADR-0019 carved itself out of.
- *
- * **Deliberately not built: a boot receiver.** The service does not come back by itself
- * after a restart; opening the app restores it. Relaying a friend's check-in does not earn
- * the right to run before the user has touched the phone, and a night interrupted by a
- * reboot is a night with less news, not a broken feature.
- */
-fun gossipRelayShouldRun(
-    contacts: Int,
-    holding: Boolean,
-    gigTonight: Boolean,
-    alwaysRelay: Boolean,
-): Boolean = holding || gigTonight || alwaysRelay
+/** Check-in is participation consent. Held facts and Contacts do not start a radio. */
+fun gossipRelayShouldRun(activeUntil: Instant?, now: Instant): Boolean =
+    activeUntil != null && now.isBefore(activeUntil)
+
+/** A completed set gets 30 minutes, bounded by its night. Legacy closed logs get no new grace. */
+fun gossipParticipationUntil(
+    checkedInAt: Long?, closed: Boolean, completedAt: Long?, nightEnd: Instant,
+    stoppedAt: Long = 0,
+): Instant? {
+    if (checkedInAt == null || checkedInAt <= stoppedAt) return null
+    if (closed && completedAt == null) return null
+    return completedAt?.let { minOf(nightEnd, Instant.ofEpochMilli(it).plusSeconds(1800)) } ?: nightEnd
+}
 
 /**
  * When each **Gig** this timeline knows about stops being news.

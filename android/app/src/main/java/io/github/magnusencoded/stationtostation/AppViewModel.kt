@@ -339,6 +339,7 @@ data class UiState(
      * with nobody else running the radio is still a night they attended.
      */
     val witnessedGigs: Set<String> = emptySet(),
+    val publicGossip: io.github.magnusencoded.stationtostation.data.gossip.PublicGossipState = io.github.magnusencoded.stationtostation.data.gossip.PublicGossipState(),
     /** The calendar event made for a gig, by gig id → its content URI; restored from disk. */
     val calendarEventByGig: Map<String, String> = emptyMap(),
     /**
@@ -583,7 +584,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             gossip.publicStates.collect { public ->
                 val witnessed = public.apply { prune(System.currentTimeMillis()) }.witnessedGigIds()
-                _state.update { if (it.witnessedGigs == witnessed) it else it.copy(witnessedGigs = witnessed) }
+                _state.update { it.copy(witnessedGigs = witnessed, publicGossip = public) }
+            }
+        }
+        viewModelScope.launch {
+            settings.friends.collect { friends ->
+                gossip.updatePublic(System.currentTimeMillis()) { it.recognizeContacts(contactKeysOf(friends)) }
             }
         }
         // The radios' outputs, mirrored into UiState.
@@ -2126,6 +2132,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- The Log: what I saw, as opposed to what setlist.fm publishes ---
 
+    fun blockGossip(author: String) {
+        viewModelScope.launch {
+            gossip.updatePublic(System.currentTimeMillis()) { it.blocked.add(it.recognition[author] ?: author) }
+        }
+    }
+
     fun logFor(gigId: String): StoredLog = _state.value.logsByGig[gigId] ?: StoredLog()
 
     /**
@@ -2161,12 +2173,47 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * publishing, not a refetch, not a song count: setlist.fm has nowhere to keep
      * this bit, so it never leaves the device and nothing coming back can set it.
      */
-    fun setLogClosed(gigId: String, closed: Boolean) = writeLog(gigId) { it.copy(closed = closed) }
+    fun setLogClosed(gigId: String, closed: Boolean) = writeLog(gigId) { it.completing(closed) }
 
     private fun writeLog(gigId: String, edit: (StoredLog) -> StoredLog) {
-        val updated = edit(logFor(gigId))
+        val before = logFor(gigId)
+        val updated = edit(before)
         _state.update { it.copy(logsByGig = it.logsByGig + (gigId to updated)) }
-        viewModelScope.launch { timelines.saveLog(gigId, updated) }
+        viewModelScope.launch {
+            timelines.saveLog(gigId, updated)
+            withContext(Dispatchers.IO) { publishLog(gigId, before, updated) }
+            syncGossip()
+        }
+    }
+
+    private suspend fun publishLog(gigId: String, before: StoredLog, after: StoredLog) {
+        val now = System.currentTimeMillis()
+        val cache = timelines.load()
+        val local = cache.gigs[gigId] ?: cache.gigForSetlist(gigId) ?: return
+        val date = runCatching { LocalDate.parse(local.date, java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy")) }.getOrNull() ?: return
+        val expiry = gossipExpiry(date)
+        val until = io.github.magnusencoded.stationtostation.data.gossip.gossipParticipationUntil(
+            cache.attendance()[gigId]?.checkedInAt, after.closed, after.completedAt, expiry, gossip.stoppedAt())
+        if (until == null || now >= until.toEpochMilli()) return
+        val changes = io.github.magnusencoded.stationtostation.data.gossip.gossipLogChanges(before, after)
+        if (changes.isEmpty()) return
+        runCatching {
+            val scope = gossip.authorScope(local.id)
+            val identity = GigIdentity(scope)
+            gossip.updatePublic(now) { state ->
+                val author = identity.publicKey()
+                val previous = state.facts.values.filter { it.author == author }
+                val former = previous.flatMap { it.formerIds + it.gigId }.distinct().filter { it != gigId }
+                // Monotone revision time makes rapid successive Done actions deterministic.
+                val revision = maxOf(now, (previous.maxOfOrNull { it.createdAt } ?: 0) + 1)
+                changes.forEach { (line, text) ->
+                    GossipEnvelope(gigId = gigId, formerIds = former, scope = scope,
+                        author = author, createdAt = revision, expiresAt = expiry.toEpochMilli(),
+                        kind = "log", line = line, text = text, attribution = identity.attribution())
+                        .signed(identity::sign)?.let { state.receive(it, "", now, local = true) }
+                }
+            }
+        }
     }
 
     /**
@@ -2395,13 +2442,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun checkIn(gigId: String) {
         _state.update { it.copy(checkInOffer = null) }
-        updateAttendance(gigId) {
+        val saved = updateAttendance(gigId) {
             it.copy(
                 provenance = StoredAttendance.Provenance.CHECKED_IN,
                 checkedInAt = System.currentTimeMillis(),
             )
         }
-        viewModelScope.launch { gossipAbout(gigId) }
+        viewModelScope.launch {
+            saved.join()
+            withContext(Dispatchers.IO) { runCatching { gossipAbout(gigId) } }
+            syncGossip()
+        }
     }
 
     /**
@@ -2425,10 +2476,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * error about the secondary thing would be noise on a night out.
      */
     private suspend fun gossipAbout(gigId: String) {
-        val gigDate = _state.value.plannedGigs.firstOrNull { it.id == gigId }?.localDate()
-            ?: return
         val cache = timelines.load()
         val localGig = cache.gigs[gigId] ?: cache.gigForSetlist(gigId) ?: return
+        val gigDate = runCatching { LocalDate.parse(localGig.date,
+            java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy")) }.getOrNull() ?: return
         val scope = gossip.authorScope(localGig.id)
         val identity = GigIdentity(scope)
         // The same night-end ceiling a relay would have capped the claim at, so this device
@@ -2444,7 +2495,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val now = System.currentTimeMillis()
             gossip.updatePublic(now) { it.receive(public, "", now, local = true) }
         }
-        syncGossip()
     }
 
     /**
@@ -2456,13 +2506,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * which is where it is argued and where a reviewer should push back on it.
      */
     private suspend fun syncGossip() {
-        val now = Instant.now()
         GossipService.sync(
             context = getApplication<Application>(),
-            contacts = contactKeysOf(_state.value.friends).size,
-            holding = gossip.publicStates.first().apply { prune(now.toEpochMilli()) }.held.isNotEmpty(),
-            gigTonight = gossipGigTonight(gigDatesOf(timelines), now),
-            alwaysRelay = _state.value.alwaysRelay,
+            activeUntil = io.github.magnusencoded.stationtostation.data.gossip.gossipActiveUntil(timelines, gossip.stoppedAt()),
         )
     }
 
@@ -2476,10 +2522,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Writes one gig's attendance to state and disk together, never one without the other. */
-    private fun updateAttendance(gigId: String, edit: (StoredAttendance) -> StoredAttendance) {
+    private fun updateAttendance(gigId: String, edit: (StoredAttendance) -> StoredAttendance): Job {
         val updated = edit(_state.value.attendanceByGig[gigId] ?: StoredAttendance())
         _state.update { it.copy(attendanceByGig = it.attendanceByGig + (gigId to updated)) }
-        viewModelScope.launch { timelines.saveAttendance(gigId, updated) }
+        return viewModelScope.launch { timelines.saveAttendance(gigId, updated) }
     }
 
     fun selectSetlist(setlist: FmSetlist) {

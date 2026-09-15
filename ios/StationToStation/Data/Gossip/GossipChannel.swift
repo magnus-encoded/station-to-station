@@ -57,6 +57,17 @@ actor GossipChannel {
     /// at a moment nothing on the main one is watching for. `AppModel` is the only caller;
     /// the set it receives is the whole answer, so a missed call costs a repaint and not a
     /// fact — the ledger is still the record, and the next launch reads it back.
+    private var onPublic: (@Sendable (PublicGossipState) -> Void)?
+    func observePublic(_ handler: @escaping @Sendable (PublicGossipState) -> Void) async {
+        onPublic = handler
+        await publishWitnessed(now: Date())
+    }
+
+    func blockAuthor(_ author: String) async {
+        await ledger.blockAuthor(author)
+        await publishWitnessed(now: Date())
+    }
+
     private var onWitnessed: (@Sendable (Set<String>) -> Void)?
 
     init(ledger: GossipLedger = GossipLedger()) { self.ledger = ledger }
@@ -68,9 +79,10 @@ actor GossipChannel {
     }
 
     private func publishWitnessed(now: Date) async {
-        guard let onWitnessed else { return }
         let millis = Int64(now.timeIntervalSince1970 * 1000)
-        onWitnessed(await ledger.publicSnapshot(now: millis).witnessedGigIds())
+        let state = await ledger.publicSnapshot(now: millis)
+        onWitnessed?(state.witnessedGigIds())
+        onPublic?(state)
     }
 
     // --- What the app tells the channel ---
@@ -82,7 +94,11 @@ actor GossipChannel {
     /// The public channel does not gate a **Pass** on this set (a v2 fact is signed by a Gig
     /// scope, not by a Contact, and is meant to travel further than one hop). It is what
     /// `AppModel` turns into "run the radio or do not".
-    func setContacts(_ friends: [Friend]) { contacts = contactKeysOf(friends) }
+    func setContacts(_ friends: [Friend]) async {
+        contacts = contactKeysOf(friends)
+        await ledger.recognizeContacts(contacts)
+        await publishWitnessed(now: Date())
+    }
 
     func setNightEnds(_ ends: [String: Date]) { nightEnds = ends }
 
@@ -114,6 +130,24 @@ actor GossipChannel {
         return false
     }
 
+    func publishLog(gigId: String, localGigId: String, expiry: Date, changes: [Int: String], now: Date = Date()) async {
+        guard !changes.isEmpty, let scope = await ledger.authorScope(localGigId: localGigId),
+              let author = GigIdentity.publicKeyBase64(scope: scope) else { return }
+        let millis = Int64(now.timeIntervalSince1970 * 1000)
+        let state = await ledger.publicSnapshot(now: millis)
+        let previous = state.facts.values.filter { $0.author == author }
+        let former = Set(previous.flatMap { $0.formerIds + [$0.gigId] }).subtracting([gigId]).sorted()
+        let revision = max(millis, (previous.map(\.createdAt).max() ?? 0) + 1)
+        let facts = changes.sorted { $0.key < $1.key }.compactMap { line, text -> GossipEnvelope? in
+            var fact = GossipEnvelope(gigId: gigId, formerIds: former, scope: scope, author: author,
+                createdAt: revision, expiresAt: Int64(expiry.timeIntervalSince1970 * 1000), kind: "log", line: line, text: text)
+            fact.attribution = GigIdentity.attribution(scope: scope, author: author) ?? ""
+            return fact.signed { GigIdentity.sign(scope: scope, $0) }
+        }
+        _ = await ledger.receivePublic(facts, from: "", now: millis, local: true)
+        await publishWitnessed(now: now)
+    }
+
     /// Independent nightly relay key: no durable Contact identity on the public wire.
     private func relayScope(_ now: Date) -> String {
         let day = Calendar.current.startOfDay(for: now.addingTimeInterval(-6 * 3600))
@@ -137,9 +171,9 @@ actor GossipChannel {
 
     func receivePublic(_ pass: PublicGossipPass, from: String, now: Date = Date()) async {
         let millis = Int64(now.timeIntervalSince1970 * 1000)
-        _ = await ledger.receivePublic(pass.batch, from: from, now: millis)
+        let accepted = await ledger.receivePublicFacts(pass.batch, from: from, now: millis)
         var state = await ledger.publicSnapshot(now: millis)
-        for request in pass.batch where request.kind == "request" && request.author == from {
+        for request in accepted where request.kind == "request" && request.author == from {
             guard let local = state.localClaim(for: request),
                   let witness = witnessRequest(request, with: local, now: millis,
                     sign: { GigIdentity.sign(scope: local.scope, $0) }) else { continue }
@@ -149,6 +183,7 @@ actor GossipChannel {
         // A witness for *this* device's own claim arrives in the same batch as anything
         // else, so the repaint is asked for after the whole batch rather than only when
         // this device was the one doing the witnessing.
+        await ledger.recognizeContacts(contacts)
         await publishWitnessed(now: now)
     }
 

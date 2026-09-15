@@ -56,12 +56,19 @@ struct StoredLog: Codable, Equatable {
     /// An older cache has no `enteredAt` at all, which decodes as "unknown" (`0`) per
     /// entry — never backfilled, never guessed.
     var enteredAt: [Int64] = []
+    /// Explicit completion; edits preserve it and explicit reopening clears it.
+    var completedAt: Int64? = nil
+    var lineNumbers: [Int] = []
+    var nextLineNumber: Int = 0
 
-    init(songs: [String] = [], closed: Bool = false, remembered: [String] = [], enteredAt: [Int64] = []) {
+    init(songs: [String] = [], closed: Bool = false, remembered: [String] = [], enteredAt: [Int64] = [], completedAt: Int64? = nil, lineNumbers: [Int] = [], nextLineNumber: Int = 0) {
         self.songs = songs
         self.closed = closed
         self.remembered = remembered
         self.enteredAt = enteredAt
+        self.completedAt = completedAt
+        self.lineNumbers = lineNumbers
+        self.nextLineNumber = nextLineNumber
     }
 
     // By hand rather than synthesized, so a missing key falls back to the default
@@ -70,10 +77,23 @@ struct StoredLog: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         songs = (try? c.decodeIfPresent([String].self, forKey: .songs)) ?? nil ?? []
+        lineNumbers = (try? c.decodeIfPresent([Int].self, forKey: .lineNumbers)) ?? []
+        nextLineNumber = (try? c.decodeIfPresent(Int.self, forKey: .nextLineNumber)) ?? 0
+        completedAt = try? c.decodeIfPresent(Int64.self, forKey: .completedAt)
         closed = (try? c.decodeIfPresent(Bool.self, forKey: .closed)) ?? nil ?? false
         remembered = (try? c.decodeIfPresent([String].self, forKey: .remembered)) ?? nil ?? []
         enteredAt = (try? c.decodeIfPresent([Int64].self, forKey: .enteredAt)) ?? nil ?? []
     }
+
+    func completing(_ closed: Bool, now: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) -> StoredLog {
+        var result = self
+        result.closed = closed
+        result.completedAt = closed ? (completedAt ?? now) : nil
+        return result
+    }
+
+    func lineNumberAt(_ i: Int) -> Int { i < lineNumbers.count ? lineNumbers[i] : i }
+    private var nextNumber: Int { max(nextLineNumber, (songs.indices.map(lineNumberAt).max() ?? -1) + 1) }
 
     /// Songs actually named. A **Gap** is in the record but is not a title.
     func named() -> [String] { songs.filter { !$0.isBlank } }
@@ -98,7 +118,8 @@ struct StoredLog: Codable, Equatable {
             songs: songs + [song],
             closed: closed,
             remembered: aligned() + [""],
-            enteredAt: alignedTimestamps() + [now]
+            enteredAt: alignedTimestamps() + [now], completedAt: completedAt,
+            lineNumbers: songs.indices.map(lineNumberAt) + [nextNumber], nextLineNumber: nextNumber + 1
         )
     }
 
@@ -109,7 +130,8 @@ struct StoredLog: Codable, Equatable {
         s.remove(at: i)
         r.remove(at: i)
         t.remove(at: i)
-        return StoredLog(songs: s, closed: closed, remembered: r, enteredAt: t)
+        return StoredLog(songs: s, closed: closed, remembered: r, enteredAt: t, completedAt: completedAt,
+            lineNumbers: songs.indices.filter { $0 != i }.map(lineNumberAt), nextLineNumber: nextNumber)
     }
 
     /// `i` becomes `title`, and what was there moves into `remembered`.
@@ -125,7 +147,8 @@ struct StoredLog: Codable, Equatable {
         var s = songs, r = aligned()
         if r[i].isBlank { r[i] = songs[i] }
         s[i] = title
-        return StoredLog(songs: s, closed: closed, remembered: r, enteredAt: alignedTimestamps())
+        return StoredLog(songs: s, closed: closed, remembered: r, enteredAt: alignedTimestamps(), completedAt: completedAt,
+            lineNumbers: lineNumbers, nextLineNumber: nextLineNumber)
     }
 
     /// The words come back as the entry. A wrong correction is never a one-way door.
@@ -134,7 +157,8 @@ struct StoredLog: Codable, Equatable {
         var s = songs, r = aligned()
         s[i] = line
         r[i] = ""
-        return StoredLog(songs: s, closed: closed, remembered: r, enteredAt: alignedTimestamps())
+        return StoredLog(songs: s, closed: closed, remembered: r, enteredAt: alignedTimestamps(), completedAt: completedAt,
+            lineNumbers: lineNumbers, nextLineNumber: nextLineNumber)
     }
 
     /// `remembered` at `songs`'s length: an older cache carries none at all.
