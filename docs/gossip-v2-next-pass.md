@@ -1078,7 +1078,21 @@ Central-send acceptance, when the Pixel is available:
    (copied from `docs/prototypes/gossip_v2_server.py`). Wait for READY.
 3. On Pixel, run `adb -s SERIAL shell am instrument -w -e manual_ble_server true
    -e class io.github.magnusencoded.stationtostation.GossipRadioDeviceTest#centralSendsOwnCheckInRequest
-   io.github.magnusencoded.stationtostation.test/androidx.test.runner.AndroidJUnitRunner`.
+   io.github.magnusencoded.stationtostation.debug.test/androidx.test.runner.AndroidJUnitRunner`.
 4. Require BOTH instrumentation success and the Pi's independent verified request
    PASS, recording the build SHA and Fact id. This tests production central radio
    with an injected signed request, not app Check in wiring or witness projection.
+
+
+CI verification for this resumption:
+
+- [iOS run 35009342006](https://github.com/magnus-encoded/station-to-station/actions/runs/35009342006),
+  `9bca267`: green. 642 tests, 5 skipped, zero failures; the new adoption restart
+  case passed. Unsigned iPhone build and IPA packaging passed. This is simulator
+  and build evidence, not iPhone radio validation.
+- [Android run 35009506760](https://github.com/magnus-encoded/station-to-station/actions/runs/35009506760),
+  `c9cc2ef`: green, including unit tests, debug/device-test APKs and measure APK.
+- #455 is still incomplete: publication choice, phone access and the locked-iPhone
+  experiment are pending. Receipt generation/ranking remains gated on that
+  experiment. Cross-platform/locked-phone acceptance, battery measurements and
+  remaining application-level lifecycle/UI checks are not established by CI.
