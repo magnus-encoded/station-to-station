@@ -25,6 +25,7 @@ actor GossipChannel {
     static let shared = GossipChannel()
 
     private let ledger: GossipLedger
+    private let timeline: TimelineStore
 
     /// The **Contacts** this device holds, by public key — the same base64 SPKI strings
     /// `Friend.publicKey` carries and the wire moves.
@@ -70,7 +71,10 @@ actor GossipChannel {
 
     private var onWitnessed: (@Sendable (Set<String>) -> Void)?
 
-    init(ledger: GossipLedger = GossipLedger()) { self.ledger = ledger }
+    init(ledger: GossipLedger = GossipLedger(), timeline: TimelineStore = TimelineStore()) {
+        self.ledger = ledger
+        self.timeline = timeline
+    }
 
     /// Watch this device's witnessed check-ins, and answer once with what is already known.
     func observeWitnessed(_ handler: @escaping @Sendable (Set<String>) -> Void) async {
@@ -157,7 +161,10 @@ actor GossipChannel {
     func publicPass(to peer: String, nonce: Data, now: Date = Date()) async -> Data? {
         let millis = Int64(now.timeIntervalSince1970 * 1000)
         var state = await ledger.publicSnapshot(now: millis)
-        let offered = state.offer(to: peer, now: millis)
+        let cache = await timeline.load()
+        let ends = gossipParticipationEnds(cache: cache, stoppedAt: GossipTransport.shared.stoppedAt)
+        guard ends.values.contains(where: { millis < $0 }) else { return nil }
+        let offered = state.offer(to: peer, now: millis, participationEnds: ends)
         let request = passAuthor(offered, localAuthors: state.localAuthors)
         let batch = passBatch(offered, request: request)
         let scope = request?.scope ?? relayScope(now)

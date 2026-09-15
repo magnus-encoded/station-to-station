@@ -175,10 +175,13 @@ struct PublicGossipState: Codable {
         if envelope.kind == "receipt" { useful[envelope.text] = min(envelope.expiresAt, now + 120000) }
         return true
     }
-    mutating func offer(to peer: String, now: Int64) -> [GossipEnvelope] {
+    mutating func offer(to peer: String, now: Int64, participationEnds: [String: Int64] = [:]) -> [GossipEnvelope] {
         prune(now: now)
         // The encoder owns the byte budget, including the actual relay proof header.
-        return Array(held.values.filter { !$0.delivered.contains(peer) }.sorted {
+        return Array(held.values.filter { held in
+            let deadlines = (held.envelope.formerIds + [held.envelope.gigId]).compactMap { participationEnds[$0] }
+            return !held.delivered.contains(peer) && (deadlines.isEmpty || deadlines.contains { now < $0 })
+        }.sorted {
             ($0.envelope.createdAt, $0.envelope.id) > ($1.envelope.createdAt, $1.envelope.id)
         }.prefix(gossipMaxBatch).map { $0.envelope })
     }

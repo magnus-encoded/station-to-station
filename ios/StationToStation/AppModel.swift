@@ -478,15 +478,10 @@ final class AppModel: ObservableObject {
         let friends = state.friends
         Task {
             let cache = await timelines.load()
-            let attendance = cache.attendance()
-            let logs = Dictionary(cache.gigs.values.map { gig in
-                (gig.setlistId ?? gig.id, cache.gigLogs[gig.id] ?? StoredLog())
-            }, uniquingKeysWith: { first, _ in first })
-            let until = ends.compactMap { id, end in
-                let log = logs[id] ?? StoredLog()
-                return gossipParticipationUntil(checkedInAt: attendance[id]?.checkedInAt,
-                    closed: log.closed, completedAt: log.completedAt, nightEnd: end, stoppedAt: GossipTransport.shared.stoppedAt)
-            }.max()
+            let deadlines = gossipParticipationEnds(cache: cache, stoppedAt: GossipTransport.shared.stoppedAt)
+            let until = deadlines.values.max().flatMap { millis in
+                millis > 0 ? Date(timeIntervalSince1970: Double(millis) / 1000) : nil
+            }
             GossipTransport.shared.contactsChanged(friends, activeUntil: until)
         }
         Task { await GossipChannel.shared.setNightEnds(ends) }
