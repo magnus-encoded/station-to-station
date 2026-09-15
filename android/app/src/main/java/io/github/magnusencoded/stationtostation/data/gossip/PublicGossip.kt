@@ -210,10 +210,13 @@ data class PublicGossipState(
         if (envelope.kind == "receipt") useful[envelope.text] = minOf(envelope.expiresAt, now + 120000)
         return true
     }
-    fun offer(peer: String, now: Long): List<GossipEnvelope> {
+    fun offer(peer: String, now: Long, participationEnds: Map<String, Long> = emptyMap()): List<GossipEnvelope> {
         prune(now)
         // The encoder owns the byte budget, including the actual relay proof header.
-        return held.values.filter { peer !in it.delivered }
+        return held.values.filter { held ->
+            val deadlines = (held.envelope.formerIds + held.envelope.gigId).mapNotNull(participationEnds::get)
+            peer !in held.delivered && (deadlines.isEmpty() || deadlines.any { now < it })
+        }
             .sortedWith(compareByDescending<PublicHeld> { it.envelope.createdAt }.thenByDescending { it.envelope.id })
             .take(GOSSIP_MAX_BATCH).map { it.envelope }
     }

@@ -936,10 +936,20 @@ Validation:
 - The additional cryptographic recognition regression was added after the full
   Android run. Focused `PublicGossipTest` rerun: 14 tests, zero failures/errors/skips;
   build successful in 29s.
-- No Android device is connected (`adb devices` is empty). `idevice_id -l` cannot
-  retrieve a device list. No Swift compiler/Xcode is available on this Linux host.
-  No iOS build, locked-phone relay, device central/send flow or battery measurement
-  is claimed by this pass.
+- CI is green on `89bd25d`: [Android run 34921560663](https://github.com/magnus-encoded/station-to-station/actions/runs/34921560663)
+  and [iOS run 34921560636](https://github.com/magnus-encoded/station-to-station/actions/runs/34921560636).
+  iOS initially hit a SwiftUI type-check timeout in the nested gossip attribution
+  row; extracting that row into a helper fixed it. The successful run includes
+  633 simulator tests (5 skipped, zero failures) and the unsigned device build,
+  not iPhone radio validation.
+- Local debug and instrumentation APK builds succeeded in 2m5s. Both APKs
+  installed successfully on the Pixel 7 Pro. Wireless adb then hung, went offline,
+  and repeatedly disappeared; the identity instrumentation test did not produce
+  a result. Installation alone is not a device-test pass.
+- The Pi peer currently reports zero controllers through `btmgmt`, with its UART
+  interface DOWN/RAW and zero MTUs. No fresh two-peer BLE run was possible.
+  Locked-phone relay, device central/send flow and battery measurements remain
+  unverified by this pass.
 
 Remaining completion work:
 
@@ -954,3 +964,61 @@ Remaining completion work:
   not select a supported decay value or validate radio performance.
 - Complete #446 device verification and #448 lifecycle/application tests, then
   align #415's final record with the accepted implementation. Keep #408 open.
+
+
+### Prep reviewed after rate-limit reset (2026-09-15)
+
+Read `scratchpad/astra-handoff-2026-09-15.md` and all four linked prep notes.
+Verified locally that `a5ebd40` and `38cadfe` contain tests only and both prep
+worktrees exist. Their reported passing test runs were not independently rerun:
+the current execution sandbox cannot start Gradle or adb (details below).
+
+Corrections to the prep:
+
+- The original merge test did not call `TimelineStore.mergeGigs` and used one
+  signing key for both scopes. The revised Android test invokes the actual merge,
+  uses two keys, restarts the gossip store and checks that both identities and
+  their facts survive. Adoption now calls the actual timeline adoption method.
+  Matching iOS ledger coverage has been added. These tests do not claim that
+  publication wiring or merged-away projection is complete.
+- The ignored per-Gig relay test received its fact three hours before the check,
+  so the 15-minute carry window would already remove it. It could pass without
+  a participation fix. The replacement receives fresh facts one second before
+  grace ends and checks both sides of the exact cutoff while another Gig remains
+  active, then reopens and checks that the facts remain available.
+- The other ignored test incorrectly used radio eligibility as a proxy for an
+  unfinished text edit. Android's Log editor already keeps typed text locally
+  until its field Done callback calls `onAdd`. No failing assertion about radio
+  participation is retained to stand in for that UI requirement. Publication
+  policy clarification was requested; production publication behaviour is unchanged.
+
+Uncommitted implementation now carries per-Gig participation deadlines through
+Android's service snapshot and into `PublicGossipState.offer`. iOS derives the
+same map from persisted attendance and Logs for each outgoing Pass and uses it
+for the app's aggregate radio deadline. Known local and external ids share a
+cutoff; expired known Gigs are filtered before the batch budget. Unknown nights
+can still be carried blindly while a checked-in Gig keeps the radio active.
+Filtering does not delete facts or reset carry retention. Matching lifecycle
+tests cover cutoff, reopening, retention and manual stop. This work is **not yet
+compiled or accepted**.
+
+Current verification limits:
+
+- `git diff --check` passes. No new test suite pass is claimed.
+- Cherry-pick failed with `.git/sequencer: Read-only file system`; applied the
+  two test patches to the working tree and revised them there. Nothing committed
+  or pushed in this resumption.
+- Gradle wrapper could not write its cache lock. Retrying the installed Gradle
+  with a writable `/tmp/gossip-gradle` home failed before compilation with
+  `Could not determine a usable wildcard IP for this machine` in
+  `FileLockContentionHandler`.
+- adb failed to start its listener with `Operation not permitted`; this is a
+  sandbox restriction, not new evidence that the Pixel itself is offline.
+- GitHub API access fails. Prior green CI on `89bd25d` does not cover these edits.
+- Pi reboot/power-cycle was not attempted; the prep warns it interrupts this
+  computer's internet. The prep's controller diagnosis has not been refreshed.
+
+Still outstanding: merged-away Gig projection policy/integration, #444 receipt
+creation and neighbour scheduling, actual app/device acceptance, and final ADR
+alignment. The checked-in/request/witness and radio viability requirements remain
+open; do not close #408 based on the newly added tests.

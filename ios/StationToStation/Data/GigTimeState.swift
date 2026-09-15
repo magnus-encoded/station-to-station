@@ -203,3 +203,20 @@ func gossipParticipationUntil(checkedInAt: Int64?, closed: Bool, completedAt: In
     guard let completedAt else { return nightEnd }
     return min(nightEnd, Date(timeIntervalSince1970: Double(completedAt) / 1000 + 1800))
 }
+
+/// Keep ended known nights in the map so another active Gig cannot prolong their relay.
+/// Local and external ids name the same participation; unknown nights remain blind carry.
+func gossipParticipationEnds(cache: TimelineCache, stoppedAt: Int64 = 0) -> [String: Int64] {
+    let attendance = cache.attendance()
+    return cache.gigs.values.reduce(into: [:]) { ends, gig in
+        let id = gig.setlistId ?? gig.id
+        let log = cache.gigLogs[gig.id] ?? StoredLog()
+        let until = gossipExpiry(gigDate: gig.date).flatMap { end in
+            gossipParticipationUntil(checkedInAt: attendance[id]?.checkedInAt,
+                closed: log.closed, completedAt: log.completedAt, nightEnd: end, stoppedAt: stoppedAt)
+        }
+        let millis = until.map { Int64($0.timeIntervalSince1970 * 1000) } ?? 0
+        ends[gig.id] = millis
+        ends[id] = millis
+    }
+}

@@ -64,6 +64,48 @@ final class GossipLedgerTests: XCTestCase {
         XCTAssertEqual(scope, afterContactRemoval)
     }
 
+    func testAdoptionAndExplicitMergePreserveSeparateSigningScopesAcrossRestart() async throws {
+        let timelineFile = file.appendingPathExtension("timeline")
+        defer { try? FileManager.default.removeItem(at: timelineFile) }
+        let timeline = TimelineStore(file: timelineFile)
+        let first = await timeline.createLocalGig(date: "04-09-2026", artist: "Band", venue: "Room")
+        let second = await timeline.createLocalGig(date: "04-09-2026", artist: "Band", venue: "Room")
+        let store = ledger()
+        let firstScope = await store.authorScope(localGigId: first)
+        let secondScope = await store.authorScope(localGigId: second)
+        let a = try XCTUnwrap(firstScope)
+        let b = try XCTUnwrap(secondScope)
+        XCTAssertNotEqual(a, b)
+        func fact(_ gig: String, scope: String, identity: Identity, text: String,
+                  time: Int64, former: [String] = []) throws -> GossipEnvelope {
+            try XCTUnwrap(GossipEnvelope(gigId: gig, formerIds: former, scope: scope,
+                author: identity.publicKey, createdAt: time, expiresAt: 100000,
+                kind: "log", line: 0, text: text).signed {
+                    try? identity.privateKey.signature(for: $0).derRepresentation
+                })
+        }
+        let original = try fact(first, scope: a, identity: alice, text: "Opener", time: 1000)
+        let other = try fact(second, scope: b, identity: bob, text: "Another observation", time: 1000)
+        _ = await store.receivePublic([original, other], from: "", now: 1000, local: true)
+        let adopted = await timeline.adoptSetlistId(gigId: first, setlistId: "fm-1")
+        XCTAssertTrue(adopted)
+        let replacement = try fact("fm-1", scope: a, identity: alice, text: "Corrected", time: 1001, former: [first])
+        _ = await store.receivePublic([replacement], from: "", now: 1001, local: true)
+        let merged = await timeline.mergeGigs(first, second)
+        XCTAssertNotNil(merged)
+        let reopened = ledger()
+        let restoredA = await reopened.authorScope(localGigId: first)
+        let restoredB = await reopened.authorScope(localGigId: second)
+        XCTAssertEqual(restoredA, a)
+        XCTAssertEqual(restoredB, b)
+        let state = await reopened.publicSnapshot(now: 1001)
+        XCTAssertEqual(state.localAuthors.count, 2)
+        XCTAssertEqual(state.facts.count, 3)
+        XCTAssertEqual(state.project(gigIds: [first]).map(\.text), ["Corrected"])
+        XCTAssertEqual(state.project(gigIds: ["fm-1"]).map(\.text), ["Corrected"])
+        // This verifies identity retention, not rehoming the merged-away public Log.
+    }
+
     func testAuthorScopeReadsOldLedgerAndFailsClosedWhenItCannotPersist() async throws {
         // A ledger written by the v1 pipeline: its `seen`/`held` keys are gone from
         // `StoredGossip` and are ignored on decode rather than failing the read.

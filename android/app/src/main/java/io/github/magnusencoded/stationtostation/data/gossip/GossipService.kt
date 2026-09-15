@@ -68,7 +68,9 @@ class GossipService : Service() {
     private val publicLock = Any()
     private val publicPending = mutableMapOf<String, List<String>>()
 
-    @Volatile private var activeUntil: Instant? = null
+    @Volatile private var participationEnds: Map<String, Long> = emptyMap()
+    private val activeUntil: Instant?
+        get() = participationEnds.values.maxOrNull()?.takeIf { it > 0 }?.let(Instant::ofEpochMilli)
     private var starting = false
     private var peripheral: GossipPeripheral? = null
     private var central: GossipCentral? = null
@@ -110,7 +112,7 @@ class GossipService : Service() {
         if (!starting) {
             starting = true
             scope.launch {
-                activeUntil = gossipActiveUntil(timeline, store.stoppedAt())
+                participationEnds = gossipParticipationEnds(timeline, store.stoppedAt())
                 withContext(Dispatchers.Main) {
                     starting = false
                     if (!gossipRelayShouldRun(activeUntil, Instant.now())) stopSelf()
@@ -189,7 +191,7 @@ class GossipService : Service() {
             context = applicationContext,
             publicPassFor = { peer, nonce -> synchronized(publicLock) {
                 if (!gossipRelayShouldRun(activeUntil, Instant.now())) return@synchronized null
-                val offered = publicState.offer(peer, System.currentTimeMillis())
+                val offered = publicState.offer(peer, System.currentTimeMillis(), participationEnds)
                 val request = passAuthor(offered, publicState.localAuthors)
                 val batch = passBatch(offered, request)
                 val identity = request?.let { GigIdentity(it.scope) } ?: relayIdentity()
@@ -219,7 +221,7 @@ class GossipService : Service() {
             while (isActive) {
                 val remaining = activeUntil?.toEpochMilli()?.minus(System.currentTimeMillis()) ?: 0
                 delay(remaining.coerceIn(1, 30_000))
-                activeUntil = gossipActiveUntil(timeline, store.stoppedAt())
+                participationEnds = gossipParticipationEnds(timeline, store.stoppedAt())
                 if (!gossipRelayShouldRun(activeUntil, Instant.now())) {
                     withContext(Dispatchers.Main) { stopSelf() }
                     return@launch
@@ -361,15 +363,25 @@ suspend fun gigDatesOf(timeline: TimelineStore): Map<String, LocalDate> {
 }
 
 /** Read persisted attendance and completion so shutdown works with no Activity alive. */
-suspend fun gossipActiveUntil(timeline: TimelineStore, stoppedAt: Long = 0): Instant? {
+suspend fun gossipActiveUntil(timeline: TimelineStore, stoppedAt: Long = 0): Instant? =
+    gossipParticipationEnds(timeline, stoppedAt).values.maxOrNull()?.takeIf { it > 0 }?.let(Instant::ofEpochMilli)
+
+/** Known Gig ids retain a deadline even after participation ends. Unknown nights can
+ * still be carried blindly while another checked-in Gig keeps the radio running. */
+suspend fun gossipParticipationEnds(timeline: TimelineStore, stoppedAt: Long = 0): Map<String, Long> {
     val cache = timeline.load()
     val attendance = cache.attendance()
     val logs = cache.logs()
-    return cache.gigs.values.mapNotNull { gig ->
-        val date = runCatching { LocalDate.parse(gig.date, GIG_DATE) }.getOrNull() ?: return@mapNotNull null
-        val id = cache.keyOf(gig.id)
-        val claim = attendance[id] ?: return@mapNotNull null
-        val log = logs[id] ?: io.github.magnusencoded.stationtostation.data.StoredLog()
-        gossipParticipationUntil(claim.checkedInAt, log.closed, log.completedAt, gossipExpiry(date), stoppedAt)
-    }.maxOrNull()
+    return buildMap {
+        cache.gigs.values.forEach { gig ->
+            val id = cache.keyOf(gig.id)
+            val date = runCatching { LocalDate.parse(gig.date, GIG_DATE) }.getOrNull()
+            val log = logs[id] ?: io.github.magnusencoded.stationtostation.data.StoredLog()
+            val until = date?.let {
+                gossipParticipationUntil(attendance[id]?.checkedInAt, log.closed, log.completedAt, gossipExpiry(it), stoppedAt)
+            }?.toEpochMilli() ?: 0L
+            put(gig.id, until)
+            put(id, until)
+        }
+    }
 }
