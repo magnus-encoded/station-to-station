@@ -1552,6 +1552,7 @@ internal fun StationField(
     imeDone: Boolean = false,
     /** A pasted lineup is many lines; every other field here is one. */
     singleLine: Boolean = true,
+    onDone: (() -> Unit)? = null,
 ) {
     OutlinedTextField(
         value = value,
@@ -1559,7 +1560,7 @@ internal fun StationField(
         label = { Text(label) },
         singleLine = singleLine,
         keyboardOptions = if (imeDone) KeyboardOptions(imeAction = ImeAction.Done) else KeyboardOptions.Default,
-        keyboardActions = KeyboardActions.Default,
+        keyboardActions = if (onDone != null) KeyboardActions(onDone = { onDone() }) else KeyboardActions.Default,
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = Amber,
             unfocusedBorderColor = LineLit,
@@ -3983,7 +3984,20 @@ fun StationEventScreen(
                         }
                     }
                 }
-                if (rows.isEmpty() && !canLog) {
+                val gossipFacts = state.publicGossip.project(setOf(setlist.id))
+                    .filter { it.author !in state.publicGossip.localAuthors }
+                val arrivals = state.publicGossip.arrivals(setOf(setlist.id)).mapNotNull { fact ->
+                    val key = state.publicGossip.recognition[fact.author]
+                    state.friends.firstOrNull { it.publicKey == key && key != null }?.name
+                }.distinct()
+                if (arrivals.isNotEmpty()) item {
+                    Text(arrivals.joinToString(", ") + " · checked in", color = Slate,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+                }
+                val gossipRows = io.github.magnusencoded.stationtostation.data.gossip.weaveGossip(
+                    woven.map { line -> line.logged?.let { log.songs[it] }
+                        ?: (line.published?.let { rows[it] } as? EventRow.SongItem)?.song?.name }, gossipFacts)
+                if (gossipRows.isEmpty() && !canLog) {
                     item {
                         Text(
                             // A night that hasn't happened has no setlist missing from
@@ -3997,7 +4011,21 @@ fun StationEventScreen(
                         )
                     }
                 }
-                itemsIndexed(woven) { _, line ->
+                itemsIndexed(gossipRows) { _, gossipRow ->
+                    gossipRow.facts.forEach { fact ->
+                        val key = state.publicGossip.recognition[fact.author]
+                        val name = state.friends.firstOrNull { it.publicKey == key && key != null }?.name ?: "Nearby listener"
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(name, color = Slate, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                            TextButton(onClick = { viewModel.blockGossip(fact.author) }) { Text("Block") }
+                        }
+                    }
+                    if (gossipRow.base == null) {
+                        Text(gossipRow.text?.ifBlank { "a song they couldn't name" }.orEmpty(), color = Ink,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+                    } else {
+                    val line = woven[gossipRow.base]
+
                     // Mine is an index into the **Log**, and the × and the correction
                     // panel act on it there — the published row beside it is never
                     // touched by either.
@@ -4066,6 +4094,7 @@ fun StationEventScreen(
                             }
                         }
                     }
+                }
                 }
                 // My own Log, and it is never taken away. A partial capture you can no
                 // longer correct from inside the app is the exact trap this feature is

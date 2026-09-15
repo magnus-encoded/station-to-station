@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject var model: AppModel
+    @State private var gossipStopped = false
     @State private var apiKey = ""
     @State private var clientId = ""
     @State private var clashfinderUser = ""
@@ -71,6 +72,14 @@ struct SettingsView: View {
             // without this the only way to drop a lane was to wipe the app.
             // Friends lists the same people; what is new here is the lane — how
             // many nights of theirs this device is actually holding.
+            Section("Gossip") {
+                Text("Check in to share small public observations with nearby phones. Completing the set keeps gossip active for 30 minutes, until 06:00 at the latest. Delivery is best effort.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button(gossipStopped ? "Gossip stopped until your next check-in" : "Stop gossip") {
+                    GossipTransport.shared.stopParticipation()
+                    gossipStopped = true
+                }.disabled(gossipStopped)
+            }
             Section("Known timelines") {
                 if s.friends.isEmpty {
                     Text("Nobody yet. Swipe left from your timeline to swap cards with "

@@ -75,7 +75,8 @@ private let gossipPeripheralRestoreId = "io.github.magnusencoded.stationtostatio
 
 /// Persist the last relay eligibility decision so CoreBluetooth restoration can begin
 /// during launch, before the timeline's asynchronous load supplies tonight's state.
-private let gossipEnabledKey = "gossip.hasContacts"
+private let gossipUntilKey = "gossip.participationUntil"
+private let gossipStoppedKey = "gossip.manuallyStoppedAt"
 
 /// How long one meeting may take before it is abandoned.
 ///
@@ -161,29 +162,42 @@ final class GossipTransport: NSObject {
     /// holding are dropped, and the feature quietly degrades to "works while the app is open",
     /// which is the failure mode this whole issue exists to avoid.
     func wakeAtLaunch() {
-        guard UserDefaults.standard.bool(forKey: gossipEnabledKey) else { return }
+        guard participating else { return }
         start()
     }
 
-    /// Contacts control attribution, independently of public relay participation.
-    func contactsChanged(_ friends: [Friend], relayEnabled: Bool = true) {
-        UserDefaults.standard.set(relayEnabled, forKey: gossipEnabledKey)
+    /// Persist the deadline for CoreBluetooth restoration; an old enabled bit is insufficient.
+    func contactsChanged(_ friends: [Friend], activeUntil: Date?) {
+        UserDefaults.standard.set(activeUntil?.timeIntervalSince1970 ?? 0, forKey: gossipUntilKey)
         Task { [channel] in await channel.setContacts(friends) }
         queue.async { [weak self] in
             guard let self else { return }
-            if relayEnabled { self.startLocked() } else { self.stopLocked() }
+            self.startLocked()
         }
     }
 
-    /// Check in is participation consent even when this phone has no Contacts yet.
-    func checkInStarted() {
-        UserDefaults.standard.set(true, forKey: gossipEnabledKey)
-        start()
+    var stoppedAt: Int64 { Int64(UserDefaults.standard.double(forKey: gossipStoppedKey) * 1000) }
+
+    func stopParticipation() {
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: gossipStoppedKey)
+        UserDefaults.standard.set(0, forKey: gossipUntilKey)
+        queue.async { [weak self] in self?.stopLocked() }
+    }
+
+    private var shutdown: DispatchWorkItem?
+    private var participating: Bool {
+        Date().timeIntervalSince1970 < UserDefaults.standard.double(forKey: gossipUntilKey)
     }
 
     private func start() { queue.async { [weak self] in self?.startLocked() } }
 
     private func startLocked() {
+        guard participating else { stopLocked(); return }
+        shutdown?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.stopLocked() }
+        shutdown = work
+        let remaining = UserDefaults.standard.double(forKey: gossipUntilKey) - Date().timeIntervalSince1970
+        queue.asyncAfter(deadline: .now() + max(0, remaining), execute: work)
         if central == nil {
             central = CBCentralManager(delegate: self, queue: queue, options: [
                 CBCentralManagerOptionRestoreIdentifierKey: gossipCentralRestoreId,
@@ -204,6 +218,8 @@ final class GossipTransport: NSObject {
     }
 
     private func stopLocked() {
+        shutdown?.cancel()
+        shutdown = nil
         central?.stopScan()
         for (_, meeting) in meetings { central?.cancelPeripheralConnection(meeting.peripheral) }
         meetings.removeAll()
@@ -218,6 +234,7 @@ final class GossipTransport: NSObject {
     }
 
     private func scanLocked() {
+        guard participating else { stopLocked(); return }
         guard let central, central.state == .poweredOn else { return }
         // The service list is mandatory in the background — a nil list discovers nothing — and
         // duplicates are refused there whatever this asks for, so it asks for the behaviour it
@@ -227,6 +244,7 @@ final class GossipTransport: NSObject {
     }
 
     private func advertiseLocked() {
+        guard participating else { stopLocked(); return }
         guard let peripheral, peripheral.state == .poweredOn, !advertising else { return }
         let challenge = CBMutableCharacteristic(type: gossipChallengeCharacteristic,
                                                 properties: .read, value: nil,
@@ -255,6 +273,7 @@ final class GossipTransport: NSObject {
     }
 
     private func beginMeeting(_ peripheral: CBPeripheral) {
+        guard participating else { stopLocked(); return }
         let id = peripheral.identifier
         guard meetings[id] == nil, meetings.count < gossipMaxConcurrentMeetings else { return }
         if let last = lastMet[id], Date().timeIntervalSince(last) < gossipPeerCooldown { return }
@@ -298,6 +317,7 @@ final class GossipTransport: NSObject {
     }
 
     private func writeNext(_ meeting: GossipMeeting, _ characteristic: CBCharacteristic) {
+        guard participating else { stopLocked(); return }
         guard !meeting.pending.isEmpty else { return }
         let chunk = meeting.pending.removeFirst()
         meeting.peripheral.writeValue(chunk, for: characteristic, type: .withResponse)
@@ -325,6 +345,7 @@ extension GossipTransport: CBCentralManagerDelegate {
     /// behalf. They arrive with no delegate — reattaching it is what lets an in-flight meeting
     /// continue rather than sit connected and silent until it times out.
     func centralManager(_ central: CBCentralManager, willRestoreState state: [String: Any]) {
+        guard participating else { stopLocked(); return }
         let restored = state[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] ?? []
         for peripheral in restored {
             peripheral.delegate = self
@@ -439,6 +460,11 @@ extension GossipTransport: CBPeripheralManagerDelegate {
     /// a long read is a series of requests and CoreBluetooth is content for the response to
     /// come a moment later.
     func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveRead request: CBATTRequest) {
+        guard participating else {
+            peripheral.respond(to: request, withResult: .readNotPermitted)
+            stopLocked()
+            return
+        }
         guard request.characteristic.uuid == gossipChallengeCharacteristic else {
             peripheral.respond(to: request, withResult: .attributeNotFound)
             return
@@ -492,6 +518,11 @@ extension GossipTransport: CBPeripheralManagerDelegate {
 
     func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveWrite requests: [CBATTRequest]) {
         guard let first = requests.first else { return }
+        guard participating else {
+            peripheral.respond(to: first, withResult: .writeNotPermitted)
+            stopLocked()
+            return
+        }
         guard requests.allSatisfy({ $0.characteristic.uuid == gossipPassCharacteristic }) else {
             peripheral.respond(to: first, withResult: .attributeNotFound)
             return

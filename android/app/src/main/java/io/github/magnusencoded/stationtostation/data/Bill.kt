@@ -214,6 +214,11 @@ data class StoredLog(
      * entry — never backfilled, never guessed.
      */
     val enteredAt: List<Long> = emptyList(),
+    /** Explicit set completion; edits preserve it and explicit reopening clears it. */
+    val completedAt: Long? = null,
+    /** Stable author-local line numbers; removing an entry must not renumber its neighbours. */
+    val lineNumbers: List<Int> = emptyList(),
+    val nextLineNumber: Int = 0,
 ) {
     /** Songs actually named. A **Gap** is in the record but is not a title. */
     fun named(): List<String> = songs.filter { it.isNotBlank() }
@@ -221,6 +226,12 @@ data class StoredLog(
 
     /** The words originally written at [i], or null where the entry is as typed. */
     fun rememberedAt(i: Int): String? = remembered.getOrNull(i)?.takeIf { it.isNotBlank() }
+
+    /** Only an explicit reopen clears the previous completion's grace period. */
+    fun completing(closed: Boolean, now: Long = System.currentTimeMillis()): StoredLog =
+        copy(closed = closed, completedAt = if (closed) completedAt ?: now else null)
+
+    fun lineNumberAt(i: Int): Int = lineNumbers.getOrNull(i) ?: i
 
     /** When entry [i] was typed, or null where no timestamp was ever recorded. */
     fun enteredAtOrNull(i: Int): Long? = enteredAt.getOrNull(i)?.takeIf { it != 0L }
@@ -230,6 +241,8 @@ data class StoredLog(
         songs = songs + song,
         remembered = aligned() + "",
         enteredAt = alignedTimestamps() + now,
+        lineNumbers = songs.indices.map(::lineNumberAt) + maxOf(nextLineNumber, (songs.indices.maxOfOrNull(::lineNumberAt) ?: -1) + 1),
+        nextLineNumber = maxOf(nextLineNumber, (songs.indices.maxOfOrNull(::lineNumberAt) ?: -1) + 1) + 1,
     )
 
     /** One entry gone, and the words behind it with it. */
@@ -237,6 +250,8 @@ data class StoredLog(
         songs = songs.filterIndexed { j, _ -> j != i },
         remembered = aligned().filterIndexed { j, _ -> j != i },
         enteredAt = alignedTimestamps().filterIndexed { j, _ -> j != i },
+        lineNumbers = songs.indices.map(::lineNumberAt).filterIndexed { j, _ -> j != i },
+        nextLineNumber = maxOf(nextLineNumber, (songs.indices.maxOfOrNull(::lineNumberAt) ?: -1) + 1),
     )
 
     /**

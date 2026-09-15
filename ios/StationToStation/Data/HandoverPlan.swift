@@ -320,6 +320,7 @@ func unionPlaylists(_ kept: [StoredPlaylist], _ arriving: [StoredPlaylist]) -> [
 func unionLog(_ kept: StoredLog, _ arriving: StoredLog) -> StoredLog {
     var longer = arriving.songs.count > kept.songs.count ? arriving : kept
     longer.closed = kept.closed && arriving.closed
+    longer.completedAt = [kept.completedAt, arriving.completedAt].compactMap { $0 }.min()
     return longer
 }
 

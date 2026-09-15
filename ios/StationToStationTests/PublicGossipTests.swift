@@ -3,6 +3,64 @@ import CryptoKit
 @testable import StationToStation
 
 final class PublicGossipTests: XCTestCase {
+    func testExchangeRecognizesEmbeddedClaimWithoutUndoingBlock() throws {
+        let card = P256.Signing.PrivateKey()
+        let durable = card.publicKey.derRepresentation.base64EncodedString()
+        let author = key.publicKey.derRepresentation.base64EncodedString()
+        let binding = Data("station-to-station/gossip-identity/2\nclaim-scope\n\(author)".utf8)
+        let signature = try card.signature(for: binding).derRepresentation
+        let mask = SymmetricKey(data: SHA256.hash(data: Data("station-to-station/gossip-mask/2\n\(durable)\nclaim-scope".utf8)))
+        let sealed = try AES.GCM.seal(signature, using: mask)
+        var draft = GossipEnvelope(gigId: "gig", scope: "claim-scope", author: author,
+            createdAt: 1000, expiresAt: 100000, kind: "request")
+        draft.attribution = try XCTUnwrap(sealed.combined).base64EncodedString()
+        let claim = try XCTUnwrap(draft.signed { try? key.signature(for: $0).derRepresentation })
+        let witness = try XCTUnwrap(GossipEnvelope(gigId: "gig", scope: "witness-scope", author: durable,
+            createdAt: 1500, expiresAt: 100000, kind: "witness", text: claim.record())
+            .signed { try? card.signature(for: $0).derRepresentation })
+        var state = PublicGossipState()
+        XCTAssertTrue(state.receive(witness, from: "relay", now: 1600))
+        state.blocked.insert(author)
+        state.recognizeContacts([durable])
+        XCTAssertEqual(state.recognition[author], durable)
+        XCTAssertTrue(state.arrivals(gigIds: ["gig"]).isEmpty)
+        XCTAssertEqual(state.offer(to: "next", now: 1700), [witness])
+        state.recognizeContacts([])
+        XCTAssertEqual(state.recognition[author], durable)
+    }
+
+    func testAlignmentPreservesReprisesAndEveryAuthorsOrder() {
+        let a = ["A", "B", "A"].enumerated().map { index, text -> GossipEnvelope in
+            var item = fact(text); item.line = index; return item
+        }
+        let aligned = weaveGossip(base: ["A", "B", "A"], facts: Array(a.reversed()))
+        XCTAssertEqual(aligned.map(\.text), ["A", "B", "A"])
+        XCTAssertEqual(aligned.map(\.base), [0, 1, 2])
+        XCTAssertTrue(aligned.allSatisfy { $0.facts.count == 1 })
+        let disagreeing = a.prefix(2).enumerated().map { index, fact -> GossipEnvelope in
+            var item = fact; item.author = "other"; item.line = 1 - index; return item
+        }
+        let combined = weaveGossip(base: [], facts: a + disagreeing)
+        for author in [a[0].author, "other"] {
+            XCTAssertEqual((a + disagreeing).filter { $0.author == author }.sorted { $0.line < $1.line }.map(\.text),
+                combined.flatMap(\.facts).filter { $0.author == author }.map(\.text))
+        }
+        XCTAssertEqual(combined.flatMap(\.facts).count, 5)
+    }
+
+    func testDurableBlockAppliesAfterRecognitionAcrossRestartWithoutStoppingRelay() throws {
+        let envelope = fact()
+        var state = PublicGossipState()
+        XCTAssertTrue(state.receive(envelope, from: "relay", now: 2000))
+        state.blocked.insert("contact-key")
+        XCTAssertEqual(state.project(gigIds: ["gig"]), [envelope])
+        state.recognition[envelope.author] = "contact-key"
+        var restored = try JSONDecoder().decode(PublicGossipState.self, from: JSONEncoder().encode(state))
+        XCTAssertTrue(restored.project(gigIds: ["gig"]).isEmpty)
+        XCTAssertEqual(restored.offer(to: "another-relay", now: 2001), [envelope])
+        XCTAssertNotNil(restored.facts[envelope.id])
+    }
+
     func testSharedSignedPassVerifiesAndRoundTripsExactly() throws {
         let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -150,6 +208,18 @@ final class PublicGossipTests: XCTestCase {
         XCTAssertNotNil(state.held[witness.id])
         // This device witnessed someone else. Its own night is not witnessed by that.
         XCTAssertEqual(state.witnessedGigIds(), [])
+        var remote = PublicGossipState()
+        XCTAssertTrue(remote.receive(witness, from: "blind-relay", now: 1800))
+        XCTAssertEqual(remote.arrivals(gigIds: ["gig"]), [claim])
+        XCTAssertTrue(remote.arrivals(gigIds: ["unrelated-gig"]).isEmpty)
+        XCTAssertNil(remote.facts[claim.id])
+        XCTAssertTrue(remote.receive(claim, from: claim.author, now: 1801))
+        XCTAssertEqual(remote.arrivals(gigIds: ["gig"]), [claim])
+        remote.prune(now: 100001)
+        XCTAssertEqual(remote.arrivals(gigIds: ["gig"]), [claim])
+        remote.blocked.insert(claim.author)
+        XCTAssertTrue(remote.arrivals(gigIds: ["gig"]).isEmpty)
+        XCTAssertNotNil(remote.facts[witness.id])
     }
 
     func testOnlyMyOwnWitnessedClaimProjects() throws {

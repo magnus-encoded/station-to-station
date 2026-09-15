@@ -68,6 +68,8 @@ class GossipService : Service() {
     private val publicLock = Any()
     private val publicPending = mutableMapOf<String, List<String>>()
 
+    @Volatile private var activeUntil: Instant? = null
+    private var starting = false
     private var peripheral: GossipPeripheral? = null
     private var central: GossipCentral? = null
 
@@ -95,14 +97,27 @@ class GossipService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            stopSelf()
+            scope.launch {
+                store.stopParticipation(System.currentTimeMillis())
+                withContext(Dispatchers.Main) { stopSelf() }
+            }
             return START_NOT_STICKY
         }
         // Before anything else, and on every delivery of the intent: Android kills a service
         // that has not called this within five seconds, and an already-started service being
         // asked to start again is normal.
         startForegroundNotification(publicCount())
-        if (peripheral == null) startRadio()
+        if (!starting) {
+            starting = true
+            scope.launch {
+                activeUntil = gossipActiveUntil(timeline, store.stoppedAt())
+                withContext(Dispatchers.Main) {
+                    starting = false
+                    if (!gossipRelayShouldRun(activeUntil, Instant.now())) stopSelf()
+                    else if (peripheral == null) startRadio()
+                }
+            }
+        }
         // NOT_STICKY, matching "deliberately not a boot receiver" in GossipPolicy: a service
         // the system killed for resources should not silently reappear. Opening the app is
         // what brings it back.
@@ -123,7 +138,13 @@ class GossipService : Service() {
     private fun startRadio() {
         fun relayIdentity(): GigIdentity = GigIdentity("relay-" +
             java.time.ZonedDateTime.now().minusHours(6).toLocalDate().toString())
-        scope.launch { refresh() }
+        scope.launch {
+            settings.friends.collect { friends ->
+                contacts = contactKeysOf(friends)
+                names = friends.mapNotNull { friend -> friend.publicKey?.let { it to friend.name } }.toMap()
+                store.updatePublic(System.currentTimeMillis()) { it.recognizeContacts(contacts) }
+            }
+        }
         scope.launch {
             store.publicStates.collect { state ->
                 synchronized(publicLock) { publicState = state }
@@ -139,6 +160,7 @@ class GossipService : Service() {
             it.onPublicDelivery = { delivery ->
                 scope.launch {
                     val now = System.currentTimeMillis()
+                    if (!gossipRelayShouldRun(activeUntil, Instant.ofEpochMilli(now))) return@launch
                     var accepted = 0
                     store.updatePublic(now) { state ->
                         val directRequests = delivery.pass.batch.filter { envelope ->
@@ -148,6 +170,7 @@ class GossipService : Service() {
                         delivery.pass.batch.filter { it.kind != "request" }.forEach { envelope ->
                             if (state.receive(envelope, delivery.from, now)) accepted++
                         }
+                        state.recognizeContacts(contacts)
                         directRequests.forEach { request ->
                             val local = state.localClaimFor(request) ?: return@forEach
                             val identity = GigIdentity(local.scope)
@@ -165,6 +188,7 @@ class GossipService : Service() {
         central = GossipCentral(
             context = applicationContext,
             publicPassFor = { peer, nonce -> synchronized(publicLock) {
+                if (!gossipRelayShouldRun(activeUntil, Instant.now())) return@synchronized null
                 val offered = publicState.offer(peer, System.currentTimeMillis())
                 val request = passAuthor(offered, publicState.localAuthors)
                 val batch = passBatch(offered, request)
@@ -193,7 +217,13 @@ class GossipService : Service() {
         // be named in the shade until the next thing happened, which may be never.
         scope.launch {
             while (isActive) {
-                delay(GOSSIP_NEARBY_WINDOW.toMillis() / 5)
+                val remaining = activeUntil?.toEpochMilli()?.minus(System.currentTimeMillis()) ?: 0
+                delay(remaining.coerceIn(1, 30_000))
+                activeUntil = gossipActiveUntil(timeline, store.stoppedAt())
+                if (!gossipRelayShouldRun(activeUntil, Instant.now())) {
+                    withContext(Dispatchers.Main) { stopSelf() }
+                    return@launch
+                }
                 store.updatePublic(System.currentTimeMillis()) { }
                 withContext(Dispatchers.Main) { startForegroundNotification(publicCount()) }
             }
@@ -298,18 +328,10 @@ class GossipService : Service() {
          * on every one of those, because the decision is made from state that is already
          * loaded and the system ignores a start for a service that is running.
          */
-        fun sync(context: Context, contacts: Int, holding: Boolean, gigTonight: Boolean, alwaysRelay: Boolean) {
+        fun sync(context: Context, activeUntil: Instant?) {
             val intent = Intent(context, GossipService::class.java)
-            val run = gossipRelayShouldRun(contacts, holding, gigTonight, alwaysRelay)
-            Log.i(
-                TAG,
-                "relay should run: $run (contacts=$contacts, holding=$holding, " +
-                    "gigTonight=$gigTonight, alwaysRelay=$alwaysRelay)",
-            )
-            GossipRadioStatus.gate(
-                "contacts=$contacts, holding=$holding, gigTonight=$gigTonight, " +
-                    "alwaysRelay=$alwaysRelay",
-            )
+            val run = gossipRelayShouldRun(activeUntil, Instant.now())
+            GossipRadioStatus.gate("activeUntil=$activeUntil")
             if (run) {
                 runCatching { context.startForegroundService(intent) }
                     .onFailure { Log.w(TAG, "could not start the gossip service: $it") }
@@ -336,4 +358,18 @@ suspend fun gigDatesOf(timeline: TimelineStore): Map<String, LocalDate> {
         val date = runCatching { LocalDate.parse(gig.date, GIG_DATE) }.getOrNull() ?: return@mapNotNull null
         cache.keyOf(gig.id) to date
     }.toMap()
+}
+
+/** Read persisted attendance and completion so shutdown works with no Activity alive. */
+suspend fun gossipActiveUntil(timeline: TimelineStore, stoppedAt: Long = 0): Instant? {
+    val cache = timeline.load()
+    val attendance = cache.attendance()
+    val logs = cache.logs()
+    return cache.gigs.values.mapNotNull { gig ->
+        val date = runCatching { LocalDate.parse(gig.date, GIG_DATE) }.getOrNull() ?: return@mapNotNull null
+        val id = cache.keyOf(gig.id)
+        val claim = attendance[id] ?: return@mapNotNull null
+        val log = logs[id] ?: io.github.magnusencoded.stationtostation.data.StoredLog()
+        gossipParticipationUntil(claim.checkedInAt, log.closed, log.completedAt, gossipExpiry(date), stoppedAt)
+    }.maxOrNull()
 }

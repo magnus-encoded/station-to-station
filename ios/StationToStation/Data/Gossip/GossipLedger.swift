@@ -68,15 +68,34 @@ actor GossipLedger {
     @discardableResult
     func receivePublic(_ batch: [GossipEnvelope], from: String, now: Int64,
                        local: Bool = false) -> Int {
+        receivePublicFacts(batch, from: from, now: now, local: local).count
+    }
+
+    /// Return only committed admissions, so replays cannot mint another witness.
+    func receivePublicFacts(_ batch: [GossipEnvelope], from: String, now: Int64,
+                            local: Bool = false) -> [GossipEnvelope] {
         var next = load()
         var state = next.publicState ?? PublicGossipState()
         state.prune(now: now)
-        var accepted = 0
-        for envelope in batch {
-            if state.receive(envelope, from: from, now: now, local: local) { accepted += 1 }
-        }
+        let accepted = batch.filter { state.receive($0, from: from, now: now, local: local) }
         next.publicState = state
-        return persist(next) ? accepted : 0
+        return persist(next) ? accepted : []
+    }
+
+    func recognizeContacts(_ contacts: Set<String>) {
+        var next = load()
+        var state = next.publicState ?? PublicGossipState()
+        state.recognizeContacts(contacts)
+        next.publicState = state
+        _ = persist(next)
+    }
+
+    func blockAuthor(_ author: String) {
+        var next = load()
+        var state = next.publicState ?? PublicGossipState()
+        state.blocked.insert(state.recognition[author] ?? author)
+        next.publicState = state
+        _ = persist(next)
     }
 
     func deliveredPublic(_ ids: [String], to peer: String) {

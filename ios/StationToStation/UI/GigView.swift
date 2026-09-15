@@ -92,17 +92,41 @@ struct GigView: View {
                         // says so — and neither record is changed by the other,
                         // which is still the rule: this decides reading order and
                         // nothing else.
+                        let publicState = model.state.publicGossip
+                        let received = publicState.project(gigIds: [show.id]).filter { !publicState.localAuthors.contains($0.author) }
+                        let arrivals = Set(publicState.arrivals(gigIds: [show.id]).compactMap { fact in
+                            model.state.friends.first { $0.publicKey != nil && $0.publicKey == publicState.recognition[fact.author] }?.name
+                        })
+                        if !arrivals.isEmpty {
+                            Text(arrivals.sorted().joined(separator: ", ") + " · checked in")
+                                .font(.system(size: 12)).foregroundStyle(muted).padding(.horizontal, 24)
+                        }
                         let log = model.state.gigLog
                         let woven = weaveSetlist(published: rows.map(publishedTitle),
                                                  logged: log.songs)
-                        if woven.isEmpty {
+                        let gossipRows = weaveGossip(base: woven.map { line in
+                            line.logged.map { log.songs[$0] } ?? line.published.flatMap { publishedTitle(rows[$0]) }
+                        }, facts: received)
+                        if gossipRows.isEmpty {
                             Text(emptySetLine)
                                 .font(.system(size: 13)).foregroundStyle(muted)
                                 .padding(.horizontal, 24).padding(.top, 8)
                         } else {
-                            ForEach(Array(woven.enumerated()), id: \.offset) { _, line in
-                                wovenRow(line, rows: rows, log: log, setlist: show,
-                                         canLog: canLog(show))
+                            ForEach(Array(gossipRows.enumerated()), id: \.offset) { _, row in
+                                ForEach(row.facts, id: \.id) { fact in
+                                    HStack {
+                                        Text(model.state.friends.first { $0.publicKey != nil && $0.publicKey == publicState.recognition[fact.author] }?.name ?? "Nearby listener")
+                                            .font(.system(size: 11)).foregroundStyle(muted)
+                                        Spacer()
+                                        Button("Block") { model.blockGossip(fact.author) }.font(.system(size: 11))
+                                    }.padding(.horizontal, 24)
+                                }
+                                if let base = row.base {
+                                    wovenRow(woven[base], rows: rows, log: log, setlist: show, canLog: canLog(show))
+                                } else {
+                                    Text(row.text?.isEmpty == false ? row.text! : "a song they couldn't name")
+                                        .padding(.horizontal, 24).padding(.vertical, 8)
+                                }
                             }
                         }
                         // My own Log (#169), under the set and never taken away — it

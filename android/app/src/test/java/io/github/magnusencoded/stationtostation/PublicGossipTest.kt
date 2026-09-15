@@ -10,6 +10,67 @@ import java.io.File
 import io.github.magnusencoded.stationtostation.data.exchange.verifyChallenge
 
 class PublicGossipTest {
+    @Test fun exchangeRecognizesAClaimInsideARelayedWitnessWithoutUndoingItsBlock() {
+        val card = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        val durable = gossipBase64(card.public.encoded)
+        val author = gossipBase64(key.public.encoded)
+        val binding = "station-to-station/gossip-identity/2\nclaim-scope\n$author".toByteArray()
+        val signature = Signature.getInstance("SHA256withECDSA").run {
+            initSign(card.private); update(binding); sign()
+        }
+        val mask = java.security.MessageDigest.getInstance("SHA-256")
+            .digest("station-to-station/gossip-mask/2\n$durable\nclaim-scope".toByteArray())
+        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, javax.crypto.spec.SecretKeySpec(mask, "AES"))
+        val claim = GossipEnvelope(gigId = "gig", scope = "claim-scope", author = author,
+            createdAt = 1000, expiresAt = 100000, kind = "request",
+            attribution = gossipBase64(cipher.iv + cipher.doFinal(signature))).signed { bytes ->
+            Signature.getInstance("SHA256withECDSA").run { initSign(key.private); update(bytes); sign() }
+        }!!
+        val witness = GossipEnvelope(gigId = "gig", scope = "witness-scope", author = durable,
+            createdAt = 1500, expiresAt = 100000, kind = "witness", text = claim.record()).signed { bytes ->
+            Signature.getInstance("SHA256withECDSA").run { initSign(card.private); update(bytes); sign() }
+        }!!
+        val state = PublicGossipState()
+        assertTrue(state.receive(witness, "relay", 1600))
+        state.blocked.add(author)
+        state.recognizeContacts(setOf(durable))
+        assertEquals(durable, state.recognition[author])
+        assertTrue(state.arrivals(setOf("gig")).isEmpty())
+        assertEquals(listOf(witness), state.offer("next", 1700))
+        state.recognizeContacts(emptySet())
+        assertEquals(durable, state.recognition[author])
+    }
+
+    @Test fun alignmentRetainsReprisesAndConflictingAuthorOrderWithoutMutatingFacts() {
+        val a = listOf(fact("A").copy(line = 0), fact("B").copy(line = 1), fact("A").copy(line = 2))
+        val aligned = weaveGossip(listOf("A", "B", "A"), a.reversed())
+        assertEquals(listOf("A", "B", "A"), aligned.map { it.text })
+        assertEquals(listOf(0, 1, 2), aligned.map { it.base })
+        assertTrue(aligned.all { it.facts.size == 1 })
+        val disagreeing = a.take(2).mapIndexed { index, f -> f.copy(author = "other", line = 1 - index) }
+        val combined = weaveGossip(emptyList(), a + disagreeing)
+        for (author in listOf(a.first().author, "other")) {
+            assertEquals((a + disagreeing).filter { it.author == author }.sortedBy { it.line }.map { it.text },
+                combined.flatMap { it.facts }.filter { it.author == author }.map { it.text })
+        }
+        assertEquals(5, combined.sumOf { it.facts.size })
+    }
+
+    @Test fun durableContactBlockAppliesAfterRecognitionAndSurvivesRestartWithoutStoppingRelay() {
+        val envelope = fact()
+        val state = PublicGossipState()
+        state.receive(envelope, "relay", 2000)
+        state.blocked.add("contact-key")
+        assertEquals(listOf(envelope), state.project(setOf("gig")))
+        state.recognition[envelope.author] = "contact-key"
+        val restored = kotlinx.serialization.json.Json.decodeFromString<PublicGossipState>(
+            kotlinx.serialization.json.Json.encodeToString(PublicGossipState.serializer(), state))
+        assertTrue(restored.project(setOf("gig")).isEmpty())
+        assertEquals(listOf(envelope), restored.offer("another-relay", 2001))
+        assertTrue(restored.facts.containsKey(envelope.id))
+    }
+
     @Test fun sharedSignedPassVerifiesAndRoundTripsExactly() {
         val dir = generateSequence(File("").absoluteFile) { it.parentFile }
             .map { File(it, "fixtures/gossip/signed-pass") }.first { it.isDirectory }
@@ -149,6 +210,18 @@ class PublicGossipTest {
         assertTrue(state.held.containsKey(witness.id))
         // This device witnessed someone else. Its own night is not witnessed by that.
         assertEquals(emptySet<String>(), state.witnessedGigIds())
+        val remote = PublicGossipState()
+        assertTrue(remote.receive(witness, "blind-relay", 1800))
+        assertEquals(listOf(request), remote.arrivals(setOf("gig")))
+        assertTrue(remote.arrivals(setOf("unrelated-gig")).isEmpty())
+        assertFalse(remote.facts.containsKey(request.id))
+        assertTrue(remote.receive(request, request.author, 1801))
+        assertEquals(listOf(request), remote.arrivals(setOf("gig")))
+        remote.prune(100001)
+        assertEquals(listOf(request), remote.arrivals(setOf("gig")))
+        remote.blocked.add(request.author)
+        assertTrue(remote.arrivals(setOf("gig")).isEmpty())
+        assertTrue(remote.facts.containsKey(witness.id))
     }
 
     @Test fun onlyMyOwnWitnessedClaimProjects() {

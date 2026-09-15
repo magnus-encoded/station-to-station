@@ -172,6 +172,20 @@ data class PublicGossipState(
      * process can still distinguish my claim from a stranger's after restart. */
     val localAuthors: MutableSet<String> = mutableSetOf(),
 ) {
+    fun isBlocked(author: String): Boolean = author in blocked || recognition[author] in blocked
+
+    /** Recognition is durable and never changes a Block; later Exchange only adds attribution. */
+    fun recognizeContacts(contacts: Set<String>) {
+        val envelopes = facts.values + held.values.map { it.envelope }
+        val claims = envelopes.filter { it.kind == "witness" && it.valid() }
+            .mapNotNull { decodePublicEnvelope(it.text) }
+        (envelopes + claims).forEach { envelope ->
+            if (envelope.author !in recognition && envelope.valid()) {
+                recognizeGossip(envelope, contacts)?.let { recognition[envelope.author] = it }
+            }
+        }
+    }
+
     fun prune(now: Long) {
         seen.entries.removeAll { it.value <= now }
         held.entries.removeAll { it.value.until <= now || it.value.envelope.expiresAt <= now }
@@ -187,7 +201,7 @@ data class PublicGossipState(
         seen[envelope.id] = envelope.expiresAt
         // A request is durable evidence of what its author asserted. It is not witnessed
         // merely because it arrived directly; the separate witness is what strengthens it.
-        if (envelope.kind != "receipt" && envelope.author !in blocked) facts[envelope.id] = envelope
+        if (envelope.kind != "receipt" && !isBlocked(envelope.author)) facts[envelope.id] = envelope
         if (local) localAuthors.add(envelope.author)
         if (local || envelope.kind !in setOf("request", "receipt")) {
             held[envelope.id] = PublicHeld(envelope, minOf(envelope.expiresAt, now + PUBLIC_CARRY_MS), mutableSetOf(from))
@@ -207,7 +221,7 @@ data class PublicGossipState(
     fun project(gigIds: Set<String>): List<GossipEnvelope> {
         val latestScope = facts.values.groupBy { it.author to it.scope }.mapValues { (_, values) -> values.maxWith(compareBy<GossipEnvelope> { it.createdAt }.thenBy { it.id }) }
         return facts.values.filter { fact ->
-            fact.author !in blocked && latestScope[fact.author to fact.scope]?.let { (it.formerIds + it.gigId).any(gigIds::contains) } == true
+            !isBlocked(fact.author) && latestScope[fact.author to fact.scope]?.let { (it.formerIds + it.gigId).any(gigIds::contains) } == true
         }.groupBy { Triple(it.author, it.scope, if (it.kind == "log") "line:${it.line}" else it.id) }
             .values.map { versions -> versions.maxWith(compareBy<GossipEnvelope> { it.createdAt }.thenBy { it.id }) }
             .sortedWith(compareBy<GossipEnvelope> { it.createdAt }.thenBy { it.id })
@@ -218,6 +232,16 @@ data class PublicGossipState(
     fun localClaimFor(request: GossipEnvelope): GossipEnvelope? = facts.values
         .filter { it.kind == "request" && it.author in localAuthors && it.sameGig(request) }
         .maxWithOrNull(compareBy<GossipEnvelope> { it.createdAt }.thenBy { it.id })
+
+    /** A relayed witness carries the arrival claim even when its one-hop request never reached us. */
+    fun arrivals(gigIds: Set<String>): List<GossipEnvelope> = project(gigIds)
+        .mapNotNull { fact -> when (fact.kind) {
+            "request" -> fact
+            "witness" -> decodePublicEnvelope(fact.text)
+            else -> null
+        } }
+        .filter { !isBlocked(it.author) && it.author !in localAuthors }
+        .distinctBy { it.id }
 
     /** Preserve self-assertion and witnessed evidence as two answers. */
     fun checkInEvidence(gigIds: Set<String>, author: String): Pair<Boolean, Boolean> {
@@ -230,7 +254,7 @@ data class PublicGossipState(
 
     /** The claims some directly-present device signed a witness for, whoever wrote them. */
     private fun witnessedClaims(): List<GossipEnvelope> = facts.values
-        .filter { it.kind == "witness" }
+        .filter { it.kind == "witness" && !isBlocked(it.author) }
         .mapNotNull { decodePublicEnvelope(it.text) }
 
     /**
@@ -283,4 +307,35 @@ fun witnessRequest(
         author = witness.author, createdAt = now, expiresAt = minOf(request.expiresAt, witness.expiresAt),
         kind = "witness", text = request.record(), attribution = witness.attribution,
     ).signed(sign)
+}
+
+/** Self-contained changed lines; timestamps on StoredLog remain the original observations. */
+fun gossipLogChanges(before: io.github.magnusencoded.stationtostation.data.StoredLog,
+                     after: io.github.magnusencoded.stationtostation.data.StoredLog): Map<Int, String> {
+    val old = before.songs.indices.associate { before.lineNumberAt(it) to before.songs[it] }
+    val new = after.songs.indices.associate { after.lineNumberAt(it) to after.songs[it] }
+    return (old.keys + new.keys).mapNotNull { line ->
+        val text = new[line] ?: ""
+        if (old[line] == new[line]) null else line to text
+    }.toMap()
+}
+
+
+/** A display row retains every source; alignment never writes into a local Log. */
+data class GossipLogRow(val base: Int?, val text: String?, val facts: List<GossipEnvelope> = emptyList())
+
+fun weaveGossip(base: List<String?>, facts: List<GossipEnvelope>): List<GossipLogRow> {
+    var rows = base.mapIndexed { index, text -> GossipLogRow(index, text) }
+    // Each author supplies an ordered sequence. Align sequences, never a set of titles:
+    // two occurrences within a sequence must remain two occurrences on screen.
+    facts.filter { it.kind == "log" }.groupBy { it.author + "\n" + it.scope }.toSortedMap().values.forEach { versions ->
+        val source = versions.sortedBy { it.line }
+        rows = io.github.magnusencoded.stationtostation.data.weaveSetlist(rows.map { it.text }, source.map { it.text }).map { match ->
+            val previous = match.published?.let { rows[it] }
+            val fact = match.logged?.let { source[it] }
+            GossipLogRow(previous?.base, previous?.text ?: fact?.text,
+                previous?.facts.orEmpty() + listOfNotNull(fact))
+        }
+    }
+    return rows
 }
