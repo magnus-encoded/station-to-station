@@ -1634,6 +1634,57 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// I was there too (#438): a **Contact**'s **Gig** joins my own **Line**.
+    ///
+    /// The night already exists as a record — it is the one on screen — so there is
+    /// nothing to mint and nothing to paste. `savePlanned` writes the record and mints
+    /// the claim, and its never-downgrade rule is the whole of the guard against
+    /// double-tapping this: a night I already hold keeps the claim it has.
+    ///
+    /// Which claim a *new* one gets is `claimOnAdding`'s answer, off the same window
+    /// the **Room**'s check-in reads. Only a `checked_in` claim is stamped with a
+    /// moment and gossiped, because only that one is a statement about where this
+    /// phone is right now — carrying a `checked_in` envelope for a night in 1992 would
+    /// be the channel lying about presence (#417).
+    func addContactGigToMyLine(_ setlist: FmSetlist) {
+        Task {
+            let held = await timelines.load().attendance()[setlist.id]
+            var attendance = await timelines.savePlanned(setlist)
+            guard held == nil else {
+                // Already mine. The record is refreshed by the write above, the claim
+                // is left exactly as it stands, and state catches up with both.
+                adoptClaim(setlist, attendance)
+                return
+            }
+            let claim = claimOnAdding(gigDate: setlist.eventDate, now: Date())
+            if claim != "planned" {
+                attendance.provenance = claim
+                attendance.checkedInAt = claim == "checked_in"
+                    ? Int64(Date().timeIntervalSince1970 * 1000) : nil
+                await timelines.saveAttendance(setlistId: setlist.id, attendance: attendance)
+            }
+            adoptClaim(setlist, attendance)
+            if claim == "checked_in" {
+                await GossipChannel.shared.checkedIn(gigId: setlist.id, gigDate: setlist.eventDate)
+            }
+            // A night claimed as more than a plan belongs on the Spine, which is built
+            // from the store rather than from `plannedGigs`.
+            if claim != "planned" { loadTimeline() }
+        }
+    }
+
+    /// The night and its claim, into state — the same two lists and one map every
+    /// other write of a claim keeps in step, so the Timeline and the open **Gig** draw
+    /// it without waiting for a cold start.
+    private func adoptClaim(_ setlist: FmSetlist, _ attendance: StoredAttendance) {
+        state.attendanceByGig[setlist.id] = attendance
+        state.plannedGigs = sortedPlanned(state.plannedGigs.filter { $0.id != setlist.id } + [setlist])
+        if state.selectedSetlist?.id == setlist.id {
+            state.selectedAttendance = attendance
+            markSelectedOwnership(setlist, attendance: attendance)
+        }
+    }
+
     // --- The recording as an index (#27) ---
 
     /// Where each song sits in a recording, as long as the setlist is now.
