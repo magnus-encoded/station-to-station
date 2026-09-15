@@ -3,6 +3,12 @@ package io.github.magnusencoded.stationtostation
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.magnusencoded.stationtostation.ble.GossipPeripheral
+import io.github.magnusencoded.stationtostation.ble.GossipCentral
+import io.github.magnusencoded.stationtostation.data.gossip.GossipEnvelope
+import io.github.magnusencoded.stationtostation.data.gossip.PublicGossipPass
+import io.github.magnusencoded.stationtostation.data.gossip.encodePublicGossipPass
+import io.github.magnusencoded.stationtostation.data.gossip.gossipBase64
+import io.github.magnusencoded.stationtostation.data.gossip.publicGossipAuthPayload
 import io.github.magnusencoded.stationtostation.data.gossip.GigIdentity
 import io.github.magnusencoded.stationtostation.data.gossip.PublicGossipState
 import org.junit.Assert.*
@@ -17,6 +23,30 @@ import java.util.concurrent.TimeUnit
 /** Opt-in real-radio test. Run the Pi's gossip_v2_peer.py with six trials alongside it. */
 @RunWith(AndroidJUnit4::class)
 class GossipRadioDeviceTest {
+    /** Run gossip_v2_server.py on the Pi; require its independent PASS result too. */
+    @Test fun centralSendsOwnCheckInRequest() {
+        assumeTrue(InstrumentationRegistry.getArguments().getString("manual_ble_server") == "true")
+        val scope = "central-test-${UUID.randomUUID()}"
+        val identity = GigIdentity(scope)
+        val now = System.currentTimeMillis()
+        val request = requireNotNull(GossipEnvelope(gigId = "transport-test", scope = scope,
+            author = identity.publicKey(), createdAt = now, expiresAt = now + 180_000,
+            kind = "request").signed(identity::sign))
+        val pushed = CountDownLatch(1)
+        val radio = GossipCentral(InstrumentationRegistry.getInstrumentation().targetContext,
+            publicPassFor = { _, nonce -> encodePublicGossipPass(PublicGossipPass(
+                identity.publicKey(), gossipBase64(identity.sign(publicGossipAuthPayload(nonce))),
+                listOf(request))) },
+            due = { true }, onPushed = { pushed.countDown() })
+        try {
+            radio.start()
+            assertTrue("Phone did not send its request to the Pi", pushed.await(150, TimeUnit.SECONDS))
+        } finally {
+            radio.stop()
+            KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry("gossip-gig-$scope")
+        }
+    }
+
     /** Run gossip_v2_peer.py --controls: indirect/direct request, indirect/direct receipt. */
     @Test fun indirectControlsAreRejectedWithoutPoisoningDirectDelivery() {
         assumeTrue(InstrumentationRegistry.getArguments().getString("manual_ble_controls") == "true")
@@ -70,7 +100,8 @@ class GossipRadioDeviceTest {
         }
         try {
             radio.start()
-            assertTrue("Pi did not deliver six verified Passes", received.await(90, TimeUnit.SECONDS))
+            // Six Passes can take 14–17 seconds each on the Pi; allow discovery and scheduling headroom.
+            assertTrue("Pi did not deliver six verified Passes", received.await(150, TimeUnit.SECONDS))
             synchronized(state) {
                 assertEquals(1, state.facts.size)
                 assertTrue("second copy must close the storm gate", state.held.isEmpty())

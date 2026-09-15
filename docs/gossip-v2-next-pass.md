@@ -1045,3 +1045,40 @@ open; do not close #408 based on the newly added tests.
 - `indirectControlsAreRejectedWithoutPoisoningDirectDelivery` with `manual_ble_controls=true`, under `--controls`:
   Pi 4/4, **OK (1 test), 50.1 s**. BlueZ restored to `#Channels = 3`, and Bluetooth active.
 - Still unproven: the phone central/send path, the iOS radio, locked-phone relay and battery.
+
+
+### #455 resumed — 2026-09-15 evening
+
+- `9bca267` brings iOS adoption to Android parity: adopting an already-held
+  setlist.fm id combines into the older Gig through the same path as explicit
+  merging. Both Logs survive; stronger attendance survives. Matching Android/iOS
+  store tests cover both survivor directions, stable line numbers, restart and
+  repeated adoption. The decided orphaned-public-Facts edge case is unchanged.
+- Local focused Android verification: TimelineStoreTest 76 + LogTest 22, zero
+  failures/errors/skips. Debug and androidTest APK builds succeeded (1m6s total).
+- ADR-0019/0021 amendments retain historical decisions while correcting current
+  participation rules and simulation claims. The wire record now explicitly says
+  receipt authoring and neighbour ranking are not implemented.
+- Reviewed the pre-existing uncommitted central-send instrumentation test and Pi
+  GATT server. The server registers/advertises on pinet with its existing Bluetooth
+  settings. A five-second readiness probe printed READY then timed out with no
+  sender, as expected; this is not a transport acceptance pass.
+- Direct Pi access: `ssh -i ~/.ssh/id_ed25519_pinet pi@10.42.0.1`. Bluetooth powered,
+  address B8:27:EB:D4:E1:A6. No restart or networking change was needed.
+- Pixel unavailable: adb discovery reports 192.168.1.216:5555 but connection is
+  refused. No iPhone accessible through idevice_id. Device access requested.
+- Publication choice requested: committed line versus whole-Log completion.
+  Existing committed-line publication remains unchanged pending the answer.
+  #455 requires the early locked-iPhone experiment before usefulness work.
+
+Central-send acceptance, when the Pixel is available:
+
+1. Install both newly built APKs in place (`adb -s SERIAL install -r ...`).
+2. On Pi, run `sudo /usr/bin/python3 /tmp/gossip-455-server.py --timeout 150`
+   (copied from `docs/prototypes/gossip_v2_server.py`). Wait for READY.
+3. On Pixel, run `adb -s SERIAL shell am instrument -w -e manual_ble_server true
+   -e class io.github.magnusencoded.stationtostation.GossipRadioDeviceTest#centralSendsOwnCheckInRequest
+   io.github.magnusencoded.stationtostation.test/androidx.test.runner.AndroidJUnitRunner`.
+4. Require BOTH instrumentation success and the Pi's independent verified request
+   PASS, recording the build SHA and Fact id. This tests production central radio
+   with an injected signed request, not app Check in wiring or witness projection.
