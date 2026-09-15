@@ -32,6 +32,7 @@ import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.bandsOf
 import io.github.magnusencoded.stationtostation.data.fmDate
 import io.github.magnusencoded.stationtostation.data.isLocal
+import io.github.magnusencoded.stationtostation.data.isMyNight
 import io.github.magnusencoded.stationtostation.data.localGigSetlist
 import io.github.magnusencoded.stationtostation.data.moveMedia
 import io.github.magnusencoded.stationtostation.data.parseFmDate
@@ -60,6 +61,8 @@ import io.github.magnusencoded.stationtostation.ui.TimelineNode
 import io.github.magnusencoded.stationtostation.ui.atVenue
 import io.github.magnusencoded.stationtostation.ui.canCheckInManually
 import io.github.magnusencoded.stationtostation.ui.checkInCandidate
+import io.github.magnusencoded.stationtostation.ui.claimOnAdding
+import io.github.magnusencoded.stationtostation.ui.nightWindow
 import io.github.magnusencoded.stationtostation.ui.venueMapsQuery
 import io.github.magnusencoded.stationtostation.ble.ProbeCard
 import io.github.magnusencoded.stationtostation.data.AccountsMove
@@ -2385,6 +2388,53 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         viewModelScope.launch { gossipAbout(gigId) }
+    }
+
+    /**
+     * I was there too: a **Contact**'s **Gig** becomes a **Node** on my own **Line**.
+     *
+     * The **Gig** id is derived from the setlist.fm id, so this is the same night on both
+     * phones and the pair of us become a **Crossing** rather than two nodes side by side —
+     * no link to copy, no second record minted.
+     *
+     * **The claim follows the clock**, off the one window every other clock rule reads —
+     * [claimOnAdding], which is where that decision lives and is tested, and which the iOS
+     * twin (#438) mirrors name for name.
+     *
+     * Silent on a night that is already mine — [isMyNight] is the one rule (#327), and
+     * re-adding must not downgrade a claim I already hold.
+     */
+    fun addContactGigToMyLine(setlist: FmSetlist) {
+        val held = _state.value
+        if (isMyNight(setlist.id, held.attendanceByGig[setlist.id], held.setlists, held.plannedGigs)) return
+        val claim = claimOnAdding(setlist.localDate()?.let(::nightWindow), LocalDateTime.now())
+        viewModelScope.launch {
+            // The record and the claim, in that order and for `addPlannedGig`'s reason:
+            // the lane filters on the claim the save settles, so state that does not
+            // carry it is a night saved and drawn by nothing until the next cold start.
+            timelines.savePlanned(setlist)
+            _state.update {
+                it.copy(
+                    plannedGigs = sortedPlanned(it.plannedGigs.filterNot { g -> g.id == setlist.id } + setlist),
+                )
+            }
+            updateAttendance(setlist.id) {
+                it.copy(
+                    provenance = claim,
+                    // Only a check-in has a moment it happened at. Claiming a 2019 night
+                    // now would stamp it with today, which is evidence of nothing.
+                    checkedInAt = if (claim == StoredAttendance.Provenance.CHECKED_IN) {
+                        System.currentTimeMillis()
+                    } else {
+                        it.checkedInAt
+                    },
+                )
+            }
+            // Gossip carries check-ins and only check-ins (#416): a retroactive `attended`
+            // claim is not one, and minting it as one would put a check-in on the radio
+            // for a night that ended years ago.
+            if (claim == StoredAttendance.Provenance.CHECKED_IN) gossipAbout(setlist.id)
+        }
     }
 
     /**

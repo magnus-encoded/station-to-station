@@ -109,6 +109,28 @@ fun nightWindow(gigDate: LocalDate): ClosedRange<LocalDateTime> =
     gigDate.atStartOfDay()..gigDate.plusDays(1).atTime(NIGHT_ENDS)
 
 /**
+ * The claim a night joins my **Line** with when I take it off a **Contact**'s **Gig**
+ * — "I was there too" (#438).
+ *
+ * The clock decides, off the one window [nightWindow], so this cannot disagree with what
+ * the **Room** offers on the same night: before it, a plan; inside it, the same
+ * `checked_in` the manual check-in writes, because tapping it there and then *is* a
+ * check-in; after it, `attended`.
+ *
+ * **An undated night reads as `attended`**, which is the one place this parts company
+ * with [gigLeaf]. That function keeps the plan-ahead actions for a night with no clock,
+ * and it is right to: it is deciding what *my* room offers. Here the night came off a
+ * **Contact**'s **Line**, which is nights they were at, so past is the only reading that
+ * is not a guess about the future. The iOS twin's `claimOnAdding` makes the same call.
+ */
+fun claimOnAdding(window: ClosedRange<LocalDateTime>?, now: LocalDateTime): String = when {
+    window == null -> StoredAttendance.Provenance.ATTENDED
+    now < window.start -> StoredAttendance.Provenance.PLANNED
+    now in window -> StoredAttendance.Provenance.CHECKED_IN
+    else -> StoredAttendance.Provenance.ATTENDED
+}
+
+/**
  * The humanised countdown for a gig still ahead — coarser the further off it is, so
  * "in 377 days" reads as "in 12 months". [daysUntil] must be >= 1; today, the night
  * itself and the past are other states' words, not a countdown's.

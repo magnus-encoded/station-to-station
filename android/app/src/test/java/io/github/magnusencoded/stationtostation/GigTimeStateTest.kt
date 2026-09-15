@@ -2,7 +2,9 @@ package io.github.magnusencoded.stationtostation
 
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.ui.GigTimeState
+import io.github.magnusencoded.stationtostation.ui.claimOnAdding
 import io.github.magnusencoded.stationtostation.ui.formatCountdown
+import io.github.magnusencoded.stationtostation.ui.nightWindow
 import io.github.magnusencoded.stationtostation.ui.gigStatus
 import io.github.magnusencoded.stationtostation.ui.gigTimeState
 import io.github.magnusencoded.stationtostation.ui.isPlanned
@@ -180,5 +182,42 @@ class GigTimeStateTest {
     fun `maps query is null when there's nothing worth searching for`() {
         assertNull(venueMapsQuery(null, null))
         assertNull(venueMapsQuery("  ", ""))
+    }
+
+    @Test
+    fun `taking a night still ahead off a Contact's Line is a plan`() {
+        assertEquals(
+            StoredAttendance.Provenance.PLANNED,
+            claimOnAdding(nightWindow(today.plusDays(8)), now),
+        )
+    }
+
+    @Test
+    fun `taking the night I am standing in is a check-in`() {
+        assertEquals(
+            StoredAttendance.Provenance.CHECKED_IN,
+            claimOnAdding(nightWindow(today), now),
+        )
+    }
+
+    @Test
+    fun `the small hours after are still the same night`() {
+        assertEquals(
+            StoredAttendance.Provenance.CHECKED_IN,
+            claimOnAdding(nightWindow(today), today.plusDays(1).atTime(3, 0)),
+        )
+    }
+
+    @Test
+    fun `taking a night that has been and gone is attended`() {
+        assertEquals(
+            StoredAttendance.Provenance.ATTENDED,
+            claimOnAdding(nightWindow(today.minusYears(7)), now),
+        )
+    }
+
+    @Test
+    fun `an undated night off a Contact's Line reads as past, not as a plan`() {
+        assertEquals(StoredAttendance.Provenance.ATTENDED, claimOnAdding(null, now))
     }
 }
