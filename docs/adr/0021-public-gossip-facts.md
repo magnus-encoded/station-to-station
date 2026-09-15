@@ -97,3 +97,19 @@ is normative, and its parameters are measured in [`sim/SWEEPS.md`](../../sim/SWE
 - `docs/gossip-public-wire.md` — the normative wire specification.
 - `sim/SWEEPS.md` — the measured basis for the Carry window and the relay parameters.
 - #408 — the epic.
+
+
+## Amendment — 2026-09-15: evidence and remaining work (#455)
+
+The earlier references to parameters being “measured” in `sim/SWEEPS.md` mean
+**simulated**. Those synthetic results do not establish device performance, battery
+cost or settled defaults. Carry, usefulness decay and participation grace are
+separate provisional parameters. ADR-0019's 2026-09-15 amendment supersedes its
+historical participation policy; its iOS background assumptions still need real
+locked-phone receive and forward trials.
+
+Receipts are accepted as one-hop controls, but no production emitter or useful-peer
+ranking exists yet. Binary decaying neighbour credit and random ties describe the
+intended policy, not current behaviour. #455 gates that work on iPhone viability.
+The publication choice between each committed line and whole-Log completion is
+still pending; current code publishes committed Log changes during participation.

@@ -465,6 +465,48 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual(1, after.gigs.count)
     }
 
+    func testAdoptionCombinesBothLogsAndKeepsCheckInAcrossRestart() async {
+        // Exercise both survivor directions: the local Gig can be older or newer.
+        for localIsOlder in [true, false] {
+            let file = tempFile()
+            let s = store(file)
+            if !localIsOlder {
+                await s.saveMedia(setlistId: "fm-night", media: [photo("vendor")])
+            }
+            let local = await s.createLocalGig(date: "25-06-2026", artist: "The Warning", venue: "Vaterland")
+            await s.saveMedia(setlistId: local, media: [photo("local")])
+            if localIsOlder {
+                await s.saveMedia(setlistId: "fm-night", media: [photo("vendor")])
+            }
+            let before = await s.load()
+            let holder = before.gigForSetlist("fm-night")!.id
+            let keep = localIsOlder ? local : holder
+            let gone = localIsOlder ? holder : local
+            await s.saveLog(setlistId: keep, log: StoredLog(songs: ["Intro", "Shared"],
+                lineNumbers: [4, 8], nextLineNumber: 9))
+            await s.saveLog(setlistId: gone, log: StoredLog(songs: ["Shared", "Encore"]))
+            await s.saveAttendance(setlistId: keep, attendance: StoredAttendance(provenance: "planned"))
+            await s.saveAttendance(setlistId: gone, attendance: StoredAttendance(provenance: "checked_in", checkedInAt: 42))
+
+            let adopted = await s.adoptSetlistId(gigId: local, setlistId: "fm-night")
+            XCTAssertTrue(adopted)
+            let after = await store(file).load()
+            XCTAssertEqual(Set(after.gigs.keys), [keep])
+            XCTAssertEqual(after.gigForSetlist("fm-night")?.id, keep)
+            XCTAssertEqual(after.gigLogs[keep]?.songs, ["Intro", "Shared", "Encore"])
+            XCTAssertEqual(after.gigLogs[keep]?.lineNumbers, [4, 8, 9])
+            XCTAssertNil(after.gigLogs[gone])
+            XCTAssertEqual(after.gigAttendance[keep]?.provenance, "checked_in")
+            XCTAssertEqual(after.gigAttendance[keep]?.checkedInAt, 42)
+            XCTAssertEqual(Set(after.gigMedia[keep, default: []].map(\.ref)), ["local", "vendor"])
+
+            let repeated = await s.adoptSetlistId(gigId: local, setlistId: "fm-night")
+            XCTAssertFalse(repeated)
+            let restarted = await store(file).load()
+            XCTAssertEqual(restarted.gigLogs, after.gigLogs)
+        }
+    }
+
     func testAdoptingASecondSetlistIdIsRefused() async {
         let s = store()
         let gigId = await s.createLocalGig(date: "25-06-2026", artist: "The Warning", venue: "Vaterland")

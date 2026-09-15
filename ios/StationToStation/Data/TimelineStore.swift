@@ -961,8 +961,9 @@ actor TimelineStore {
     }
 
     /// A night that setlist.fm has now catalogued takes their id (#34's search
-    /// found the match; this is all that is left to do). One field on one record —
-    /// no data moves, because nothing was ever keyed by the vendor id.
+    /// found the match; this is all that is left to do). If another Gig already
+    /// holds the id, combine into the older record, preserving both Logs and
+    /// the stronger attendance claim just as an explicit merge does.
     ///
     /// Refuses a gig that already has one: two setlist.fm ids for one night is a
     /// bug upstream, not a merge case, and silently overwriting would hide it.
@@ -972,8 +973,12 @@ actor TimelineStore {
         writeMerged { cache in
             var c = cache
             guard var gig = c.gigs[gigId], gig.setlistId == nil else { return c }
-            gig.setlistId = setlistId
-            c.gigs[gigId] = gig
+            if let holder = c.gigForSetlist(setlistId) {
+                c = merging(c, gig, holder).cache
+            } else {
+                gig.setlistId = setlistId
+                c.gigs[gigId] = gig
+            }
             adopted = true
             return c
         }
@@ -992,38 +997,47 @@ actor TimelineStore {
         writeMerged { cache in
             var c = cache
             guard let a = c.gigs[gigIdA], let b = c.gigs[gigIdB], a.id != b.id else { return c }
-            // createdAt, then the id itself, so two devices merging the same pair
-            // reach the same answer without a synchronised clock.
-            let keepsA = a.createdAt != b.createdAt ? a.createdAt < b.createdAt : a.id < b.id
-            var keep = keepsA ? a : b
-            let gone = keepsA ? b : a
-            survivor = keep.id
-
-            keep.setlistId = keep.setlistId ?? gone.setlistId
-            if keep.date.isEmpty { keep.date = gone.date }
-            if keep.artist.isEmpty { keep.artist = gone.artist }
-            if keep.venue.isEmpty { keep.venue = gone.venue }
-            c.gigs[gone.id] = nil
-            c.gigs[keep.id] = keep
-
-            // Photos and playlists are collections of separate things, so the
-            // union is every one of them. The rest are one current value per
-            // night, where the survivor's own answer is the one to keep.
-            c.gigMedia = c.gigMedia.folded(keep.id, gone.id) { k, d in
-                k + d.filter { m in !k.contains(where: { $0.id == m.id }) }
-            }
-            c.gigPlaylists = c.gigPlaylists.folded(keep.id, gone.id) { k, d in
-                k + d.filter { p in !k.contains(where: { $0.url == p.url }) }
-            }
-            c.gigSongOffsets = c.gigSongOffsets.folded(keep.id, gone.id) { k, _ in k }
-            c.gigAttendance = c.gigAttendance.folded(keep.id, gone.id) { k, _ in k }
-            c.gigCalendarEvent = c.gigCalendarEvent.folded(keep.id, gone.id) { k, _ in k }
-            c.gigPlanned = c.gigPlanned.folded(keep.id, gone.id) { k, _ in k }
-            // Every entry of both Logs: handwritten data is never dropped to a tie-break.
-            c.gigLogs = c.gigLogs.folded(keep.id, gone.id, unionLog)
+            let result = merging(c, a, b)
+            survivor = result.survivor
+            c = result.cache
             return c
         }
         return survivor
+    }
+
+    /// One combine path for explicit merges and setlist.fm adoption.
+    private func merging(_ cache: TimelineCache, _ a: StoredGig, _ b: StoredGig)
+        -> (cache: TimelineCache, survivor: String) {
+        var c = cache
+        // createdAt, then the id itself, so two devices merging the same pair
+        // reach the same answer without a synchronised clock.
+        let keepsA = a.createdAt != b.createdAt ? a.createdAt < b.createdAt : a.id < b.id
+        var keep = keepsA ? a : b
+        let gone = keepsA ? b : a
+
+        keep.setlistId = keep.setlistId ?? gone.setlistId
+        if keep.date.isEmpty { keep.date = gone.date }
+        if keep.artist.isEmpty { keep.artist = gone.artist }
+        if keep.venue.isEmpty { keep.venue = gone.venue }
+        c.gigs[gone.id] = nil
+        c.gigs[keep.id] = keep
+
+        // Photos and playlists are collections of separate things, so the
+        // union is every one of them. The rest are one current value per
+        // night, where the survivor's own answer is the one to keep.
+        c.gigMedia = c.gigMedia.folded(keep.id, gone.id) { k, d in
+            k + d.filter { m in !k.contains(where: { $0.id == m.id }) }
+        }
+        c.gigPlaylists = c.gigPlaylists.folded(keep.id, gone.id) { k, d in
+            k + d.filter { p in !k.contains(where: { $0.url == p.url }) }
+        }
+        c.gigSongOffsets = c.gigSongOffsets.folded(keep.id, gone.id) { k, _ in k }
+        c.gigAttendance = c.gigAttendance.folded(keep.id, gone.id, unionAttendance)
+        c.gigCalendarEvent = c.gigCalendarEvent.folded(keep.id, gone.id) { k, _ in k }
+        c.gigPlanned = c.gigPlanned.folded(keep.id, gone.id) { k, _ in k }
+        // Every entry of both Logs: handwritten data is never dropped to a tie-break.
+        c.gigLogs = c.gigLogs.folded(keep.id, gone.id, unionLog)
+        return (c, keep.id)
     }
 
     /// Atomically persist public transport and application facts alongside the timeline.
