@@ -1096,3 +1096,15 @@ CI verification for this resumption:
   experiment are pending. Receipt generation/ranking remains gated on that
   experiment. Cross-platform/locked-phone acceptance, battery measurements and
   remaining application-level lifecycle/UI checks are not established by CI.
+
+
+### User decision — iPhone testing deferred (2026-09-15)
+
+No iPhones are available at present. The user explicitly deferred testing in
+response to the locked-phone viability request. Do not keep requesting iPhone
+access or attempt those hardware trials until devices are available again.
+Locked-iPhone receive/forward, two backgrounded iPhones and the iPhone portions of
+cross-platform and battery acceptance remain deferred and unverified, not passed.
+Unit tests and CI remain applicable; their results do not establish radio viability.
+The publication-policy question remains unanswered. Deferring the experiment
+provides no evidence for settling routing parameters or iPhone relay assumptions.
