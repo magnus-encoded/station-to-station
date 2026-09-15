@@ -196,14 +196,29 @@ class LogTest {
         assertEquals(merged.songs.size, merged.lineNumbers.size)
     }
 
-    @Test fun `merging without timestamps appends the dropped Log and never dedupes unknown times`() {
+    @Test fun `merging without timestamps aligns matching entries and keeps every other one in order`() {
         val survivor = StoredLog(songs = listOf("A", "B"))
         val dropped = StoredLog(songs = listOf("A", "C", "D"), remembered = listOf("", "la la", ""))
         val merged = unionLog(survivor, dropped)
-        assertEquals(listOf("A", "B", "A", "C", "D"), merged.songs)
-        assertEquals(listOf("", "", "", "la la", ""), merged.remembered)
-        assertEquals(listOf(0L, 0L, 0L, 0L, 0L), merged.enteredAt)
-        assertEquals(listOf(0, 1, 2, 3, 4), merged.songs.indices.map(merged::lineNumberAt))
+        assertEquals(listOf("A", "B", "C", "D"), merged.songs)
+        assertEquals(listOf("", "", "la la", ""), merged.remembered)
+        assertEquals(listOf(0L, 0L, 0L, 0L), merged.enteredAt)
+        assertEquals(listOf(0, 1, 2, 3), merged.songs.indices.map(merged::lineNumberAt))
+    }
+
+    @Test fun `absorbing is idempotent - itself, a longer copy, and twice`() {
+        val log = StoredLog(songs = listOf("A", "B", "A")).correctingAt(1, "Title")
+        assertEquals(log, log.absorbing(log))
+        val copy = log.adding("C", 0).adding("A", 0)
+        val once = log.absorbing(copy)
+        assertEquals(listOf("A", "Title", "A", "C", "A"), once.songs)
+        assertEquals(listOf("", "B", "", "", ""), once.remembered)
+        assertEquals(listOf(0, 1, 2, 3, 4), once.songs.indices.map(once::lineNumberAt))
+        assertEquals(once, once.absorbing(copy))
+        val timed = StoredLog().adding("A", 10).adding("B", 20)
+        val timedOnce = timed.absorbing(timed.adding("C", 30))
+        assertEquals(listOf("A", "B", "C"), timedOnce.songs)
+        assertEquals(timedOnce, timedOnce.absorbing(timed.adding("C", 30)))
     }
 
     @Test fun `merging a Log with itself changes nothing, and a shorter survivor still survives`() {

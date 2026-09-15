@@ -290,29 +290,44 @@ data class StoredLog(
     /**
      * Every entry of [other] joins this **Log**; nothing handwritten is dropped.
      *
-     * Where every entry on both sides knows when it was typed, the two interleave by
-     * [enteredAt] (a tie keeps this Log's entry first); otherwise [other]'s entries follow
-     * this Log's in their own order. Only an exact duplicate — same title, same
-     * [remembered], same known timestamp — is folded away. This Log's entries keep their
-     * line numbers, because gossip already published under them; [other]'s arrive with
-     * fresh ones, since its numbers belonged to a **Gig** that no longer exists and would
-     * collide. Completion is left to the caller.
+     * The two are aligned as ordered sequences (longest common subsequence): entries
+     * match when title and [remembered] are equal and their [enteredAt] is equal, known
+     * or unknown alike. A matched entry appears once, under this Log's line number, so
+     * absorbing a Log already absorbed — a repeated handover — changes nothing. Every
+     * unmatched entry from either side is kept, in its own order: between two matches,
+     * this Log's first, then [other]'s; and where every entry knows when it was typed,
+     * the whole result is ordered by that time (a tie keeps the earlier position).
+     * Unmatched entries of [other] get fresh line numbers, since its own belonged to a
+     * **Gig** that no longer exists and would collide. Completion is left to the caller.
      */
     fun absorbing(other: StoredLog): StoredLog {
-        class Entry(val song: String, val line: String, val at: Long, val number: Int?)
-        val mine = songs.indices.map { Entry(songs[it], aligned()[it], alignedTimestamps()[it], lineNumberAt(it)) }
-        val theirs = other.songs.indices.map { Entry(other.songs[it], other.aligned()[it], other.alignedTimestamps()[it], null) }
-            .filterNot { e -> e.at != 0L && mine.any { it.song == e.song && it.line == e.line && it.at == e.at } }
-        if (theirs.isEmpty()) return this
-        val all = mine + theirs
-        val ordered = if (all.all { it.at != 0L }) all.sortedBy { it.at } else all
-        var next = maxOf(nextLineNumber, (mine.maxOfOrNull { it.number!! } ?: -1) + 1)
-        val numbers = ordered.map { it.number ?: next++ }
+        data class Entry(val song: String, val line: String, val at: Long)
+        val lines = aligned(); val times = alignedTimestamps()
+        val mine = songs.indices.map { Entry(songs[it], lines[it], times[it]) }
+        val otherLines = other.aligned(); val otherTimes = other.alignedTimestamps()
+        val theirs = other.songs.indices.map { Entry(other.songs[it], otherLines[it], otherTimes[it]) }
+        val lcs = Array(mine.size + 1) { IntArray(theirs.size + 1) }
+        for (a in mine.indices.reversed()) for (b in theirs.indices.reversed()) {
+            lcs[a][b] = if (mine[a] == theirs[b]) lcs[a + 1][b + 1] + 1 else maxOf(lcs[a + 1][b], lcs[a][b + 1])
+        }
+        val merged = mutableListOf<Pair<Entry, Int?>>()
+        var a = 0
+        var b = 0
+        while (a < mine.size || b < theirs.size) {
+            when {
+                a < mine.size && b < theirs.size && mine[a] == theirs[b] -> { merged += mine[a] to lineNumberAt(a); a++; b++ }
+                b == theirs.size || (a < mine.size && lcs[a + 1][b] >= lcs[a][b + 1]) -> { merged += mine[a] to lineNumberAt(a); a++ }
+                else -> { merged += theirs[b] to null; b++ }
+            }
+        }
+        if (merged.all { it.second != null }) return this
+        val ordered = if (merged.all { it.first.at != 0L }) merged.sortedBy { it.first.at } else merged
+        var next = maxOf(nextLineNumber, (songs.indices.maxOfOrNull(::lineNumberAt) ?: -1) + 1)
         return copy(
-            songs = ordered.map { it.song },
-            remembered = ordered.map { it.line },
-            enteredAt = ordered.map { it.at },
-            lineNumbers = numbers,
+            songs = ordered.map { it.first.song },
+            remembered = ordered.map { it.first.line },
+            enteredAt = ordered.map { it.first.at },
+            lineNumbers = ordered.map { it.second ?: next++ },
             nextLineNumber = next,
         )
     }

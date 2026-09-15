@@ -212,13 +212,28 @@ final class StoredLogTests: XCTestCase {
         XCTAssertEqual(merged.lineNumbers.count, merged.songs.count)
     }
 
-    func testMergingWithoutTimestampsAppendsAndNeverDedupesUnknownTimes() {
+    func testMergingWithoutTimestampsAlignsMatchesAndKeepsEveryOtherEntry() {
         let merged = unionLog(StoredLog(songs: ["A", "B"]),
                               StoredLog(songs: ["A", "C", "D"], remembered: ["", "la la", ""]))
-        XCTAssertEqual(merged.songs, ["A", "B", "A", "C", "D"])
-        XCTAssertEqual(merged.remembered, ["", "", "", "la la", ""])
-        XCTAssertEqual(merged.enteredAt, [0, 0, 0, 0, 0])
-        XCTAssertEqual(merged.songs.indices.map(merged.lineNumberAt), [0, 1, 2, 3, 4])
+        XCTAssertEqual(merged.songs, ["A", "B", "C", "D"])
+        XCTAssertEqual(merged.remembered, ["", "", "la la", ""])
+        XCTAssertEqual(merged.enteredAt, [0, 0, 0, 0])
+        XCTAssertEqual(merged.songs.indices.map(merged.lineNumberAt), [0, 1, 2, 3])
+    }
+
+    func testAbsorbingIsIdempotent() {
+        let log = StoredLog(songs: ["A", "B", "A"]).correctingAt(1, title: "Title")
+        XCTAssertEqual(log.absorbing(log), log)
+        let copy = log.adding("C", now: 0).adding("A", now: 0)
+        let once = log.absorbing(copy)
+        XCTAssertEqual(once.songs, ["A", "Title", "A", "C", "A"])
+        XCTAssertEqual(once.remembered, ["", "B", "", "", ""])
+        XCTAssertEqual(once.songs.indices.map(once.lineNumberAt), [0, 1, 2, 3, 4])
+        XCTAssertEqual(once.absorbing(copy), once)
+        let timed = StoredLog().adding("A", now: 10).adding("B", now: 20)
+        let timedOnce = timed.absorbing(timed.adding("C", now: 30))
+        XCTAssertEqual(timedOnce.songs, ["A", "B", "C"])
+        XCTAssertEqual(timedOnce.absorbing(timed.adding("C", now: 30)), timedOnce)
     }
 
     func testMergingWithItselfChangesNothingAndAShorterSurvivorStillSurvives() {
