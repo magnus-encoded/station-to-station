@@ -1029,3 +1029,19 @@ Still outstanding: merged-away Gig projection policy/integration, #444 receipt
 creation and neighbour scheduling, actual app/device acceptance, and final ADR
 alignment. The checked-in/request/witness and radio viability requirements remain
 open; do not close #408 based on the newly added tests.
+
+### Pixel + Pi BLE rerun on 1357ae9 (2026-09-15, 13:10 Oslo)
+
+- The Pi controller came back unconfigured after the reboot: default address, no public address, and
+  `bthelper` failing. Fixed with `sudo btmgmt -i hci0 public-addr B8:27:EB:D4:E1:A6 && bluetoothctl power on`.
+  This is **not persistent**: repeat it after each boot. Its address is now `D4:E1:A6`, not the earlier `7E:4B:0D`.
+- Local debug and androidTest APKs built from `1357ae9` and installed in place on the Pixel 7 Pro over wireless adb.
+- `publicPassesCrossTheRealGattLinkAndCloseTheStormGate`, under `/home/pi/gossip-plain-att.sh 6`:
+  - First attempt: 5/6 trials, then **FAIL**. Trial 6 hit `Invalid Handle` at about the moment the
+    90-second await expired. Pi trials now take about 14-17 s each including the challenge, against
+    about 7-9 s on 09-10, so six trials barely fit in 90 s.
+  - Rerun, with the Pi started 4 s after instrumentation: **6/6, OK (1 test), 83.9 s**.
+  - Consider raising the await, or reducing to five trials.
+- `indirectControlsAreRejectedWithoutPoisoningDirectDelivery` with `manual_ble_controls=true`, under `--controls`:
+  Pi 4/4, **OK (1 test), 50.1 s**. BlueZ restored to `#Channels = 3`, and Bluetooth active.
+- Still unproven: the phone central/send path, the iOS radio, locked-phone relay and battery.
