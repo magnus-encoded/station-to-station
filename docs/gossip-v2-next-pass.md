@@ -1108,3 +1108,18 @@ cross-platform and battery acceptance remain deferred and unverified, not passed
 Unit tests and CI remain applicable; their results do not establish radio viability.
 The publication-policy question remains unanswered. Deferring the experiment
 provides no evidence for settling routing parameters or iPhone relay assumptions.
+
+
+### User decision — publication resolved (2026-09-15)
+
+“Each line, correct or not becomes a fact that is transmitted as the current state.”
+Publish every committed addition/correction during participation; do not wait for
+whole-Log completion or verification of correctness. Corrections replace the
+projected current version while preserving earlier Facts. Whole-Log completion
+only starts grace. Uncommitted typing remains local, as do post-participation edits.
+
+Confirmed by reading Android AppViewModel.writeLog/publishLog and iOS
+AppModel.writeLog/GossipChannel.publishLog: both already publish committed changes
+without a closed-Log requirement. No production behavior changed and no test rerun
+was needed for this documentation-only decision. ADR-0021 and the wire record now
+state the settled rule; earlier pending-choice entries are historical.

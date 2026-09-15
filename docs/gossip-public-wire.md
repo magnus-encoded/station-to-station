@@ -83,3 +83,12 @@ levels are not evidence about a real venue, and none of it is a claim about iOS
 background scheduling, which remains OS-throttled. Method, tables and caveats are in
 [`sim/SWEEPS.md`](../sim/SWEEPS.md); reproduce with
 `cd sim && python -m station_to_station_sim.sweeps`.
+
+
+### Publication boundary — settled 2026-09-15 (#455)
+
+Each committed local Log addition or correction publishes its current assertion
+while participation is active, whether correct or not. A correction is a new
+signed Fact for the same line; receivers project the latest version and retain
+history. Completing the whole Log starts grace, rather than releasing a withheld
+batch. Uncommitted typing and edits outside participation stay local.

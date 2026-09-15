@@ -113,3 +113,20 @@ ranking exists yet. Binary decaying neighbour credit and random ties describe th
 intended policy, not current behaviour. #455 gates that work on iPhone viability.
 The publication choice between each committed line and whole-Log completion is
 still pending; current code publishes committed Log changes during participation.
+
+
+## Amendment — 2026-09-15: each committed line is public (#455)
+
+The user resolved the publication question: “Each line, correct or not becomes a
+fact that is transmitted as the current state.” Each committed addition or
+correction during participation publishes immediately. A Fact records the author's
+current assertion; it is not a claim that the line has been verified or agreed on.
+A correction creates a new signed Fact for the same line, and projection shows the
+latest version while retaining earlier Facts as history.
+
+Whole-Log completion is not a publication gate: it starts the existing 30-minute
+grace period, capped at 06:00. Uncommitted typing stays in the editor. The existing
+participation and stop rules still apply, and edits outside participation remain
+local. This supersedes the pending-choice statement above and #455's earlier
+whole-Log-Done wording. Both platforms already publish committed line changes
+from their writeLog paths; this decision requires no publication toggle or delay.
