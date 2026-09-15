@@ -114,12 +114,7 @@ struct GigView: View {
                         } else {
                             ForEach(Array(gossipRows.enumerated()), id: \.offset) { _, row in
                                 ForEach(row.facts, id: \.id) { fact in
-                                    HStack {
-                                        Text(model.state.friends.first { $0.publicKey != nil && $0.publicKey == publicState.recognition[fact.author] }?.name ?? "Nearby listener")
-                                            .font(.system(size: 11)).foregroundStyle(muted)
-                                        Spacer()
-                                        Button("Block") { model.blockGossip(fact.author) }.font(.system(size: 11))
-                                    }.padding(.horizontal, 24)
+                                    gossipAttribution(fact)
                                 }
                                 if let base = row.base {
                                     wovenRow(woven[base], rows: rows, log: log, setlist: show, canLog: canLog(show))
@@ -455,6 +450,19 @@ struct GigView: View {
             .tint(ink)
             .padding(.horizontal, 24).padding(.top, 14)
         }
+    }
+
+    private func gossipAttribution(_ fact: GossipEnvelope) -> some View {
+        let key = model.state.publicGossip.recognition[fact.author]
+        let contact = model.state.friends.first { friend in
+            friend.publicKey != nil && friend.publicKey == key
+        }
+        let name = contact?.name ?? "Nearby listener"
+        return HStack {
+            Text(name).font(.system(size: 11)).foregroundStyle(muted)
+            Spacer()
+            Button("Block") { model.blockGossip(fact.author) }.font(.system(size: 11))
+        }.padding(.horizontal, 24)
     }
 
     /// One line of the woven set: a published row, one of my Log's entries, or the
