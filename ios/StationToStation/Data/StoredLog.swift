@@ -38,7 +38,7 @@ struct StoredLog: Codable, Equatable {
     ///
     /// An older cache has no `remembered` at all, which reads as "nothing was ever
     /// replaced" — exactly true. Parallel lists only stay parallel if one place keeps
-    /// them so: that place is the four functions below, and nothing else may edit
+    /// them so: that place is the functions below, and nothing else may edit
     /// `songs` directly.
     var remembered: [String] = []
     /// When each entry was typed — epoch millis, set once by `adding` and never
@@ -159,6 +159,38 @@ struct StoredLog: Codable, Equatable {
         r[i] = ""
         return StoredLog(songs: s, closed: closed, remembered: r, enteredAt: alignedTimestamps(), completedAt: completedAt,
             lineNumbers: lineNumbers, nextLineNumber: nextLineNumber)
+    }
+
+    /// Every entry of `other` joins this **Log**; nothing handwritten is dropped.
+    ///
+    /// Where every entry on both sides knows when it was typed, the two interleave by
+    /// `enteredAt` (a tie keeps this Log's entry first); otherwise `other`'s entries follow
+    /// this Log's in their own order. Only an exact duplicate — same title, same
+    /// `remembered`, same known timestamp — is folded away. This Log's entries keep their
+    /// line numbers, because gossip already published under them; `other`'s arrive with
+    /// fresh ones, since its numbers belonged to a **Gig** that no longer exists and would
+    /// collide. Completion is left to the caller.
+    func absorbing(_ other: StoredLog) -> StoredLog {
+        typealias Entry = (song: String, line: String, at: Int64, number: Int?)
+        let lines = aligned(), times = alignedTimestamps()
+        let mine: [Entry] = songs.indices.map { (songs[$0], lines[$0], times[$0], lineNumberAt($0)) }
+        let otherLines = other.aligned(), otherTimes = other.alignedTimestamps()
+        let theirs: [Entry] = other.songs.indices
+            .map { (other.songs[$0], otherLines[$0], otherTimes[$0], nil) }
+            .filter { e in !(e.at != 0 && mine.contains { $0.song == e.song && $0.line == e.line && $0.at == e.at }) }
+        if theirs.isEmpty { return self }
+        let all = mine + theirs
+        let ordered = all.allSatisfy { $0.at != 0 }
+            ? all.enumerated().sorted { ($0.element.at, $0.offset) < ($1.element.at, $1.offset) }.map(\.element)
+            : all
+        var next = nextNumber
+        let numbers = ordered.map { e -> Int in
+            if let n = e.number { return n }
+            defer { next += 1 }
+            return next
+        }
+        return StoredLog(songs: ordered.map(\.song), closed: closed, remembered: ordered.map(\.line),
+            enteredAt: ordered.map(\.at), completedAt: completedAt, lineNumbers: numbers, nextLineNumber: next)
     }
 
     /// `remembered` at `songs`'s length: an older cache carries none at all.

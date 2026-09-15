@@ -197,4 +197,44 @@ final class StoredLogTests: XCTestCase {
         XCTAssertEqual([], log.enteredAt)
         XCTAssertNil(log.enteredAtOrNull(0))
     }
+
+    func testMergingKeepsEveryHandwrittenEntryInterleavedByEntryTime() {
+        let survivor = StoredLog(songs: ["Title", "B"], remembered: ["chorus words", ""],
+                                 enteredAt: [10, 30], lineNumbers: [0, 4], nextLineNumber: 5)
+        let dropped = StoredLog(songs: ["X", "", "Y", "B"], remembered: ["", "", "hummed bit", ""],
+                                enteredAt: [5, 20, 40, 30], lineNumbers: [0, 1, 2, 3], nextLineNumber: 4)
+        let merged = unionLog(survivor, dropped)
+        XCTAssertEqual(merged.songs, ["X", "Title", "", "B", "Y"])
+        XCTAssertEqual(merged.remembered, ["", "chorus words", "", "", "hummed bit"])
+        XCTAssertEqual(merged.enteredAt, [5, 10, 20, 30, 40])
+        XCTAssertEqual(merged.songs.indices.map(merged.lineNumberAt), [5, 0, 6, 4, 7])
+        XCTAssertEqual(merged.nextLineNumber, 8)
+        XCTAssertEqual(merged.lineNumbers.count, merged.songs.count)
+    }
+
+    func testMergingWithoutTimestampsAppendsAndNeverDedupesUnknownTimes() {
+        let merged = unionLog(StoredLog(songs: ["A", "B"]),
+                              StoredLog(songs: ["A", "C", "D"], remembered: ["", "la la", ""]))
+        XCTAssertEqual(merged.songs, ["A", "B", "A", "C", "D"])
+        XCTAssertEqual(merged.remembered, ["", "", "", "la la", ""])
+        XCTAssertEqual(merged.enteredAt, [0, 0, 0, 0, 0])
+        XCTAssertEqual(merged.songs.indices.map(merged.lineNumberAt), [0, 1, 2, 3, 4])
+    }
+
+    func testMergingWithItselfChangesNothingAndAShorterSurvivorStillSurvives() {
+        let log = StoredLog(songs: ["A"], enteredAt: [10], lineNumbers: [3], nextLineNumber: 4)
+        XCTAssertEqual(unionLog(log, log), log)
+        let longer = log.adding("B", now: 20).adding("C", now: 30)
+        let merged = unionLog(log, longer.removingAt(0))
+        XCTAssertEqual(merged.songs, ["A", "B", "C"])
+        XCTAssertEqual(merged.lineNumberAt(0), 3)
+    }
+
+    func testMergingKeepsCompletionOnlyWhereBothWereClosed() {
+        let a = StoredLog(songs: ["A"], closed: true, enteredAt: [1], completedAt: 200)
+        let b = StoredLog(songs: ["B"], closed: true, enteredAt: [2], completedAt: 100)
+        XCTAssertEqual(unionLog(a, b).completedAt, 100)
+        XCTAssertTrue(unionLog(a, b).closed)
+        XCTAssertFalse(unionLog(a, b.completing(false)).closed)
+    }
 }
