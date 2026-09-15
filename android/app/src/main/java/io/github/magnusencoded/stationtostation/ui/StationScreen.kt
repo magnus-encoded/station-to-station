@@ -3429,255 +3429,279 @@ fun StationEventScreen(
             )
         },
         bottomBar = {
-            if (canLog && setlist != null) {
-                // A night I was at that this app is the record of. Capture is the leaf,
-                // always — the chip in the header is the permanent door to setlist.fm,
-                // so nothing here has to become a handoff when the night ends. The clock
-                // only changes the wording: prompting while you are there, quiet
-                // correction afterwards.
-                Column(
-                    Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
+            Column(
+                Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                // "I was there too" (#438): the way onto my own **Line** from a
+                // **Contact**'s **Gig**. Until this, a night found on someone else's
+                // **Line** could only be added by going and finding its setlist.fm link
+                // by hand — with the record already on screen.
+                //
+                // Above the rest of the bar because it is the only offer here that is not
+                // yet about a night of my own, and gated on [mineNight] alone — #327's one
+                // rule, which already answers both halves of "a night I do not hold".
+                // Never on `contactLight`, which previews *my* night as a Contact sees it.
+                if (setlist != null && !mineNight) {
                     Text(
-                        when (leaf) {
-                            // "above" was true when the editor sat over the set. The
-                            // entries are the set now and the way in is under it (#268).
-                            GigLeaf.CAPTURE -> "noting the set — add what they play below"
-                            else -> "your log · add anything you remember below"
-                        },
-                        color = Faint,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(vertical = 4.dp),
-                    )
-                    Text(
-                        "‹ copy the set and open setlist.fm",
+                        "I was there too — add this to my line",
                         color = Amber,
                         fontSize = 13.sp,
-                        modifier = Modifier.clickable(onClick = onPublish).padding(vertical = 6.dp),
+                        modifier = Modifier
+                            .clickable { viewModel.addContactGigToMyLine(setlist) }
+                            .padding(top = 12.dp, bottom = 2.dp),
                     )
-                    // A set I said was complete is a set, so it converts. Offered here
-                    // rather than only in the branch below, which a checked-in night
-                    // never reaches.
-                    if (convertible) {
-                        Text(
-                            "make a playlist of this set",
-                            color = Slate,
-                            fontSize = 13.sp,
-                            modifier = Modifier
-                                .clickable { viewModel.selectSetlist(setlist); onConvert() }
-                                .padding(vertical = 6.dp),
-                        )
-                    }
-                    if (localGig) {
-                        Text(
-                            "it's on setlist.fm now — paste the link",
-                            color = Slate,
-                            fontSize = 13.sp,
-                            modifier = Modifier
-                                .clickable { adopting = true }
-                                .padding(vertical = 6.dp),
-                        )
-                        // Reachable from the night itself, on purpose: deletion must
-                        // not depend on anything else still existing.
-                        Text(
-                            "delete this night",
-                            color = Danger,
-                            fontSize = 13.sp,
-                            modifier = Modifier
-                                .clickable {
-                                    if (viewModel.photosLostByDeleting(setlist.id) > 0) deleting = true
-                                    else { viewModel.deleteLocalGig(setlist.id); onBack() }
-                                }
-                                .padding(vertical = 6.dp),
-                        )
-                    }
                 }
-            } else if (planned && setlist != null) {
-                // What a planned gig lets you do follows the clock (#55): plan it while
-                // it's still ahead, check in on the night, nudge setlist.fm once it's
-                // over. An unparseable date can't be placed on that line, so it falls
-                // to the plan-ahead actions rather than losing them.
-                val timeState = setlist.localDate()?.let { gigTimeState(LocalDateTime.now(), it) }
-                Column(
-                    Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    // The ticket's own barcode. Gone the moment checked in — see
-                    // `checkedIn` below — and never drawn at all when there is no
-                    // ticket to show. Plain black-on-white, unlike the Amber exchange
-                    // card: this one has to scan for a venue's own reader, not just
-                    // decode for another phone. Computed once here rather than inside
-                    // either branch below, because it is worth showing on this gig's
-                    // own page as soon as a ticket is attached — not held back until
-                    // the day-of check-in window the way the offer to check in is.
-                    val ticketQr = remember(setlist.id) {
-                        gigAsKnown.ticketQr?.decodeTicketQrBase64()?.let { bytes ->
-                            runCatching { qrBitmap(String(bytes, Charsets.ISO_8859_1), 480) }.getOrNull()
-                        }
-                    }
-                    // The manual check-in, and the only one there is when location was
-                    // refused or the venue couldn't be geocoded. Same night window as
-                    // the ambient offer; no location involved at all.
-                    if (canCheckInManually(setlist, LocalDateTime.now())) {
-                        if (checkedIn) {
-                            Text("✓ checked in", color = Amber, fontSize = 13.sp, modifier = Modifier.padding(vertical = 6.dp))
-                        } else {
-                            if (offers.room.showQr) TicketQrCode(ticketQr)
+                if (canLog && setlist != null) {
+                    // A night I was at that this app is the record of. Capture is the leaf,
+                    // always — the chip in the header is the permanent door to setlist.fm,
+                    // so nothing here has to become a handoff when the night ends. The clock
+                    // only changes the wording: prompting while you are there, quiet
+                    // correction afterwards.
+                    Column(
+                        Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            when (leaf) {
+                                // "above" was true when the editor sat over the set. The
+                                // entries are the set now and the way in is under it (#268).
+                                GigLeaf.CAPTURE -> "noting the set — add what they play below"
+                                else -> "your log · add anything you remember below"
+                            },
+                            color = Faint,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(vertical = 4.dp),
+                        )
+                        Text(
+                            "‹ copy the set and open setlist.fm",
+                            color = Amber,
+                            fontSize = 13.sp,
+                            modifier = Modifier.clickable(onClick = onPublish).padding(vertical = 6.dp),
+                        )
+                        // A set I said was complete is a set, so it converts. Offered here
+                        // rather than only in the branch below, which a checked-in night
+                        // never reaches.
+                        if (convertible) {
                             Text(
-                                "I'm here — check in",
-                                color = Amber,
-                                fontSize = 13.sp,
-                                modifier = Modifier
-                                    .clickable { viewModel.checkIn(setlist.id) }
-                                    .padding(vertical = 6.dp),
-                            )
-                        }
-                    } else if (!checkedIn) {
-                        // Outside the check-in window: no "I'm here" offer yet, but
-                        // still worth showing that the ticket's barcode was captured.
-                        TicketQrCode(ticketQr)
-                    }
-                    when (timeState) {
-                        // Over: adding a setlist is a past action, so the setlist.fm
-                        // crumb belongs here and only here.
-                        GigTimeState.PAST -> setlist.url?.let { url ->
-                            Text(
-                                "‹ swipe to open this show on setlist.fm",
+                                "make a playlist of this set",
                                 color = Slate,
                                 fontSize = 13.sp,
                                 modifier = Modifier
-                                    .clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                                    .clickable { viewModel.selectSetlist(setlist); onConvert() }
                                     .padding(vertical = 6.dp),
                             )
                         }
-                        // The night itself: maps and check-in (#33), handled above. No
-                        // crumb, no plan-ahead buttons.
-                        GigTimeState.DAY_OF -> {}
-                        // Still ahead (or an undated gig): the swipe is the action, in two
-                        // stages. The hint names what the next swipe does — the same
-                        // grammar as the Spotify convert, where the made-playlist link
-                        // persists and the hint moves on to "make another".
-                        else -> {
-                            if (calendarEventUri != null) {
-                                // The created event, as a persisted tappable link — the
-                                // mirror of a made-playlist row. Opens the event with
-                                // ACTION_VIEW on the URI the insert handed back.
+                        if (localGig) {
+                            Text(
+                                "it's on setlist.fm now — paste the link",
+                                color = Slate,
+                                fontSize = 13.sp,
+                                modifier = Modifier
+                                    .clickable { adopting = true }
+                                    .padding(vertical = 6.dp),
+                            )
+                            // Reachable from the night itself, on purpose: deletion must
+                            // not depend on anything else still existing.
+                            Text(
+                                "delete this night",
+                                color = Danger,
+                                fontSize = 13.sp,
+                                modifier = Modifier
+                                    .clickable {
+                                        if (viewModel.photosLostByDeleting(setlist.id) > 0) deleting = true
+                                        else { viewModel.deleteLocalGig(setlist.id); onBack() }
+                                    }
+                                    .padding(vertical = 6.dp),
+                            )
+                        }
+                    }
+                } else if (planned && setlist != null) {
+                    // What a planned gig lets you do follows the clock (#55): plan it while
+                    // it's still ahead, check in on the night, nudge setlist.fm once it's
+                    // over. An unparseable date can't be placed on that line, so it falls
+                    // to the plan-ahead actions rather than losing them.
+                    val timeState = setlist.localDate()?.let { gigTimeState(LocalDateTime.now(), it) }
+                    Column(
+                        Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        // The ticket's own barcode. Gone the moment checked in — see
+                        // `checkedIn` below — and never drawn at all when there is no
+                        // ticket to show. Plain black-on-white, unlike the Amber exchange
+                        // card: this one has to scan for a venue's own reader, not just
+                        // decode for another phone. Computed once here rather than inside
+                        // either branch below, because it is worth showing on this gig's
+                        // own page as soon as a ticket is attached — not held back until
+                        // the day-of check-in window the way the offer to check in is.
+                        val ticketQr = remember(setlist.id) {
+                            gigAsKnown.ticketQr?.decodeTicketQrBase64()?.let { bytes ->
+                                runCatching { qrBitmap(String(bytes, Charsets.ISO_8859_1), 480) }.getOrNull()
+                            }
+                        }
+                        // The manual check-in, and the only one there is when location was
+                        // refused or the venue couldn't be geocoded. Same night window as
+                        // the ambient offer; no location involved at all.
+                        if (canCheckInManually(setlist, LocalDateTime.now())) {
+                            if (checkedIn) {
+                                Text("✓ checked in", color = Amber, fontSize = 13.sp, modifier = Modifier.padding(vertical = 6.dp))
+                            } else {
+                                if (offers.room.showQr) TicketQrCode(ticketQr)
+                                Text(
+                                    "I'm here — check in",
+                                    color = Amber,
+                                    fontSize = 13.sp,
+                                    modifier = Modifier
+                                        .clickable { viewModel.checkIn(setlist.id) }
+                                        .padding(vertical = 6.dp),
+                                )
+                            }
+                        } else if (!checkedIn) {
+                            // Outside the check-in window: no "I'm here" offer yet, but
+                            // still worth showing that the ticket's barcode was captured.
+                            TicketQrCode(ticketQr)
+                        }
+                        when (timeState) {
+                            // Over: adding a setlist is a past action, so the setlist.fm
+                            // crumb belongs here and only here.
+                            GigTimeState.PAST -> setlist.url?.let { url ->
+                                Text(
+                                    "‹ swipe to open this show on setlist.fm",
+                                    color = Slate,
+                                    fontSize = 13.sp,
+                                    modifier = Modifier
+                                        .clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                                        .padding(vertical = 6.dp),
+                                )
+                            }
+                            // The night itself: maps and check-in (#33), handled above. No
+                            // crumb, no plan-ahead buttons.
+                            GigTimeState.DAY_OF -> {}
+                            // Still ahead (or an undated gig): the swipe is the action, in two
+                            // stages. The hint names what the next swipe does — the same
+                            // grammar as the Spotify convert, where the made-playlist link
+                            // persists and the hint moves on to "make another".
+                            else -> {
+                                if (calendarEventUri != null) {
+                                    // The created event, as a persisted tappable link — the
+                                    // mirror of a made-playlist row. Opens the event with
+                                    // ACTION_VIEW on the URI the insert handed back.
+                                    Row(
+                                        Modifier
+                                            .clickable {
+                                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(calendarEventUri)))
+                                            }
+                                            .padding(vertical = 6.dp, horizontal = 20.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Box(Modifier.size(7.dp).clip(CircleShape).background(Slate))
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("Open the calendar event ↗", color = Slate, fontSize = 14.sp)
+                                    }
+                                    Spacer(Modifier.height(2.dp))
+                                    // Graduated: the swipe now invites, and keeps inviting.
+                                    Text(
+                                        "‹ swipe to invite a friend",
+                                        color = Slate,
+                                        fontSize = 13.sp,
+                                        modifier = Modifier.clickable(onClick = onInvite).padding(vertical = 6.dp),
+                                    )
+                                } else {
+                                    Text(
+                                        "‹ swipe to add to calendar",
+                                        color = Slate,
+                                        fontSize = 13.sp,
+                                        modifier = Modifier.clickable(onClick = onAddToCalendar).padding(vertical = 6.dp),
+                                    )
+                                }
+                            }
+                        }
+                        Text(
+                            "I'm not going",
+                            color = Danger,
+                            fontSize = 13.sp,
+                            modifier = Modifier
+                                .clickable { viewModel.removePlannedGig(setlist.id); onBack() }
+                                .padding(vertical = 6.dp),
+                        )
+                    }
+                } else if (setlist != null && setlist.performed().isEmpty() && setlist.url != null) {
+                    // The Historian's crumb: nothing to convert here, but a nudge toward
+                    // fixing the gap at the source is better than nothing.
+                    Column(
+                        Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            "‹ swipe to open this setlist on setlist.fm",
+                            color = Amber,
+                            fontSize = 13.sp,
+                            modifier = Modifier
+                                .clickable {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(setlist.url)))
+                                }
+                                .padding(vertical = 6.dp),
+                        )
+                    }
+                } else if (setlist != null && setlist.performed().isNotEmpty()) {
+                    // A quiet, tappable hint rather than a big CTA — the same action the
+                    // swipe fires, kept visible so it's discoverable and reachable without
+                    // the gesture.
+                    val convert = {
+                        viewModel.selectSetlist(setlist)
+                        onConvert()
+                    }
+                    Column(
+                        Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        // Once a night has a playlist, opening it is the primary offer and
+                        // making another is the aside — converting twice is the rare case.
+                        if (made.isNotEmpty()) {
+                            made.forEach { playlist ->
                                 Row(
                                     Modifier
-                                        .clickable {
-                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(calendarEventUri)))
-                                        }
+                                        // Long-press drops the link — for when the playlist
+                                        // itself was deleted on Spotify and this pointer is
+                                        // just dead weight left behind.
+                                        .combinedClickable(
+                                            onClick = {
+                                                context.startActivity(
+                                                    Intent(Intent.ACTION_VIEW, Uri.parse(playlist.url)),
+                                                )
+                                            },
+                                            onLongClick = { viewModel.removePlaylist(setlist.id, playlist.url) },
+                                        )
                                         .padding(vertical = 6.dp, horizontal = 20.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Box(Modifier.size(7.dp).clip(CircleShape).background(Slate))
+                                    Box(Modifier.size(7.dp).clip(CircleShape).background(SpotifyGreen))
                                     Spacer(Modifier.width(8.dp))
-                                    Text("Open the calendar event ↗", color = Slate, fontSize = 14.sp)
-                                }
-                                Spacer(Modifier.height(2.dp))
-                                // Graduated: the swipe now invites, and keeps inviting.
-                                Text(
-                                    "‹ swipe to invite a friend",
-                                    color = Slate,
-                                    fontSize = 13.sp,
-                                    modifier = Modifier.clickable(onClick = onInvite).padding(vertical = 6.dp),
-                                )
-                            } else {
-                                Text(
-                                    "‹ swipe to add to calendar",
-                                    color = Slate,
-                                    fontSize = 13.sp,
-                                    modifier = Modifier.clickable(onClick = onAddToCalendar).padding(vertical = 6.dp),
-                                )
-                            }
-                        }
-                    }
-                    Text(
-                        "I'm not going",
-                        color = Danger,
-                        fontSize = 13.sp,
-                        modifier = Modifier
-                            .clickable { viewModel.removePlannedGig(setlist.id); onBack() }
-                            .padding(vertical = 6.dp),
-                    )
-                }
-            } else if (setlist != null && setlist.performed().isEmpty() && setlist.url != null) {
-                // The Historian's crumb: nothing to convert here, but a nudge toward
-                // fixing the gap at the source is better than nothing.
-                Column(
-                    Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        "‹ swipe to open this setlist on setlist.fm",
-                        color = Amber,
-                        fontSize = 13.sp,
-                        modifier = Modifier
-                            .clickable {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(setlist.url)))
-                            }
-                            .padding(vertical = 6.dp),
-                    )
-                }
-            } else if (setlist != null && setlist.performed().isNotEmpty()) {
-                // A quiet, tappable hint rather than a big CTA — the same action the
-                // swipe fires, kept visible so it's discoverable and reachable without
-                // the gesture.
-                val convert = {
-                    viewModel.selectSetlist(setlist)
-                    onConvert()
-                }
-                Column(
-                    Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    // Once a night has a playlist, opening it is the primary offer and
-                    // making another is the aside — converting twice is the rare case.
-                    if (made.isNotEmpty()) {
-                        made.forEach { playlist ->
-                            Row(
-                                Modifier
-                                    // Long-press drops the link — for when the playlist
-                                    // itself was deleted on Spotify and this pointer is
-                                    // just dead weight left behind.
-                                    .combinedClickable(
-                                        onClick = {
-                                            context.startActivity(
-                                                Intent(Intent.ACTION_VIEW, Uri.parse(playlist.url)),
-                                            )
-                                        },
-                                        onLongClick = { viewModel.removePlaylist(setlist.id, playlist.url) },
+                                    // One playlist needs no naming; several have to be told
+                                    // apart, because the one you sent is a particular one.
+                                    Text(
+                                        if (made.size == 1) "Open the playlist ↗"
+                                        else "${playlist.name.ifBlank { "Playlist" }} ↗",
+                                        color = SpotifyGreen,
+                                        fontSize = 14.sp,
                                     )
-                                    .padding(vertical = 6.dp, horizontal = 20.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Box(Modifier.size(7.dp).clip(CircleShape).background(SpotifyGreen))
-                                Spacer(Modifier.width(8.dp))
-                                // One playlist needs no naming; several have to be told
-                                // apart, because the one you sent is a particular one.
-                                Text(
-                                    if (made.size == 1) "Open the playlist ↗"
-                                    else "${playlist.name.ifBlank { "Playlist" }} ↗",
-                                    color = SpotifyGreen,
-                                    fontSize = 14.sp,
-                                )
+                                }
                             }
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                "‹ swipe to make another",
+                                color = Faint,
+                                fontSize = 12.sp,
+                                modifier = Modifier.clickable(onClick = convert).padding(vertical = 4.dp),
+                            )
+                        } else {
+                            Text(
+                                "‹ swipe to open as a Spotify playlist",
+                                color = Amber,
+                                fontSize = 13.sp,
+                                modifier = Modifier.clickable(onClick = convert).padding(vertical = 6.dp),
+                            )
                         }
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            "‹ swipe to make another",
-                            color = Faint,
-                            fontSize = 12.sp,
-                            modifier = Modifier.clickable(onClick = convert).padding(vertical = 4.dp),
-                        )
-                    } else {
-                        Text(
-                            "‹ swipe to open as a Spotify playlist",
-                            color = Amber,
-                            fontSize = 13.sp,
-                            modifier = Modifier.clickable(onClick = convert).padding(vertical = 6.dp),
-                        )
                     }
                 }
             }
