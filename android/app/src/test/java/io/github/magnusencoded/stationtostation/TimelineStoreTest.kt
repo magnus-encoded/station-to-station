@@ -1073,6 +1073,40 @@ class TimelineStoreTest {
         }
 
     @Test
+    fun `adoption combines both logs and keeps check-in across restart in either direction`() = runBlocking {
+        for (localIsOlder in listOf(true, false)) {
+            val file = File.createTempFile("adoption", ".json").also { it.delete() }
+            val store = TimelineStore(file)
+            if (!localIsOlder) store.saveMedia("fm-night", listOf(photo("vendor")))
+            val local = store.createLocalGig("25-06-2026", "The Warning", "Vaterland")
+            store.saveMedia(local, listOf(photo("local")))
+            if (localIsOlder) store.saveMedia("fm-night", listOf(photo("vendor")))
+            val holder = requireNotNull(store.load().gigForSetlist("fm-night")).id
+            val keep = if (localIsOlder) local else holder
+            val gone = if (localIsOlder) holder else local
+            store.saveLog(keep, StoredLog(songs = listOf("Intro", "Shared"),
+                lineNumbers = listOf(4, 8), nextLineNumber = 9))
+            store.saveLog(gone, StoredLog(songs = listOf("Shared", "Encore")))
+            store.saveAttendance(keep, StoredAttendance(provenance = StoredAttendance.Provenance.PLANNED))
+            store.saveAttendance(gone, StoredAttendance(provenance = StoredAttendance.Provenance.CHECKED_IN, checkedInAt = 42))
+
+            assertTrue(store.adoptSetlistId(local, "fm-night"))
+            val after = TimelineStore(file).load()
+            assertEquals(setOf(keep), after.gigs.keys)
+            assertEquals(keep, after.gigForSetlist("fm-night")?.id)
+            assertEquals(listOf("Intro", "Shared", "Encore"), after.gigLogs[keep]?.songs)
+            assertEquals(listOf(4, 8, 9), after.gigLogs[keep]?.lineNumbers)
+            assertNull(after.gigLogs[gone])
+            assertEquals(StoredAttendance.Provenance.CHECKED_IN, after.gigAttendance[keep]?.provenance)
+            assertEquals(42L, after.gigAttendance[keep]?.checkedInAt)
+            assertEquals(setOf("local", "vendor"), after.gigMedia[keep]?.map { it.ref }?.toSet())
+            assertFalse(store.adoptSetlistId(local, "fm-night"))
+            assertEquals(after.gigLogs, TimelineStore(file).load().gigLogs)
+            file.delete()
+        }
+    }
+
+    @Test
     fun `adopting an id no other gig holds is still a plain attach`() = runBlocking {
         val store = store()
         val gigId = store.createLocalGig("07-08-2026", "Enok Monk", "Ringnes")

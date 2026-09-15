@@ -467,3 +467,28 @@ vocabulary was ever about. It is no longer the name of a file.
   recognition. v2 has no Contact tokens on the air at all — Android advertises the service
   continuously — so nothing derives that value any more. The argument for why a derivation
   only one platform can compute is not a wire format is worth keeping; the derivation is not.
+
+
+## Amendment — 2026-09-15: participation and verification (#455)
+
+This amendment supersedes the earlier participation rules in §6 and the statement
+that there is no user-facing off switch. Check in starts participation. Completing
+the Log grants 30 minutes of grace, capped at 06:00; reopening restores participation
+until that cutoff. Incoming Facts do not reopen a Log or extend its deadline.
+Android's notification stop and iOS's in-app stop end participation without deleting
+the record. No active Gig means no radio, even with Contacts or held Envelopes.
+Another active Gig cannot keep an ended known Gig's Envelopes in outgoing Passes.
+
+The Contact-only offer rule in §4 is historical: any peer can Carry public Facts
+while participating. The 15-minute Carry window, 2-minute usefulness decay and
+30-minute grace period are separate provisional choices. Envelope expiry remains
+06:00; seen IDs outlive outbox eviction until expiry, and durable Facts outlive both.
+A stranger can read the BLE challenge; a nonce-bound signed Pass proves key
+possession, not Contact membership or app attestation.
+
+The earlier iOS background discussion remains a platform constraint and test
+hypothesis, not evidence of successful locked-phone relay. Pixel/Pi plain-ATT
+receive tests have passed; locked-iPhone receive/forward, two backgrounded iPhones,
+cross-platform radio and battery measurements remain unverified. See #455 and
+`docs/gossip-v2-next-pass.md` for the acceptance state. Receipt generation and
+neighbour ranking remain unimplemented and follow the iPhone viability experiment.
