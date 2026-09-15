@@ -956,9 +956,16 @@ Remaining completion work:
 - **Reopening resolved by the user, 2026-09-15:** resume gossip until the 06:00
   night cutoff. `StoredLog.completing(false)` clears `completedAt`; matching
   Android/iOS regressions assert the restored deadline and its hard cutoff.
-- Finish #443's explicit Gig merge/adoption integration and store-level publication
-  tests. Existing scopes are persistent, but that alone does not settle merges of
-  two already-authored local Gig representations.
+- #443 merge of two already-authored Gigs: **decided by the user 2026-09-15: no
+  fix.** It only happens when a person makes two Gigs for one night, writes a Log on
+  both, and then adopts the setlist.fm id held by one of them. Adoption combines the
+  two Gigs immediately. The public Facts of the losing Gig stay orphaned under its old
+  id until they expire. The local Log is a separate bug, found 2026-09-15:
+  `unionLog` keeps the longer Log and **silently drops the other**. User rule:
+  **never drop handwritten data.** That fix is in progress on
+  `prep/log-merge-no-drop`. Follow-ups: hold to reorder Log lines, and have
+  Departures commits and Ticket adds check for an existing Gig before they create
+  one. `mergeGigs` has no caller in the app.
 - Implement #444 usefulness generation and visible-neighbour priority after the
   early iPhone viability experiment required by #448. The current simulator does
   not select a supported decay value or validate radio performance.
