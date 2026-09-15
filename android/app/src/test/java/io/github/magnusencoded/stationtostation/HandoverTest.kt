@@ -84,11 +84,11 @@ class HandoverTest {
     fun `a Log on both sides is not dropped, and Gaps survive`() {
         val mine = TimelineCache(
             gigs = mapOf("a" to gig("a", setlistId = "s1")),
-            gigLogs = mapOf("a" to StoredLog(songs = listOf("Hollowmoor", ""), closed = false)),
+            gigLogs = mapOf("a" to StoredLog(songs = listOf("Hollowmoor", ""), closed = false, enteredAt = listOf(10, 20))),
         )
         val theirs = TimelineCache(
             gigs = mapOf("a" to gig("a", setlistId = "s1")),
-            gigLogs = mapOf("a" to StoredLog(songs = listOf("Hollowmoor", "", "Vardhavn"), closed = true)),
+            gigLogs = mapOf("a" to StoredLog(songs = listOf("Hollowmoor", "", "Vardhavn"), closed = true, enteredAt = listOf(10, 20, 30))),
         )
 
         val plan = handoverPlan(mine, HandoverManifest(timeline = theirs), all, verified = true)

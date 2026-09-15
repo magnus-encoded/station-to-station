@@ -2,6 +2,7 @@ package io.github.magnusencoded.stationtostation
 
 import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.setlistPaste
+import io.github.magnusencoded.stationtostation.data.unionLog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -179,5 +180,46 @@ class LogTest {
         assertNull(added.enteredAtOrNull(0))
         assertNull(added.enteredAtOrNull(1))
         assertEquals(2_000L, added.enteredAtOrNull(2))
+    }
+
+    @Test fun `merging two Logs keeps every handwritten entry, interleaved by when it was typed`() {
+        val survivor = StoredLog(songs = listOf("Title", "B"), remembered = listOf("chorus words", ""),
+            enteredAt = listOf(10, 30), lineNumbers = listOf(0, 4), nextLineNumber = 5)
+        val dropped = StoredLog(songs = listOf("X", "", "Y", "B"), remembered = listOf("", "", "hummed bit", ""),
+            enteredAt = listOf(5, 20, 40, 30), lineNumbers = listOf(0, 1, 2, 3), nextLineNumber = 4)
+        val merged = unionLog(survivor, dropped)
+        assertEquals(listOf("X", "Title", "", "B", "Y"), merged.songs)
+        assertEquals(listOf("", "chorus words", "", "", "hummed bit"), merged.remembered)
+        assertEquals(listOf(5L, 10L, 20L, 30L, 40L), merged.enteredAt)
+        assertEquals(listOf(5, 0, 6, 4, 7), merged.songs.indices.map(merged::lineNumberAt))
+        assertEquals(8, merged.nextLineNumber)
+        assertEquals(merged.songs.size, merged.lineNumbers.size)
+    }
+
+    @Test fun `merging without timestamps appends the dropped Log and never dedupes unknown times`() {
+        val survivor = StoredLog(songs = listOf("A", "B"))
+        val dropped = StoredLog(songs = listOf("A", "C", "D"), remembered = listOf("", "la la", ""))
+        val merged = unionLog(survivor, dropped)
+        assertEquals(listOf("A", "B", "A", "C", "D"), merged.songs)
+        assertEquals(listOf("", "", "", "la la", ""), merged.remembered)
+        assertEquals(listOf(0L, 0L, 0L, 0L, 0L), merged.enteredAt)
+        assertEquals(listOf(0, 1, 2, 3, 4), merged.songs.indices.map(merged::lineNumberAt))
+    }
+
+    @Test fun `merging a Log with itself changes nothing, and a shorter survivor still survives`() {
+        val log = StoredLog(songs = listOf("A"), enteredAt = listOf(10), lineNumbers = listOf(3), nextLineNumber = 4)
+        assertEquals(log, unionLog(log, log))
+        val longer = log.adding("B", 20).adding("C", 30)
+        val merged = unionLog(log, longer.removingAt(0))
+        assertEquals(listOf("A", "B", "C"), merged.songs)
+        assertEquals(3, merged.lineNumberAt(0))
+    }
+
+    @Test fun `merging keeps completion only where both were closed, earliest completion`() {
+        val a = StoredLog(songs = listOf("A"), closed = true, completedAt = 200, enteredAt = listOf(1))
+        val b = StoredLog(songs = listOf("B"), closed = true, completedAt = 100, enteredAt = listOf(2))
+        assertEquals(100L, unionLog(a, b).completedAt)
+        assertTrue(unionLog(a, b).closed)
+        assertFalse(unionLog(a, b.completing(false)).closed)
     }
 }

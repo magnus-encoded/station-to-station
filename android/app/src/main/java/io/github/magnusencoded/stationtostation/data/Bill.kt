@@ -194,7 +194,7 @@ data class StoredLog(
      * which reads as "nothing was ever replaced" — which is exactly true.
      *
      * Parallel lists only stay parallel if one place keeps them so. That place is the
-     * five functions below; nothing else may edit [songs] directly.
+     * functions below; nothing else may edit [songs] directly.
      */
     val remembered: List<String> = emptyList(),
     /**
@@ -284,6 +284,36 @@ data class StoredLog(
             songs = songs.toMutableList().also { it[i] = line },
             remembered = lines,
             enteredAt = alignedTimestamps(),
+        )
+    }
+
+    /**
+     * Every entry of [other] joins this **Log**; nothing handwritten is dropped.
+     *
+     * Where every entry on both sides knows when it was typed, the two interleave by
+     * [enteredAt] (a tie keeps this Log's entry first); otherwise [other]'s entries follow
+     * this Log's in their own order. Only an exact duplicate — same title, same
+     * [remembered], same known timestamp — is folded away. This Log's entries keep their
+     * line numbers, because gossip already published under them; [other]'s arrive with
+     * fresh ones, since its numbers belonged to a **Gig** that no longer exists and would
+     * collide. Completion is left to the caller.
+     */
+    fun absorbing(other: StoredLog): StoredLog {
+        class Entry(val song: String, val line: String, val at: Long, val number: Int?)
+        val mine = songs.indices.map { Entry(songs[it], aligned()[it], alignedTimestamps()[it], lineNumberAt(it)) }
+        val theirs = other.songs.indices.map { Entry(other.songs[it], other.aligned()[it], other.alignedTimestamps()[it], null) }
+            .filterNot { e -> e.at != 0L && mine.any { it.song == e.song && it.line == e.line && it.at == e.at } }
+        if (theirs.isEmpty()) return this
+        val all = mine + theirs
+        val ordered = if (all.all { it.at != 0L }) all.sortedBy { it.at } else all
+        var next = maxOf(nextLineNumber, (mine.maxOfOrNull { it.number!! } ?: -1) + 1)
+        val numbers = ordered.map { it.number ?: next++ }
+        return copy(
+            songs = ordered.map { it.song },
+            remembered = ordered.map { it.line },
+            enteredAt = ordered.map { it.at },
+            lineNumbers = numbers,
+            nextLineNumber = next,
         )
     }
 

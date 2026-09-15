@@ -628,11 +628,12 @@ internal fun unionPlaylists(kept: List<StoredPlaylist>, dropped: List<StoredPlay
     kept + dropped.filterNot { p -> kept.any { it.url == p.url } }
 
 /**
- * The longer **Log** survives, and stays **Open** unless both were **Closed** — a
- * merge must not upgrade a claim nobody made.
+ * Both **Logs**, whole: every entry [dropped] holds joins [kept] ([StoredLog.absorbing]),
+ * because handwritten data is never discarded to resolve a collision. Stays **Open**
+ * unless both were **Closed** — a merge must not upgrade a claim nobody made.
  */
 internal fun unionLog(kept: StoredLog, dropped: StoredLog): StoredLog =
-    (if (dropped.songs.size > kept.songs.size) dropped else kept)
+    kept.absorbing(dropped)
         .copy(closed = kept.closed && dropped.closed,
             completedAt = listOfNotNull(kept.completedAt, dropped.completedAt).minOrNull())
 
@@ -925,8 +926,9 @@ class TimelineStore(
      * one they are the same night, so this merges into the older record instead of
      * minting a second claim on the id — nothing else enforced it, and a duplicate
      * pair meant writes landing on one record while the reads came from the other.
-     * The merge takes the union: no media, **Log**, check-in or playlist is lost to
-     * the collapse.
+     * The merge takes the union: no media, check-in, playlist or **Log** entry is lost
+     * to the collapse — both **Logs** combine entry by entry (`unionLog`), never the
+     * longer one replacing the other.
      */
     suspend fun adoptSetlistId(gigId: String, setlistId: String): Boolean {
         var adopted = false

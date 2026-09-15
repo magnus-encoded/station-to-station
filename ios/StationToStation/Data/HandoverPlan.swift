@@ -315,13 +315,14 @@ func unionPlaylists(_ kept: [StoredPlaylist], _ arriving: [StoredPlaylist]) -> [
     kept + arriving.filter { p in !kept.contains { $0.url == p.url } }
 }
 
-/// The longer **Log** survives, and stays **Open** unless both were **Closed** — a merge
-/// must not upgrade a claim nobody made.
+/// Both **Logs**, whole: every entry `arriving` holds joins `kept` (`StoredLog.absorbing`),
+/// because handwritten data is never discarded to resolve a collision. Stays **Open**
+/// unless both were **Closed** — a merge must not upgrade a claim nobody made.
 func unionLog(_ kept: StoredLog, _ arriving: StoredLog) -> StoredLog {
-    var longer = arriving.songs.count > kept.songs.count ? arriving : kept
-    longer.closed = kept.closed && arriving.closed
-    longer.completedAt = [kept.completedAt, arriving.completedAt].compactMap { $0 }.min()
-    return longer
+    var merged = kept.absorbing(arriving)
+    merged.closed = kept.closed && arriving.closed
+    merged.completedAt = [kept.completedAt, arriving.completedAt].compactMap { $0 }.min()
+    return merged
 }
 
 /// One claim about one night, and the stronger evidence wins: a check-in reached by one
