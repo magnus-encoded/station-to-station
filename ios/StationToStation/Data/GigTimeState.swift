@@ -170,6 +170,23 @@ func plannedStatus(gigDate: String?, now: Date, songCount: Int = 0,
 /// claim at all — an imported night — is not a plan either.
 func isPlanned(_ provenance: String?) -> Bool { provenance == "planned" }
 
+/// The claim a night joins my **Line** with when I take it off a **Contact**'s **Gig**
+/// — "I was there too" (#438).
+///
+/// The clock decides, off the one window (`nightWindow`), so this cannot disagree with
+/// what the **Room** offers on the same night: before it, a plan; during it, the same
+/// `checked_in` the manual check-in writes, because tapping it there and then *is* a
+/// check-in; after it, `attended`.
+///
+/// A date that will not parse reads as `attended`: a **Contact**'s **Line** is nights
+/// they were at, so past is the only reading that is not a guess about the future.
+func claimOnAdding(gigDate: String?, now: Date, calendar: Calendar = .current) -> String {
+    guard let window = gigDate.flatMap({ nightWindow(gigDate: $0, calendar: calendar) })
+    else { return "attended" }
+    if now < window.lowerBound { return "planned" }
+    return window.contains(now) ? "checked_in" : "attended"
+}
+
 /// The words on a **Gig**'s headline chip. A plan speaks in the calendar's terms until
 /// its night passes; everything else speaks in the record's.
 func gigStatus(planned: Bool, gigDate: String?, songCount: Int, now: Date,

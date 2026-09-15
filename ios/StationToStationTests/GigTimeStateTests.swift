@@ -180,4 +180,34 @@ final class GigTimeStateTests: XCTestCase {
         XCTAssertNil(venueMapsQuery(venueName: nil, city: nil))
         XCTAssertNil(venueMapsQuery(venueName: "  ", city: ""))
     }
+
+    // MARK: - The claim taken off a Contact's Gig (#438)
+
+    func testAddingANightStillAheadIsAPlan() {
+        XCTAssertEqual("planned", claimOnAdding(gigDate: day("08-08-2026"), now: now, calendar: cal))
+    }
+
+    /// The same window the **Room**'s check-in reads, boundary for boundary: adding a
+    /// night I am standing in is a check-in, and 06:00 sharp is already the morning
+    /// after.
+    func testAddingANightBeingStoodAtIsACheckIn() {
+        let gig = day("31-07-2026")
+        XCTAssertEqual("checked_in", claimOnAdding(gigDate: gig, now: now, calendar: cal))
+        XCTAssertEqual("checked_in",
+                       claimOnAdding(gigDate: gig, now: at("01-08-2026", 5, 59), calendar: cal))
+        XCTAssertEqual("attended",
+                       claimOnAdding(gigDate: gig, now: at("01-08-2026", 6, 0), calendar: cal))
+    }
+
+    func testAddingANightThatHasBeenAndGoneIsAttended() {
+        XCTAssertEqual("attended", claimOnAdding(gigDate: day("30-07-2026"), now: now, calendar: cal))
+        XCTAssertEqual("attended", claimOnAdding(gigDate: day("31-07-1992"), now: now, calendar: cal))
+    }
+
+    /// A **Contact**'s **Line** is nights they were at, so a date this app cannot read
+    /// is a past night — never a plan it would put on my future edge.
+    func testAnUnreadableDateIsTakenAsPast() {
+        XCTAssertEqual("attended", claimOnAdding(gigDate: "2026-08-04", now: now, calendar: cal))
+        XCTAssertEqual("attended", claimOnAdding(gigDate: nil, now: now, calendar: cal))
+    }
 }

@@ -78,6 +78,7 @@ struct GigView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         header(show, offers?.room)
+                        alsoMine(show)
                         // The night's grid (#99): what I shot, above what was played,
                         // and part of the header block rather than a section under the
                         // set. Reading order is Grammar (ADR-0017, amended 2026-08-28),
@@ -261,6 +262,28 @@ struct GigView: View {
         // Back is a chevron with no label, and the swipe that also does it is a
         // gesture VoiceOver consumes.
         .accessibilityAction(.escape) { nav.pop() }
+    }
+
+    /// "I was there too" (#438): the way onto my own **Line** from a **Contact**'s
+    /// **Gig**. Until this, a night I found on someone else's **Line** could only be
+    /// added by going and finding its setlist.fm link by hand — the record was already
+    /// on screen and there was no door.
+    ///
+    /// Gated on `selectedIsMine` and nothing else. That is #327's one rule, which
+    /// already answers both halves of "a **Contact**'s night I do not hold": a claim of
+    /// my own, or membership of either of my lists, makes it mine. Not `contactLight`
+    /// — that is the switch for seeing *my* night as a Contact does, and reading it
+    /// here would offer to add a night I am already at.
+    @ViewBuilder
+    private func alsoMine(_ show: FmSetlist) -> some View {
+        if !model.state.selectedIsMine {
+            Button { model.addContactGigToMyLine(show) } label: {
+                Label("I was there too", systemImage: "plus.circle")
+                    .font(.system(size: 14))
+            }
+            .tint(amber)
+            .padding(.horizontal, 24).padding(.bottom, 12)
+        }
     }
 
     /// The night's own facts, for the Preamble over a Note (#50). Derived on
