@@ -533,7 +533,10 @@ class GossipCentral(
                 onPushed(who)
             } else {
                 val known = if (peer != null) "relay resolved" else "peer never resolved"
-                Log.w(TAG, "gossip push to a peer gave up in \"$phase\" ($known)")
+                // The reason, not just the phase: it is the same sentence the panel gets, and
+                // a device test read through logcat has no panel to look at.
+                Log.w(TAG, "gossip push to a peer gave up in \"$phase\" ($known): " +
+                    (why ?: "no reason recorded"))
                 GossipRadioStatus.note(why ?: "gave up in \"$phase\"")
             }
         }
