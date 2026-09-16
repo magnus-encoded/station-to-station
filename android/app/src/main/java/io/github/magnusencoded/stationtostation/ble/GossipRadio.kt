@@ -23,62 +23,69 @@ import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
 import android.util.Log
-import io.github.magnusencoded.stationtostation.data.GossipCheckIn
 import io.github.magnusencoded.stationtostation.data.exchange.verifyChallenge
-import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_ADVERTISE_SLOT
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_MAX_WIRE_BYTES
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_NONCE_BYTES
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_PEER_COOLDOWN
-import io.github.magnusencoded.stationtostation.data.gossip.GossipChallenge
-import io.github.magnusencoded.stationtostation.data.gossip.GossipPass
-import io.github.magnusencoded.stationtostation.data.gossip.decodeGossipChallenge
-import io.github.magnusencoded.stationtostation.data.gossip.decodeGossipPass
-import io.github.magnusencoded.stationtostation.data.gossip.encodeGossipChallenge
-import io.github.magnusencoded.stationtostation.data.gossip.encodeGossipPass
-import io.github.magnusencoded.stationtostation.data.gossip.gossipAdvertisedToken
-import io.github.magnusencoded.stationtostation.data.gossip.gossipAuthPayload
-import io.github.magnusencoded.stationtostation.data.gossip.gossipResolveOffer
-import io.github.magnusencoded.stationtostation.data.gossip.gossipTokenOffer
-import io.github.magnusencoded.stationtostation.data.gossip.gossipTokenOwner
-import io.github.magnusencoded.stationtostation.data.gossip.gossipTokenTable
+import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_PICK_WINDOW_MS
+import io.github.magnusencoded.stationtostation.data.gossip.gossipPreferredPeers
+import io.github.magnusencoded.stationtostation.data.gossip.encodePublicGossipChallenge
+import io.github.magnusencoded.stationtostation.data.gossip.decodePublicGossipChallenge
+import io.github.magnusencoded.stationtostation.data.gossip.publicGossipAuthPayload
+import io.github.magnusencoded.stationtostation.data.gossip.PublicGossipPass
+import io.github.magnusencoded.stationtostation.data.gossip.decodePublicGossipPass
+import io.github.magnusencoded.stationtostation.data.gossip.encodePublicGossipPass
+import io.github.magnusencoded.stationtostation.data.gossip.GossipRadioStatus
+import io.github.magnusencoded.stationtostation.data.gossip.GossipTally
 import java.security.SecureRandom
 import java.time.Instant
 import java.util.Base64
 import java.util.UUID
 
 /**
- * The gossip channel's radio (#416): advertise a rotating token, scan for **Contacts**,
- * and push this device's live check-ins to whoever answers.
+ * The gossip channel's radio (#416): advertise the gossip service, scan for anyone else
+ * advertising it, and push this device's live envelopes to whoever answers.
+ *
+ * **It no longer looks for **Contacts**.** The v1 channel advertised a rotating per-pair
+ * token so a scanner could tell a **Contact** from a stranger before connecting, because
+ * v1 relayed only across Contact edges. Public gossip v2 relays across any edge — an
+ * envelope is authored under a temporary **Gig** key and carries its own proof — so there
+ * is nothing to recognise in an advertisement and nothing gained by trying. What is left is
+ * a bare connectable service UUID, which is also the only thing a backgrounded iPhone can
+ * be relied on to broadcast.
  *
  * Modelled on [BleCardPeripheral]/[BleCardCentral] rather than reusing them, and on purpose
  * — this is a **different service, on a different UUID, with a different trust rule**. The
  * Exchange's server accepts a card from any radio in range because being on that screen is
- * the consent (ADR-0016); this one accepts nothing from anyone who has not first proved
- * possession of a key already on a **Friend** record. Sharing a GATT service between the
- * two would put the foreground-only rule and the background carve-out behind one door.
+ * the consent (ADR-0016); this one runs in the background and accepts only
+ * self-proving envelopes. Sharing a GATT service between the two would put the
+ * foreground-only rule and the background carve-out behind one door.
  *
  * **Push-only.** Every device runs both halves at once, so there is no authenticated read
  * to design: a device with something to say connects and writes, and a device with nothing
  * to say never has to be believed about anything. The one thing that *is* read is the
  * listener's challenge, and reading that grants nothing.
  *
- * Nothing in this file decides whether a message is any good. It hands `(from, batch)` to
- * its owner, which runs
- * [gossipStormGate][io.github.magnusencoded.stationtostation.data.gossipStormGate] — the
- * one place that rule lives.
+ * Nothing in this file decides whether an envelope is any good. It proves the transport
+ * identity — the challenge is signed, and the **Pass** carries a signature over the nonce
+ * this device issued — and then hands `(from, pass)` to its owner as a
+ * [PublicGossipDelivery]. Every question about the *content* belongs to
+ * [PublicGossipState.receive][io.github.magnusencoded.stationtostation.data.gossip.PublicGossipState.receive]:
+ * an envelope's own signature by its temporary **Gig** key, its expiry, whether it has been
+ * seen, and the one-hop rule that a `request` or `receipt` is believed only from its own
+ * author. When you are tempted to add an `if` about an envelope to this file, it belongs
+ * there — the same division the v1 storm-gate was written to enforce, kept across the move
+ * to public gossip v2.
  */
 
 /** The gossip service. Deliberately not the Exchange's UUID — see the file comment. */
 internal val GOSSIP_SERVICE_UUID: UUID = UUID.fromString("7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7721")
 
-/** Read: a fresh nonce and this listener's token offer — never its own key. */
+/** Read: a fresh nonce, this listener's temporary relay key, and its proof of holding it. */
 internal val GOSSIP_CHALLENGE_UUID: UUID = UUID.fromString("7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7722")
 
-/** Write: the pusher's key, its signature over that nonce, and its batch. */
+/** Write: the pusher's temporary relay key, its signature over that nonce, and its batch. */
 internal val GOSSIP_PASS_UUID: UUID = UUID.fromString("7b7e6f2a-7601-4b1a-9e2c-2a6f6f0b7723")
-
-/** 0xFFFF is the SIG's "reserved for internal/testing use" company id, as in [BleCardPeripheral]. */
-private const val TEST_COMPANY_ID = 0xFFFF
 
 /**
  * How long one push may take before it is abandoned.
@@ -105,8 +112,8 @@ private const val GOSSIP_MAX_ATTRIBUTE_BYTES = 512
 
 private const val TAG = "GossipRadio"
 
-/** What a listener accepted: a peer that proved itself, and what it pushed. */
-data class GossipDelivery(val from: String, val batch: List<GossipCheckIn>)
+/** Public v2 delivery. The sender is a transport identity; envelope authors are temporary Gig keys. */
+data class PublicGossipDelivery(val from: String, val pass: PublicGossipPass)
 
 /**
  * The payload in pieces that fit one ATT write, in order.
@@ -128,16 +135,11 @@ internal fun ByteArray.intoChunks(size: Int): List<ByteArray> {
  */
 internal fun gossipWriteLimit(attMtu: Int): Int = minOf(attMtu - 3, GOSSIP_MAX_ATTRIBUTE_BYTES)
 
-/**
- * The listening half: advertise, and take pushes from **Contacts** that prove themselves.
- *
- * [contacts] and [myKey] are read on every operation rather than captured once, so a
- * **Contact** made tonight can be gossiped with tonight.
- */
+/** A public listener: the challenge and Pass prove possession of temporary relay keys. */
 class GossipPeripheral(
     private val context: Context,
     private val myKey: () -> String,
-    private val contacts: () -> Set<String>,
+    private val sign: (ByteArray) -> ByteArray?,
 ) {
     private val manager get() = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     private val main = Handler(Looper.getMainLooper())
@@ -146,15 +148,8 @@ class GossipPeripheral(
     private var advertiser: BluetoothLeAdvertiser? = null
     private var advertising = false
 
-    /**
-     * One object, kept, because `::rotate` builds a *new* `Runnable` every time it is
-     * mentioned — so posting one reference and cancelling another leaves the timer running
-     * after [stop], and the service keeps advertising after it has been told to shut up.
-     */
-    private val rotation = Runnable { rotate() }
-
     /** Fires on a binder thread. The service hops to a coroutine before doing anything. */
-    var onDelivery: ((GossipDelivery) -> Unit)? = null
+    var onPublicDelivery: ((PublicGossipDelivery) -> Unit)? = null
 
     /**
      * The nonce this listener last issued to each device address, and the bytes it answered
@@ -172,7 +167,10 @@ class GossipPeripheral(
 
     private val advertiseCallback = object : AdvertiseCallback() {
         override fun onStartFailure(errorCode: Int) {
+            advertising = false
             Log.w(TAG, "gossip advertising failed, error=$errorCode")
+            GossipRadioStatus.advertising(false)
+            GossipRadioStatus.note("could not advertise (error $errorCode)")
         }
     }
 
@@ -193,14 +191,13 @@ class GossipPeripheral(
             if (offset == 0) {
                 val nonce = ByteArray(GOSSIP_NONCE_BYTES).also(random::nextBytes)
                 nonces[device.address] = nonce
-                // The offer, never this device's own key: a stranger who connects and reads
-                // must not walk away holding a stable identifier for this phone. See
-                // [gossipTokenOffer].
-                challenges[device.address] = encodeGossipChallenge(
-                    GossipChallenge(nonce, gossipTokenOffer(myKey(), contacts(), Instant.now())),
-                )
+                // Only the nightly relay key is public; durable Contact keys stay off this link.
+                challenges[device.address] = encodePublicGossipChallenge(nonce, myKey(), sign) ?: ByteArray(0)
             }
             val payload = challenges[device.address] ?: ByteArray(0)
+            if (offset == 0) {
+                Log.i(TAG, "a peer read our challenge (${payload.size} bytes offered)")
+            }
             sendResponse(device, requestId, offset, sliceForOffset(payload, offset))
         }
 
@@ -222,16 +219,22 @@ class GossipPeripheral(
             // perform a long write and sends every chunk at offset 0, so the offset is
             // ignored here on purpose and a zero-length write is what ends the **Pass**.
             // Writing at the offset a peer states would mean an iPhone's whole batch
-            // overwrote itself down to its last chunk. See `GossipWire.kt`'s header.
+            // overwrote itself down to its last chunk. See `docs/gossip-public-wire.md`.
             val accumulated = inbox[device.address] ?: ByteArray(0)
             if (accumulated.size + chunk.size > GOSSIP_MAX_WIRE_BYTES) {
                 // Refused whole rather than truncated, and the peer is not told which of the
                 // two it was — the same silence every other rejection here keeps.
                 inbox.remove(device.address)
+                nonces.remove(device.address)
                 if (responseNeeded) sendResponse(device, requestId, offset, chunk)
                 return
             }
             inbox[device.address] = accumulated + chunk
+            Log.i(
+                TAG,
+                "pass chunk in: ${chunk.size} bytes at offset $offset, " +
+                    "${accumulated.size + chunk.size} accumulated, prepared=$preparedWrite",
+            )
             // Withholding the response on a write-with-response hangs the pusher until its
             // own timeout — the same trap [BleCardPeripheral] documents.
             if (responseNeeded) sendResponse(device, requestId, offset, chunk)
@@ -244,7 +247,20 @@ class GossipPeripheral(
         }
 
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
-            if (newState == BluetoothProfile.STATE_DISCONNECTED) forget(device.address)
+            // The only evidence this device gets about the other direction: a peer that never
+            // appears here never tried to push to us, which is a different fault from one that
+            // connects and then fails.
+            when (newState) {
+                BluetoothProfile.STATE_CONNECTED -> {
+                    Log.i(TAG, "a peer connected to our server")
+                    GossipRadioStatus.peerArrived(device.address)
+                }
+                BluetoothProfile.STATE_DISCONNECTED -> {
+                    Log.i(TAG, "a peer disconnected from our server (status=$status)")
+                    GossipRadioStatus.peerLeft(device.address)
+                    forget(device.address)
+                }
+            }
         }
     }
 
@@ -261,33 +277,19 @@ class GossipPeripheral(
         challenges.remove(address)
     }
 
-    /**
-     * One completed write is one **Pass**, or it is dropped.
-     *
-     * **This is where "the transport proves possession before calling" is actually done** —
-     * the sentence the storm-gate's `from` parameter is written against. Three things have
-     * to hold, and a failure of any of them is silent: an unreadable envelope, a claimed key
-     * that is nobody this device has met, or a signature that is not over the nonce *this*
-     * connection issued. Nothing is reported back to the peer, for the reason the gate gives
-     * for its own rejections — a diagnosis is a probe's oracle.
-     */
+    /** Consume one connection nonce and admit only v2 with a valid possession proof. */
     private fun deliver(address: String) {
         val payload = inbox.remove(address) ?: return
-        val nonce = nonces[address] ?: return
-        val pass = decodeGossipPass(payload) ?: run {
-            Log.w(TAG, "unreadable pass (${payload.size} bytes), dropped")
+        val nonce = nonces.remove(address) ?: return
+        val pass = decodePublicGossipPass(payload)
+        val proof = pass?.let { runCatching { Base64.getDecoder().decode(it.proof) }.getOrNull() }
+        if (pass == null || proof == null || !verifyChallenge(publicGossipAuthPayload(nonce), proof, pass.from)) {
+            Log.w(TAG, "dropped unreadable or unverified public Pass (${payload.size} bytes)")
+            GossipRadioStatus.note("dropped an invalid public pass")
             return
         }
-        if (pass.from !in contacts()) return
-        val signature = runCatching { Base64.getDecoder().decode(pass.proof) }.getOrNull() ?: return
-        if (!verifyChallenge(gossipAuthPayload(nonce), signature, pass.from)) {
-            Log.w(TAG, "a pass failed the possession proof, dropped")
-            return
-        }
-        // Spent: a nonce answers exactly one **Pass**, so a peer that pushes twice on one
-        // connection has to read a new challenge for the second.
-        nonces.remove(address)
-        onDelivery?.invoke(GossipDelivery(pass.from, pass.batch))
+        Log.i(TAG, "verified public Pass: ${pass.batch.size} envelope(s), ${payload.size} bytes")
+        onPublicDelivery?.invoke(PublicGossipDelivery(pass.from, pass))
     }
 
     @SuppressLint("MissingPermission")
@@ -309,29 +311,13 @@ class GossipPeripheral(
             manager.openGattServer(context, serverCallback)?.also { it.addService(service) }
         }.getOrNull()
         advertiser = manager.adapter?.bluetoothLeAdvertiser
-        rotate()
+        advertise()
     }
 
-    /**
-     * Show the next **Contact**'s token, and come back in [GOSSIP_ADVERTISE_SLOT].
-     *
-     * A token is per pair, so a phone with several **Contacts** has several to show and one
-     * advertisement to show them in — [gossipAdvertisedToken] owns which. Each turn is a
-     * stop and a start of the advertiser, which is why the slot is seconds rather than
-     * milliseconds.
-     */
+    /** Keep one connectable service advertisement up; public peers need no Contact token. */
     @SuppressLint("MissingPermission")
-    private fun rotate() {
-        main.removeCallbacks(rotation)
-        val token = gossipAdvertisedToken(myKey(), contacts(), Instant.now())
-        stopAdvertising()
-        if (token == null) {
-            // Nobody to advertise to yet. Come back anyway rather than stopping the timer:
-            // a **Contact** made while the service is running is one this loop picks up on
-            // its next turn, and dying here would mean the radio silently never woke.
-            main.postDelayed(rotation, GOSSIP_ADVERTISE_SLOT.toMillis())
-            return
-        }
+    private fun advertise() {
+        if (advertising) return
         val settings = AdvertiseSettings.Builder()
             // Low power, not low latency: this runs for a night, not for the two seconds
             // somebody is looking at the Exchange screen. A one-second advertising interval
@@ -344,16 +330,16 @@ class GossipPeripheral(
             .addServiceUuid(ParcelUuid(GOSSIP_SERVICE_UUID))
             .setIncludeDeviceName(false)
             .build()
-        // The token rides the scan response for the same reason the Exchange's name does: a
-        // 128-bit service UUID takes 18 of the advertisement's 31 bytes, and the phone's own
-        // name would take the rest. Manufacturer data, not a service-data record, because a
-        // 128-bit service-data record costs 18 bytes of the 31 to say the same thing again.
-        val scanResponse = AdvertiseData.Builder()
-            .addManufacturerData(TEST_COMPANY_ID, token)
-            .build()
-        runCatching { advertiser?.startAdvertising(settings, advertisement, scanResponse, advertiseCallback) }
-            .onSuccess { advertising = true }
-        main.postDelayed(rotation, GOSSIP_ADVERTISE_SLOT.toMillis())
+        runCatching { requireNotNull(advertiser).startAdvertising(settings, advertisement, advertiseCallback) }
+            .onSuccess {
+                advertising = true
+                Log.i(TAG, "public gossip advertisement started")
+                GossipRadioStatus.advertising(true)
+            }
+            .onFailure {
+                Log.w(TAG, "gossip advertising could not start: $it")
+                GossipRadioStatus.advertising(false)
+            }
     }
 
     @SuppressLint("MissingPermission")
@@ -365,7 +351,6 @@ class GossipPeripheral(
 
     @SuppressLint("MissingPermission")
     fun stop() {
-        main.removeCallbacks(rotation)
         stopAdvertising()
         advertiser = null
         runCatching { gattServer?.close() }
@@ -373,31 +358,28 @@ class GossipPeripheral(
         inbox.clear()
         nonces.clear()
         challenges.clear()
+        GossipRadioStatus.advertising(false)
     }
 }
 
-/**
- * The pushing half: find a gossip radio, connect, learn whose it is, prove who we are, hand
- * over.
- *
- * Two ways in, and the second is the one that matters for reaching an iPhone. A peer that put
- * a token in its scan response is recognised before a connection is opened; a peer that could
- * not — every iPhone, which cannot advertise bytes at all — is connected to and identified
- * from its challenge instead. The first is a shortcut, the second is the contract.
- *
- * [outboxFor] is asked what to send only once the peer's key is known, because what is sent
- * depends on who is listening — a message is never handed back to the **Contact** it came
- * from or to its own author.
- */
+/** Discover public service advertisements, verify their temporary key, and push one Pass. */
 class GossipCentral(
     private val context: Context,
-    private val myKey: () -> String,
-    private val contacts: () -> Set<String>,
-    private val sign: (ByteArray) -> ByteArray?,
-    private val outboxFor: (String) -> List<GossipCheckIn>,
+    private val publicPassFor: (String, ByteArray) -> ByteArray?,
     /** Whether this peer's cooldown has elapsed — [gossipPassDue][io.github.magnusencoded.stationtostation.data.gossip.gossipPassDue]. */
     private val due: (String) -> Boolean,
     private val onPushed: (String) -> Unit,
+    /**
+     * Whether the handle last proved at this BLE address holds live routing credit
+     * ([gossipPreferredPeers][io.github.magnusencoded.stationtostation.data.gossip.gossipPreferredPeers]).
+     *
+     * Keyed by address rather than by handle because that is the only name a scan result
+     * carries; this side learns the handle only after a connection, and remembers it in
+     * [resolved]. A peer never met before is simply uncredited, which costs it nothing but
+     * its place in the order.
+     */
+    private val credited: (String) -> Boolean = { false },
+    private val random: kotlin.random.Random = kotlin.random.Random.Default,
 ) {
     private val manager get() = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     private val main = Handler(Looper.getMainLooper())
@@ -413,9 +395,14 @@ class GossipCentral(
      */
     private var busy = false
 
-    /** Recomputed per bucket rather than per hit — see [gossipTokenTable]. */
-    private var table: Map<String, String> = emptyMap()
-    private var tableAt = Instant.EPOCH
+    /**
+     * Whether [start] is still in force, so a push that ends after [stop] does not quietly
+     * put the scan back on air.
+     */
+    private var running = false
+
+    /** Whether the scan was taken down for the push that is in flight, and owes a restart. */
+    private var pausedForPush = false
 
     /**
      * When each device address was last connected to, for peers whose identity is not known
@@ -430,51 +417,94 @@ class GossipCentral(
      */
     private val attempted = mutableMapOf<String, Instant>()
 
+    /** Addresses already named in the log, so a scan does not repeat itself every second. */
+    private val logged = mutableSetOf<String>()
+
+    /**
+     * The handle proved at each address, so a later sighting of the same address can be
+     * ranked by what this phone learned the last time it connected there.
+     *
+     * **This memo, not the ranking key, is the weak part.** The key the ranker actually asks
+     * about is the peer's nightly relay key — `relay-<date>`, a device-local keystore identity
+     * that is stable for the whole night. What rotates is the BLE address, and the address is
+     * only this map's *lookup* key.
+     *
+     * The consequence is sharper than rotation, and it is not fixable here. An entry is
+     * written in one place only — after a challenge read completes, below — so a sighting can
+     * never be credited before this phone has already connected to that address once. A first
+     * sighting of anyone is uncredited by construction, and since the only thing on the air is
+     * a bare service UUID (see the file comment), there is nothing in an advertisement to key
+     * on instead. ADR-0022 §4 says what would have to change; nothing in this class can.
+     */
+    private val resolved = mutableMapOf<String, String>()
+
+    /** Addresses seen in the window now open, waiting to be ranked against each other. */
+    private val sighted = mutableSetOf<String>()
+    private var picking = false
+
     private val callback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
+            if (logged.add(result.device.address)) Log.i(TAG, "saw a public gossip radio")
             if (busy) return
-            val advertised = result.scanRecord?.getManufacturerSpecificData(TEST_COMPANY_ID)
-            if (advertised != null) {
-                // The Android-to-Android shortcut: the peer named itself in its scan
-                // response, so everything can be decided before paying for a connection.
-                val peer = gossipTokenOwner(currentTable(), advertised) ?: return
-                if (!due(peer) || outboxFor(peer).isEmpty()) return
-                busy = true
-                push(result.device.address, peer)
-                return
-            }
-            // No manufacturer data. Either an iPhone — which cannot put bytes in an
-            // advertisement at all — or an Android with nobody to advertise to. Connect and
-            // read the challenge, which is the path both platforms share; who this is, and
-            // whether there is anything to say to them, is settled there.
             val address = result.device.address
             val now = Instant.now()
             val last = attempted[address]
             if (last != null && now.isBefore(last.plus(GOSSIP_PEER_COOLDOWN))) return
-            attempted[address] = now
+            // One advertisement is not a choice. Gather the room for a moment, then let
+            // usefulness order it; the window is what makes stories 38 and 39 reachable at
+            // all from a scan that reports one device at a time.
+            sighted.add(address)
+            if (picking) return
+            picking = true
+            main.postDelayed({ pickFromWindow() }, GOSSIP_PICK_WINDOW_MS)
+        }
+
+        private fun pickFromWindow() {
+            picking = false
+            // The room is discarded only when there is no longer a reason to keep it. A
+            // window that closes while a push is in flight used to throw away its whole
+            // candidate set before the guard ever ran; now the set waits, and the next scan
+            // result after `resumeAfterPush` reopens the window over it. `busy` is close to
+            // unreachable here in practice — `pauseForPush` takes the scan down, so no
+            // sighting arrives to open a window during a push — but the ordering should not
+            // depend on that, and `stop` is the case that really does clear the set.
+            if (!running) { sighted.clear(); return }
+            if (busy) return
+            // Sightings kept across a push may have aged past the cooldown decision that was
+            // made about them, so the same bound `onScanResult` applies is applied again here.
+            val now = Instant.now()
+            val candidates = sighted.filter { address ->
+                attempted[address]?.let { now.isBefore(it.plus(GOSSIP_PEER_COOLDOWN)) } != true
+            }
+            sighted.clear()
+            // Asked once per candidate and remembered: `credited` reaches for the ledger's
+            // lock, and the tally must not be a reason to take it a second time.
+            val holdsCredit = candidates.associateWith { resolved[it]?.let(credited) == true }
+            val order = gossipPreferredPeers(candidates, { holdsCredit[it] == true }, random)
+            GossipTally.ranked(order.size, order.count { holdsCredit[it] == true })
+            val address = order.firstOrNull() ?: return
+            attempted[address] = Instant.now()
             busy = true
-            push(address, null)
+            // Scanning through a connect is what error 133 is made of: the controller is
+            // asked to keep a scan window open while it also runs the connection procedure,
+            // and on several chipsets the connect simply loses. One push at a time already
+            // means there is nothing to discover meanwhile, so the scan costs nothing to
+            // put down and `finish` owes it back.
+            pauseForPush()
+            push(address)
         }
 
         override fun onScanFailed(errorCode: Int) {
             Log.w(TAG, "gossip scan failed, error=$errorCode")
             scanning = false
+            GossipRadioStatus.scanning(false)
+            GossipRadioStatus.note("the scan failed (error $errorCode)")
         }
-    }
-
-    private fun currentTable(): Map<String, String> {
-        val now = Instant.now()
-        // Rebuilt a good deal more often than the quarter-hour it covers, because it is also
-        // how a **Contact** made a minute ago enters the set of people worth connecting to.
-        if (table.isEmpty() || now.isAfter(tableAt.plusSeconds(60))) {
-            table = gossipTokenTable(myKey(), contacts(), now)
-            tableAt = now
-        }
-        return table
     }
 
     @SuppressLint("MissingPermission")
     fun start() {
+        running = true
         if (scanning) return
         val filter = ScanFilter.Builder().setServiceUuid(ParcelUuid(GOSSIP_SERVICE_UUID)).build()
         // Balanced, not low-latency: the Exchange's two-second budget has a human waiting on
@@ -487,42 +517,75 @@ class GossipCentral(
             .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
             .build()
         runCatching { manager.adapter?.bluetoothLeScanner?.startScan(listOf(filter), settings, callback) }
-            .onSuccess { scanning = true }
+            .onSuccess {
+                scanning = true
+                Log.i(TAG, "gossip scan started")
+                GossipRadioStatus.scanning(true)
+            }
+            .onFailure {
+                Log.w(TAG, "gossip scan could not start: $it")
+                GossipRadioStatus.scanning(false)
+            }
+    }
+
+    /** Take the scan off air for the duration of one push. */
+    @SuppressLint("MissingPermission")
+    private fun pauseForPush() {
+        if (!scanning) return
+        runCatching { manager.adapter?.bluetoothLeScanner?.stopScan(callback) }
+        scanning = false
+        pausedForPush = true
+        GossipRadioStatus.scanning(false)
+    }
+
+    /** Put back a scan that [pauseForPush] took down, unless [stop] has since been called. */
+    private fun resumeAfterPush() {
+        if (!pausedForPush) return
+        pausedForPush = false
+        if (running) start()
     }
 
     @SuppressLint("MissingPermission")
     fun stop() {
+        running = false
+        pausedForPush = false
         if (scanning) runCatching { manager.adapter?.bluetoothLeScanner?.stopScan(callback) }
         scanning = false
+        // This cancels a pending pick window as well as a push timeout, so the `!running`
+        // guard in `pickFromWindow` and `picking = false` below are belt and braces rather
+        // than the only thing standing between a stopped radio and a connect. All three are
+        // kept: a Handler callback already dispatched cannot be removed, and that one lands
+        // on the guard.
         main.removeCallbacksAndMessages(null)
         busy = false
-        table = emptyMap()
         attempted.clear()
+        logged.clear()
+        resolved.clear()
+        sighted.clear()
+        picking = false
+        GossipRadioStatus.scanning(false)
+        GossipRadioStatus.pushClosed()
     }
 
-    /**
-     * Connect, read the challenge, resolve who this is, sign the nonce, write the **Pass**,
-     * let go.
-     *
-     * [expected] is the **Contact** the advertisement already named, on the Android-only fast
-     * path, and null on the cross-platform path where nothing is known until the challenge is
-     * read. Either way the challenge has to resolve, and when both are present they have to
-     * agree — a device that advertises one **Contact**'s token and then offers another's is
-     * not having its word taken for it.
-     *
-     * A token is derived from public material (see [gossipToken][io.github.magnusencoded.stationtostation.data.gossip.gossipToken]),
-     * so a device holding both keys could present one it has no business presenting. What
-     * stops that mattering is that a **Pass** is signed by a key it cannot impersonate and
-     * every message inside it is verified again by the storm-gate — but there is no reason to
-     * hand anything over to it, and the check costs a map lookup.
-     */
+    /** Read a fresh signed challenge, send bounded chunks and an empty terminator, then disconnect. */
     @SuppressLint("MissingPermission")
-    private fun push(address: String, expected: String?) {
+    private fun push(address: String) {
         val device = runCatching { manager.adapter?.getRemoteDevice(address) }.getOrNull()
         if (device == null) { busy = false; return }
+        GossipRadioStatus.pushOpened(address)
         var gattRef: BluetoothGatt? = null
         var done = false
         var phase = "connect"
+
+        /**
+         * The outcome in words, for the screen, when there is one worth telling apart.
+         *
+         * The phase name alone is not enough to read a panel by: five different things end a
+         * push in `"challenge"`, and one of them — the cooldown — is the radio working. A line
+         * that cannot separate "we spoke a minute ago" from "I could not sign the nonce" is a
+         * line that has to be checked against logcat, which is what the panel exists to avoid.
+         */
+        var why: String? = null
 
         /** Who the challenge said this is. Null until it has been read and resolved. */
         var peer: String? = null
@@ -538,12 +601,31 @@ class GossipCentral(
             main.removeCallbacksAndMessages(null)
             runCatching { gattRef?.disconnect(); gattRef?.close() }
             busy = false
+            resumeAfterPush()
+            GossipRadioStatus.pushClosed()
             val who = peer
-            if (pushed && who != null) onPushed(who)
-            else Log.w(TAG, "gossip push to a peer gave up in \"$phase\"")
+            if (pushed && who != null) {
+                Log.i(TAG, "push delivered to a relay")
+                GossipRadioStatus.note("handed over ${chunks.size - 1} chunk(s)")
+                onPushed(who)
+            } else {
+                val known = if (peer != null) "relay resolved" else "peer never resolved"
+                // The reason, not just the phase: it is the same sentence the panel gets, and
+                // a device test read through logcat has no panel to look at.
+                Log.w(TAG, "gossip push to a peer gave up in \"$phase\" ($known): " +
+                    (why ?: "no reason recorded"))
+                GossipRadioStatus.note(why ?: "gave up in \"$phase\"")
+            }
         }
 
-        main.postDelayed({ finish(false) }, GOSSIP_PUSH_TIMEOUT_MS)
+        main.postDelayed({
+            // The phase is the whole story here: nothing answered, and this says what we
+            // were waiting on. Assigning unconditionally is safe — every other `why` is
+            // set immediately before its own `finish`, so if one of those ran first the
+            // `done` guard drops this before the value is ever read.
+            why = "no answer while waiting on \"$phase\""
+            finish(false)
+        }, GOSSIP_PUSH_TIMEOUT_MS)
 
         gattRef = device.connectGatt(context, false, object : BluetoothGattCallback() {
             override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
@@ -557,6 +639,9 @@ class GossipCentral(
                         if (!gatt.discoverServices()) finish(false)
                     }
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                    // The status is the whole diagnosis when the drop lands in "connect":
+                    // 133 is this phone's stack giving up, not the peer refusing us.
+                    why = "they dropped the connection during \"$phase\" (status=$status)"
                     finish(false)
                 }
             }
@@ -565,6 +650,7 @@ class GossipCentral(
                 // Three bytes of ATT header come off whatever was negotiated. A refusal
                 // leaves the default 23, which still works — it is just more round trips.
                 if (status == BluetoothGatt.GATT_SUCCESS && mtu > 3) attMtu = mtu
+                Log.i(TAG, "mtu negotiated to $mtu (status=$status), using $attMtu")
                 phase = "services"
                 if (!gatt.discoverServices()) finish(false)
             }
@@ -573,7 +659,18 @@ class GossipCentral(
                 phase = "challenge"
                 val characteristic = gatt.getService(GOSSIP_SERVICE_UUID)
                     ?.getCharacteristic(GOSSIP_CHALLENGE_UUID)
-                if (characteristic == null || !gatt.readCharacteristic(characteristic)) finish(false)
+                // Told apart because they mean opposite things. No characteristic is *their*
+                // side: the service was not there to read, so this is not a gossip peer at
+                // all — or their server went away between the advertisement and the connect.
+                // A refused read is *our* side, and points at this phone's stack.
+                if (characteristic == null) {
+                    why = "they have no gossip challenge to read (status=$status)"
+                    return finish(false)
+                }
+                if (!gatt.readCharacteristic(characteristic)) {
+                    why = "could not start the challenge read"
+                    return finish(false)
+                }
             }
 
             @Suppress("DEPRECATION") // the API 33 ByteArray overload does not exist on minSdk 26
@@ -582,31 +679,31 @@ class GossipCentral(
                 characteristic: BluetoothGattCharacteristic,
                 status: Int,
             ) {
-                if (status != BluetoothGatt.GATT_SUCCESS) return finish(false)
-                val challenge = decodeGossipChallenge(characteristic.value) ?: return finish(false)
-                // Who this is, decided here and nowhere else on this path. A stranger's offer
-                // resolves to nobody, which is the ordinary case and not an error.
-                val who = gossipResolveOffer(challenge.tokens, currentTable()) ?: return finish(false)
-                if (expected != null && expected != who) return finish(false)
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    Log.w(TAG, "challenge read failed, status=$status")
+                    why = "could not read their challenge (status=$status)"
+                    return finish(false)
+                }
+                val challenge = decodePublicGossipChallenge(characteristic.value) ?: run {
+                    Log.w(TAG, "challenge unreadable (${characteristic.value?.size ?: 0} bytes)")
+                    why = "their challenge was unreadable"
+                    return finish(false)
+                }
+                val who = challenge.from
                 peer = who
-                if (!due(who)) return finish(false)
-                val batch = outboxFor(who)
-                if (batch.isEmpty()) return finish(false)
-                val signature = sign(gossipAuthPayload(challenge.nonce)) ?: return finish(false)
-                val payload = encodeGossipPass(
-                    GossipPass(
-                        from = myKey(),
-                        proof = Base64.getEncoder().encodeToString(signature),
-                        batch = batch,
-                    ),
-                ) ?: return finish(false)
+                resolved[address] = who
+                GossipRadioStatus.pushNamed(who)
+                if (!due(who)) {
+                    Log.i(TAG, "relay resolved but still inside the push cooldown")
+                    why = "spoke to them recently, waiting out the cooldown"
+                    return finish(false)
+                }
+                val payload = publicPassFor(who, challenge.nonce) ?: return finish(false)
                 phase = "pass"
-                // Chunked by hand and terminated by an empty write, because that is the one
-                // framing a CoreBluetooth peripheral reads the same way — see
-                // `GossipWire.kt`'s header. The empty chunk at the end is part of the
-                // protocol, not padding.
-                chunks = payload.intoChunks(gossipWriteLimit(attMtu)) + listOf(ByteArray(0))
+                val limit = gossipWriteLimit(attMtu)
+                chunks = payload.intoChunks(limit) + listOf(ByteArray(0))
                 sent = 0
+                Log.i(TAG, "public push: ${payload.size} bytes in ${chunks.size} chunks, limit=$limit")
                 if (!writeNext(gatt)) finish(false)
             }
 
@@ -615,7 +712,11 @@ class GossipCentral(
                 characteristic: BluetoothGattCharacteristic,
                 status: Int,
             ) {
-                if (status != BluetoothGatt.GATT_SUCCESS) return finish(false)
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    // 7 = INVALID_ATTRIBUTE_LENGTH, what an over-512 chunk earns from iOS.
+                    Log.w(TAG, "pass chunk ${sent - 1} of ${chunks.size} refused, status=$status")
+                    return finish(false)
+                }
                 if (sent >= chunks.size) return finish(true)
                 if (!writeNext(gatt)) finish(false)
             }
