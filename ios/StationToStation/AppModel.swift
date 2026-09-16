@@ -95,6 +95,12 @@ struct UiState {
     /// lane and joins the Spine — so a write that changes a claim has to land here too,
     /// or the night stays put until the next cold start.
     var attendanceByGig: [String: StoredAttendance] = [:]
+    /// **Gigs** whose own check-in a directly-present device witnessed (#442).
+    ///
+    /// A decoration on `attendanceByGig`, never a substitute for it: the user saying they
+    /// were there and a stranger's phone agreeing are two different claims, and a night
+    /// with nobody else running the radio is still a night they attended.
+    var witnessedGigs: Set<String> = []
     /// The calendar event made for a planned gig, by gig id — EventKit's
     /// `eventIdentifier`. Presence is what the leaf reads as "already added".
     var calendarEventByGig: [String: String] = [:]
@@ -175,6 +181,7 @@ struct UiState {
     /// The selected night's own **Log** (#169): what I saw, as opposed to what
     /// setlist.fm publishes. Only the open **Gig**'s, same reasoning as `gigMedia`.
     var gigLog = StoredLog()
+    var publicGossip = PublicGossipState()
     /// An artist's own songs, once a **Curtain** pull has asked for them (#129) —
     /// the pool a **Log** entry is corrected against. Session-lived rather than
     /// stored: a pull is a gesture someone made on purpose, and a catalogue is a
@@ -487,15 +494,34 @@ final class AppModel: ObservableObject {
     /// nothing else (#417, ADR-0019). Up when there is somebody to gossip with, down when
     /// there is not, and never tied to a screen the way the Exchange and Reconcile are.
     ///
-    /// The nights go with it because the storm gate uses them as an expiry ceiling — a gig
-    /// this device knows the date of expires when that night does, not `gossipMaxLifetime`
-    /// later.
+    /// The nights go with it because a gig this device knows the date of has a real expiry —
+    /// the end of that night (`gossipExpiry`) — and that is what a fact authored here claims,
+    /// rather than a flat day from now. See `GossipChannel.setNightEnds` for what the channel
+    /// currently does with the rest of them.
     private func gossipContactsChanged() {
-        GossipTransport.shared.contactsChanged(state.friends)
         let ends = knownNights.reduce(into: [String: Date]()) { ends, gig in
             if let date = gig.eventDate, let end = gossipExpiry(gigDate: date) { ends[gig.id] = end }
         }
+        let friends = state.friends
+        Task {
+            let cache = await timelines.load()
+            let deadlines = gossipParticipationEnds(cache: cache, stoppedAt: GossipTransport.shared.stoppedAt)
+            let until = deadlines.values.max().flatMap { millis in
+                millis > 0 ? Date(timeIntervalSince1970: Double(millis) / 1000) : nil
+            }
+            GossipTransport.shared.contactsChanged(friends, activeUntil: until)
+        }
         Task { await GossipChannel.shared.setNightEnds(ends) }
+        // Read back rather than pushed at the moment of witnessing, so a phone that was
+        // closed when the witness arrived projects it the same way after a relaunch.
+        Task { [weak self] in
+            await GossipChannel.shared.observePublic { publicState in
+                Task { @MainActor in
+                    self?.state.publicGossip = publicState
+                    self?.state.witnessedGigs = publicState.witnessedGigIds()
+                }
+            }
+        }
     }
 
     /// The QR onto the night's attendance record, and into state with it (#412).
@@ -1681,7 +1707,10 @@ final class AppModel: ObservableObject {
             // between now and the end of this night (#417). Nothing is promised by this: see
             // `GossipTransport` on what iOS background delivery actually is.
             let gigDate = knownNights.first { $0.id == gigId }?.eventDate
-            await GossipChannel.shared.checkedIn(gigId: gigId, gigDate: gigDate)
+            let cache = await timelines.load()
+            guard let localGig = cache.gigs[gigId] ?? cache.gigForSetlist(gigId) else { return }
+            _ = await GossipChannel.shared.checkedIn(gigId: gigId, localGigId: localGig.id, gigDate: gigDate)
+            gossipContactsChanged()
         }
     }
 
@@ -2005,6 +2034,8 @@ final class AppModel: ObservableObject {
     /// they played by inaction, so this is a tap, not a diff against a candidate
     /// pool. Editing songs never touches `closed` — "that was the whole set" is a
     /// separate, deliberate sentence.
+    func blockGossip(_ author: String) { Task { await GossipChannel.shared.blockAuthor(author) } }
+
     func addToLog(_ song: String) { writeLog { $0.adding(song) } }
 
     func removeFromLog(_ index: Int) { writeLog { $0.removingAt(index) } }
@@ -2018,18 +2049,26 @@ final class AppModel: ObservableObject {
     /// The only thing that may **Close** a **Log**, and it is a person saying so.
     /// setlist.fm has nowhere to keep this bit, so it never leaves the device.
     func setLogClosed(_ closed: Bool) {
-        writeLog {
-            var log = $0
-            log.closed = closed
-            return log
-        }
+        writeLog { $0.completing(closed) }
     }
 
     private func writeLog(_ edit: (StoredLog) -> StoredLog) {
         guard let setlist = state.selectedSetlist else { return }
-        let updated = edit(state.gigLog)
+        let before = state.gigLog
+        let updated = edit(before)
         state.gigLog = updated
-        Task { await timelines.saveLog(setlistId: setlist.id, log: updated) }
+        Task {
+            await timelines.saveLog(setlistId: setlist.id, log: updated)
+            let cache = await timelines.load()
+            if let local = cache.gigs[setlist.id] ?? cache.gigForSetlist(setlist.id),
+               let date = setlist.eventDate, let end = gossipExpiry(gigDate: date),
+               let until = gossipParticipationUntil(checkedInAt: cache.attendance()[setlist.id]?.checkedInAt,
+                    closed: updated.closed, completedAt: updated.completedAt, nightEnd: end, stoppedAt: GossipTransport.shared.stoppedAt), Date() < until {
+                await GossipChannel.shared.publishLog(gigId: setlist.id, localGigId: local.id,
+                    expiry: end, changes: gossipLogChanges(before: before, after: updated))
+            }
+            gossipContactsChanged()
+        }
     }
 
     private func findCandidates(_ track: String, _ artist: String) async -> ([SpotifyTrack], String?) {

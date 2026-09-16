@@ -5,9 +5,31 @@ import kotlinx.serialization.Serializable
 import java.security.MessageDigest
 import java.util.Base64
 
-// GOSSIP_NONCE_BYTES (32) and GOSSIP_MAX_WIRE_BYTES (40_000) belong to this file, but v1's
-// GossipWire.kt declares both in this package with the same values while v1 still runs.
-// They move here when v1 is removed (#462).
+/**
+ * How many bytes of nonce a listener demands back.
+ *
+ * Thirty-two, matching the digest the signature is taken over anyway. The nonce exists so
+ * that a recording of yesterday's **Pass** cannot be replayed as today's, and so that the
+ * listener's own challenge proof is fresh; the only property that has to hold is that a
+ * listener never issues the same one twice, which at this width it will not.
+ */
+const val GOSSIP_NONCE_BYTES = 32
+
+/**
+ * The hard ceiling on one **Pass**, in bytes.
+ *
+ * The transport's rule about how much memory a peer's write is allowed to cost before
+ * anything has been decided at all — distinct from, and not a substitute for, the batch and
+ * per-record bounds [encodePublicGossipPass] applies once the bytes are in hand. A hostile
+ * relay must not be able to make this device hold a megabyte because it opened a GATT
+ * connection.
+ *
+ * Sixty-four envelopes at the 8 KB per-record ceiling would be far more than this, so it is
+ * this bound that ends a **Pass** in practice: the encoder stops appending records when the
+ * next one would cross it. Anything larger arriving is refused whole rather than truncated —
+ * half a **Pass** is not a **Pass**.
+ */
+const val GOSSIP_MAX_WIRE_BYTES = 40_000
 
 /**
  * The most facts one **Pass** carries — the encoder's cap, the decoder's truncation, and the
@@ -422,6 +444,18 @@ fun receiptsFor(
 ): List<GossipEnvelope> = facts.filter { it.kind != "receipt" && recognised(it) }
     .distinctBy { Triple(it.gigId, it.formerIds, it.scope) }
     .mapNotNull { receiptFor(it, from, true, author, now, sign) }
+
+/** Self-contained changed lines; timestamps on StoredLog remain the original observations. */
+fun gossipLogChanges(before: io.github.magnusencoded.stationtostation.data.StoredLog,
+                     after: io.github.magnusencoded.stationtostation.data.StoredLog): Map<Int, String> {
+    val old = before.songs.indices.associate { before.lineNumberAt(it) to before.songs[it] }
+    val new = after.songs.indices.associate { after.lineNumberAt(it) to after.songs[it] }
+    return (old.keys + new.keys).mapNotNull { line ->
+        val text = new[line] ?: ""
+        if (old[line] == new[line]) null else line to text
+    }.toMap()
+}
+
 
 /** A display row retains every source; alignment never writes into a local Log. */
 data class GossipLogRow(val base: Int?, val text: String?, val facts: List<GossipEnvelope> = emptyList())

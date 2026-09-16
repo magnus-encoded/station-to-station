@@ -2,18 +2,21 @@ package io.github.magnusencoded.stationtostation
 
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_NEARBY_WINDOW
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_PEER_COOLDOWN
+import io.github.magnusencoded.stationtostation.data.gossip.GossipTally
 import io.github.magnusencoded.stationtostation.data.gossip.gossipGigTonight
 import io.github.magnusencoded.stationtostation.data.gossip.gossipNearby
 import io.github.magnusencoded.stationtostation.data.gossip.gossipNightEnds
 import io.github.magnusencoded.stationtostation.data.gossip.gossipPassDue
+import io.github.magnusencoded.stationtostation.data.gossip.gossipPreferredPeers
 import io.github.magnusencoded.stationtostation.data.gossip.gossipRelayShouldRun
-import io.github.magnusencoded.stationtostation.data.gossipExpiry
+import io.github.magnusencoded.stationtostation.data.gossip.gossipExpiry
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -31,29 +34,29 @@ class GossipPolicyTest {
     private val gigs = mapOf("3ba1f9ca" to gigDate)
 
     @Test
-    fun `with no Contacts there is nothing the radio could do`() {
-        assertFalse(gossipRelayShouldRun(contacts = 0, holding = true, gigTonight = true, alwaysRelay = true))
-    }
-
-    @Test
-    fun `carrying a live message is enough — that is the sender's case`() {
-        assertTrue(gossipRelayShouldRun(contacts = 1, holding = true, gigTonight = false, alwaysRelay = false))
-    }
-
-    @Test
-    fun `a gig on tonight is enough — that is what makes a relay chain possible`() {
-        assertTrue(gossipRelayShouldRun(contacts = 1, holding = false, gigTonight = true, alwaysRelay = false))
-    }
-
-    @Test
-    fun `always carry is opt-in and enough on its own`() {
-        assertTrue(gossipRelayShouldRun(contacts = 1, holding = false, gigTonight = false, alwaysRelay = true))
-    }
-
-    /** The service stops on its own when the night's messages expire — nothing schedules it. */
-    @Test
-    fun `a Contact with nothing on and nothing carried does not run a radio`() {
-        assertFalse(gossipRelayShouldRun(contacts = 3, holding = false, gigTonight = false, alwaysRelay = false))
+    fun `only checked in participation starts a radio and completion cannot renew it`() {
+        val end = gossipExpiry(gigDate, zone)
+        val now = end.minusSeconds(3600)
+        fun until(checked: Long? = now.toEpochMilli(), closed: Boolean = false, done: Long? = null) =
+            io.github.magnusencoded.stationtostation.data.gossip.gossipParticipationUntil(checked, closed, done, end)
+        assertFalse(gossipRelayShouldRun(until(checked = null), now))
+        assertTrue(gossipRelayShouldRun(until(), now))
+        assertFalse(gossipRelayShouldRun(until(closed = true), now))
+        val done = now.toEpochMilli()
+        assertTrue(gossipRelayShouldRun(until(closed = true, done = done), now.plusSeconds(1799)))
+        assertFalse(gossipRelayShouldRun(until(closed = true, done = done), now.plusSeconds(1800)))
+        assertFalse(gossipRelayShouldRun(until(done = done), now.plusSeconds(1800)))
+        val log = io.github.magnusencoded.stationtostation.data.StoredLog().completing(true, done)
+        assertEquals(done, log.completing(true, done + 500).completedAt)
+        val reopened = log.completing(false, done + 1900000)
+        assertEquals(end, until(closed = reopened.closed, done = reopened.completedAt))
+        assertTrue(gossipRelayShouldRun(until(closed = reopened.closed, done = reopened.completedAt), now.plusSeconds(1900)))
+        assertFalse(gossipRelayShouldRun(until(closed = reopened.closed, done = reopened.completedAt), end))
+        assertEquals(done + 2000000, reopened.completing(true, done + 2000000).completedAt)
+        assertFalse(gossipRelayShouldRun(until(), end))
+        assertEquals(end, until(closed = true, done = end.minusSeconds(60).toEpochMilli()))
+        assertEquals(null, io.github.magnusencoded.stationtostation.data.gossip.gossipParticipationUntil(
+            now.toEpochMilli(), false, null, end, now.toEpochMilli()))
     }
 
     @Test
@@ -138,5 +141,65 @@ class GossipPolicyTest {
     @Test
     fun `a device that has spoken to nobody reports an empty room`() {
         assertTrue(gossipNearby(emptyMap(), Instant.parse("2026-09-04T21:00:00Z")).isEmpty())
+    }
+
+    @Test
+    fun `the tally separates a window that found credit from one that only ranked`() {
+        GossipTally.reset()
+        try {
+            // An empty window is not a window. Counting it would put the ranker's denominator
+            // up every scan and make a zero numerator look like a busy night that found nothing.
+            GossipTally.ranked(0, 0)
+            assertTrue(GossipTally.summary().contains("pick windows=0"))
+
+            GossipTally.ranked(3, 0)
+            GossipTally.ranked(2, 1)
+            GossipTally.authored()
+            // A Pass nothing was owed on is counted once, and it is not a receipt that failed:
+            // authored and declined are separate numbers because they are separate stories.
+            GossipTally.declined()
+            GossipTally.offered(2)
+            GossipTally.delivered(1)
+            // The one number this whole harness exists for: hits, not windows. Two windows and
+            // one hit is a ranker doing something; two windows and zero is a shuffle.
+            assertEquals(
+                "receipts authored=1 declined=1 offered=2 delivered=1 · pick windows=2 credit hits=1",
+                GossipTally.summary(),
+            )
+        } finally {
+            GossipTally.reset()
+        }
+    }
+
+    @Test
+    fun `useful neighbours come first and the ones without credit are still offered`() {
+        val seen = listOf("plain-a", "useful-a", "plain-b", "useful-b", "plain-c")
+        val credited = { peer: String -> peer.startsWith("useful") }
+        val order = gossipPreferredPeers(seen, credited, kotlin.random.Random(7))
+
+        // Preference, not exclusion: both credited peers lead, and every peer seen is still
+        // in the list to be tried.
+        assertEquals(setOf("useful-a", "useful-b"), order.take(2).toSet())
+        assertEquals(seen.toSet(), order.toSet())
+        assertEquals(seen.size, order.size)
+    }
+
+    @Test
+    fun `ties break randomly under a seed, and a seed reproduces its own order`() {
+        val seen = List(8) { "peer-$it" }
+        val none = { _: String -> false }
+        val first = gossipPreferredPeers(seen, none, kotlin.random.Random(1))
+        val again = gossipPreferredPeers(seen, none, kotlin.random.Random(1))
+        val other = gossipPreferredPeers(seen, none, kotlin.random.Random(2))
+
+        assertEquals(first, again)
+        assertNotEquals(first, other)
+        // Nothing was invented or dropped on the way through the shuffle.
+        assertEquals(seen.toSet(), first.toSet())
+    }
+
+    @Test
+    fun `nothing seen is nothing to push to`() {
+        assertTrue(gossipPreferredPeers(emptyList(), { true }, kotlin.random.Random(0)).isEmpty())
     }
 }

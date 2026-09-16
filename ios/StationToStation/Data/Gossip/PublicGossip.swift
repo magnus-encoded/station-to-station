@@ -1,12 +1,6 @@
 import Foundation
 import CryptoKit
 
-// v1 still declares `gossipMaxBatch`, `gossipMaxWireBytes`, `gossipNonceBytes` and
-// `isSafeGossipId` in this module with the values and rule this file needs, so they are used
-// rather than redeclared. On the v2 branch they live in `GossipGatt.swift` and
-// `GossipIds.swift`, which arrive when v1 is removed (#462). `gossipLogChanges` needs
-// `StoredLog.lineNumberAt` and arrives with the log wiring.
-
 let publicGossipHeader = "station-to-station/gossip-fact/2"
 let publicGossipPassHeader = "station-to-station/gossip-pass/2"
 let publicCarryMs: Int64 = 15 * 60 * 1000
@@ -388,6 +382,15 @@ func witnessRequest(_ request: GossipEnvelope, with witness: GossipEnvelope, now
         text: request.record(), attribution: witness.attribution)
     return result.signed(sign)
 }
+
+func gossipLogChanges(before: StoredLog, after: StoredLog) -> [Int: String] {
+    let old = Dictionary(uniqueKeysWithValues: before.songs.indices.map { (before.lineNumberAt($0), before.songs[$0]) })
+    let new = Dictionary(uniqueKeysWithValues: after.songs.indices.map { (after.lineNumberAt($0), after.songs[$0]) })
+    return Dictionary(uniqueKeysWithValues: Set(old.keys).union(new.keys).compactMap { line in
+        old[line] == new[line] ? nil : (line, new[line] ?? "")
+    })
+}
+
 
 struct GossipLogRow {
     var base: Int?

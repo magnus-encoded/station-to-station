@@ -89,13 +89,13 @@ fun LogEditor(
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            "Yours, on this phone. Only what you tap is recorded — nothing here is " +
-                "guessed on your behalf.",
+            "Done records a line. While checked in, nearby phones may carry it to others.",
             color = Faint,
             fontSize = 11.sp,
         )
         Spacer(Modifier.height(10.dp))
-        StationField(typed, { typed = it }, "a song they played", imeDone = true)
+        StationField(typed, { typed = it }, "a song they played", imeDone = true,
+            onDone = { if (typed.isNotBlank()) { onAdd(typed.trim()); typed = "" } })
         // The escape hatch, always present and never a fallback. A pool built from what
         // an artist has played before cannot contain a new song, a cover, a guest spot
         // or anything at all by an artist setlist.fm has never heard of — so a capture

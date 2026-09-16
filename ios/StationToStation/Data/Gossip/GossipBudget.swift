@@ -1,15 +1,15 @@
 import Foundation
 
-/// The bound `gossipStormGate` says it cannot draw, drawn here (#417; Android draws the same
+/// The bound a per-batch decision cannot draw, drawn here (#417; Android draws the same
 /// bound as `GOSSIP_PEER_COOLDOWN` in `data/gossip/GossipPolicy.kt`, and #416 owns the other
 /// half of the same rule).
 ///
-/// The gate's own note, quoted so the two files stay one argument: *"Every gate here is
-/// decided by the message, and every field of the message is the author's except its key's
-/// membership of my Contact list. So a Contact whose phone has been taken over can sign fifty
-/// thousand check-ins that differ only in `checkedInAt` … `gossipMaxBatch` caps what one
-/// handover costs; what it cannot cap is how often a peer is allowed to hand one over,
-/// because nothing in a pure function knows the time between calls."*
+/// The argument, which the deleted v1 gate stated and which `PublicGossipState.receive`
+/// inherits unchanged: every check is decided by the envelope in front of it, and every field
+/// of that envelope is the author's. So an author whose phone has been taken over can sign
+/// fifty thousand facts that differ only in `createdAt`. `gossipMaxBatch` caps what one
+/// handover costs; what it cannot cap is how often a peer is allowed to hand one over, because
+/// nothing in a pure function knows the time between calls.
 ///
 /// This is that: how often, per peer. Pure in the same sense — the budget arrives as a value
 /// and leaves as a value, `now` arrives as an argument — so the rate rule is assertable
@@ -110,4 +110,33 @@ func gossipPruneBudgets(_ budgets: [String: GossipPeerBudget], now: Date) -> [St
         guard let start = budget.windowStart else { return false }
         return now.timeIntervalSince(start) < gossipPeerWindow
     }
+}
+
+/// How long the central would gather sightings before picking one peer, if it had to pick
+/// (#444, story 38). **Android holds the same second and a half** (`GOSSIP_PICK_WINDOW_MS`).
+///
+/// **Provisional.** Nothing has measured it.
+let gossipPickWindow: TimeInterval = 1.5
+
+/// The order to try the peers seen in one window, best first (#444, stories 38 and 39).
+///
+/// Preference, never exclusion. Every candidate is returned — a neighbour with no credit is
+/// still pushed to, just later in the list — because a phone that only ever spoke to the
+/// neighbours that had already proved useful would never learn that any other one is. The
+/// shuffle runs over the whole list before the partition, so both bands are shuffled, and
+/// `generator` is a parameter rather than a global for the only reason that matters: a test
+/// cannot assert "randomly" without a seed.
+///
+/// **Not yet wired on this platform**, and that is the honest state rather than an oversight.
+/// Android's central holds one connection at a time, so a sighting it takes is a sighting it
+/// spends; `GossipTransport` opens a meeting with every peripheral `didDiscover` reports and
+/// has no scarce slot to ration. The rule lives here so the two platforms cannot drift apart
+/// on what "useful first" means, and so the case has its twin; wiring it is a change to
+/// `beginMeeting`, and it only becomes worth making when iOS caps concurrent meetings.
+func gossipPreferredPeers(_ candidates: [String], credited: (String) -> Bool,
+                          using generator: inout some RandomNumberGenerator) -> [String] {
+    var seen = Set<String>()
+    let unique = candidates.filter { seen.insert($0).inserted }
+    let shuffled = unique.shuffled(using: &generator)
+    return shuffled.filter(credited) + shuffled.filter { !credited($0) }
 }

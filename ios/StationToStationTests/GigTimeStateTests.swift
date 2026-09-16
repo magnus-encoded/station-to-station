@@ -9,6 +9,35 @@ import XCTest
 /// festival date.
 final class GigTimeStateTests: XCTestCase {
 
+    func testGossipParticipationEndsWithoutRenewingAfterCompletion() {
+        let end = Date(timeIntervalSince1970: 10000)
+        let done: Int64 = 6_000_000
+        XCTAssertNil(gossipParticipationUntil(checkedInAt: nil, closed: false, completedAt: nil, nightEnd: end))
+        XCTAssertEqual(gossipParticipationUntil(checkedInAt: 1, closed: false, completedAt: nil, nightEnd: end), end)
+        XCTAssertNil(gossipParticipationUntil(checkedInAt: 1, closed: true, completedAt: nil, nightEnd: end))
+        XCTAssertNil(gossipParticipationUntil(checkedInAt: 1, closed: false, completedAt: nil, nightEnd: end, stoppedAt: 1))
+        let cutoff = gossipParticipationUntil(checkedInAt: 1, closed: true, completedAt: done, nightEnd: end)!
+        XCTAssertTrue(Date(timeIntervalSince1970: 7799) < cutoff)
+        XCTAssertFalse(Date(timeIntervalSince1970: 7800) < cutoff)
+        XCTAssertEqual(gossipParticipationUntil(checkedInAt: 1, closed: false, completedAt: done, nightEnd: end), cutoff)
+        XCTAssertEqual(gossipParticipationUntil(checkedInAt: 1, closed: true, completedAt: 9_999_000, nightEnd: end), end)
+        let finished = StoredLog().completing(true, now: done)
+        XCTAssertEqual(finished.completing(true, now: done + 500).completedAt, done)
+        let reopened = finished.completing(false, now: done + 1_900_000)
+        XCTAssertEqual(gossipParticipationUntil(checkedInAt: 1, closed: reopened.closed,
+            completedAt: reopened.completedAt, nightEnd: end), end)
+        let reopenedCutoff = gossipParticipationUntil(checkedInAt: 1, closed: reopened.closed,
+            completedAt: reopened.completedAt, nightEnd: end)!
+        XCTAssertTrue(end.addingTimeInterval(-1) < reopenedCutoff)
+        XCTAssertFalse(end < reopenedCutoff)
+        XCTAssertEqual(reopened.completing(true, now: done + 2_000_000).completedAt, done + 2_000_000)
+        let edited = StoredLog(songs: ["one"], closed: true, completedAt: done).adding("encore").correctingAt(0, title: "two")
+        XCTAssertEqual(edited.completedAt, done)
+        XCTAssertTrue(edited.closed)
+        let restored = try! JSONDecoder().decode(StoredLog.self, from: JSONEncoder().encode(edited))
+        XCTAssertEqual(restored.completedAt, done)
+    }
+
     private let cal: Calendar = {
         var c = Calendar(identifier: .gregorian)
         c.timeZone = TimeZone(secondsFromGMT: 0)!

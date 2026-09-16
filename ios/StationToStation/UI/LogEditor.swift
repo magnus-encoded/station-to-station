@@ -32,7 +32,7 @@ struct LogEditor: View {
             Spacer().frame(height: 6)
             Text(log.songs.isEmpty ? "What did they play?" : "Your log of this night")
                 .font(.system(size: 16, design: .serif)).foregroundStyle(ink)
-            Text("Yours, on this phone. Only what you tap is recorded — nothing here is guessed on your behalf.")
+            Text("Done records a line. While checked in, nearby phones may carry it to others.")
                 .font(.system(size: 11)).foregroundStyle(faint)
             Spacer().frame(height: 10)
 
@@ -71,6 +71,8 @@ struct LogEditor: View {
             TextField("a song they played", text: $typed)
                 .font(.system(size: 14)).foregroundStyle(ink)
                 .textFieldStyle(.plain)
+                .submitLabel(.done)
+                .onSubmit { if !typed.trimmed.isEmpty { model.addToLog(typed.trimmed); typed = "" } }
                 .padding(8)
                 .background(RoundedRectangle(cornerRadius: 6).fill(faint.opacity(0.12)))
             if !typed.trimmed.isEmpty {
