@@ -1,11 +1,17 @@
 package io.github.magnusencoded.stationtostation.data.gossip
 
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.serialization.json.Json
 import java.time.Instant
+import java.util.UUID
 
 /**
  * A file of its own, and excluded from backup — see `backup_rules.xml`.
@@ -33,16 +39,31 @@ private val Context.gossipStore by preferencesDataStore(name = "gossip")
  * what one peer can spend of this device's battery and CPU while the radio is on, and the
  * radio stopping is already the harder version of that bound. Persisting it would only
  * delay the first **Pass** after a restart, which is the moment there is most to say.
+ *
+ * Gossip v2 (#461) shares the same file: `public_v2` holds the public state, and
+ * `author_scopes_v2` binds each stable local Gig to a random signing scope. Public v2
+ * application facts survive relay expiry here, while seen IDs, outbox entries and
+ * usefulness expire independently. One transactional store is shared by app authoring
+ * and background radio reception; the injectable DataStore constructor lets
+ * restart/concurrency tests exercise real disk transactions. The v1 `held` key stays
+ * until the v1 pipeline is removed (#462).
  */
-class GossipStore(private val context: Context) {
+class GossipStore(private val data: DataStore<Preferences>) {
+
+    constructor(context: Context) : this(context.applicationContext.gossipStore)
+
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     private object Keys {
         val HELD = stringPreferencesKey("held")
+        val STOPPED = longPreferencesKey("manually_stopped_at")
+        val PUBLIC = stringPreferencesKey("public_v2")
+        val SCOPES = stringPreferencesKey("author_scopes_v2")
     }
 
     /** Everything still live, pruned on the way out — a read is also a chance to forget. */
     suspend fun held(now: Instant = Instant.now()): List<GossipHeld> =
-        pruneGossipHeld(decodeGossipHeld(context.gossipStore.data.first()[Keys.HELD]), now)
+        pruneGossipHeld(decodeGossipHeld(data.data.first()[Keys.HELD]), now)
 
     /**
      * Read, prune, edit and write as one operation.
@@ -58,11 +79,52 @@ class GossipStore(private val context: Context) {
         edit: (List<GossipHeld>) -> List<GossipHeld>,
     ): List<GossipHeld> {
         var written = emptyList<GossipHeld>()
-        context.gossipStore.edit { prefs ->
+        data.edit { prefs ->
             val current = pruneGossipHeld(decodeGossipHeld(prefs[Keys.HELD]), now)
             written = pruneGossipHeld(edit(current), now)
             prefs[Keys.HELD] = encodeGossipHeld(written)
         }
         return written
+    }
+
+    suspend fun stoppedAt(): Long = data.data.first()[Keys.STOPPED] ?: 0
+    suspend fun stopParticipation(now: Long) { data.edit { it[Keys.STOPPED] = now } }
+
+    /**
+     * Bind a random signing scope to the local Gig, never its mutable external ID.
+     * Kept separately from relay state: expiry must not rotate an author's identity.
+     */
+    suspend fun authorScope(localGigId: String): String {
+        require(localGigId.isNotBlank())
+        var scope = ""
+        data.edit { prefs ->
+            val bindings = prefs[Keys.SCOPES]?.let {
+                json.decodeFromString<Map<String, String>>(it)
+            }.orEmpty()
+            scope = bindings[localGigId] ?: UUID.randomUUID().toString()
+            if (localGigId !in bindings) {
+                prefs[Keys.SCOPES] = json.encodeToString(
+                    kotlinx.serialization.serializer<Map<String, String>>(),
+                    bindings + (localGigId to scope),
+                )
+            }
+        }
+        return scope
+    }
+
+    /** Detached snapshots: radio and author observe the same committed transaction stream. */
+    val publicStates = data.data.map { prefs -> decodePublic(prefs[Keys.PUBLIC]) }
+
+    private fun decodePublic(value: String?): PublicGossipState =
+        value?.let { json.decodeFromString<PublicGossipState>(it) } ?: PublicGossipState()
+
+    /** Atomic across every caller. Expiring relay memory never deletes application facts. */
+    suspend fun updatePublic(now: Long, edit: (PublicGossipState) -> Unit) {
+        data.edit { prefs ->
+            val state = decodePublic(prefs[Keys.PUBLIC])
+            state.prune(now)
+            edit(state)
+            prefs[Keys.PUBLIC] = json.encodeToString(PublicGossipState.serializer(), state)
+        }
     }
 }
