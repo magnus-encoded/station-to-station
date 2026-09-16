@@ -90,6 +90,19 @@ private const val TEST_COMPANY_ID = 0xFFFF
  */
 private const val GOSSIP_PUSH_TIMEOUT_MS = 20_000L
 
+/**
+ * The Core Spec's ceiling on one attribute *value*, which is a different limit from the MTU
+ * and is the one a CoreBluetooth peripheral enforces.
+ *
+ * `attMtu - 3` is how much fits in a single write PDU; this is how large the value itself is
+ * permitted to be. The two agree until the negotiated MTU passes 515 — and [requestMtu] asks
+ * for 517, so a chunk sized by the MTU alone is 514 bytes. An iPhone rejects that with
+ * `Invalid Attribute Value Length` before `didReceiveWrite` is ever called, which presents
+ * as a push that dies in "pass" against an iOS peer and never against an Android one. Both
+ * bounds are real, so both are applied.
+ */
+private const val GOSSIP_MAX_ATTRIBUTE_BYTES = 512
+
 private const val TAG = "GossipRadio"
 
 /** What a listener accepted: a peer that proved itself, and what it pushed. */
@@ -105,6 +118,15 @@ internal fun ByteArray.intoChunks(size: Int): List<ByteArray> {
     if (size <= 0 || isEmpty()) return listOf(copyOf())
     return (indices step size).map { copyOfRange(it, minOf(it + size, this.size)) }
 }
+
+/**
+ * How many bytes may go in one write to a peer, given the negotiated MTU.
+ *
+ * Both bounds at once: three bytes of ATT header come off the MTU, *and* an attribute value
+ * may never exceed [GOSSIP_MAX_ATTRIBUTE_BYTES] however large the MTU got. Taking only the
+ * first is what made a push to an iPhone die in "pass" — see [GOSSIP_MAX_ATTRIBUTE_BYTES].
+ */
+internal fun gossipWriteLimit(attMtu: Int): Int = minOf(attMtu - 3, GOSSIP_MAX_ATTRIBUTE_BYTES)
 
 /**
  * The listening half: advertise, and take pushes from **Contacts** that prove themselves.
@@ -583,7 +605,7 @@ class GossipCentral(
                 // framing a CoreBluetooth peripheral reads the same way — see
                 // `GossipWire.kt`'s header. The empty chunk at the end is part of the
                 // protocol, not padding.
-                chunks = payload.intoChunks(attMtu - 3) + listOf(ByteArray(0))
+                chunks = payload.intoChunks(gossipWriteLimit(attMtu)) + listOf(ByteArray(0))
                 sent = 0
                 if (!writeNext(gatt)) finish(false)
             }
