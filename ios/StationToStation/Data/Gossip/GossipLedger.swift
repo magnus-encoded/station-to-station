@@ -24,6 +24,12 @@ import Foundation
 /// passcode after first unlock — and it is pruned on every single write rather than on a
 /// schedule, so a night's worth of other people's movements does not outlive the night. There
 /// is no path here that keeps an expired message.
+///
+/// Gossip v2 (#461) shares the file with two more optional keys, `authorScopes` (local Gig
+/// id → the random scope this device signs that Gig's facts with; durable, since a rotated
+/// scope would orphan everything signed under the old one) and `publicState`
+/// (`PublicGossipState`, which owns every rule about the facts and prunes itself on every
+/// snapshot and receive). The v1 keys above go with the v1 pipeline (#462).
 actor GossipLedger {
 
     private let file: URL
@@ -40,6 +46,68 @@ actor GossipLedger {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("gossip.json")
     }
+
+    // --- Gossip v2 ---
+
+    /// A local Gig keeps its random signing scope when its external ID changes.
+    /// Only return a new scope once it is durable, so a failed write cannot rotate it.
+    func authorScope(localGigId: String) -> String? {
+        guard !localGigId.isEmpty else { return nil }
+        var next = load()
+        if let scope = next.authorScopes?[localGigId] { return scope }
+        let scope = UUID().uuidString.lowercased()
+        var bindings = next.authorScopes ?? [:]
+        bindings[localGigId] = scope
+        next.authorScopes = bindings
+        return persist(next) ? scope : nil
+    }
+
+    /// Detached public state for projection and radio offers. Relay expiry keeps facts.
+    func publicSnapshot(now: Int64) -> PublicGossipState {
+        var state = load().publicState ?? PublicGossipState()
+        state.prune(now: now)
+        return state
+    }
+
+    /// One actor transaction for the whole Pass, shared with local authoring.
+    @discardableResult
+    func receivePublic(_ batch: [GossipEnvelope], from: String, now: Int64,
+                       local: Bool = false) -> Int {
+        receivePublicFacts(batch, from: from, now: now, local: local).count
+    }
+
+    /// Return only committed admissions, so replays cannot mint another witness.
+    func receivePublicFacts(_ batch: [GossipEnvelope], from: String, now: Int64,
+                            local: Bool = false) -> [GossipEnvelope] {
+        var next = load()
+        var state = next.publicState ?? PublicGossipState()
+        state.prune(now: now)
+        let accepted = batch.filter { state.receive($0, from: from, now: now, local: local) }
+        next.publicState = state
+        return persist(next) ? accepted : []
+    }
+
+    func recognizeContacts(_ contacts: Set<String>) {
+        editPublic { $0.recognizeContacts(contacts) }
+    }
+
+    func blockAuthor(_ author: String) {
+        editPublic { $0.blocked.insert($0.recognition[author] ?? author) }
+    }
+
+    func deliveredPublic(_ ids: [String], to peer: String) {
+        editPublic { $0.delivered(to: peer, ids: ids) }
+    }
+
+    private func editPublic(_ edit: (inout PublicGossipState) -> Void) {
+        var next = load()
+        var state = next.publicState ?? PublicGossipState()
+        edit(&state)
+        next.publicState = state
+        _ = persist(next)
+    }
+
+    // --- Gossip v1 ---
 
     /// The seen set as `gossipStormGate` wants it, already pruned.
     func seen(now: Date) -> [String: Date] {
@@ -135,11 +203,18 @@ actor GossipLedger {
         }
     }
 
-    /// Everything, gone. The whole of forgetting a night: no separate revocation, no server
-    /// to ask.
+    /// Everything the radio holds, gone. The whole of forgetting a night: no separate
+    /// revocation, no server to ask. This device's own v2 Gig identity bindings and the
+    /// public facts are retained: removing the last Contact clears per-peer transport
+    /// memory, not a Gig that is mine.
     func forgetAll() {
-        cache = StoredGossip()
-        try? FileManager.default.removeItem(at: file)
+        let stored = load()
+        if stored.authorScopes != nil || stored.publicState != nil {
+            _ = persist(StoredGossip(authorScopes: stored.authorScopes, publicState: stored.publicState))
+        } else {
+            cache = StoredGossip()
+            try? FileManager.default.removeItem(at: file)
+        }
     }
 
     // --- The file ---
@@ -164,6 +239,19 @@ actor GossipLedger {
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(next) else { return }
         try? data.write(to: file, options: .atomic)
+    }
+
+    /// Unlike `write`, the cache only moves once the file has, so a caller can fail closed.
+    private func persist(_ next: StoredGossip) -> Bool {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        do {
+            try encoder.encode(next).write(to: file, options: .atomic)
+            cache = next
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// Pruned on every read and every write, never on a timer: an entry past its expiry can
@@ -198,6 +286,9 @@ let gossipMaxHeld = 512
 /// never disagree about — a property of whichever encoder happened to touch it. Epoch seconds
 /// here, exactly as on the wire and exactly as in the signed payload.
 private struct StoredGossip: Codable {
+    // v2; optional so a ledger written before the public channel existed still decodes.
+    var authorScopes: [String: String]? = nil
+    var publicState: PublicGossipState? = nil
     var seen: [String: Int64] = [:]
     var held: [HeldGossip] = []
     var budgets: [String: GossipPeerBudget] = [:]
