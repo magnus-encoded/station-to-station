@@ -323,6 +323,26 @@ fun passAuthor(batch: List<GossipEnvelope>, localAuthors: Set<String>): GossipEn
     batch.firstOrNull { it.kind == "request" && it.author in localAuthors }
 
 /**
+ * The key a **Pass** proves that this device can also *address* later, or `null` when it
+ * proves one it cannot.
+ *
+ * A receipt is delivered by naming a peer and waiting to meet it, and the only identity a
+ * meeting ever presents is the one in the challenge, which is always the nightly relay key.
+ * A **Pass** is signed as the relay too — except when it carries its signer's own request,
+ * the one case [passAuthor] reaches for a Gig key for. That Gig key is a *signing* namespace,
+ * never an addressing one: a receipt naming it names something no peer will ever equal, so it
+ * would sit in `held` until it expired and its credit would sit in `useful` unreadable.
+ *
+ * So the relay key is read off the wire rule rather than guessed: a **Pass** the receiver
+ * would admit a request from is signed as a Gig, and this device has no way to address its
+ * sender. It authors no receipt then, rather than an undeliverable one. The neighbour's next
+ * push carries no request — [passBatch] admits none without one to sign as — and is therefore
+ * addressable.
+ */
+fun passRelay(pass: PublicGossipPass): String? =
+    pass.from.takeIf { from -> pass.batch.none { it.kind == "request" && it.author == from } }
+
+/**
  * The batch [passAuthor] leaves admissible, given the request it chose to sign as and the
  * key [signer] the **Pass** will actually be signed with.
  *
@@ -330,8 +350,13 @@ fun passAuthor(batch: List<GossipEnvelope>, localAuthors: Set<String>): GossipEn
  * or a `receipt` only when the **Pass** proves its author, so anything else this device is
  * carrying would simply be refused at the other end. A receipt whose turn this is not is not
  * lost — it waits for a **Pass** signed as the relay, exactly as another device's request does.
+ *
+ * [signer] has no default on purpose. An empty signer matches no author, so a defaulted call
+ * silently drops every receipt in the batch — a whole feature turned off by an argument nobody
+ * typed. Making it required means a caller has to say which key the **Pass** is signed with,
+ * which is the one thing this function cannot guess.
  */
-fun passBatch(batch: List<GossipEnvelope>, request: GossipEnvelope?, signer: String = ""): List<GossipEnvelope> =
+fun passBatch(batch: List<GossipEnvelope>, request: GossipEnvelope?, signer: String): List<GossipEnvelope> =
     batch.filter { envelope -> when (envelope.kind) {
         "request" -> request != null && envelope.author == request.author
         "receipt" -> envelope.author == signer
@@ -388,6 +413,37 @@ fun receiptFor(
         kind = "receipt", text = from,
     ).signed(sign)
 }
+
+/**
+ * The receipts owed to one neighbour for one batch, which is at most one per **Gig** record.
+ *
+ * [receiptFor] copies `gigId`, `formerIds` and `scope` from the **Fact** and fills everything
+ * else from the batch, so two **Facts** of the same record — two lines of one `log`, the
+ * ordinary case — author byte-identical receipts with the same `id`. Fed one at a time into
+ * `receive`, the second is a duplicate, and the Storm gate answers a duplicate by dropping the
+ * held copy: two recognised **Facts** from a neighbour used to yield no receipt at all.
+ *
+ * A receipt says "this neighbour handed me something I wanted", which is a fact about the
+ * neighbour and not about the line, so one per record is the whole of what there was to say.
+ * De-duplicating here rather than in `receive` keeps [receiptFor] pure and leaves the Storm
+ * gate exactly where it was.
+ *
+ * Every filter [receiptFor] would apply runs *before* the de-duplication, never after. A batch
+ * admitted from a neighbour can contain a `receipt` of its own, and a receipt carries the
+ * `gigId`, `formerIds` and `scope` of the **Fact** it was for — so it can share a record
+ * identity with a **Fact** in the same batch. De-duplicating first would let it win the slot
+ * and then yield nothing, silently swallowing the receipt that record actually owed.
+ */
+fun receiptsFor(
+    facts: List<GossipEnvelope>,
+    from: String,
+    recognised: (GossipEnvelope) -> Boolean,
+    author: String,
+    now: Long,
+    sign: (ByteArray) -> ByteArray?,
+): List<GossipEnvelope> = facts.filter { it.kind != "receipt" && recognised(it) }
+    .distinctBy { Triple(it.gigId, it.formerIds, it.scope) }
+    .mapNotNull { receiptFor(it, from, true, author, now, sign) }
 
 /** Self-contained changed lines; timestamps on StoredLog remain the original observations. */
 fun gossipLogChanges(before: io.github.magnusencoded.stationtostation.data.StoredLog,

@@ -29,7 +29,12 @@ relay cannot invent the subject's attendance. Requests and receipts are one-hop 
 A receipt affects neighbour priority only, never the referenced Envelope's outbox. It is
 authored on receiving a Fact that is recognised as a Contact's at that moment, names the
 neighbour that delivered it, and is offered to that neighbour alone — the only addressed
-Envelope on the wire. It rides only a Pass signed as its own author, as a request does.
+Envelope on the wire. The name is always the sender's nightly relay key, the only identity a
+meeting presents, so a Pass signed as a Gig — which is a Pass carrying its signer's own
+request — earns no receipt at all rather than one addressed to a key nobody answers to.
+One batch owes at most one receipt per Gig record, never one per Fact: a receipt says what the
+neighbour did, not what the line was, and two lines of one log would otherwise author the same
+bytes twice. It rides only a Pass signed as its own author, as a request does.
 Its author credits the neighbour the text names; a receiver credits the proved sender, never
 the text, so no relay can nominate a third party. See ADR-0022.
 

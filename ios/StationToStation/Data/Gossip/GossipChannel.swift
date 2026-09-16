@@ -52,6 +52,9 @@ actor GossipChannel {
     /// when the bytes are known to have landed, never when they were prepared.
     private var pending: [String: [String]] = [:]
 
+    /// How many of `pending`'s envelopes were receipts, for `GossipTally` alone.
+    private var pendingReceipts: [String: Int] = [:]
+
     /// Told whenever the set of this device's witnessed check-ins may have changed (#442).
     ///
     /// A callback rather than the app polling, because a witness lands on the radio's queue
@@ -173,6 +176,10 @@ actor GossipChannel {
               let bytes = encodePublicGossipPass(PublicGossipPass(from: me, proof: proof.base64EncodedString(), batch: batch)),
               let encoded = decodePublicGossipPass(bytes) else { return nil }
         pending[peer] = encoded.batch.map { $0.id }
+        // Counted off the encoded batch rather than `batch`, so what is tallied as offered is
+        // what actually fitted on the wire.
+        pendingReceipts[peer] = encoded.batch.filter { $0.kind == "receipt" }.count
+        GossipTally.shared.offered(pendingReceipts[peer] ?? 0)
         return bytes
     }
 
@@ -196,12 +203,20 @@ actor GossipChannel {
         // `setContacts` and has no way back into this batch.
         state = await ledger.publicSnapshot(now: millis)
         let relay = relayScope(now)
-        if let me = GigIdentity.publicKeyBase64(scope: relay) {
-            let receipts = accepted.compactMap { fact in
-                receiptFor(fact, from: from, recognised: state.recognition[fact.author] != nil,
-                           author: me, now: millis, sign: { GigIdentity.sign(scope: relay, $0) })
+        // A receipt is addressed, so it may only name a key this device can meet again: the
+        // sender's relay key, which a Pass carrying the sender's own request does not prove.
+        // See `passRelay`. And one receipt per Gig record, not per Fact: two lines of one log
+        // author the same receipt twice, and the second would retire the first.
+        let addressable = passRelay(pass)
+        if addressable == nil { GossipTally.shared.declined() }
+        if let me = GigIdentity.publicKeyBase64(scope: relay), let addressable {
+            let receipts = receiptsFor(accepted, from: addressable,
+                recognised: { state.recognition[$0.author] != nil },
+                author: me, now: millis, sign: { GigIdentity.sign(scope: relay, $0) })
+            if !receipts.isEmpty {
+                _ = await ledger.receivePublic(receipts, from: "", now: millis, local: true)
+                GossipTally.shared.authored(receipts.count)
             }
-            if !receipts.isEmpty { await ledger.receivePublic(receipts, from: "", now: millis, local: true) }
         }
         await publishWitnessed(now: now)
     }
@@ -210,6 +225,7 @@ actor GossipChannel {
     func forgetAll() async {
         contacts.removeAll()
         pending.removeAll()
+        pendingReceipts.removeAll()
         await ledger.forgetAll()
     }
 
@@ -232,6 +248,7 @@ actor GossipChannel {
     /// is offered again the next time these two phones are in the same room.
     func confirmDelivery(to contact: String) async {
         guard let ids = pending.removeValue(forKey: contact) else { return }
+        GossipTally.shared.delivered(pendingReceipts.removeValue(forKey: contact) ?? 0)
         await ledger.deliveredPublic(ids, to: contact)
     }
 }
