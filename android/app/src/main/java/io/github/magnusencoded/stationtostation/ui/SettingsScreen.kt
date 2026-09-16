@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.magnusencoded.stationtostation.AppViewModel
 import io.github.magnusencoded.stationtostation.BuildConfig
+import io.github.magnusencoded.stationtostation.data.setlistfm.SHARED_QUOTA_MESSAGE
 import io.github.magnusencoded.stationtostation.data.spotify.SPOTIFY_REDIRECT_URI
 import kotlinx.coroutines.launch
 
@@ -189,13 +190,17 @@ fun SettingsScreen(
 
             Text("setlist.fm", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
+            // While the shared key is spent, the section leads with that instead of
+            // "using the bundled key" (#457): someone who followed the nudge here came
+            // for one thing, and the first line should be the reason they came.
             Text(
-                if (state.bundledSetlistFmKey) {
-                    "Using the bundled setlist.fm API key. The setlist.fm API has no " +
-                        "user login — to load your attended concerts, just enter your " +
-                        "setlist.fm username on the My concerts tab."
-                } else {
-                    "This app needs a free setlist.fm API key of your own."
+                when {
+                    state.setlistFmSharedQuotaSpent -> SHARED_QUOTA_MESSAGE
+                    state.bundledSetlistFmKey ->
+                        "Using the bundled setlist.fm API key. The setlist.fm API has no " +
+                            "user login — to load your attended concerts, just enter your " +
+                            "setlist.fm username on the My concerts tab."
+                    else -> "This app needs a free setlist.fm API key of your own."
                 },
                 style = MaterialTheme.typography.bodySmall,
             )

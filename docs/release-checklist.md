@@ -59,18 +59,22 @@ derives it from `git rev-list --count HEAD` and passes it in as `VERSION_CODE`
 The consequence to remember is that tags must be cut from `main` — a tag on a
 branch that is behind produces a lower count than the last upload.
 
-**The bundle has the setlist.fm key baked in.** That was scoped to a small
-cohort sharing 1440 requests/day. Do not promote this bundle to production
-unchanged: production needs a fresh build with the key dropped, or a proxy, or
-the raised quota if it lands. When CI does tagged publish builds, give the
+**The bundle has the setlist.fm key baked in.** That is scoped to a small cohort
+sharing one key, raised on 2026-09-16 to 16 requests/second and 50,000/day (same
+key string, so no rebuild was needed for the raise). Do not promote this bundle
+to production unchanged: production needs a fresh build with the key dropped, or
+a proxy. Since #457 the app nudges a tester towards a free key of their own when
+the shared daily quota runs out, which moves load off the bundled key but does
+not remove it from the build. When CI does tagged publish builds, give the
 closed-testing job the `SETLISTFM_API_KEY` secret and the production job
 nothing, so a keyed production build becomes impossible rather than merely
 discouraged.
 
-**Do not post the signup link on socials yet.** One key, 1440 requests/day, and
-a first import is the most expensive call there is. A post that does well means
-strangers whose first launch shows them nothing. Socials after the quota
-increase, or after the 12 are secured.
+**Do not post the signup link on socials yet.** One key, 50,000 requests/day and
+16/second shared by every install, and a first import is the most expensive call
+there is. A post that does well means strangers whose first launch shows them
+nothing — now with a nudge towards their own key (#457) rather than "try again
+later", but a nudge is not a quota. Socials after the 12 are secured.
 
 **Spotify is capped at 5 users, permanently.** Not a development-mode phase
 that ends. As of 15 May 2025 Spotify only accepts quota extension requests from
