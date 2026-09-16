@@ -625,12 +625,12 @@ internal fun unionPlaylists(kept: List<StoredPlaylist>, dropped: List<StoredPlay
     kept + dropped.filterNot { p -> kept.any { it.url == p.url } }
 
 /**
- * The longer **Log** survives, and stays **Open** unless both were **Closed** — a
- * merge must not upgrade a claim nobody made.
+ * Both **Logs**, whole: every entry [dropped] holds joins [kept] ([StoredLog.absorbing]),
+ * because handwritten data is never discarded to resolve a collision. Stays **Open**
+ * unless both were **Closed** — a merge must not upgrade a claim nobody made.
  */
 internal fun unionLog(kept: StoredLog, dropped: StoredLog): StoredLog =
-    (if (dropped.songs.size > kept.songs.size) dropped else kept)
-        .copy(closed = kept.closed && dropped.closed)
+    kept.absorbing(dropped).copy(closed = kept.closed && dropped.closed)
 
 /**
  * One claim about one night, and the stronger evidence wins: a check-in reached by

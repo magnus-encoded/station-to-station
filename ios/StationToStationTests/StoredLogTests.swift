@@ -187,4 +187,44 @@ final class StoredLogTests: XCTestCase {
         XCTAssertEqual([], log.enteredAt)
         XCTAssertNil(log.enteredAtOrNull(0))
     }
+
+    func testMergingKeepsEveryHandwrittenEntryInterleavedByEntryTime() {
+        let survivor = StoredLog(songs: ["Title", "B"], remembered: ["chorus words", ""], enteredAt: [10, 30])
+        let dropped = StoredLog(songs: ["X", "", "Y", "B"], remembered: ["", "", "hummed bit", ""],
+                                enteredAt: [5, 20, 40, 30])
+        let merged = unionLog(survivor, dropped)
+        XCTAssertEqual(merged.songs, ["X", "Title", "", "B", "Y"])
+        XCTAssertEqual(merged.remembered, ["", "chorus words", "", "", "hummed bit"])
+        XCTAssertEqual(merged.enteredAt, [5, 10, 20, 30, 40])
+    }
+
+    func testMergingWithoutTimestampsAlignsMatchesAndKeepsEveryOtherEntry() {
+        let merged = unionLog(StoredLog(songs: ["A", "B"]),
+                              StoredLog(songs: ["A", "C", "D"], remembered: ["", "la la", ""]))
+        XCTAssertEqual(merged.songs, ["A", "B", "C", "D"])
+        XCTAssertEqual(merged.remembered, ["", "", "la la", ""])
+        XCTAssertEqual(merged.enteredAt, [0, 0, 0, 0])
+    }
+
+    func testAbsorbingIsIdempotent() {
+        let log = StoredLog(songs: ["A", "B", "A"]).correctingAt(1, title: "Title")
+        XCTAssertEqual(log.absorbing(log), log)
+        let copy = log.adding("C", now: 0).adding("A", now: 0)
+        let once = log.absorbing(copy)
+        XCTAssertEqual(once.songs, ["A", "Title", "A", "C", "A"])
+        XCTAssertEqual(once.remembered, ["", "B", "", "", ""])
+        XCTAssertEqual(once.absorbing(copy), once)
+        let timed = StoredLog().adding("A", now: 10).adding("B", now: 20)
+        let timedOnce = timed.absorbing(timed.adding("C", now: 30))
+        XCTAssertEqual(timedOnce.songs, ["A", "B", "C"])
+        XCTAssertEqual(timedOnce.absorbing(timed.adding("C", now: 30)), timedOnce)
+    }
+
+    func testMergingStaysOpenUnlessBothClosedAndAShorterSurvivorKeepsItsLines() {
+        let a = StoredLog(songs: ["A"], closed: true, enteredAt: [1])
+        let b = StoredLog(songs: ["B", "C"], closed: true, enteredAt: [2, 3])
+        XCTAssertTrue(unionLog(a, b).closed)
+        XCTAssertFalse(unionLog(a, StoredLog(songs: ["B", "C"], closed: false, enteredAt: [2, 3])).closed)
+        XCTAssertEqual(unionLog(a, b).songs, ["A", "B", "C"])
+    }
 }
