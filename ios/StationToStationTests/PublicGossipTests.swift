@@ -149,14 +149,18 @@ final class PublicGossipTests: XCTestCase {
         }
     }
 
-    /// Stories 35, 36 and 37: who a receipt is for, and when there is not one.
+    /// Stories 35 and 36: who a receipt is for, and when there is not one. Story 37 is not in
+    /// here — see the comment below and ADR-0022 §3.
     func testReceiptNamesTheDeliveringNeighbourAndOnlyForAPromptlyRecognisedFact() {
         let relay = P256.Signing.PrivateKey()
         let me = relay.publicKey.derRepresentation.base64EncodedString()
         let sign: (Data) -> Data? = { try? relay.signature(for: $0).derRepresentation }
         let delivered = fact()
-        // Not recognised as a Contact's at receive time, so nothing is owed. This is also the
-        // whole of story 37: recognition that arrives later never reaches this function.
+        // Not recognised as a Contact's at receive time, so nothing is owed. This is story 36
+        // and *not* story 37: it asserts what the function does with `recognised: false`, which
+        // is the argument's contract. Story 37 — that late attribution cannot reach here at all —
+        // is a fact about the call graph (one production caller per platform, the receive path)
+        // and no call of this function can witness it. ADR-0022 §3 says so plainly.
         XCTAssertNil(receiptFor(delivered, from: "neighbour", recognised: false, author: me, now: 2000, sign: sign))
         // A blind relay that proved no handle cannot be credited.
         XCTAssertNil(receiptFor(delivered, from: "", recognised: true, author: me, now: 2000, sign: sign))
@@ -300,6 +304,29 @@ final class PublicGossipTests: XCTestCase {
         XCTAssertTrue(state.useful.isEmpty)
     }
 
+    /// The twin of Android's tally test. `creditHits` stays reachable here even though nothing
+    /// on this platform ranks, so the two summaries cannot drift apart in shape.
+    func testTheTallySeparatesAWindowThatFoundCreditFromOneThatOnlyRanked() {
+        let tally = GossipTally.shared
+        tally.reset()
+        defer { tally.reset() }
+        // An empty window is not a window. Counting it would put the ranker's denominator up
+        // every scan and make a zero numerator look like a busy night that found nothing.
+        tally.ranked(candidates: 0, hits: 0)
+        XCTAssertTrue(tally.summary().contains("pick windows=0"))
+
+        tally.ranked(candidates: 3, hits: 0)
+        tally.ranked(candidates: 2, hits: 1)
+        tally.authored()
+        // A Pass nothing was owed on is counted once, and it is not a receipt that failed:
+        // authored and declined are separate numbers because they are separate stories.
+        tally.declined()
+        tally.offered(2)
+        tally.delivered(1)
+        XCTAssertEqual(tally.summary(),
+            "receipts authored=1 declined=1 offered=2 delivered=1 · pick windows=2 credit hits=1")
+    }
+
     /// Stories 38 and 39: preference, ties under a seed, and nobody excluded.
     func testUsefulNeighboursComeFirstWithSeededTiesAndNobodyExcluded() {
         let seen = ["plain-a", "useful-a", "plain-b", "useful-b", "plain-c"]
@@ -437,7 +464,6 @@ final class PublicGossipTests: XCTestCase {
         // Nothing of mine to prove: sign as the relay, and drop a request I cannot prove
         // rather than spend the Pass on bytes the receiver is bound to reject.
         XCTAssertNil(passAuthor([log, theirs], localAuthors: ["me"]))
-        XCTAssertEqual(passBatch([log, theirs], request: nil), [log])
         XCTAssertEqual(passBatch([log, theirs], request: nil, signer: "relay-key"), [log])
         // Mine to prove: sign as its author. Facts still ride along under that key.
         XCTAssertEqual(passAuthor([log, mine, theirs], localAuthors: ["me"]), mine)

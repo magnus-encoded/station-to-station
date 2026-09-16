@@ -90,6 +90,35 @@ the 2-minute decay. If measurement shows credit still never accumulates, the ans
 the signer's relay key on the **Pass** and prove it against the same nonce, which is a wire
 change and wants its own ADR.
 
+That deferral has now been traced rather than assumed, and it holds with two edges worth
+writing down. `held.delivered` is per-peer and `offer` skips anything already delivered to the
+peer it is building for, so a request that reached this device is not offered back to it and
+`passAuthor` finds nothing to sign as on the next **Pass**. `gossipPassDue` spaces those
+**Passes** by `GOSSIP_PEER_COOLDOWN`, one minute, which is inside `PUBLIC_RECEIPT_MS`. But
+`delivered` is only recorded when a push completes to its last chunk, so a link that keeps
+dying re-offers the same request and keeps producing unaddressable **Passes**; and a *new*
+request from the same neighbour buys another deferral of its own. The deferral is per request,
+not once per neighbour.
+
+#### 2b. One receipt per **Gig** record per batch, not one per **Fact** (amended 2026-09-16)
+
+A receipt carries the **Fact**'s `gigId`, `formerIds` and `scope` and nothing else that varies
+within a batch, so two **Facts** of the same record — two lines of one `log`, the ordinary
+shape of a **Pass** — author byte-identical receipts with the same `id`. Authored one at a
+time, the second is a duplicate, and the **Storm gate** answers a duplicate by dropping the
+held copy. Two recognised **Facts** from one neighbour therefore produced no offerable receipt
+at all.
+
+The invariant is that a receipt is a fact about the *neighbour*, not about the line: "you
+handed me something I wanted" is said once per record however many lines arrived. `receiptsFor`
+holds it — filter to recognised, keep one per `(gigId, formerIds, scope)`, author those — and
+the **Storm gate** is untouched, because the collision was made in the authoring, not in
+`receive`. The filter runs before the de-duplication, so an unrecognised first line of a record
+cannot mask a recognised second one.
+
+`receiptsFor` sits inside the §2a guard, never around it: when `passRelay` returns nothing,
+there is nobody to owe and no batch to de-duplicate.
+
 ### 3. The emitter is reachable only from the receive path
 
 `receiptFor` is pure, takes the delivering neighbour and whether the **Fact** was recognised as
@@ -97,7 +126,16 @@ a **Contact**'s *now*, and is called from exactly one place on each platform: th
 just admitted a batch. Story 37 — attribution learned later, after an **Exchange**, must not
 count as fast delivery — is therefore structural rather than a rule. There is deliberately **no
 timestamp comparison** guarding it: a comparison would imply lateness is reachable, and it is
-not. The test asserts it anyway.
+not.
+
+**No test asserts this, and an earlier version of this ADR said one did.** The property is
+"`receiptFor` has exactly one production caller per platform, and that caller is the receive
+path" — a fact about the call graph, which no call of `receiptFor` can witness, because every
+call a test can make is by definition a second caller. The test that was cited asserts something
+real but different: that `recognised = false` yields nothing, which is the argument's contract
+(story 36), not story 37. The two tests are renamed to say so. Story 37 is held by the shape of
+the code and by review, and the honest place to record that is here rather than in a green
+assertion that looks like proof of something it never touched.
 
 ### 4. Ranking is about which neighbour to push to, and it lives on Android
 
@@ -111,6 +149,50 @@ then put the credited band first. Preference, never exclusion — every candidat
 in the list, because a phone that only ever spoke to neighbours that had already proved useful
 would never learn that any other one is. The RNG is a parameter for one reason: a test cannot
 assert "randomly" without a seed.
+
+**What the ranker is keyed by, corrected.** A review read `resolved: MutableMap<String,String>`
+in `GossipRadio.kt` as making the BLE MAC the ranking key, and concluded the ranker is keyed by
+an identifier that rotates by design. That is not what the code does, and the real problem is
+worse rather than better, so it is worth being exact.
+
+The key `credited` is asked about is the peer's **nightly relay key** — `GigIdentity("relay-<date>")`,
+a device-local keystore identity, the same key its challenge carries and the same key its **Pass**
+is normally signed with. It is stable for a whole night. `resolved` is not the ranking key; it is
+a *memo* from a BLE address to that handle, and the address is only its lookup key.
+
+The memo is the part that does not work, and the reason is not rotation:
+
+- An entry is written in exactly one place, after a challenge read completes
+  (`GossipRadio.kt`, `onCharacteristicRead`). **A sighting can therefore never be credited before
+  this phone has already connected to that address once.** A first sighting of anybody is
+  uncredited by construction, which is precisely the case ranking exists to decide.
+- Having connected, `attempted` holds that address out of the candidate set for
+  `GOSSIP_PEER_COOLDOWN`, one minute. Credit for that peer lives `PUBLIC_RECEIPT_MS`, two
+  minutes, and is earned on the *other* half of the radio — a receipt arriving from that peer's
+  central into this phone's peripheral. So the interval in which a sighting of a peer is both
+  eligible and credited is at most about a minute wide, per peer, per credit event.
+- **Address rotation is not the binding constraint.** Both platforms rotate a resolvable private
+  address on the order of fifteen minutes; credit expires in two. The decay outruns the rotation
+  by a factor of seven. Rotation costs a memo entry that had usually expired anyway.
+- `resolved` is cleared on `stop()`. For the same reason, this is not the binding constraint
+  either.
+
+**Conclusion: ranking cannot be keyed usefully at sighting time under the advertisement this
+channel ships, and no change inside `GossipRadio` can make it so.** Crediting a sighting requires
+something in the advertisement to key on, and the channel deliberately advertises a bare
+connectable service UUID — the only thing a backgrounded iPhone can be relied on to broadcast
+(see the file comment in `GossipRadio.kt`, and ADR-0019). Putting a stable identifier in service
+data would be a wire change that a backgrounded iPhone cannot hold up its end of, and a stable
+broadcast identifier is a tracking beacon for anyone with a scanner — a privacy cost this design
+has refused everywhere else. **So nothing was invented here.** `gossipPreferredPeers` stays, with
+its behaviour stated correctly rather than dressed up: today it is, in all but a narrow window, a
+shuffle.
+
+What would actually be needed, if this is ever worth doing: a per-pair rotating token in the
+advertisement that only a device holding the pair secret can recognise — which is exactly what
+gossip v1 had and what ADR-0021 removed when it widened relaying to blind edges. Reintroducing
+it means reintroducing the thing that made v1 Contact-only. That is a design decision, not a
+patch, and it is out of scope here.
 
 It binds on Android and not on iOS, and that asymmetry is deliberate. Android's `GossipCentral`
 holds one connection at a time, so a sighting it takes is a sighting it spends — but the scan
@@ -143,6 +225,28 @@ in the night — and tying any two together means tuning one silently retunes an
 policies against each other; quoting it as a measurement of a parameter is the specific mistake
 this row of the table exists to prevent. The policy is to tune from real usage.
 
+## How we will know (the measurement, #444)
+
+Every reason this feature might be a no-op presents identically from the outside — as "no
+preference", which is also what correct looks like when nobody is in the room. `GossipTally` on
+both platforms counts six things and prints one line at the end of the night:
+
+| Counter | What a zero means |
+| ------- | ----------------- |
+| receipts authored | Nothing was ever recognised as a **Contact**'s at receive time. The feature never started. |
+| receipts declined | Never zero and never dominant is the expectation. A **Pass** arrived that §2a could not address, so nothing was owed on it. If this dwarfs *authored*, the deferral in §2a is not deferring — it is losing — and the wire change §2a names is due. |
+| receipts offered | Receipts exist but never reach a **Pass** — addressing or `passBatch` is eating them. |
+| receipts delivered | Passes carrying receipts never complete. A transport problem, not a policy one. |
+| pick windows | The central never ranked anything: it is never seeing two peers in one window. |
+| credit hits | **The falsifier.** Windows ran and not one candidate held live credit. Ranking is a shuffle, and no amount of tuning the decay changes that. |
+
+Counts of events, never of peers; nothing in the tally names anybody, which is why it is safe to
+log. It is deliberately not wiped by `radioStopped` — a tally that resets when the relay stops is
+a tally nobody can read, because stopping is when you go looking.
+
+`credit hits` is expected to be zero, for the reason §4 gives. Measuring it is how that stops
+being an argument and becomes a fact.
+
 ## Consequences
 
 What this buys: receipts are real end to end. A **Fact** recognised as a **Contact**'s produces
@@ -152,15 +256,37 @@ or touching the **Storm gate**.
 
 What ships knowingly missing, said here rather than discovered later:
 
-- **Handle stability is unproven, and this is the most likely way v1 is a no-op in the field.**
-  Credit is keyed by whatever handle the transport proved. On a platform that rotates its BLE
-  address, the next meeting is a different key and arrives uncredited, so credit may never
-  accumulate across meetings. The failure mode is *no preference* — today's behaviour — never a
-  peer that stops being offered, because story 39 forbids exclusion. It is the first thing to
-  measure.
+- **Ranking is a shuffle in almost every real window, and this is known rather than suspected.**
+  Not because handles rotate — they do not; the nightly relay key is stable for the night — but
+  because a sighting cannot carry a handle at all, so no peer can be credited until after this
+  phone has already connected to it. §4 works the timing through. The failure mode is *no
+  preference* — today's behaviour — never a peer that stops being offered, because story 39
+  forbids exclusion. Shipping it anyway is a deliberate choice: the ranking rule is the part
+  worth having written down and agreed across both platforms, and it costs nothing while it
+  never fires.
+- **The pick window no longer throws the room away while the central is busy.** It used to clear
+  `sighted` before the `busy || !running` guard, so a window closing mid-connection discarded its
+  whole candidate set. Harmless in practice — `pauseForPush` takes the scan down, so no sighting
+  arrives to open a window during a push — but the ordering should not have depended on that.
+  Retained sightings are re-checked against the peer cooldown when the window finally closes.
 - **No receipt is authored for a **Pass** that carries its signer's own request.** Section 2a:
-  such a **Pass** proves a **Gig** key, and this device cannot address one. The credit moves on
-  that neighbour's next **Pass**, which carries no request.
+  such a **Pass** proves a **Gig** key, and this device cannot address one. The credit is
+  deferred, not lost — that request is marked delivered to this peer, so the same neighbour's
+  next **Pass** carries none and is addressable — but the deferral is one `GOSSIP_PEER_COOLDOWN`
+  long, and it only holds for a push that completed. A push that dies before
+  `confirmDelivery` leaves the request undelivered, and the next **Pass** carries it again.
+- **One receipt per **Gig** record per batch, not one per **Fact**.** Section 2b. Two lines of
+  one `log` author byte-identical receipts, so the batch owes one thing, said once.
+- **The three fixes above do not add up to working ranking, and this is stated rather than
+  implied.** Addressing and de-duplication make authoring, offering and delivery real — all
+  three were dead before, in the ordinary cases — so the receipt half of this ADR now works end
+  to end. The *consumer* is what does not: for a credit hit, this phone must (a) hold live
+  credit for a peer, which decays in `PUBLIC_RECEIPT_MS`, and (b) already have `resolved` an
+  address to that peer's relay key, which only a completed connection writes, and (c) be past
+  that address's one-minute `GOSSIP_PEER_COOLDOWN`. The credit is earned on the peripheral half
+  of the radio and spent on the central half, and nothing carries it across. The honest summary
+  is that receipts now cross the wire and ranking still almost never fires. `GossipTally` is
+  here to say which of those two sentences the field disagrees with.
 - **A receipt costs a round of bytes for a hint that expires in two minutes.** Whether that
   trade is worth it is a question for a real night, not for the simulator.
 - **No locked-iPhone proof.** #446 stays deferred. Receipts shipping does not establish that an

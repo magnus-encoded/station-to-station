@@ -151,7 +151,8 @@ class PublicGossipTest {
         }
     }
 
-    /** Stories 35, 36 and 37: who a receipt is for, and when there is not one. */
+    /** Stories 35 and 36: who a receipt is for, and when there is not one. Story 37 is not
+     * in here — see the comment below and ADR-0022 §3. */
     @Test fun receiptNamesTheDeliveringNeighbourAndOnlyForAPromptlyRecognisedFact() {
         val relay = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
         val me = gossipBase64(relay.public.encoded)
@@ -159,8 +160,11 @@ class PublicGossipTest {
             Signature.getInstance("SHA256withECDSA").run { initSign(relay.private); update(bytes); sign() }
         }
         val delivered = fact()
-        // Not recognised as a Contact's at receive time, so nothing is owed. This is also the
-        // whole of story 37: recognition that arrives later never reaches this function.
+        // Not recognised as a Contact's at receive time, so nothing is owed. This is story 36
+        // and *not* story 37: it asserts what the function does with `recognised = false`, which
+        // is the argument's contract. Story 37 — that late attribution cannot reach here at all —
+        // is a fact about the call graph (one production caller per platform, the receive path)
+        // and no call of this function can witness it. ADR-0022 §3 says so plainly.
         assertNull(receiptFor(delivered, "neighbour", false, me, 2000, sign))
         // A blind relay that proved no handle cannot be credited.
         assertNull(receiptFor(delivered, "", true, me, 2000, sign))
@@ -415,7 +419,6 @@ class PublicGossipTest {
         // Nothing of mine to prove: sign as the relay, and drop a request I cannot prove
         // rather than spend the Pass on bytes the receiver is bound to reject.
         assertEquals(null, passAuthor(listOf(log, theirs), setOf("me")))
-        assertEquals(listOf(log), passBatch(listOf(log, theirs), null))
         assertEquals(listOf(log), passBatch(listOf(log, theirs), null, "relay-key"))
         // Mine to prove: sign as its author. Facts still ride along under that key.
         assertEquals(mine, passAuthor(listOf(log, mine, theirs), setOf("me")))

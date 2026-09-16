@@ -133,11 +133,14 @@ Existing seam-1 tests to extend rather than replace: `PublicGossipTest.kt` (14),
 
 Say these in the ADR rather than discovering them later.
 
-- **Handle stability is unproven.** Credit is keyed by whatever the transport passes.
-  On iOS, where addresses rotate, credit may not accumulate across meetings. The
-  failure mode is no preference — today's behaviour — not breakage, because story 39
-  forbids exclusion. This is the single most likely thing to make v1 a no-op in the
-  field, and the first thing to measure.
+- **Ranking is a shuffle in almost every real window.** This bullet used to say "handle
+  stability is unproven"; that framing was wrong and ADR-0022 §4 now corrects it. The
+  ranking key is the nightly relay key and it is stable for the night. What cannot be
+  done is crediting a *sighting*: `resolved` learns an address→handle only after a
+  connection to that address, so a first sighting of anyone is uncredited by construction,
+  and the advertisement carries nothing to key on instead. The failure mode is no
+  preference — today's behaviour — not breakage, because story 39 forbids exclusion.
+  `GossipTally` exists to turn that argument into a measurement.
 - **No measured parameter values.** Carry, decay and grace stay provisional.
 - **No locked-iPhone proof.** #446 stays deferred. Receipts shipping does not
   establish that an iPhone relays anything.
@@ -220,4 +223,11 @@ re-deriving. Three things departed from the plan above, all deliberate:
 - The `#455` corrections above were not written back to the issue.
 - Story 49 (the Pi's `GATT_INVALID_ATTRIBUTE_LENGTH`) is untouched, and `cec983d`'s gap —
   the Pass-refusal path recording no reason — is still there.
-- Handle stability is the thing to measure first. See ADR-0022's consequences.
+- `GossipTally`'s `credit hits` is the thing to measure first, and it is expected to be
+  zero. See ADR-0022 §4 and "How we will know".
+- Two authoring defects were found and fixed after this handoff was written, and both were
+  invisible to the suite as it stood: receipts were addressed in the **Gig** signing namespace
+  rather than the relay addressing one (ADR-0022 §2a), and a batch of two **Facts** from one
+  record authored colliding receipts that retired each other (§2b). Together they mean nothing
+  in this document's "seam 1 is done" claim had ever produced a receipt that left a phone. The
+  ranking half is still expected to be a shuffle; see the consequences in ADR-0022.

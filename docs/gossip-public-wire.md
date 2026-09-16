@@ -32,7 +32,9 @@ neighbour that delivered it, and is offered to that neighbour alone — the only
 Envelope on the wire. The name is always the sender's nightly relay key, the only identity a
 meeting presents, so a Pass signed as a Gig — which is a Pass carrying its signer's own
 request — earns no receipt at all rather than one addressed to a key nobody answers to.
-It rides only a Pass signed as its own author, as a request does.
+One batch owes at most one receipt per Gig record, never one per Fact: a receipt says what the
+neighbour did, not what the line was, and two lines of one log would otherwise author the same
+bytes twice. It rides only a Pass signed as its own author, as a request does.
 Its author credits the neighbour the text names; a receiver credits the proved sender, never
 the text, so no relay can nominate a third party. See ADR-0022.
 
