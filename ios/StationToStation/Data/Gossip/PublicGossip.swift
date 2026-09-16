@@ -338,6 +338,27 @@ func receiptFor(_ fact: GossipEnvelope, from: String, recognised: Bool, author: 
     return result.signed(sign)
 }
 
+/// The receipts owed to one neighbour for one batch, which is at most one per **Gig** record.
+///
+/// `receiptFor` copies `gigId`, `formerIds` and `scope` from the **Fact** and fills everything
+/// else from the batch, so two **Facts** of the same record — two lines of one `log`, the
+/// ordinary case — author byte-identical receipts with the same `id`. Fed one at a time into
+/// `receive`, the second is a duplicate, and the Storm gate answers a duplicate by dropping the
+/// held copy: two recognised **Facts** from a neighbour used to yield no receipt at all.
+///
+/// A receipt says "this neighbour handed me something I wanted", which is a fact about the
+/// neighbour and not about the line, so one per record is the whole of what there was to say.
+/// De-duplicating here rather than in `receive` keeps `receiptFor` pure and leaves the Storm
+/// gate exactly where it was.
+func receiptsFor(_ facts: [GossipEnvelope], from: String, recognised: (GossipEnvelope) -> Bool,
+                 author: String, now: Int64, sign: (Data) -> Data?) -> [GossipEnvelope] {
+    var records = Set<String>()
+    return facts.filter(recognised)
+        .filter { records.insert([$0.gigId, $0.formerIds.joined(separator: ","), $0.scope]
+            .joined(separator: "\u{1}")).inserted }
+        .compactMap { receiptFor($0, from: from, recognised: true, author: author, now: now, sign: sign) }
+}
+
 /// A witness is a separate signed fact containing the complete signed request.
 func witnessRequest(_ request: GossipEnvelope, with witness: GossipEnvelope, now: Int64,
                     sign: (Data) -> Data?) -> GossipEnvelope? {

@@ -409,6 +409,31 @@ fun receiptFor(
     ).signed(sign)
 }
 
+/**
+ * The receipts owed to one neighbour for one batch, which is at most one per **Gig** record.
+ *
+ * [receiptFor] copies `gigId`, `formerIds` and `scope` from the **Fact** and fills everything
+ * else from the batch, so two **Facts** of the same record — two lines of one `log`, the
+ * ordinary case — author byte-identical receipts with the same `id`. Fed one at a time into
+ * `receive`, the second is a duplicate, and the Storm gate answers a duplicate by dropping the
+ * held copy: two recognised **Facts** from a neighbour used to yield no receipt at all.
+ *
+ * A receipt says "this neighbour handed me something I wanted", which is a fact about the
+ * neighbour and not about the line, so one per record is the whole of what there was to say.
+ * De-duplicating here rather than in `receive` keeps [receiptFor] pure and leaves the Storm
+ * gate exactly where it was.
+ */
+fun receiptsFor(
+    facts: List<GossipEnvelope>,
+    from: String,
+    recognised: (GossipEnvelope) -> Boolean,
+    author: String,
+    now: Long,
+    sign: (ByteArray) -> ByteArray?,
+): List<GossipEnvelope> = facts.filter(recognised)
+    .distinctBy { Triple(it.gigId, it.formerIds, it.scope) }
+    .mapNotNull { receiptFor(it, from, true, author, now, sign) }
+
 /** Self-contained changed lines; timestamps on StoredLog remain the original observations. */
 fun gossipLogChanges(before: io.github.magnusencoded.stationtostation.data.StoredLog,
                      after: io.github.magnusencoded.stationtostation.data.StoredLog): Map<Int, String> {

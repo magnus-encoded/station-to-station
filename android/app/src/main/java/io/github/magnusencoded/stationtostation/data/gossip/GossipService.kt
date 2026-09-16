@@ -184,13 +184,13 @@ class GossipService : Service() {
                         val relay = relayIdentity()
                         // A receipt is addressed, so it may only name a key this device can
                         // meet again: the sender's relay key, which a Pass carrying the
-                        // sender's own request does not prove. See `passRelay`.
+                        // sender's own request does not prove. See `passRelay`. And one
+                        // receipt per Gig record, not per Fact: two lines of one log author
+                        // the same receipt twice, and the second would retire the first.
                         val addressable = passRelay(delivery.pass)
-                        if (addressable != null) (directRequests + admitted).forEach { fact ->
-                            val recognised = state.recognition[fact.author] != null
-                            receiptFor(fact, addressable, recognised, relay.publicKey(), now, relay::sign)
-                                ?.let { state.receive(it, "", now, local = true) }
-                        }
+                        if (addressable != null) receiptsFor(directRequests + admitted, addressable,
+                            { state.recognition[it.author] != null }, relay.publicKey(), now, relay::sign)
+                            .forEach { state.receive(it, "", now, local = true) }
                         directRequests.forEach { request ->
                             val local = state.localClaimFor(request) ?: return@forEach
                             val identity = GigIdentity(local.scope)

@@ -115,9 +115,10 @@ final class PublicGossipTests: XCTestCase {
         pass.from += "k"
         XCTAssertNil(encodePublicGossipPass(pass))
     }
-    private func fact(_ text: String = "Karma Police", at: Int64 = 1000, kind: String = "log") -> GossipEnvelope {
+    private func fact(_ text: String = "Karma Police", at: Int64 = 1000, kind: String = "log",
+                      line: Int = 0) -> GossipEnvelope {
         GossipEnvelope(gigId: "gig", scope: "scope", author: key.publicKey.derRepresentation.base64EncodedString(),
-                       createdAt: at, expiresAt: 100000, kind: kind, line: kind == "log" ? 0 : -1, text: text)
+                       createdAt: at, expiresAt: 100000, kind: kind, line: kind == "log" ? line : -1, text: text)
             .signed { try? self.key.signature(for: $0).derRepresentation }!
     }
     func testOneHopControlsRequireTheirAuthorWithoutPoisoningTheStormGate() {
@@ -249,6 +250,38 @@ final class PublicGossipTests: XCTestCase {
         XCTAssertEqual(correct.offer(to: neighbourRelay, now: 2001), [addressed])
         XCTAssertEqual(correct.useful[neighbourRelay], 2000 + publicReceiptMs)
         XCTAssertTrue(correct.offer(to: neighbourGig, now: 2001).isEmpty)
+    }
+
+    /// A whole batch from one neighbour owes one receipt, and it survives to be offered.
+    func testAMultiFactBatchFromOneNeighbourStillLeavesOneReceiptHeldAndOfferable() {
+        let relay = P256.Signing.PrivateKey()
+        let me = relay.publicKey.derRepresentation.base64EncodedString()
+        let sign: (Data) -> Data? = { try? relay.signature(for: $0).derRepresentation }
+        // Two lines of one log: same author, same gig, same scope. The ordinary case.
+        let batch = [fact("Karma Police", line: 0), fact("No Surprises", line: 1)]
+        XCTAssertNotEqual(batch[0].id, batch[1].id)
+        var state = PublicGossipState()
+        for envelope in batch { XCTAssertTrue(state.receive(envelope, from: "neighbour", now: 2000)) }
+        let receipts = receiptsFor(batch, from: "neighbour", recognised: { _ in true },
+                                   author: me, now: 2000, sign: sign)
+        // Both Facts name the same record, so there was only ever one thing to say.
+        XCTAssertEqual(receipts.count, 1)
+        for receipt in receipts {
+            XCTAssertTrue(state.receive(receipt, from: "", now: 2000, local: true))
+        }
+        // The receipt is actually held, actually offered, and actually credited the neighbour.
+        XCTAssertEqual(state.held.values.filter { $0.envelope.kind == "receipt" }.map { $0.envelope }, receipts)
+        XCTAssertEqual(state.offer(to: "neighbour", now: 2001), receipts)
+        XCTAssertEqual(state.useful["neighbour"], 2000 + publicReceiptMs)
+        // The rails: no receipt in facts, both Facts still held and still offered onward.
+        XCTAssertTrue(state.facts.values.allSatisfy { $0.kind != "receipt" })
+        XCTAssertEqual(state.facts.count, batch.count)
+        XCTAssertEqual(Set(state.offer(to: "somebody-else", now: 2001).map { $0.id }), Set(batch.map { $0.id }))
+        // An unrecognised Fact in the batch owes nothing, and does not mask a recognised one.
+        XCTAssertTrue(receiptsFor(batch, from: "neighbour", recognised: { _ in false },
+                                  author: me, now: 2000, sign: sign).isEmpty)
+        XCTAssertEqual(receiptsFor(batch, from: "neighbour", recognised: { $0.line == 1 },
+                                   author: me, now: 2000, sign: sign).count, 1)
     }
 
     /// Story 41: the decay is its own clock, not a slice of the carry window.
