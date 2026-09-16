@@ -190,3 +190,34 @@ established. This is story 49's territory. See the entry above in
 Two commits came out of that attempt and are worth keeping regardless: `9949fe0`
 takes the scan off air during a push, `cec983d` puts the reason a push gave up into
 the log. Note `cec983d` has a gap — the Pass-refusal path still records no reason.
+
+---
+
+## Done, 2026-09-16 — `355eee7`, CI green on both platforms
+
+Sections A, B, C and D above are built. ADR-0022 is the record; read it rather than
+re-deriving. Three things departed from the plan above, all deliberate:
+
+1. **`receive` credited the wrong field, and the plan above repeats the mistake.** The
+   shipped half took `useful[envelope.text]` unconditionally. With an emitter in place
+   that means the *recipient* of a receipt credits its own handle, and a receipt reaching
+   anyone else writes a stranger in and leaks who this phone stands near. Credit now reads
+   `text` only for a receipt this device authored, and `from` — the proved handle — for one
+   off the wire. This is the single correction worth carrying forward if any of this is
+   revisited.
+2. **A receipt is addressed.** `offer` withholds it from every peer but the one it names,
+   and `passBatch` keeps it only on a **Pass** signed as its author. Neither was in the plan;
+   without them the leak above is policy rather than structure.
+3. **Ranking binds on Android only.** The reading in section B was right — it is peer
+   selection, not `offer` — but Android needed a gathering window before there was a set to
+   prefer within, and iOS has no scarce connection slot, so the rule sits in
+   `GossipBudget.swift` with its twin test and no caller.
+
+### Still open from this document
+
+- **Stories 22 and 23 are not verified or closed.** The claim above that they look done was
+  not checked here.
+- The `#455` corrections above were not written back to the issue.
+- Story 49 (the Pi's `GATT_INVALID_ATTRIBUTE_LENGTH`) is untouched, and `cec983d`'s gap —
+  the Pass-refusal path recording no reason — is still there.
+- Handle stability is the thing to measure first. See ADR-0022's consequences.
