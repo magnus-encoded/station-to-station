@@ -272,6 +272,47 @@ data class StoredLog(
         )
     }
 
+    /**
+     * Every entry of [other] joins this **Log**; nothing handwritten is dropped.
+     *
+     * The two are aligned as ordered sequences (longest common subsequence): entries
+     * match when title and [remembered] are equal and their [enteredAt] is equal, known
+     * or unknown alike. A matched entry appears once, so absorbing a Log already
+     * absorbed — a repeated handover — changes nothing. Every unmatched entry from
+     * either side is kept, in its own order: between two matches, this Log's first, then
+     * [other]'s; and where every entry knows when it was typed, the whole result is
+     * ordered by that time (a tie keeps the earlier position). [closed] is left to the
+     * caller.
+     */
+    fun absorbing(other: StoredLog): StoredLog {
+        data class Entry(val song: String, val line: String, val at: Long)
+        val lines = aligned(); val times = alignedTimestamps()
+        val mine = songs.indices.map { Entry(songs[it], lines[it], times[it]) }
+        val otherLines = other.aligned(); val otherTimes = other.alignedTimestamps()
+        val theirs = other.songs.indices.map { Entry(other.songs[it], otherLines[it], otherTimes[it]) }
+        val lcs = Array(mine.size + 1) { IntArray(theirs.size + 1) }
+        for (a in mine.indices.reversed()) for (b in theirs.indices.reversed()) {
+            lcs[a][b] = if (mine[a] == theirs[b]) lcs[a + 1][b + 1] + 1 else maxOf(lcs[a + 1][b], lcs[a][b + 1])
+        }
+        if (lcs[0][0] == theirs.size) return this
+        val merged = mutableListOf<Entry>()
+        var a = 0
+        var b = 0
+        while (a < mine.size || b < theirs.size) {
+            when {
+                a < mine.size && b < theirs.size && mine[a] == theirs[b] -> { merged += mine[a]; a++; b++ }
+                b == theirs.size || (a < mine.size && lcs[a + 1][b] >= lcs[a][b + 1]) -> { merged += mine[a]; a++ }
+                else -> { merged += theirs[b]; b++ }
+            }
+        }
+        val ordered = if (merged.all { it.at != 0L }) merged.sortedBy { it.at } else merged
+        return copy(
+            songs = ordered.map { it.song },
+            remembered = ordered.map { it.line },
+            enteredAt = ordered.map { it.at },
+        )
+    }
+
     /** [remembered] at [songs]'s length: an older cache carries none at all. */
     private fun aligned(): List<String> = List(songs.size) { remembered.getOrNull(it) ?: "" }
 

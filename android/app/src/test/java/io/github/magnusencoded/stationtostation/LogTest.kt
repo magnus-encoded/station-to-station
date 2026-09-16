@@ -2,6 +2,7 @@ package io.github.magnusencoded.stationtostation
 
 import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.setlistPaste
+import io.github.magnusencoded.stationtostation.data.unionLog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -158,5 +159,45 @@ class LogTest {
         assertNull(added.enteredAtOrNull(0))
         assertNull(added.enteredAtOrNull(1))
         assertEquals(2_000L, added.enteredAtOrNull(2))
+    }
+
+    @Test fun `merging two Logs keeps every handwritten entry, interleaved by when it was typed`() {
+        val survivor = StoredLog(songs = listOf("Title", "B"), remembered = listOf("chorus words", ""), enteredAt = listOf(10, 30))
+        val dropped = StoredLog(songs = listOf("X", "", "Y", "B"), remembered = listOf("", "", "hummed bit", ""),
+            enteredAt = listOf(5, 20, 40, 30))
+        val merged = unionLog(survivor, dropped)
+        assertEquals(listOf("X", "Title", "", "B", "Y"), merged.songs)
+        assertEquals(listOf("", "chorus words", "", "", "hummed bit"), merged.remembered)
+        assertEquals(listOf(5L, 10L, 20L, 30L, 40L), merged.enteredAt)
+    }
+
+    @Test fun `merging without timestamps aligns matching entries and keeps every other one in order`() {
+        val merged = unionLog(StoredLog(songs = listOf("A", "B")),
+            StoredLog(songs = listOf("A", "C", "D"), remembered = listOf("", "la la", "")))
+        assertEquals(listOf("A", "B", "C", "D"), merged.songs)
+        assertEquals(listOf("", "", "la la", ""), merged.remembered)
+        assertEquals(listOf(0L, 0L, 0L, 0L), merged.enteredAt)
+    }
+
+    @Test fun `absorbing is idempotent - itself, a longer copy, and twice`() {
+        val log = StoredLog(songs = listOf("A", "B", "A")).correctingAt(1, "Title")
+        assertEquals(log, log.absorbing(log))
+        val copy = log.adding("C", 0).adding("A", 0)
+        val once = log.absorbing(copy)
+        assertEquals(listOf("A", "Title", "A", "C", "A"), once.songs)
+        assertEquals(listOf("", "B", "", "", ""), once.remembered)
+        assertEquals(once, once.absorbing(copy))
+        val timed = StoredLog().adding("A", 10).adding("B", 20)
+        val timedOnce = timed.absorbing(timed.adding("C", 30))
+        assertEquals(listOf("A", "B", "C"), timedOnce.songs)
+        assertEquals(timedOnce, timedOnce.absorbing(timed.adding("C", 30)))
+    }
+
+    @Test fun `merging stays Open unless both were Closed, and a shorter survivor keeps its lines`() {
+        val a = StoredLog(songs = listOf("A"), closed = true, enteredAt = listOf(1))
+        val b = StoredLog(songs = listOf("B", "C"), closed = true, enteredAt = listOf(2, 3))
+        assertTrue(unionLog(a, b).closed)
+        assertFalse(unionLog(a, b.copy(closed = false)).closed)
+        assertEquals(listOf("A", "B", "C"), unionLog(a, b).songs)
     }
 }
