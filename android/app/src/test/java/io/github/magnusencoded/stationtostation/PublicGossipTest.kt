@@ -289,6 +289,13 @@ class PublicGossipTest {
         // An unrecognised Fact in the batch owes nothing, and does not mask a recognised one.
         assertTrue(receiptsFor(batch, "neighbour", { false }, me, 2000, sign).isEmpty())
         assertEquals(1, receiptsFor(batch, "neighbour", { it.line == 1 }, me, 2000, sign).size)
+        // A receipt admitted from the same neighbour carries the record's own gigId, formerIds
+        // and scope, so it collides with the Facts on the de-duplication key. It must be gone
+        // before the key is taken, or it wins the slot and then owes nothing.
+        val theirs = requireNotNull(receiptFor(batch[0], "somebody", true, me, 1999, sign))
+        assertEquals(Triple(batch[0].gigId, batch[0].formerIds, batch[0].scope),
+            Triple(theirs.gigId, theirs.formerIds, theirs.scope))
+        assertEquals(1, receiptsFor(listOf(theirs) + batch, "neighbour", { true }, me, 2000, sign).size)
     }
 
     /** Story 41: the decay is its own clock, not a slice of the carry window. */

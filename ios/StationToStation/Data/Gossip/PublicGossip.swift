@@ -354,10 +354,16 @@ func receiptFor(_ fact: GossipEnvelope, from: String, recognised: Bool, author: 
 /// neighbour and not about the line, so one per record is the whole of what there was to say.
 /// De-duplicating here rather than in `receive` keeps `receiptFor` pure and leaves the Storm
 /// gate exactly where it was.
+///
+/// Every filter `receiptFor` would apply runs *before* the de-duplication, never after. A batch
+/// admitted from a neighbour can contain a `receipt` of its own, and a receipt carries the
+/// `gigId`, `formerIds` and `scope` of the **Fact** it was for — so it can share a record
+/// identity with a **Fact** in the same batch. De-duplicating first would let it win the slot
+/// and then yield nothing, silently swallowing the receipt that record actually owed.
 func receiptsFor(_ facts: [GossipEnvelope], from: String, recognised: (GossipEnvelope) -> Bool,
                  author: String, now: Int64, sign: (Data) -> Data?) -> [GossipEnvelope] {
     var records = Set<String>()
-    return facts.filter(recognised)
+    return facts.filter { $0.kind != "receipt" && recognised($0) }
         .filter { records.insert([$0.gigId, $0.formerIds.joined(separator: ","), $0.scope]
             .joined(separator: "\u{1}")).inserted }
         .compactMap { receiptFor($0, from: from, recognised: true, author: author, now: now, sign: sign) }
