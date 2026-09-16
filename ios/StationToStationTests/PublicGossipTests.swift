@@ -131,14 +131,117 @@ final class PublicGossipTests: XCTestCase {
             if kind == "request" { XCTAssertEqual(Array(receiver.facts.values), [envelope]) }
             else { XCTAssertTrue(receiver.facts.isEmpty) }
             XCTAssertTrue(receiver.held.isEmpty)
-            if kind == "receipt" { XCTAssertNotNil(receiver.useful["useful-neighbour"]) }
+            // Credit follows the handle the transport proved, never the one the text names:
+            // a receipt from elsewhere must not be able to nominate a third party.
+            if kind == "receipt" {
+                XCTAssertEqual(Set(receiver.useful.keys), [envelope.author])
+                XCTAssertNil(receiver.useful["useful-neighbour"])
+            }
 
             var author = PublicGossipState()
             XCTAssertTrue(author.receive(envelope, from: "", now: 2000, local: true))
             XCTAssertFalse(author.receive(envelope, from: "blind-relay", now: 2001))
-            XCTAssertEqual(author.offer(to: "recipient", now: 2002), [envelope])
+            // A receipt is addressed to the one neighbour it names; anything else is gossiped.
+            let recipient = kind == "receipt" ? "useful-neighbour" : "recipient"
+            XCTAssertEqual(author.offer(to: recipient, now: 2002), [envelope])
+            if kind == "receipt" { XCTAssertTrue(author.offer(to: "somebody-else", now: 2002).isEmpty) }
         }
     }
+
+    /// Stories 35, 36 and 37: who a receipt is for, and when there is not one.
+    func testReceiptNamesTheDeliveringNeighbourAndOnlyForAPromptlyRecognisedFact() {
+        let relay = P256.Signing.PrivateKey()
+        let me = relay.publicKey.derRepresentation.base64EncodedString()
+        let sign: (Data) -> Data? = { try? relay.signature(for: $0).derRepresentation }
+        let delivered = fact()
+        // Not recognised as a Contact's at receive time, so nothing is owed. This is also the
+        // whole of story 37: recognition that arrives later never reaches this function.
+        XCTAssertNil(receiptFor(delivered, from: "neighbour", recognised: false, author: me, now: 2000, sign: sign))
+        // A blind relay that proved no handle cannot be credited.
+        XCTAssertNil(receiptFor(delivered, from: "", recognised: true, author: me, now: 2000, sign: sign))
+        let receipt = receiptFor(delivered, from: "neighbour", recognised: true, author: me, now: 2000, sign: sign)
+        XCTAssertNotNil(receipt)
+        XCTAssertEqual(receipt?.kind, "receipt")
+        XCTAssertEqual(receipt?.text, "neighbour")
+        XCTAssertEqual(receipt?.author, me)
+        XCTAssertEqual(receipt?.line, -1)
+        XCTAssertEqual(receipt?.valid(), true)
+        // Only the neighbour that delivered this Fact directly, so a receipt never begets one.
+        XCTAssertNil(receiptFor(receipt!, from: "neighbour", recognised: true, author: me, now: 2000, sign: sign))
+    }
+
+    /// Stories 36, 38 and 40: where a receipt may go, and what it may not do on arrival.
+    func testReceiptReachesOnlyItsNeighbourOnARelaySignedPassAndRetiresNothing() {
+        let relay = P256.Signing.PrivateKey()
+        let me = relay.publicKey.derRepresentation.base64EncodedString()
+        let sign: (Data) -> Data? = { try? relay.signature(for: $0).derRepresentation }
+        let carried = fact()
+        let receipt = receiptFor(carried, from: "neighbour", recognised: true, author: me, now: 2000, sign: sign)!
+        var state = PublicGossipState()
+        XCTAssertTrue(state.receive(carried, from: "neighbour", now: 2000))
+        XCTAssertTrue(state.receive(receipt, from: "", now: 2000, local: true))
+        // Never a durable assertion, and the Fact it is about is untouched — still held and
+        // still offered to everyone it has not reached.
+        XCTAssertTrue(state.facts.values.allSatisfy { $0.kind != "receipt" })
+        XCTAssertEqual(state.offer(to: "somebody-else", now: 2001), [carried])
+        // Credit for the neighbour that delivered it, on this device, from this device's own note.
+        XCTAssertEqual(state.useful["neighbour"], 2000 + publicReceiptMs)
+        XCTAssertEqual(state.offer(to: "neighbour", now: 2001), [receipt])
+        // The Storm gate is exactly where receiving the Fact left it: a second copy still
+        // retires it, and authoring a receipt about it changed nothing.
+        XCTAssertFalse(state.receive(carried, from: "third-relay", now: 2001))
+        XCTAssertTrue(state.offer(to: "somebody-else", now: 2002).isEmpty)
+        // It rides only a Pass signed as the key it was authored under.
+        XCTAssertTrue(passBatch([receipt], request: nil, signer: "some-other-key").isEmpty)
+        XCTAssertEqual(passBatch([receipt], request: nil, signer: me), [receipt])
+        // And at the far end it credits its sender, never the third party its text names.
+        var neighbour = PublicGossipState()
+        XCTAssertTrue(neighbour.receive(receipt, from: me, now: 2002))
+        XCTAssertNil(neighbour.useful["neighbour"])
+        XCTAssertEqual(Set(neighbour.useful.keys), [me])
+        XCTAssertTrue(neighbour.facts.isEmpty)
+        XCTAssertTrue(neighbour.held.isEmpty)
+    }
+
+    /// Story 41: the decay is its own clock, not a slice of the carry window.
+    func testUsefulnessDecaysOnItsOwnClockWhileTheEnvelopeIsStillAlive() {
+        XCTAssertNotEqual(publicCarryMs, publicReceiptMs)
+        let me = key.publicKey.derRepresentation.base64EncodedString()
+        let long = GossipEnvelope(gigId: "gig", scope: "scope", author: me, createdAt: 1000,
+                                  expiresAt: 9_000_000, kind: "receipt", text: "somebody")
+            .signed { try? self.key.signature(for: $0).derRepresentation }!
+        var state = PublicGossipState()
+        XCTAssertTrue(state.receive(long, from: me, now: 2000))
+        XCTAssertEqual(state.useful[me], 2000 + publicReceiptMs)
+        state.prune(now: 2000 + publicReceiptMs - 1)
+        XCTAssertEqual(Set(state.useful.keys), [me])
+        state.prune(now: 2000 + publicReceiptMs)
+        XCTAssertTrue(state.useful.isEmpty)
+    }
+
+    /// Stories 38 and 39: preference, ties under a seed, and nobody excluded.
+    func testUsefulNeighboursComeFirstWithSeededTiesAndNobodyExcluded() {
+        let seen = ["plain-a", "useful-a", "plain-b", "useful-b", "plain-c"]
+        var rng = SeededGenerator(seed: 7)
+        let order = gossipPreferredPeers(seen, credited: { $0.hasPrefix("useful") }, using: &rng)
+        XCTAssertEqual(Set(order.prefix(2)), ["useful-a", "useful-b"])
+        XCTAssertEqual(Set(order), Set(seen))
+        XCTAssertEqual(order.count, seen.count)
+
+        let plain = plainPeers()
+        var one = SeededGenerator(seed: 1)
+        var oneAgain = SeededGenerator(seed: 1)
+        var two = SeededGenerator(seed: 2)
+        let first = gossipPreferredPeers(plain, credited: { _ in false }, using: &one)
+        XCTAssertEqual(first, gossipPreferredPeers(plain, credited: { _ in false }, using: &oneAgain))
+        XCTAssertNotEqual(first, gossipPreferredPeers(plain, credited: { _ in false }, using: &two))
+        XCTAssertEqual(Set(first), Set(plain))
+
+        var empty = SeededGenerator(seed: 0)
+        XCTAssertTrue(gossipPreferredPeers([], credited: { _ in true }, using: &empty).isEmpty)
+    }
+
+    private func plainPeers() -> [String] { (0..<8).map { "peer-\($0)" } }
 
     func testStrangerCarriesAndSecondCopyClosesStormGate() {
         var state = PublicGossipState()
@@ -254,8 +357,23 @@ final class PublicGossipTests: XCTestCase {
         // rather than spend the Pass on bytes the receiver is bound to reject.
         XCTAssertNil(passAuthor([log, theirs], localAuthors: ["me"]))
         XCTAssertEqual(passBatch([log, theirs], request: nil), [log])
+        XCTAssertEqual(passBatch([log, theirs], request: nil, signer: "relay-key"), [log])
         // Mine to prove: sign as its author. Facts still ride along under that key.
         XCTAssertEqual(passAuthor([log, mine, theirs], localAuthors: ["me"]), mine)
-        XCTAssertEqual(passBatch([log, mine, theirs], request: mine), [log, mine])
+        XCTAssertEqual(passBatch([log, mine, theirs], request: mine, signer: "me"), [log, mine])
+    }
+}
+
+/// A reproducible `RandomNumberGenerator`, so "ties break randomly" is assertable.
+/// SplitMix64 — small, seedable, and good enough for a shuffle in a test.
+struct SeededGenerator: RandomNumberGenerator {
+    private var state: UInt64
+    init(seed: UInt64) { state = seed }
+    mutating func next() -> UInt64 {
+        state &+= 0x9E3779B97F4A7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+        z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+        return z ^ (z >> 31)
     }
 }

@@ -166,9 +166,9 @@ actor GossipChannel {
         guard ends.values.contains(where: { millis < $0 }) else { return nil }
         let offered = state.offer(to: peer, now: millis, participationEnds: ends)
         let request = passAuthor(offered, localAuthors: state.localAuthors)
-        let batch = passBatch(offered, request: request)
         let scope = request?.scope ?? relayScope(now)
         guard let me = GigIdentity.publicKeyBase64(scope: scope) else { return nil }
+        let batch = passBatch(offered, request: request, signer: me)
         guard !batch.isEmpty, let proof = GigIdentity.sign(scope: scope, publicGossipAuthPayload(nonce)),
               let bytes = encodePublicGossipPass(PublicGossipPass(from: me, proof: proof.base64EncodedString(), batch: batch)),
               let encoded = decodePublicGossipPass(bytes) else { return nil }
@@ -191,6 +191,18 @@ actor GossipChannel {
         // else, so the repaint is asked for after the whole batch rather than only when
         // this device was the one doing the witnessing.
         await ledger.recognizeContacts(contacts)
+        // Receipts are authored here and nowhere else, which is what keeps story 37
+        // structural: recognition that arrives later, from an Exchange, runs through
+        // `setContacts` and has no way back into this batch.
+        state = await ledger.publicSnapshot(now: millis)
+        let relay = relayScope(now)
+        if let me = GigIdentity.publicKeyBase64(scope: relay) {
+            let receipts = accepted.compactMap { fact in
+                receiptFor(fact, from: from, recognised: state.recognition[fact.author] != nil,
+                           author: me, now: millis, sign: { GigIdentity.sign(scope: relay, $0) })
+            }
+            if !receipts.isEmpty { await ledger.receivePublic(receipts, from: "", now: millis, local: true) }
+        }
         await publishWitnessed(now: now)
     }
 

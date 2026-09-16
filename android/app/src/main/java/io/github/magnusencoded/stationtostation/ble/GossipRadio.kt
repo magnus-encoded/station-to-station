@@ -27,6 +27,8 @@ import io.github.magnusencoded.stationtostation.data.exchange.verifyChallenge
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_MAX_WIRE_BYTES
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_NONCE_BYTES
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_PEER_COOLDOWN
+import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_PICK_WINDOW_MS
+import io.github.magnusencoded.stationtostation.data.gossip.gossipPreferredPeers
 import io.github.magnusencoded.stationtostation.data.gossip.encodePublicGossipChallenge
 import io.github.magnusencoded.stationtostation.data.gossip.decodePublicGossipChallenge
 import io.github.magnusencoded.stationtostation.data.gossip.publicGossipAuthPayload
@@ -366,6 +368,17 @@ class GossipCentral(
     /** Whether this peer's cooldown has elapsed — [gossipPassDue][io.github.magnusencoded.stationtostation.data.gossip.gossipPassDue]. */
     private val due: (String) -> Boolean,
     private val onPushed: (String) -> Unit,
+    /**
+     * Whether the handle last proved at this BLE address holds live routing credit
+     * ([gossipPreferredPeers][io.github.magnusencoded.stationtostation.data.gossip.gossipPreferredPeers]).
+     *
+     * Keyed by address rather than by handle because that is the only name a scan result
+     * carries; this side learns the handle only after a connection, and remembers it in
+     * [resolved]. A peer never met before is simply uncredited, which costs it nothing but
+     * its place in the order.
+     */
+    private val credited: (String) -> Boolean = { false },
+    private val random: kotlin.random.Random = kotlin.random.Random.Default,
 ) {
     private val manager get() = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     private val main = Handler(Looper.getMainLooper())
@@ -406,6 +419,20 @@ class GossipCentral(
     /** Addresses already named in the log, so a scan does not repeat itself every second. */
     private val logged = mutableSetOf<String>()
 
+    /**
+     * The handle proved at each address, so a later sighting of the same address can be
+     * ranked by what this phone learned the last time it connected there.
+     *
+     * This is where handle stability bites. On a platform that rotates its BLE address, the
+     * next sighting is a different key here and arrives uncredited; the consequence is no
+     * preference, which is exactly today's behaviour, never a peer that stops being offered.
+     */
+    private val resolved = mutableMapOf<String, String>()
+
+    /** Addresses seen in the window now open, waiting to be ranked against each other. */
+    private val sighted = mutableSetOf<String>()
+    private var picking = false
+
     private val callback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             if (logged.add(result.device.address)) Log.i(TAG, "saw a public gossip radio")
@@ -414,7 +441,23 @@ class GossipCentral(
             val now = Instant.now()
             val last = attempted[address]
             if (last != null && now.isBefore(last.plus(GOSSIP_PEER_COOLDOWN))) return
-            attempted[address] = now
+            // One advertisement is not a choice. Gather the room for a moment, then let
+            // usefulness order it; the window is what makes stories 38 and 39 reachable at
+            // all from a scan that reports one device at a time.
+            sighted.add(address)
+            if (picking) return
+            picking = true
+            main.postDelayed({ pickFromWindow() }, GOSSIP_PICK_WINDOW_MS)
+        }
+
+        private fun pickFromWindow() {
+            picking = false
+            val candidates = sighted.toList()
+            sighted.clear()
+            if (busy || !running) return
+            val order = gossipPreferredPeers(candidates, { resolved[it]?.let(credited) == true }, random)
+            val address = order.firstOrNull() ?: return
+            attempted[address] = Instant.now()
             busy = true
             // Scanning through a connect is what error 133 is made of: the controller is
             // asked to keep a scan window open while it also runs the connection procedure,
@@ -486,6 +529,9 @@ class GossipCentral(
         busy = false
         attempted.clear()
         logged.clear()
+        resolved.clear()
+        sighted.clear()
+        picking = false
         GossipRadioStatus.scanning(false)
         GossipRadioStatus.pushClosed()
     }
@@ -614,6 +660,7 @@ class GossipCentral(
                 }
                 val who = challenge.from
                 peer = who
+                resolved[address] = who
                 GossipRadioStatus.pushNamed(who)
                 if (!due(who)) {
                     Log.i(TAG, "relay resolved but still inside the push cooldown")
