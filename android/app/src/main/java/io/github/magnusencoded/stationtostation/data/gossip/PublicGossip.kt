@@ -56,8 +56,8 @@ const val PUBLIC_CARRY_MS = 15 * 60 * 1000L
  * **Provisional.** Nothing has measured it. It is two minutes because a neighbour that was
  * useful two minutes ago is probably still standing in the same part of the room, and one
  * that was useful an hour ago is probably not — a guess about how long a crowd holds still,
- * to be replaced by a figure from a real night. `sim/SWEEPS.md` compares policies and is not
- * evidence for this number; see `docs/adr/0022-gossip-receipts.md`.
+ * to be replaced by a figure from a real night. `sim/SWEEPS.md`, on the `gossip-sim` branch,
+ * compares policies and is not evidence for this number; see `docs/adr/0022-gossip-receipts.md`.
  *
  * Deliberately its own constant rather than a fraction of [PUBLIC_CARRY_MS] or of the grace
  * period in [GossipPolicy][io.github.magnusencoded.stationtostation.data.gossip.gossipParticipationUntil].

@@ -3,7 +3,7 @@
 **Written** 2026-09-10, ~02:00, by the session that took over when the previous
 implementation session hit its 5-hour quota mid-flight.
 **Branch** `gossip-ble-diagnostics`. **Normative spec** [`gossip-public-wire.md`](gossip-public-wire.md).
-**Simulator brief** [`../handoff.md`](../handoff.md).
+**Simulator brief** [`sim/HANDOFF.md`](https://github.com/magnus-encoded/station-to-station/blob/gossip-sim/sim/HANDOFF.md) (branch `gossip-sim`).
 
 **Current checkpoint:** see the progress sections at the end. The original survey
 below describes `19abda1`, not today's branch. V2 radio transport now runs on both

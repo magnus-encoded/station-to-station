@@ -58,7 +58,7 @@ Four things follow, and they are the whole of what is being decided here:
   they never enter this device's record.
 
 Byte-level specification is not repeated here: [`docs/gossip-public-wire.md`](../gossip-public-wire.md)
-is normative, and its parameters are measured in [`sim/SWEEPS.md`](../../sim/SWEEPS.md).
+is normative, and its parameters are measured in [`sim/SWEEPS.md`](https://github.com/magnus-encoded/station-to-station/blob/gossip-sim/sim/SWEEPS.md) (branch `gossip-sim`).
 
 ## What this does not cover
 
@@ -95,7 +95,7 @@ is normative, and its parameters are measured in [`sim/SWEEPS.md`](../../sim/SWE
   permission this relies on.
 - ADR-0016 — presence is the authentication; untouched, because nothing here mints a Contact.
 - `docs/gossip-public-wire.md` — the normative wire specification.
-- `sim/SWEEPS.md` — the measured basis for the Carry window and the relay parameters.
+- [`sim/SWEEPS.md`](https://github.com/magnus-encoded/station-to-station/blob/gossip-sim/sim/SWEEPS.md) (branch `gossip-sim`) — the measured basis for the Carry window and the relay parameters.
 - #408 — the epic.
 
 
