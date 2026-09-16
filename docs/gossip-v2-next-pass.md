@@ -1123,3 +1123,52 @@ AppModel.writeLog/GossipChannel.publishLog: both already publish committed chang
 without a closed-Log requirement. No production behavior changed and no test rerun
 was needed for this documentation-only decision. ADR-0021 and the wire record now
 state the settled rule; earlier pending-choice entries are historical.
+
+
+### Android central-send acceptance — attempted on hardware (2026-09-16)
+
+Ran against a Pixel 7 Pro (`cheetah`, Android 17) over network adb, with the
+gossip v2 peripheral hosted on the development laptop rather than the Pi.
+
+What the attempt established:
+
+- **The Pi is not required to host the peer, and neither is root.** The laptop's
+  own controller (`24:0A:64:9F:B2:FD`, BlueZ 5.87) runs
+  `docs/prototypes/gossip_v2_server.py` as an ordinary user out of a venv built
+  with `--system-site-packages` plus `cryptography` and `dbus-python`. It prints
+  `READY` and advertises the service. No system setting was changed.
+- **Discovery works on real hardware, for the first time.** The production
+  `GossipCentral` scan found the advertised service from a third-party BLE
+  peripheral and opened a push. Discovery took 20–60 s against the one-second
+  advertising interval, which is inside the balanced scan's expected window.
+- **The connect never completes.** Every push ends in the `"connect"` phase.
+  Before the scan fix the drop arrived in about four seconds; after it, no GATT
+  callback arrives at all and the push ends on its own 20 s timeout —
+  `no answer while waiting on "connect"`. Nothing reaches service discovery, so
+  neither the challenge read nor the Pass has ever been exercised on hardware.
+
+Two fixes landed from the attempt, both green in CI:
+
+- `9949fe0` takes the scan off air for the duration of a push and gives it back
+  in `finish`, with a `stop` in flight taking precedence. Scanning through a
+  connect is the usual cause of an instant drop on Android. The logs confirm the
+  pause and the restart behave; it did not make the connect succeed.
+- `cec983d` puts the reason a push gave up into logcat, not only the radio panel.
+  A device test has no panel, and the phase name alone hid the diagnosis.
+
+Still unresolved, and **the acceptance does not pass**:
+
+- Whether the laptop's advertisement is connectable at all is unverified. A BlueZ
+  advert that registers but goes out non-connectable would produce exactly this
+  symptom — seen, never connectable — and would be a property of this substitute
+  peer, not of the app. Confirming it needs `btmon`, which needs root; this host
+  has no passwordless sudo.
+- The Pi remains unreachable. `~/.ssh/id_ed25519_pinet`, named in the entry above,
+  is not present on this machine, and `pi@pinet.local` (10.42.0.1) rejects the
+  available key. The Pi is the peer the protocol was written against and the one
+  where the peripheral was verified, so it is still the reference.
+
+Next step is one of: root on this host to read `btmon` and settle whether the
+advert is connectable, or the Pi key back, and then re-run the protocol above.
+Do not record a pass until the Pi's independent verified-request `PASS` and the
+instrumentation success land together.
