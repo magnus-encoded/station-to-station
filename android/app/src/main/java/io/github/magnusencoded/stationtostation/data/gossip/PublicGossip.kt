@@ -427,6 +427,12 @@ fun receiptFor(
  * neighbour and not about the line, so one per record is the whole of what there was to say.
  * De-duplicating here rather than in `receive` keeps [receiptFor] pure and leaves the Storm
  * gate exactly where it was.
+ *
+ * Every filter [receiptFor] would apply runs *before* the de-duplication, never after. A batch
+ * admitted from a neighbour can contain a `receipt` of its own, and a receipt carries the
+ * `gigId`, `formerIds` and `scope` of the **Fact** it was for — so it can share a record
+ * identity with a **Fact** in the same batch. De-duplicating first would let it win the slot
+ * and then yield nothing, silently swallowing the receipt that record actually owed.
  */
 fun receiptsFor(
     facts: List<GossipEnvelope>,
@@ -435,7 +441,7 @@ fun receiptsFor(
     author: String,
     now: Long,
     sign: (ByteArray) -> ByteArray?,
-): List<GossipEnvelope> = facts.filter(recognised)
+): List<GossipEnvelope> = facts.filter { it.kind != "receipt" && recognised(it) }
     .distinctBy { Triple(it.gigId, it.formerIds, it.scope) }
     .mapNotNull { receiptFor(it, from, true, author, now, sign) }
 

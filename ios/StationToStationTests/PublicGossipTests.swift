@@ -286,6 +286,16 @@ final class PublicGossipTests: XCTestCase {
                                   author: me, now: 2000, sign: sign).isEmpty)
         XCTAssertEqual(receiptsFor(batch, from: "neighbour", recognised: { $0.line == 1 },
                                    author: me, now: 2000, sign: sign).count, 1)
+        // A receipt admitted from the same neighbour carries the record's own gigId, formerIds
+        // and scope, so it collides with the Facts on the de-duplication key. It must be gone
+        // before the key is taken, or it wins the slot and then owes nothing.
+        let theirs = receiptFor(batch[0], from: "somebody", recognised: true, author: me,
+                                now: 1999, sign: sign)!
+        XCTAssertEqual(theirs.gigId, batch[0].gigId)
+        XCTAssertEqual(theirs.scope, batch[0].scope)
+        XCTAssertEqual(theirs.formerIds, batch[0].formerIds)
+        XCTAssertEqual(receiptsFor([theirs] + batch, from: "neighbour", recognised: { _ in true },
+                                   author: me, now: 2000, sign: sign).count, 1)
     }
 
     /// Story 41: the decay is its own clock, not a slice of the carry window.

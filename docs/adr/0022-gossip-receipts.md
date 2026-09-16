@@ -116,6 +116,12 @@ the **Storm gate** is untouched, because the collision was made in the authoring
 `receive`. The filter runs before the de-duplication, so an unrecognised first line of a record
 cannot mask a recognised second one.
 
+Every filter `receiptFor` would have applied runs before the de-duplication rather than after
+it. An admitted batch can contain a neighbour's own `receipt`, and a receipt carries the
+`gigId`, `formerIds` and `scope` of the **Fact** it was for — so it collides on the record key
+with a **Fact** in the same batch. De-duplicating first would let it take the slot and then
+author nothing, swallowing the receipt that record actually owed. Same bug, one layer up.
+
 `receiptsFor` sits inside the §2a guard, never around it: when `passRelay` returns nothing,
 there is nobody to owe and no batch to de-duplicate.
 
