@@ -31,6 +31,7 @@ Issues elsewhere may be edited freely; this rule is for `docs/adr/` only.
 | [0019](0019-gossip-channel-background-carve-out.md) | The gossip channel is a narrow, named carve-out from ADR-0016 | accepted; ~~Contact-only propagation~~ **superseded by 0021** (amended 2026-09-11) |
 | [0020](0020-the-extension-deposits-the-app-disposes.md) | The extension deposits, the app disposes | accepted |
 | [0021](0021-public-gossip-facts.md) | Public Gig facts over blind relays | accepted; supersedes 0019's propagation rule |
+| [0022](0022-gossip-receipts.md) | Receipts credit the neighbour that delivered, and a partial version ships | accepted |
 
 ## Who it is for
 

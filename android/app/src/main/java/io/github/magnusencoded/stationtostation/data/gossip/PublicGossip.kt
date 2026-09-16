@@ -49,6 +49,27 @@ const val GOSSIP_MAX_BATCH = 64
 const val PUBLIC_GOSSIP_HEADER = "station-to-station/gossip-fact/2"
 const val PUBLIC_GOSSIP_PASS = "station-to-station/gossip-pass/2"
 const val PUBLIC_CARRY_MS = 15 * 60 * 1000L
+
+/**
+ * How long one receipt's credit for a neighbour survives (#444, story 41).
+ *
+ * **Provisional.** Nothing has measured it. It is two minutes because a neighbour that was
+ * useful two minutes ago is probably still standing in the same part of the room, and one
+ * that was useful an hour ago is probably not — a guess about how long a crowd holds still,
+ * to be replaced by a figure from a real night. `sim/SWEEPS.md` compares policies and is not
+ * evidence for this number; see `docs/adr/0022-gossip-receipts.md`.
+ *
+ * Deliberately its own constant rather than a fraction of [PUBLIC_CARRY_MS] or of the grace
+ * period in [GossipPolicy][io.github.magnusencoded.stationtostation.data.gossip.gossipParticipationUntil].
+ * The three answer different questions — how long a **Fact** is worth relaying, how long a
+ * routing hint is worth trusting, how long the user stays in the night — and tying any two
+ * of them together means tuning one silently retunes another.
+ *
+ * **iOS holds the same two minutes** (`publicReceiptMs` in `Data/Gossip/PublicGossip.swift`).
+ * Local routing policy rather than a wire term, so the two may legitimately diverge once
+ * either platform has a measurement.
+ */
+const val PUBLIC_RECEIPT_MS = 2 * 60 * 1000L
 const val PUBLIC_MAX_HELD = 128
 const val PUBLIC_MAX_SEEN = 8192
 
@@ -207,7 +228,15 @@ data class PublicGossipState(
             held[envelope.id] = PublicHeld(envelope, minOf(envelope.expiresAt, now + PUBLIC_CARRY_MS), mutableSetOf(from))
             while (held.size > PUBLIC_MAX_HELD || held.values.sumOf { it.envelope.record().toByteArray().size } > 128000) held.remove(held.keys.first())
         }
-        if (envelope.kind == "receipt") useful[envelope.text] = minOf(envelope.expiresAt, now + 120000)
+        // Credit is always for a neighbour *this* device should prefer, which is why the two
+        // directions read different fields. A receipt this phone authored names the neighbour
+        // that delivered the Fact, in `text`. A receipt arriving over the air names its own
+        // sender, and `from` is the handle the transport proved — never `text`, which on a
+        // stranger's receipt would be some third party's handle this device cannot route to.
+        if (envelope.kind == "receipt") {
+            val neighbour = if (local) envelope.text else from
+            if (neighbour.isNotBlank()) useful[neighbour] = minOf(envelope.expiresAt, now + PUBLIC_RECEIPT_MS)
+        }
         return true
     }
     fun offer(peer: String, now: Long, participationEnds: Map<String, Long> = emptyMap()): List<GossipEnvelope> {
@@ -215,7 +244,10 @@ data class PublicGossipState(
         // The encoder owns the byte budget, including the actual relay proof header.
         return held.values.filter { held ->
             val deadlines = (held.envelope.formerIds + held.envelope.gigId).mapNotNull(participationEnds::get)
-            peer !in held.delivered && (deadlines.isEmpty() || deadlines.any { now < it })
+            // A receipt is addressed, not gossiped: it names one neighbour and is worth
+            // nothing to anyone else, who would only learn that this phone stood near them.
+            val addressed = held.envelope.kind != "receipt" || held.envelope.text == peer
+            addressed && peer !in held.delivered && (deadlines.isEmpty() || deadlines.any { now < it })
         }
             .sortedWith(compareByDescending<PublicHeld> { it.envelope.createdAt }.thenByDescending { it.envelope.id })
             .take(GOSSIP_MAX_BATCH).map { it.envelope }
@@ -290,10 +322,21 @@ data class PublicGossipState(
 fun passAuthor(batch: List<GossipEnvelope>, localAuthors: Set<String>): GossipEnvelope? =
     batch.firstOrNull { it.kind == "request" && it.author in localAuthors }
 
-/** The batch [passAuthor] leaves admissible, given the request it chose to sign as. */
-fun passBatch(batch: List<GossipEnvelope>, request: GossipEnvelope?): List<GossipEnvelope> =
-    if (request == null) batch.filterNot { it.kind == "request" }
-    else batch.filter { it.kind != "request" || it.author == request.author }
+/**
+ * The batch [passAuthor] leaves admissible, given the request it chose to sign as and the
+ * key [signer] the **Pass** will actually be signed with.
+ *
+ * Both one-hop kinds are governed here for the same reason: the receiver admits a `request`
+ * or a `receipt` only when the **Pass** proves its author, so anything else this device is
+ * carrying would simply be refused at the other end. A receipt whose turn this is not is not
+ * lost — it waits for a **Pass** signed as the relay, exactly as another device's request does.
+ */
+fun passBatch(batch: List<GossipEnvelope>, request: GossipEnvelope?, signer: String = ""): List<GossipEnvelope> =
+    batch.filter { envelope -> when (envelope.kind) {
+        "request" -> request != null && envelope.author == request.author
+        "receipt" -> envelope.author == signer
+        else -> true
+    } }
 
 /** A direct witness is its own signed fact and embeds the complete signed claim. */
 fun witnessRequest(
@@ -309,6 +352,40 @@ fun witnessRequest(
         gigId = witness.gigId, formerIds = witness.formerIds, scope = witness.scope,
         author = witness.author, createdAt = now, expiresAt = minOf(request.expiresAt, witness.expiresAt),
         kind = "witness", text = request.record(), attribution = witness.attribution,
+    ).signed(sign)
+}
+
+/**
+ * The receipt owed for a **Fact** this device has just admitted, or nothing (#444, stories 35-37).
+ *
+ * Pure and one-shot: it is handed the delivering neighbour and whether the Fact was recognised
+ * as a **Contact**'s, and it authors a **Fact** of kind `receipt` naming that neighbour. It
+ * cannot be reached except from the receive path, which is what makes story 37 structural
+ * rather than a rule — attribution that arrives later, through `recognizeContacts` after an
+ * **Exchange**, runs somewhere else entirely and authors nothing. There is deliberately no
+ * timestamp comparison here to enforce that; a comparison would imply lateness is reachable.
+ *
+ * [recognised] is the caller's answer to "is this a Contact's, *now*". [from] is whatever
+ * handle the transport proved, and the receipt is worth nothing to anyone but that neighbour —
+ * [PublicGossipState.offer] is where that is enforced.
+ *
+ * [author] is the key the **Pass** carrying this will be signed with, because the receiver
+ * admits a receipt only from its author; [passBatch] holds the other half of that bargain.
+ */
+fun receiptFor(
+    fact: GossipEnvelope,
+    from: String,
+    recognised: Boolean,
+    author: String,
+    now: Long,
+    sign: (ByteArray) -> ByteArray?,
+): GossipEnvelope? {
+    if (!recognised || fact.kind == "receipt" || from.isBlank() || author.isBlank()) return null
+    if (listOf(from, author).any { it.contains('\n') || it.contains('\t') }) return null
+    return GossipEnvelope(
+        gigId = fact.gigId, formerIds = fact.formerIds, scope = fact.scope,
+        author = author, createdAt = now, expiresAt = now + PUBLIC_RECEIPT_MS,
+        kind = "receipt", text = from,
     ).signed(sign)
 }
 

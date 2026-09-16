@@ -169,10 +169,24 @@ class GossipService : Service() {
                             envelope.kind == "request" && state.receive(envelope, delivery.from, now)
                         }
                         accepted += directRequests.size
+                        val admitted = mutableListOf<GossipEnvelope>()
                         delivery.pass.batch.filter { it.kind != "request" }.forEach { envelope ->
-                            if (state.receive(envelope, delivery.from, now)) accepted++
+                            if (state.receive(envelope, delivery.from, now)) {
+                                accepted++
+                                admitted.add(envelope)
+                            }
                         }
                         state.recognizeContacts(contacts)
+                        // Receipts are authored here and nowhere else, which is what keeps
+                        // story 37 structural: recognition that arrives later, from an
+                        // Exchange, runs through the `settings.friends` collector above and
+                        // has no way back into this batch.
+                        val relay = relayIdentity()
+                        (directRequests + admitted).forEach { fact ->
+                            val recognised = state.recognition[fact.author] != null
+                            receiptFor(fact, delivery.from, recognised, relay.publicKey(), now, relay::sign)
+                                ?.let { state.receive(it, "", now, local = true) }
+                        }
                         directRequests.forEach { request ->
                             val local = state.localClaimFor(request) ?: return@forEach
                             val identity = GigIdentity(local.scope)
@@ -193,8 +207,8 @@ class GossipService : Service() {
                 if (!gossipRelayShouldRun(activeUntil, Instant.now())) return@synchronized null
                 val offered = publicState.offer(peer, System.currentTimeMillis(), participationEnds)
                 val request = passAuthor(offered, publicState.localAuthors)
-                val batch = passBatch(offered, request)
                 val identity = request?.let { GigIdentity(it.scope) } ?: relayIdentity()
+                val batch = passBatch(offered, request, identity.publicKey())
                 val proof = runCatching { identity.sign(publicGossipAuthPayload(nonce)) }.getOrNull()
                 if (batch.isEmpty() || proof == null) null
                 else encodePublicGossipPass(PublicGossipPass(identity.publicKey(), gossipBase64(proof), batch))?.also { bytes ->
@@ -202,6 +216,7 @@ class GossipService : Service() {
                 }
             } },
             due = { peer -> synchronized(spokenAt) { gossipPassDue(spokenAt[peer], Instant.now()) } },
+            credited = { peer -> synchronized(publicLock) { publicState.useful[peer]?.let { it > System.currentTimeMillis() } == true } },
             onPushed = { peer ->
                 val now = Instant.now()
                 synchronized(spokenAt) { spokenAt[peer] = now }

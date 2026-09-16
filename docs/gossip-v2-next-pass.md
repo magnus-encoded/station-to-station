@@ -132,13 +132,15 @@ the only place facts become a deduplicated timeline and it is called from nowher
   **entire Pass** is dropped rather than trimmed. The symptom in the field is
   "gossip randomly stops relaying", with nothing in the log. Compute the budget
   once, and make the encoder trim rather than fail.
-- **Receipts do not affect neighbour priority.** The spec says a received receipt
-  does. `receive()` populates the `useful` map (`:113`), and `offer()` sorts
-  strictly by `createdAt` descending (`:119`) and never reads it. Either wire it or
-  amend the spec, but do not leave the map dead.
-- **One-hop enforcement for `request` and `receipt` is not enforced on the wire.**
-  `receive()` declines to put them in the outbox, which is the right local
-  behaviour, but nothing rejects a relayed one arriving from a third party.
+- ~~**Receipts do not affect neighbour priority.**~~ **Resolved 2026-09-16.** The map is
+  no longer dead: `receiptFor` authors one on prompt recognition and
+  `gossipPreferredPeers` reads the credit when Android's central picks a peer. The
+  ranking is *not* in `offer` — that takes one peer and returns Facts, so usefulness
+  cannot rank anything inside it. See ADR-0022.
+- ~~**One-hop enforcement for `request` and `receipt` is not enforced on the wire.**~~
+  **Resolved.** `receive()` refuses either kind when `from != envelope.author`, and
+  `passBatch` now keeps a receipt only on a Pass signed as its author, so the refusal
+  is not merely a receiver-side rule the sender wastes bytes discovering.
 - **`expiresAt` is never derived.** The spec puts message expiry at 06:00 at the
   end of the Gig's night. `valid()` applies only a generic 30-hour sanity cap
   (`:40`). Whatever mints Envelopes has to compute the real value.

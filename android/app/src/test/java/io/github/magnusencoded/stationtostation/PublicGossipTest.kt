@@ -134,13 +134,96 @@ class PublicGossipTest {
             if (kind == "request") assertEquals(listOf(envelope), receiver.facts.values.toList())
             else assertTrue(receiver.facts.isEmpty())
             assertTrue(receiver.held.isEmpty())
-            if (kind == "receipt") assertTrue(receiver.useful.containsKey("useful-neighbour"))
+            // Credit follows the handle the transport proved, never the one the text names:
+            // a receipt from elsewhere must not be able to nominate a third party.
+            if (kind == "receipt") {
+                assertEquals(setOf(envelope.author), receiver.useful.keys)
+                assertFalse(receiver.useful.containsKey("useful-neighbour"))
+            }
 
             val author = PublicGossipState()
             assertTrue(author.receive(envelope, "", 2000, local = true))
             assertFalse(author.receive(envelope, "blind-relay", 2001))
-            assertEquals(listOf(envelope), author.offer("recipient", 2002))
+            // A receipt is addressed to the one neighbour it names; anything else is gossiped.
+            val recipient = if (kind == "receipt") "useful-neighbour" else "recipient"
+            assertEquals(listOf(envelope), author.offer(recipient, 2002))
+            if (kind == "receipt") assertTrue(author.offer("somebody-else", 2002).isEmpty())
         }
+    }
+
+    /** Stories 35, 36 and 37: who a receipt is for, and when there is not one. */
+    @Test fun receiptNamesTheDeliveringNeighbourAndOnlyForAPromptlyRecognisedFact() {
+        val relay = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        val me = gossipBase64(relay.public.encoded)
+        val sign: (ByteArray) -> ByteArray? = { bytes ->
+            Signature.getInstance("SHA256withECDSA").run { initSign(relay.private); update(bytes); sign() }
+        }
+        val delivered = fact()
+        // Not recognised as a Contact's at receive time, so nothing is owed. This is also the
+        // whole of story 37: recognition that arrives later never reaches this function.
+        assertNull(receiptFor(delivered, "neighbour", false, me, 2000, sign))
+        // A blind relay that proved no handle cannot be credited.
+        assertNull(receiptFor(delivered, "", true, me, 2000, sign))
+        val receipt = requireNotNull(receiptFor(delivered, "neighbour", true, me, 2000, sign))
+        assertEquals("receipt", receipt.kind)
+        assertEquals("neighbour", receipt.text)
+        assertEquals(me, receipt.author)
+        assertEquals(-1, receipt.line)
+        assertTrue(receipt.valid())
+        // Only the neighbour that delivered this Fact directly, so a receipt never begets one.
+        assertNull(receiptFor(receipt, "neighbour", true, me, 2000, sign))
+    }
+
+    /** Stories 36, 38 and 40: where a receipt may go, and what it may not do on arrival. */
+    @Test fun receiptReachesOnlyItsNeighbourOnARelaySignedPassAndRetiresNothing() {
+        val relay = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        val me = gossipBase64(relay.public.encoded)
+        val sign: (ByteArray) -> ByteArray? = { bytes ->
+            Signature.getInstance("SHA256withECDSA").run { initSign(relay.private); update(bytes); sign() }
+        }
+        val carried = fact()
+        val receipt = requireNotNull(receiptFor(carried, "neighbour", true, me, 2000, sign))
+        val state = PublicGossipState()
+        assertTrue(state.receive(carried, "neighbour", 2000))
+        assertTrue(state.receive(receipt, "", 2000, local = true))
+        // Never a durable assertion, and the Fact it is about is untouched — still held and
+        // still offered to everyone it has not reached.
+        assertTrue(state.facts.values.none { it.kind == "receipt" })
+        assertEquals(listOf(carried), state.offer("somebody-else", 2001))
+        // Credit for the neighbour that delivered it, on this device, from this device's own note.
+        assertEquals(2000 + PUBLIC_RECEIPT_MS, state.useful["neighbour"]!!)
+        assertEquals(listOf(receipt), state.offer("neighbour", 2001))
+        // The Storm gate is exactly where receiving the Fact left it: a second copy still
+        // retires it, and authoring a receipt about it changed nothing.
+        assertFalse(state.receive(carried, "third-relay", 2001))
+        assertTrue(state.offer("somebody-else", 2002).isEmpty())
+        // It rides only a Pass signed as the key it was authored under.
+        assertTrue(passBatch(listOf(receipt), null, "some-other-key").isEmpty())
+        assertEquals(listOf(receipt), passBatch(listOf(receipt), null, me))
+        // And at the far end it credits its sender, never the third party its text names.
+        val neighbour = PublicGossipState()
+        assertTrue(neighbour.receive(receipt, me, 2002))
+        assertNull(neighbour.useful["neighbour"])
+        assertEquals(setOf(me), neighbour.useful.keys)
+        assertTrue(neighbour.facts.isEmpty())
+        assertTrue(neighbour.held.isEmpty())
+    }
+
+    /** Story 41: the decay is its own clock, not a slice of the carry window. */
+    @Test fun usefulnessDecaysOnItsOwnClockWhileTheEnvelopeIsStillAlive() {
+        assertNotEquals(PUBLIC_CARRY_MS, PUBLIC_RECEIPT_MS)
+        val me = gossipBase64(key.public.encoded)
+        val long = GossipEnvelope(gigId = "gig", scope = "scope", author = me, createdAt = 1000,
+            expiresAt = 9_000_000, kind = "receipt", text = "somebody").signed { bytes ->
+            Signature.getInstance("SHA256withECDSA").run { initSign(key.private); update(bytes); sign() }
+        }!!
+        val state = PublicGossipState()
+        assertTrue(state.receive(long, me, 2000))
+        assertEquals(2000 + PUBLIC_RECEIPT_MS, state.useful[me]!!)
+        state.prune(2000 + PUBLIC_RECEIPT_MS - 1)
+        assertEquals(setOf(me), state.useful.keys)
+        state.prune(2000 + PUBLIC_RECEIPT_MS)
+        assertTrue(state.useful.isEmpty())
     }
 
     @Test fun strangerCanCarryAndSecondCopyClosesStormGate() {
@@ -255,8 +338,9 @@ class PublicGossipTest {
         // rather than spend the Pass on bytes the receiver is bound to reject.
         assertEquals(null, passAuthor(listOf(log, theirs), setOf("me")))
         assertEquals(listOf(log), passBatch(listOf(log, theirs), null))
+        assertEquals(listOf(log), passBatch(listOf(log, theirs), null, "relay-key"))
         // Mine to prove: sign as its author. Facts still ride along under that key.
         assertEquals(mine, passAuthor(listOf(log, mine, theirs), setOf("me")))
-        assertEquals(listOf(log, mine), passBatch(listOf(log, mine, theirs), mine))
+        assertEquals(listOf(log, mine), passBatch(listOf(log, mine, theirs), mine, "me"))
     }
 }

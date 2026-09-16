@@ -26,8 +26,12 @@ separated by newlines. The content hash is lower-case SHA-256 of those bytes.
 Kinds are `log`, `request`, `witness`, `receipt`. Log replacements carry one complete line;
 blank text is a Gap. A witness embeds the complete signed direct request as its text, so a
 relay cannot invent the subject's attendance. Requests and receipts are one-hop only.
-A receipt is intended to affect neighbour priority, never the referenced Envelope's outbox.
-As of 2026-09-15, admission exists but production receipt authoring and neighbour ranking do not.
+A receipt affects neighbour priority only, never the referenced Envelope's outbox. It is
+authored on receiving a Fact that is recognised as a Contact's at that moment, names the
+neighbour that delivered it, and is offered to that neighbour alone — the only addressed
+Envelope on the wire. It rides only a Pass signed as its own author, as a request does.
+Its author credits the neighbour the text names; a receiver credits the proved sender, never
+the text, so no relay can nominate a third party. See ADR-0022.
 
 A central first reads `station-to-station/gossip-challenge/2`, a base64 32-byte
 nonce, the peripheral's temporary SPKI relay key, and a base64 DER signature, each
@@ -59,8 +63,10 @@ synthetic venue traces, 900 seconds reaches 94.9-95.6% of fact/recipient pairs, 
 seconds reaches 36-52%, and an unlimited window reaches 99.7-100%: shortening it costs
 far more than lengthening it gains. Median delivery is about 20 minutes from authoring
 and p95 about 39 minutes, at a mean relay depth of 7.5-8.3 hops. There is no hop count
-on the wire, and the same sweeps show what imposing one would cost. The intended usefulness policy is a binary boost with a provisional two-minute
-decay and random ties; production peer ranking is not implemented yet. Receipts remain one-hop; the sweep of receipt hop
+on the wire, and the same sweeps show what imposing one would cost. The usefulness policy is a binary boost with a provisional two-minute
+decay and random ties. Android ranks peers after a 1.5-second window of sightings, preferring
+credited neighbours and never excluding the others; iOS holds the same rule but has no scarce
+connection slot to apply it to (ADR-0022). Receipts remain one-hop; the sweep of receipt hop
 budgets, with what each extra hop costs in bytes and in duplicate arrivals at the author,
 does not settle production direct witnessing or usefulness signals.
 

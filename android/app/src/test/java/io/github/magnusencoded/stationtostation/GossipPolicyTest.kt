@@ -6,6 +6,7 @@ import io.github.magnusencoded.stationtostation.data.gossip.gossipGigTonight
 import io.github.magnusencoded.stationtostation.data.gossip.gossipNearby
 import io.github.magnusencoded.stationtostation.data.gossip.gossipNightEnds
 import io.github.magnusencoded.stationtostation.data.gossip.gossipPassDue
+import io.github.magnusencoded.stationtostation.data.gossip.gossipPreferredPeers
 import io.github.magnusencoded.stationtostation.data.gossip.gossipRelayShouldRun
 import io.github.magnusencoded.stationtostation.data.gossip.gossipExpiry
 import java.time.Duration
@@ -14,6 +15,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -138,5 +140,37 @@ class GossipPolicyTest {
     @Test
     fun `a device that has spoken to nobody reports an empty room`() {
         assertTrue(gossipNearby(emptyMap(), Instant.parse("2026-09-04T21:00:00Z")).isEmpty())
+    }
+
+    @Test
+    fun `useful neighbours come first and the ones without credit are still offered`() {
+        val seen = listOf("plain-a", "useful-a", "plain-b", "useful-b", "plain-c")
+        val credited = { peer: String -> peer.startsWith("useful") }
+        val order = gossipPreferredPeers(seen, credited, kotlin.random.Random(7))
+
+        // Preference, not exclusion: both credited peers lead, and every peer seen is still
+        // in the list to be tried.
+        assertEquals(setOf("useful-a", "useful-b"), order.take(2).toSet())
+        assertEquals(seen.toSet(), order.toSet())
+        assertEquals(seen.size, order.size)
+    }
+
+    @Test
+    fun `ties break randomly under a seed, and a seed reproduces its own order`() {
+        val seen = List(8) { "peer-$it" }
+        val none = { _: String -> false }
+        val first = gossipPreferredPeers(seen, none, kotlin.random.Random(1))
+        val again = gossipPreferredPeers(seen, none, kotlin.random.Random(1))
+        val other = gossipPreferredPeers(seen, none, kotlin.random.Random(2))
+
+        assertEquals(first, again)
+        assertNotEquals(first, other)
+        // Nothing was invented or dropped on the way through the shuffle.
+        assertEquals(seen.toSet(), first.toSet())
+    }
+
+    @Test
+    fun `nothing seen is nothing to push to`() {
+        assertTrue(gossipPreferredPeers(emptyList(), { true }, kotlin.random.Random(0)).isEmpty())
     }
 }

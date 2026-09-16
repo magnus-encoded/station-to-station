@@ -5,6 +5,17 @@ let publicGossipHeader = "station-to-station/gossip-fact/2"
 let publicGossipPassHeader = "station-to-station/gossip-pass/2"
 let publicCarryMs: Int64 = 15 * 60 * 1000
 
+/// How long one receipt's credit for a neighbour survives (#444, story 41).
+///
+/// **Provisional.** Nothing has measured it. Two minutes is a guess about how long a crowd
+/// holds still, to be replaced by a figure from a real night; `sim/SWEEPS.md` compares
+/// policies and is not evidence for it. See `docs/adr/0022-gossip-receipts.md`.
+///
+/// Its own constant rather than a fraction of `publicCarryMs` or of the grace period, because
+/// the three answer different questions and tying any two together means tuning one silently
+/// retunes another. **Android holds the same two minutes** (`PUBLIC_RECEIPT_MS`).
+let publicReceiptMs: Int64 = 2 * 60 * 1000
+
 func publicGossipAuthPayload(_ nonce: Data) -> Data {
     Data("station-to-station/gossip-auth/2\n\(nonce.base64EncodedString())".utf8)
 }
@@ -172,7 +183,15 @@ struct PublicGossipState: Codable {
                 held.removeValue(forKey: oldest)
             }
         }
-        if envelope.kind == "receipt" { useful[envelope.text] = min(envelope.expiresAt, now + 120000) }
+        // Credit is always for a neighbour *this* device should prefer, which is why the two
+        // directions read different fields. A receipt this phone authored names the neighbour
+        // that delivered the Fact, in `text`. A receipt arriving over the air names its own
+        // sender, and `from` is the handle the transport proved — never `text`, which on a
+        // stranger's receipt would be some third party's handle this device cannot route to.
+        if envelope.kind == "receipt" {
+            let neighbour = local ? envelope.text : from
+            if !neighbour.isEmpty { useful[neighbour] = min(envelope.expiresAt, now + publicReceiptMs) }
+        }
         return true
     }
     mutating func offer(to peer: String, now: Int64, participationEnds: [String: Int64] = [:]) -> [GossipEnvelope] {
@@ -180,7 +199,10 @@ struct PublicGossipState: Codable {
         // The encoder owns the byte budget, including the actual relay proof header.
         return Array(held.values.filter { held in
             let deadlines = (held.envelope.formerIds + [held.envelope.gigId]).compactMap { participationEnds[$0] }
-            return !held.delivered.contains(peer) && (deadlines.isEmpty || deadlines.contains { now < $0 })
+            // A receipt is addressed, not gossiped: it names one neighbour and is worth
+            // nothing to anyone else, who would only learn that this phone stood near them.
+            let addressed = held.envelope.kind != "receipt" || held.envelope.text == peer
+            return addressed && !held.delivered.contains(peer) && (deadlines.isEmpty || deadlines.contains { now < $0 })
         }.sorted {
             ($0.envelope.createdAt, $0.envelope.id) > ($1.envelope.createdAt, $1.envelope.id)
         }.prefix(gossipMaxBatch).map { $0.envelope })
@@ -260,14 +282,41 @@ func passAuthor(_ batch: [GossipEnvelope], localAuthors: Set<String>) -> GossipE
     batch.first { $0.kind == "request" && localAuthors.contains($0.author) }
 }
 
-/// The batch `passAuthor` leaves admissible, given the request it chose to sign as.
+/// The batch `passAuthor` leaves admissible, given the request it chose to sign as and the
+/// key `signer` the **Pass** will actually be signed with.
 ///
-/// Only one author can be proved per **Pass**, so any *other* device's request is dropped
-/// from this batch — not lost, simply waiting for a **Pass** of its own. Everything that is
-/// not a request travels either way: a fact does not need its author on the envelope.
-func passBatch(_ batch: [GossipEnvelope], request: GossipEnvelope?) -> [GossipEnvelope] {
-    guard let request else { return batch.filter { $0.kind != "request" } }
-    return batch.filter { $0.kind != "request" || $0.author == request.author }
+/// Both one-hop kinds are governed here for the same reason: the receiver admits a `request`
+/// or a `receipt` only when the **Pass** proves its author. A receipt whose turn this is not
+/// is not lost — it waits for a **Pass** signed as the relay, as another device's request does.
+func passBatch(_ batch: [GossipEnvelope], request: GossipEnvelope?, signer: String = "") -> [GossipEnvelope] {
+    batch.filter { envelope in
+        switch envelope.kind {
+        case "request": return request.map { envelope.author == $0.author } ?? false
+        case "receipt": return envelope.author == signer
+        default: return true
+        }
+    }
+}
+
+/// The receipt owed for a **Fact** this device has just admitted, or nothing (#444, stories 35-37).
+///
+/// Pure and one-shot: handed the delivering neighbour and whether the Fact was recognised as a
+/// **Contact**'s, it authors a **Fact** of kind `receipt` naming that neighbour. It cannot be
+/// reached except from the receive path, which is what makes story 37 structural rather than a
+/// rule — attribution that arrives later, through `recognizeContacts` after an **Exchange**,
+/// runs somewhere else entirely and authors nothing. There is deliberately no timestamp
+/// comparison here; one would imply lateness is reachable.
+///
+/// `author` is the key the **Pass** carrying this will be signed with, because the receiver
+/// admits a receipt only from its author; `passBatch` holds the other half of that bargain.
+func receiptFor(_ fact: GossipEnvelope, from: String, recognised: Bool, author: String,
+                now: Int64, sign: (Data) -> Data?) -> GossipEnvelope? {
+    guard recognised, fact.kind != "receipt", !from.isEmpty, !author.isEmpty,
+          ![from, author].contains(where: { $0.contains("\n") || $0.contains("\t") })
+    else { return nil }
+    var result = GossipEnvelope(gigId: fact.gigId, formerIds: fact.formerIds, scope: fact.scope,
+        author: author, createdAt: now, expiresAt: now + publicReceiptMs, kind: "receipt", text: from)
+    return result.signed(sign)
 }
 
 /// A witness is a separate signed fact containing the complete signed request.
