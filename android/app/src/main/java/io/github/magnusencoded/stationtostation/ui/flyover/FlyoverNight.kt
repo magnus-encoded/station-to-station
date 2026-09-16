@@ -488,6 +488,8 @@ internal fun buildFlyoverGig(
     /** The **Contacts** whose timeline holds this **Gig**. */
     attended: Set<String>,
     checkedIn: Boolean,
+    /** A directly-present device signed for this check-in (#442). */
+    witnessed: Boolean = false,
 ): FlyoverGig {
     val rows = setlist.eventRows()
     return FlyoverGig(
@@ -499,7 +501,7 @@ internal fun buildFlyoverGig(
                 val performed = setlist.performed().size
                 if (performed > 0) add("$performed songs")
                 setlist.tour?.name?.let { add(it) }
-                if (checkedIn) add("checked in")
+                if (checkedIn) add(if (witnessed) "checked in · witnessed" else "checked in")
             },
         ),
         media = media,
@@ -551,13 +553,16 @@ internal fun collectionFlyoverGigs(
     festivals: Festivals,
     showsByFriend: Map<String, List<FmSetlist>>,
     attendanceByGig: Map<String, StoredAttendance>,
+    /** See [UiState.witnessedGigs] (#442). */
+    witnessedGigs: Set<String> = emptySet(),
     contactLight: Boolean,
 ): List<FlyoverGig> = node.shows.map { setlist ->
     val held = mediaBySetlist[setlist.id].orEmpty()
     val media = if (contactLight) visibleToContacts(held) else held
     val attended = showsByFriend.filterValues { shows -> shows.any { it.id == setlist.id } }.keys
     val checkedIn = attendanceByGig[setlist.id]?.provenance == StoredAttendance.Provenance.CHECKED_IN
-    buildFlyoverGig(setlist, media, logsByGig[setlist.id] ?: StoredLog(), festivals, attended, checkedIn)
+    buildFlyoverGig(setlist, media, logsByGig[setlist.id] ?: StoredLog(), festivals, attended,
+        checkedIn, setlist.id in witnessedGigs)
 }
 
 /**

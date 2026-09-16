@@ -66,7 +66,10 @@ import com.google.zxing.MultiFormatWriter
 import io.github.magnusencoded.stationtostation.AppViewModel
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangePeer
+import io.github.magnusencoded.stationtostation.data.gossip.GossipRadioStatus
 import kotlinx.coroutines.delay
+import java.time.Duration
+import java.time.Instant
 
 private val Ground = Color(0xFF0E0B14)
 private val Raised = Color(0xFF17121F)
@@ -163,6 +166,12 @@ fun ExchangeScreen(
                     .padding(horizontal = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                Spacer(Modifier.height(8.dp))
+                // The relay's machinery belongs here, where somebody is already looking at
+                // radios. Who is actually in the room is the gig page's line — that is the
+                // screen open while standing at the venue, and asking the same question in
+                // two places would be two answers to keep in step.
+                GossipRelayLine(friends = state.friends)
                 val connecting = state.connectingWith
                 // Scanning runs whether or not I have a card, so the radar is honest for
                 // everyone. What changes without a username is only that I am not
@@ -211,6 +220,90 @@ fun ExchangeScreen(
                 Spacer(Modifier.height(24.dp))
             }
         }
+    }
+}
+
+/**
+ * What the gossip relay is doing, while somebody stands here waiting to see it work.
+ *
+ * A connection lasts under a second, so a line that showed only what is live would read
+ * empty almost always and tell you nothing. It shows both: who is connected *now*, and the
+ * last thing that happened with how long ago it was, which is the part that says the radio
+ * is alive.
+ *
+ * "Someone" is not a placeholder for a name this screen failed to look up. A peer is a MAC
+ * address until it either offers a challenge this device can resolve or writes a **Pass**
+ * whose signature checks out; showing a name before then would be showing an unproven claim.
+ */
+@Composable
+private fun GossipRelayLine(friends: List<Friend>) {
+    val status by GossipRadioStatus.status.collectAsStateWithLifecycle()
+    // Only the "12s ago" changes with time; everything else on this line is event-driven.
+    var now by remember { mutableStateOf(Instant.now()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = Instant.now()
+            delay(1000)
+        }
+    }
+
+    fun nameOf(key: String?): String =
+        key?.let { k -> friends.firstOrNull { it.publicKey == k }?.name } ?: "someone"
+
+    val live = buildList {
+        status.outbound?.let { add("→ ${nameOf(it.contactKey)}") }
+        status.inbound.values.forEach { add("← ${nameOf(it.contactKey)}") }
+    }
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Raised)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+    ) {
+        Text(
+            "GOSSIP RELAY",
+            color = Faint,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 1.5.sp,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            when {
+                !status.running -> "Off"
+                else -> listOfNotNull(
+                    if (status.scanning) "scanning" else null,
+                    if (status.advertising) "advertising" else null,
+                ).ifEmpty { listOf("started, radios quiet") }.joinToString(" · ")
+            },
+            color = if (status.running) Ink else Muted,
+            fontSize = 13.sp,
+        )
+        if (live.isEmpty()) {
+            Text("Nobody connected", color = Muted, fontSize = 13.sp)
+        } else {
+            live.forEach { Text(it, color = Amber, fontSize = 13.sp) }
+        }
+        status.note?.let {
+            Text("${it.text} · ${ago(it.at, now)}", color = Muted, fontSize = 12.sp)
+        }
+        // Only worth showing when it explains an absence: a running relay is its own answer.
+        if (!status.running) {
+            status.gate?.let { Text(it, color = Faint, fontSize = 11.sp) }
+        }
+    }
+    Spacer(Modifier.height(20.dp))
+}
+
+/** "just now", "12s ago", "3m ago" — enough to tell a live radio from a stalled one. */
+private fun ago(then: Instant, now: Instant): String {
+    val seconds = Duration.between(then, now).seconds
+    return when {
+        seconds < 2 -> "just now"
+        seconds < 60 -> "${seconds}s ago"
+        else -> "${seconds / 60}m ago"
     }
 }
 
