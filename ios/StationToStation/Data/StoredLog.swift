@@ -209,6 +209,47 @@ struct StoredLog: Codable, Equatable {
             enteredAt: ordered.map(\.entry.at), completedAt: completedAt, lineNumbers: numbers, nextLineNumber: next)
     }
 
+    /// Every entry of `other` joins this **Log**; nothing handwritten is dropped.
+    ///
+    /// The two are aligned as ordered sequences (longest common subsequence): entries
+    /// match when title and `remembered` are equal and their `enteredAt` is equal, known
+    /// or unknown alike. A matched entry appears once, so absorbing a Log already
+    /// absorbed — a repeated handover — changes nothing. Every unmatched entry from
+    /// either side is kept, in its own order: between two matches, this Log's first, then
+    /// `other`'s; and where every entry knows when it was typed, the whole result is
+    /// ordered by that time (a tie keeps the earlier position). `closed` is left to the
+    /// caller.
+    func absorbing(_ other: StoredLog) -> StoredLog {
+        struct Entry: Equatable { let song: String; let line: String; let at: Int64 }
+        let lines = aligned(), times = alignedTimestamps()
+        let mine = songs.indices.map { Entry(song: songs[$0], line: lines[$0], at: times[$0]) }
+        let otherLines = other.aligned(), otherTimes = other.alignedTimestamps()
+        let theirs = other.songs.indices.map { Entry(song: other.songs[$0], line: otherLines[$0], at: otherTimes[$0]) }
+        var lcs = Array(repeating: Array(repeating: 0, count: theirs.count + 1), count: mine.count + 1)
+        for a in mine.indices.reversed() {
+            for b in theirs.indices.reversed() {
+                lcs[a][b] = mine[a] == theirs[b] ? lcs[a + 1][b + 1] + 1 : max(lcs[a + 1][b], lcs[a][b + 1])
+            }
+        }
+        if lcs[0][0] == theirs.count { return self }
+        var merged: [Entry] = []
+        var a = 0, b = 0
+        while a < mine.count || b < theirs.count {
+            if a < mine.count, b < theirs.count, mine[a] == theirs[b] {
+                merged.append(mine[a]); a += 1; b += 1
+            } else if b == theirs.count || (a < mine.count && lcs[a + 1][b] >= lcs[a][b + 1]) {
+                merged.append(mine[a]); a += 1
+            } else {
+                merged.append(theirs[b]); b += 1
+            }
+        }
+        let ordered = merged.allSatisfy { $0.at != 0 }
+            ? merged.enumerated().sorted { ($0.element.at, $0.offset) < ($1.element.at, $1.offset) }.map(\.element)
+            : merged
+        return StoredLog(songs: ordered.map(\.song), closed: closed,
+                         remembered: ordered.map(\.line), enteredAt: ordered.map(\.at))
+    }
+
     /// `remembered` at `songs`'s length: an older cache carries none at all.
     private func aligned() -> [String] {
         (0..<songs.count).map { $0 < remembered.count ? remembered[$0] : "" }

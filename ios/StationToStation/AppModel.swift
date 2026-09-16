@@ -16,6 +16,15 @@ struct SongMatch: Identifiable {
 
 enum SetlistSource { case artist, user }
 
+/// Why an error is on screen, where that changes what can be offered about it.
+///
+/// Only the cases a screen acts on differently are named; everything else has no kind
+/// and is shown as its message alone. Term for term with Android's `ErrorKind`.
+enum ErrorKind {
+    /// setlist.fm refused the *bundled* key: a free key of their own is the way out.
+    case setlistFmSharedQuota
+}
+
 struct UiState {
     // Settings
     var setlistFmApiKey = ""
@@ -25,6 +34,9 @@ struct UiState {
     var spotifyConnected = false
     var spotifyLoginReady = false
     var setlistFmReady = false
+    /// The shared setlist.fm key is believed spent (#457) and no key of the user's own
+    /// is saved. What Settings leads its setlist.fm section with.
+    var setlistFmSharedQuotaSpent = false
     var bundledSpotifyClientId = false
     var bundledSetlistFmKey = false
     var grantedScope: String?
@@ -187,6 +199,12 @@ struct UiState {
     var handover = HandoverUi()
     // Transient banners
     var error: String?
+    /// What kind of thing `error` is, for the screens that offer a way out of one.
+    ///
+    /// A bare message cannot be acted on: the shared setlist.fm quota running out is the
+    /// one error the app can hand the user a button for (#457), and telling it apart
+    /// from "no results" or "that isn't a link" takes more than the words.
+    var errorKind: ErrorKind?
     var notice: String?
 }
 
@@ -209,7 +227,11 @@ final class AppModel: ObservableObject {
     @Published var state = UiState()
 
     let settings = Settings()
-    private lazy var setlistFm = SetlistFmClient { [settings] in settings.setlistFmApiKeyValue }
+    private lazy var setlistFm = SetlistFmClient(
+        keySource: { [settings] in settings.setlistFmKey },
+        sharedQuotaSpentAt: { [settings] in settings.setlistFmSharedQuotaSpentAt },
+        recordSharedQuotaSpent: { [settings] instant in settings.recordSharedQuotaSpent(at: instant) }
+    )
     private lazy var spotify = SpotifyClient(settings)
     private let musicBrainz = MusicBrainzClient()
     /// The in-flight suggestion lookup, held so the next keystroke can cancel it.
@@ -236,6 +258,7 @@ final class AppModel: ObservableObject {
         state.spotifyConnected = spotify.isConnected
         state.spotifyLoginReady = settings.spotifyClientIdValue != nil
         state.setlistFmReady = settings.setlistFmApiKeyValue != nil
+        state.setlistFmSharedQuotaSpent = settings.setlistFmSharedQuotaSpentNow
         state.bundledSpotifyClientId = settings.hasBundledSpotifyClientId
         state.bundledSetlistFmKey = settings.hasBundledSetlistFmKey
         state.grantedScope = settings.grantedScope
@@ -268,7 +291,10 @@ final class AppModel: ObservableObject {
         drainTicketInbox()
     }
 
-    func consumeError() { state.error = nil }
+    func consumeError() {
+        state.error = nil
+        state.errorKind = nil
+    }
     func consumeNotice() { state.notice = nil }
 
     // --- The timeline ---
@@ -402,6 +428,7 @@ final class AppModel: ObservableObject {
         let room = venue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !who.isEmpty, let night = gigDay(date.trimmingCharacters(in: .whitespaces)) else {
             state.error = "A night needs who is playing and a date as dd-MM-yyyy."
+            state.errorKind = nil
             return
         }
         Task { await mintPlannedGig(artist: who, venue: room, night: night) }
@@ -529,6 +556,7 @@ final class AppModel: ObservableObject {
         let room = venue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !who.isEmpty, let night = gigDay(date.trimmingCharacters(in: .whitespaces)) else {
             state.error = "A night needs who is playing and a date as dd-MM-yyyy."
+            state.errorKind = nil
             return
         }
         state.ticketDrafts.removeFirst()
@@ -568,6 +596,7 @@ final class AppModel: ObservableObject {
         // typed in west of it would be normalised back out a day early.
         guard !who.isEmpty, let night = gigDay(date.trimmingCharacters(in: .whitespaces)) else {
             state.error = "A night needs who played and a date as dd-MM-yyyy."
+            state.errorKind = nil
             return
         }
         Task {
@@ -690,11 +719,13 @@ final class AppModel: ObservableObject {
     func adoptSetlistLink(gigId: String, linkOrId: String) {
         guard let setlistId = parseSetlistId(linkOrId) else {
             state.error = "That doesn't look like a setlist.fm link."
+            state.errorKind = nil
             return
         }
         Task {
             guard await timelines.adoptSetlistId(gigId: gigId, setlistId: setlistId) else {
                 state.error = "That night already has a setlist.fm id."
+                state.errorKind = nil
                 return
             }
             state.notice = "Adopted — this night is on setlist.fm now."
@@ -710,6 +741,7 @@ final class AppModel: ObservableObject {
     func addPlannedGig(_ linkOrId: String) {
         guard let id = parseSetlistId(linkOrId) else {
             state.error = "That doesn't look like a setlist.fm gig link."
+            state.errorKind = nil
             return
         }
         if state.plannedGigs.contains(where: { $0.id == id }) { return }
@@ -751,6 +783,7 @@ final class AppModel: ObservableObject {
                 markCalendarAdded(setlist.id, eventId: id)
             } else {
                 state.error = "Couldn't add this to your calendar."
+                state.errorKind = nil
             }
         }
     }
@@ -762,6 +795,7 @@ final class AppModel: ObservableObject {
         let me = state.mySetlistFmUser.trimmingCharacters(in: .whitespaces)
         if me.isEmpty {
             state.error = "Set your setlist.fm username first (Friends screen)."
+            state.errorKind = nil
             return
         }
         state.timelineLoading = true
@@ -864,6 +898,7 @@ final class AppModel: ObservableObject {
         // view appears. Synchronous, so the `onAppear` load cannot beat it.
         guard let spine = plumbing.seed(fixture: name) else {
             state.error = "Fixture \"\(name)\" not bundled."
+            state.errorKind = nil
             return
         }
         state.mySetlistFmUser = spine.me
@@ -908,11 +943,23 @@ final class AppModel: ObservableObject {
         return true
     }
 
+    /// The one place a thrown thing becomes an error on screen — and, for a spent shared
+    /// setlist.fm quota, an error with something to do about it.
     private func fail(_ error: Error) {
         state.error = userMessage(error)
+        state.errorKind = errorKind(of: error)
+        if isSharedQuota(error) { state.setlistFmSharedQuotaSpent = true }
         state.searchLoading = false
         state.setlistsLoading = false
         state.creatingPlaylist = false
+    }
+
+    private func errorKind(of error: Error) -> ErrorKind? {
+        isSharedQuota(error) ? .setlistFmSharedQuota : nil
+    }
+
+    private func isSharedQuota(_ error: Error) -> Bool {
+        (error as? SetlistFmRateLimited)?.sharedKey == true
     }
 
     // --- Settings ---
@@ -924,6 +971,7 @@ final class AppModel: ObservableObject {
         state.spotifyClientId = clientId.trimmingCharacters(in: .whitespaces)
         state.spotifyLoginReady = settings.spotifyClientIdValue != nil
         state.setlistFmReady = settings.setlistFmApiKeyValue != nil
+        state.setlistFmSharedQuotaSpent = settings.setlistFmSharedQuotaSpentNow
     }
 
     func saveClashfinderAccount(user: String, privateKey: String) {
@@ -1320,6 +1368,7 @@ final class AppModel: ObservableObject {
         let me = state.mySetlistFmUser.trimmingCharacters(in: .whitespaces)
         if me.isEmpty {
             state.error = "Set your setlist.fm username first (Friends screen)."
+            state.errorKind = nil
             return
         }
         state.sharedWith = friend
@@ -1349,6 +1398,7 @@ final class AppModel: ObservableObject {
     func discoverFriendFromPlaylist(_ link: String) {
         guard let id = spotifyPlaylistId(link) else {
             state.error = "That doesn't look like a Spotify playlist link."
+            state.errorKind = nil
             return
         }
         Task {
@@ -1359,6 +1409,7 @@ final class AppModel: ObservableObject {
                 let me = try? await spotify.currentUser().id
                 if username == nil {
                     state.error = "That playlist wasn't made with this app, so there's no setlist.fm user to add."
+                    state.errorKind = nil
                 } else if let ownerId, ownerId == me {
                     state.notice = "That's your own playlist."
                 } else {
@@ -2085,6 +2136,7 @@ final class AppModel: ObservableObject {
         let tracks = s.matches.filter { $0.included && $0.selected != nil }.compactMap(\.selected)
         if tracks.isEmpty {
             state.error = "No songs selected"
+            state.errorKind = nil
             return
         }
         let name = s.playlistName.isEmpty ? "Setlist" : s.playlistName

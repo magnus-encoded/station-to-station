@@ -111,6 +111,7 @@ import io.github.magnusencoded.stationtostation.data.setlistfm.FmSong
 import io.github.magnusencoded.stationtostation.data.musicbrainz.MbArtist
 import io.github.magnusencoded.stationtostation.data.musicbrainz.MusicBrainzClient
 import io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmClient
+import io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmRateLimited
 import io.github.magnusencoded.stationtostation.data.setlistfm.parseSetlistId
 import io.github.magnusencoded.stationtostation.data.spotify.SpotifyClient
 import io.github.magnusencoded.stationtostation.data.spotify.SpotifyTrack
@@ -151,6 +152,17 @@ data class SongMatch(
 }
 
 enum class SetlistSource { ARTIST, USER }
+
+/**
+ * Why an error is on screen, where that changes what can be offered about it.
+ *
+ * Only the cases a screen acts on differently are named; everything else has no kind and
+ * is shown as its message alone.
+ */
+enum class ErrorKind {
+    /** setlist.fm refused the *bundled* key: a free key of their own is the way out. */
+    SETLISTFM_SHARED_QUOTA,
+}
 
 /**
  * Where a `station-to-station://` link lands. The link's first segment names whose
@@ -414,6 +426,19 @@ data class UiState(
     val pendingTicket: PendingTicket? = null,
     // Transient error surfaced as a snackbar
     val error: String? = null,
+    /**
+     * What kind of thing [error] is, for the screens that offer a way out of one.
+     *
+     * A bare message cannot be acted on: the shared setlist.fm quota running out is the
+     * one error the app can hand the user a button for (#457), and telling it apart from
+     * "no results" or "that isn't a link" takes more than the words.
+     */
+    val errorKind: ErrorKind? = null,
+    /**
+     * The shared setlist.fm key is believed spent (#457) and no key of the user's own is
+     * saved. What Settings leads its setlist.fm section with.
+     */
+    val setlistFmSharedQuotaSpent: Boolean = false,
     // Transient non-error notice (e.g. "Added a friend from that playlist")
     val notice: String? = null,
     // True once the splash has been passed (Spotify login or skip).
@@ -465,7 +490,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     val settings = SettingsRepository(application)
     private val timelines = TimelineStore(application)
-    private val setlistFm = SetlistFmClient { settings.setlistFmApiKeyValue() }
+    private val setlistFm = SetlistFmClient(
+        keySource = { settings.setlistFmKey() },
+        sharedQuotaSpentAt = { settings.sharedQuotaSpentAtValue() },
+        recordSharedQuotaSpent = { settings.recordSharedQuotaSpent(it) },
+    )
     private val musicBrainz = MusicBrainzClient()
 
     /**
@@ -559,6 +588,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     spotifyConnected = spotify.isConnected(),
                     spotifyLoginReady = settings.spotifyClientIdValue() != null,
                     setlistFmReady = settings.setlistFmApiKeyValue() != null,
+                    setlistFmSharedQuotaSpent = settings.sharedQuotaSpentNow(),
                     bundledSpotifyClientId = settings.hasBundledSpotifyClientId(),
                     bundledSetlistFmKey = settings.hasBundledSetlistFmKey(),
                     bundledSpotifyHint = settings.bundledSpotifyClientIdHint(),
@@ -610,7 +640,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             exchange.failure.collect { message ->
                 if (message != null) {
-                    _state.update { it.copy(error = message, discovering = false) }
+                    _state.update { it.copy(error = message, errorKind = null, discovering = false) }
                     exchange.consumeFailure()
                 }
             }
@@ -727,17 +757,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { settings.setOnboarded() }
     }
 
-    fun consumeError() = _state.update { it.copy(error = null) }
+    fun consumeError() = _state.update { it.copy(error = null, errorKind = null) }
     fun consumeNotice() = _state.update { it.copy(notice = null) }
 
+    /**
+     * The one place a thrown thing becomes an error on screen — and, for a spent shared
+     * setlist.fm quota, an error with something to do about it.
+     */
     private fun fail(e: Exception) = _state.update {
         it.copy(
             error = e.message ?: "Something went wrong",
+            errorKind = errorKindOf(e),
             searchLoading = false,
             setlistsLoading = false,
             creatingPlaylist = false,
+            setlistFmSharedQuotaSpent = it.setlistFmSharedQuotaSpent || isSharedQuota(e),
         )
     }
+
+    private fun errorKindOf(e: Throwable): ErrorKind? =
+        if (isSharedQuota(e)) ErrorKind.SETLISTFM_SHARED_QUOTA else null
+
+    private fun isSharedQuota(e: Throwable): Boolean =
+        e is SetlistFmRateLimited && e.sharedKey
 
     // --- Settings ---
 
@@ -754,6 +796,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 spotifyClientId = clientId.trim(),
                 spotifyLoginReady = settings.spotifyClientIdValue() != null,
                 setlistFmReady = settings.setlistFmApiKeyValue() != null,
+                setlistFmSharedQuotaSpent = settings.sharedQuotaSpentNow(),
             )
         }
     }
@@ -790,7 +833,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                     authError != null ->
-                        _state.update { it.copy(error = "Spotify login failed: $authError") }
+                        _state.update { it.copy(errorKind = null, error = "Spotify login failed: $authError") }
                 }
             } catch (e: Exception) {
                 fail(e)
@@ -1203,6 +1246,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         viewedFriendLoading = false,
                         error = e.message ?: "Could not load ${friend.name}'s shows",
+                        errorKind = errorKindOf(e),
+                        setlistFmSharedQuotaSpent =
+                            it.setlistFmSharedQuotaSpent || isSharedQuota(e),
                     )
                 }
             }
@@ -1254,7 +1300,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun openSharedConcerts(friend: Friend) {
         val me = _state.value.mySetlistFmUser.trim()
         if (me.isEmpty()) {
-            _state.update { it.copy(error = "Set your setlist.fm username first (Friends screen).") }
+            _state.update { it.copy(errorKind = null, error = "Set your setlist.fm username first (Friends screen).") }
             return
         }
         _state.update {
@@ -1723,7 +1769,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun addPlannedGig(linkOrId: String) {
         val id = parseSetlistId(linkOrId)
         if (id == null) {
-            _state.update { it.copy(error = "That doesn't look like a setlist.fm gig link.") }
+            _state.update { it.copy(errorKind = null, error = "That doesn't look like a setlist.fm gig link.") }
             return
         }
         if (_state.value.plannedGigs.any { it.id == id }) return
@@ -1769,7 +1815,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun addPlannedGigByHand(artist: String, venue: String, date: String) {
         val night = parseFmDate(date)
         if (artist.isBlank() || night == null) {
-            _state.update { it.copy(error = "A night needs who is playing and a date as dd-MM-yyyy.") }
+            _state.update { it.copy(errorKind = null, error = "A night needs who is playing and a date as dd-MM-yyyy.") }
             return
         }
         viewModelScope.launch {
@@ -1860,7 +1906,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val pending = _state.value.pendingTicket ?: return
         val night = parseFmDate(date)
         if (artist.isBlank() || night == null) {
-            _state.update { it.copy(error = "A night needs who is playing and a date as dd-MM-yyyy.") }
+            _state.update { it.copy(errorKind = null, error = "A night needs who is playing and a date as dd-MM-yyyy.") }
             return
         }
         viewModelScope.launch {
@@ -1951,7 +1997,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun addLocalGig(artist: String, venue: String, date: String) {
         val night = parseFmDate(date)
         if (artist.isBlank() || night == null) {
-            _state.update { it.copy(error = "A night needs who played and a date as dd-MM-yyyy.") }
+            _state.update { it.copy(errorKind = null, error = "A night needs who played and a date as dd-MM-yyyy.") }
             return
         }
         viewModelScope.launch {
@@ -2340,12 +2386,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun adoptSetlistLink(gigId: String, linkOrId: String) {
         val setlistId = parseSetlistId(linkOrId)
         if (setlistId == null) {
-            _state.update { it.copy(error = "That doesn't look like a setlist.fm link.") }
+            _state.update { it.copy(errorKind = null, error = "That doesn't look like a setlist.fm link.") }
             return
         }
         viewModelScope.launch {
             if (!timelines.adoptSetlistId(gigId, setlistId)) {
-                _state.update { it.copy(error = "That night already has a setlist.fm id.") }
+                _state.update { it.copy(errorKind = null, error = "That night already has a setlist.fm id.") }
                 return@launch
             }
             _state.update { it.copy(notice = "Adopted — this night is on setlist.fm now.") }
@@ -2634,7 +2680,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun discoverFriendFromPlaylist(link: String) {
         val id = spotifyPlaylistId(link)
         if (id == null) {
-            _state.update { it.copy(error = "That doesn't look like a Spotify playlist link.") }
+            _state.update { it.copy(errorKind = null, error = "That doesn't look like a Spotify playlist link.") }
             return
         }
         viewModelScope.launch {
@@ -2645,7 +2691,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val me = runCatching { spotify.currentUser().id }.getOrNull()
                 when {
                     username == null -> _state.update {
-                        it.copy(error = "That playlist wasn't made with this app, so there's no setlist.fm user to add.")
+                        it.copy(
+                            error = "That playlist wasn't made with this app, so there's no setlist.fm user to add.",
+                            errorKind = null,
+                        )
                     }
                     ownerId != null && ownerId == me -> _state.update {
                         it.copy(notice = "That's your own playlist.")
@@ -2797,7 +2846,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (fresh.isNotEmpty()) setGigMedia(setlistId, bandsOf(had + fresh).let { it.shared + it.received + it.vault })
         if (failed > 0) {
             _state.update {
-                it.copy(error = "Couldn't read ${if (failed == 1) "that one" else "$failed of those"} — not attached.")
+                it.copy(
+                    error = "Couldn't read ${if (failed == 1) "that one" else "$failed of those"} — not attached.",
+                    errorKind = null,
+                )
             }
         }
     }
@@ -2959,7 +3011,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val s = _state.value
         val tracks = s.matches.filter { it.included && it.selected != null }.mapNotNull { it.selected }
         if (tracks.isEmpty()) {
-            _state.update { it.copy(error = "No songs selected") }
+            _state.update { it.copy(errorKind = null, error = "No songs selected") }
             return
         }
         val name = s.playlistName.ifBlank { "Setlist" }

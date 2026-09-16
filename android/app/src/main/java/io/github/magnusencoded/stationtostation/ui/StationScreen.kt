@@ -66,6 +66,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -142,6 +143,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.magnusencoded.stationtostation.AppViewModel
+import io.github.magnusencoded.stationtostation.ErrorKind
 import io.github.magnusencoded.stationtostation.BuildConfig
 import io.github.magnusencoded.stationtostation.CoverCandidate
 import io.github.magnusencoded.stationtostation.GigLink
@@ -1443,7 +1445,12 @@ private fun EmptyTimeline(onAdd: () -> Unit, onPlan: () -> Unit, onAddByHand: ()
 /** The setlist.fm import, reached from the "+" node. Pops itself once shows land. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ImportScreen(viewModel: AppViewModel, onBack: () -> Unit, onDone: () -> Unit) {
+fun ImportScreen(
+    viewModel: AppViewModel,
+    onBack: () -> Unit,
+    onDone: () -> Unit,
+    onOpenSettings: () -> Unit = {},
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val startCount = remember { viewModel.state.value.setlists.size }
@@ -1509,6 +1516,19 @@ fun ImportScreen(viewModel: AppViewModel, onBack: () -> Unit, onDone: () -> Unit
             state.error?.let {
                 Spacer(Modifier.height(12.dp))
                 Text(it, color = Danger, fontSize = 12.sp)
+                // The one error with something to do about it: the bundled key is shared
+                // by every tester and today's requests are gone, and a free key of their
+                // own is a short trip to Settings away (#457).
+                if (state.errorKind == ErrorKind.SETLISTFM_SHARED_QUOTA) {
+                    Text(
+                        "$ADD_OWN_KEY_ACTION ›",
+                        color = Amber,
+                        fontSize = 12.sp,
+                        modifier = Modifier
+                            .clickable(onClick = onOpenSettings)
+                            .padding(vertical = 6.dp),
+                    )
+                }
             }
             Spacer(Modifier.height(18.dp))
             Button(
@@ -3171,6 +3191,7 @@ fun StationEventScreen(
     viewModel: AppViewModel,
     onBack: () -> Unit,
     onConvert: () -> Unit,
+    onOpenSettings: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val setlist = state.selectedSetlist
@@ -3258,11 +3279,34 @@ fun StationEventScreen(
             viewModel.consumeNotice()
         }
     }
+    // A toast cannot be tapped, so the one error with a way out of it gets a dialog
+    // instead: refreshing this setlist spent the last of the shared key, and a free key
+    // of your own is the fix (#457).
+    var sharedQuotaNudge by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(state.error) {
         state.error?.let {
-            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            if (state.errorKind == ErrorKind.SETLISTFM_SHARED_QUOTA) {
+                sharedQuotaNudge = it
+            } else {
+                Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            }
             viewModel.consumeError()
         }
+    }
+    sharedQuotaNudge?.let { message ->
+        AlertDialog(
+            onDismissRequest = { sharedQuotaNudge = null },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = {
+                    sharedQuotaNudge = null
+                    onOpenSettings()
+                }) { Text(ADD_OWN_KEY_ACTION) }
+            },
+            dismissButton = {
+                TextButton(onClick = { sharedQuotaNudge = null }) { Text("Not now") }
+            },
+        )
     }
     var viewerUri by remember { mutableStateOf<Uri?>(null) }
     // Where the viewer should open — set when a stamped song on the spine is tapped,

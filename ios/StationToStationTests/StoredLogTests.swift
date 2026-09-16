@@ -245,6 +245,14 @@ final class StoredLogTests: XCTestCase {
         XCTAssertEqual(merged.lineNumberAt(0), 3)
     }
 
+    func testMergingStaysOpenUnlessBothClosedAndAShorterSurvivorKeepsItsLines() {
+        let a = StoredLog(songs: ["A"], closed: true, enteredAt: [1])
+        let b = StoredLog(songs: ["B", "C"], closed: true, enteredAt: [2, 3])
+        XCTAssertTrue(unionLog(a, b).closed)
+        XCTAssertFalse(unionLog(a, StoredLog(songs: ["B", "C"], closed: false, enteredAt: [2, 3])).closed)
+        XCTAssertEqual(unionLog(a, b).songs, ["A", "B", "C"])
+    }
+
     func testMergingKeepsCompletionOnlyWhereBothWereClosed() {
         let a = StoredLog(songs: ["A"], closed: true, enteredAt: [1], completedAt: 200)
         let b = StoredLog(songs: ["B"], closed: true, enteredAt: [2], completedAt: 100)

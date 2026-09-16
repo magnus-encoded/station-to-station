@@ -94,7 +94,7 @@ final class HandoverPlanTests: XCTestCase {
     }
 
     /// A **Log** typed at a gig must not vanish because the other phone had none.
-    func testTheLongerLogSurvivesAndStaysOpen() {
+    func testBothLogsSurviveAndStayOpen() {
         var mine = cache(gigs: [gig("g1", setlistId: "sl-1")])
         mine.gigLogs = ["g1": StoredLog(songs: ["Amber Line"], closed: true, enteredAt: [10])]
         var theirs = cache(gigs: [gig("g1", setlistId: "sl-1")])

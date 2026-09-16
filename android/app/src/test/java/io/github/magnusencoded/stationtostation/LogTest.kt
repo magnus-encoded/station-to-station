@@ -230,6 +230,14 @@ class LogTest {
         assertEquals(3, merged.lineNumberAt(0))
     }
 
+    @Test fun `merging stays Open unless both were Closed, and a shorter survivor keeps its lines`() {
+        val a = StoredLog(songs = listOf("A"), closed = true, enteredAt = listOf(1))
+        val b = StoredLog(songs = listOf("B", "C"), closed = true, enteredAt = listOf(2, 3))
+        assertTrue(unionLog(a, b).closed)
+        assertFalse(unionLog(a, b.copy(closed = false)).closed)
+        assertEquals(listOf("A", "B", "C"), unionLog(a, b).songs)
+    }
+
     @Test fun `merging keeps completion only where both were closed, earliest completion`() {
         val a = StoredLog(songs = listOf("A"), closed = true, completedAt = 200, enteredAt = listOf(1))
         val b = StoredLog(songs = listOf("B"), closed = true, completedAt = 100, enteredAt = listOf(2))
