@@ -162,7 +162,7 @@ private fun ConfirmScreenContent(
 
     LaunchedEffect(state.error) {
         state.error?.let {
-            snackbarHostState.showSnackbar(it)
+            snackbarHostState.showAppError(it, state.errorKind, onOpenSettings)
             viewModel.consumeError()
         }
     }

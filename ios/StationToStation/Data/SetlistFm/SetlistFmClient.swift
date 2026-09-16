@@ -1,16 +1,61 @@
 import Foundation
 
-/// Mirrors the retry behaviour of the Python CLI and the Android client: retry on
-/// 429/5xx with exponential backoff, fail fast on other HTTP errors.
+/// setlist.fm's read-only REST API, plus the two web pages a **Festival** identity
+/// comes off.
+///
+/// The seams are the transport and the key source: production wires the IPv4 HTTPS call
+/// and `Settings`, tests wire fakes and assert what this returns and throws rather than
+/// how the retry loop is written. Term for term with Android's `SetlistFmClient`.
 final class SetlistFmClient {
 
-    private let apiKeyProvider: () -> String?
+    typealias Transport = (URL, String) async throws -> SetlistFmResponse
+
+    private let keySource: () -> SetlistFmKey?
+    /// When the shared quota was last found spent, or nil. See `sharedQuotaSpent`.
+    private let sharedQuotaSpentAt: () -> TimeInterval?
+    /// Records that the shared quota is spent, as of the given instant.
+    private let recordSharedQuotaSpent: (TimeInterval) -> Void
+    private let now: () -> TimeInterval
+    private let transport: Transport
+    /// Injectable so tests wait for nothing; production sleeps for real.
+    private let sleep: (TimeInterval) async -> Void
     private let decoder = JSONDecoder()
 
-    init(apiKeyProvider: @escaping () -> String?) {
-        self.apiKeyProvider = apiKeyProvider
+    init(
+        keySource: @escaping () -> SetlistFmKey?,
+        sharedQuotaSpentAt: @escaping () -> TimeInterval? = { nil },
+        recordSharedQuotaSpent: @escaping (TimeInterval) -> Void = { _ in },
+        now: @escaping () -> TimeInterval = { Date().timeIntervalSince1970 },
+        transport: @escaping Transport = SetlistFmClient.ipv4Transport,
+        sleep: @escaping (TimeInterval) async -> Void = { seconds in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+        }
+    ) {
+        self.keySource = keySource
+        self.sharedQuotaSpentAt = sharedQuotaSpentAt
+        self.recordSharedQuotaSpent = recordSharedQuotaSpent
+        self.now = now
+        self.transport = transport
+        self.sleep = sleep
     }
 
+    /// Forced over IPv4 (see `IPv4Https`): setlist.fm's IPv6/CloudFront edge returns
+    /// 406 to everything, and iOS's URLSession prefers IPv6.
+    static let ipv4Transport: Transport = { url, apiKey in
+        let resp = try await IPv4Https.get(
+            url: url,
+            headers: ["x-api-key": apiKey, "Accept": "application/json"]
+        )
+        return SetlistFmResponse(status: resp.status, body: resp.body)
+    }
+
+    // 429 is retried exactly once, about a second later, and then given up on.
+    //
+    // setlist.fm does not say in a 429 which of its two limits was hit — 16 requests a
+    // second, or 50,000 a day, both shared by every install on the bundled key. The
+    // single retry is what tells them apart: a burst (paging through a first import)
+    // clears within a second, a spent day does not. This replaces the three retries
+    // that used to treat a 429 exactly like a 502. 5xx is unchanged.
     private func get(
         _ path: String,
         params: [String: String?],
@@ -20,36 +65,54 @@ final class SetlistFmClient {
         // rather than "no such user".
         notFoundIsEmpty: Bool = false
     ) async throws -> Data {
-        guard let apiKey = apiKeyProvider() else {
+        guard let key = keySource() else {
             throw AppError("setlist.fm API key is not configured. Set it in Settings.")
+        }
+        // Refusing here spends nothing. While the shared quota is known to be spent,
+        // every install would otherwise keep draining a key that cannot answer.
+        if key.shared, sharedQuotaSpent(spentAt: sharedQuotaSpentAt(), now: now()) {
+            throw SetlistFmRateLimited(sharedKey: true)
         }
         var comps = URLComponents(string: "https://api.setlist.fm/rest/1.0/\(path)")!
         comps.queryItems = params.compactMap { k, v in v.map { URLQueryItem(name: k, value: $0) } }
         let url = comps.url!
-        let headers = ["x-api-key": apiKey, "Accept": "application/json"]
 
-        var backoff: UInt64 = 1_000_000_000 // 1s in ns
-        let maxAttempts = 3
-        for attempt in 1...maxAttempts {
-            // Forced over IPv4 (see IPv4Https): setlist.fm's IPv6/CloudFront edge
-            // returns 406 to everything, and iOS's URLSession prefers IPv6.
-            let resp = try await IPv4Https.get(url: url, headers: headers)
+        // The two limits are counted apart: 5xx keeps the three attempts and the growing
+        // backoff, 429 gets exactly one retry, and neither spends the other's budget.
+        var backoff: TimeInterval = 1
+        var serverAttempts = 0
+        var rateLimitedOnce = false
+        while true {
+            let resp = try await transport(url, key.key)
             switch resp.status {
-            case 200...299: return resp.body
-            case 429, 500...599: break // retry
-            case 404 where notFoundIsEmpty: return Data(#"{"total":0}"#.utf8)
-            case 404: throw AppError("Not found (404). Check the name/ID and try again.")
-            case 403: throw AppError("setlist.fm rejected the API key (403).")
+            case 200...299:
+                return resp.body
+            case 429:
+                if rateLimitedOnce {
+                    if key.shared { recordSharedQuotaSpent(now()) }
+                    throw SetlistFmRateLimited(sharedKey: key.shared)
+                }
+                rateLimitedOnce = true
+                await sleep(rateLimitRetrySeconds)
+            case 500...599:
+                serverAttempts += 1
+                if serverAttempts >= maxServerAttempts {
+                    throw AppError("setlist.fm is unavailable. Try again in a moment.")
+                }
+                await sleep(backoff)
+                backoff *= 2
+            case 404 where notFoundIsEmpty:
+                return Data(#"{"total":0}"#.utf8)
+            case 404:
+                throw AppError("Not found (404). Check the name/ID and try again.")
+            case 403:
+                throw AppError("setlist.fm rejected the API key (403).")
             default:
                 let body = String(data: resp.body, encoding: .utf8)?
                     .trimmingCharacters(in: .whitespacesAndNewlines).prefix(200) ?? ""
                 throw AppError("setlist.fm error \(resp.status)\(body.isEmpty ? "" : ": \(body)")")
             }
-            if attempt == maxAttempts { break }
-            try await Task.sleep(nanoseconds: backoff)
-            backoff *= 2
         }
-        throw AppError("setlist.fm is rate limiting or unavailable. Try again in a moment.")
     }
 
     func searchArtists(_ name: String, page: Int = 1) async throws -> ArtistSearchResponse {
