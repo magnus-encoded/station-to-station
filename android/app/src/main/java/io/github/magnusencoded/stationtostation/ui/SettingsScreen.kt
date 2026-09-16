@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -322,7 +323,13 @@ fun SettingsScreen(
             HorizontalDivider()
             Spacer(Modifier.height(24.dp))
 
-            Text("Gossip", style = MaterialTheme.typography.titleMedium)
+            // Experimental (#462): no two phones have completed a v2 Pass in the field yet.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Gossip", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.width(8.dp))
+                Text("Experimental", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             Spacer(Modifier.height(8.dp))
             Text("Check in to share small public observations with nearby phones. Completing the set keeps gossip active for 30 minutes, until 06:00 at the latest. Delivery is best effort.",
                 style = MaterialTheme.typography.bodySmall)

@@ -83,25 +83,21 @@ actor GossipLedger {
     }
 
     func recognizeContacts(_ contacts: Set<String>) {
-        var next = load()
-        var state = next.publicState ?? PublicGossipState()
-        state.recognizeContacts(contacts)
-        next.publicState = state
-        _ = persist(next)
+        editPublic { $0.recognizeContacts(contacts) }
     }
 
     func blockAuthor(_ author: String) {
-        var next = load()
-        var state = next.publicState ?? PublicGossipState()
-        state.blocked.insert(state.recognition[author] ?? author)
-        next.publicState = state
-        _ = persist(next)
+        editPublic { $0.blocked.insert($0.recognition[author] ?? author) }
     }
 
     func deliveredPublic(_ ids: [String], to peer: String) {
+        editPublic { $0.delivered(to: peer, ids: ids) }
+    }
+
+    private func editPublic(_ edit: (inout PublicGossipState) -> Void) {
         var next = load()
         var state = next.publicState ?? PublicGossipState()
-        state.delivered(to: peer, ids: ids)
+        edit(&state)
         next.publicState = state
         _ = persist(next)
     }
@@ -114,11 +110,9 @@ actor GossipLedger {
     }
 
     func spend(_ budget: GossipPeerBudget, for contact: String, now: Date) {
-        write { stored in
-            var next = pruned(stored, now: now)
-            next.budgets[contact] = budget
-            return next
-        }
+        var next = pruned(load(), now: now)
+        next.budgets[contact] = budget
+        _ = persist(next)
     }
 
     /// Clear what belongs to the radio while retaining this device's own Gig identity
@@ -127,7 +121,7 @@ actor GossipLedger {
         // Removing the last Contact clears per-peer transport memory, not a Gig that is mine.
         let stored = load()
         if stored.authorScopes != nil || stored.publicState != nil {
-            write { _ in StoredGossip(authorScopes: stored.authorScopes, publicState: stored.publicState) }
+            _ = persist(StoredGossip(authorScopes: stored.authorScopes, publicState: stored.publicState))
         } else {
             cache = StoredGossip()
             try? FileManager.default.removeItem(at: file)
@@ -149,10 +143,7 @@ actor GossipLedger {
         return stored
     }
 
-    private func write(_ change: (StoredGossip) -> StoredGossip) {
-        _ = persist(change(load()))
-    }
-
+    /// The cache only moves once the file has, so a caller can fail closed.
     private func persist(_ next: StoredGossip) -> Bool {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

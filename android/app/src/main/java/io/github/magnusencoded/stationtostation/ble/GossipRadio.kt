@@ -219,7 +219,7 @@ class GossipPeripheral(
             // perform a long write and sends every chunk at offset 0, so the offset is
             // ignored here on purpose and a zero-length write is what ends the **Pass**.
             // Writing at the offset a peer states would mean an iPhone's whole batch
-            // overwrote itself down to its last chunk. See `GossipWire.kt`'s header.
+            // overwrote itself down to its last chunk. See `docs/gossip-public-wire.md`.
             val accumulated = inbox[device.address] ?: ByteArray(0)
             if (accumulated.size + chunk.size > GOSSIP_MAX_WIRE_BYTES) {
                 // Refused whole rather than truncated, and the peer is not told which of the
