@@ -617,7 +617,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             exchange.failure.collect { message ->
                 if (message != null) {
-                    _state.update { it.copy(error = message, discovering = false) }
+                    _state.update { it.copy(error = message, errorKind = null, discovering = false) }
                     exchange.consumeFailure()
                 }
             }
@@ -2613,7 +2613,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val me = runCatching { spotify.currentUser().id }.getOrNull()
                 when {
                     username == null -> _state.update {
-                        it.copy(error = "That playlist wasn't made with this app, so there's no setlist.fm user to add.")
+                        it.copy(
+                            error = "That playlist wasn't made with this app, so there's no setlist.fm user to add.",
+                            errorKind = null,
+                        )
                     }
                     ownerId != null && ownerId == me -> _state.update {
                         it.copy(notice = "That's your own playlist.")
@@ -2765,7 +2768,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (fresh.isNotEmpty()) setGigMedia(setlistId, bandsOf(had + fresh).let { it.shared + it.received + it.vault })
         if (failed > 0) {
             _state.update {
-                it.copy(error = "Couldn't read ${if (failed == 1) "that one" else "$failed of those"} — not attached.")
+                it.copy(
+                    error = "Couldn't read ${if (failed == 1) "that one" else "$failed of those"} — not attached.",
+                    errorKind = null,
+                )
             }
         }
     }
