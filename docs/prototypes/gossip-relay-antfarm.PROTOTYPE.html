@@ -1,0 +1,966 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PROTOTYPE — gossip relay ant farm (throwaway, do not ship)</title>
+<style>
+  :root {
+    --bg: #12141a; --panel: #1b1e27; --line: #2b2f3b; --text: #e8e9ee;
+    --muted: #8b8fa3; --accent: #ff7a45; --ok: #52c07a; --bob: #4aa3ff; --crowd: #30343f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex; min-height: 100vh;
+  }
+  #sidebar {
+    width: 370px; flex: none; padding: 20px; background: var(--panel);
+    border-right: 1px solid var(--line); overflow-y: auto; height: 100vh;
+  }
+  #main { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 18px; }
+  h1 { font-size: 17px; margin: 0 0 6px; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted);
+       margin: 20px 0 6px; border-top: 1px solid var(--line); padding-top: 13px; }
+  p.lede { color: var(--muted); font-size: 12.5px; margin: 0 0 6px; }
+  p.lede b { color: var(--text); }
+  details { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  details summary { cursor: pointer; color: var(--accent); }
+  details ul { padding-left: 18px; margin: 8px 0 0; }
+  details li { margin-bottom: 6px; }
+  label { display: block; font-size: 12.5px; margin: 9px 0 2px; }
+  label span.val { color: var(--accent); font-variant-numeric: tabular-nums; float: right; }
+  input[type=range] { width: 100%; }
+  button {
+    font: inherit; background: #262a36; color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 7px 10px; cursor: pointer; margin: 3px 3px 3px 0;
+  }
+  button:hover { background: #2f3444; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #201400; font-weight: 600; }
+  button.on { background: #34506a; border-color: #4aa3ff; }
+  .scenario { display: block; width: 100%; text-align: left; margin-bottom: 5px; font-size: 12.5px; }
+  .scenario small { display: block; color: var(--muted); font-weight: normal; margin-top: 2px; }
+  .seg { display: flex; gap: 0; margin: 4px 0 2px; }
+  .seg button { flex: 1; margin: 0; border-radius: 0; }
+  .seg button:first-child { border-radius: 6px 0 0 6px; }
+  .seg button:last-child { border-radius: 0 6px 6px 0; }
+  #stage-line { font-size: 13px; color: var(--muted); margin-bottom: 8px; text-align: center; }
+  #stage-line b { color: var(--text); }
+  canvas#c { background: #0c0d12; border: 1px solid var(--line); border-radius: 8px; }
+  #stats { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 12px; font-size: 12.5px;
+           color: var(--muted); max-width: 900px; }
+  #stats b { color: var(--text); font-variant-numeric: tabular-nums; }
+  #density-note { color: var(--accent); }
+  .legend { display: flex; gap: 14px; margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
+  .controls-row { display: flex; gap: 6px; margin-top: 10px; }
+  #curve { margin-top: 12px; border: 1px solid var(--line); border-radius: 6px; background: #0c0d12; }
+  .curve-label { font-size: 11px; color: var(--muted); margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <h1>Gossip relay ant farm</h1>
+  <p class="lede">
+    <b>Question:</b> does a check-in actually cross a crowd under the rule the storm-gate
+    enforces — bytes only ever cross a <b>Contact</b> edge — and would relaying through
+    strangers who hold sealed bytes do materially better?
+  </p>
+  <p class="lede">
+    Both rules run on the <i>same</i> crowd and the <i>same</i> social graph, so the comparison
+    is measured rather than argued.
+  </p>
+
+  <details>
+    <summary>Where the model comes from</summary>
+    <ul>
+      <li><b>Social Force Model</b> (Helbing &amp; Molnár 1995) — drive toward a goal, exponential
+          repulsion from bodies and walls.</li>
+      <li><b>Crowd turbulence</b> (Helbing, Johansson, Al-Abideen 2007) — above ~4–6 p/m² motion
+          becomes random displacement rather than flow.</li>
+      <li><b>Mosh pits</b> (Silverberg et al., Phys Rev Lett 2013) — a 2D gas of self-propelled
+          particles; raising the alignment term gives the circle pit.</li>
+      <li><b>Opportunistic/DTN forwarding</b> — power-law inter-contact times (Chaintreau et al.);
+          social-based routing (BUBBLE Rap) where a few high-centrality bridges carry the traffic.</li>
+      <li><b>Heavy-tailed degree</b> — real social graphs are not regular, so the median user and
+          the mean user are different people. Toggle it below.</li>
+      <li>Citations are from memory and worth verifying before anyone quotes a number.</li>
+    </ul>
+  </details>
+
+  <h2>Propagation rule</h2>
+  <div class="seg">
+    <button id="rule-contact" class="on">v1 — Contact edges only</button>
+    <button id="rule-blind">v2 — blind relay</button>
+  </div>
+  <p class="lede" id="rule-note"></p>
+
+  <h2>Scenarios</h2>
+  <button class="scenario" data-scenario="friends-only">
+    Friends only, full adoption
+    <small>Everyone has the app; Contacts only within the group you arrived with.</small>
+  </button>
+  <button class="scenario" data-scenario="translocal">
+    Two friends elsewhere
+    <small>The configuration that saturated the crowd under v1.</small>
+  </button>
+  <button class="scenario" data-scenario="realistic">
+    Realistic adoption (2%)
+    <small>The honest case: a handful of app users in a crowd of strangers.</small>
+  </button>
+  <button class="scenario" data-scenario="earlyish">
+    Early-ish adoption (15%)
+    <small>Where blind relay ought to start paying for itself, if it ever does.</small>
+  </button>
+  <button class="scenario" data-scenario="sparse">
+    The honest ceiling (0.5%)
+    <small>What 200k installs worldwide actually looks like in one room.</small>
+  </button>
+  <button class="scenario" data-scenario="pit">
+    Mosh pit mixer
+    <small>Maximum physical churn at the front.</small>
+  </button>
+
+  <h2>Crowd</h2>
+  <label>People in the venue <span class="val" id="v-agents"></span>
+    <input type="range" id="agents" min="20" max="700" step="10"></label>
+  <label>Share who have the app <span class="val" id="v-pen"></span>
+    <input type="range" id="pen" min="1" max="100" step="1"></label>
+  <label>Venue width (m) <span class="val" id="v-venue"></span>
+    <input type="range" id="venue" min="10" max="150" step="5"></label>
+  <label>BLE range (m) <span class="val" id="v-range"></span>
+    <input type="range" id="range" min="2" max="40" step="1"></label>
+
+  <h2>Social graph</h2>
+  <label>Avg group size (who you came with) <span class="val" id="v-group"></span>
+    <input type="range" id="group" min="1" max="8" step="1"></label>
+  <label>Avg friends elsewhere in the venue <span class="val" id="v-translocal"></span>
+    <input type="range" id="translocal" min="0" max="8" step="1"></label>
+  <label>Adoption arrives in friend groups <span class="val" id="v-cluster"></span>
+    <input type="range" id="cluster" min="0" max="100" step="5"></label>
+  <p class="lede">0% = the app fell on the crowd like rain. 100% = every user came with
+  a group that all installed it. Reality is nearer the right, and it changes the
+  topology far more than the adoption rate does.</p>
+  <div class="seg">
+    <button id="deg-uniform" class="on">every user the same</button>
+    <button id="deg-heavy">heavy-tailed</button>
+  </div>
+
+  <h2>Movement</h2>
+  <label>Bar / toilet trips per hour <span class="val" id="v-trips"></span>
+    <input type="range" id="trips" min="0" max="4" step="0.5"></label>
+  <label>Mosh pit radius (m, 0 = none) <span class="val" id="v-pit"></span>
+    <input type="range" id="pit" min="0" max="20" step="1"></label>
+
+  <h2>Phones</h2>
+  <p class="lede">A backgrounded phone is still a radio, just a worse one. This is the
+  duty ratio ADR-0019's carve-out buys.</p>
+  <label>Share on iPhone <span class="val" id="v-ios"></span>
+    <input type="range" id="ios" min="0" max="100" step="5"></label>
+  <label>Android radio duty, backgrounded <span class="val" id="v-duty"></span>
+    <input type="range" id="duty" min="0" max="100" step="5"></label>
+  <label>iOS radio duty, backgrounded <span class="val" id="v-iosduty"></span>
+    <input type="range" id="iosduty" min="0" max="100" step="1"></label>
+  <label>Doors: minutes of ingress <span class="val" id="v-ingress"></span>
+    <input type="range" id="ingress" min="0" max="45" step="5"></label>
+  <label>Ticket on screen at the door <span class="val" id="v-ticket"></span>
+    <input type="range" id="ticket" min="0" max="100" step="5"></label>
+  <p class="lede">Everyone squeezes through one door with the wallet open. If the wallet
+  is what sells the app, this is where the network actually happens.</p>
+  <label>Open the gig page when a song starts <span class="val" id="v-log"></span>
+    <input type="range" id="log" min="0" max="100" step="5"></label>
+  <p class="lede">Nobody knows this number yet. It is the one input here that the app
+  can actually move — a "now playing" nudge is a lever on the transport, not just on
+  engagement.</p>
+
+  <h2>Inspect one person</h2>
+  <p class="lede" id="sel-note">Click anyone on the floor to see their graph and their screen.</p>
+  <div class="seg">
+    <button id="edge-none">no edges</button>
+    <button id="edge-one" class="on">selected only</button>
+    <button id="edge-carriers">carriers</button>
+    <button id="edge-all">everyone</button>
+  </div>
+  <p class="lede">"Everyone" is the spider's web on purpose — it is what the crowd's whole
+  Contact graph actually looks like, and why the other filters exist.</p>
+
+  <h2>Simulation</h2>
+  <div class="controls-row">
+    <button class="primary" id="play">Play</button>
+    <button id="step">+30s</button>
+    <button id="reset">Reseed</button>
+  </div>
+  <label>Speed (sim seconds / frame) <span class="val" id="v-speed"></span>
+    <input type="range" id="speed" min="1" max="40" step="1"></label>
+</div>
+
+<div id="main">
+  <div id="stage-line">Stage is silent.</div>
+  <canvas id="c" width="900" height="600"></canvas>
+  <div id="stats">
+    <div><b id="s-clock">0:00</b> into the set</div>
+    <div>crowd <b id="s-density">0</b> p/m² — <span id="density-note"></span></div>
+    <div>app users <b id="s-users">0</b></div>
+    <div>reached <b id="s-reached">0</b> / <b id="s-total">0</b> (<b id="s-pct">0</b>%)</div>
+    <div>median delivery <b id="s-median">–</b></div>
+    <div>Bob: <b id="s-bob">not yet</b></div>
+    <div>max hops <b id="s-hops">–</b></div>
+    <div>relay events/device <b id="s-relays">0</b></div>
+    <div>in the room <b id="s-present">0</b></div>
+    <div>app in front <b id="s-fg">0</b></div>
+    <div>on iPhone <b id="s-ios">0</b>%</div>
+    <div>Alice has been in range of <b id="s-saw">0</b> users (<b id="s-sawc">0</b> Contacts)</div>
+    <div>in range: <b id="s-neigh">–</b> users, <b id="s-cneigh">–</b> of them Contacts</div>
+  </div>
+  <canvas id="curve" width="900" height="90"></canvas>
+  <div class="curve-label">Delivery over the set — share of <i>app users</i> holding the check-in.</div>
+  <div class="legend">
+    <div><span class="swatch" style="background:var(--crowd)"></span>no app</div>
+    <div><span class="swatch" style="background:#5b6071"></span>app, hasn't heard</div>
+    <div><span class="swatch" style="background:var(--ok)"></span>has the check-in</div>
+    <div><span class="swatch" style="background:var(--accent)"></span>Alice</div>
+    <div><span class="swatch" style="background:var(--bob)"></span>Bob</div>
+    <div>ring = screen on (thick = gig / annotations open)</div>
+    <div>square = iPhone, circle = Android</div>
+  </div>
+</div>
+
+<script>
+/* ============================================================================
+ * PURE SIMULATION MODULE — no DOM, no canvas.
+ * SI units throughout: metres and seconds.
+ *
+ * Two propagation rules run over identical crowds and identical social graphs:
+ *
+ *   "contact" (v1, what GossipStormGate.kt enforces today)
+ *       A check-in crosses only a Contact edge. Proximity is necessary, never
+ *       sufficient. Because of that, the relay step iterates EDGES, not
+ *       neighbours — a stranger standing on your foot is never a candidate.
+ *
+ *   "blind" (v2, not built)
+ *       Any app user in range carries the sealed bytes onward without being able
+ *       to read them. Proximity IS sufficient. Note the constraint that makes
+ *       this less of a win than it first appears: a blind carrier still has to be
+ *       running the app. At low adoption there are very few strangers-with-the-app
+ *       to route through, so v2's advantage is bounded by penetration, not by the
+ *       size of the crowd.
+ * ============================================================================
+ */
+
+function mulberry32(seed) {
+  return function () {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const SFM = {
+  tau: 0.7, A: 4.0, B: 0.32, bodyRadius: 0.24, cutoff: 2.0,
+  maxSpeed: 1.35, millSpeed: 0.25,
+};
+const STAGE_DEPTH = 3.0;
+
+function buildGrid(agents, cell, W, H) {
+  const cols = Math.max(1, Math.ceil(W / cell));
+  const rows = Math.max(1, Math.ceil(H / cell));
+  const cells = new Array(cols * rows);
+  for (let i = 0; i < cells.length; i++) cells[i] = [];
+  for (const a of agents) {
+    const cx = Math.min(cols - 1, Math.max(0, Math.floor(a.x / cell)));
+    const cy = Math.min(rows - 1, Math.max(0, Math.floor(a.y / cell)));
+    cells[cy * cols + cx].push(a);
+  }
+  return { cols, rows, cell, cells };
+}
+
+function nearby(grid, a, fn) {
+  const cx = Math.min(grid.cols - 1, Math.max(0, Math.floor(a.x / grid.cell)));
+  const cy = Math.min(grid.rows - 1, Math.max(0, Math.floor(a.y / grid.cell)));
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const nx = cx + dx, ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= grid.cols || ny >= grid.rows) continue;
+      const bucket = grid.cells[ny * grid.cols + nx];
+      for (let i = 0; i < bucket.length; i++) if (bucket[i] !== a) fn(bucket[i]);
+    }
+  }
+}
+
+/**
+ * Draw a translocal degree.
+ *
+ * "uniform" gives every user the same number of friends elsewhere, which is
+ * convenient and wrong: real social graphs are heavy-tailed, and under a heavy
+ * tail the mean user and the median user are different people. A handful of hubs
+ * can saturate a crowd while most users sit below the threshold — a distinction
+ * a regular graph cannot express, and the one that decides whether the feature
+ * works for *most people* or merely on average.
+ */
+function drawDegree(rng, mean, heavy) {
+  if (!heavy) return mean;
+  const alpha = 1.6;
+  const raw = Math.pow(Math.max(rng(), 1e-9), -1 / alpha) - 1;
+  const normalised = raw / (1 / (1 - 1 / alpha) - 1); // E[raw] for this alpha
+  return Math.min(40, Math.round(mean * normalised));
+}
+
+/**
+ * Groups arrive together and stand together, so a Contact edge is by default a
+ * SHORT edge. Generating the graph independently of position is the assumption
+ * that quietly decides the answer, so it is not made here.
+ *
+ * Only app users can hold a Contact edge — you cannot exchange keys with someone
+ * who does not have the app.
+ */
+function buildSociety(rng, agents, avgGroupSize, translocalMean, heavyTail, W, H) {
+  const n = agents.length;
+  const groups = [];
+  let idx = 0;
+  while (idx < n) {
+    const spread = Math.max(1, Math.round(avgGroupSize + (rng() - 0.5) * avgGroupSize));
+    const size = Math.min(spread, n - idx);
+    const members = [];
+    for (let k = 0; k < size; k++) members.push(idx++);
+    const keenness = rng();
+    groups.push({
+      id: groups.length,
+      members,
+      anchorX: 2 + rng() * (W - 4),
+      anchorY: STAGE_DEPTH + Math.pow(keenness, 1.8) * (H - STAGE_DEPTH - 2),
+    });
+  }
+
+  const contacts = Array.from({ length: n }, () => new Set());
+  const groupOf = new Array(n);
+  for (const g of groups) for (const m of g.members) groupOf[m] = g.id;
+
+  for (const g of groups) {
+    const users = g.members.filter((m) => agents[m].isUser);
+    for (const a of users) for (const b of users) if (a !== b) contacts[a].add(b);
+  }
+
+  const userIds = agents.filter((a) => a.isUser).map((a) => a.id);
+  for (const a of userIds) {
+    const k = drawDegree(rng, translocalMean, heavyTail);
+    for (let i = 0; i < k; i++) {
+      const b = userIds[Math.floor(rng() * userIds.length)];
+      if (b === undefined || b === a || groupOf[b] === groupOf[a]) continue;
+      contacts[a].add(b);
+      contacts[b].add(a);
+    }
+  }
+  return { groups, contacts, groupOf };
+}
+
+function createSim(config, seed) {
+  const rng = mulberry32(seed);
+  const n = config.agentCount;
+  const W = config.venueW;
+  const H = config.venueH;
+
+  // Adoption does not sprinkle evenly over a crowd. It spreads the way the ticket
+  // wallet spreads — one person shows three friends — so at low penetration the
+  // users in a room are a few whole groups, not scattered individuals. That topology
+  // is the thing that decides whether the relay has anything to relay to, and it is
+  // the opposite of what an independent per-person coin flip produces.
+  const groupAdopts = [];
+  const groupAdopterAt = (gi) => {
+    while (groupAdopts.length <= gi) groupAdopts.push(rng() < config.penetration);
+    return groupAdopts[gi];
+  };
+  const agents = [];
+  for (let i = 0; i < n; i++) {
+    agents.push({
+      id: i, x: 0, y: 0, vx: 0, vy: 0,
+      isUser: false,
+      groupId: 0, homeX: 0, homeY: 0, goalX: 0, goalY: 0, trip: null,
+      hasMessage: false, hopCount: null, receivedAt: null,
+      relays: 0, isAlice: false, isBob: false,
+      screen: "pocket", screenUntil: 0, pendingLook: null, ios: rng() < config.iosShare,
+      present: true, arrivesAt: 0,
+    });
+  }
+  // Groups have to exist before adoption can be correlated with them, so the society
+  // is built once with everyone provisionally a user, then adoption is assigned, then
+  // the Contact edges of non-users are dropped.
+  for (const a of agents) a.isUser = true;
+  const society = buildSociety(rng, agents, config.avgGroupSize, config.translocal,
+                               config.heavyTail, W, H);
+  for (const a of agents) {
+    const clustered = rng() < config.adoptionClustering;
+    a.isUser = clustered ? groupAdopterAt(society.groupOf[a.id]) : rng() < config.penetration;
+  }
+  // The sim conditions on Alice existing — she is the author, so she has the app by
+  // definition — and on there being someone to name Bob. At the adoption levels this
+  // app will actually see, that second condition is doing real work: it is a
+  // deliberately OPTIMISTIC assumption, and `aliceSaw` is the metric that shows how
+  // often even this stacked deck leaves her with nobody in radio range all night.
+  if (agents.filter((a) => a.isUser).length < 2) {
+    // Promote a whole GROUP, not two arbitrary strangers. Forcing two unrelated
+    // agents to be users manufactures an author with no Contacts in the room, which
+    // silently rigs every comparison against the Contact-only rule.
+    for (const m of society.groups[0].members) agents[m].isUser = true;
+    if (society.groups[0].members.length < 2) agents[n - 1].isUser = true;
+  }
+  for (const a of agents) {
+    if (a.isUser) continue;
+    for (const b of society.contacts[a.id]) society.contacts[b].delete(a.id);
+    society.contacts[a.id].clear();
+  }
+  // Doors. If the ticket wallet is the reason people installed this, then the moment
+  // it is on screen is the moment everyone is funnelling through one narrow door,
+  // shoulder to shoulder with strangers they will not stand near again all night —
+  // and phones are OUT, foregrounded, scanning a barcode. That is plausibly the
+  // richest link budget of the entire evening, and it happens before the crowd has
+  // sorted itself into the groups that the rest of this model is about.
+  const ingress = (config.ingressMinutes || 0) * 60;
+  const doorX = W / 2, doorY = H - 0.8;
+  for (const a of agents) {
+    const g = society.groups[society.groupOf[a.id]];
+    a.groupId = g.id;
+    a.homeX = g.anchorX; a.homeY = g.anchorY;
+    a.goalX = g.anchorX; a.goalY = g.anchorY;
+    if (ingress > 0) {
+      // A group walks in together, so arrival is drawn per group, not per person.
+      a.arrivesAt = (g.arrivesAt ??= rng() * ingress) + rng() * 20;
+      a.present = false;
+      a.x = doorX + (rng() - 0.5) * 2;
+      a.y = doorY;
+    } else {
+      a.x = Math.max(0.5, Math.min(W - 0.5, g.anchorX + (rng() - 0.5) * 2.5));
+      a.y = Math.max(STAGE_DEPTH + 0.5, Math.min(H - 0.5, g.anchorY + (rng() - 0.5) * 2.5));
+    }
+  }
+
+  const userList = agents.filter((a) => a.isUser);
+  const alice = userList[0];
+  alice.isAlice = true;
+  alice.hasMessage = true;
+  alice.hopCount = 0;
+  alice.receivedAt = 0;
+
+  let bob = userList[userList.length - 1], best = -1;
+  for (const a of userList) {
+    const d = Math.hypot(a.homeX - alice.homeX, a.homeY - alice.homeY);
+    if (d > best) { best = d; bob = a; }
+  }
+  bob.isBob = true;
+
+  return {
+    t: 0, W, H, agents, userList,
+    contacts: society.contacts, groups: society.groups,
+    alice, bob,
+    bleRange: config.bleRange,
+    backgroundDuty: config.backgroundDuty,
+    iosBackgroundDuty: config.iosBackgroundDuty,
+    ingressSeconds: (config.ingressMinutes || 0) * 60,
+    ticketScreenShare: config.ticketScreenShare,
+    songStarts: config.songStarts || [],
+    logOnSongStart: config.logOnSongStart,
+    _nextSong: 0,
+    tripsPerHour: config.tripsPerHour,
+    pitRadius: config.pitRadius,
+    rule: config.rule,
+    rng,
+    deliveryCurve: [{ t: 0, reached: 1 }],
+    aliceSaw: new Set(),        // any user in range, Contact or not
+    aliceSawContact: new Set(), // of those, the ones she could actually talk to under v1
+    sample: { neighbours: 0, contactNeighbours: 0 },
+    _sampleTick: 0,
+
+    step(dt) {
+      this.t += dt;
+      for (const a of this.agents) {
+        if (a.present || this.t < a.arrivesAt) continue;
+        a.present = true;
+        // Ticket on screen at the door.
+        if (a.isUser && this.rng() < this.ticketScreenShare) {
+          a.screen = "ticket";
+          a.screenUntil = this.t + 30 + this.rng() * 90;
+        }
+      }
+      const present = this.agents.filter((a) => a.present);
+      const grid = buildGrid(present, Math.max(SFM.cutoff, 1.5), this.W, this.H);
+      const pitCX = this.W / 2, pitCY = STAGE_DEPTH + this.pitRadius * 0.8;
+
+      for (const a of present) {
+        if (this.tripsPerHour > 0 && !a.trip && this.rng() < (this.tripsPerHour / 3600) * dt) {
+          a.trip = { phase: "out", until: this.t + 90 + this.rng() * 180 };
+          a.goalX = this.rng() < 0.5 ? 2 : this.W - 2;
+          a.goalY = this.H - 2 - this.rng() * 6;
+        }
+        if (a.trip) {
+          const atGoal = Math.hypot(a.x - a.goalX, a.y - a.goalY) < 1.5;
+          if (a.trip.phase === "out" && atGoal) a.trip.phase = "dwell";
+          if (a.trip.phase === "dwell" && this.t > a.trip.until) {
+            a.trip.phase = "back"; a.goalX = a.homeX; a.goalY = a.homeY;
+          }
+          if (a.trip.phase === "back" && atGoal) a.trip = null;
+        } else { a.goalX = a.homeX; a.goalY = a.homeY; }
+
+        const inPit = this.pitRadius > 0 && Math.hypot(a.x - pitCX, a.y - pitCY) < this.pitRadius;
+        const speedCap = (a.trip || inPit) ? SFM.maxSpeed : SFM.millSpeed;
+
+        let fx = 0, fy = 0;
+        if (inPit) {
+          const ang = this.rng() * Math.PI * 2;
+          fx += Math.cos(ang) * 6; fy += Math.sin(ang) * 6;
+          const rx = a.x - pitCX, ry = a.y - pitCY, r = Math.hypot(rx, ry) || 1;
+          fx += (-ry / r) * 2.5; fy += (rx / r) * 2.5;
+        } else {
+          const dxg = a.goalX - a.x, dyg = a.goalY - a.y;
+          const dist = Math.hypot(dxg, dyg) || 1;
+          const want = Math.min(dist, 1) * speedCap;
+          fx += ((dxg / dist) * want - a.vx) / SFM.tau;
+          fy += ((dyg / dist) * want - a.vy) / SFM.tau;
+          fx += (this.rng() - 0.5) * 0.6; fy += (this.rng() - 0.5) * 0.6;
+        }
+
+        nearby(grid, a, (b) => {
+          const dx = a.x - b.x, dy = a.y - b.y;
+          const d = Math.hypot(dx, dy);
+          if (d > SFM.cutoff || d === 0) return;
+          const mag = SFM.A * Math.exp((2 * SFM.bodyRadius - d) / SFM.B);
+          fx += (dx / d) * mag; fy += (dy / d) * mag;
+        });
+
+        const wall = (gap) => SFM.A * Math.exp((SFM.bodyRadius - gap) / SFM.B);
+        fx += wall(a.x); fx -= wall(this.W - a.x);
+        fy += wall(a.y - STAGE_DEPTH); fy -= wall(this.H - a.y);
+
+        a.vx += fx * dt; a.vy += fy * dt;
+        const sp = Math.hypot(a.vx, a.vy);
+        if (sp > speedCap) { a.vx = (a.vx / sp) * speedCap; a.vy = (a.vy / sp) * speedCap; }
+        a.vx *= 0.92; a.vy *= 0.92;
+        a.x = Math.max(0.3, Math.min(this.W - 0.3, a.x + a.vx * dt));
+        a.y = Math.max(STAGE_DEPTH + 0.3, Math.min(this.H - 0.3, a.y + a.vy * dt));
+      }
+
+      // ---- what each user is looking at ----
+      // Not decoration: ADR-0019's carve-out exists because a phone in a pocket is
+      // still a radio, but a *worse* one. Foreground gets full duty; backgrounded
+      // gets `backgroundDuty` of it, which is what decides whether a 4-second
+      // brush past a Contact in a crowd is long enough to complete a Pass.
+      // A new song is the app's whole reason to exist, so it is also the moment the
+      // crowd's radios come up together: people open the gig page to log what is
+      // playing. That synchronisation is the interesting part — a burst of
+      // simultaneous foreground is a burst of link budget, and it lands on a schedule
+      // the app already knows. Look is staggered over the following minute so the
+      // burst has a shape rather than a spike.
+      while (this._nextSong < this.songStarts.length &&
+             this.t >= this.songStarts[this._nextSong]) {
+        this._nextSong++;
+        for (const a of this.userList) {
+          if (this.rng() < this.logOnSongStart) a.pendingLook = this.t + this.rng() * 60;
+        }
+      }
+      for (const a of this.userList) {
+        if (a.pendingLook != null && this.t >= a.pendingLook) {
+          a.pendingLook = null;
+          a.screen = "gig";
+          a.screenUntil = this.t + 20 + this.rng() * 50;
+          continue;
+        }
+        if (this.t < a.screenUntil) continue;
+        const r = this.rng();
+        if (a.screen === "pocket") {
+          // People check their phone; song changes are when they check it most.
+          if (r < 0.35) { a.screen = "gig"; a.screenUntil = this.t + 15 + this.rng() * 40; }
+          else if (r < 0.45) { a.screen = "annotations"; a.screenUntil = this.t + 20 + this.rng() * 60; }
+          else if (r < 0.55) { a.screen = "elsewhere"; a.screenUntil = this.t + 30 + this.rng() * 90; }
+          else { a.screenUntil = this.t + 30 + this.rng() * 120; }
+        } else {
+          a.screen = "pocket"; a.screenUntil = this.t + 40 + this.rng() * 200;
+        }
+      }
+      // Platform matters more than anything else in this function. A backgrounded
+      // Android app keeps a usable, if throttled, radio. A backgrounded iOS app puts
+      // its service UUID in the advertisement's overflow area, where only a
+      // *foregrounded* iOS app scanning for that exact UUID can see it — so
+      // iOS-background to iOS-background is very nearly a dead link, and the product
+      // of the two duties reproduces that without a special case.
+      const dutyOf = (a) =>
+        !a.present ? 0
+        : (a.screen === "gig" || a.screen === "annotations" || a.screen === "ticket") ? 1
+        : a.ios ? this.iosBackgroundDuty : this.backgroundDuty;
+
+      // ---- propagation ----
+      const r2 = this.bleRange * this.bleRange;
+      const carriers = this.userList.filter((a) => a.hasMessage && a.present);
+
+      if (this.rule === "contact") {
+        // Only ever along a Contact edge, so walk the edges.
+        for (const a of carriers) {
+          for (const bid of this.contacts[a.id]) {
+            const b = this.agents[bid];
+            if (b.hasMessage) continue;
+            const dx = a.x - b.x, dy = a.y - b.y;
+            if (dx * dx + dy * dy > r2) continue;
+            if (this.rng() > dutyOf(a) * dutyOf(b) * dt) continue;
+            b.hasMessage = true; b.hopCount = a.hopCount + 1; b.receivedAt = this.t;
+            a.relays++;
+          }
+        }
+      } else {
+        // Blind relay: any app user in range carries it, Contact or not.
+        const ugrid = buildGrid(this.userList.filter((a) => a.present), Math.max(this.bleRange, 1), this.W, this.H);
+        for (const a of carriers) {
+          nearby(ugrid, a, (b) => {
+            if (b.hasMessage) return;
+            const dx = a.x - b.x, dy = a.y - b.y;
+            if (dx * dx + dy * dy > r2) return;
+            if (this.rng() > dutyOf(a) * dutyOf(b) * dt) return;
+            b.hasMessage = true; b.hopCount = a.hopCount + 1; b.receivedAt = this.t;
+            a.relays++;
+          });
+        }
+      }
+
+      // "Was there anybody to talk to at all" is a different question from "did the
+      // message spread", and at the adoption levels this app will really see it is
+      // the question that bites first.
+      for (const b of this.userList) {
+        if (b === this.alice || !b.present || !this.alice.present) continue;
+        const dx = this.alice.x - b.x, dy = this.alice.y - b.y;
+        if (dx * dx + dy * dy > r2) continue;
+        this.aliceSaw.add(b.id);
+        if (this.contacts[this.alice.id].has(b.id)) this.aliceSawContact.add(b.id);
+      }
+
+      this._present = present.length;
+      const reached = this.userList.reduce((c, a) => c + (a.hasMessage ? 1 : 0), 0);
+      const last = this.deliveryCurve[this.deliveryCurve.length - 1];
+      if (this.t - last.t > 5 || reached !== last.reached) {
+        this.deliveryCurve.push({ t: this.t, reached });
+      }
+
+      if (this._sampleTick++ % 12 === 0 && this.userList.length > 1) {
+        let neigh = 0, cneigh = 0;
+        const picks = Math.min(24, this.userList.length);
+        for (let s = 0; s < picks; s++) {
+          const a = this.userList[Math.floor(this.rng() * this.userList.length)];
+          for (const b of this.userList) {
+            if (a === b) continue;
+            const dx = a.x - b.x, dy = a.y - b.y;
+            if (dx * dx + dy * dy <= r2) {
+              neigh++;
+              if (this.contacts[a.id].has(b.id)) cneigh++;
+            }
+          }
+        }
+        this.sample.neighbours = neigh / picks;
+        this.sample.contactNeighbours = cneigh / picks;
+      }
+    },
+
+    stats() {
+      const reached = this.userList.filter((a) => a.hasMessage);
+      let maxHop = 0;
+      for (const a of reached) maxHop = Math.max(maxHop, a.hopCount);
+      const lat = reached.filter((a) => !a.isAlice).map((a) => a.receivedAt).sort((x, y) => x - y);
+      const q = (p) => (lat.length ? lat[Math.min(lat.length - 1, Math.floor(lat.length * p))] : null);
+      const totalRelays = this.userList.reduce((c, a) => c + a.relays, 0);
+      return {
+        t: this.t,
+        reached: reached.length,
+        users: this.userList.length,
+        crowd: this.agents.length,
+        density: this.agents.length / (this.W * (this.H - STAGE_DEPTH)),
+        bobReached: this.bob.hasMessage,
+        bobHop: this.bob.hopCount,
+        bobAt: this.bob.receivedAt,
+        maxHop,
+        medianLatency: q(0.5),
+        p90Latency: q(0.9),
+        relaysPerDevice: totalRelays / this.userList.length,
+        foreground: this.userList.filter((a) => a.present && a.screen !== "pocket" && a.screen !== "elsewhere").length,
+        present: this._present || 0,
+        iosShare: this.userList.filter((a) => a.ios).length / this.userList.length,
+        aliceSaw: this.aliceSaw.size,
+        aliceSawContact: this.aliceSawContact.size,
+        neighbours: this.sample.neighbours,
+        contactNeighbours: this.sample.contactNeighbours,
+      };
+    },
+  };
+}
+
+/* ============================================================================
+ * PAGE SHELL — throwaway wiring. Nothing below is worth lifting anywhere.
+ * ============================================================================
+ */
+
+const BANDS = [
+  [0.5, "free movement"], [1.0, "easy movement"], [2.0, "comfortable standing"],
+  [4.0, "dense — a normal gig floor"], [5.0, "very dense — at the safety limit"],
+  [Infinity, "crush risk — beyond guidance"],
+];
+function bandFor(d) { for (const [max, label] of BANDS) if (d < max) return label; }
+
+const SONGS = [
+  [0, "(doors — nobody on yet)"], [120, "Intro tape"], [300, "Karma Police"],
+  [560, "For a minute there I lost myself"], [820, "No Surprises"],
+  [1080, "Idioteque"], [1400, "Paranoid Android"], [1800, "(encore break)"],
+];
+function songAt(t) { let c = SONGS[0][1]; for (const [at, name] of SONGS) if (t >= at) c = name; return c; }
+
+const el = (id) => document.getElementById(id);
+const cv = el("c"), ctx = cv.getContext("2d");
+const cu = el("curve"), cuCtx = cu.getContext("2d");
+
+const state = {
+  agentCount: 250, penetration: 1.0, venueW: 30, bleRange: 8,
+  avgGroupSize: 3, translocal: 0, heavyTail: false,
+  tripsPerHour: 0, pitRadius: 0, rule: "contact",
+  adoptionClustering: 0.7, ingressMinutes: 15, ticketScreenShare: 0.8, backgroundDuty: 0.3, iosShare: 0.6, iosBackgroundDuty: 0.02, logOnSongStart: 0.25,
+  speed: 8, playing: false, sim: null, seed: 1,
+  edgeMode: "one", selected: null,
+};
+Object.defineProperty(state, "venueH", { get() { return this.venueW * (cv.height / cv.width); } });
+
+const sliders = {
+  agents: "agentCount", venue: "venueW", range: "bleRange", group: "avgGroupSize",
+  translocal: "translocal", trips: "tripsPerHour", pit: "pitRadius", speed: "speed",
+};
+const fmt = {
+  agentCount: (v) => v, venueW: () => state.venueW + " × " + state.venueH.toFixed(0),
+  bleRange: (v) => v, avgGroupSize: (v) => v, translocal: (v) => v,
+  tripsPerHour: (v) => (v === 0 ? "none" : v), pitRadius: (v) => (v === 0 ? "none" : v), speed: (v) => v,
+};
+
+function syncSliders() {
+  for (const [id, key] of Object.entries(sliders)) {
+    el(id).value = state[key];
+    el("v-" + id).textContent = fmt[key](state[key]);
+  }
+  el("duty").value = Math.round(state.backgroundDuty * 100);
+  el("v-duty").textContent = Math.round(state.backgroundDuty * 100) + "%";
+  el("ingress").value = state.ingressMinutes;
+  el("v-ingress").textContent = state.ingressMinutes === 0 ? "no doors phase" : state.ingressMinutes + " min";
+  el("ticket").value = Math.round(state.ticketScreenShare * 100);
+  el("v-ticket").textContent = Math.round(state.ticketScreenShare * 100) + "%";
+  el("cluster").value = Math.round(state.adoptionClustering * 100);
+  el("v-cluster").textContent = Math.round(state.adoptionClustering * 100) + "%";
+  el("log").value = Math.round(state.logOnSongStart * 100);
+  el("v-log").textContent = Math.round(state.logOnSongStart * 100) + "%";
+  el("ios").value = Math.round(state.iosShare * 100);
+  el("v-ios").textContent = Math.round(state.iosShare * 100) + "%";
+  el("iosduty").value = Math.round(state.iosBackgroundDuty * 100);
+  el("v-iosduty").textContent = Math.round(state.iosBackgroundDuty * 100) + "%";
+  for (const m of ["none", "one", "carriers", "all"]) {
+    el("edge-" + m).className = state.edgeMode === m ? "on" : "";
+  }
+  el("pen").value = Math.round(state.penetration * 100);
+  el("v-pen").textContent = Math.round(state.penetration * 100) + "%";
+  el("rule-contact").className = state.rule === "contact" ? "on" : "";
+  el("rule-blind").className = state.rule === "blind" ? "on" : "";
+  el("deg-uniform").className = state.heavyTail ? "" : "on";
+  el("deg-heavy").className = state.heavyTail ? "on" : "";
+  el("rule-note").textContent = state.rule === "contact"
+    ? "Today's rule. Proximity is necessary but never sufficient — the peer must also be a Contact."
+    : "Not built. Any app user in range carries sealed bytes onward. Still bounded by how many strangers have the app.";
+}
+for (const [id, key] of Object.entries(sliders)) {
+  el(id).addEventListener("input", (e) => { state[key] = Number(e.target.value); syncSliders(); reset(); });
+}
+el("pen").addEventListener("input", (e) => { state.penetration = Number(e.target.value) / 100; syncSliders(); reset(); });
+el("ingress").addEventListener("input", (e) => { state.ingressMinutes = Number(e.target.value); syncSliders(); reset(); });
+el("ticket").addEventListener("input", (e) => { state.ticketScreenShare = Number(e.target.value) / 100; syncSliders(); reset(); });
+el("cluster").addEventListener("input", (e) => { state.adoptionClustering = Number(e.target.value) / 100; syncSliders(); reset(); });
+el("log").addEventListener("input", (e) => { state.logOnSongStart = Number(e.target.value) / 100; syncSliders(); reset(); });
+el("ios").addEventListener("input", (e) => { state.iosShare = Number(e.target.value) / 100; syncSliders(); reset(); });
+el("iosduty").addEventListener("input", (e) => { state.iosBackgroundDuty = Number(e.target.value) / 100; syncSliders(); reset(); });
+el("duty").addEventListener("input", (e) => { state.backgroundDuty = Number(e.target.value) / 100; syncSliders(); reset(); });
+for (const m of ["none", "one", "carriers", "all"]) {
+  el("edge-" + m).addEventListener("click", () => { state.edgeMode = m; syncSliders(); render(); });
+}
+el("rule-contact").addEventListener("click", () => { state.rule = "contact"; syncSliders(); reset(); });
+el("rule-blind").addEventListener("click", () => { state.rule = "blind"; syncSliders(); reset(); });
+el("deg-uniform").addEventListener("click", () => { state.heavyTail = false; syncSliders(); reset(); });
+el("deg-heavy").addEventListener("click", () => { state.heavyTail = true; syncSliders(); reset(); });
+
+function reset() {
+  state.selected = null; state.seed++;
+  state.songStarts = SONGS.map(([at]) => at).filter((at) => at > 0);
+  state.sim = createSim(state, state.seed);
+  render();
+}
+
+const SCENARIOS = {
+  "friends-only": { agentCount: 250, penetration: 1.0,  venueW: 30, bleRange: 8, avgGroupSize: 3, translocal: 0, tripsPerHour: 0, pitRadius: 0 },
+  "translocal":   { agentCount: 250, penetration: 1.0,  venueW: 30, bleRange: 8, avgGroupSize: 3, translocal: 2, tripsPerHour: 0, pitRadius: 0 },
+  "realistic":    { agentCount: 600, penetration: 0.02, venueW: 30, bleRange: 8, avgGroupSize: 3, translocal: 2, tripsPerHour: 1, pitRadius: 0 },
+  "earlyish":     { agentCount: 600, penetration: 0.15, venueW: 30, bleRange: 8, avgGroupSize: 3, translocal: 2, tripsPerHour: 1, pitRadius: 0 },
+  "sparse":       { agentCount: 600, penetration: 0.005, venueW: 30, bleRange: 8, avgGroupSize: 3, translocal: 2, tripsPerHour: 1, pitRadius: 0 },
+  "pit":          { agentCount: 400, penetration: 0.3,  venueW: 30, bleRange: 8, avgGroupSize: 3, translocal: 1, tripsPerHour: 0.5, pitRadius: 8 },
+};
+document.querySelectorAll(".scenario").forEach((btn) => {
+  btn.addEventListener("click", () => { Object.assign(state, SCENARIOS[btn.dataset.scenario]); syncSliders(); reset(); });
+});
+
+cv.addEventListener("click", (ev) => {
+  const r = cv.getBoundingClientRect();
+  const scale = state.sim.W / cv.width;
+  const mx = (ev.clientX - r.left) * (cv.width / r.width) * scale;
+  const my = (ev.clientY - r.top) * (cv.height / r.height) * scale;
+  let best = null, bd = 2.0;
+  for (const a of state.sim.userList) {
+    const d = Math.hypot(a.x - mx, a.y - my);
+    if (d < bd) { bd = d; best = a; }
+  }
+  state.selected = best ? best.id : null;
+  render();
+});
+
+el("reset").addEventListener("click", reset);
+el("step").addEventListener("click", () => { for (let i = 0; i < 60; i++) state.sim.step(0.5); render(); });
+el("play").addEventListener("click", () => {
+  state.playing = !state.playing;
+  el("play").textContent = state.playing ? "Pause" : "Play";
+});
+
+function draw() {
+  const sim = state.sim;
+  const s = cv.width / sim.W;
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.fillStyle = "#20242f";
+  ctx.fillRect(0, 0, cv.width, STAGE_DEPTH * s);
+  ctx.fillStyle = "#8b8fa3";
+  ctx.font = "11px sans-serif";
+  ctx.fillText("STAGE", 10, Math.min(18, STAGE_DEPTH * s - 4));
+
+  if (sim.pitRadius > 0) {
+    ctx.beginPath();
+    ctx.arc(cv.width / 2, (STAGE_DEPTH + sim.pitRadius * 0.8) * s, sim.pitRadius * s, 0, Math.PI * 2);
+    ctx.strokeStyle = "#ff7a4533"; ctx.stroke();
+  }
+
+  // Contact edges. Drawn under the dots so the crowd stays readable.
+  const sel = state.selected == null ? null : sim.agents[state.selected];
+  let sources = [];
+  if (state.edgeMode === "one" && sel) sources = [sel];
+  else if (state.edgeMode === "carriers") sources = sim.userList.filter((a) => a.hasMessage);
+  else if (state.edgeMode === "all") sources = sim.userList;
+  const r2draw = sim.bleRange * sim.bleRange;
+  ctx.lineWidth = 1;
+  for (const a of sources) {
+    for (const bid of sim.contacts[a.id]) {
+      if (bid < a.id && state.edgeMode !== "one") continue; // draw each edge once
+      const b = sim.agents[bid];
+      const live = (a.x - b.x) ** 2 + (a.y - b.y) ** 2 <= r2draw;
+      ctx.strokeStyle = live ? "#52c07a99" : (state.edgeMode === "all" ? "#ffffff10" : "#ffffff22");
+      ctx.beginPath();
+      ctx.moveTo(a.x * s, a.y * s); ctx.lineTo(b.x * s, b.y * s);
+      ctx.stroke();
+    }
+  }
+
+  const dotR = Math.max(1.4, Math.min(4, s * 0.22));
+  // Non-users first, so the app users read on top of the crowd.
+  for (const a of sim.agents) {
+    if (a.isUser || !a.present) continue;
+    ctx.beginPath(); ctx.arc(a.x * s, a.y * s, dotR * 0.8, 0, Math.PI * 2);
+    ctx.fillStyle = "#30343f"; ctx.fill();
+  }
+  for (const a of sim.userList) {
+    if (!a.present) continue;
+    const rr = a.isAlice || a.isBob ? dotR + 2 : dotR;
+    ctx.beginPath();
+    if (a.ios) ctx.rect(a.x * s - rr, a.y * s - rr, rr * 2, rr * 2);
+    else ctx.arc(a.x * s, a.y * s, rr, 0, Math.PI * 2);
+    ctx.fillStyle = a.isAlice ? "#ff7a45" : a.isBob ? (a.hasMessage ? "#7ec8ff" : "#4aa3ff")
+                  : a.hasMessage ? "#52c07a" : "#5b6071";
+    ctx.fill();
+    if (a.screen !== "pocket") {
+      ctx.beginPath();
+      ctx.arc(a.x * s, a.y * s, dotR + 2.5, 0, Math.PI * 2);
+      ctx.strokeStyle = a.screen === "elsewhere" ? "#ffffff33" : "#ffffffaa";
+      ctx.lineWidth = a.screen === "elsewhere" ? 1 : 1.8;
+      ctx.stroke();
+    }
+    if (state.selected === a.id) {
+      ctx.beginPath();
+      ctx.arc(a.x * s, a.y * s, dotR + 6, 0, Math.PI * 2);
+      ctx.strokeStyle = "#ff7a45"; ctx.lineWidth = 2; ctx.stroke();
+    }
+  }
+}
+
+function drawCurve() {
+  const sim = state.sim;
+  cuCtx.clearRect(0, 0, cu.width, cu.height);
+  const tMax = Math.max(600, sim.t);
+  cuCtx.beginPath();
+  cuCtx.moveTo(0, cu.height);
+  for (const p of sim.deliveryCurve) {
+    cuCtx.lineTo((p.t / tMax) * cu.width, cu.height - (p.reached / sim.userList.length) * (cu.height - 6));
+  }
+  cuCtx.strokeStyle = "#52c07a"; cuCtx.lineWidth = 1.5; cuCtx.stroke();
+  if (sim.bob.hasMessage) {
+    const x = (sim.bob.receivedAt / tMax) * cu.width;
+    cuCtx.beginPath(); cuCtx.moveTo(x, 0); cuCtx.lineTo(x, cu.height);
+    cuCtx.strokeStyle = "#4aa3ff"; cuCtx.stroke();
+  }
+}
+
+const mmss = (s) => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
+
+function render() {
+  draw(); drawCurve();
+  const s = state.sim.stats();
+  el("s-clock").textContent = mmss(s.t);
+  el("s-density").textContent = s.density.toFixed(2);
+  el("density-note").textContent = bandFor(s.density);
+  el("s-users").textContent = s.users;
+  el("s-reached").textContent = s.reached;
+  el("s-total").textContent = s.users;
+  el("s-pct").textContent = ((s.reached / s.users) * 100).toFixed(0);
+  el("s-median").textContent = s.medianLatency == null ? "–" : mmss(s.medianLatency);
+  el("s-bob").textContent = s.bobReached ? "hop " + s.bobHop + " at " + mmss(s.bobAt) : "not yet";
+  el("s-hops").textContent = s.reached > 1 ? s.maxHop : "–";
+  el("s-relays").textContent = s.relaysPerDevice.toFixed(1);
+  el("s-neigh").textContent = s.neighbours.toFixed(0);
+  el("s-cneigh").textContent = s.contactNeighbours.toFixed(1);
+  const sel = state.selected == null ? null : state.sim.agents[state.selected];
+  if (!sel) {
+    el("sel-note").textContent = "Click anyone on the floor to see their graph and their screen.";
+  } else {
+    const edges = [...state.sim.contacts[sel.id]];
+    const inRange = edges.filter((b) => {
+      const o = state.sim.agents[b];
+      return (sel.x - o.x) ** 2 + (sel.y - o.y) ** 2 <= state.sim.bleRange ** 2;
+    }).length;
+    const screenLabel = { pocket: "phone in pocket", gig: "gig page open",
+      annotations: "song annotations open", ticket: "ticket wallet open",
+      elsewhere: "some other app" }[sel.screen];
+    el("sel-note").innerHTML =
+      "<b>" + (sel.isAlice ? "Alice" : sel.isBob ? "Bob" : "user #" + sel.id) + "</b> (" +
+      (sel.ios ? "iPhone" : "Android") + ") — " +
+      edges.length + " Contacts, " + inRange + " in range now. " + screenLabel + ". " +
+      (sel.hasMessage ? "Has the check-in (hop " + sel.hopCount + ", " + mmss(sel.receivedAt) + ")."
+                      : "Has not heard.");
+  }
+  el("s-present").textContent = s.present;
+  el("s-fg").textContent = s.foreground;
+  el("s-ios").textContent = (s.iosShare * 100).toFixed(0);
+  el("s-saw").textContent = s.aliceSaw;
+  el("s-sawc").textContent = s.aliceSawContact;
+  el("stage-line").innerHTML = "Now playing: <b>" + songAt(s.t) + "</b>";
+}
+
+function loop() {
+  if (state.playing) {
+    const steps = Math.round(state.speed / 0.5);
+    for (let i = 0; i < steps; i++) state.sim.step(0.5);
+  }
+  render();
+  requestAnimationFrame(loop);
+}
+
+syncSliders(); reset(); requestAnimationFrame(loop);
+</script>
+</body>
+</html>
