@@ -284,6 +284,7 @@ fun AppNavigation(viewModel: AppViewModel) {
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
                 onDone = { navController.popBackStack() },
+                onOpenSettings = { navController.navigate("settings") },
             )
         }
         composable("event") {
@@ -306,6 +307,7 @@ fun AppNavigation(viewModel: AppViewModel) {
                     viewModel = viewModel,
                     onBack = { navController.popBackStack() },
                     onConvert = { navController.navigate("confirm") },
+                    onOpenSettings = { navController.navigate("settings") },
                 )
             }
         }
@@ -321,6 +323,7 @@ fun AppNavigation(viewModel: AppViewModel) {
             FriendsScreen(
                 viewModel = viewModel,
                 onOpenShared = { navController.navigate("setlists") },
+                onOpenSettings = { navController.navigate("settings") },
                 onBack = { navController.popBackStack() },
             )
         }

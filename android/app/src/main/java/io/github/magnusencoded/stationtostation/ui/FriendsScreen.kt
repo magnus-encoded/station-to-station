@@ -46,6 +46,7 @@ import kotlinx.coroutines.launch
 fun FriendsScreen(
     viewModel: AppViewModel,
     onOpenShared: () -> Unit,
+    onOpenSettings: () -> Unit,
     onBack: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -57,7 +58,7 @@ fun FriendsScreen(
 
     LaunchedEffect(state.error) {
         state.error?.let {
-            snackbarHostState.showSnackbar(it)
+            snackbarHostState.showAppError(it, state.errorKind, onOpenSettings)
             viewModel.consumeError()
         }
     }

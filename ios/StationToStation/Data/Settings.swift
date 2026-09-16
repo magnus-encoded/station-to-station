@@ -14,6 +14,7 @@ final class Settings {
 
     private enum Key {
         static let setlistFmApiKey = "setlistfm_api_key"
+        static let setlistFmSharedQuotaSpentAt = "setlistfm_shared_quota_spent_at"
         static let clashfinderUser = "clashfinder_user"
         static let clashfinderPrivateKey = "clashfinder_private_key"
         static let spotifyClientId = "spotify_client_id"
@@ -38,8 +39,52 @@ final class Settings {
     var hasBundledSetlistFmKey: Bool { Config.bundledSetlistFmApiKey != nil }
     var hasBundledSpotifyClientId: Bool { Config.bundledSpotifyClientId != nil }
 
+    /// The key to send, and whether it is the bundled one everyone shares.
+    ///
+    /// The same precedence as `setlistFmApiKeyValue` — a saved key wins, the bundled key
+    /// is the fallback — said in the one shape the client can act on (#457). A bare
+    /// string cannot tell a spent shared quota from a spent personal one.
+    var setlistFmKey: SetlistFmKey? {
+        if let mine = setlistFmApiKey { return SetlistFmKey(key: mine, shared: false) }
+        guard let bundled = Config.bundledSetlistFmApiKey else { return nil }
+        return SetlistFmKey(key: bundled, shared: true)
+    }
+
+    /// When the shared setlist.fm key was last refused as rate-limited, or nil.
+    ///
+    /// Stored rather than held in memory so that the app reopening does not go straight
+    /// back to a key that cannot answer. `sharedQuotaSpent` decides what it means; this
+    /// only remembers it.
+    var setlistFmSharedQuotaSpentAt: TimeInterval? {
+        let stored = store.double(forKey: Key.setlistFmSharedQuotaSpentAt)
+        return stored == 0 ? nil : stored
+    }
+
+    func recordSharedQuotaSpent(at instant: TimeInterval) {
+        store.set(instant, forKey: Key.setlistFmSharedQuotaSpentAt)
+    }
+
+    /// Whether the shared key is believed spent right now — what Settings leads with.
+    ///
+    /// False whenever the request would go out on a key of the user's own: the nudge is
+    /// advice to get one, and giving it to someone who has is nonsense.
+    var setlistFmSharedQuotaSpentNow: Bool {
+        setlistFmKey?.shared == true
+            && sharedQuotaSpent(spentAt: setlistFmSharedQuotaSpentAt,
+                                now: Date().timeIntervalSince1970)
+    }
+
+    /// The user's own key, and with it the end of the shared quota's memory.
+    ///
+    /// Saving a key of your own is the way out of the nudge, so the reward has to be
+    /// immediate: the memory is what would otherwise keep refusing requests without
+    /// sending them, on a key that has its own limit and has spent none of it. A blank
+    /// value is a key being cleared, which falls back to the bundled key and so back to
+    /// whatever the shared state is.
     func saveSetlistFmApiKey(_ v: String) {
-        store.set(v.trimmingCharacters(in: .whitespaces), forKey: Key.setlistFmApiKey)
+        let key = v.trimmingCharacters(in: .whitespaces)
+        store.set(key, forKey: Key.setlistFmApiKey)
+        if !key.isEmpty { store.removeObject(forKey: Key.setlistFmSharedQuotaSpentAt) }
     }
     func saveSpotifyClientId(_ v: String) {
         store.set(v.trimmingCharacters(in: .whitespaces), forKey: Key.spotifyClientId)

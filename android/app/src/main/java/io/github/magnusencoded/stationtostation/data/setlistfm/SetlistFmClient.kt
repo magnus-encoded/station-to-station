@@ -14,21 +14,41 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-class SetlistFmClient(private val apiKeyProvider: suspend () -> String?) {
+/**
+ * setlist.fm's read-only REST API, plus the two web pages a **Festival** identity comes
+ * off.
+ *
+ * The seams are the transport and the key source: production wires OkHttp and the
+ * settings repository, tests wire fakes and assert what this returns and throws rather
+ * than how the retry loop is written.
+ */
+class SetlistFmClient(
+    private val keySource: suspend () -> SetlistFmKey?,
+    /** When the shared quota was last found spent, or null. See [sharedQuotaSpent]. */
+    private val sharedQuotaSpentAt: suspend () -> Long? = { null },
+    /** Records that the shared quota is spent, as of the given instant. */
+    private val recordSharedQuotaSpent: suspend (Long) -> Unit = {},
+    private val now: () -> Long = System::currentTimeMillis,
+    private val transport: suspend (url: String, apiKey: String) -> SetlistFmResponse =
+        ::okHttpGet,
+    /** Injectable so tests wait for nothing; production sleeps for real. */
+    private val sleep: suspend (Long) -> Unit = { delay(it) },
+) {
 
-    private val http = OkHttpClient()
     private val json = Json { ignoreUnknownKeys = true }
 
-    // Retry 5xx with exponential backoff, fail fast on everything else — 429
-    // included. A 429 is not transient trouble the way a 502 is: it says the
-    // quota is already spent, and the next two attempts spend two more units of
-    // it to arrive at the same answer. With every tester on one bundled key,
-    // that turns a queue into a stampede.
+    // 429 is retried exactly once, about a second later, and then given up on.
     //
-    // ponytail: one bundled key, 1440 requests/day, shared by every tester —
-    // that ceiling is the real problem and not retrying merely stops us making
-    // it worse. The fix is a key per user (Settings already takes one) or a
-    // proxy holding our key and rationing per install.
+    // setlist.fm does not say in a 429 which of its two limits was hit — 16 requests a
+    // second, or 50,000 a day, both shared by every install on the bundled key. The
+    // single retry is what tells them apart: a burst (paging through a first import)
+    // clears within a second, a spent day does not. Three retries would spend three
+    // units of an already-spent quota to reach the same answer, and failing at once
+    // would nag a tester about a burst that sorts itself out.
+    //
+    // ponytail: the bundled key is still one key for every tester. The nudge moves load
+    // off it; the fix is a key per user (Settings takes one) or a proxy holding ours and
+    // rationing per install.
     private suspend fun get(
         path: String,
         params: Map<String, String?>,
@@ -38,41 +58,49 @@ class SetlistFmClient(private val apiKeyProvider: suspend () -> String?) {
         // rather than "no such user".
         notFoundIsEmpty: Boolean = false,
     ): String {
-        val apiKey = apiKeyProvider()
+        val key = keySource()
             ?: throw IOException("setlist.fm API key is not configured. Set it in Settings.")
+        // Refusing here spends nothing. While the shared quota is known to be spent,
+        // every install would otherwise keep draining a key that cannot answer.
+        if (key.shared && sharedQuotaSpent(sharedQuotaSpentAt(), now())) {
+            throw SetlistFmRateLimited(sharedKey = true)
+        }
         val urlBuilder = "https://api.setlist.fm/rest/1.0/$path".toHttpUrl().newBuilder()
         for ((k, v) in params) {
             if (v != null) urlBuilder.addQueryParameter(k, v)
         }
-        val request = Request.Builder()
-            .url(urlBuilder.build())
-            .header("x-api-key", apiKey)
-            .header("Accept", "application/json")
-            .build()
+        val url = urlBuilder.build().toString()
 
+        // The two limits are counted apart: 5xx gets the old three attempts with a
+        // growing backoff, 429 gets exactly one retry, and neither spends the other's
+        // budget.
         var backoffMs = 1000L
-        val maxAttempts = 3
-        for (attempt in 1..maxAttempts) {
-            val result = withContext(Dispatchers.IO) {
-                http.newCall(request).execute().use { resp ->
-                    when {
-                        resp.isSuccessful -> resp.body?.string() ?: ""
-                        resp.code >= 500 -> null
-                        resp.code == 429 -> throw IOException(
-                            "setlist.fm's request limit for today has been reached. " +
-                                "Nothing is wrong — try again later."
-                        )
-                        resp.code == 404 && notFoundIsEmpty -> """{"total":0}"""
-                        resp.code == 404 -> throw IOException("Not found (404). Check the name/ID and try again.")
-                        resp.code == 403 -> throw IOException("setlist.fm rejected the API key (403).")
-                        else -> throw IOException("setlist.fm error ${resp.code}")
+        var serverAttempts = 0
+        var rateLimitedOnce = false
+        while (true) {
+            val resp = transport(url, key.key)
+            when {
+                resp.status in 200..299 -> return resp.body
+                resp.status == 429 -> {
+                    if (rateLimitedOnce) {
+                        if (key.shared) recordSharedQuotaSpent(now())
+                        throw SetlistFmRateLimited(sharedKey = key.shared)
                     }
+                    rateLimitedOnce = true
+                    sleep(RATE_LIMIT_RETRY_MS)
                 }
+                resp.status >= 500 -> {
+                    serverAttempts++
+                    if (serverAttempts >= MAX_SERVER_ATTEMPTS) break
+                    sleep(backoffMs)
+                    backoffMs *= 2
+                }
+                resp.status == 404 && notFoundIsEmpty -> return """{"total":0}"""
+                resp.status == 404 ->
+                    throw IOException("Not found (404). Check the name/ID and try again.")
+                resp.status == 403 -> throw IOException("setlist.fm rejected the API key (403).")
+                else -> throw IOException("setlist.fm error ${resp.status}")
             }
-            if (result != null) return result
-            if (attempt == maxAttempts) break
-            delay(backoffMs)
-            backoffMs *= 2
         }
         throw IOException("setlist.fm is unavailable. Try again in a moment.")
     }
@@ -136,11 +164,35 @@ class SetlistFmClient(private val apiKeyProvider: suspend () -> String?) {
     /** One page, as text. Null on anything at all going wrong — see [festivalAt]. */
     private fun html(url: String): String? = runCatching {
         val request = Request.Builder().url(url).header("Accept", "text/html").build()
-        http.newCall(request).execute().use { resp ->
+        sharedHttp.newCall(request).execute().use { resp ->
             if (resp.isSuccessful) resp.body?.string() else null
         }
     }.getOrNull()
+
+    private companion object {
+        /** About a second — long enough for a per-second burst to have passed. */
+        const val RATE_LIMIT_RETRY_MS = 1000L
+
+        /** Unchanged from before #457: 5xx is ridden out, three tries and a backoff. */
+        const val MAX_SERVER_ATTEMPTS = 3
+    }
 }
+
+/** The one OkHttp client the app's setlist.fm traffic shares. */
+private val sharedHttp = OkHttpClient()
+
+/** The production transport: one GET, its status and its body. */
+private suspend fun okHttpGet(url: String, apiKey: String): SetlistFmResponse =
+    withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url(url)
+            .header("x-api-key", apiKey)
+            .header("Accept", "application/json")
+            .build()
+        sharedHttp.newCall(request).execute().use { resp ->
+            SetlistFmResponse(resp.code, resp.body?.string() ?: "")
+        }
+    }
 
 /**
  * A **Festival** as setlist.fm's pages give it up, every field independently nullable.
