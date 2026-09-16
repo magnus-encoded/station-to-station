@@ -307,7 +307,11 @@ func passRelay(_ pass: PublicGossipPass) -> String? {
 /// Both one-hop kinds are governed here for the same reason: the receiver admits a `request`
 /// or a `receipt` only when the **Pass** proves its author. A receipt whose turn this is not
 /// is not lost — it waits for a **Pass** signed as the relay, as another device's request does.
-func passBatch(_ batch: [GossipEnvelope], request: GossipEnvelope?, signer: String = "") -> [GossipEnvelope] {
+///
+/// `signer` has no default on purpose. An empty signer matches no author, so a defaulted call
+/// silently drops every receipt in the batch — a whole feature turned off by an argument nobody
+/// typed. Requiring it means a caller has to say which key the **Pass** is signed with.
+func passBatch(_ batch: [GossipEnvelope], request: GossipEnvelope?, signer: String) -> [GossipEnvelope] {
     batch.filter { envelope in
         switch envelope.kind {
         case "request": return request.map { envelope.author == $0.author } ?? false

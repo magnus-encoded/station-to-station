@@ -350,8 +350,13 @@ fun passRelay(pass: PublicGossipPass): String? =
  * or a `receipt` only when the **Pass** proves its author, so anything else this device is
  * carrying would simply be refused at the other end. A receipt whose turn this is not is not
  * lost — it waits for a **Pass** signed as the relay, exactly as another device's request does.
+ *
+ * [signer] has no default on purpose. An empty signer matches no author, so a defaulted call
+ * silently drops every receipt in the batch — a whole feature turned off by an argument nobody
+ * typed. Making it required means a caller has to say which key the **Pass** is signed with,
+ * which is the one thing this function cannot guess.
  */
-fun passBatch(batch: List<GossipEnvelope>, request: GossipEnvelope?, signer: String = ""): List<GossipEnvelope> =
+fun passBatch(batch: List<GossipEnvelope>, request: GossipEnvelope?, signer: String): List<GossipEnvelope> =
     batch.filter { envelope -> when (envelope.kind) {
         "request" -> request != null && envelope.author == request.author
         "receipt" -> envelope.author == signer
