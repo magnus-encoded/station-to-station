@@ -96,9 +96,9 @@ final class HandoverPlanTests: XCTestCase {
     /// A **Log** typed at a gig must not vanish because the other phone had none.
     func testBothLogsSurviveAndStayOpen() {
         var mine = cache(gigs: [gig("g1", setlistId: "sl-1")])
-        mine.gigLogs = ["g1": StoredLog(songs: ["Amber Line"], closed: true)]
+        mine.gigLogs = ["g1": StoredLog(songs: ["Amber Line"], closed: true, enteredAt: [10])]
         var theirs = cache(gigs: [gig("g1", setlistId: "sl-1")])
-        theirs.gigLogs = ["g1": StoredLog(songs: ["Amber Line", "Second Sun"], closed: false)]
+        theirs.gigLogs = ["g1": StoredLog(songs: ["Amber Line", "Second Sun"], closed: false, enteredAt: [10, 20])]
 
         let plan = handoverPlan(mine: mine, offer: offer(theirs), allow: all, verified: true)
 

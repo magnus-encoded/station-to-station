@@ -194,7 +194,7 @@ data class StoredLog(
      * which reads as "nothing was ever replaced" — which is exactly true.
      *
      * Parallel lists only stay parallel if one place keeps them so. That place is the
-     * five functions below; nothing else may edit [songs] directly.
+     * functions below; nothing else may edit [songs] directly.
      */
     val remembered: List<String> = emptyList(),
     /**
@@ -214,6 +214,11 @@ data class StoredLog(
      * entry — never backfilled, never guessed.
      */
     val enteredAt: List<Long> = emptyList(),
+    /** Explicit set completion; edits preserve it and explicit reopening clears it. */
+    val completedAt: Long? = null,
+    /** Stable author-local line numbers; removing an entry must not renumber its neighbours. */
+    val lineNumbers: List<Int> = emptyList(),
+    val nextLineNumber: Int = 0,
 ) {
     /** Songs actually named. A **Gap** is in the record but is not a title. */
     fun named(): List<String> = songs.filter { it.isNotBlank() }
@@ -221,6 +226,12 @@ data class StoredLog(
 
     /** The words originally written at [i], or null where the entry is as typed. */
     fun rememberedAt(i: Int): String? = remembered.getOrNull(i)?.takeIf { it.isNotBlank() }
+
+    /** Only an explicit reopen clears the previous completion's grace period. */
+    fun completing(closed: Boolean, now: Long = System.currentTimeMillis()): StoredLog =
+        copy(closed = closed, completedAt = if (closed) completedAt ?: now else null)
+
+    fun lineNumberAt(i: Int): Int = lineNumbers.getOrNull(i) ?: i
 
     /** When entry [i] was typed, or null where no timestamp was ever recorded. */
     fun enteredAtOrNull(i: Int): Long? = enteredAt.getOrNull(i)?.takeIf { it != 0L }
@@ -230,6 +241,8 @@ data class StoredLog(
         songs = songs + song,
         remembered = aligned() + "",
         enteredAt = alignedTimestamps() + now,
+        lineNumbers = songs.indices.map(::lineNumberAt) + maxOf(nextLineNumber, (songs.indices.maxOfOrNull(::lineNumberAt) ?: -1) + 1),
+        nextLineNumber = maxOf(nextLineNumber, (songs.indices.maxOfOrNull(::lineNumberAt) ?: -1) + 1) + 1,
     )
 
     /** One entry gone, and the words behind it with it. */
@@ -237,6 +250,8 @@ data class StoredLog(
         songs = songs.filterIndexed { j, _ -> j != i },
         remembered = aligned().filterIndexed { j, _ -> j != i },
         enteredAt = alignedTimestamps().filterIndexed { j, _ -> j != i },
+        lineNumbers = songs.indices.map(::lineNumberAt).filterIndexed { j, _ -> j != i },
+        nextLineNumber = maxOf(nextLineNumber, (songs.indices.maxOfOrNull(::lineNumberAt) ?: -1) + 1),
     )
 
     /**
@@ -277,12 +292,13 @@ data class StoredLog(
      *
      * The two are aligned as ordered sequences (longest common subsequence): entries
      * match when title and [remembered] are equal and their [enteredAt] is equal, known
-     * or unknown alike. A matched entry appears once, so absorbing a Log already
-     * absorbed — a repeated handover — changes nothing. Every unmatched entry from
-     * either side is kept, in its own order: between two matches, this Log's first, then
-     * [other]'s; and where every entry knows when it was typed, the whole result is
-     * ordered by that time (a tie keeps the earlier position). [closed] is left to the
-     * caller.
+     * or unknown alike. A matched entry appears once, under this Log's line number, so
+     * absorbing a Log already absorbed — a repeated handover — changes nothing. Every
+     * unmatched entry from either side is kept, in its own order: between two matches,
+     * this Log's first, then [other]'s; and where every entry knows when it was typed,
+     * the whole result is ordered by that time (a tie keeps the earlier position).
+     * Unmatched entries of [other] get fresh line numbers, since its own belonged to a
+     * **Gig** that no longer exists and would collide. Completion is left to the caller.
      */
     fun absorbing(other: StoredLog): StoredLog {
         data class Entry(val song: String, val line: String, val at: Long)
@@ -294,22 +310,25 @@ data class StoredLog(
         for (a in mine.indices.reversed()) for (b in theirs.indices.reversed()) {
             lcs[a][b] = if (mine[a] == theirs[b]) lcs[a + 1][b + 1] + 1 else maxOf(lcs[a + 1][b], lcs[a][b + 1])
         }
-        if (lcs[0][0] == theirs.size) return this
-        val merged = mutableListOf<Entry>()
+        val merged = mutableListOf<Pair<Entry, Int?>>()
         var a = 0
         var b = 0
         while (a < mine.size || b < theirs.size) {
             when {
-                a < mine.size && b < theirs.size && mine[a] == theirs[b] -> { merged += mine[a]; a++; b++ }
-                b == theirs.size || (a < mine.size && lcs[a + 1][b] >= lcs[a][b + 1]) -> { merged += mine[a]; a++ }
-                else -> { merged += theirs[b]; b++ }
+                a < mine.size && b < theirs.size && mine[a] == theirs[b] -> { merged += mine[a] to lineNumberAt(a); a++; b++ }
+                b == theirs.size || (a < mine.size && lcs[a + 1][b] >= lcs[a][b + 1]) -> { merged += mine[a] to lineNumberAt(a); a++ }
+                else -> { merged += theirs[b] to null; b++ }
             }
         }
-        val ordered = if (merged.all { it.at != 0L }) merged.sortedBy { it.at } else merged
+        if (merged.all { it.second != null }) return this
+        val ordered = if (merged.all { it.first.at != 0L }) merged.sortedBy { it.first.at } else merged
+        var next = maxOf(nextLineNumber, (songs.indices.maxOfOrNull(::lineNumberAt) ?: -1) + 1)
         return copy(
-            songs = ordered.map { it.song },
-            remembered = ordered.map { it.line },
-            enteredAt = ordered.map { it.at },
+            songs = ordered.map { it.first.song },
+            remembered = ordered.map { it.first.line },
+            enteredAt = ordered.map { it.first.at },
+            lineNumbers = ordered.map { it.second ?: next++ },
+            nextLineNumber = next,
         )
     }
 

@@ -92,17 +92,36 @@ struct GigView: View {
                         // says so — and neither record is changed by the other,
                         // which is still the rule: this decides reading order and
                         // nothing else.
+                        let publicState = model.state.publicGossip
+                        let received = publicState.project(gigIds: [show.id]).filter { !publicState.localAuthors.contains($0.author) }
+                        let arrivals = Set(publicState.arrivals(gigIds: [show.id]).compactMap { fact in
+                            model.state.friends.first { $0.publicKey != nil && $0.publicKey == publicState.recognition[fact.author] }?.name
+                        })
+                        if !arrivals.isEmpty {
+                            Text(arrivals.sorted().joined(separator: ", ") + " · checked in")
+                                .font(.system(size: 12)).foregroundStyle(muted).padding(.horizontal, 24)
+                        }
                         let log = model.state.gigLog
                         let woven = weaveSetlist(published: rows.map(publishedTitle),
                                                  logged: log.songs)
-                        if woven.isEmpty {
+                        let gossipRows = weaveGossip(base: woven.map { line in
+                            line.logged.map { log.songs[$0] } ?? line.published.flatMap { publishedTitle(rows[$0]) }
+                        }, facts: received)
+                        if gossipRows.isEmpty {
                             Text(emptySetLine)
                                 .font(.system(size: 13)).foregroundStyle(muted)
                                 .padding(.horizontal, 24).padding(.top, 8)
                         } else {
-                            ForEach(Array(woven.enumerated()), id: \.offset) { _, line in
-                                wovenRow(line, rows: rows, log: log, setlist: show,
-                                         canLog: canLog(show))
+                            ForEach(Array(gossipRows.enumerated()), id: \.offset) { _, row in
+                                ForEach(row.facts, id: \.id) { fact in
+                                    gossipAttribution(fact)
+                                }
+                                if let base = row.base {
+                                    wovenRow(woven[base], rows: rows, log: log, setlist: show, canLog: canLog(show))
+                                } else {
+                                    Text(row.text?.isEmpty == false ? row.text! : "a song they couldn't name")
+                                        .padding(.horizontal, 24).padding(.vertical, 8)
+                                }
                             }
                         }
                         // My own Log (#169), under the set and never taken away — it
@@ -327,7 +346,9 @@ struct GigView: View {
             // inside — so the checked-in line replaces the QR rather than sitting
             // under it, and the branch stays the one branch it always was.
             if checkedIn {
-                Text("\u{2713} checked in").font(.system(size: 13)).foregroundStyle(amber)
+                Text(model.state.witnessedGigs.contains(show.id)
+                     ? "\u{2713} checked in \u{00B7} witnessed" : "\u{2713} checked in")
+                    .font(.system(size: 13)).foregroundStyle(amber)
                     .padding(.top, 6)
             } else {
                 // The base64 is decoded here and nowhere earlier: the fold carries the
@@ -429,6 +450,19 @@ struct GigView: View {
             .tint(ink)
             .padding(.horizontal, 24).padding(.top, 14)
         }
+    }
+
+    private func gossipAttribution(_ fact: GossipEnvelope) -> some View {
+        let key = model.state.publicGossip.recognition[fact.author]
+        let contact = model.state.friends.first { friend in
+            friend.publicKey != nil && friend.publicKey == key
+        }
+        let name = contact?.name ?? "Nearby listener"
+        return HStack {
+            Text("\(name) · gossip, experimental").font(.system(size: 11)).foregroundStyle(muted)
+            Spacer()
+            Button("Block") { model.blockGossip(fact.author) }.font(.system(size: 11))
+        }.padding(.horizontal, 24)
     }
 
     /// One line of the woven set: a published row, one of my Log's entries, or the

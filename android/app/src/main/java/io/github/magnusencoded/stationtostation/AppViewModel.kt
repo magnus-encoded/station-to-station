@@ -91,15 +91,14 @@ import io.github.magnusencoded.stationtostation.data.exchange.ContactExchange
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangePeer
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangeSession
 import io.github.magnusencoded.stationtostation.data.exchange.contactIdentityPublicKeyBase64
-import io.github.magnusencoded.stationtostation.data.exchange.signWithContactIdentity
-import io.github.magnusencoded.stationtostation.data.contactKeysOf
-import io.github.magnusencoded.stationtostation.data.gossipExpiry
-import io.github.magnusencoded.stationtostation.data.gossip.GossipHeld
+import io.github.magnusencoded.stationtostation.data.gossip.contactKeysOf
+import io.github.magnusencoded.stationtostation.data.gossip.gossipExpiry
 import io.github.magnusencoded.stationtostation.data.gossip.GossipService
 import io.github.magnusencoded.stationtostation.data.gossip.GossipStore
 import io.github.magnusencoded.stationtostation.data.gossip.gigDatesOf
 import io.github.magnusencoded.stationtostation.data.gossip.gossipGigTonight
-import io.github.magnusencoded.stationtostation.data.gossip.mintGossipCheckIn
+import io.github.magnusencoded.stationtostation.data.gossip.GigIdentity
+import io.github.magnusencoded.stationtostation.data.gossip.GossipEnvelope
 import io.github.magnusencoded.stationtostation.data.contactManifest
 import io.github.magnusencoded.stationtostation.data.GalleryItem
 import io.github.magnusencoded.stationtostation.data.exchange.readAccountsAck
@@ -344,6 +343,15 @@ data class UiState(
      * start rather than being a thing the screen remembers until it doesn't.
      */
     val attendanceByGig: Map<String, StoredAttendance> = emptyMap(),
+    /**
+     * **Gigs** whose own check-in a directly-present device witnessed (#442).
+     *
+     * A decoration on [attendanceByGig], never a substitute for it: the user saying they
+     * were there and a stranger's phone agreeing are two different claims, and a night
+     * with nobody else running the radio is still a night they attended.
+     */
+    val witnessedGigs: Set<String> = emptySet(),
+    val publicGossip: io.github.magnusencoded.stationtostation.data.gossip.PublicGossipState = io.github.magnusencoded.stationtostation.data.gossip.PublicGossipState(),
     /** The calendar event made for a gig, by gig id → its content URI; restored from disk. */
     val calendarEventByGig: Map<String, String> = emptyMap(),
     /**
@@ -548,10 +556,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * What this phone carries on the gossip channel (#416).
      *
-     * The view model's only business with gossip is the two ends of it: minting this phone's
-     * own check-in, and telling the service whether it has a reason to run. Everything in
-     * between — advertising, accepting, relaying, forgetting — is the service's, which is why
-     * nothing about a relayed message reaches [UiState].
+     * The view model's only business with gossip is the three ends of it: minting this
+     * phone's own check-in, telling the service whether it has a reason to run, and reading
+     * back which of its own check-ins were witnessed (#442). Everything in between —
+     * advertising, accepting, relaying, forgetting — is the service's, which is why nothing
+     * else about a relayed message reaches [UiState].
      */
     private val gossip = GossipStore(application)
 
@@ -598,6 +607,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             // After the timeline is back, because whether a **Gig** is on tonight is one of
             // the three reasons the radio runs.
             syncGossip()
+        }
+        // Witnessed check-in is the one gossip answer the screens ask for. Read from the
+        // store rather than pushed at the moment of witnessing, so a phone that was closed
+        // when the witness arrived projects it the same way after a restart.
+        viewModelScope.launch {
+            gossip.publicStates.collect { public ->
+                val witnessed = public.apply { prune(System.currentTimeMillis()) }.witnessedGigIds()
+                _state.update { it.copy(witnessedGigs = witnessed, publicGossip = public) }
+            }
+        }
+        viewModelScope.launch {
+            settings.friends.collect { friends ->
+                gossip.updatePublic(System.currentTimeMillis()) { it.recognizeContacts(contactKeysOf(friends)) }
+            }
         }
         // The radios' outputs, mirrored into UiState.
         viewModelScope.launch {
@@ -2155,6 +2178,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- The Log: what I saw, as opposed to what setlist.fm publishes ---
 
+    fun blockGossip(author: String) {
+        viewModelScope.launch {
+            gossip.updatePublic(System.currentTimeMillis()) { it.blocked.add(it.recognition[author] ?: author) }
+        }
+    }
+
     fun logFor(gigId: String): StoredLog = _state.value.logsByGig[gigId] ?: StoredLog()
 
     /**
@@ -2190,12 +2219,47 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * publishing, not a refetch, not a song count: setlist.fm has nowhere to keep
      * this bit, so it never leaves the device and nothing coming back can set it.
      */
-    fun setLogClosed(gigId: String, closed: Boolean) = writeLog(gigId) { it.copy(closed = closed) }
+    fun setLogClosed(gigId: String, closed: Boolean) = writeLog(gigId) { it.completing(closed) }
 
     private fun writeLog(gigId: String, edit: (StoredLog) -> StoredLog) {
-        val updated = edit(logFor(gigId))
+        val before = logFor(gigId)
+        val updated = edit(before)
         _state.update { it.copy(logsByGig = it.logsByGig + (gigId to updated)) }
-        viewModelScope.launch { timelines.saveLog(gigId, updated) }
+        viewModelScope.launch {
+            timelines.saveLog(gigId, updated)
+            withContext(Dispatchers.IO) { publishLog(gigId, before, updated) }
+            syncGossip()
+        }
+    }
+
+    private suspend fun publishLog(gigId: String, before: StoredLog, after: StoredLog) {
+        val now = System.currentTimeMillis()
+        val cache = timelines.load()
+        val local = cache.gigs[gigId] ?: cache.gigForSetlist(gigId) ?: return
+        val date = runCatching { LocalDate.parse(local.date, java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy")) }.getOrNull() ?: return
+        val expiry = gossipExpiry(date)
+        val until = io.github.magnusencoded.stationtostation.data.gossip.gossipParticipationUntil(
+            cache.attendance()[gigId]?.checkedInAt, after.closed, after.completedAt, expiry, gossip.stoppedAt())
+        if (until == null || now >= until.toEpochMilli()) return
+        val changes = io.github.magnusencoded.stationtostation.data.gossip.gossipLogChanges(before, after)
+        if (changes.isEmpty()) return
+        runCatching {
+            val scope = gossip.authorScope(local.id)
+            val identity = GigIdentity(scope)
+            gossip.updatePublic(now) { state ->
+                val author = identity.publicKey()
+                val previous = state.facts.values.filter { it.author == author }
+                val former = previous.flatMap { it.formerIds + it.gigId }.distinct().filter { it != gigId }
+                // Monotone revision time makes rapid successive Done actions deterministic.
+                val revision = maxOf(now, (previous.maxOfOrNull { it.createdAt } ?: 0) + 1)
+                changes.forEach { (line, text) ->
+                    GossipEnvelope(gigId = gigId, formerIds = former, scope = scope,
+                        author = author, createdAt = revision, expiresAt = expiry.toEpochMilli(),
+                        kind = "log", line = line, text = text, attribution = identity.attribution())
+                        .signed(identity::sign)?.let { state.receive(it, "", now, local = true) }
+                }
+            }
+        }
     }
 
     /**
@@ -2424,41 +2488,59 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun checkIn(gigId: String) {
         _state.update { it.copy(checkInOffer = null) }
-        updateAttendance(gigId) {
+        val saved = updateAttendance(gigId) {
             it.copy(
                 provenance = StoredAttendance.Provenance.CHECKED_IN,
                 checkedInAt = System.currentTimeMillis(),
             )
         }
-        viewModelScope.launch { gossipAbout(gigId) }
+        viewModelScope.launch {
+            saved.join()
+            withContext(Dispatchers.IO) { runCatching { gossipAbout(gigId) } }
+            syncGossip()
+        }
     }
 
     /**
-     * Mint this phone's own check-in and start carrying it (#416).
+     * Author this phone's own check-in as a public **Envelope** and start carrying it (#416).
      *
-     * Held in the same store a relayed message lands in, and pushed by the same radio, so
-     * "mine" and "someone else's" differ in exactly one field —
-     * [GossipHeld.arrivedFrom][io.github.magnusencoded.stationtostation.data.gossip.GossipHeld.arrivedFrom]
-     * — and there is no second path to keep working.
+     * It goes into the same store, and through the same
+     * [receive][io.github.magnusencoded.stationtostation.data.gossip.PublicGossipState.receive],
+     * that an envelope arriving off the radio does — `local = true` marking only that the
+     * transport did not vouch for the sender, because there was no transport. There is no
+     * second authoring path to keep working, and no way for a check-in this device made to
+     * be shaped differently from one it relays.
+     *
+     * **The author is a temporary **Gig** key, not this device's **Contact** identity.** The
+     * scope is bound to the *local* **Gig** rather than its external id, so a setlist.fm id
+     * arriving later does not rotate who the night's entries were written by; the durable
+     * Contact key appears nowhere on the wire, only inside the masked attribution proof.
      *
      * Quietly does nothing where there is nothing to do: a **Gig** with no date to expire
-     * against, no **Contact** to tell, or a signer that refuses. A check-in is a fact about
-     * this timeline first; whether anyone hears about it is secondary, and an error about the
-     * secondary thing would be noise on a night out.
+     * against, no local **Gig** to bind a scope to, or a signer that refuses. A check-in is a
+     * fact about this timeline first; whether anyone hears about it is secondary, and an
+     * error about the secondary thing would be noise on a night out.
      */
     private suspend fun gossipAbout(gigId: String) {
-        val gigDate = _state.value.plannedGigs.firstOrNull { it.id == gigId }?.localDate()
-            ?: return
-        val mine = runCatching { contactIdentityPublicKeyBase64() }.getOrNull() ?: return
-        val message = mintGossipCheckIn(
-            gigId = gigId,
-            checkedInBy = mine,
-            checkedInAt = Instant.now(),
-            expiresAt = gossipExpiry(gigDate),
-            sign = { payload -> runCatching { signWithContactIdentity(payload) }.getOrNull() },
-        ) ?: return
-        gossip.update { held -> held + GossipHeld(message, arrivedFrom = null, expiry = message.expiresAt) }
-        syncGossip()
+        val cache = timelines.load()
+        val localGig = cache.gigs[gigId] ?: cache.gigForSetlist(gigId) ?: return
+        val gigDate = runCatching { LocalDate.parse(localGig.date,
+            java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy")) }.getOrNull() ?: return
+        val scope = gossip.authorScope(localGig.id)
+        val identity = GigIdentity(scope)
+        // The same night-end ceiling a relay would have capped the claim at, so this device
+        // asks for exactly as long as a stranger carrying for it would have allowed.
+        val createdAt = Instant.now()
+        val public = GossipEnvelope(
+            gigId = gigId, scope = scope, author = identity.publicKey(),
+            createdAt = createdAt.toEpochMilli(), expiresAt = gossipExpiry(gigDate).toEpochMilli(),
+            kind = "request",
+            attribution = identity.attribution(),
+        ).signed(identity::sign)
+        if (public != null) {
+            val now = System.currentTimeMillis()
+            gossip.updatePublic(now) { it.receive(public, "", now, local = true) }
+        }
     }
 
     /**
@@ -2470,13 +2552,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * which is where it is argued and where a reviewer should push back on it.
      */
     private suspend fun syncGossip() {
-        val now = Instant.now()
         GossipService.sync(
             context = getApplication<Application>(),
-            contacts = contactKeysOf(_state.value.friends).size,
-            holding = gossip.held(now).isNotEmpty(),
-            gigTonight = gossipGigTonight(gigDatesOf(timelines), now),
-            alwaysRelay = _state.value.alwaysRelay,
+            activeUntil = io.github.magnusencoded.stationtostation.data.gossip.gossipActiveUntil(timelines, gossip.stoppedAt()),
         )
     }
 
@@ -2490,10 +2568,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Writes one gig's attendance to state and disk together, never one without the other. */
-    private fun updateAttendance(gigId: String, edit: (StoredAttendance) -> StoredAttendance) {
+    private fun updateAttendance(gigId: String, edit: (StoredAttendance) -> StoredAttendance): Job {
         val updated = edit(_state.value.attendanceByGig[gigId] ?: StoredAttendance())
         _state.update { it.copy(attendanceByGig = it.attendanceByGig + (gigId to updated)) }
-        viewModelScope.launch { timelines.saveAttendance(gigId, updated) }
+        return viewModelScope.launch { timelines.saveAttendance(gigId, updated) }
     }
 
     fun selectSetlist(setlist: FmSetlist) {
