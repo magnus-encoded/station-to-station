@@ -382,6 +382,15 @@ class GossipCentral(
     private var busy = false
 
     /**
+     * Whether [start] is still in force, so a push that ends after [stop] does not quietly
+     * put the scan back on air.
+     */
+    private var running = false
+
+    /** Whether the scan was taken down for the push that is in flight, and owes a restart. */
+    private var pausedForPush = false
+
+    /**
      * When each device address was last connected to, for peers whose identity is not known
      * until after the connection.
      *
@@ -407,6 +416,12 @@ class GossipCentral(
             if (last != null && now.isBefore(last.plus(GOSSIP_PEER_COOLDOWN))) return
             attempted[address] = now
             busy = true
+            // Scanning through a connect is what error 133 is made of: the controller is
+            // asked to keep a scan window open while it also runs the connection procedure,
+            // and on several chipsets the connect simply loses. One push at a time already
+            // means there is nothing to discover meanwhile, so the scan costs nothing to
+            // put down and `finish` owes it back.
+            pauseForPush()
             push(address)
         }
 
@@ -420,6 +435,7 @@ class GossipCentral(
 
     @SuppressLint("MissingPermission")
     fun start() {
+        running = true
         if (scanning) return
         val filter = ScanFilter.Builder().setServiceUuid(ParcelUuid(GOSSIP_SERVICE_UUID)).build()
         // Balanced, not low-latency: the Exchange's two-second budget has a human waiting on
@@ -443,8 +459,27 @@ class GossipCentral(
             }
     }
 
+    /** Take the scan off air for the duration of one push. */
+    @SuppressLint("MissingPermission")
+    private fun pauseForPush() {
+        if (!scanning) return
+        runCatching { manager.adapter?.bluetoothLeScanner?.stopScan(callback) }
+        scanning = false
+        pausedForPush = true
+        GossipRadioStatus.scanning(false)
+    }
+
+    /** Put back a scan that [pauseForPush] took down, unless [stop] has since been called. */
+    private fun resumeAfterPush() {
+        if (!pausedForPush) return
+        pausedForPush = false
+        if (running) start()
+    }
+
     @SuppressLint("MissingPermission")
     fun stop() {
+        running = false
+        pausedForPush = false
         if (scanning) runCatching { manager.adapter?.bluetoothLeScanner?.stopScan(callback) }
         scanning = false
         main.removeCallbacksAndMessages(null)
@@ -489,6 +524,7 @@ class GossipCentral(
             main.removeCallbacksAndMessages(null)
             runCatching { gattRef?.disconnect(); gattRef?.close() }
             busy = false
+            resumeAfterPush()
             GossipRadioStatus.pushClosed()
             val who = peer
             if (pushed && who != null) {
@@ -523,7 +559,9 @@ class GossipCentral(
                         if (!gatt.discoverServices()) finish(false)
                     }
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                    why = "they dropped the connection during \"$phase\""
+                    // The status is the whole diagnosis when the drop lands in "connect":
+                    // 133 is this phone's stack giving up, not the peer refusing us.
+                    why = "they dropped the connection during \"$phase\" (status=$status)"
                     finish(false)
                 }
             }
