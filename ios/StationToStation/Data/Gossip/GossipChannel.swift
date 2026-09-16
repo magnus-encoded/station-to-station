@@ -196,9 +196,12 @@ actor GossipChannel {
         // `setContacts` and has no way back into this batch.
         state = await ledger.publicSnapshot(now: millis)
         let relay = relayScope(now)
-        if let me = GigIdentity.publicKeyBase64(scope: relay) {
+        // A receipt is addressed, so it may only name a key this device can meet again: the
+        // sender's relay key, which a Pass carrying the sender's own request does not prove.
+        // See `passRelay`.
+        if let me = GigIdentity.publicKeyBase64(scope: relay), let addressable = passRelay(pass) {
             let receipts = accepted.compactMap { fact in
-                receiptFor(fact, from: from, recognised: state.recognition[fact.author] != nil,
+                receiptFor(fact, from: addressable, recognised: state.recognition[fact.author] != nil,
                            author: me, now: millis, sign: { GigIdentity.sign(scope: relay, $0) })
             }
             if !receipts.isEmpty { await ledger.receivePublic(receipts, from: "", now: millis, local: true) }

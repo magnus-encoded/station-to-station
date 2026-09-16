@@ -203,6 +203,54 @@ final class PublicGossipTests: XCTestCase {
         XCTAssertTrue(neighbour.held.isEmpty)
     }
 
+    /// The address namespace. A meeting only ever proves a relay key — the challenge carries
+    /// nothing else — so a receipt naming the Gig key that happened to sign a Pass names
+    /// something no peer will equal, and is never delivered and never read.
+    func testReceiptAddressesTheRelayKeyAMeetingProvesAndNeverTheGigKeyThatSignedThePass() {
+        let neighbourRelay = "neighbour-relay-key"
+        let neighbourGig = "neighbour-gig-key"
+        XCTAssertNotEqual(neighbourRelay, neighbourGig)
+        func envelope(_ author: String, _ kind: String) -> GossipEnvelope {
+            GossipEnvelope(gigId: "gig", scope: "scope", author: author, createdAt: 1000,
+                           expiresAt: 100000, kind: kind, line: kind == "log" ? 0 : -1)
+        }
+        let log = envelope(neighbourGig, "log")
+
+        // A Pass signed as the relay is addressable; passBatch admits no request onto one.
+        XCTAssertEqual(passRelay(PublicGossipPass(from: neighbourRelay, proof: "proof", batch: [log])),
+                       neighbourRelay)
+        // A Pass the receiver would admit a request from was signed as a Gig, and that key is
+        // not one this device can ever meet. No receipt is owed rather than an undeliverable one.
+        XCTAssertNil(passRelay(PublicGossipPass(from: neighbourGig, proof: "proof",
+                                                batch: [log, envelope(neighbourGig, "request")])))
+        // Another device's request riding a relay-signed Pass does not make it unaddressable.
+        XCTAssertEqual(passRelay(PublicGossipPass(from: neighbourRelay, proof: "proof",
+                                                  batch: [envelope(neighbourGig, "request")])),
+                       neighbourRelay)
+
+        // And this is why it matters: the Gig key is unreachable at both ends of the design.
+        let relay = P256.Signing.PrivateKey()
+        let me = relay.publicKey.derRepresentation.base64EncodedString()
+        let sign: (Data) -> Data? = { try? relay.signature(for: $0).derRepresentation }
+        let carried = fact()
+        let misaddressed = receiptFor(carried, from: neighbourGig, recognised: true, author: me,
+                                      now: 2000, sign: sign)!
+        var state = PublicGossipState()
+        XCTAssertTrue(state.receive(misaddressed, from: "", now: 2000, local: true))
+        // The one egress takes the key the challenge proved, so it never matches, and the
+        // credit the ranker reads under that same key was never written.
+        XCTAssertTrue(state.offer(to: neighbourRelay, now: 2001).isEmpty)
+        XCTAssertNil(state.useful[neighbourRelay])
+        // Addressed as the meeting will prove it, both halves work.
+        let addressed = receiptFor(carried, from: neighbourRelay, recognised: true, author: me,
+                                   now: 2000, sign: sign)!
+        var correct = PublicGossipState()
+        XCTAssertTrue(correct.receive(addressed, from: "", now: 2000, local: true))
+        XCTAssertEqual(correct.offer(to: neighbourRelay, now: 2001), [addressed])
+        XCTAssertEqual(correct.useful[neighbourRelay], 2000 + publicReceiptMs)
+        XCTAssertTrue(correct.offer(to: neighbourGig, now: 2001).isEmpty)
+    }
+
     /// Story 41: the decay is its own clock, not a slice of the carry window.
     func testUsefulnessDecaysOnItsOwnClockWhileTheEnvelopeIsStillAlive() {
         XCTAssertNotEqual(publicCarryMs, publicReceiptMs)

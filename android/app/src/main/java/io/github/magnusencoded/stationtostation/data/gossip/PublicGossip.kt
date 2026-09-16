@@ -323,6 +323,26 @@ fun passAuthor(batch: List<GossipEnvelope>, localAuthors: Set<String>): GossipEn
     batch.firstOrNull { it.kind == "request" && it.author in localAuthors }
 
 /**
+ * The key a **Pass** proves that this device can also *address* later, or `null` when it
+ * proves one it cannot.
+ *
+ * A receipt is delivered by naming a peer and waiting to meet it, and the only identity a
+ * meeting ever presents is the one in the challenge, which is always the nightly relay key.
+ * A **Pass** is signed as the relay too — except when it carries its signer's own request,
+ * the one case [passAuthor] reaches for a Gig key for. That Gig key is a *signing* namespace,
+ * never an addressing one: a receipt naming it names something no peer will ever equal, so it
+ * would sit in `held` until it expired and its credit would sit in `useful` unreadable.
+ *
+ * So the relay key is read off the wire rule rather than guessed: a **Pass** the receiver
+ * would admit a request from is signed as a Gig, and this device has no way to address its
+ * sender. It authors no receipt then, rather than an undeliverable one. The neighbour's next
+ * push carries no request — [passBatch] admits none without one to sign as — and is therefore
+ * addressable.
+ */
+fun passRelay(pass: PublicGossipPass): String? =
+    pass.from.takeIf { from -> pass.batch.none { it.kind == "request" && it.author == from } }
+
+/**
  * The batch [passAuthor] leaves admissible, given the request it chose to sign as and the
  * key [signer] the **Pass** will actually be signed with.
  *
