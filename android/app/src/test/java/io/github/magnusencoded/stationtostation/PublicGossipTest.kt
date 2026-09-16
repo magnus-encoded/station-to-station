@@ -117,9 +117,9 @@ class PublicGossipTest {
         assertTrue(bytes.size + envelope.record().toByteArray().size + 1 > GOSSIP_MAX_WIRE_BYTES)
         assertNull(encodePublicGossipPass(pass.copy(from = "k".repeat(257))))
     }
-    private fun fact(text: String = "Karma Police", at: Long = 1000, kind: String = "log"): GossipEnvelope {
+    private fun fact(text: String = "Karma Police", at: Long = 1000, kind: String = "log", line: Int = 0): GossipEnvelope {
         val draft = GossipEnvelope(gigId = "gig", scope = "scope", author = Base64.getEncoder().encodeToString(key.public.encoded),
-            createdAt = at, expiresAt = 100000, kind = kind, line = if (kind == "log") 0 else -1, text = text)
+            createdAt = at, expiresAt = 100000, kind = kind, line = if (kind == "log") line else -1, text = text)
         return draft.signed { bytes -> Signature.getInstance("SHA256withECDSA").run { initSign(key.private); update(bytes); sign() } }!!
     }
 
@@ -256,6 +256,35 @@ class PublicGossipTest {
         assertEquals(listOf(addressed), correct.offer(neighbourRelay, 2001))
         assertEquals(2000 + PUBLIC_RECEIPT_MS, correct.useful[neighbourRelay]!!)
         assertTrue(correct.offer(neighbourGig, 2001).isEmpty())
+    }
+
+    /** A whole batch from one neighbour owes one receipt, and it survives to be offered. */
+    @Test fun aMultiFactBatchFromOneNeighbourStillLeavesOneReceiptHeldAndOfferable() {
+        val relay = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        val me = gossipBase64(relay.public.encoded)
+        val sign: (ByteArray) -> ByteArray? = { bytes ->
+            Signature.getInstance("SHA256withECDSA").run { initSign(relay.private); update(bytes); sign() }
+        }
+        // Two lines of one log: same author, same gig, same scope. The ordinary case.
+        val batch = listOf(fact("Karma Police", line = 0), fact("No Surprises", line = 1))
+        assertNotEquals(batch[0].id, batch[1].id)
+        val state = PublicGossipState()
+        batch.forEach { assertTrue(state.receive(it, "neighbour", 2000)) }
+        val receipts = receiptsFor(batch, "neighbour", { true }, me, 2000, sign)
+        // Both Facts name the same record, so there was only ever one thing to say.
+        assertEquals(1, receipts.size)
+        receipts.forEach { assertTrue(state.receive(it, "", 2000, local = true)) }
+        // The receipt is actually held, actually offered, and actually credited the neighbour.
+        assertEquals(receipts, state.held.values.filter { it.envelope.kind == "receipt" }.map { it.envelope })
+        assertEquals(receipts, state.offer("neighbour", 2001))
+        assertEquals(2000 + PUBLIC_RECEIPT_MS, state.useful["neighbour"]!!)
+        // The rails: no receipt in facts, both Facts still held and still offered onward.
+        assertTrue(state.facts.values.none { it.kind == "receipt" })
+        assertEquals(batch.size, state.facts.size)
+        assertEquals(batch.map { it.id }.toSet(), state.offer("somebody-else", 2001).map { it.id }.toSet())
+        // An unrecognised Fact in the batch owes nothing, and does not mask a recognised one.
+        assertTrue(receiptsFor(batch, "neighbour", { false }, me, 2000, sign).isEmpty())
+        assertEquals(1, receiptsFor(batch, "neighbour", { it.line == 1 }, me, 2000, sign).size)
     }
 
     /** Story 41: the decay is its own clock, not a slice of the carry window. */

@@ -198,12 +198,12 @@ actor GossipChannel {
         let relay = relayScope(now)
         // A receipt is addressed, so it may only name a key this device can meet again: the
         // sender's relay key, which a Pass carrying the sender's own request does not prove.
-        // See `passRelay`.
+        // See `passRelay`. And one receipt per Gig record, not per Fact: two lines of one log
+        // author the same receipt twice, and the second would retire the first.
         if let me = GigIdentity.publicKeyBase64(scope: relay), let addressable = passRelay(pass) {
-            let receipts = accepted.compactMap { fact in
-                receiptFor(fact, from: addressable, recognised: state.recognition[fact.author] != nil,
-                           author: me, now: millis, sign: { GigIdentity.sign(scope: relay, $0) })
-            }
+            let receipts = receiptsFor(accepted, from: addressable,
+                recognised: { state.recognition[$0.author] != nil },
+                author: me, now: millis, sign: { GigIdentity.sign(scope: relay, $0) })
             if !receipts.isEmpty { await ledger.receivePublic(receipts, from: "", now: millis, local: true) }
         }
         await publishWitnessed(now: now)
