@@ -4060,7 +4060,7 @@ fun StationEventScreen(
                         val key = state.publicGossip.recognition[fact.author]
                         val name = state.friends.firstOrNull { it.publicKey == key && key != null }?.name ?: "Nearby listener"
                         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(name, color = Slate, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                            Text("$name · gossip, experimental", color = Slate, fontSize = 11.sp, modifier = Modifier.weight(1f))
                             TextButton(onClick = { viewModel.blockGossip(fact.author) }) { Text("Block") }
                         }
                     }

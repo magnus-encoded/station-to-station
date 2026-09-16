@@ -459,7 +459,7 @@ struct GigView: View {
         }
         let name = contact?.name ?? "Nearby listener"
         return HStack {
-            Text(name).font(.system(size: 11)).foregroundStyle(muted)
+            Text("\(name) · gossip, experimental").font(.system(size: 11)).foregroundStyle(muted)
             Spacer()
             Button("Block") { model.blockGossip(fact.author) }.font(.system(size: 11))
         }.padding(.horizontal, 24)

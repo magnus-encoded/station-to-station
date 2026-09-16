@@ -74,13 +74,19 @@ struct SettingsView: View {
             // without this the only way to drop a lane was to wipe the app.
             // Friends lists the same people; what is new here is the lane — how
             // many nights of theirs this device is actually holding.
-            Section("Gossip") {
+            // Experimental (#462): no two phones have completed a v2 Pass in the field yet.
+            Section {
                 Text("Check in to share small public observations with nearby phones. Completing the set keeps gossip active for 30 minutes, until 06:00 at the latest. Delivery is best effort.")
                     .font(.caption).foregroundStyle(.secondary)
                 Button(gossipStopped ? "Gossip stopped until your next check-in" : "Stop gossip") {
                     GossipTransport.shared.stopParticipation()
                     gossipStopped = true
                 }.disabled(gossipStopped)
+            } header: {
+                HStack(spacing: 8) {
+                    Text("Gossip")
+                    Text("Experimental").font(.caption2).foregroundStyle(.secondary)
+                }
             }
             Section("Known timelines") {
                 if s.friends.isEmpty {
