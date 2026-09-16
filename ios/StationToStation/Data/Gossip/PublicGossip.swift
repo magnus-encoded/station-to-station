@@ -8,8 +8,9 @@ let publicCarryMs: Int64 = 15 * 60 * 1000
 /// How long one receipt's credit for a neighbour survives (#444, story 41).
 ///
 /// **Provisional.** Nothing has measured it. Two minutes is a guess about how long a crowd
-/// holds still, to be replaced by a figure from a real night; `sim/SWEEPS.md` compares
-/// policies and is not evidence for it. See `docs/adr/0022-gossip-receipts.md`.
+/// holds still, to be replaced by a figure from a real night; `sim/SWEEPS.md`, on the
+/// `gossip-sim` branch, compares policies and is not evidence for it. See
+/// `docs/adr/0022-gossip-receipts.md`.
 ///
 /// Its own constant rather than a fraction of `publicCarryMs` or of the grace period, because
 /// the three answer different questions and tying any two together means tuning one silently

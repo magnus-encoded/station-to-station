@@ -75,7 +75,7 @@ connection slot to apply it to (ADR-0022). Receipts remain one-hop; the sweep of
 budgets, with what each extra hop costs in bytes and in duplicate arrivals at the author,
 does not settle production direct witnessing or usefulness signals.
 
-The sparse-adoption sweep (2026-09-15, [results and assumptions](../sim/SWEEPS.md#sparse-adoption--2026-09-15))
+The sparse-adoption sweep (2026-09-15, [results and assumptions](https://github.com/magnus-encoded/station-to-station/blob/gossip-sim/sim/SWEEPS.md#sparse-adoption--2026-09-15))
 filters app participants from an unchanged full-crowd trace. With 300 concertgoers,
 900 seconds delivers 0–16.67% of fact/recipient pairs with three app users and
 2.22–3.33% with ten, across five seeds. Longer retention helps some traces but does
@@ -92,7 +92,7 @@ denominator, so no figure it produced should be re-scaled or reused.
 All of this is one synthetic crowd model. The knees are stable across seeds; the absolute
 levels are not evidence about a real venue, and none of it is a claim about iOS
 background scheduling, which remains OS-throttled. Method, tables and caveats are in
-[`sim/SWEEPS.md`](../sim/SWEEPS.md); reproduce with
+[`sim/SWEEPS.md`](https://github.com/magnus-encoded/station-to-station/blob/gossip-sim/sim/SWEEPS.md) on branch `gossip-sim`; reproduce with
 `cd sim && python -m station_to_station_sim.sweeps`.
 
 
