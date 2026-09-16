@@ -84,7 +84,7 @@ struct StationToStationApp: App {
             .tint(amber)
             // Nocturnal single theme: the Timeline is dark whatever the phone is.
             .preferredColorScheme(.dark)
-            .appBanners(model)
+            .appBanners(model) { nav.push(.settings) }
             // Spotify's OAuth callback is handled by ASWebAuthenticationSession;
             // the app only needs to catch friend-card links here.
             .onOpenURL { url in
@@ -158,6 +158,10 @@ struct StationToStationApp: App {
 /// of the Android snackbars), centralised so every screen inherits them.
 private struct BannersModifier: ViewModifier {
     @ObservedObject var model: AppModel
+    /// Where "Add your own key" goes. Nil behind the splash, which has no stack to
+    /// push Settings onto — the nudge is an offer, and an offer that cannot be taken
+    /// is simply not made.
+    var onOpenSettings: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -165,7 +169,15 @@ private struct BannersModifier: ViewModifier {
                 get: { model.state.error != nil },
                 set: { if !$0 { model.consumeError() } }
             )) {
-                Button("OK", role: .cancel) {}
+                // The one error with something to do about it: the bundled setlist.fm
+                // key is shared by every tester and today's requests are gone, and a
+                // free key of your own is a short trip to Settings away (#457).
+                if model.state.errorKind == .setlistFmSharedQuota, let onOpenSettings {
+                    Button(addOwnKeyAction) { onOpenSettings() }
+                    Button("Not now", role: .cancel) {}
+                } else {
+                    Button("OK", role: .cancel) {}
+                }
             } message: {
                 Text(model.state.error ?? "")
             }
@@ -221,5 +233,7 @@ private struct BannersModifier: ViewModifier {
 }
 
 extension View {
-    func appBanners(_ model: AppModel) -> some View { modifier(BannersModifier(model: model)) }
+    func appBanners(_ model: AppModel, onOpenSettings: (() -> Void)? = nil) -> some View {
+        modifier(BannersModifier(model: model, onOpenSettings: onOpenSettings))
+    }
 }

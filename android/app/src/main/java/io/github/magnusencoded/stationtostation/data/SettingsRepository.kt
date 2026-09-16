@@ -10,6 +10,8 @@ import androidx.datastore.preferences.preferencesDataStore
 import io.github.magnusencoded.stationtostation.BuildConfig
 import io.github.magnusencoded.stationtostation.data.clashfinder.ClashfinderAuth
 import io.github.magnusencoded.stationtostation.data.clashfinder.clashfinderPublicKey
+import io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmKey
+import io.github.magnusencoded.stationtostation.data.setlistfm.sharedQuotaSpent
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -40,6 +42,7 @@ class SettingsRepository(private val context: Context) {
 
     private object Keys {
         val SETLISTFM_API_KEY = stringPreferencesKey("setlistfm_api_key")
+        val SETLISTFM_SHARED_QUOTA_SPENT_AT = longPreferencesKey("setlistfm_shared_quota_spent_at")
         val SPOTIFY_CLIENT_ID = stringPreferencesKey("spotify_client_id")
         val SPOTIFY_ACCESS_TOKEN = stringPreferencesKey("spotify_access_token")
         val SPOTIFY_REFRESH_TOKEN = stringPreferencesKey("spotify_refresh_token")
@@ -140,6 +143,45 @@ class SettingsRepository(private val context: Context) {
     suspend fun setlistFmApiKeyValue(): String? =
         setlistFmApiKey.first() ?: BuildConfig.SETLISTFM_API_KEY.ifBlank { null }
 
+    /**
+     * The key to send, and whether it is the bundled one everyone shares.
+     *
+     * The same precedence as [setlistFmApiKeyValue] — a saved key wins, the bundled key
+     * is the fallback — said in the one shape the client can act on (#457). A bare
+     * string cannot tell a spent shared quota from a spent personal one.
+     */
+    suspend fun setlistFmKey(): SetlistFmKey? {
+        setlistFmApiKey.first()?.let { return SetlistFmKey(it, shared = false) }
+        return BuildConfig.SETLISTFM_API_KEY.ifBlank { null }
+            ?.let { SetlistFmKey(it, shared = true) }
+    }
+
+    /**
+     * When the shared setlist.fm key was last refused as rate-limited, or null.
+     *
+     * Stored rather than held in memory so that the app reopening does not go straight
+     * back to a key that cannot answer. [sharedQuotaSpent] decides what it means; this
+     * only remembers it.
+     */
+    val setlistFmSharedQuotaSpentAt: Flow<Long?> =
+        context.dataStore.data.map { it[Keys.SETLISTFM_SHARED_QUOTA_SPENT_AT] }
+
+    suspend fun sharedQuotaSpentAtValue(): Long? = setlistFmSharedQuotaSpentAt.first()
+
+    suspend fun recordSharedQuotaSpent(atMillis: Long) {
+        context.dataStore.edit { it[Keys.SETLISTFM_SHARED_QUOTA_SPENT_AT] = atMillis }
+    }
+
+    /**
+     * Whether the shared key is believed spent right now — what Settings leads with.
+     *
+     * False whenever the request would go out on a key of the user's own: the nudge is
+     * advice to get one, and giving it to someone who has is nonsense.
+     */
+    suspend fun sharedQuotaSpentNow(): Boolean =
+        setlistFmKey()?.shared == true &&
+            sharedQuotaSpent(sharedQuotaSpentAtValue(), System.currentTimeMillis())
+
     suspend fun spotifyClientIdValue(): String? =
         spotifyClientId.first() ?: BuildConfig.SPOTIFY_CLIENT_ID.ifBlank { null }
 
@@ -197,8 +239,21 @@ class SettingsRepository(private val context: Context) {
         return ClashfinderAuth(user, key)
     }
 
+    /**
+     * The user's own key, and with it the end of the shared quota's memory.
+     *
+     * Saving a key of your own is the way out of the nudge, so the reward has to be
+     * immediate: the memory is what would otherwise keep refusing requests without
+     * sending them, on a key that has its own limit and has spent none of it. A blank
+     * value is a key being cleared, which falls back to the bundled key and so back to
+     * whatever the shared state is.
+     */
     suspend fun saveSetlistFmApiKey(value: String) {
-        context.dataStore.edit { it[Keys.SETLISTFM_API_KEY] = value.trim() }
+        val key = value.trim()
+        context.dataStore.edit {
+            it[Keys.SETLISTFM_API_KEY] = key
+            if (key.isNotBlank()) it.remove(Keys.SETLISTFM_SHARED_QUOTA_SPENT_AT)
+        }
     }
 
     suspend fun saveSpotifyClientId(value: String) {

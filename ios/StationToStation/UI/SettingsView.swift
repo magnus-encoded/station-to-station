@@ -38,18 +38,20 @@ struct SettingsView: View {
                     .autocorrectionDisabled().textInputAutocapitalization(.never)
             }
 
+            // While the shared key is spent, the section leads with that instead of
+            // "using the bundled key" (#457): someone who followed the nudge here came
+            // for one thing, and the first line should be the reason they came.
             Section("setlist.fm") {
-                if s.bundledSetlistFmKey {
-                    Text("Using the bundled setlist.fm API key. The setlist.fm API has no "
-                        + "user login — to load your attended concerts, just enter your "
-                        + "setlist.fm username on the My concerts tab.")
-                        .font(.caption).foregroundStyle(.secondary)
-                } else {
-                    Text("Request a free API key at api.setlist.fm.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    TextField("setlist.fm API key", text: $apiKey)
-                        .autocorrectionDisabled().textInputAutocapitalization(.never)
-                }
+                Text(setlistFmIntro(s))
+                    .font(.caption).foregroundStyle(.secondary)
+                Link("Request one at setlist.fm/settings/api",
+                     destination: URL(string: "https://www.setlist.fm/settings/api")!)
+                // The field is here whether or not a key is bundled, as on Android.
+                // Hiding it when one was meant the bundled key could not be replaced
+                // without a rebuild — the opposite of what a bring-your-own-source app
+                // should offer, and the only way out when that key is rate-limited.
+                TextField("setlist.fm API key", text: $apiKey)
+                    .autocorrectionDisabled().textInputAutocapitalization(.never)
             }
 
             Section("clashfinder") {
@@ -124,6 +126,17 @@ struct SettingsView: View {
             clashfinderUser = s.clashfinderUser
             clashfinderPrivateKey = s.clashfinderPrivateKey
         }
+    }
+
+    /// What the setlist.fm section says above its link and its field.
+    private func setlistFmIntro(_ s: UiState) -> String {
+        if s.setlistFmSharedQuotaSpent { return sharedQuotaMessage }
+        if s.bundledSetlistFmKey {
+            return "Using the bundled setlist.fm API key. The setlist.fm API has no "
+                + "user login — to load your attended concerts, just enter your "
+                + "setlist.fm username on the My concerts tab."
+        }
+        return "This app needs a free setlist.fm API key of your own."
     }
 
     private func scopeMessage(_ scope: String?) -> String {
