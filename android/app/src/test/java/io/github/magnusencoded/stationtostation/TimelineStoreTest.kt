@@ -1022,9 +1022,9 @@ class TimelineStoreTest {
     @Test
     fun `a Log survives a setlist id collision — the worst case named`() = runBlocking {
         val cached = TimelineStore(collidingPair()).load()
-        // A set someone typed at a gig disappearing is the thing this is for. The
-        // fuller Log is the one kept, and it does not stay Closed on the strength
-        // of a record that was still Open.
+        // A set someone typed at a gig disappearing is the thing this is for. Every
+        // entry of both Logs is kept, the one they share appearing once, and it does
+        // not stay Closed on the strength of a record that was still Open.
         val log = cached.logs()["637062c7"]
         assertEquals(listOf("Ei Natt", "Tomma Ord"), log?.songs)
         assertFalse(log!!.closed)

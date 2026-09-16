@@ -1016,6 +1016,8 @@ actor TimelineStore {
             c.gigAttendance = c.gigAttendance.folded(keep.id, gone.id) { k, _ in k }
             c.gigCalendarEvent = c.gigCalendarEvent.folded(keep.id, gone.id) { k, _ in k }
             c.gigPlanned = c.gigPlanned.folded(keep.id, gone.id) { k, _ in k }
+            // Every entry of both Logs: handwritten data is never dropped to a tie-break.
+            c.gigLogs = c.gigLogs.folded(keep.id, gone.id, unionLog)
             return c
         }
         return survivor
