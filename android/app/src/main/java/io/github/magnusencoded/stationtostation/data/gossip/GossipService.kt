@@ -68,6 +68,9 @@ class GossipService : Service() {
     private val publicLock = Any()
     private val publicPending = mutableMapOf<String, List<String>>()
 
+    /** How many of [publicPending]'s envelopes were receipts, for the tally alone. */
+    private val publicPendingReceipts = mutableMapOf<String, Int>()
+
     @Volatile private var participationEnds: Map<String, Long> = emptyMap()
     private val activeUntil: Instant?
         get() = participationEnds.values.maxOrNull()?.takeIf { it > 0 }?.let(Instant::ofEpochMilli)
@@ -132,7 +135,12 @@ class GossipService : Service() {
         peripheral = null
         central = null
         GossipPresence.forget()
+        // The end of the night, which is the only moment the tally is worth reading — and the
+        // note goes on *after* `radioStopped`, which clears every field but the gate. The tally
+        // object itself is not reset, so a second look still has it.
+        Log.i(TAG, GossipTally.summary())
         GossipRadioStatus.radioStopped()
+        GossipRadioStatus.note(GossipTally.summary())
         scope.cancel()
         super.onDestroy()
     }
@@ -182,10 +190,18 @@ class GossipService : Service() {
                         // Exchange, runs through the `settings.friends` collector above and
                         // has no way back into this batch.
                         val relay = relayIdentity()
-                        (directRequests + admitted).forEach { fact ->
-                            val recognised = state.recognition[fact.author] != null
-                            receiptFor(fact, delivery.from, recognised, relay.publicKey(), now, relay::sign)
-                                ?.let { state.receive(it, "", now, local = true) }
+                        // A receipt is addressed, so it may only name a key this device can
+                        // meet again: the sender's relay key, which a Pass carrying the
+                        // sender's own request does not prove. See `passRelay`. And one
+                        // receipt per Gig record, not per Fact: two lines of one log author
+                        // the same receipt twice, and the second would retire the first.
+                        val addressable = passRelay(delivery.pass)
+                        if (addressable == null) GossipTally.declined()
+                        else {
+                            val receipts = receiptsFor(directRequests + admitted, addressable,
+                                { state.recognition[it.author] != null }, relay.publicKey(), now, relay::sign)
+                            receipts.forEach { state.receive(it, "", now, local = true) }
+                            GossipTally.authored(receipts.size)
                         }
                         directRequests.forEach { request ->
                             val local = state.localClaimFor(request) ?: return@forEach
@@ -212,7 +228,12 @@ class GossipService : Service() {
                 val proof = runCatching { identity.sign(publicGossipAuthPayload(nonce)) }.getOrNull()
                 if (batch.isEmpty() || proof == null) null
                 else encodePublicGossipPass(PublicGossipPass(identity.publicKey(), gossipBase64(proof), batch))?.also { bytes ->
-                    publicPending[peer] = decodePublicGossipPass(bytes)?.batch.orEmpty().map { it.id }
+                    val encoded = decodePublicGossipPass(bytes)?.batch.orEmpty()
+                    publicPending[peer] = encoded.map { it.id }
+                    // Counted off the encoded batch rather than `batch`, so what is tallied as
+                    // offered is what actually fitted on the wire.
+                    publicPendingReceipts[peer] = encoded.count { it.kind == "receipt" }
+                    GossipTally.offered(publicPendingReceipts[peer] ?: 0)
                 }
             } },
             due = { peer -> synchronized(spokenAt) { gossipPassDue(spokenAt[peer], Instant.now()) } },
@@ -220,7 +241,12 @@ class GossipService : Service() {
             onPushed = { peer ->
                 val now = Instant.now()
                 synchronized(spokenAt) { spokenAt[peer] = now }
-                val ids = synchronized(publicLock) { publicPending.remove(peer).orEmpty() }
+                // Both maps are taken under the one lock, in one acquisition: the tally is a
+                // diagnostic and must not be a reason to take `publicLock` a second time.
+                val ids = synchronized(publicLock) {
+                    GossipTally.delivered(publicPendingReceipts.remove(peer) ?: 0)
+                    publicPending.remove(peer).orEmpty()
+                }
                 scope.launch {
                     store.updatePublic(now.toEpochMilli()) { it.delivered(peer, ids) }
                 }

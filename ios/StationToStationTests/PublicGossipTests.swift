@@ -115,9 +115,10 @@ final class PublicGossipTests: XCTestCase {
         pass.from += "k"
         XCTAssertNil(encodePublicGossipPass(pass))
     }
-    private func fact(_ text: String = "Karma Police", at: Int64 = 1000, kind: String = "log") -> GossipEnvelope {
+    private func fact(_ text: String = "Karma Police", at: Int64 = 1000, kind: String = "log",
+                      line: Int = 0) -> GossipEnvelope {
         GossipEnvelope(gigId: "gig", scope: "scope", author: key.publicKey.derRepresentation.base64EncodedString(),
-                       createdAt: at, expiresAt: 100000, kind: kind, line: kind == "log" ? 0 : -1, text: text)
+                       createdAt: at, expiresAt: 100000, kind: kind, line: kind == "log" ? line : -1, text: text)
             .signed { try? self.key.signature(for: $0).derRepresentation }!
     }
     func testOneHopControlsRequireTheirAuthorWithoutPoisoningTheStormGate() {
@@ -148,14 +149,18 @@ final class PublicGossipTests: XCTestCase {
         }
     }
 
-    /// Stories 35, 36 and 37: who a receipt is for, and when there is not one.
+    /// Stories 35 and 36: who a receipt is for, and when there is not one. Story 37 is not in
+    /// here — see the comment below and ADR-0022 §3.
     func testReceiptNamesTheDeliveringNeighbourAndOnlyForAPromptlyRecognisedFact() {
         let relay = P256.Signing.PrivateKey()
         let me = relay.publicKey.derRepresentation.base64EncodedString()
         let sign: (Data) -> Data? = { try? relay.signature(for: $0).derRepresentation }
         let delivered = fact()
-        // Not recognised as a Contact's at receive time, so nothing is owed. This is also the
-        // whole of story 37: recognition that arrives later never reaches this function.
+        // Not recognised as a Contact's at receive time, so nothing is owed. This is story 36
+        // and *not* story 37: it asserts what the function does with `recognised: false`, which
+        // is the argument's contract. Story 37 — that late attribution cannot reach here at all —
+        // is a fact about the call graph (one production caller per platform, the receive path)
+        // and no call of this function can witness it. ADR-0022 §3 says so plainly.
         XCTAssertNil(receiptFor(delivered, from: "neighbour", recognised: false, author: me, now: 2000, sign: sign))
         // A blind relay that proved no handle cannot be credited.
         XCTAssertNil(receiptFor(delivered, from: "", recognised: true, author: me, now: 2000, sign: sign))
@@ -203,6 +208,96 @@ final class PublicGossipTests: XCTestCase {
         XCTAssertTrue(neighbour.held.isEmpty)
     }
 
+    /// The address namespace. A meeting only ever proves a relay key — the challenge carries
+    /// nothing else — so a receipt naming the Gig key that happened to sign a Pass names
+    /// something no peer will equal, and is never delivered and never read.
+    func testReceiptAddressesTheRelayKeyAMeetingProvesAndNeverTheGigKeyThatSignedThePass() {
+        let neighbourRelay = "neighbour-relay-key"
+        let neighbourGig = "neighbour-gig-key"
+        XCTAssertNotEqual(neighbourRelay, neighbourGig)
+        func envelope(_ author: String, _ kind: String) -> GossipEnvelope {
+            GossipEnvelope(gigId: "gig", scope: "scope", author: author, createdAt: 1000,
+                           expiresAt: 100000, kind: kind, line: kind == "log" ? 0 : -1)
+        }
+        let log = envelope(neighbourGig, "log")
+
+        // A Pass signed as the relay is addressable; passBatch admits no request onto one.
+        XCTAssertEqual(passRelay(PublicGossipPass(from: neighbourRelay, proof: "proof", batch: [log])),
+                       neighbourRelay)
+        // A Pass the receiver would admit a request from was signed as a Gig, and that key is
+        // not one this device can ever meet. No receipt is owed rather than an undeliverable one.
+        XCTAssertNil(passRelay(PublicGossipPass(from: neighbourGig, proof: "proof",
+                                                batch: [log, envelope(neighbourGig, "request")])))
+        // Another device's request riding a relay-signed Pass does not make it unaddressable.
+        XCTAssertEqual(passRelay(PublicGossipPass(from: neighbourRelay, proof: "proof",
+                                                  batch: [envelope(neighbourGig, "request")])),
+                       neighbourRelay)
+
+        // And this is why it matters: the Gig key is unreachable at both ends of the design.
+        let relay = P256.Signing.PrivateKey()
+        let me = relay.publicKey.derRepresentation.base64EncodedString()
+        let sign: (Data) -> Data? = { try? relay.signature(for: $0).derRepresentation }
+        let carried = fact()
+        let misaddressed = receiptFor(carried, from: neighbourGig, recognised: true, author: me,
+                                      now: 2000, sign: sign)!
+        var state = PublicGossipState()
+        XCTAssertTrue(state.receive(misaddressed, from: "", now: 2000, local: true))
+        // The one egress takes the key the challenge proved, so it never matches, and the
+        // credit the ranker reads under that same key was never written.
+        XCTAssertTrue(state.offer(to: neighbourRelay, now: 2001).isEmpty)
+        XCTAssertNil(state.useful[neighbourRelay])
+        // Addressed as the meeting will prove it, both halves work.
+        let addressed = receiptFor(carried, from: neighbourRelay, recognised: true, author: me,
+                                   now: 2000, sign: sign)!
+        var correct = PublicGossipState()
+        XCTAssertTrue(correct.receive(addressed, from: "", now: 2000, local: true))
+        XCTAssertEqual(correct.offer(to: neighbourRelay, now: 2001), [addressed])
+        XCTAssertEqual(correct.useful[neighbourRelay], 2000 + publicReceiptMs)
+        XCTAssertTrue(correct.offer(to: neighbourGig, now: 2001).isEmpty)
+    }
+
+    /// A whole batch from one neighbour owes one receipt, and it survives to be offered.
+    func testAMultiFactBatchFromOneNeighbourStillLeavesOneReceiptHeldAndOfferable() {
+        let relay = P256.Signing.PrivateKey()
+        let me = relay.publicKey.derRepresentation.base64EncodedString()
+        let sign: (Data) -> Data? = { try? relay.signature(for: $0).derRepresentation }
+        // Two lines of one log: same author, same gig, same scope. The ordinary case.
+        let batch = [fact("Karma Police", line: 0), fact("No Surprises", line: 1)]
+        XCTAssertNotEqual(batch[0].id, batch[1].id)
+        var state = PublicGossipState()
+        for envelope in batch { XCTAssertTrue(state.receive(envelope, from: "neighbour", now: 2000)) }
+        let receipts = receiptsFor(batch, from: "neighbour", recognised: { _ in true },
+                                   author: me, now: 2000, sign: sign)
+        // Both Facts name the same record, so there was only ever one thing to say.
+        XCTAssertEqual(receipts.count, 1)
+        for receipt in receipts {
+            XCTAssertTrue(state.receive(receipt, from: "", now: 2000, local: true))
+        }
+        // The receipt is actually held, actually offered, and actually credited the neighbour.
+        XCTAssertEqual(state.held.values.filter { $0.envelope.kind == "receipt" }.map { $0.envelope }, receipts)
+        XCTAssertEqual(state.offer(to: "neighbour", now: 2001), receipts)
+        XCTAssertEqual(state.useful["neighbour"], 2000 + publicReceiptMs)
+        // The rails: no receipt in facts, both Facts still held and still offered onward.
+        XCTAssertTrue(state.facts.values.allSatisfy { $0.kind != "receipt" })
+        XCTAssertEqual(state.facts.count, batch.count)
+        XCTAssertEqual(Set(state.offer(to: "somebody-else", now: 2001).map { $0.id }), Set(batch.map { $0.id }))
+        // An unrecognised Fact in the batch owes nothing, and does not mask a recognised one.
+        XCTAssertTrue(receiptsFor(batch, from: "neighbour", recognised: { _ in false },
+                                  author: me, now: 2000, sign: sign).isEmpty)
+        XCTAssertEqual(receiptsFor(batch, from: "neighbour", recognised: { $0.line == 1 },
+                                   author: me, now: 2000, sign: sign).count, 1)
+        // A receipt admitted from the same neighbour carries the record's own gigId, formerIds
+        // and scope, so it collides with the Facts on the de-duplication key. It must be gone
+        // before the key is taken, or it wins the slot and then owes nothing.
+        let theirs = receiptFor(batch[0], from: "somebody", recognised: true, author: me,
+                                now: 1999, sign: sign)!
+        XCTAssertEqual(theirs.gigId, batch[0].gigId)
+        XCTAssertEqual(theirs.scope, batch[0].scope)
+        XCTAssertEqual(theirs.formerIds, batch[0].formerIds)
+        XCTAssertEqual(receiptsFor([theirs] + batch, from: "neighbour", recognised: { _ in true },
+                                   author: me, now: 2000, sign: sign).count, 1)
+    }
+
     /// Story 41: the decay is its own clock, not a slice of the carry window.
     func testUsefulnessDecaysOnItsOwnClockWhileTheEnvelopeIsStillAlive() {
         XCTAssertNotEqual(publicCarryMs, publicReceiptMs)
@@ -217,6 +312,29 @@ final class PublicGossipTests: XCTestCase {
         XCTAssertEqual(Set(state.useful.keys), [me])
         state.prune(now: 2000 + publicReceiptMs)
         XCTAssertTrue(state.useful.isEmpty)
+    }
+
+    /// The twin of Android's tally test. `creditHits` stays reachable here even though nothing
+    /// on this platform ranks, so the two summaries cannot drift apart in shape.
+    func testTheTallySeparatesAWindowThatFoundCreditFromOneThatOnlyRanked() {
+        let tally = GossipTally.shared
+        tally.reset()
+        defer { tally.reset() }
+        // An empty window is not a window. Counting it would put the ranker's denominator up
+        // every scan and make a zero numerator look like a busy night that found nothing.
+        tally.ranked(candidates: 0, hits: 0)
+        XCTAssertTrue(tally.summary().contains("pick windows=0"))
+
+        tally.ranked(candidates: 3, hits: 0)
+        tally.ranked(candidates: 2, hits: 1)
+        tally.authored()
+        // A Pass nothing was owed on is counted once, and it is not a receipt that failed:
+        // authored and declined are separate numbers because they are separate stories.
+        tally.declined()
+        tally.offered(2)
+        tally.delivered(1)
+        XCTAssertEqual(tally.summary(),
+            "receipts authored=1 declined=1 offered=2 delivered=1 · pick windows=2 credit hits=1")
     }
 
     /// Stories 38 and 39: preference, ties under a seed, and nobody excluded.
@@ -356,7 +474,6 @@ final class PublicGossipTests: XCTestCase {
         // Nothing of mine to prove: sign as the relay, and drop a request I cannot prove
         // rather than spend the Pass on bytes the receiver is bound to reject.
         XCTAssertNil(passAuthor([log, theirs], localAuthors: ["me"]))
-        XCTAssertEqual(passBatch([log, theirs], request: nil), [log])
         XCTAssertEqual(passBatch([log, theirs], request: nil, signer: "relay-key"), [log])
         // Mine to prove: sign as its author. Facts still ride along under that key.
         XCTAssertEqual(passAuthor([log, mine, theirs], localAuthors: ["me"]), mine)

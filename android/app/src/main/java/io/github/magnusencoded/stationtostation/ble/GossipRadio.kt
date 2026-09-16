@@ -36,6 +36,7 @@ import io.github.magnusencoded.stationtostation.data.gossip.PublicGossipPass
 import io.github.magnusencoded.stationtostation.data.gossip.decodePublicGossipPass
 import io.github.magnusencoded.stationtostation.data.gossip.encodePublicGossipPass
 import io.github.magnusencoded.stationtostation.data.gossip.GossipRadioStatus
+import io.github.magnusencoded.stationtostation.data.gossip.GossipTally
 import java.security.SecureRandom
 import java.time.Instant
 import java.util.Base64
@@ -423,9 +424,17 @@ class GossipCentral(
      * The handle proved at each address, so a later sighting of the same address can be
      * ranked by what this phone learned the last time it connected there.
      *
-     * This is where handle stability bites. On a platform that rotates its BLE address, the
-     * next sighting is a different key here and arrives uncredited; the consequence is no
-     * preference, which is exactly today's behaviour, never a peer that stops being offered.
+     * **This memo, not the ranking key, is the weak part.** The key the ranker actually asks
+     * about is the peer's nightly relay key — `relay-<date>`, a device-local keystore identity
+     * that is stable for the whole night. What rotates is the BLE address, and the address is
+     * only this map's *lookup* key.
+     *
+     * The consequence is sharper than rotation, and it is not fixable here. An entry is
+     * written in one place only — after a challenge read completes, below — so a sighting can
+     * never be credited before this phone has already connected to that address once. A first
+     * sighting of anyone is uncredited by construction, and since the only thing on the air is
+     * a bare service UUID (see the file comment), there is nothing in an advertisement to key
+     * on instead. ADR-0022 §4 says what would have to change; nothing in this class can.
      */
     private val resolved = mutableMapOf<String, String>()
 
@@ -452,10 +461,27 @@ class GossipCentral(
 
         private fun pickFromWindow() {
             picking = false
-            val candidates = sighted.toList()
+            // The room is discarded only when there is no longer a reason to keep it. A
+            // window that closes while a push is in flight used to throw away its whole
+            // candidate set before the guard ever ran; now the set waits, and the next scan
+            // result after `resumeAfterPush` reopens the window over it. `busy` is close to
+            // unreachable here in practice — `pauseForPush` takes the scan down, so no
+            // sighting arrives to open a window during a push — but the ordering should not
+            // depend on that, and `stop` is the case that really does clear the set.
+            if (!running) { sighted.clear(); return }
+            if (busy) return
+            // Sightings kept across a push may have aged past the cooldown decision that was
+            // made about them, so the same bound `onScanResult` applies is applied again here.
+            val now = Instant.now()
+            val candidates = sighted.filter { address ->
+                attempted[address]?.let { now.isBefore(it.plus(GOSSIP_PEER_COOLDOWN)) } != true
+            }
             sighted.clear()
-            if (busy || !running) return
-            val order = gossipPreferredPeers(candidates, { resolved[it]?.let(credited) == true }, random)
+            // Asked once per candidate and remembered: `credited` reaches for the ledger's
+            // lock, and the tally must not be a reason to take it a second time.
+            val holdsCredit = candidates.associateWith { resolved[it]?.let(credited) == true }
+            val order = gossipPreferredPeers(candidates, { holdsCredit[it] == true }, random)
+            GossipTally.ranked(order.size, order.count { holdsCredit[it] == true })
             val address = order.firstOrNull() ?: return
             attempted[address] = Instant.now()
             busy = true
@@ -525,6 +551,11 @@ class GossipCentral(
         pausedForPush = false
         if (scanning) runCatching { manager.adapter?.bluetoothLeScanner?.stopScan(callback) }
         scanning = false
+        // This cancels a pending pick window as well as a push timeout, so the `!running`
+        // guard in `pickFromWindow` and `picking = false` below are belt and braces rather
+        // than the only thing standing between a stopped radio and a connect. All three are
+        // kept: a Handler callback already dispatched cannot be removed, and that one lands
+        // on the guard.
         main.removeCallbacksAndMessages(null)
         busy = false
         attempted.clear()

@@ -2,6 +2,7 @@ package io.github.magnusencoded.stationtostation
 
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_NEARBY_WINDOW
 import io.github.magnusencoded.stationtostation.data.gossip.GOSSIP_PEER_COOLDOWN
+import io.github.magnusencoded.stationtostation.data.gossip.GossipTally
 import io.github.magnusencoded.stationtostation.data.gossip.gossipGigTonight
 import io.github.magnusencoded.stationtostation.data.gossip.gossipNearby
 import io.github.magnusencoded.stationtostation.data.gossip.gossipNightEnds
@@ -140,6 +141,34 @@ class GossipPolicyTest {
     @Test
     fun `a device that has spoken to nobody reports an empty room`() {
         assertTrue(gossipNearby(emptyMap(), Instant.parse("2026-09-04T21:00:00Z")).isEmpty())
+    }
+
+    @Test
+    fun `the tally separates a window that found credit from one that only ranked`() {
+        GossipTally.reset()
+        try {
+            // An empty window is not a window. Counting it would put the ranker's denominator
+            // up every scan and make a zero numerator look like a busy night that found nothing.
+            GossipTally.ranked(0, 0)
+            assertTrue(GossipTally.summary().contains("pick windows=0"))
+
+            GossipTally.ranked(3, 0)
+            GossipTally.ranked(2, 1)
+            GossipTally.authored()
+            // A Pass nothing was owed on is counted once, and it is not a receipt that failed:
+            // authored and declined are separate numbers because they are separate stories.
+            GossipTally.declined()
+            GossipTally.offered(2)
+            GossipTally.delivered(1)
+            // The one number this whole harness exists for: hits, not windows. Two windows and
+            // one hit is a ranker doing something; two windows and zero is a shuffle.
+            assertEquals(
+                "receipts authored=1 declined=1 offered=2 delivered=1 · pick windows=2 credit hits=1",
+                GossipTally.summary(),
+            )
+        } finally {
+            GossipTally.reset()
+        }
     }
 
     @Test

@@ -117,9 +117,9 @@ class PublicGossipTest {
         assertTrue(bytes.size + envelope.record().toByteArray().size + 1 > GOSSIP_MAX_WIRE_BYTES)
         assertNull(encodePublicGossipPass(pass.copy(from = "k".repeat(257))))
     }
-    private fun fact(text: String = "Karma Police", at: Long = 1000, kind: String = "log"): GossipEnvelope {
+    private fun fact(text: String = "Karma Police", at: Long = 1000, kind: String = "log", line: Int = 0): GossipEnvelope {
         val draft = GossipEnvelope(gigId = "gig", scope = "scope", author = Base64.getEncoder().encodeToString(key.public.encoded),
-            createdAt = at, expiresAt = 100000, kind = kind, line = if (kind == "log") 0 else -1, text = text)
+            createdAt = at, expiresAt = 100000, kind = kind, line = if (kind == "log") line else -1, text = text)
         return draft.signed { bytes -> Signature.getInstance("SHA256withECDSA").run { initSign(key.private); update(bytes); sign() } }!!
     }
 
@@ -151,7 +151,8 @@ class PublicGossipTest {
         }
     }
 
-    /** Stories 35, 36 and 37: who a receipt is for, and when there is not one. */
+    /** Stories 35 and 36: who a receipt is for, and when there is not one. Story 37 is not
+     * in here — see the comment below and ADR-0022 §3. */
     @Test fun receiptNamesTheDeliveringNeighbourAndOnlyForAPromptlyRecognisedFact() {
         val relay = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
         val me = gossipBase64(relay.public.encoded)
@@ -159,8 +160,11 @@ class PublicGossipTest {
             Signature.getInstance("SHA256withECDSA").run { initSign(relay.private); update(bytes); sign() }
         }
         val delivered = fact()
-        // Not recognised as a Contact's at receive time, so nothing is owed. This is also the
-        // whole of story 37: recognition that arrives later never reaches this function.
+        // Not recognised as a Contact's at receive time, so nothing is owed. This is story 36
+        // and *not* story 37: it asserts what the function does with `recognised = false`, which
+        // is the argument's contract. Story 37 — that late attribution cannot reach here at all —
+        // is a fact about the call graph (one production caller per platform, the receive path)
+        // and no call of this function can witness it. ADR-0022 §3 says so plainly.
         assertNull(receiptFor(delivered, "neighbour", false, me, 2000, sign))
         // A blind relay that proved no handle cannot be credited.
         assertNull(receiptFor(delivered, "", true, me, 2000, sign))
@@ -207,6 +211,91 @@ class PublicGossipTest {
         assertEquals(setOf(me), neighbour.useful.keys)
         assertTrue(neighbour.facts.isEmpty())
         assertTrue(neighbour.held.isEmpty())
+    }
+
+    /**
+     * The address namespace. A meeting only ever proves a relay key — the challenge carries
+     * nothing else — so a receipt naming the Gig key that happened to sign a Pass names
+     * something no peer will equal, and is never delivered and never read.
+     */
+    @Test fun receiptAddressesTheRelayKeyAMeetingProvesAndNeverTheGigKeyThatSignedThePass() {
+        val neighbourRelay = "neighbour-relay-key"
+        val neighbourGig = "neighbour-gig-key"
+        assertNotEquals(neighbourRelay, neighbourGig)
+        fun envelope(author: String, kind: String) = GossipEnvelope(gigId = "gig", scope = "scope",
+            author = author, createdAt = 1000, expiresAt = 100000, kind = kind,
+            line = if (kind == "log") 0 else -1)
+        val log = envelope(neighbourGig, "log")
+
+        // A Pass signed as the relay is addressable; passBatch admits no request onto one.
+        val relaySigned = PublicGossipPass(neighbourRelay, "proof", listOf(log))
+        assertEquals(neighbourRelay, passRelay(relaySigned))
+        // A Pass the receiver would admit a request from was signed as a Gig, and that key is
+        // not one this device can ever meet. No receipt is owed rather than an undeliverable one.
+        val gigSigned = PublicGossipPass(neighbourGig, "proof",
+            listOf(log, envelope(neighbourGig, "request")))
+        assertNull(passRelay(gigSigned))
+        // Another device's request riding a relay-signed Pass does not make it unaddressable.
+        assertEquals(neighbourRelay, passRelay(
+            PublicGossipPass(neighbourRelay, "proof", listOf(envelope(neighbourGig, "request")))))
+
+        // And this is why it matters: the Gig key is unreachable at both ends of the design.
+        val relay = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        val me = gossipBase64(relay.public.encoded)
+        val sign: (ByteArray) -> ByteArray? = { bytes ->
+            Signature.getInstance("SHA256withECDSA").run { initSign(relay.private); update(bytes); sign() }
+        }
+        val carried = fact()
+        val misaddressed = requireNotNull(receiptFor(carried, neighbourGig, true, me, 2000, sign))
+        val state = PublicGossipState()
+        assertTrue(state.receive(misaddressed, "", 2000, local = true))
+        // The one egress takes the key the challenge proved, so it never matches, and the
+        // credit the ranker reads under that same key was never written.
+        assertTrue(state.offer(neighbourRelay, 2001).isEmpty())
+        assertNull(state.useful[neighbourRelay])
+        // Addressed as the meeting will prove it, both halves work.
+        val addressed = requireNotNull(receiptFor(carried, neighbourRelay, true, me, 2000, sign))
+        val correct = PublicGossipState()
+        assertTrue(correct.receive(addressed, "", 2000, local = true))
+        assertEquals(listOf(addressed), correct.offer(neighbourRelay, 2001))
+        assertEquals(2000 + PUBLIC_RECEIPT_MS, correct.useful[neighbourRelay]!!)
+        assertTrue(correct.offer(neighbourGig, 2001).isEmpty())
+    }
+
+    /** A whole batch from one neighbour owes one receipt, and it survives to be offered. */
+    @Test fun aMultiFactBatchFromOneNeighbourStillLeavesOneReceiptHeldAndOfferable() {
+        val relay = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        val me = gossipBase64(relay.public.encoded)
+        val sign: (ByteArray) -> ByteArray? = { bytes ->
+            Signature.getInstance("SHA256withECDSA").run { initSign(relay.private); update(bytes); sign() }
+        }
+        // Two lines of one log: same author, same gig, same scope. The ordinary case.
+        val batch = listOf(fact("Karma Police", line = 0), fact("No Surprises", line = 1))
+        assertNotEquals(batch[0].id, batch[1].id)
+        val state = PublicGossipState()
+        batch.forEach { assertTrue(state.receive(it, "neighbour", 2000)) }
+        val receipts = receiptsFor(batch, "neighbour", { true }, me, 2000, sign)
+        // Both Facts name the same record, so there was only ever one thing to say.
+        assertEquals(1, receipts.size)
+        receipts.forEach { assertTrue(state.receive(it, "", 2000, local = true)) }
+        // The receipt is actually held, actually offered, and actually credited the neighbour.
+        assertEquals(receipts, state.held.values.filter { it.envelope.kind == "receipt" }.map { it.envelope })
+        assertEquals(receipts, state.offer("neighbour", 2001))
+        assertEquals(2000 + PUBLIC_RECEIPT_MS, state.useful["neighbour"]!!)
+        // The rails: no receipt in facts, both Facts still held and still offered onward.
+        assertTrue(state.facts.values.none { it.kind == "receipt" })
+        assertEquals(batch.size, state.facts.size)
+        assertEquals(batch.map { it.id }.toSet(), state.offer("somebody-else", 2001).map { it.id }.toSet())
+        // An unrecognised Fact in the batch owes nothing, and does not mask a recognised one.
+        assertTrue(receiptsFor(batch, "neighbour", { false }, me, 2000, sign).isEmpty())
+        assertEquals(1, receiptsFor(batch, "neighbour", { it.line == 1 }, me, 2000, sign).size)
+        // A receipt admitted from the same neighbour carries the record's own gigId, formerIds
+        // and scope, so it collides with the Facts on the de-duplication key. It must be gone
+        // before the key is taken, or it wins the slot and then owes nothing.
+        val theirs = requireNotNull(receiptFor(batch[0], "somebody", true, me, 1999, sign))
+        assertEquals(Triple(batch[0].gigId, batch[0].formerIds, batch[0].scope),
+            Triple(theirs.gigId, theirs.formerIds, theirs.scope))
+        assertEquals(1, receiptsFor(listOf(theirs) + batch, "neighbour", { true }, me, 2000, sign).size)
     }
 
     /** Story 41: the decay is its own clock, not a slice of the carry window. */
@@ -337,7 +426,6 @@ class PublicGossipTest {
         // Nothing of mine to prove: sign as the relay, and drop a request I cannot prove
         // rather than spend the Pass on bytes the receiver is bound to reject.
         assertEquals(null, passAuthor(listOf(log, theirs), setOf("me")))
-        assertEquals(listOf(log), passBatch(listOf(log, theirs), null))
         assertEquals(listOf(log), passBatch(listOf(log, theirs), null, "relay-key"))
         // Mine to prove: sign as its author. Facts still ride along under that key.
         assertEquals(mine, passAuthor(listOf(log, mine, theirs), setOf("me")))
