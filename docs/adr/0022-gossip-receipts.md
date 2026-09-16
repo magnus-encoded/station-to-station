@@ -55,6 +55,41 @@ the same rule a `request` already lived under and for the same reason — the re
 one-hop control whose author the **Pass** does not prove. A receipt whose turn it is not waits
 for a **Pass** signed as the relay.
 
+#### 2a. An address is only an address in the namespace a meeting proves (amended 2026-09-16)
+
+This ADR said "the one its `text` names" without saying *which key* names it, and the first
+implementation named the wrong one. The receipt was addressed with the **Pass** signer, and a
+**Pass** is signed as the relay key only when it carries no request of its signer's own —
+`passAuthor` reaches for a **Gig** key exactly when it does. The one egress compares against
+`challenge.from`, which is always a relay key. So every receipt authored on a request-carrying
+**Pass** named a **Gig** key that no peer would ever equal: it stayed in `held` until
+`PUBLIC_RECEIPT_MS` expired, was never offered to anyone, and its local credit was written to
+`useful[<Gig key>]` where the ranker reads `useful[<relay key>]`. Both halves silently dead.
+
+There are two keys in play and they are not interchangeable. A **Gig** key is a *signing*
+namespace: it says who asserted something. A relay key is the *addressing* namespace: it is the
+only identity a meeting ever presents, because the challenge carries nothing else. An address
+written in the signing namespace is not a weak address, it is not an address.
+
+The fix keeps the address structural — `offer` still compares one field to the one peer, and
+there is still exactly one egress — by refusing to author an address that cannot be resolved.
+`passRelay` reads the relay key off the wire rule rather than guessing it: a **Pass** whose
+batch carries a request its own signer authored (the only kind the receiver will admit) was
+signed as a **Gig**, and this device has no way to name its sender; anything else was signed as
+the relay. When it returns nothing, no receipt is authored at all.
+
+The rejected alternative was to widen `offer` to compare against a set of keys believed to
+belong to one peer. That turns a structural rule into a policy one and reintroduces exactly the
+leak section 1 removed, because the set would have to be built from keys nobody proved.
+
+The cost is stated rather than hidden: credit is skipped on the push where a neighbour carries
+its own request, which is a common push. It is not lost for good — that request is marked
+delivered, so the same neighbour's next **Pass** to this device carries none (`passBatch` admits
+no request without one to sign as) and is addressable, and the 1-minute peer cooldown is inside
+the 2-minute decay. If measurement shows credit still never accumulates, the answer is to carry
+the signer's relay key on the **Pass** and prove it against the same nonce, which is a wire
+change and wants its own ADR.
+
 ### 3. The emitter is reachable only from the receive path
 
 `receiptFor` is pure, takes the delivering neighbour and whether the **Fact** was recognised as
@@ -123,6 +158,9 @@ What ships knowingly missing, said here rather than discovered later:
   accumulate across meetings. The failure mode is *no preference* — today's behaviour — never a
   peer that stops being offered, because story 39 forbids exclusion. It is the first thing to
   measure.
+- **No receipt is authored for a **Pass** that carries its signer's own request.** Section 2a:
+  such a **Pass** proves a **Gig** key, and this device cannot address one. The credit moves on
+  that neighbour's next **Pass**, which carries no request.
 - **A receipt costs a round of bytes for a hint that expires in two minutes.** Whether that
   trade is worth it is a question for a real night, not for the simulator.
 - **No locked-iPhone proof.** #446 stays deferred. Receipts shipping does not establish that an

@@ -182,9 +182,13 @@ class GossipService : Service() {
                         // Exchange, runs through the `settings.friends` collector above and
                         // has no way back into this batch.
                         val relay = relayIdentity()
-                        (directRequests + admitted).forEach { fact ->
+                        // A receipt is addressed, so it may only name a key this device can
+                        // meet again: the sender's relay key, which a Pass carrying the
+                        // sender's own request does not prove. See `passRelay`.
+                        val addressable = passRelay(delivery.pass)
+                        if (addressable != null) (directRequests + admitted).forEach { fact ->
                             val recognised = state.recognition[fact.author] != null
-                            receiptFor(fact, delivery.from, recognised, relay.publicKey(), now, relay::sign)
+                            receiptFor(fact, addressable, recognised, relay.publicKey(), now, relay::sign)
                                 ?.let { state.receive(it, "", now, local = true) }
                         }
                         directRequests.forEach { request ->
