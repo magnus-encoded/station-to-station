@@ -321,6 +321,7 @@ func unionPlaylists(_ kept: [StoredPlaylist], _ arriving: [StoredPlaylist]) -> [
 func unionLog(_ kept: StoredLog, _ arriving: StoredLog) -> StoredLog {
     var merged = kept.absorbing(arriving)
     merged.closed = kept.closed && arriving.closed
+    merged.completedAt = [kept.completedAt, arriving.completedAt].compactMap { $0 }.min()
     return merged
 }
 
