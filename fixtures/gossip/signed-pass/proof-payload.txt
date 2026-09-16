@@ -1,0 +1,2 @@
+station-to-station/gossip-auth/2
+AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
