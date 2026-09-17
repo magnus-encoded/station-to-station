@@ -480,6 +480,78 @@ final class PublicGossipTests: XCTestCase {
         XCTAssertEqual(passBatch([log, mine, theirs], request: mine, signer: "me"), [log, mine])
     }
 
+    func testAttributionCatchesUpOnAnEarlierFactAndOutlivesRemovingTheContact() throws {
+        let card = P256.Signing.PrivateKey()
+        let durable = card.publicKey.derRepresentation.base64EncodedString()
+        var draft = fact("Idioteque")
+        let proof = try card.signature(for: gossipIdentityBinding(scope: draft.scope, author: draft.author)).derRepresentation
+        let sealed = try AES.GCM.seal(proof, using: gossipRecognitionKey(durable: durable, scope: draft.scope))
+        draft.attribution = try XCTUnwrap(sealed.combined).base64EncodedString()
+        let line = try XCTUnwrap(draft.signed { try? self.key.signature(for: $0).derRepresentation })
+        var state = PublicGossipState()
+
+        // Received before the Exchange: carried and shown, but nobody this device knows.
+        XCTAssertTrue(state.receive(line, from: "blind-relay", now: 2000))
+        XCTAssertEqual(state.project(gigIds: ["gig"]), [line])
+        XCTAssertNil(state.attributedName(line.author, live: [durable: "Ada"]))
+
+        // The Exchange happens afterwards. Attribution catches up on what already arrived.
+        state.recognizeContacts([durable], names: [durable: "Ada"])
+        XCTAssertEqual(state.attributedName(line.author, live: [durable: "Ada"]), "Ada")
+
+        // Removing the Contact deletes the Friend record, so the live map no longer has the
+        // name. Recognition is not revocable, and neither is what it resolves to.
+        var restored = try JSONDecoder().decode(PublicGossipState.self, from: JSONEncoder().encode(state))
+        restored.recognizeContacts([], names: [:])
+        XCTAssertEqual(restored.attributedName(line.author), "Ada")
+        XCTAssertEqual(restored.project(gigIds: ["gig"]), [line])
+
+        // A stranger stays a stranger rather than borrowing the name beside them.
+        XCTAssertNil(restored.attributedName("someone-else", live: [durable: "Ada"]))
+    }
+
+    func testStateFromBeforeTheNamesSnapshotDecodesWithoutLosingTheNight() throws {
+        let envelope = fact()
+        var before = PublicGossipState()
+        XCTAssertTrue(before.receive(envelope, from: "relay", now: 2000))
+        before.blocked.insert("someone")
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(before)) as! [String: Any]
+        json.removeValue(forKey: "contactNames")
+        let restored = try JSONDecoder().decode(PublicGossipState.self,
+            from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertEqual(restored.project(gigIds: ["gig"]), [envelope])
+        XCTAssertEqual(restored.blocked, ["someone"])
+        XCTAssertTrue(restored.contactNames.isEmpty)
+    }
+
+    func testCarryingIsNotAuthoringSoARelayedFactIsNeverThisDevicesOwn() throws {
+        var state = PublicGossipState()
+        let theirs = fact("Bodysnatchers")
+        let theirClaim = fact(kind: "request")
+        XCTAssertTrue(state.receive(theirs, from: "blind-relay", now: 2000))
+        XCTAssertTrue(state.receive(theirClaim, from: theirClaim.author, now: 2001))
+
+        // Nothing about carrying makes this device the author: not the record, not the author
+        // key it hands on, and not the evidence its own screens read.
+        XCTAssertTrue(state.localAuthors.isEmpty)
+        XCTAssertEqual(state.witnessedGigIds(), [])
+        // Their Log line travels on under their key, never re-signed under this device's.
+        // Their request does not travel at all — one hop is the author's own.
+        XCTAssertEqual(state.offer(to: "next-peer", now: 2002), [theirs])
+        XCTAssertEqual(state.arrivals(gigIds: ["gig"]), [theirClaim])
+        XCTAssertNil(state.attributedName(theirs.author))
+
+        // Authoring here is the only way in, and it claims this device's own key alone.
+        let myKey = P256.Signing.PrivateKey()
+        let mine = try XCTUnwrap(GossipEnvelope(gigId: "gig", scope: "my-scope",
+            author: myKey.publicKey.derRepresentation.base64EncodedString(),
+            createdAt: 1100, expiresAt: 100000, kind: "request", line: -1)
+            .signed { try? myKey.signature(for: $0).derRepresentation })
+        XCTAssertTrue(state.receive(mine, from: "", now: 2003, local: true))
+        XCTAssertEqual(state.localAuthors, [mine.author])
+        XCTAssertEqual(state.arrivals(gigIds: ["gig"]), [theirClaim])
+    }
+
     /// Story 8: a witness means shared presence, so this phone signs one only when it checked
     /// into the same **Gig** itself. Both ways of not having done so are here, because they
     /// fail for different reasons and only one of them is obvious: never having checked in at

@@ -82,8 +82,8 @@ actor GossipLedger {
         return persist(next) ? accepted : []
     }
 
-    func recognizeContacts(_ contacts: Set<String>) {
-        editPublic { $0.recognizeContacts(contacts) }
+    func recognizeContacts(_ contacts: Set<String>, names: [String: String] = [:]) {
+        editPublic { $0.recognizeContacts(contacts, names: names) }
     }
 
     func blockAuthor(_ author: String) {
