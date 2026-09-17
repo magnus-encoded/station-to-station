@@ -191,9 +191,12 @@ actor GossipChannel {
         let accepted = await ledger.receivePublicFacts(pass.batch, from: from, now: millis)
         var state = await ledger.publicSnapshot(now: millis)
         for request in accepted where request.kind == "request" && request.author == from {
-            guard let local = state.localClaim(for: request),
-                  let witness = witnessRequest(request, with: local, now: millis,
-                    sign: { GigIdentity.sign(scope: local.scope, $0) }) else { continue }
+            // Whether to witness at all is `witnessFor`'s answer, not this loop's: this phone
+            // signs for a stranger only when it checked into the same Gig itself, and that
+            // rule has to be reachable by a test rather than only by a BLE callback. The
+            // signer is the local claim's own Gig scope, which is why it arrives per claim.
+            guard let witness = witnessFor(state, request: request, now: millis,
+                    sign: { claim in { GigIdentity.sign(scope: claim.scope, $0) } }) else { continue }
             _ = await ledger.receivePublic([witness], from: "", now: millis, local: true)
             state = await ledger.publicSnapshot(now: millis)
         }

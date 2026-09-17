@@ -551,6 +551,100 @@ final class PublicGossipTests: XCTestCase {
         XCTAssertEqual(state.localAuthors, [mine.author])
         XCTAssertEqual(state.arrivals(gigIds: ["gig"]), [theirClaim])
     }
+
+    /// Story 8: a witness means shared presence, so this phone signs one only when it checked
+    /// into the same **Gig** itself. Both ways of not having done so are here, because they
+    /// fail for different reasons and only one of them is obvious: never having checked in at
+    /// all, and having checked into a *different* night while this request arrives.
+    func testNoWitnessIsSignedWithoutThisPhonesOwnClaimAtTheSameGig() throws {
+        let strangerKey = P256.Signing.PrivateKey()
+        func request(_ signingKey: P256.Signing.PrivateKey, gigId: String, scope: String) -> GossipEnvelope {
+            GossipEnvelope(gigId: gigId, scope: scope,
+                author: signingKey.publicKey.derRepresentation.base64EncodedString(),
+                createdAt: 1000, expiresAt: 100000, kind: "request")
+                .signed { try? signingKey.signature(for: $0).derRepresentation }!
+        }
+        let sign: (GossipEnvelope) -> (Data) -> Data? = { _ in
+            { try? self.key.signature(for: $0).derRepresentation }
+        }
+        let theirs = request(strangerKey, gigId: "gig", scope: "their-scope")
+
+        // Carrying for a night I am not at. A request admitted from its author is still only
+        // their claim; nothing about receiving it lets this device speak for it.
+        var bystander = PublicGossipState()
+        XCTAssertTrue(bystander.receive(theirs, from: theirs.author, now: 1500))
+        XCTAssertNil(bystander.localClaim(for: theirs))
+        XCTAssertNil(witnessFor(bystander, request: theirs, now: 1600, sign: sign))
+
+        // Checked in — at the wrong Gig. `sameGig` is the discriminator, and a claim sharing
+        // neither a current nor a former id is somebody else's night.
+        var elsewhere = PublicGossipState()
+        XCTAssertTrue(elsewhere.receive(request(key, gigId: "other-gig", scope: "my-scope"),
+                                        from: "", now: 1500, local: true))
+        XCTAssertTrue(elsewhere.receive(theirs, from: theirs.author, now: 1501))
+        XCTAssertNil(elsewhere.localClaim(for: theirs))
+        XCTAssertNil(witnessFor(elsewhere, request: theirs, now: 1600, sign: sign))
+
+        // Checked in, same night: now there is something to sign with, and the witness
+        // embeds the whole signed claim rather than a reference to it.
+        var here = PublicGossipState()
+        let mine = request(key, gigId: "gig", scope: "my-scope")
+        XCTAssertTrue(here.receive(mine, from: "", now: 1500, local: true))
+        XCTAssertTrue(here.receive(theirs, from: theirs.author, now: 1501))
+        XCTAssertEqual(here.localClaim(for: theirs), mine)
+        let witness = try XCTUnwrap(witnessFor(here, request: theirs, now: 1600, sign: sign))
+        XCTAssertEqual(witness.kind, "witness")
+        XCTAssertEqual(witness.author, mine.author)
+        XCTAssertEqual(decodePublicEnvelope(witness.text), theirs)
+        XCTAssertTrue(here.receive(witness, from: "", now: 1601, local: true))
+        let evidence = here.checkInEvidence(gigIds: ["gig"], author: theirs.author)
+        XCTAssertTrue(evidence.asserted)
+        XCTAssertTrue(evidence.witnessed)
+    }
+
+    /// Story 2: nobody was near enough to witness, and the night is captured anyway.
+    ///
+    /// The point is that the absence gates nothing — the claim is held and offered, the
+    /// **Log** lines behind it publish, project and travel, and the only thing missing is the
+    /// second half of `checkInEvidence`. A witness strengthens a claim; it never authorises one.
+    func testAClaimNobodyWitnessedStillCapturesProjectsAndTravels() throws {
+        var state = PublicGossipState()
+        let request = fact("", kind: "request")
+        XCTAssertTrue(state.receive(request, from: "", now: 1500, local: true))
+        var evidence = state.checkInEvidence(gigIds: ["gig"], author: request.author)
+        XCTAssertTrue(evidence.asserted)
+        XCTAssertFalse(evidence.witnessed)
+        XCTAssertEqual(state.witnessedGigIds(), [])
+
+        // Capture proceeds. Two Log lines written with no witness in the room are admitted,
+        // projected and offered exactly as they would be with one.
+        let first = fact(at: 1600)
+        let second = fact("Evolve", at: 1700, line: 1)
+        XCTAssertTrue(state.receive(first, from: "", now: 1601, local: true))
+        XCTAssertTrue(state.receive(second, from: "", now: 1701, local: true))
+        XCTAssertEqual(state.project(gigIds: ["gig"]), [request, first, second])
+        XCTAssertEqual(Set(state.offer(to: "first-peer-of-the-night", now: 1800,
+                                       participationEnds: [:]).map(\.id)),
+                       [request.id, first.id, second.id])
+
+        // A witness arriving late changes only the second answer. Nothing captured before it
+        // is revisited, and nothing was waiting on it.
+        let witnessKey = P256.Signing.PrivateKey()
+        let theirs = GossipEnvelope(gigId: "gig", scope: "their-scope",
+            author: witnessKey.publicKey.derRepresentation.base64EncodedString(),
+            createdAt: 1000, expiresAt: 100000, kind: "request")
+            .signed { try? witnessKey.signature(for: $0).derRepresentation }!
+        let witness = try XCTUnwrap(witnessRequest(request, with: theirs, now: 1900) {
+            try? witnessKey.signature(for: $0).derRepresentation
+        })
+        XCTAssertTrue(state.receive(witness, from: witness.author, now: 1901))
+        evidence = state.checkInEvidence(gigIds: ["gig"], author: request.author)
+        XCTAssertTrue(evidence.asserted)
+        XCTAssertTrue(evidence.witnessed)
+        XCTAssertEqual(state.witnessedGigIds(), ["gig"])
+        XCTAssertEqual(state.project(gigIds: ["gig"]).filter { $0.author == request.author },
+                       [request, first, second])
+    }
 }
 
 /// A reproducible `RandomNumberGenerator`, so "ties break randomly" is assertable.

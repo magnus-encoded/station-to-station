@@ -75,3 +75,7 @@ fun contactKeysOf(friends: List<Friend>): Set<String> =
     friends.mapNotNullTo(LinkedHashSet<String>()) { friend ->
         friend.publicKey?.takeIf { it.isNotBlank() }
     }
+
+/** The same **Contacts**, by the name to show beside a **Fact** this device recognises. */
+fun contactNamesOf(friends: List<Friend>): Map<String, String> =
+    friends.mapNotNull { friend -> friend.publicKey?.takeIf { it.isNotBlank() }?.to(friend.name) }.toMap()

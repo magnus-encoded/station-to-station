@@ -92,6 +92,7 @@ import io.github.magnusencoded.stationtostation.data.exchange.ExchangePeer
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangeSession
 import io.github.magnusencoded.stationtostation.data.exchange.contactIdentityPublicKeyBase64
 import io.github.magnusencoded.stationtostation.data.gossip.contactKeysOf
+import io.github.magnusencoded.stationtostation.data.gossip.contactNamesOf
 import io.github.magnusencoded.stationtostation.data.gossip.gossipExpiry
 import io.github.magnusencoded.stationtostation.data.gossip.GossipService
 import io.github.magnusencoded.stationtostation.data.gossip.GossipStore
@@ -616,7 +617,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             settings.friends.collect { friends ->
-                gossip.updatePublic(System.currentTimeMillis()) { it.recognizeContacts(contactKeysOf(friends)) }
+                gossip.updatePublic(System.currentTimeMillis()) { it.recognizeContacts(contactKeysOf(friends), contactNamesOf(friends)) }
             }
         }
         // The radios' outputs, mirrored into UiState.
