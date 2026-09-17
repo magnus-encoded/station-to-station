@@ -458,6 +458,75 @@ final class PublicGossipTests: XCTestCase {
 
     private func plainPeers() -> [String] { (0..<8).map { "peer-\($0)" } }
 
+    /// Story 38 under a cap: the slots that exist go to credit first, ties seeded.
+    func testCapSpendsFreeSlotsOnCreditedPeersFirst() {
+        let pool = ["plain-a", "useful-a", "plain-b", "useful-b", "useful-c", "plain-c"]
+        let credited: (String) -> Bool = { $0.hasPrefix("useful") }
+        var rng = SeededGenerator(seed: 7)
+        let picked = gossipPeersToMeet(pool, free: 2, credited: credited, using: &rng)
+        XCTAssertEqual(picked.chosen.count, 2)
+        XCTAssertTrue(picked.chosen.allSatisfy(credited))
+
+        // Seeded means reproducible: which two of the three credited peers won is a draw, and
+        // a test that could not repeat the draw could not assert the draw happened.
+        var again = SeededGenerator(seed: 7)
+        XCTAssertEqual(gossipPeersToMeet(pool, free: 2, credited: credited, using: &again).chosen,
+                       picked.chosen)
+        var other = SeededGenerator(seed: 2)
+        let differently = gossipPeersToMeet(pool, free: 2, credited: credited, using: &other)
+        XCTAssertTrue(differently.chosen.allSatisfy(credited))
+    }
+
+    /// Story 39: a cap is not a blacklist. Nothing the window declines is thrown away, and an
+    /// uncredited neighbour is met as soon as there is room for it.
+    func testCappedPeersAreKeptAndUncreditedOnesEventuallyMet() {
+        let pool = ["plain-a", "useful-a", "plain-b", "useful-b"]
+        let credited: (String) -> Bool = { $0.hasPrefix("useful") }
+
+        var rng = SeededGenerator(seed: 3)
+        let first = gossipPeersToMeet(pool, free: 1, credited: credited, using: &rng)
+        XCTAssertEqual(first.chosen.count, 1)
+        XCTAssertTrue(credited(first.chosen[0]))
+        // Every peer is still accounted for — declined, never dropped.
+        XCTAssertEqual(Set(first.chosen + first.remaining), Set(pool))
+
+        // A slot frees, the pool is ranked again, and the walk continues until the uncredited
+        // peers are reached. This is the property the transport's retention exists to give.
+        var met = first.chosen
+        var pending = first.remaining
+        while !pending.isEmpty {
+            let next = gossipPeersToMeet(pending, free: 1, credited: credited, using: &rng)
+            met += next.chosen
+            pending = next.remaining
+        }
+        XCTAssertEqual(Set(met), Set(pool))
+        XCTAssertEqual(Set(met.prefix(2)), ["useful-a", "useful-b"])
+    }
+
+    /// No free slot is a normal answer, not a dropped room.
+    func testNoFreeSlotMeetsNobodyAndLosesNobody() {
+        let pool = ["useful-a", "plain-a"]
+        var rng = SeededGenerator(seed: 5)
+        let picked = gossipPeersToMeet(pool, free: 0, credited: { $0.hasPrefix("useful") }, using: &rng)
+        XCTAssertTrue(picked.chosen.isEmpty)
+        XCTAssertEqual(Set(picked.remaining), Set(pool))
+
+        var empty = SeededGenerator(seed: 5)
+        let none = gossipPeersToMeet([], free: 4, credited: { _ in true }, using: &empty)
+        XCTAssertTrue(none.chosen.isEmpty)
+        XCTAssertTrue(none.remaining.isEmpty)
+    }
+
+    /// More room than peers spends what there is and asks for nothing back.
+    func testFreeSlotsBeyondThePoolMeetEveryone() {
+        let pool = ["useful-a", "plain-a", "plain-b"]
+        var rng = SeededGenerator(seed: 11)
+        let picked = gossipPeersToMeet(pool, free: 9, credited: { $0.hasPrefix("useful") }, using: &rng)
+        XCTAssertEqual(Set(picked.chosen), Set(pool))
+        XCTAssertTrue(picked.remaining.isEmpty)
+        XCTAssertEqual(picked.chosen.first, "useful-a")
+    }
+
     func testStrangerCarriesAndSecondCopyClosesStormGate() {
         var state = PublicGossipState()
         let envelope = fact()
