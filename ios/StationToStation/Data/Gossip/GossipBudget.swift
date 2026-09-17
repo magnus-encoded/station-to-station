@@ -112,8 +112,18 @@ func gossipPruneBudgets(_ budgets: [String: GossipPeerBudget], now: Date) -> [St
     }
 }
 
-/// How long the central would gather sightings before picking one peer, if it had to pick
-/// (#444, story 38). **Android holds the same second and a half** (`GOSSIP_PICK_WINDOW_MS`).
+/// How long the central gathers sightings before ranking them (#444, story 38). **Android
+/// holds the same second and a half** (`GOSSIP_PICK_WINDOW_MS`).
+///
+/// One advertisement is not a choice. `didDiscover` reports one peripheral at a time, so
+/// without a window the first radio to answer takes a slot regardless of what the second one
+/// would have been worth, and usefulness could never order anything.
+///
+/// The cost is real and is paid here rather than hidden: the first meeting of a scan session
+/// opens 1.5 s later than it used to, on a platform that measures a background wake in
+/// seconds. That is the price of the ordering existing at all, and it is bounded — the window
+/// closes on its own timer whether a second sighting arrives or not, so a session that reports
+/// exactly one peer and then goes quiet still meets it.
 ///
 /// **Provisional.** Nothing has measured it.
 let gossipPickWindow: TimeInterval = 1.5
@@ -127,16 +137,40 @@ let gossipPickWindow: TimeInterval = 1.5
 /// `generator` is a parameter rather than a global for the only reason that matters: a test
 /// cannot assert "randomly" without a seed.
 ///
-/// **Not yet wired on this platform**, and that is the honest state rather than an oversight.
-/// Android's central holds one connection at a time, so a sighting it takes is a sighting it
-/// spends; `GossipTransport` opens a meeting with every peripheral `didDiscover` reports and
-/// has no scarce slot to ration. The rule lives here so the two platforms cannot drift apart
-/// on what "useful first" means, and so the case has its twin; wiring it is a change to
-/// `beginMeeting`, and it only becomes worth making when iOS caps concurrent meetings.
+/// Wired on both platforms as of #486. Android's central spends the order on one connection at
+/// a time; `GossipTransport` spends it on the free slots under `gossipMaxConcurrentMeetings`,
+/// through `gossipPeersToMeet` below.
 func gossipPreferredPeers(_ candidates: [String], credited: (String) -> Bool,
                           using generator: inout some RandomNumberGenerator) -> [String] {
     var seen = Set<String>()
     let unique = candidates.filter { seen.insert($0).inserted }
     let shuffled = unique.shuffled(using: &generator)
     return shuffled.filter(credited) + shuffled.filter { !credited($0) }
+}
+
+/// Which of the peers seen so far to open meetings with now, and which to keep for later
+/// (#444, stories 38 and 39).
+///
+/// `free` is how many of `gossipMaxConcurrentMeetings` are unused. The first `free` of the
+/// preferred order are taken; **everyone else is returned in `remaining`, not dropped**, and
+/// that half is the point rather than a convenience.
+///
+/// **Why iOS must retain what Android may discard.** Android's picker clears its sighted set
+/// because `onScanResult` fires again for the same device a moment later — "the peers it skips
+/// are still advertising a minute later" is true there. It is not true here: a background scan
+/// never redelivers a duplicate advertisement (`CBCentralManagerScanOptionAllowDuplicatesKey`
+/// is ignored in the background), so a sighting this device declines to spend is a peer it may
+/// not be told about again for the rest of the scan session. Discarding the overflow would turn
+/// preference into exactly the permanent exclusion story 39 forbids — not as a ranking bug, but
+/// as an artefact of the platform. So the pool survives the window, and the transport reopens a
+/// window over it whenever a slot frees.
+///
+/// `free <= 0` is therefore a normal answer and not a no-op: nothing is met, nothing is lost,
+/// and the whole pool comes back ordered for the next attempt.
+func gossipPeersToMeet(_ pool: [String], free: Int, credited: (String) -> Bool,
+                       using generator: inout some RandomNumberGenerator)
+    -> (chosen: [String], remaining: [String]) {
+    let order = gossipPreferredPeers(pool, credited: credited, using: &generator)
+    let take = max(0, min(free, order.count))
+    return (Array(order.prefix(take)), Array(order.dropFirst(take)))
 }
