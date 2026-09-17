@@ -100,6 +100,7 @@ import io.github.magnusencoded.stationtostation.data.gossip.gigDatesOf
 import io.github.magnusencoded.stationtostation.data.gossip.gossipGigTonight
 import io.github.magnusencoded.stationtostation.data.gossip.GigIdentity
 import io.github.magnusencoded.stationtostation.data.gossip.GossipEnvelope
+import io.github.magnusencoded.stationtostation.data.gossip.gossipGigAliases
 import io.github.magnusencoded.stationtostation.data.gossip.gossipParticipationEnds
 import io.github.magnusencoded.stationtostation.data.contactManifest
 import io.github.magnusencoded.stationtostation.data.GalleryItem
@@ -354,6 +355,14 @@ data class UiState(
      */
     val witnessedGigs: Set<String> = emptySet(),
     val publicGossip: io.github.magnusencoded.stationtostation.data.gossip.PublicGossipState = io.github.magnusencoded.stationtostation.data.gossip.PublicGossipState(),
+    /**
+     * Every id a night has been known by, under each of them (#496, #498).
+     *
+     * A **Room** asks the gossip record about *its* night, and the id it holds is whichever one
+     * the night is displayed under now. Anything adopted, merged or relabelled has an older id
+     * the record may still be filed under, so the lookup is a set. See [gossipGigAliases].
+     */
+    val gossipGigAliases: Map<String, Set<String>> = emptyMap(),
     /** The calendar event made for a gig, by gig id → its content URI; restored from disk. */
     val calendarEventByGig: Map<String, String> = emptyMap(),
     /**
@@ -616,7 +625,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val gigs = timelines.load().gigs
                 val adopted = gossip.adoptedIds()
                 val projected = witnessed + witnessed.mapNotNull { adopted[it] ?: gigs[it]?.setlistId }
-                _state.update { it.copy(witnessedGigs = projected, publicGossip = public) }
+                val aliases = gossipGigAliases(timelines, adopted)
+                _state.update {
+                    it.copy(witnessedGigs = projected, publicGossip = public, gossipGigAliases = aliases)
+                }
             }
         }
         viewModelScope.launch {

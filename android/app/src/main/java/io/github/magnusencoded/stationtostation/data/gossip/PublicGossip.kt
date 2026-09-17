@@ -181,6 +181,18 @@ fun decodePublicGossipPass(bytes: ByteArray?): PublicGossipPass? {
 @Serializable
 data class PublicHeld(val envelope: GossipEnvelope, val until: Long, val delivered: MutableSet<String> = mutableSetOf())
 
+/**
+ * The **Seen with** line: who this phone can name, and how many devices it met but cannot.
+ *
+ * A **Gig** keeps this after its **Gossip** ends, which is what makes it a different thing from
+ * [GossipPresence] rather than a persisted copy of it. Presence answers "is someone here now"
+ * and must die with the process; this answers "who was there", and a night does not stop
+ * having happened because the radio stopped.
+ */
+data class SeenWith(val named: List<String>, val others: Int) {
+    val isEmpty: Boolean get() = named.isEmpty() && others == 0
+}
+
 /** Transport memory and durable application assertions have deliberately different lifetimes. */
 @Serializable
 data class PublicGossipState(
@@ -204,6 +216,21 @@ data class PublicGossipState(
     /** Gig authors whose private key is on this device. Persisted so a radio-restored
      * process can still distinguish my claim from a stranger's after restart. */
     val localAuthors: MutableSet<String> = mutableSetOf(),
+    /**
+     * Per **Gig**, every device this phone completed a **Pass** with and when it last did.
+     *
+     * The one genuinely new durable fact in the **Seen with** record. Everything else the line
+     * needs is already in [facts] — a verified **Check-in** is a `request` and [arrivals] finds
+     * it — but a completed **Pass** leaves no **Fact** behind at all. `useful` remembers the
+     * neighbour for two minutes and then prunes it, because that entry is a routing preference;
+     * this is evidence about a night, and evidence does not expire with the radio.
+     *
+     * Keyed by the key the transport proved, which is the peer's night-scoped **Gig** key when
+     * their **Pass** carried their own claim and their nightly relay key otherwise. Those two
+     * never unify — nothing on the wire links them, and inventing the link would be this device
+     * asserting something it cannot see. See [seenWith].
+     */
+    val metDevices: MutableMap<String, MutableMap<String, Long>> = mutableMapOf(),
 ) {
     fun isBlocked(author: String): Boolean = author in blocked || recognition[author] in blocked
 
@@ -347,6 +374,82 @@ data class PublicGossipState(
                 (it.formerIds + it.gigId).any(gigIds::contains)
         }
         .mapNotNullTo(LinkedHashSet()) { recognition[it.author] }
+
+    /**
+     * Write down that a **Pass** with [peer] completed (#498).
+     *
+     * Called for both directions, because a completed **Pass** is a completed **Pass**: the two
+     * phones were in BLE range of each other and each proved a key to the other, and which one
+     * dialled is an artefact of who happened to be scanning. An advertisement is deliberately
+     * not this — the token in it names nobody and a scan hit only says something is
+     * transmitting, which is the distinction [GossipPresence] already draws.
+     *
+     * Which **Gig** it attaches to: the night [peer]'s own claim names, when their **Pass**
+     * carried one, and the active **Gig** otherwise. Only their *own* `request` counts, by the
+     * same one-hop rule [receive] applies — a batch is mostly other people's **Facts** being
+     * **Carried**, and a stranger's relayed claim about last Tuesday says nothing about where
+     * the device handing it over is standing.
+     *
+     * Repeats are a timestamp move, never a second entry: [metDevices] is keyed by device.
+     */
+    fun rememberPass(peer: String, batch: List<GossipEnvelope>, activeGigId: String?, now: Long) {
+        if (peer.isBlank()) return
+        val claimed = batch
+            .filter { it.kind == "request" && it.author == peer && it.valid() }
+            .flatMap(::linkedIds).toSet()
+        val gigs = claimed.ifEmpty { setOfNotNull(activeGigId) }
+        gigs.forEach { gig ->
+            val devices = metDevices.getOrPut(gig) { mutableMapOf() }
+            devices[peer] = maxOf(devices[peer] ?: 0L, now)
+        }
+    }
+
+    /**
+     * Who this phone can say was at [gigIds] with it, and how many more it cannot name (#498).
+     *
+     * Two kinds of evidence, deliberately not merged into one rank. A completed **Pass** is this
+     * device's own eyes: those phones met, and that is true of a stranger's phone as much as a
+     * **Contact**'s. A verified **Check-in** is somebody's signed assertion, which counts for
+     * the **Gig** it names even when a witness **Carried** the last hop — attribution is the
+     * gate, not proximity (#483). So directly met **Contacts** come first, most recently met
+     * first, and **Contacts** known only from a **Check-in** follow.
+     *
+     * Everything is folded onto the durable identity [recognition] resolves a key to before it
+     * is counted, so a **Contact** met on their **Gig** key and again on their relay key is one
+     * person — and one device with no recognition at all is still one device. What cannot be
+     * folded is two keys of the same *stranger*: nothing links them, and this device does not
+     * get to guess. That is the honest reading of "count each device once", not a dedup bug.
+     *
+     * [others] counts unnamed *directly met* devices and is never a subtraction. A **Contact**
+     * known only from a relayed **Check-in** is named while no device of theirs was met, so
+     * `named.size - others` would be a number this phone never observed; and a **Blocked**
+     * **Contact** is dropped from the naming and stays in the count, which is Block being
+     * admission rather than a rewrite of what happened (ADR-0021).
+     */
+    fun seenWith(gigIds: Set<String>, live: Map<String, String> = emptyMap()): SeenWith {
+        fun identity(key: String) = recognition[key] ?: key
+        val directAt = mutableMapOf<String, Long>()
+        gigIds.forEach { gig ->
+            metDevices[gig]?.forEach { (device, at) ->
+                val who = identity(device)
+                directAt[who] = maxOf(directAt[who] ?: 0L, at)
+            }
+        }
+        val checkedInAt = mutableMapOf<String, Long>()
+        arrivals(gigIds).forEach { claim ->
+            val who = identity(claim.author)
+            checkedInAt[who] = maxOf(checkedInAt[who] ?: 0L, claim.createdAt)
+        }
+        fun name(who: String) = if (who in blocked) null else live[who] ?: contactNames[who]
+        val met = directAt.filterKeys { name(it) != null }.entries
+            .sortedWith(compareByDescending<Map.Entry<String, Long>> { it.value }.thenBy { it.key })
+        val onlyCheckedIn = checkedInAt.filterKeys { it !in directAt && name(it) != null }.entries
+            .sortedWith(compareByDescending<Map.Entry<String, Long>> { it.value }.thenBy { it.key })
+        return SeenWith(
+            named = (met + onlyCheckedIn).mapNotNull { name(it.key) },
+            others = directAt.keys.count { name(it) == null },
+        )
+    }
 
     /** The claims some directly-present device signed a witness for, whoever wrote them. */
     private fun witnessedClaims(): List<GossipEnvelope> = facts.values

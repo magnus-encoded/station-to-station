@@ -1,5 +1,6 @@
 package io.github.magnusencoded.stationtostation.ui
 
+import io.github.magnusencoded.stationtostation.data.gossip.SeenWith
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -116,3 +117,22 @@ fun atVenue(where: Pair<Double, Double>, venue: Pair<Double, Double>): Boolean =
  */
 fun canCheckInManually(gig: FmSetlist, now: LocalDateTime): Boolean =
     withinCheckInWindow(now, gig.localDate())
+
+/**
+ * The **Seen with** line's words (#498).
+ *
+ * "Seen with", not "here" and not "checked in": the record outlives the night's **Gossip**, and
+ * a present-tense line on a **Gig** from last March would be the app claiming a room it is not
+ * in. The unnamed devices are counted rather than listed because there is nothing to list —
+ * a **Blind relay** carries a key, never a person — and they are still said out loud, because
+ * silently dropping them would report a quieter room than this phone actually stood in.
+ */
+fun seenWithLine(seen: SeenWith): String {
+    val others = when (seen.others) {
+        0 -> null
+        1 -> "1 other"
+        else -> "${seen.others} others"
+    }
+    val parts = listOfNotNull(seen.named.joinToString(", ").ifBlank { null }, others)
+    return "Seen with " + parts.joinToString(" + ")
+}

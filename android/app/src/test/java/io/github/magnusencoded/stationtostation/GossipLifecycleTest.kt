@@ -30,6 +30,8 @@ import org.junit.Test
 import org.junit.Rule
 import org.junit.rules.TemporaryFolder
 import io.github.magnusencoded.stationtostation.data.gossip.gossipParticipationEnds
+import io.github.magnusencoded.stationtostation.data.gossip.gossipActiveGigId
+import io.github.magnusencoded.stationtostation.data.gossip.gossipGigAliases
 
 /** #448 participation lifecycle, at the store and model seams that need no device. */
 class GossipLifecycleTest {
@@ -274,4 +276,45 @@ class GossipLifecycleTest {
             job.cancelAndJoin()
         }
     }
+
+    /**
+     * Where a **Pass** that names no night lands (#498): the latest **Check-in** still running.
+     *
+     * "Currently active" and "the initial active **Gig** is the latest **Check-in**" are one
+     * rule, which is why there is no stateful *active gig* to disagree with the deadlines. A
+     * night whose participation has ended stops attracting **Passes**, and a night nobody
+     * checked into never attracted any.
+     */
+    @Test
+    fun `the active Gig is the latest still-running Check-in`() = runBlocking {
+        val store = store()
+        val early = store.gig(tonight, end.minusSeconds(5 * 3600).toEpochMilli())
+        val later = store.gig(tonight, end.minusSeconds(2 * 3600).toEpochMilli())
+        store.gig(tonight, null)
+        val during = end.minusSeconds(3600).toEpochMilli()
+        assertEquals(later, gossipActiveGigId(store, now = during))
+        assertNull(gossipActiveGigId(store, now = end.plusSeconds(3600).toEpochMilli()))
+        // Stopping ends tonight, so there is nowhere for an unattached Pass to land.
+        assertNull(gossipActiveGigId(store, stoppedAt = during - 1, now = during))
+        assertTrue(early != later)
+    }
+
+    /**
+     * Adoption (#496) renames the night; the **Seen with** record has to be readable under both
+     * ids and must not become two records. The union is over device identity, so the id set
+     * being wider than one is safe.
+     */
+    @Test
+    fun `a night's aliases index the adopted id and the local one at the same record`() = runBlocking {
+        val store = store()
+        val local = store.gig(tonight, end.minusSeconds(3600).toEpochMilli())
+        val aliases = gossipGigAliases(store, mapOf(local to "setlist-id"))
+        assertEquals(setOf(local, "setlist-id"), aliases[local])
+        assertEquals(aliases[local], aliases["setlist-id"])
+        val state = PublicGossipState()
+        state.rememberPass("their-relay", emptyList(), local, 1000)
+        state.rememberPass("their-relay", emptyList(), "setlist-id", 2000)
+        assertEquals(1, state.seenWith(aliases.getValue(local)).others)
+    }
+
 }
