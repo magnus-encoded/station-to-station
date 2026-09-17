@@ -114,6 +114,22 @@ final class GossipUpdateTests: XCTestCase {
             .allSatisfy { $0.facts.isEmpty })
     }
 
+    /// Adoption after participation ends authors nothing, and the mark survives anyway.
+    ///
+    /// The **Update** is the wire half and it is not reachable here — there is no night
+    /// running to carry it. What is left is the local rename, and the witness this device
+    /// already holds still belongs to the row, whichever id the **Room** is drawn from.
+    func testAdoptionAfterParticipationEndsKeepsTheMarkWithoutAuthoringAnything() throws {
+        var cache = TimelineCache()
+        cache.gigs["local-gig"] = StoredGig(id: "local-gig", setlistId: "fm-gig")
+        cache.gigs["never-adopted"] = StoredGig(id: "never-adopted")
+        XCTAssertEqual(gossipWitnessedIds(["local-gig"], cache: cache), ["local-gig", "fm-gig"])
+        XCTAssertEqual(gossipWitnessedIds(["fm-gig"], cache: cache), ["local-gig", "fm-gig"])
+        XCTAssertEqual(gossipWitnessedIds(["never-adopted"], cache: cache), ["never-adopted"])
+        // A night nobody witnessed gains nothing from the rename.
+        XCTAssertEqual(gossipWitnessedIds([], cache: cache), [])
+    }
+
     /// The malformed shapes the **Storm gate** refuses, so an **Update** can never read as
     /// something a person wrote.
     func testAnUpdateCarryingTextOrALineOrNoFormerIdIsRefused() throws {

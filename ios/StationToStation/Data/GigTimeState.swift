@@ -221,6 +221,22 @@ func gossipParticipationEnds(cache: TimelineCache, stoppedAt: Int64 = 0) -> [Str
     }
 }
 
+/// Both ids a witnessed night answers to, so the mark reads the same whichever one the
+/// **Room** is drawn from (#497).
+///
+/// The **Update** Fact carries the link to other people's phones, and it exists only while
+/// the radio is still running. This is the half that is nobody else's business: a night
+/// catalogued days later is a local rename, it authors nothing, and the witness this device
+/// already holds is still the same witness. Both directions, because a **Fact** may have
+/// been authored under either id.
+func gossipWitnessedIds(_ witnessed: Set<String>, cache: TimelineCache) -> Set<String> {
+    cache.gigs.values.reduce(into: witnessed) { ids, gig in
+        guard let setlistId = gig.setlistId else { return }
+        if witnessed.contains(gig.id) { ids.insert(setlistId) }
+        if witnessed.contains(setlistId) { ids.insert(gig.id) }
+    }
+}
+
 /// When the radio may last run, over the whole timeline — nil meaning off right now (#448).
 ///
 /// The one reason the radio runs is a **Gig** that has been checked in to and whose
