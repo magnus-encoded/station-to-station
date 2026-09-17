@@ -32,6 +32,8 @@ Issues elsewhere may be edited freely; this rule is for `docs/adr/` only.
 | [0020](0020-the-extension-deposits-the-app-disposes.md) | The extension deposits, the app disposes | accepted |
 | [0021](0021-public-gossip-facts.md) | Public Gig facts over blind relays | accepted; supersedes 0019's propagation rule |
 | [0022](0022-gossip-receipts.md) | Receipts credit the neighbour that delivered, and a partial version ships | accepted |
+| [0023](0023-the-room-remembers-who-was-seen.md) | The Room remembers who was seen | accepted |
+| [0024](0024-the-active-gig-is-chosen.md) | The Active Gig is chosen, not only derived | accepted |
 
 ## Who it is for
 
