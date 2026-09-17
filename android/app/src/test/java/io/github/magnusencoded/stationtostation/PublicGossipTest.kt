@@ -522,4 +522,71 @@ class PublicGossipTest {
         assertEquals(listOf(request, first, second),
             state.project(setOf("gig")).filter { it.author == request.author })
     }
+
+    @Test fun attributionCatchesUpOnAnEarlierFactAndOutlivesRemovingTheContact() {
+        val card = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        val durable = gossipBase64(card.public.encoded)
+        val line = fact("Idioteque").let { draft ->
+            val binding = "station-to-station/gossip-identity/2\n${draft.scope}\n${draft.author}".toByteArray()
+            val signature = Signature.getInstance("SHA256withECDSA").run {
+                initSign(card.private); update(binding); sign()
+            }
+            val mask = java.security.MessageDigest.getInstance("SHA-256")
+                .digest("station-to-station/gossip-mask/2\n$durable\n${draft.scope}".toByteArray())
+            val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, javax.crypto.spec.SecretKeySpec(mask, "AES"))
+            draft.copy(attribution = gossipBase64(cipher.iv + cipher.doFinal(signature))).signed { bytes ->
+                Signature.getInstance("SHA256withECDSA").run { initSign(key.private); update(bytes); sign() }
+            }!!
+        }
+        val state = PublicGossipState()
+
+        // Received before the Exchange: carried and shown, but nobody this device knows.
+        assertTrue(state.receive(line, "blind-relay", 2000))
+        assertEquals(listOf(line), state.project(setOf("gig")))
+        assertNull(state.attributedName(line.author, mapOf(durable to "Ada")))
+
+        // The Exchange happens afterwards. Attribution catches up on what already arrived.
+        state.recognizeContacts(setOf(durable), mapOf(durable to "Ada"))
+        assertEquals("Ada", state.attributedName(line.author, mapOf(durable to "Ada")))
+
+        // Removing the Contact deletes the Friend record, so the live map no longer has the
+        // name. Recognition is not revocable, and neither is what it resolves to.
+        val restored = kotlinx.serialization.json.Json.decodeFromString<PublicGossipState>(
+            kotlinx.serialization.json.Json.encodeToString(PublicGossipState.serializer(), state))
+        restored.recognizeContacts(emptySet(), emptyMap())
+        assertEquals("Ada", restored.attributedName(line.author))
+        assertEquals(listOf(line), restored.project(setOf("gig")))
+
+        // A stranger stays a stranger rather than borrowing the name beside them.
+        assertNull(restored.attributedName("someone-else", mapOf(durable to "Ada")))
+    }
+
+    @Test fun carryingIsNotAuthoringSoARelayedFactIsNeverThisDevicesOwn() {
+        val state = PublicGossipState()
+        val theirs = fact("Bodysnatchers")
+        val theirClaim = fact(kind = "request")
+        assertTrue(state.receive(theirs, "blind-relay", 2000))
+        assertTrue(state.receive(theirClaim, theirClaim.author, 2001))
+
+        // Nothing about carrying makes this device the author: not the record, not the
+        // author key it hands on, and not the evidence its own screens read.
+        assertTrue(state.localAuthors.isEmpty())
+        assertEquals(emptySet<String>(), state.witnessedGigIds())
+        // Their Log line travels on under their key, never re-signed under this device's.
+        // Their request does not travel at all — one hop is the author's own.
+        assertEquals(listOf(theirs), state.offer("next-peer", 2002))
+        assertEquals(listOf(theirClaim), state.arrivals(setOf("gig")))
+        assertNull(state.attributedName(theirs.author))
+
+        // Authoring here is the only way in, and it claims this device's own key alone.
+        val myKey = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        val mine = GossipEnvelope(gigId = "gig", scope = "my-scope", author = gossipBase64(myKey.public.encoded),
+            createdAt = 1100, expiresAt = 100000, kind = "request").signed { bytes ->
+            Signature.getInstance("SHA256withECDSA").run { initSign(myKey.private); update(bytes); sign() }
+        }!!
+        assertTrue(state.receive(mine, "", 2003, local = true))
+        assertEquals(setOf(mine.author), state.localAuthors)
+        assertEquals(listOf(theirClaim), state.arrivals(setOf("gig")))
+    }
 }
