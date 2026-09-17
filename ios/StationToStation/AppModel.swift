@@ -109,6 +109,12 @@ struct UiState {
     /// name a room the app has not been in since. Merged, never replaced — each **Pass**
     /// carries only who it just proved, and the window forgets the rest.
     var metAt: [String: Date] = [:]
+    /// The **Gigs** `metAt`'s stamps are about: the nights this device was still participating
+    /// in when the last **Pass** landed. `metAt` names people and not nights, so without this a
+    /// **Contact** heard from tonight would be printed under last month's **Gig** page for as
+    /// long as the window lasts. Replaced rather than merged, for the reason `observePresence`
+    /// gives.
+    var presentGigs: Set<String> = []
     /// The calendar event made for a planned gig, by gig id — EventKit's
     /// `eventIdentifier`. Presence is what the leaf reads as "already added".
     var calendarEventByGig: [String: String] = [:]
@@ -525,9 +531,10 @@ final class AppModel: ObservableObject {
         // Read back rather than pushed at the moment of witnessing, so a phone that was
         // closed when the witness arrived projects it the same way after a relaunch.
         Task { [weak self] in
-            await GossipChannel.shared.observePresence { present in
+            await GossipChannel.shared.observePresence { present, gigIds in
                 Task { @MainActor in
                     self?.state.metAt.merge(present) { _, arrived in arrived }
+                    self?.state.presentGigs = gigIds
                 }
             }
         }

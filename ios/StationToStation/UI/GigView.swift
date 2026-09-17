@@ -118,9 +118,13 @@ struct GigView: View {
                         // first: a check-in is authored once and stays in the record all
                         // night, so only `metAt` — stamped when a Pass arrived, read through
                         // `gossipNearbyWindow` — can say somebody is standing here now (#484).
-                        // Ink rather than amber: amber means *mine* at every Resolution.
+                        // Ink rather than amber: amber means *mine* at every Resolution. Only
+                        // on a night this device is actually participating in — `metAt` names
+                        // people and not nights, and a name under last month's Gig would be a
+                        // lie the window cannot catch.
                         TimelineView(.periodic(from: .now, by: 10)) { tick in
-                            let here = gossipNearby(model.state.metAt, now: tick.date)
+                            let atThisGig = model.state.presentGigs.contains(show.id)
+                            let here: [String] = !atThisGig ? [] : gossipNearby(model.state.metAt, now: tick.date)
                                 .map { liveContacts[$0] ?? publicState.contactNames[$0] ?? "Someone" }
                             if let sentence = alsoHereSentence(here) {
                                 Text(sentence).font(.system(size: 15, weight: .medium))
