@@ -72,6 +72,10 @@ class GossipService : Service() {
     private val publicPendingReceipts = mutableMapOf<String, Int>()
 
     @Volatile private var participationEnds: Map<String, Long> = emptyMap()
+
+    /** Where this phone is standing, for a **Pass** that names no night. See [gossipActiveGigId]. */
+    @Volatile private var activeGigId: String? = null
+
     private val activeUntil: Instant?
         get() = participationEnds.values.maxOrNull()?.takeIf { it > 0 }?.let(Instant::ofEpochMilli)
     private var starting = false
@@ -116,6 +120,7 @@ class GossipService : Service() {
             starting = true
             scope.launch {
                 participationEnds = gossipParticipationEnds(timeline, store.stoppedAt())
+                activeGigId = gossipActiveGigId(timeline, store.stoppedAt(), System.currentTimeMillis())
                 withContext(Dispatchers.Main) {
                     starting = false
                     if (!gossipRelayShouldRun(activeUntil, Instant.now())) stopSelf()
@@ -221,6 +226,11 @@ class GossipService : Service() {
                         // `GossipPresence` is process-wide and must not be written from inside
                         // a persistence transaction that may run again.
                         present += state.presenceFrom(directRequests + admitted, gigIds)
+                        // The Pass itself, not its contents: these two phones met, whoever
+                        // authored what they handed over. Written from the whole batch rather
+                        // than `directRequests` so the rule about *whose* claim counts stays
+                        // in `rememberPass` with the rest of them.
+                        state.rememberPass(delivery.from, delivery.pass.batch, activeGigId, now)
                     }
                     present.forEach { GossipPresence.met(it, Instant.ofEpochMilli(now)) }
                     if (present.isNotEmpty()) withContext(Dispatchers.Main) { startForegroundNotification(publicCount()) }
@@ -261,7 +271,14 @@ class GossipService : Service() {
                     publicPending.remove(peer).orEmpty()
                 }
                 scope.launch {
-                    store.updatePublic(now.toEpochMilli()) { it.delivered(peer, ids) }
+                    store.updatePublic(now.toEpochMilli()) {
+                        it.delivered(peer, ids)
+                        // Dialling out is a met device too. `who` here is the key their signed
+                        // challenge proved, the same space `delivery.from` is in — and this
+                        // direction carries no claim of theirs, so the active Gig is the only
+                        // night it can honestly be attached to.
+                        it.rememberPass(peer, emptyList(), activeGigId, now.toEpochMilli())
+                    }
                 }
             },
         ).also { it.start() }
@@ -276,6 +293,7 @@ class GossipService : Service() {
                 val remaining = activeUntil?.toEpochMilli()?.minus(System.currentTimeMillis()) ?: 0
                 delay(remaining.coerceIn(1, 30_000))
                 participationEnds = gossipParticipationEnds(timeline, store.stoppedAt())
+                activeGigId = gossipActiveGigId(timeline, store.stoppedAt(), System.currentTimeMillis())
                 if (!gossipRelayShouldRun(activeUntil, Instant.now())) {
                     withContext(Dispatchers.Main) { stopSelf() }
                     return@launch
@@ -444,6 +462,48 @@ suspend fun gossipStop(timeline: TimelineStore, store: GossipStore, now: Long): 
 /** Read persisted attendance and completion so shutdown works with no Activity alive. */
 suspend fun gossipActiveUntil(timeline: TimelineStore, stoppedAt: Long = 0): Instant? =
     gossipParticipationEnds(timeline, stoppedAt).values.maxOrNull()?.takeIf { it > 0 }?.let(Instant::ofEpochMilli)
+
+/**
+ * The **Gig** a **Pass** that names no night belongs to: the latest **Check-in** still running.
+ *
+ * "Currently active" and "the initial active **Gig** is the latest **Check-in**" are one rule
+ * under this reading, which is why there is no stateful *active gig* anywhere — a field would
+ * be a second answer that could disagree with the deadlines, and [gossipParticipationEnds]
+ * already knows which nights are live. A festival night checked into after an earlier one wins
+ * by being later, and a night whose participation ended stops attracting **Passes** at all.
+ *
+ * The local id, never [TimelineCache.keyOf]: it is the one id for this night that cannot change
+ * under the device, and the read side unions the aliases (see [gossipGigAliases]).
+ */
+suspend fun gossipActiveGigId(timeline: TimelineStore, stoppedAt: Long = 0, now: Long): String? {
+    val ends = gossipParticipationEnds(timeline, stoppedAt)
+    val cache = timeline.load()
+    val attendance = cache.attendance()
+    return cache.gigs.values
+        .filter { (ends[it.id] ?: 0L) > now }
+        .mapNotNull { gig -> attendance[cache.keyOf(gig.id)]?.checkedInAt?.let { gig.id to it } }
+        .maxWithOrNull(compareBy<Pair<String, Long>> { it.second }.thenBy { it.first })
+        ?.first
+}
+
+/**
+ * Every id one night has been known by, indexed under each of them (#496, #498).
+ *
+ * A **Gig** collects ids: the local one it was minted with, the setlist.fm id it adopts, and
+ * whatever an **Update** relabelled it to. Anything read back per night has to union over the
+ * set rather than pick one, or adopting an id silently splits a night's record in two — and
+ * unioning *by id* would then count the same device once under each. [PublicGossipState.seenWith]
+ * folds onto device identity for exactly that reason.
+ */
+suspend fun gossipGigAliases(timeline: TimelineStore, adopted: Map<String, String>): Map<String, Set<String>> {
+    val cache = timeline.load()
+    return buildMap {
+        cache.gigs.values.forEach { gig ->
+            val ids = setOfNotNull(gig.id, gig.setlistId, adopted[gig.id])
+            ids.forEach { put(it, ids) }
+        }
+    }
+}
 
 /** Known Gig ids retain a deadline even after participation ends. Unknown nights can
  * still be carried blindly while another checked-in Gig keeps the radio running. */
