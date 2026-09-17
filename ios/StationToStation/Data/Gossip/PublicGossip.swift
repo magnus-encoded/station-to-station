@@ -295,6 +295,51 @@ struct PublicGossipState: Codable {
         return (!claims.isEmpty, witnessedClaims().contains { ids.contains($0.id) })
     }
 
+    /// Which recognised **Contacts** the envelopes that just arrived put at one of [gigIds] (#484).
+    ///
+    /// Takes the batch this **Pass** accepted rather than reading `facts`, and that is the whole
+    /// design. Presence is a claim about *now*, and a `request` is authored once and admitted
+    /// once — so a stored check-in has no freshness left in it, and recomputing presence from
+    /// the store would let any later **Pass**, from anyone, relight "is also here" for every
+    /// **Contact** who checked in that night. What arrived in this batch is the only thing whose
+    /// timing this device can honestly speak to; the caller stamps it with the arrival clock and
+    /// `gossipNearby` is what reads those stamps back.
+    ///
+    /// Attribution is the gate, not proximity: a stranger's check-in resolves to no **Contact**
+    /// and therefore to nothing here — until an **Exchange** recognises them, a nearby phone is
+    /// a relay key and nothing more. They are still carried and still shown by `arrivals`; they
+    /// are simply not named. Blocked authors are dropped on both halves of a witness, the signer
+    /// and the claim it carries, against the durable key `isBlocked` resolves through
+    /// `recognition` — so a block applied after the **Fact** was stored still takes effect. This
+    /// device's own claims never name it present.
+    ///
+    /// A witness-carried claim counts, so somebody standing between two **Contacts** can be the
+    /// reason one sees the other. That does mean presence can outrun the radio by one hop: the
+    /// relay may hand over a claim made earlier in the night. It is bounded by `offer`'s
+    /// participation deadlines — a relay only carries claims for a **Gig** still running — and by
+    /// `gossipNearbyWindow`, which the stamps are read through.
+    ///
+    /// Nothing re-validates the claim a witness carries, and nothing needs to: `valid()`
+    /// validates a witness's inner claim recursively, so `receive` never admits a validly-signed
+    /// witness wrapped around a forged one.
+    func presenceFrom(accepted: [GossipEnvelope], gigIds: Set<String>) -> Set<String> {
+        var here = Set<String>()
+        for envelope in accepted where !isBlocked(envelope.author) {
+            let claim: GossipEnvelope?
+            switch envelope.kind {
+            case "request": claim = envelope
+            case "witness": claim = decodePublicEnvelope(envelope.text)
+            default: claim = nil
+            }
+            guard let claim, claim.kind == "request", !isBlocked(claim.author),
+                  !localAuthors.contains(claim.author),
+                  !Set(claim.formerIds + [claim.gigId]).intersection(gigIds).isEmpty,
+                  let durable = recognition[claim.author] else { continue }
+            here.insert(durable)
+        }
+        return here
+    }
+
     /// The claims some directly-present device signed a witness for, whoever wrote them.
     private func witnessedClaims() -> [GossipEnvelope] {
         facts.values.filter { $0.kind == "witness" && !isBlocked($0.author) }.compactMap { decodePublicEnvelope($0.text) }
