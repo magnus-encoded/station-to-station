@@ -370,6 +370,25 @@ func receiptsFor(_ facts: [GossipEnvelope], from: String, recognised: (GossipEnv
         .compactMap { receiptFor($0, from: from, recognised: true, author: author, now: now, sign: sign) }
 }
 
+/// The witness this device owes a **request** it just admitted, or nothing (#442, story 8).
+///
+/// The whole of the self-witness rule in one named place: `PublicGossipState.localClaim(for:)`
+/// answers "did *I* check into this **Gig**", and only an answer makes a witness. It lived in
+/// `GossipChannel.receivePublic` as a loop over the accepted batch, where no unit test could
+/// reach it — a rule deciding what this phone signs for a stranger should not be reachable
+/// only through a BLE callback. `sign` is taken per claim rather than given, because the key
+/// a witness is signed with is the *local* claim's Gig scope, which the caller cannot know
+/// before this function has picked the claim.
+///
+/// Nothing about the request's own admissibility is re-decided here: `receive` already applied
+/// the one-hop rule that a request is believed only from its author, and it is the caller's
+/// business to have admitted it first.
+func witnessFor(_ state: PublicGossipState, request: GossipEnvelope, now: Int64,
+                sign: (GossipEnvelope) -> (Data) -> Data?) -> GossipEnvelope? {
+    guard let local = state.localClaim(for: request) else { return nil }
+    return witnessRequest(request, with: local, now: now, sign: sign(local))
+}
+
 /// A witness is a separate signed fact containing the complete signed request.
 func witnessRequest(_ request: GossipEnvelope, with witness: GossipEnvelope, now: Int64,
                     sign: (Data) -> Data?) -> GossipEnvelope? {
