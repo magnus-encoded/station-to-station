@@ -35,6 +35,9 @@ class SeenWithTest {
         state.receive(checkIn(adaGig, ada, "ada-scope", at = 1000), key(adaGig), 1100)
         state.receive(checkIn(boGig, bo, "bo-scope", at = 1200), key(boGig), 1300)
         state.recognizeContacts(setOf(key(ada), key(bo)), mapOf(key(ada) to "Ada", key(bo) to "Bo"))
+        // Two Facts admitted and nothing met: only a completed Pass writes a device down, and
+        // an advertisement — which reaches nothing in here at all — certainly does not.
+        assertTrue(state.metDevices.isEmpty())
 
         state.rememberPass(key(adaGig), emptyList(), "gig", 5_000)
         state.rememberPass(key(boGig), emptyList(), "gig", 6_000)
@@ -172,6 +175,30 @@ class SeenWithTest {
 
         assertEquals(listOf("Ada"), state.seenWith(setOf("gig")).named)
         assertEquals(0, state.seenWith(setOf("gig")).others)
+    }
+
+    /**
+     * The known divergence, pinned so nobody "fixes" it into a lie.
+     *
+     * A **Pass** proves the peer's night-scoped **Gig** key when it carried their own claim and
+     * their nightly relay key otherwise, and **Attribution** is exactly the reason nothing links
+     * the two: the relay key names nobody, by design (ADR-0021). So a **Contact** met both ways
+     * is named once *and* counted once among the others. This device cannot see that they are
+     * the same phone, and folding them would be it asserting something it does not know.
+     */
+    @Test fun aContactMetOnBothKeysIsNamedOnceAndStillCountedOnce() {
+        val state = PublicGossipState()
+        val ada = pair()
+        val adaGig = pair()
+        state.receive(checkIn(adaGig, ada, "ada-scope", at = 1000), key(adaGig), 1100)
+        state.recognizeContacts(setOf(key(ada)), mapOf(key(ada) to "Ada"))
+        state.rememberPass(key(adaGig), emptyList(), "gig", 2000)
+        state.rememberPass("adas-nightly-relay-key", emptyList(), "gig", 3000)
+
+        val seen = state.seenWith(setOf("gig"))
+        assertEquals(listOf("Ada"), seen.named)
+        assertEquals(1, seen.others)
+        assertEquals("Seen with Ada + 1 other", seenWithLine(seen))
     }
 
     private fun pair(): KeyPair =
