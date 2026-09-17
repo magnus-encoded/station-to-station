@@ -310,6 +310,40 @@ data class PublicGossipState(
         return (claims.isNotEmpty() to witnessedClaims().any { it.id in mine })
     }
 
+    /**
+     * Which recognised **Contacts** the envelopes that just arrived put at one of [gigIds] (#483).
+     *
+     * Takes the batch this **Pass** accepted rather than reading [facts], and that is the whole
+     * design. Presence is a claim about *now*, and a `request` is authored once and admitted
+     * once — so a stored check-in has no freshness left in it, and recomputing presence from
+     * the store would let any later **Pass**, from anyone, relight "is also here" for every
+     * **Contact** who checked in that night. What arrived in this batch is the only thing whose
+     * timing this device can honestly speak to; the caller stamps it with the arrival clock.
+     *
+     * Attribution is the gate, not proximity: a stranger's check-in resolves to no **Contact**
+     * and therefore to nothing here — until an **Exchange** recognises them, a nearby phone is
+     * a relay key and nothing more. Blocked authors are dropped on both halves of a witness,
+     * the signer and the claim it carries, and this device's own claims never name it present.
+     *
+     * A witness-carried claim counts, so somebody standing between two **Contacts** can be the
+     * reason one sees the other. That does mean presence can outrun the radio by one hop: the
+     * relay may hand over a claim made earlier in the night. It is bounded by `offer`'s
+     * participation deadlines — a relay only carries claims for a **Gig** still running — and
+     * by the five-minute window the timestamps are read through.
+     */
+    fun presenceFrom(accepted: List<GossipEnvelope>, gigIds: Set<String>): Set<String> = accepted
+        .filter { !isBlocked(it.author) }
+        .mapNotNull { envelope -> when (envelope.kind) {
+            "request" -> envelope
+            "witness" -> decodePublicEnvelope(envelope.text)
+            else -> null
+        } }
+        .filter {
+            it.kind == "request" && !isBlocked(it.author) && it.author !in localAuthors &&
+                (it.formerIds + it.gigId).any(gigIds::contains)
+        }
+        .mapNotNullTo(LinkedHashSet()) { recognition[it.author] }
+
     /** The claims some directly-present device signed a witness for, whoever wrote them. */
     private fun witnessedClaims(): List<GossipEnvelope> = facts.values
         .filter { it.kind == "witness" && !isBlocked(it.author) }
