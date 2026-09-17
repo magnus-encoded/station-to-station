@@ -57,3 +57,9 @@ func gossipExpiry(gigDate: String, calendar: Calendar = .current) -> Date? {
 func contactKeysOf(_ friends: [Friend]) -> Set<String> {
     Set(friends.compactMap { $0.publicKey?.nilIfBlank })
 }
+
+/// The same **Contacts**, by the name to show beside a **Fact** this device recognises.
+func contactNamesOf(_ friends: [Friend]) -> [String: String] {
+    Dictionary(friends.compactMap { friend in friend.publicKey?.nilIfBlank.map { ($0, friend.name) } },
+               uniquingKeysWith: { first, _ in first })
+}

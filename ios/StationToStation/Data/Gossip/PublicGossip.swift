@@ -146,18 +146,60 @@ struct PublicGossipState: Codable {
     /// Authors backed by a private Gig key on this phone. Durable so a CoreBluetooth
     /// restoration can still tell my claim from a stranger's after relaunch.
     var localAuthors: Set<String> = []
+    /// What a recognised **Contact** was called, held here rather than looked up.
+    ///
+    /// Recognition cannot be revoked (story 16), so the name it resolves to must not depend on
+    /// the **Contact** still being on this device. Removing someone deletes their `Friend`
+    /// record, and with it the only live source of their name; without this map their
+    /// already-attributed **Facts** would quietly become "Nearby listener" — the app
+    /// pretending not to know something it does know. Local only: this never goes on the wire,
+    /// which carries `GossipEnvelope` and nothing else.
+    var contactNames: [String: String] = [:]
+
+    init() {}
+
+    /// Every field read with `decodeIfPresent`, because Swift's synthesized `init(from:)`
+    /// throws on a missing key even where the property has a default — and `GossipLedger`
+    /// decodes the whole file with `try?`, so one absent key would silently empty a night's
+    /// record instead of adding a field to it.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        facts = try container.decodeIfPresent([String: GossipEnvelope].self, forKey: .facts) ?? [:]
+        seen = try container.decodeIfPresent([String: Int64].self, forKey: .seen) ?? [:]
+        held = try container.decodeIfPresent([String: PublicHeld].self, forKey: .held) ?? [:]
+        blocked = try container.decodeIfPresent(Set<String>.self, forKey: .blocked) ?? []
+        recognition = try container.decodeIfPresent([String: String].self, forKey: .recognition) ?? [:]
+        useful = try container.decodeIfPresent([String: Int64].self, forKey: .useful) ?? [:]
+        localAuthors = try container.decodeIfPresent(Set<String>.self, forKey: .localAuthors) ?? []
+        contactNames = try container.decodeIfPresent([String: String].self, forKey: .contactNames) ?? [:]
+    }
 
     func isBlocked(_ author: String) -> Bool {
         blocked.contains(author) || recognition[author].map { blocked.contains($0) } == true
     }
 
-    mutating func recognizeContacts(_ contacts: Set<String>) {
+    /// Who this device says authored [author]'s **Facts**: the live **Contact** name where
+    /// there still is one, the name held from recognition otherwise, and `nil` for a stranger,
+    /// whose **Facts** are shown but unattributed.
+    ///
+    /// Not named `attribution`: that is `GossipEnvelope`'s sealed proof on the wire.
+    func attributedName(_ author: String, live: [String: String] = [:]) -> String? {
+        recognition[author].map { live[$0] ?? contactNames[$0] } ?? nil
+    }
+
+    mutating func recognizeContacts(_ contacts: Set<String>, names: [String: String] = [:]) {
         let envelopes = Array(facts.values) + held.values.map(\.envelope)
         let claims = envelopes.filter { $0.kind == "witness" && $0.valid() }.compactMap { decodePublicEnvelope($0.text) }
         for envelope in envelopes + claims where recognition[envelope.author] == nil {
             if envelope.valid(), let durable = recognizeGossip(envelope, contacts: contacts) {
                 recognition[envelope.author] = durable
             }
+        }
+        // Refreshed for everyone recognised, not only the authors matched just now, so a
+        // **Contact** who renames themselves is followed while they are still here. Only ever
+        // written, never removed: that is the half that has to outlive them.
+        for durable in Set(recognition.values) {
+            if let name = names[durable] { contactNames[durable] = name }
         }
     }
 

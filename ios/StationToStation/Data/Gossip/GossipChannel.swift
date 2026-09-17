@@ -38,6 +38,8 @@ actor GossipChannel {
     /// secret material in this actor to be careful with, and removing a **Contact** is still
     /// the whole of revocation.
     private var contacts: Set<String> = []
+    /// Their names, for the snapshot `recognizeContacts` keeps so attribution outlives removal.
+    private var contactNames: [String: String] = [:]
 
     /// Gig id → the end of that night, for the gigs this device happens to know about.
     ///
@@ -103,7 +105,8 @@ actor GossipChannel {
     /// `AppModel` turns into "run the radio or do not".
     func setContacts(_ friends: [Friend]) async {
         contacts = contactKeysOf(friends)
-        await ledger.recognizeContacts(contacts)
+        contactNames = contactNamesOf(friends)
+        await ledger.recognizeContacts(contacts, names: contactNames)
         await publishWitnessed(now: Date())
     }
 
@@ -197,7 +200,7 @@ actor GossipChannel {
         // A witness for *this* device's own claim arrives in the same batch as anything
         // else, so the repaint is asked for after the whole batch rather than only when
         // this device was the one doing the witnessing.
-        await ledger.recognizeContacts(contacts)
+        await ledger.recognizeContacts(contacts, names: contactNames)
         // Receipts are authored here and nowhere else, which is what keeps story 37
         // structural: recognition that arrives later, from an Exchange, runs through
         // `setContacts` and has no way back into this batch.
@@ -224,6 +227,7 @@ actor GossipChannel {
     /// Forget the whole channel. Called when the last **Contact** goes.
     func forgetAll() async {
         contacts.removeAll()
+        contactNames.removeAll()
         pending.removeAll()
         pendingReceipts.removeAll()
         await ledger.forgetAll()

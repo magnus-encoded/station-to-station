@@ -94,8 +94,9 @@ struct GigView: View {
                         // nothing else.
                         let publicState = model.state.publicGossip
                         let received = publicState.project(gigIds: [show.id]).filter { !publicState.localAuthors.contains($0.author) }
+                        let liveContacts = contactNamesOf(model.state.friends)
                         let arrivals = Set(publicState.arrivals(gigIds: [show.id]).compactMap { fact in
-                            model.state.friends.first { $0.publicKey != nil && $0.publicKey == publicState.recognition[fact.author] }?.name
+                            publicState.attributedName(fact.author, live: liveContacts)
                         })
                         if !arrivals.isEmpty {
                             Text(arrivals.sorted().joined(separator: ", ") + " · checked in")
@@ -453,11 +454,8 @@ struct GigView: View {
     }
 
     private func gossipAttribution(_ fact: GossipEnvelope) -> some View {
-        let key = model.state.publicGossip.recognition[fact.author]
-        let contact = model.state.friends.first { friend in
-            friend.publicKey != nil && friend.publicKey == key
-        }
-        let name = contact?.name ?? "Nearby listener"
+        let name = model.state.publicGossip
+            .attributedName(fact.author, live: contactNamesOf(model.state.friends)) ?? "Nearby listener"
         return HStack {
             Text("\(name) · gossip, experimental").font(.system(size: 11)).foregroundStyle(muted)
             Spacer()
