@@ -103,7 +103,7 @@ class GossipService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             scope.launch {
-                store.stopParticipation(System.currentTimeMillis())
+                gossipStop(timeline, store, System.currentTimeMillis())
                 withContext(Dispatchers.Main) { stopSelf() }
             }
             return START_NOT_STICKY
@@ -360,7 +360,8 @@ class GossipService : Service() {
         private const val TAG = "GossipService"
         private const val CHANNEL = "gossip"
         private const val NOTIFICATION_ID = 4160
-        private const val ACTION_STOP = "io.github.magnusencoded.stationtostation.GOSSIP_STOP"
+        /** Internal rather than private so a test can name what the notification's action sends. */
+        internal const val ACTION_STOP = "io.github.magnusencoded.stationtostation.GOSSIP_STOP"
 
         /**
          * Bring the service into line with [gossipRelayShouldRun] — start it, stop it, or
@@ -401,6 +402,30 @@ suspend fun gigDatesOf(timeline: TimelineStore): Map<String, LocalDate> {
         val date = runCatching { LocalDate.parse(gig.date, GIG_DATE) }.getOrNull() ?: return@mapNotNull null
         cache.keyOf(gig.id) to date
     }.toMap()
+}
+
+/**
+ * The whole of what the notification's stop action does (#448, story 30).
+ *
+ * A function rather than three lines inside `onStartCommand` because stop is the one
+ * lifecycle transition with no other way in: every other end — grace running out, the night
+ * boundary, no **Gig** left active — is a clock the tests can move, while this one arrives as
+ * a `PendingIntent` on a `Service` that this project deliberately does not stand up under
+ * Robolectric. Here it is an ordinary suspend call over the two stores, and what it returns is
+ * the thing a caller acts on: the participation deadline afterwards, which is `null`.
+ *
+ * It writes the moment rather than a flag, because
+ * [gossipParticipationUntil] compares it against the check-in it would have to outlive:
+ * stopping tonight ends tonight, and checking in again tomorrow is not affected by it. By the
+ * same comparison, reopening a **Log** after a stop does *not* resume — a stop the next edit
+ * undid would not be the off switch the story promises.
+ *
+ * It does not touch the received **Facts** (story 32). Nothing in [GossipStore.stopParticipation]
+ * can: the deadline and the record are different keys, and only the radio's reason to run ends.
+ */
+suspend fun gossipStop(timeline: TimelineStore, store: GossipStore, now: Long): Instant? {
+    store.stopParticipation(now)
+    return gossipActiveUntil(timeline, store.stoppedAt())
 }
 
 /** Read persisted attendance and completion so shutdown works with no Activity alive. */

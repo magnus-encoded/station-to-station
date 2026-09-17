@@ -492,3 +492,22 @@ receive tests have passed; locked-iPhone receive/forward, two backgrounded iPhon
 cross-platform radio and battery measurements remain unverified. See #455 and
 `docs/gossip-v2-next-pass.md` for the acceptance state. Receipt generation and
 neighbour ranking remain unimplemented and follow the iPhone viability experiment.
+
+## Amendment — 2026-09-17: `always_relay` is gone (#477)
+
+The "relay all the time" setting (`always_relay`, and `AppState.alwaysRelay` with it) is
+removed on Android. It was the last surviving way to hold the radio open with no **Gig** in
+participation, which the 2026-09-15 amendment above had already ruled out — and nothing in
+the UI offered it, so it was a contradiction in the tree rather than a feature. References to
+"the three reasons the radio runs", here and in the code, now read as one reason: a **Gig**
+on this timeline that has been checked in to and whose participation has not ended.
+
+The stored preference key is left where it is and never read again, on the same argument as
+the v1 `held` key in `GossipStore`: a key nobody reads costs nothing, and a migration that
+rewrites a user's preferences file to delete a boolean is more risk than the boolean is worth.
+
+Stopping is now one function, `gossipStop`, which the notification's `ACTION_STOP` calls and
+which a test can call without a `Service`. It writes the moment of the stop rather than a
+flag, so a stop ends *tonight*: checking in again later is unaffected, and reopening the
+**Log** after a stop does **not** resume participation — a stop the next edit undid would not
+be the off switch §6 promises. The iOS counterpart (#478) must make the same call.
