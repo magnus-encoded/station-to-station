@@ -121,11 +121,12 @@ data class GossipEnvelope(
         sign(payload())?.let { copy(id = gossipHash(payload()), signature = gossipBase64(it)) }
     fun valid(): Boolean {
         if (!isSafeGossipId(gigId) || !isSafeGossipId(scope) || formerIds.size > 32 || formerIds.any { !isSafeGossipId(it) }) return false
-        if (kind !in setOf("log", "request", "witness", "receipt") || line !in -1..4096) return false
+        if (kind !in setOf("log", "request", "witness", "receipt", "update") || line !in -1..4096) return false
         if (createdAt < 0 || expiresAt <= createdAt || expiresAt - createdAt > 108_000_000) return false
         if (author.length > 256 || attribution.length > 1024 || signature.length > 256 || record().toByteArray().size > 8192) return false
         if (kind == "log" && (line < 0 || text.toByteArray(Charsets.UTF_8).size > 512)) return false
         if (kind == "request" && line != -1) return false
+        if (kind == "update" && (line != -1 || text.isNotEmpty() || formerIds.isEmpty() || gigId in formerIds)) return false
         if (kind in setOf("witness", "receipt") && line != -1) return false
         if (fields().any { it.contains('\n') || it.contains('\t') }) return false
         if (id != gossipHash(payload())) return false
@@ -279,7 +280,10 @@ data class PublicGossipState(
     fun project(gigIds: Set<String>): List<GossipEnvelope> {
         val latestScope = facts.values.groupBy { it.author to it.scope }.mapValues { (_, values) -> values.maxWith(compareBy<GossipEnvelope> { it.createdAt }.thenBy { it.id }) }
         return facts.values.filter { fact ->
-            !isBlocked(fact.author) && latestScope[fact.author to fact.scope]?.let { (it.formerIds + it.gigId).any(gigIds::contains) } == true
+            !isBlocked(fact.author) && (
+                (linkedIds(fact) + latestScope[fact.author to fact.scope]?.let(::factIds).orEmpty()).any(gigIds::contains) ||
+                    (fact.kind == "witness" && decodePublicEnvelope(fact.text)?.let { linkedIds(it).any(gigIds::contains) } == true)
+                )
         }.groupBy { Triple(it.author, it.scope, if (it.kind == "log") "line:${it.line}" else it.id) }
             .values.map { versions -> versions.maxWith(compareBy<GossipEnvelope> { it.createdAt }.thenBy { it.id }) }
             .sortedWith(compareBy<GossipEnvelope> { it.createdAt }.thenBy { it.id })
@@ -304,7 +308,7 @@ data class PublicGossipState(
     /** Preserve self-assertion and witnessed evidence as two answers. */
     fun checkInEvidence(gigIds: Set<String>, author: String): Pair<Boolean, Boolean> {
         val claims = facts.values.filter {
-            it.kind == "request" && it.author == author && (it.formerIds + it.gigId).any(gigIds::contains)
+            it.kind == "request" && it.author == author && linkedIds(it).any(gigIds::contains)
         }
         val mine = claims.map { it.id }.toSet()
         return (claims.isNotEmpty() to witnessedClaims().any { it.id in mine })
@@ -362,7 +366,19 @@ data class PublicGossipState(
      */
     fun witnessedGigIds(): Set<String> = witnessedClaims()
         .filter { it.author in localAuthors }
-        .flatMap { it.formerIds + it.gigId }.toSet()
+        .flatMap(::linkedIds).toSet()
+
+    private fun factIds(fact: GossipEnvelope): List<String> = fact.formerIds + fact.gigId
+
+    /** An Update may relabel only its own author's earlier assertion in the same scope. */
+    private fun linkedIds(fact: GossipEnvelope): Set<String> {
+        val ids = factIds(fact).toMutableSet()
+        facts.values.filter { it.kind == "update" && it.author == fact.author && it.scope == fact.scope }
+            .sortedBy { it.createdAt }.forEach { update ->
+                if (update.formerIds.any(ids::contains)) ids.add(update.gigId)
+            }
+        return ids
+    }
 }
 
 /**

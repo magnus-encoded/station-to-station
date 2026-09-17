@@ -40,9 +40,24 @@ class GossipStore(private val data: DataStore<Preferences>) {
         val STOPPED = longPreferencesKey("manually_stopped_at")
         val PUBLIC = stringPreferencesKey("public_v2")
         val SCOPES = stringPreferencesKey("author_scopes_v2")
+        val ADOPTED = stringPreferencesKey("adopted_gig_ids_v2")
     }
 
     suspend fun stoppedAt(): Long = data.data.first()[Keys.STOPPED] ?: 0
+
+    /** Local display aliases survive even when adoption happens after Gossip ends or
+     * the local Gig loses its ID in a merge with an older setlist.fm record. */
+    suspend fun adoptedIds(): Map<String, String> = data.data.first()[Keys.ADOPTED]?.let {
+        json.decodeFromString<Map<String, String>>(it)
+    }.orEmpty()
+
+    suspend fun rememberAdoption(localId: String, setlistId: String) {
+        data.edit { prefs ->
+            val previous = prefs[Keys.ADOPTED]?.let { json.decodeFromString<Map<String, String>>(it) }.orEmpty()
+            if (previous[localId] != setlistId) prefs[Keys.ADOPTED] = json.encodeToString(
+                kotlinx.serialization.serializer<Map<String, String>>(), previous + (localId to setlistId))
+        }
+    }
     suspend fun stopParticipation(now: Long) { data.edit { it[Keys.STOPPED] = now } }
 
     /** Bind a random signing scope to the local Gig, never its mutable external ID.

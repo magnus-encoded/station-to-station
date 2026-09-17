@@ -100,6 +100,7 @@ import io.github.magnusencoded.stationtostation.data.gossip.gigDatesOf
 import io.github.magnusencoded.stationtostation.data.gossip.gossipGigTonight
 import io.github.magnusencoded.stationtostation.data.gossip.GigIdentity
 import io.github.magnusencoded.stationtostation.data.gossip.GossipEnvelope
+import io.github.magnusencoded.stationtostation.data.gossip.gossipParticipationEnds
 import io.github.magnusencoded.stationtostation.data.contactManifest
 import io.github.magnusencoded.stationtostation.data.GalleryItem
 import io.github.magnusencoded.stationtostation.data.exchange.readAccountsAck
@@ -612,7 +613,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             gossip.publicStates.collect { public ->
                 val witnessed = public.apply { prune(System.currentTimeMillis()) }.witnessedGigIds()
-                _state.update { it.copy(witnessedGigs = witnessed, publicGossip = public) }
+                val gigs = timelines.load().gigs
+                val adopted = gossip.adoptedIds()
+                val projected = witnessed + witnessed.mapNotNull { adopted[it] ?: gigs[it]?.setlistId }
+                _state.update { it.copy(witnessedGigs = projected, publicGossip = public) }
             }
         }
         viewModelScope.launch {
@@ -2388,10 +2392,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         viewModelScope.launch {
+            val before = timelines.load()
+            val original = before.gigs[gigId]
+            val now = System.currentTimeMillis()
+            val until = if (original?.setlistId == null)
+                gossipParticipationEnds(timelines, gossip.stoppedAt())[gigId] ?: 0L else 0L
             if (!timelines.adoptSetlistId(gigId, setlistId)) {
                 _state.update { it.copy(errorKind = null, error = "That night already has a setlist.fm id.") }
                 return@launch
             }
+            gossip.rememberAdoption(gigId, setlistId)
+            if (now < until && original != null) {
+                val scope = gossip.authorScope(original.id)
+                val identity = GigIdentity(scope)
+                val update = GossipEnvelope(
+                    gigId = setlistId, formerIds = listOf(gigId), scope = scope,
+                    author = identity.publicKey(), createdAt = now, expiresAt = until,
+                    kind = "update", attribution = identity.attribution(),
+                ).signed(identity::sign)
+                if (update != null) gossip.updatePublic(now) { it.receive(update, "", now, local = true) }
+            }
+            // A night adopted after participation ended sends nothing, but its old witnessed
+            // claim still decorates the same local record under the newly displayed ID.
             _state.update { it.copy(notice = "Adopted — this night is on setlist.fm now.") }
             // The real record replaces the stub: it has the url, the songs whoever
             // typed them in logged, and an id friends' lines can meet at.
