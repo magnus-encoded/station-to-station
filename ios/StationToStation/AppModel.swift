@@ -747,11 +747,20 @@ final class AppModel: ObservableObject {
             return
         }
         Task {
+            // Read before the adoption, because afterwards the night answers to the new id and
+            // the deadline that decides whether the radio is still running would be keyed by it.
+            // A night that already had an id is not an adoption, and authors nothing.
+            let before = await timelines.load()
+            let until = before.gigs[gigId]?.setlistId == nil
+                ? gossipParticipationEnds(cache: before, stoppedAt: GossipTransport.shared.stoppedAt)[gigId] ?? 0
+                : 0
             guard await timelines.adoptSetlistId(gigId: gigId, setlistId: setlistId) else {
                 state.error = "That night already has a setlist.fm id."
                 state.errorKind = nil
                 return
             }
+            await GossipChannel.shared.adoptedGigId(gigId: setlistId, formerGigId: gigId,
+                                                   localGigId: gigId, until: until)
             state.notice = "Adopted — this night is on setlist.fm now."
             // The real record replaces the stub: it has the url, the songs whoever typed
             // them in logged, and an id friends' lines can meet at.

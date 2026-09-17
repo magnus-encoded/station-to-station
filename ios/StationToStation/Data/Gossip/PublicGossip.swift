@@ -72,7 +72,7 @@ struct GossipEnvelope: Codable, Equatable, Identifiable {
     }
     func valid() -> Bool {
         guard isSafeGossipId(gigId), isSafeGossipId(scope), formerIds.count <= 32,
-              formerIds.allSatisfy(isSafeGossipId), ["log", "request", "witness", "receipt"].contains(kind),
+              formerIds.allSatisfy(isSafeGossipId), ["log", "request", "witness", "receipt", "update"].contains(kind),
               (-1...4096).contains(line), createdAt >= 0, expiresAt > createdAt,
               expiresAt - createdAt <= 108_000_000, author.utf8.count <= 256,
               attribution.utf8.count <= 1024, signature.utf8.count <= 256, record().utf8.count <= 8192,
@@ -82,6 +82,10 @@ struct GossipEnvelope: Codable, Equatable, Identifiable {
         else { return false }
         if kind == "log" && (line < 0 || text.utf8.count > 512) { return false }
         if kind == "request" && line != -1 { return false }
+        // An **Update** says only "this night I already spoke for is now known by that id".
+        // It carries no text and no line, so it can never read as a Log line or a second
+        // human **Check-in**, and it must name at least one former id other than its own.
+        if kind == "update" && (line != -1 || !text.isEmpty || formerIds.isEmpty || formerIds.contains(gigId)) { return false }
         if ["witness", "receipt"].contains(kind) && line != -1 { return false }
         if kind == "witness" {
             guard let claim = decodePublicEnvelope(text), claim.kind == "request", claim.author != author,
@@ -255,10 +259,17 @@ struct PublicGossipState: Codable {
     }
     func project(gigIds: Set<String>) -> [GossipEnvelope] {
         let scopes = Dictionary(grouping: facts.values, by: { $0.author + "\n" + $0.scope })
-        let eligible = scopes.values.flatMap { versions -> [GossipEnvelope] in
-            guard let latest = versions.max(by: { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }),
-                  !Set(latest.formerIds + [latest.gigId]).intersection(gigIds).isEmpty else { return [] }
-            return versions.filter { !isBlocked($0.author) }
+        let latestInScope = scopes.mapValues { $0.max(by: { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }) }
+        let eligible = facts.values.filter { fact in
+            guard !isBlocked(fact.author) else { return false }
+            let latest = latestInScope[fact.author + "\n" + fact.scope].flatMap { $0 }
+            var ids = linkedIds(fact).union(latest.map { Set($0.formerIds + [$0.gigId]) } ?? [])
+            // A witness is authored by whoever stood there, so its own author signed no
+            // **Update** — the link to the adopted id lives on the claim it carries.
+            if fact.kind == "witness", let claim = decodePublicEnvelope(fact.text) {
+                ids.formUnion(linkedIds(claim))
+            }
+            return !ids.intersection(gigIds).isEmpty
         }
         let lines = Dictionary(grouping: eligible, by: { $0.author + "\n" + $0.scope + "\n" + ($0.kind == "log" ? "line:\($0.line)" : $0.id) })
         return lines.values.compactMap { $0.max(by: { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }) }
@@ -289,7 +300,7 @@ struct PublicGossipState: Codable {
     /// Self-asserted and witnessed are deliberately independent answers.
     func checkInEvidence(gigIds: Set<String>, author: String) -> (asserted: Bool, witnessed: Bool) {
         let claims = facts.values.filter {
-            $0.kind == "request" && $0.author == author && !Set($0.formerIds + [$0.gigId]).intersection(gigIds).isEmpty
+            $0.kind == "request" && $0.author == author && !linkedIds($0).intersection(gigIds).isEmpty
         }
         let ids = Set(claims.map(\.id))
         return (!claims.isEmpty, witnessedClaims().contains { ids.contains($0.id) })
@@ -356,8 +367,27 @@ struct PublicGossipState: Codable {
     /// this decorates it; a night nobody witnessed is still a night the user says they
     /// were at.
     func witnessedGigIds() -> Set<String> {
-        Set(witnessedClaims().filter { localAuthors.contains($0.author) }
-            .flatMap { $0.formerIds + [$0.gigId] })
+        Set(witnessedClaims().filter { localAuthors.contains($0.author) }.flatMap { linkedIds($0) })
+    }
+
+    /// The ids one **Fact** stands for, following its own author's **Update** Facts (#497).
+    ///
+    /// An **Update** is how a night that was only ever local says, while the radio is still
+    /// running, that it now also answers to a setlist.fm id — so a **Check-in** made before
+    /// the adoption, and the witness that attests it, still find the **Gig** afterwards
+    /// without a later **Log** line.
+    ///
+    /// Author and scope are both required to match, and that is the whole of the rule: an
+    /// **Update** may relabel only the assertions its own signer already made. Nobody else's
+    /// **Update** can move a stranger's **Check-in** — or their witness — onto a **Gig** they
+    /// chose. Applied oldest first, so a chain of adoptions resolves in the order it happened.
+    private func linkedIds(_ fact: GossipEnvelope) -> Set<String> {
+        var ids = Set(fact.formerIds + [fact.gigId])
+        for update in facts.values.filter({ $0.kind == "update" && $0.author == fact.author && $0.scope == fact.scope })
+            .sorted(by: { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }) {
+            if update.formerIds.contains(where: ids.contains) { ids.insert(update.gigId) }
+        }
+        return ids
     }
 }
 

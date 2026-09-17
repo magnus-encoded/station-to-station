@@ -153,6 +153,37 @@ actor GossipChannel {
         return false
     }
 
+    /// This night took a setlist.fm id while the radio was still running (#497).
+    ///
+    /// Authored with the **Gig**'s own scope key — the same key that signed the **Check-in**
+    /// being relabelled, which is the only thing that makes the link believable to a phone
+    /// that receives it. An **Update** is not a second **Check-in**: it carries no text and no
+    /// line, it names nobody as newly present, and it neither starts nor extends
+    /// participation. It rides the **Pass** the same way a witness does, so a receiver can
+    /// carry my earlier request onto the identified **Gig** without waiting for a **Log** line
+    /// I may never write.
+    ///
+    /// `until` is participation's existing deadline, so an adoption after the night is over
+    /// authors nothing and stays local.
+    @discardableResult
+    func adoptedGigId(gigId: String, formerGigId: String, localGigId: String,
+                      until: Int64, now: Date = Date()) async -> Bool {
+        let millis = Int64(now.timeIntervalSince1970 * 1000)
+        guard millis < until, gigId != formerGigId,
+              let scope = await ledger.authorScope(localGigId: localGigId),
+              let author = GigIdentity.publicKeyBase64(scope: scope) else { return false }
+        var fact = GossipEnvelope(gigId: gigId, formerIds: [formerGigId], scope: scope, author: author,
+                                  createdAt: millis, expiresAt: until, kind: "update")
+        fact.attribution = GigIdentity.attribution(scope: scope, author: author) ?? ""
+        guard let signed = fact.signed({ GigIdentity.sign(scope: scope, $0) }),
+              await ledger.receivePublic([signed], from: "", now: millis, local: true) == 1
+        else { return false }
+        // The witnessed mark is read back from state rather than pushed at the moment of
+        // witnessing, and the adoption has just changed which ids carry it.
+        await publishWitnessed(now: now)
+        return true
+    }
+
     func publishLog(gigId: String, localGigId: String, expiry: Date, changes: [Int: String], now: Date = Date()) async {
         guard !changes.isEmpty, let scope = await ledger.authorScope(localGigId: localGigId),
               let author = GigIdentity.publicKeyBase64(scope: scope) else { return }
