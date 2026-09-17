@@ -9,12 +9,18 @@ import io.github.magnusencoded.stationtostation.data.gossip.gossipActiveUntil
 import io.github.magnusencoded.stationtostation.data.gossip.gossipExpiry
 import io.github.magnusencoded.stationtostation.data.gossip.gossipLogChanges
 import io.github.magnusencoded.stationtostation.data.gossip.gossipParticipationUntil
+import io.github.magnusencoded.stationtostation.data.gossip.GossipService
+import io.github.magnusencoded.stationtostation.data.gossip.GossipStore
 import io.github.magnusencoded.stationtostation.data.gossip.gossipRelayShouldRun
+import io.github.magnusencoded.stationtostation.data.gossip.gossipStop
+import io.github.magnusencoded.stationtostation.data.gossip.weaveGossip
 import java.io.File
 import java.security.KeyPairGenerator
 import java.security.Signature
 import java.time.LocalDate
 import java.util.Base64
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -146,4 +152,126 @@ class GossipLifecycleTest {
         assertTrue(gossipLogChanges(open, closed).isEmpty())
     }
 
+    /**
+     * Story 26 and story 14, which the local-encore case above cannot reach: the encore that
+     * matters is somebody *else's*, arriving off the radio while this phone is in grace. It
+     * must show, and it must not buy the sender another thirty minutes of this phone's battery.
+     */
+    @Test
+    fun `an encore Fact received during grace shows inline and does not extend the deadline`() = runBlocking {
+        val timeline = store()
+        val checked = end.minusSeconds(4 * 3600).toEpochMilli()
+        val done = end.minusSeconds(3 * 3600).toEpochMilli()
+        val mine = StoredLog().adding("Choke", done - 60_000).completing(true, done)
+        val gigId = timeline.gig(tonight, checked, mine)
+        val deadline = gossipActiveUntil(timeline)
+        assertEquals(java.time.Instant.ofEpochMilli(done + 1_800_000), deadline)
+
+        // Through the same store the radio writes to, because that is the only path by which
+        // a received envelope could reach this device's own attendance or Log at all.
+        val duringGrace = done + 600_000
+        val gossip = gossipStore("encore")
+        val theirs = foreignFact(gigId, line = 1, text = "Evolve", at = duringGrace)
+        gossip.updatePublic(duringGrace) { assertTrue(it.receive(theirs, "supplier", duringGrace)) }
+
+        // Nothing about this device's own night moved: same Log, same completion, same deadline.
+        assertEquals(mine, timeline.load().logs()[gigId])
+        assertEquals(deadline, gossipActiveUntil(timeline, gossip.stoppedAt()))
+        assertEquals(deadline, java.time.Instant.ofEpochMilli(gossipParticipationEnds(timeline).getValue(gigId)))
+        assertTrue(gossipRelayShouldRun(gossipActiveUntil(timeline), java.time.Instant.ofEpochMilli(duringGrace)))
+        assertFalse(gossipRelayShouldRun(gossipActiveUntil(timeline), java.time.Instant.ofEpochMilli(done + 1_800_000)))
+
+        // And it is visible where the set is read, beside the line this phone wrote itself.
+        val rows = weaveGossip(mine.songs, gossip.publicStates.first().project(setOf(gigId)))
+        assertEquals(listOf("Choke", "Evolve"), rows.map { it.text })
+    }
+
+    /**
+     * Story 30 and story 32. The notification's action is a `PendingIntent` carrying
+     * [GossipService.ACTION_STOP]; what it *does* is [gossipStop], which is the seam here.
+     */
+    @Test
+    fun `the notification stop action ends participation and keeps the Facts`() = runBlocking {
+        val timeline = store()
+        val checked = end.minusSeconds(5 * 3600).toEpochMilli()
+        val gigId = timeline.gig(tonight, checked)
+        val gossip = gossipStore("stop")
+        assertEquals(end, gossipActiveUntil(timeline, gossip.stoppedAt()))
+
+        val fact = foreignFact(gigId, line = 0, text = "Qué Más Quieres", at = checked + 60_000)
+        gossip.updatePublic(checked + 60_000) { it.receive(fact, "supplier", checked + 60_000) }
+
+        val stoppedAt = checked + 120_000
+        assertNull(gossipStop(timeline, gossip, stoppedAt))
+        assertFalse(gossipRelayShouldRun(gossipActiveUntil(timeline, gossip.stoppedAt()),
+            java.time.Instant.ofEpochMilli(stoppedAt + 1000)))
+        assertEquals(listOf("Qué Más Quieres"), gossip.publicStates.first().project(setOf(gigId)).map { it.text })
+
+        // A stop the next Log edit undid would not be an off switch. Reopening does not resume.
+        timeline.saveLog(gigId, StoredLog().completing(false))
+        assertNull(gossipActiveUntil(timeline, gossip.stoppedAt()))
+    }
+
+    /**
+     * Story 33, and the reason it holds: the grace deadline is never stored. It is derived
+     * on every read from the check-in, the **Log**'s completion and the night's end, all of
+     * which the timeline already keeps — so a restart recomputes the same instant rather than
+     * restoring it, and a crash cannot lose a timer that does not exist.
+     */
+    @Test
+    fun `the grace deadline and the held Facts survive a restart`() = runBlocking {
+        val folder = temporary.newFolder()
+        val file = File(folder, "timeline.json")
+        val prefs = File(folder, "gossip.preferences_pb")
+        val done = end.minusSeconds(3 * 3600).toEpochMilli()
+        val expected = java.time.Instant.ofEpochMilli(done + 1_800_000)
+
+        val gigId = TimelineStore(file).let { timeline ->
+            val id = timeline.gig(tonight, done - 3600_000, StoredLog().adding("Choke", done - 60_000).completing(true, done))
+            withGossipStore(prefs) { gossip ->
+                val at = done + 60_000
+                gossip.updatePublic(at) { it.receive(foreignFact(id, 1, "Evolve", at), "supplier", at) }
+                assertEquals(expected, gossipActiveUntil(timeline, gossip.stoppedAt()))
+            }
+            id
+        }
+
+        // Nothing of the first run is alive: both stores are reopened off disk.
+        val timeline = TimelineStore(file)
+        withGossipStore(prefs) { gossip ->
+            assertEquals(expected, gossipActiveUntil(timeline, gossip.stoppedAt()))
+            assertEquals(expected.toEpochMilli(), gossipParticipationEnds(timeline).getValue(gigId))
+            assertTrue(gossipRelayShouldRun(gossipActiveUntil(timeline, gossip.stoppedAt()), expected.minusSeconds(1)))
+            assertFalse(gossipRelayShouldRun(gossipActiveUntil(timeline, gossip.stoppedAt()), expected))
+            val state = gossip.publicStates.first()
+            assertEquals(listOf("Evolve"), state.project(setOf(gigId)).map { it.text })
+            assertEquals(1, state.held.size)
+        }
+    }
+
+    private val theirKey = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+
+    /** A **Fact** somebody else signed, about a **Gig** on this timeline. */
+    private fun foreignFact(gigId: String, line: Int, text: String, at: Long): GossipEnvelope =
+        GossipEnvelope(gigId = gigId, scope = "theirs", author = Base64.getEncoder().encodeToString(theirKey.public.encoded),
+            createdAt = at, expiresAt = end.toEpochMilli(), kind = "log", line = line, text = text).signed { bytes ->
+            Signature.getInstance("SHA256withECDSA").run { initSign(theirKey.private); update(bytes); sign() }
+        }!!
+
+    private fun gossipStore(name: String): GossipStore = GossipStore(
+        androidx.datastore.preferences.core.PreferenceDataStoreFactory.create(
+            scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob()),
+        ) { File(temporary.newFolder(), "$name.preferences_pb") },
+    )
+
+    /** One process's worth of DataStore: the scope dies with the block, as a restart does. */
+    private suspend fun withGossipStore(file: File, body: suspend (GossipStore) -> Unit) {
+        val job = kotlinx.coroutines.SupervisorJob()
+        try {
+            body(GossipStore(androidx.datastore.preferences.core.PreferenceDataStoreFactory.create(
+                scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + job)) { file }))
+        } finally {
+            job.cancelAndJoin()
+        }
+    }
 }

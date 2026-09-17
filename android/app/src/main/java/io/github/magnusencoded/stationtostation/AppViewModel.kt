@@ -443,8 +443,6 @@ data class UiState(
     val notice: String? = null,
     // True once the splash has been passed (Spotify login or skip).
     val onboarded: Boolean = false,
-    // Carry contacts' check-ins whenever the phone is on, not only on a gig night (#416).
-    val alwaysRelay: Boolean = false,
 ) {
     /** Who is currently tapped out. Derived so there is only [hiddenAt] to keep in step. */
     val hiddenLines: Set<String> get() = hiddenAt.keys
@@ -600,12 +598,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     mySetlistFmUser = settings.mySetlistFmUser.first() ?: "",
                     friends = settings.friends.first(),
                     onboarded = settings.onboarded.first(),
-                    alwaysRelay = settings.alwaysRelay.first(),
                 )
             }
             restoreTimelines()
-            // After the timeline is back, because whether a **Gig** is on tonight is one of
-            // the three reasons the radio runs.
+            // After the timeline is back, because the only reason the radio runs is a Gig
+            // on this timeline that is still in participation.
             syncGossip()
         }
         // Witnessed check-in is the one gossip answer the screens ask for. Read from the
@@ -2544,10 +2541,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Bring the gossip radio into line with the three reasons it may run.
+     * Bring the gossip radio into line with the one reason it may run: a **Gig** on this
+     * timeline that has been checked in to and whose participation has not ended (#448).
      *
-     * Called from every place one of those answers can change: a launch, a check-in, a new
-     * **Contact**, the setting being toggled. The decision itself is
+     * Called from every place that answer can change: a launch, a check-in, a **Log** edit
+     * that completes or reopens the set, a stop. The decision itself is
      * [gossipRelayShouldRun][io.github.magnusencoded.stationtostation.data.gossip.gossipRelayShouldRun],
      * which is where it is argued and where a reviewer should push back on it.
      */
@@ -2556,15 +2554,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             context = getApplication<Application>(),
             activeUntil = io.github.magnusencoded.stationtostation.data.gossip.gossipActiveUntil(timelines, gossip.stoppedAt()),
         )
-    }
-
-    /** See [SettingsRepository.alwaysRelay] — the one reason that means "run all the time". */
-    fun setAlwaysRelay(value: Boolean) {
-        _state.update { it.copy(alwaysRelay = value) }
-        viewModelScope.launch {
-            settings.saveAlwaysRelay(value)
-            syncGossip()
-        }
     }
 
     /** Writes one gig's attendance to state and disk together, never one without the other. */
