@@ -46,6 +46,21 @@ class PublicGossipStoreTest {
         }
     }
 
+    @Test fun lateAdoptionAliasSurvivesRestartWithoutPublishingAnUpdate() = runBlocking {
+        val file = File(temporary.root, "late-adoption.preferences_pb")
+        withStore(file) { store ->
+            store.stopParticipation(2000)
+            store.rememberAdoption("local-gig", "fm-gig")
+            store.rememberAdoption("local-gig", "fm-gig")
+            assertEquals(mapOf("local-gig" to "fm-gig"), store.adoptedIds())
+            assertTrue(store.publicStates.first().facts.isEmpty())
+        }
+        withStore(file) { store ->
+            assertEquals(mapOf("local-gig" to "fm-gig"), store.adoptedIds())
+            assertTrue(store.publicStates.first().facts.isEmpty())
+        }
+    }
+
     private val key = java.security.KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
 
     private fun logFact(scope: String, gigId: String, line: Int, text: String, at: Long,
