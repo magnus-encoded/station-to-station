@@ -67,5 +67,40 @@ The record is device-local and never leaves the phone, so it is not a thing a **
 dispute, correct or be notified of. It also inherits the **Attribution** rule in full: removing
 a **Contact** does not erase a name already recognised on an old night.
 
-iOS has the same domain and needs the counterpart decision; it is not #497, which is ID
-adoption. Flagged rather than implemented here.
+~~iOS has the same domain and needs the counterpart decision; it is not #497, which is ID
+adoption. Flagged rather than implemented here.~~
+
+## Amendment, 2026-09-18 (#499, iOS)
+
+The flag above is cleared: iOS now holds the same record, with the same read-model semantics —
+`PublicGossipState.metDevices`, `rememberPass`, `seenWith`, the `SeenWith` type, and a
+`seenWithLine` worded identically to Android's, down to *"1 other"* and the `" + "` join. Two
+apps showing the same night must not phrase it differently. There is **no wire format here**, so
+nothing in `fixtures/weave/` moves and the two implementations are twins by test, not by bytes:
+`ios/StationToStationTests/SeenWithTests.swift` mirrors `SeenWithTest.kt` case for case,
+including the double-key divergence above.
+
+Three shapes differ from Android's, both because the host does:
+
+- **Where the active **Gig** is computed.** Android's `GossipService` holds a `@Volatile
+  activeGigId` refreshed on its own loop. iOS has no service to hold one, so
+  `gossipActiveGigId(cache:stoppedAt:now:)` is derived in `GossipChannel` from the timeline it
+  already loads on both paths. That is the *stronger* form of the rule the Android doc comment
+  argues for — no stateful field that can disagree with the participation deadlines.
+- **Where the outbound half hooks.** Android records the dial-out direction in `onPushed`; iOS
+  records it in `GossipChannel.confirmDelivery(to:)`, not in `publicPass(to:nonce:)`. Bytes that
+  never landed are not a **Pass**, which is the same reason delivery itself is marked there. The
+  peer key written down is `challenge.from` — the relay key the peer's signed challenge proved,
+  the same key space as the inbound `pass.from`, so `recognition` folds both directions onto one
+  identity. It is followed by the same `publishWitnessed` every other write on that actor
+  ends with: Android's **Room** is fed by a Flow off its store and updates itself, while iOS's
+  is fed by a callback that has to be called.
+- **Where the aliases come from.** Android's `gossipGigAliases` takes an `adopted` map from the
+  gossip store; iOS derives the set from `StoredGig.setlistId` alone, the same source
+  `gossipWitnessedIds` already reads. Adoption on iOS writes the setlist.fm id onto the **Gig**,
+  and the **Update** **Fact** it also authors is already followed by `linkedIds` on the
+  **Check-in** half — so a second map would be a second answer about the same night.
+
+One iOS-only test guards a thing Swift makes easy to get wrong: a record written before
+`metDevices` existed must decode as a night with no met devices, never as an empty night. That is
+what `init(from:)`'s `decodeIfPresent` on every key is for, and the new field joins it.
