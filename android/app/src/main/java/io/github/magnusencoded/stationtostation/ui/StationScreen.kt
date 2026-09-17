@@ -3885,9 +3885,20 @@ fun StationEventScreen(
                             // A badge marks the exceptional. "Checked in" is earned;
                             // the tag that used to sit beside it labelled the *default*
                             // — nearly every attended gig — and so said nothing. Gone.
+                            // Self-assertion and evidence are two different claims and read
+                            // as two chips (#442, story 4). A witness is another phone that
+                            // was checked in to this same night signing for mine, so it is
+                            // strictly more than "checked in" and says so on the same chip
+                            // rather than beside it — one claim, at its actual strength.
+                            // `state.witnessedGigs` is the same expression the Walk reads
+                            // (GigFlyover), so the two surfaces cannot disagree about a night.
                             if (checkedIn) {
                                 Spacer(Modifier.width(6.dp))
-                                EventTag("checked in", color = Amber)
+                                EventTag(
+                                    if (setlist.id in state.witnessedGigs) "checked in · witnessed"
+                                    else "checked in",
+                                    color = Amber,
+                                )
                             }
                             // The setlist.fm id, rendered. Not a button bolted on beside
                             // the data — it *is* `StoredGig.setlistId`, and its absence

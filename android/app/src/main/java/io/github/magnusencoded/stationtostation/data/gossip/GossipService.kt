@@ -203,12 +203,13 @@ class GossipService : Service() {
                             receipts.forEach { state.receive(it, "", now, local = true) }
                             GossipTally.authored(receipts.size)
                         }
+                        // Witnessing is decided in `witnessFor`, not here: this phone signs
+                        // for a stranger only when it checked into the same Gig itself, and
+                        // that rule has to be reachable by a test rather than only by a BLE
+                        // callback. The signer is the local claim's own Gig key.
                         directRequests.forEach { request ->
-                            val local = state.localClaimFor(request) ?: return@forEach
-                            val identity = GigIdentity(local.scope)
-                            witnessRequest(request, local, now, identity::sign)?.let { witness ->
-                                state.receive(witness, "", now, local = true)
-                            }
+                            witnessFor(state, request, now) { claim -> GigIdentity(claim.scope)::sign }
+                                ?.let { witness -> state.receive(witness, "", now, local = true) }
                         }
                     }
                     Log.i(TAG, "accepted $accepted of ${delivery.pass.batch.size} public envelopes")
