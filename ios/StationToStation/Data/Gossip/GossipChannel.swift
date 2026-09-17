@@ -112,6 +112,22 @@ actor GossipChannel {
 
     func setNightEnds(_ ends: [String: Date]) { nightEnds = ends }
 
+    /// The neighbour handles holding live routing credit right now (#444, story 38).
+    ///
+    /// Credit is what a receipt bought: `PublicGossipState.useful` maps a neighbour's relay key
+    /// to the moment its credit lapses, and `publicReceiptMs` decides how long that is. Read as
+    /// a whole set rather than asked peer by peer, because the caller is a pick window ranking
+    /// several candidates at once and the actor hop should be paid once.
+    ///
+    /// Routing evidence only, and deliberately shaped so it cannot be anything else: the answer
+    /// is a set of keys that are *preferred*, never a set that is excluded. Nothing downstream
+    /// is given the vocabulary to refuse a peer for being absent from it.
+    func creditedPeers(now: Date = Date()) async -> Set<String> {
+        let millis = Int64(now.timeIntervalSince1970 * 1000)
+        let state = await ledger.publicSnapshot(now: millis)
+        return Set(state.useful.filter { $0.value > millis }.keys)
+    }
+
     /// I checked in. Mint the signed envelope and hold it — this device is now the first hop.
     ///
     /// Returns whether anything entered the channel, which is false on a phone that cannot mint
