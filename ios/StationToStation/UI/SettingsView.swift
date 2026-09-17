@@ -2,7 +2,6 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject var model: AppModel
-    @State private var gossipStopped = false
     @State private var apiKey = ""
     @State private var clientId = ""
     @State private var clashfinderUser = ""
@@ -78,10 +77,12 @@ struct SettingsView: View {
             Section {
                 Text("Check in to share small public observations with nearby phones. Completing the set keeps gossip active for 30 minutes, until 06:00 at the latest. Delivery is best effort.")
                     .font(.caption).foregroundStyle(.secondary)
-                Button(gossipStopped ? "Gossip stopped until your next check-in" : "Stop gossip") {
-                    GossipTransport.shared.stopParticipation()
-                    gossipStopped = true
-                }.disabled(gossipStopped)
+                // Whether gossip is running is read back off the recomputed deadline rather
+                // than a bit this screen sets, so the button tells the truth after a stop,
+                // after the grace runs out, and on a fresh launch alike.
+                Button(s.gossipActiveUntil == nil ? "Gossip is off until your next check-in" : "Stop gossip") {
+                    model.stopGossip()
+                }.disabled(s.gossipActiveUntil == nil)
             } header: {
                 HStack(spacing: 8) {
                     Text("Gossip")

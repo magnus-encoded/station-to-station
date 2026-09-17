@@ -220,3 +220,20 @@ func gossipParticipationEnds(cache: TimelineCache, stoppedAt: Int64 = 0) -> [Str
         ends[id] = millis
     }
 }
+
+/// When the radio may last run, over the whole timeline — nil meaning off right now (#448).
+///
+/// The one reason the radio runs is a **Gig** that has been checked in to and whose
+/// participation has not ended, so this is the latest such deadline and nothing else. Held
+/// **Envelopes** are deliberately not consulted: carrying facts for other people is something
+/// an active Gig allows, never a reason of its own (story 28), which is why "no active Gig →
+/// radio off" is a property of *this* function rather than of `offer`.
+///
+/// Derived on every read from the check-in, the **Log**'s completion and the night's end, all
+/// of which the timeline already keeps. A restart recomputes the same instant rather than
+/// restoring it, and `GossipTransport`'s stored `gossip.participationUntil` is a cache of this
+/// value for the launch path — written from it, never the authority for it.
+func gossipActiveUntil(cache: TimelineCache, stoppedAt: Int64 = 0) -> Date? {
+    gossipParticipationEnds(cache: cache, stoppedAt: stoppedAt).values.max()
+        .flatMap { $0 > 0 ? Date(timeIntervalSince1970: Double($0) / 1000) : nil }
+}
