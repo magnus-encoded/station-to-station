@@ -69,7 +69,7 @@ final class PublicGossipTests: XCTestCase {
         state.recognizeContacts([contactDurable, blockedDurable])
 
         // The stranger is carried and shown like anyone else; they are simply not named.
-        XCTAssertEqual(Set(state.arrivals(gigIds: ["gig"])), [contact, stranger])
+        XCTAssertEqual(Set(state.arrivals(gigIds: ["gig"]).map(\.id)), [contact.id, stranger.id])
         XCTAssertEqual(state.presenceFrom(accepted: accepted, gigIds: ["gig"]), [contactDurable])
         // Another night's Pass, same room: nobody here is at the Gig this phone is at.
         XCTAssertEqual(state.presenceFrom(accepted: accepted, gigIds: ["other-gig"]), [])
