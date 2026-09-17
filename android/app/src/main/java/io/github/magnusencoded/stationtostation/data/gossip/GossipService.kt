@@ -151,8 +151,8 @@ class GossipService : Service() {
         scope.launch {
             settings.friends.collect { friends ->
                 contacts = contactKeysOf(friends)
-                names = friends.mapNotNull { friend -> friend.publicKey?.let { it to friend.name } }.toMap()
-                store.updatePublic(System.currentTimeMillis()) { it.recognizeContacts(contacts) }
+                names = contactNamesOf(friends)
+                store.updatePublic(System.currentTimeMillis()) { it.recognizeContacts(contacts, names) }
             }
         }
         scope.launch {
@@ -184,7 +184,7 @@ class GossipService : Service() {
                                 admitted.add(envelope)
                             }
                         }
-                        state.recognizeContacts(contacts)
+                        state.recognizeContacts(contacts, names)
                         // Receipts are authored here and nowhere else, which is what keeps
                         // story 37 structural: recognition that arrives later, from an
                         // Exchange, runs through the `settings.friends` collector above and
@@ -285,7 +285,7 @@ class GossipService : Service() {
     private suspend fun refresh() {
         val friends = settings.friends.first()
         contacts = contactKeysOf(friends)
-        names = friends.mapNotNull { friend -> friend.publicKey?.let { it to friend.name } }.toMap()
+        names = contactNamesOf(friends)
     }
 
     /**

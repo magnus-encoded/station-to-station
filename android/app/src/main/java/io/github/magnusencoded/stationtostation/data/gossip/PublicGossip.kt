@@ -188,6 +188,17 @@ data class PublicGossipState(
     val held: MutableMap<String, PublicHeld> = linkedMapOf(),
     val blocked: MutableSet<String> = mutableSetOf(),
     val recognition: MutableMap<String, String> = mutableMapOf(),
+    /**
+     * What a recognised **Contact** was called, held here rather than looked up.
+     *
+     * Recognition cannot be revoked (story 16), so the name it resolves to must not depend
+     * on the **Contact** still being on this device. Removing someone deletes their
+     * `Friend` record, and with it the only live source of their name; without this map
+     * their already-attributed **Facts** would quietly become "Nearby listener" — the app
+     * pretending not to know something it does know. Local only: this never goes on the
+     * wire, which carries `GossipEnvelope` and nothing else.
+     */
+    val contactNames: MutableMap<String, String> = mutableMapOf(),
     val useful: MutableMap<String, Long> = mutableMapOf(),
     /** Gig authors whose private key is on this device. Persisted so a radio-restored
      * process can still distinguish my claim from a stranger's after restart. */
@@ -196,7 +207,7 @@ data class PublicGossipState(
     fun isBlocked(author: String): Boolean = author in blocked || recognition[author] in blocked
 
     /** Recognition is durable and never changes a Block; later Exchange only adds attribution. */
-    fun recognizeContacts(contacts: Set<String>) {
+    fun recognizeContacts(contacts: Set<String>, names: Map<String, String> = emptyMap()) {
         val envelopes = facts.values + held.values.map { it.envelope }
         val claims = envelopes.filter { it.kind == "witness" && it.valid() }
             .mapNotNull { decodePublicEnvelope(it.text) }
@@ -205,7 +216,19 @@ data class PublicGossipState(
                 recognizeGossip(envelope, contacts)?.let { recognition[envelope.author] = it }
             }
         }
+        // Refreshed for everyone recognised, not only the authors matched just now, so a
+        // **Contact** who renames themselves is followed while they are still here. Only
+        // ever written, never removed: that is the half that has to outlive them.
+        recognition.values.toSet().forEach { durable -> names[durable]?.let { contactNames[durable] = it } }
     }
+
+    /**
+     * Who this device says authored [author]'s **Facts**: the live **Contact** name where
+     * there still is one, the name held from recognition otherwise, and `null` for a
+     * stranger, whose **Facts** are shown but unattributed.
+     */
+    fun attribution(author: String, live: Map<String, String> = emptyMap()): String? =
+        recognition[author]?.let { live[it] ?: contactNames[it] }
 
     fun prune(now: Long) {
         seen.entries.removeAll { it.value <= now }
