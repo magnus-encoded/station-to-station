@@ -76,6 +76,19 @@ actor GossipChannel {
 
     private var onWitnessed: (@Sendable (Set<String>) -> Void)?
 
+    /// Told who a **Pass** just proved is also here, and when (#484).
+    ///
+    /// Only ever fired from `receivePublic`, never from `publishWitnessed`: presence is about
+    /// the arrival of a batch, so replaying it on every repaint — the thing `observePublic`
+    /// exists to do — would keep naming people who left. `AppModel` merges rather than
+    /// replaces, and `gossipNearby` is what forgets.
+    /// The **Gigs** still running come with it, because `metAt` is keyed by **Contact** alone
+    /// and a name on the wrong night's page would be a lie the window could not catch. Sent as
+    /// the whole current answer rather than added to: participation deadlines are recomputed
+    /// from the timeline on every **Pass**, so the latest is the only one that is true.
+    private var onPresence: (@Sendable ([String: Date], Set<String>) -> Void)?
+    func observePresence(_ handler: @escaping @Sendable ([String: Date], Set<String>) -> Void) { onPresence = handler }
+
     init(ledger: GossipLedger = GossipLedger(), timeline: TimelineStore = TimelineStore()) {
         self.ledger = ledger
         self.timeline = timeline
@@ -208,6 +221,16 @@ actor GossipChannel {
         // structural: recognition that arrives later, from an Exchange, runs through
         // `setContacts` and has no way back into this batch.
         state = await ledger.publicSnapshot(now: millis)
+        // Read after `recognizeContacts`, so a **Contact** recognised by this very batch is
+        // named, and only for nights still running: a known **Gig** keeps its deadline after
+        // participation ends, and last night's claim arriving in tonight's **Pass** is not
+        // somebody standing here. The same test `offer` applies.
+        let ends = gossipParticipationEnds(cache: await timeline.load(), stoppedAt: GossipTransport.shared.stoppedAt)
+        let gigIds = Set(ends.filter { millis < $0.value }.keys)
+        // `accepted`, not `pass.batch`: a replay of a claim this device already holds is
+        // refused by `receive` and is not evidence anybody is standing here now.
+        let present = state.presenceFrom(accepted: accepted, gigIds: gigIds)
+        if !present.isEmpty { onPresence?(present.reduce(into: [:]) { $0[$1] = now }, gigIds) }
         let relay = relayScope(now)
         // A receipt is addressed, so it may only name a key this device can meet again: the
         // sender's relay key, which a Pass carrying the sender's own request does not prove.

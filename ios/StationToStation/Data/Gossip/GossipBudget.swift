@@ -37,6 +37,31 @@ import Foundation
 /// policy rather than a wire term, so the two could differ; they cost something when they do.
 let gossipPeerCooldown: TimeInterval = 60
 
+/// How long a **Contact** counts as still being here after a verified check-in of theirs
+/// arrived (#484), matching Android's `GOSSIP_NEARBY_WINDOW`.
+///
+/// Longer than `gossipPeerCooldown` on purpose, and a multiple of it rather than a round
+/// number: two phones in the same room speak about once a minute, so a window of one minute
+/// would blink out between every pair of **Passes** and report an empty room half the time.
+/// Five gives a missed connection — a pocket, a wall, a radio busy elsewhere — room to be a
+/// missed connection rather than a departure.
+///
+/// It is deliberately not a presence protocol. Nothing announces leaving, because nothing can:
+/// a phone that walks away says nothing on its way out, so the only honest account of who is
+/// here is who was heard from recently.
+let gossipNearbyWindow: TimeInterval = 300
+
+/// Which **Contacts** to call present, given when each was last heard from.
+///
+/// Ordered most recent first, so a caller with room for two names shows the two people most
+/// likely to still be standing there. A pure function of a map and a clock, so the rule can be
+/// tested without a radio and read the same way by every surface that asks.
+func gossipNearby(_ metAt: [String: Date], now: Date) -> [String] {
+    metAt.filter { now < $0.value.addingTimeInterval(gossipNearbyWindow) }
+        .sorted { ($0.value, $0.key) > ($1.value, $1.key) }
+        .map { $0.key }
+}
+
 /// The rolling window the ceiling below is counted over.
 let gossipPeerWindow: TimeInterval = 3600
 
