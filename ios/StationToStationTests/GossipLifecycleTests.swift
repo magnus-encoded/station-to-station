@@ -69,7 +69,8 @@ final class GossipLifecycleTests: XCTestCase {
             attendance: StoredAttendance(provenance: "checked_in", checkedInAt: night.done - 3_600_000))
         let mine = StoredLog().adding("Choke").completing(true, now: night.done)
         await store.saveLog(setlistId: gigId, log: mine)
-        let deadline = try XCTUnwrap(gossipActiveUntil(cache: await store.load()))
+        let checkedInCache = await store.load()
+        let deadline = try XCTUnwrap(gossipActiveUntil(cache: checkedInCache))
         XCTAssertEqual(deadline, Date(timeIntervalSince1970: Double(night.done + 1_800_000) / 1000))
 
         // Through the ledger the radio writes to, because that is the only path by which a
@@ -109,14 +110,16 @@ final class GossipLifecycleTests: XCTestCase {
         let gigId = await store.createLocalGig(date: night.date, artist: "First", venue: "Room")
         await store.saveAttendance(setlistId: gigId,
             attendance: StoredAttendance(provenance: "checked_in", checkedInAt: checkedIn))
-        XCTAssertEqual(gossipActiveUntil(cache: await store.load()), night.end)
+        let checkedInCache = await store.load()
+        XCTAssertEqual(gossipActiveUntil(cache: checkedInCache), night.end)
 
         let ledger = GossipLedger(file: night.gossipFile)
         let fact = try night.foreignFact(gigId: gigId, line: 0, text: "Qué Más Quieres", at: checkedIn + 60_000)
-        XCTAssertEqual(await ledger.receivePublicFacts([fact], from: "supplier", now: checkedIn + 60_000).count, 1)
+        let admitted = await ledger.receivePublicFacts([fact], from: "supplier", now: checkedIn + 60_000)
+        XCTAssertEqual(admitted.count, 1)
 
         let stoppedAt = checkedIn + 120_000
-        XCTAssertNil(gossipActiveUntil(cache: await store.load(), stoppedAt: stoppedAt))
+        XCTAssertNil(gossipActiveUntil(cache: checkedInCache, stoppedAt: stoppedAt))
 
         // Stopping the radio never deletes what the night already brought in.
         let state = await ledger.publicSnapshot(now: stoppedAt)
@@ -124,9 +127,10 @@ final class GossipLifecycleTests: XCTestCase {
 
         await store.saveLog(setlistId: gigId, log: StoredLog().adding("Choke").completing(true, now: night.done))
         await store.saveLog(setlistId: gigId, log: StoredLog().adding("Choke").completing(false))
-        XCTAssertNil(gossipActiveUntil(cache: await store.load(), stoppedAt: stoppedAt))
+        let reopened = await store.load()
+        XCTAssertNil(gossipActiveUntil(cache: reopened, stoppedAt: stoppedAt))
         // Only because of the stop: without it, that same reopened Log runs to the night's end.
-        XCTAssertEqual(gossipActiveUntil(cache: await store.load()), night.end)
+        XCTAssertEqual(gossipActiveUntil(cache: reopened), night.end)
     }
 
     /// Story 33, and the reason it holds: the grace deadline is never stored. It is derived on
@@ -147,8 +151,10 @@ final class GossipLifecycleTests: XCTestCase {
             let ledger = GossipLedger(file: night.gossipFile)
             let at = night.done + 60_000
             let fact = try night.foreignFact(gigId: gigId, line: 1, text: "Evolve", at: at)
-            XCTAssertEqual(await ledger.receivePublicFacts([fact], from: "supplier", now: at).count, 1)
-            XCTAssertEqual(gossipActiveUntil(cache: await store.load()), expected)
+            let admitted = await ledger.receivePublicFacts([fact], from: "supplier", now: at)
+            XCTAssertEqual(admitted.count, 1)
+            let first = await store.load()
+            XCTAssertEqual(gossipActiveUntil(cache: first), expected)
         }
 
         // Nothing of the first run is alive: both stores are reopened off disk.
