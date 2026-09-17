@@ -159,28 +159,30 @@ class GossipLifecycleTest {
      */
     @Test
     fun `an encore Fact received during grace shows inline and does not extend the deadline`() = runBlocking {
-        val store = store()
+        val timeline = store()
         val checked = end.minusSeconds(4 * 3600).toEpochMilli()
         val done = end.minusSeconds(3 * 3600).toEpochMilli()
         val mine = StoredLog().adding("Choke", done - 60_000).completing(true, done)
-        val gigId = store.gig(tonight, checked, mine)
-        val deadline = gossipActiveUntil(store)
+        val gigId = timeline.gig(tonight, checked, mine)
+        val deadline = gossipActiveUntil(timeline)
         assertEquals(java.time.Instant.ofEpochMilli(done + 1_800_000), deadline)
 
+        // Through the same store the radio writes to, because that is the only path by which
+        // a received envelope could reach this device's own attendance or Log at all.
         val duringGrace = done + 600_000
-        val state = PublicGossipState()
+        val gossip = gossipStore("encore")
         val theirs = foreignFact(gigId, line = 1, text = "Evolve", at = duringGrace)
-        assertTrue(state.receive(theirs, "supplier", duringGrace))
+        gossip.updatePublic(duringGrace) { assertTrue(it.receive(theirs, "supplier", duringGrace)) }
 
         // Nothing about this device's own night moved: same Log, same completion, same deadline.
-        assertEquals(mine, store.load().logs()[gigId])
-        assertEquals(deadline, gossipActiveUntil(store))
-        assertEquals(deadline, java.time.Instant.ofEpochMilli(gossipParticipationEnds(store).getValue(gigId)))
-        assertTrue(gossipRelayShouldRun(gossipActiveUntil(store), java.time.Instant.ofEpochMilli(duringGrace)))
-        assertFalse(gossipRelayShouldRun(gossipActiveUntil(store), java.time.Instant.ofEpochMilli(done + 1_800_000)))
+        assertEquals(mine, timeline.load().logs()[gigId])
+        assertEquals(deadline, gossipActiveUntil(timeline, gossip.stoppedAt()))
+        assertEquals(deadline, java.time.Instant.ofEpochMilli(gossipParticipationEnds(timeline).getValue(gigId)))
+        assertTrue(gossipRelayShouldRun(gossipActiveUntil(timeline), java.time.Instant.ofEpochMilli(duringGrace)))
+        assertFalse(gossipRelayShouldRun(gossipActiveUntil(timeline), java.time.Instant.ofEpochMilli(done + 1_800_000)))
 
         // And it is visible where the set is read, beside the line this phone wrote itself.
-        val rows = weaveGossip(mine.songs, state.project(setOf(gigId)))
+        val rows = weaveGossip(mine.songs, gossip.publicStates.first().project(setOf(gigId)))
         assertEquals(listOf("Choke", "Evolve"), rows.map { it.text })
     }
 
