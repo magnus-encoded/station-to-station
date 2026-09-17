@@ -511,3 +511,24 @@ which a test can call without a `Service`. It writes the moment of the stop rath
 flag, so a stop ends *tonight*: checking in again later is unaffected, and reopening the
 **Log** after a stop does **not** resume participation — a stop the next edit undid would not
 be the off switch §6 promises. The iOS counterpart (#478) must make the same call.
+
+## Amendment — 2026-09-17: iOS matches, and where its deadline lives (#478)
+
+iOS makes the same stop-then-reopen call as the amendment above: reopening a **Log** after an
+explicit stop does **not** resume participation. It needed no new rule to do so —
+`gossipParticipationUntil` already admits only a check-in later than the stored stop moment
+(`checkedInAt > stoppedAt`), so a stop ends tonight and a later check-in is untouched. The
+in-app stop is Settings → Gossip, which now goes through `AppModel.stopGossip` rather than
+reaching into `GossipTransport` from the view, so the screens and the radio read one answer.
+
+That answer is `gossipActiveUntil(cache:stoppedAt:)`: the latest deadline over the whole
+timeline, or nil for "radio off". Held **Envelopes** are deliberately not consulted — carrying
+facts for other people is something an active **Gig** permits, never a reason of its own — so
+"no active Gig means no radio" is a property of that function, not of `offer`, which still
+blind-carries envelopes for nights it knows nothing about.
+
+Unlike Android, iOS does keep a copy of the deadline on disk: `gossip.participationUntil` in
+`UserDefaults`. It is a cache for the CoreBluetooth restoration path, which runs before the
+timeline is loaded and therefore cannot recompute anything. It is written from
+`gossipActiveUntil` and overwritten by it on the next sync; the derived value remains the
+authority, which is why the grace deadline still survives a restart without being restored.
