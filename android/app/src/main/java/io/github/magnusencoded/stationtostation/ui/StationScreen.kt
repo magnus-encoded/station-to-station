@@ -3345,6 +3345,22 @@ fun StationEventScreen(
         (setlist.performed().isNotEmpty() || (log.closed && log.named().isNotEmpty()))
     val localGig = setlist != null && setlist.isLocal()
     val canLog = setlist != null && (checkedIn || localGig)
+    /**
+     * This night's **Presence row**, hoisted because the bottom bar has two branches and a
+     * checked-in night can arrive in either — `canLog` claims the bar first, and the plan-ahead
+     * branch still draws it for a night checked into without a **Log** to keep. One definition
+     * so the two can never say different things about the same night.
+     */
+    val presenceRow: @Composable () -> Unit = {
+        if (setlist != null) GossipPresenceRow(
+            eligibleUntil = state.gossipEligibleUntil[setlist.id],
+            active = state.gossipActiveGig == setlist.id,
+            stopped = state.gossipStopped,
+            friends = state.friends,
+            onSelect = { viewModel.selectGossipGig(setlist.id) },
+            onExpiry = { viewModel.refreshGossip() },
+        )
+    }
     // Whose catalogue to offer when correcting an entry: the night's own setlist.fm
     // record. Hoisted above the Log editor because the pull-to-refresh curtain
     // (below) needs the same answer.
@@ -3485,6 +3501,10 @@ fun StationEventScreen(
                     Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    // Above the **Log** prompt, because standing somewhere comes before
+                    // writing anything down — and because this is the bar a night that was
+                    // checked into actually gets.
+                    if (checkedIn) presenceRow()
                     Text(
                         when (leaf) {
                             // "above" was true when the editor sat over the set. The
@@ -3567,14 +3587,7 @@ fun StationEventScreen(
                     // the ambient offer; no location involved at all.
                     if (canCheckInManually(setlist, LocalDateTime.now())) {
                         if (checkedIn) {
-                            Text("✓ checked in", color = Amber, fontSize = 13.sp, modifier = Modifier.padding(vertical = 6.dp))
-                            // Who else is here, on the one screen somebody has open while
-                            // standing at the venue. It is the question this whole relay
-                            // exists to answer, and the check-in line is the moment it
-                            // becomes askable — the phone only knows the room because it
-                            // has been in it. Silent when nobody is nearby, so a quiet
-                            // night reads exactly as it does today.
-                            NearbyContacts(state.friends)
+                            presenceRow()
                         } else {
                             if (offers.room.showQr) TicketQrCode(ticketQr)
                             Text(

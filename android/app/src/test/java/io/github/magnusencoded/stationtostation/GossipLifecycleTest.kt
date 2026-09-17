@@ -5,7 +5,9 @@ import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.TimelineStore
 import io.github.magnusencoded.stationtostation.data.gossip.GossipEnvelope
 import io.github.magnusencoded.stationtostation.data.gossip.PublicGossipState
+import io.github.magnusencoded.stationtostation.data.gossip.GossipBullet
 import io.github.magnusencoded.stationtostation.data.gossip.gossipActiveUntil
+import io.github.magnusencoded.stationtostation.data.gossip.gossipBullet
 import io.github.magnusencoded.stationtostation.data.gossip.gossipExpiry
 import io.github.magnusencoded.stationtostation.data.gossip.gossipLogChanges
 import io.github.magnusencoded.stationtostation.data.gossip.gossipParticipationUntil
@@ -297,6 +299,117 @@ class GossipLifecycleTest {
         // Stopping ends tonight, so there is nowhere for an unattached Pass to land.
         assertNull(gossipActiveGigId(store, stoppedAt = during - 1, now = during))
         assertTrue(early != later)
+    }
+
+    /**
+     * The whole of #500 at the store seam: two eligible nights, one radio, and a person choosing
+     * between them.
+     *
+     * One test rather than six because the states are a sequence and each one is only meaningful
+     * after the last — a switch that did not follow an initial selection proves nothing, and a
+     * fallback is only a fallback once something else was chosen. The clock is the argument, so
+     * nothing here needs a device.
+     */
+    @Test
+    fun `tapping a Presence row chooses the active Gig, and its end hands the choice back`() = runBlocking {
+        val timeline = store()
+        val gossip = gossipStore("selection")
+        val done = end.minusSeconds(3 * 3600).toEpochMilli()
+        val first = timeline.gig(tonight, done - 3600_000, StoredLog().completing(true, done))
+        val second = timeline.gig(tonight, done + 600_000)
+        // After both **Check-ins**: a stop ends the nights already stood in, and one checked
+        // into afterwards is a new consent the earlier stop says nothing about.
+        val during = done + 700_000
+        suspend fun active(now: Long) =
+            gossipActiveGigId(timeline, gossip.stoppedAt(), gossip.selectedGigId(), now)
+
+        // Nobody has chosen anything: the latest **Check-in** is where a **Pass** lands.
+        assertEquals(second, active(during))
+
+        // The tap. It moves the radio and writes nothing else — switching mints no **Check-in**.
+        val attendanceBefore = timeline.load().attendance()
+        gossip.selectGig(first)
+        assertEquals(first, active(during))
+        assertEquals(attendanceBefore, timeline.load().attendance())
+
+        // Stop: no night is active, and yet `first` still *could* gossip — which is the dim
+        // bullet, and the only reason eligibility is asked without the stop applied.
+        gossip.stopParticipation(during)
+        assertNull(active(during))
+        assertEquals(GossipBullet.OFF,
+            gossipBullet(gossipParticipationEnds(timeline)[first], active = true, stopped = true, now = during))
+        // Reopening the **Log** after a stop is deliberately not a resume.
+        timeline.saveLog(first, StoredLog().completing(false))
+        assertNull(active(during))
+
+        // Tapping the dim row resumes, and the night it names is still the chosen one.
+        gossip.resumeParticipation()
+        assertEquals(first, active(during))
+        assertEquals(GossipBullet.ON,
+            gossipBullet(gossipParticipationEnds(timeline)[first], active = true, stopped = false, now = during))
+
+        // The chosen night ends — reopened above, so put it back the way the story has it — and
+        // the most recently checked-in survivor takes over without anybody tapping anything.
+        timeline.saveLog(first, StoredLog().completing(true, done))
+        val after = done + 31 * 60_000
+        assertNull(gossipBullet(gossipParticipationEnds(timeline)[first], active = true, stopped = false, now = after))
+        assertEquals(second, active(after))
+        // And once the night itself is over there is nothing to be standing at.
+        assertNull(active(end.plusSeconds(60).toEpochMilli()))
+    }
+
+    /**
+     * A night that adopted a setlist.fm id can still be the **Active Gig**.
+     *
+     * It could not before #500: the deadlines are keyed by [TimelineCache.keyOf] and were being
+     * read under the local id, so adoption silently made a night ineligible — never active,
+     * however recently it had been checked into. Every other test here mints local **Gigs**,
+     * where the two ids are the same string, which is why nothing caught it.
+     */
+    @Test
+    fun `a Gig that adopted a setlist id is still eligible to be the active one`() = runBlocking {
+        val timeline = store()
+        val local = timeline.gig(tonight, end.minusSeconds(3600).toEpochMilli())
+        assertTrue(timeline.adoptSetlistId(local, "setlist-777"))
+        val during = end.minusSeconds(1800).toEpochMilli()
+        assertEquals(local, gossipActiveGigId(timeline, now = during))
+        // And the **Room**, which holds the adopted id, selects it by that id.
+        assertEquals(local, gossipActiveGigId(timeline, selected = "setlist-777", now = during))
+    }
+
+    /**
+     * What the **Active Gig** decides, and what it does not (#500).
+     *
+     * Only a **Pass** that carried no claim at all is attributed to it. A signed **Check-in**
+     * naming another night is evidence about *that* night, and choosing to stand somewhere must
+     * never be able to move somebody else's **Fact** onto the night you chose.
+     */
+    @Test
+    fun `an unclaimed Pass lands on the selected Gig while a signed one keeps its own`() {
+        val selected = "selected-gig"
+        val other = "other-gig"
+        val state = PublicGossipState()
+        // Tonight, because a signed envelope's lifetime is checked against its own timestamps.
+        val at = end.minusSeconds(3600).toEpochMilli()
+
+        state.rememberPass("a-relay", emptyList(), selected, at)
+        assertEquals(1, state.seenWith(setOf(selected)).others)
+        assertEquals(0, state.seenWith(setOf(other)).others)
+
+        val theirs = Base64.getEncoder().encodeToString(theirKey.public.encoded)
+        val claim = GossipEnvelope(gigId = other, scope = "theirs", author = theirs,
+            createdAt = at, expiresAt = end.toEpochMilli(), kind = "request", line = -1, text = "").signed { bytes ->
+            Signature.getInstance("SHA256withECDSA").run { initSign(theirKey.private); update(bytes); sign() }
+        }!!
+        state.rememberPass(theirs, listOf(claim), selected, at)
+        assertEquals(1, state.seenWith(setOf(other)).others)
+        assertEquals(1, state.seenWith(setOf(selected)).others)
+
+        // And the **Fact** itself is filed under the night it names, not the one being stood at.
+        val fact = foreignFact(other, line = 0, text = "Qué Más Quieres", at = at)
+        assertTrue(state.receive(fact, "a-relay", at))
+        assertEquals(listOf(fact.id), state.project(setOf(other)).map { it.id })
+        assertTrue(state.project(setOf(selected)).isEmpty())
     }
 
     /**
