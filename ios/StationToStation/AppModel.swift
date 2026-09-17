@@ -516,6 +516,12 @@ final class AppModel: ObservableObject {
     /// the end of that night (`gossipExpiry`) — and that is what a fact authored here claims,
     /// rather than a flat day from now. See `GossipChannel.setNightEnds` for what the channel
     /// currently does with the rest of them.
+    /// The witnessed mark, keyed by every id the night answers to (#497).
+    private func refreshWitnessed(_ publicState: PublicGossipState) async {
+        let cache = await timelines.load()
+        state.witnessedGigs = gossipWitnessedIds(publicState.witnessedGigIds(), cache: cache)
+    }
+
     private func gossipContactsChanged() {
         let ends = knownNights.reduce(into: [String: Date]()) { ends, gig in
             if let date = gig.eventDate, let end = gossipExpiry(gigDate: date) { ends[gig.id] = end }
@@ -542,7 +548,7 @@ final class AppModel: ObservableObject {
             await GossipChannel.shared.observePublic { publicState in
                 Task { @MainActor in
                     self?.state.publicGossip = publicState
-                    self?.state.witnessedGigs = publicState.witnessedGigIds()
+                    await self?.refreshWitnessed(publicState)
                 }
             }
         }
@@ -747,11 +753,23 @@ final class AppModel: ObservableObject {
             return
         }
         Task {
+            // Read before the adoption, because afterwards the night answers to the new id and
+            // the deadline that decides whether the radio is still running would be keyed by it.
+            // A night that already had an id is not an adoption, and authors nothing.
+            let before = await timelines.load()
+            let until = before.gigs[gigId]?.setlistId == nil
+                ? gossipParticipationEnds(cache: before, stoppedAt: GossipTransport.shared.stoppedAt)[gigId] ?? 0
+                : 0
             guard await timelines.adoptSetlistId(gigId: gigId, setlistId: setlistId) else {
                 state.error = "That night already has a setlist.fm id."
                 state.errorKind = nil
                 return
             }
+            await GossipChannel.shared.adoptedGigId(gigId: setlistId, formerGigId: gigId,
+                                                   localGigId: gigId, until: until)
+            // Whether or not anything was authored, the night now answers to a second id
+            // and the mark has to follow it.
+            await refreshWitnessed(state.publicGossip)
             state.notice = "Adopted — this night is on setlist.fm now."
             // The real record replaces the stub: it has the url, the songs whoever typed
             // them in logged, and an id friends' lines can meet at.

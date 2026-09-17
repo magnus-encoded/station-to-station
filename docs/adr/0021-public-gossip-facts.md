@@ -51,7 +51,7 @@ Four things follow, and they are the whole of what is being decided here:
   once, and the signature is sealed under a key derived from the Card public key. Decryption
   alone proves nothing — the durable signature must verify against the exact temporary key and
   scope.
-- **The payload is four kinds** — `log`, `request`, `witness`, `receipt`. A witness embeds the
+- ~~**The payload is four kinds** — `log`, `request`, `witness`, `receipt`.~~ **Five kinds**, see the amendment of 2026-09-17. A witness embeds the
   complete signed request it attests, so a relay cannot invent a subject's attendance.
   Requests and receipts are one-hop only.
 - **Block is admission, not propagation.** A blocked author's facts still cross the radio;
@@ -130,3 +130,23 @@ participation and stop rules still apply, and edits outside participation remain
 local. This supersedes the pending-choice statement above and #455's earlier
 whole-Log-Done wording. Both platforms already publish committed line changes
 from their writeLog paths; this decision requires no publication toggle or delay.
+
+
+## Amendment — 2026-09-17: a fifth kind, `update` (#496, #497)
+
+A night checked into under a locally minted id may be catalogued on setlist.fm while
+the radio is still running. Nothing in the four kinds could say so: a **Log** line is
+the only kind that carried former ids, so a witnessed **Check-in** with no later Log
+line lost its witness at the moment of adoption.
+
+`update` is that statement and nothing else. It names the new id and the former one,
+carries no text and no line, and so can never read as something a person wrote. Its
+rule is the same rule authorship already had: an **Update** relabels only the Facts
+its own signer authored, in the same scope. Another author's Update moves nobody's
+**Check-in** and nobody's witness. It makes no Log line, no arrivals row, names
+nobody present, and neither starts nor extends participation.
+
+It is gossiped, not one-hop: the whole point is that a receiver can carry the earlier
+request onto the identified **Gig** without the author ever writing again. Adoption
+after participation ends authors nothing and stays a local rename — the witness that
+device already holds is unaffected, and nobody else needed telling.
