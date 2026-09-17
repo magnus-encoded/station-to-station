@@ -4043,7 +4043,7 @@ fun StationEventScreen(
                     .filter { it.author !in state.publicGossip.localAuthors }
                 val contactNames = io.github.magnusencoded.stationtostation.data.gossip.contactNamesOf(state.friends)
                 val arrivals = state.publicGossip.arrivals(setOf(setlist.id))
-                    .mapNotNull { fact -> state.publicGossip.attribution(fact.author, contactNames) }.distinct()
+                    .mapNotNull { fact -> state.publicGossip.attributedName(fact.author, contactNames) }.distinct()
                 if (arrivals.isNotEmpty()) item {
                     Text(arrivals.joinToString(", ") + " · checked in", color = Slate,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
@@ -4067,7 +4067,7 @@ fun StationEventScreen(
                 }
                 itemsIndexed(gossipRows) { _, gossipRow ->
                     gossipRow.facts.forEach { fact ->
-                        val name = state.publicGossip.attribution(fact.author, contactNames) ?: "Nearby listener"
+                        val name = state.publicGossip.attributedName(fact.author, contactNames) ?: "Nearby listener"
                         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("$name · gossip, experimental", color = Slate, fontSize = 11.sp, modifier = Modifier.weight(1f))
                             TextButton(onClick = { viewModel.blockGossip(fact.author) }) { Text("Block") }

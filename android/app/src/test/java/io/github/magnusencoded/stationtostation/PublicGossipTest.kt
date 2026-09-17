@@ -544,22 +544,22 @@ class PublicGossipTest {
         // Received before the Exchange: carried and shown, but nobody this device knows.
         assertTrue(state.receive(line, "blind-relay", 2000))
         assertEquals(listOf(line), state.project(setOf("gig")))
-        assertNull(state.attribution(line.author, mapOf(durable to "Ada")))
+        assertNull(state.attributedName(line.author, mapOf(durable to "Ada")))
 
         // The Exchange happens afterwards. Attribution catches up on what already arrived.
         state.recognizeContacts(setOf(durable), mapOf(durable to "Ada"))
-        assertEquals("Ada", state.attribution(line.author, mapOf(durable to "Ada")))
+        assertEquals("Ada", state.attributedName(line.author, mapOf(durable to "Ada")))
 
         // Removing the Contact deletes the Friend record, so the live map no longer has the
         // name. Recognition is not revocable, and neither is what it resolves to.
         val restored = kotlinx.serialization.json.Json.decodeFromString<PublicGossipState>(
             kotlinx.serialization.json.Json.encodeToString(PublicGossipState.serializer(), state))
         restored.recognizeContacts(emptySet(), emptyMap())
-        assertEquals("Ada", restored.attribution(line.author))
+        assertEquals("Ada", restored.attributedName(line.author))
         assertEquals(listOf(line), restored.project(setOf("gig")))
 
         // A stranger stays a stranger rather than borrowing the name beside them.
-        assertNull(restored.attribution("someone-else", mapOf(durable to "Ada")))
+        assertNull(restored.attributedName("someone-else", mapOf(durable to "Ada")))
     }
 
     @Test fun carryingIsNotAuthoringSoARelayedFactIsNeverThisDevicesOwn() {
@@ -577,7 +577,7 @@ class PublicGossipTest {
         // Their request does not travel at all — one hop is the author's own.
         assertEquals(listOf(theirs), state.offer("next-peer", 2002))
         assertEquals(listOf(theirClaim), state.arrivals(setOf("gig")))
-        assertNull(state.attribution(theirs.author))
+        assertNull(state.attributedName(theirs.author))
 
         // Authoring here is the only way in, and it claims this device's own key alone.
         val myKey = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()

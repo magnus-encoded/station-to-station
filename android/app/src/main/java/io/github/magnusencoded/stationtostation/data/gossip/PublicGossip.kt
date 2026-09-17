@@ -227,7 +227,7 @@ data class PublicGossipState(
      * there still is one, the name held from recognition otherwise, and `null` for a
      * stranger, whose **Facts** are shown but unattributed.
      */
-    fun attribution(author: String, live: Map<String, String> = emptyMap()): String? =
+    fun attributedName(author: String, live: Map<String, String> = emptyMap()): String? =
         recognition[author]?.let { live[it] ?: contactNames[it] }
 
     fun prune(now: Long) {
