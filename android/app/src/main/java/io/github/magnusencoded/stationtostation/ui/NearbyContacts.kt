@@ -72,19 +72,25 @@ fun GossipPresenceRow(
 ) {
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
     val bullet = gossipBullet(eligibleUntil, active, stopped, now)
-    LaunchedEffect(eligibleUntil) {
-        while (true) {
-            delay(1_000)
-            val was = gossipBullet(eligibleUntil, active, stopped, now)
-            now = System.currentTimeMillis()
-            if (was != null && gossipBullet(eligibleUntil, active, stopped, now) == null) onExpiry()
+    // Only a night that can still **Gossip** is worth a clock or an animation. Every **Room** on
+    // a timeline has a check-in line, most of them years old, and neither the tick nor the blink
+    // would ever have anything to show on those.
+    if (bullet != null) {
+        LaunchedEffect(eligibleUntil) {
+            while (true) {
+                delay(1_000)
+                now = System.currentTimeMillis()
+                if (gossipBullet(eligibleUntil, active, stopped, now) == null) {
+                    onExpiry()
+                    return@LaunchedEffect
+                }
+            }
         }
     }
     // One transition for both colours: the blink is what says the radio's state is live rather
     // than a label, and an amber that pulsed differently from a dim one would read as two
     // different kinds of thing.
-    val blink = rememberInfiniteTransition(label = "gossip-bullet")
-    val alpha by blink.animateFloat(
+    val alpha by rememberInfiniteTransition(label = "gossip-bullet").animateFloat(
         initialValue = 1f,
         targetValue = 0.25f,
         animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),

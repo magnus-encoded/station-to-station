@@ -103,6 +103,7 @@ import io.github.magnusencoded.stationtostation.data.gossip.GossipEnvelope
 import io.github.magnusencoded.stationtostation.data.gossip.gossipGigAliases
 import io.github.magnusencoded.stationtostation.data.gossip.gossipActiveGigId
 import io.github.magnusencoded.stationtostation.data.gossip.gossipParticipationEnds
+import io.github.magnusencoded.stationtostation.data.gossip.gossipStoppedGigs
 import io.github.magnusencoded.stationtostation.data.contactManifest
 import io.github.magnusencoded.stationtostation.data.GalleryItem
 import io.github.magnusencoded.stationtostation.data.exchange.readAccountsAck
@@ -375,8 +376,15 @@ data class UiState(
     val gossipEligibleUntil: Map<String, Long> = emptyMap(),
     /** The **Active Gig**, under the id its **Room** holds. See [gossipActiveGigId]. */
     val gossipActiveGig: String? = null,
-    /** Whether somebody stopped the radio tonight — the dim half of a **Presence row**'s bullet. */
-    val gossipStopped: Boolean = false,
+    /**
+     * The nights a stop actually ended, by the id their **Room** holds — the dim half of a
+     * **Presence row**'s bullet.
+     *
+     * A set and not a flag, because a stop is not global: it ends the nights already stood in,
+     * and a **Check-in** made *after* it is a fresh consent the earlier stop says nothing about.
+     * One boolean here drew a dim bullet on a night the radio was plainly running for.
+     */
+    val gossipStoppedGigs: Set<String> = emptySet(),
     /** The calendar event made for a gig, by gig id → its content URI; restored from disk. */
     val calendarEventByGig: Map<String, String> = emptyMap(),
     /**
@@ -2609,11 +2617,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         // stopped transmitting for.
         val cache = timelines.load()
         val active = gossipActiveGigId(timelines, stoppedAt, gossip.selectedGigId(), System.currentTimeMillis())
+        val eligible = gossipParticipationEnds(timelines)
+        val running = gossipParticipationEnds(timelines, stoppedAt)
         _state.update {
             it.copy(
-                gossipEligibleUntil = gossipParticipationEnds(timelines),
+                gossipEligibleUntil = eligible,
                 gossipActiveGig = active?.let(cache::keyOf),
-                gossipStopped = stoppedAt > 0,
+                gossipStoppedGigs = gossipStoppedGigs(eligible, running),
             )
         }
     }

@@ -8,6 +8,7 @@ import io.github.magnusencoded.stationtostation.data.gossip.PublicGossipState
 import io.github.magnusencoded.stationtostation.data.gossip.GossipBullet
 import io.github.magnusencoded.stationtostation.data.gossip.gossipActiveUntil
 import io.github.magnusencoded.stationtostation.data.gossip.gossipBullet
+import io.github.magnusencoded.stationtostation.data.gossip.gossipStoppedGigs
 import io.github.magnusencoded.stationtostation.data.gossip.gossipExpiry
 import io.github.magnusencoded.stationtostation.data.gossip.gossipLogChanges
 import io.github.magnusencoded.stationtostation.data.gossip.gossipParticipationUntil
@@ -356,6 +357,38 @@ class GossipLifecycleTest {
         assertEquals(second, active(after))
         // And once the night itself is over there is nothing to be standing at.
         assertNull(active(end.plusSeconds(60).toEpochMilli()))
+    }
+
+    /**
+     * A stop ends the nights already stood in, and no others — so the bullet cannot be one flag.
+     *
+     * Stop at the first stage, walk to the second, check in there: the radio runs again, for that
+     * night, and its **Presence row** has to say amber. A single "gossip is stopped" boolean drew
+     * it dim while the notification was plainly up, and tapping it to "resume" would have revived
+     * the night that was deliberately stopped.
+     */
+    @Test
+    fun `a stop dims only the nights it ended, not one checked into after it`() = runBlocking {
+        val timeline = store()
+        val gossip = gossipStore("per-night-stop")
+        val first = timeline.gig(tonight, end.minusSeconds(4 * 3600).toEpochMilli())
+        val stoppedAt = end.minusSeconds(3 * 3600).toEpochMilli()
+        gossip.stopParticipation(stoppedAt)
+        val second = timeline.gig(tonight, stoppedAt + 600_000)
+        val now = stoppedAt + 900_000
+
+        // The radio runs again, and for the night checked into after the stop.
+        assertTrue(gossipRelayShouldRun(gossipActiveUntil(timeline, gossip.stoppedAt()),
+            java.time.Instant.ofEpochMilli(now)))
+        assertEquals(second, gossipActiveGigId(timeline, gossip.stoppedAt(), gossip.selectedGigId(), now))
+
+        val eligible = gossipParticipationEnds(timeline)
+        val running = gossipParticipationEnds(timeline, gossip.stoppedAt())
+        assertEquals(setOf(first), gossipStoppedGigs(eligible, running))
+        assertEquals(GossipBullet.ON,
+            gossipBullet(eligible[second], active = true, stopped = second in gossipStoppedGigs(eligible, running), now = now))
+        assertEquals(GossipBullet.OFF,
+            gossipBullet(eligible[first], active = false, stopped = first in gossipStoppedGigs(eligible, running), now = now))
     }
 
     /**

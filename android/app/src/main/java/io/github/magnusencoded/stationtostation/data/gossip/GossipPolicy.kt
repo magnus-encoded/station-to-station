@@ -69,6 +69,17 @@ fun gossipPassDue(lastAt: Instant?, now: Instant): Boolean =
  */
 enum class GossipBullet { ON, OFF }
 
+/**
+ * Which nights a stop actually ended: eligible with no stop applied, not eligible with it.
+ *
+ * A stop is not global, which is the whole reason this is a set. `gossipParticipationUntil`
+ * refuses to end a night whose **Check-in** came *after* the stop — walking to the other stage
+ * and checking in there is a fresh consent, and the radio runs again for that night. Asking one
+ * boolean instead drew a dim bullet on a **Gig** the radio was plainly running for.
+ */
+fun gossipStoppedGigs(eligible: Map<String, Long>, running: Map<String, Long>): Set<String> =
+    eligible.filterValues { it > 0 }.keys.filterTo(mutableSetOf()) { (running[it] ?: 0L) <= 0L }
+
 fun gossipBullet(eligibleUntil: Long?, active: Boolean, stopped: Boolean, now: Long): GossipBullet? = when {
     (eligibleUntil ?: 0L) <= now -> null
     active && !stopped -> GossipBullet.ON

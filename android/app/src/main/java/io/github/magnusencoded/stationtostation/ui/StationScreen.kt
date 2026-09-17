@@ -3355,7 +3355,7 @@ fun StationEventScreen(
         if (setlist != null) GossipPresenceRow(
             eligibleUntil = state.gossipEligibleUntil[setlist.id],
             active = state.gossipActiveGig == setlist.id,
-            stopped = state.gossipStopped,
+            stopped = setlist.id in state.gossipStoppedGigs,
             friends = state.friends,
             onSelect = { viewModel.selectGossipGig(setlist.id) },
             onExpiry = { viewModel.refreshGossip() },
