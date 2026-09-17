@@ -123,6 +123,105 @@ class PublicGossipTest {
         return draft.signed { bytes -> Signature.getInstance("SHA256withECDSA").run { initSign(key.private); update(bytes); sign() } }!!
     }
 
+    private fun pair() = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+
+    private fun sign(pair: java.security.KeyPair, bytes: ByteArray) =
+        Signature.getInstance("SHA256withECDSA").run { initSign(pair.private); update(bytes); sign() }
+
+    /** A check-in signed by a nightly Gig key, sealed to [card] when there is one to recognise. */
+    private fun checkIn(gig: java.security.KeyPair, card: java.security.KeyPair?, scope: String, at: Long = 1000): GossipEnvelope {
+        val author = gossipBase64(gig.public.encoded)
+        val attribution = card?.let {
+            val durable = gossipBase64(it.public.encoded)
+            val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, javax.crypto.spec.SecretKeySpec(
+                java.security.MessageDigest.getInstance("SHA-256")
+                    .digest("station-to-station/gossip-mask/2\n$durable\n$scope".toByteArray()), "AES"))
+            gossipBase64(cipher.iv + cipher.doFinal(
+                sign(it, "station-to-station/gossip-identity/2\n$scope\n$author".toByteArray())))
+        }.orEmpty()
+        return GossipEnvelope(gigId = "gig", scope = scope, author = author, createdAt = at,
+            expiresAt = 100000, kind = "request", attribution = attribution)
+            .signed { bytes -> sign(gig, bytes) }!!
+    }
+
+    /**
+     * Story 38 under v2: the line only ever names somebody this phone can actually name.
+     *
+     * Three check-ins arrive in one **Pass** and all three are believed — they are equally
+     * valid **Facts** and every one of them projects. Only the recognised, unblocked
+     * **Contact** becomes presence, because attribution is the gate: the stranger's phone is
+     * a relay key until an **Exchange** says otherwise, and naming them would be inventing a
+     * person. The block is applied the way a user applies one — to the durable **Card** key,
+     * after the **Fact** was already stored unrecognised — so it is `recognition` catching up
+     * that has to drop them, not `receive` having refused them earlier.
+     */
+    @Test fun onlyARecognisedUnblockedContactsCheckInBecomesPresence() {
+        val contactCard = pair()
+        val blockedCard = pair()
+        val contactDurable = gossipBase64(contactCard.public.encoded)
+        val blockedDurable = gossipBase64(blockedCard.public.encoded)
+        val contact = checkIn(pair(), contactCard, "contact-scope")
+        val stranger = checkIn(pair(), null, "stranger-scope")
+        val blocked = checkIn(pair(), blockedCard, "blocked-scope")
+
+        val state = PublicGossipState()
+        val accepted = listOf(contact, stranger, blocked).filter { state.receive(it, it.author, 1500) }
+        assertEquals(listOf(contact, stranger, blocked), accepted)
+        state.blocked.add(blockedDurable)
+        state.recognizeContacts(setOf(contactDurable, blockedDurable), emptyMap())
+
+        // The stranger is carried and shown like anyone else; they are simply not named.
+        assertEquals(setOf(contact, stranger), state.arrivals(setOf("gig")).toSet())
+        assertEquals(setOf(contactDurable), state.presenceFrom(accepted, setOf("gig")))
+        // Another night's Pass, same room: nobody here is at the Gig this phone is at.
+        assertEquals(emptySet<String>(), state.presenceFrom(accepted, setOf("other-gig")))
+
+        // What the two surfaces read, on an injected clock rather than the shared object.
+        val metAt = state.presenceFrom(accepted, setOf("gig")).associateWith { java.time.Instant.EPOCH }
+        assertEquals(listOf(contactDurable), gossipNearby(metAt, java.time.Instant.EPOCH.plusSeconds(240)))
+        assertTrue(gossipNearby(metAt, java.time.Instant.EPOCH.plusSeconds(360)).isEmpty())
+    }
+
+    /**
+     * A **Contact** one hop away still counts, and this device's own claim never does.
+     *
+     * The witness is what carries the claim the last hop, so the phone that did the
+     * recognising need not have been the one in radio range — presence follows attribution,
+     * not proximity. The local claim in the same batch is the control: a phone is never
+     * "also here" to itself.
+     */
+    @Test fun aWitnessCarriesAContactsCheckInIntoPresenceAndNeverThisDevicesOwn() {
+        val card = pair()
+        val durable = gossipBase64(card.public.encoded)
+        val theirs = checkIn(pair(), card, "their-scope")
+        val mineKey = pair()
+        val mine = checkIn(mineKey, null, "my-scope")
+        val witness = GossipEnvelope(gigId = "gig", scope = "my-scope", author = mine.author,
+            createdAt = 1600, expiresAt = 100000, kind = "witness", text = theirs.record())
+            .signed { bytes -> sign(mineKey, bytes) }!!
+
+        val state = PublicGossipState()
+        assertTrue(state.receive(mine, "", 1500, local = true))
+        assertTrue(state.receive(witness, "blind-relay", 1601))
+        state.recognizeContacts(setOf(durable), emptyMap())
+        assertFalse(state.facts.containsKey(theirs.id))
+        assertEquals(setOf(durable), state.presenceFrom(listOf(witness, mine), setOf("gig")))
+
+        // Blocking the Contact retires the claim the witness carries, without retiring the
+        // witness's own author, who is this device.
+        state.blocked.add(durable)
+        assertEquals(emptySet<String>(), state.presenceFrom(listOf(witness, mine), setOf("gig")))
+
+        // Nothing here re-checks the claim a witness carries, and nothing needs to:
+        // `valid()` validates a witness's inner claim recursively, so `receive` never
+        // admits a validly-signed witness wrapped around a forged one.
+        assertFalse(GossipEnvelope(gigId = "gig", scope = "my-scope", author = mine.author,
+            createdAt = 1700, expiresAt = 100000, kind = "witness",
+            text = theirs.copy(createdAt = 1700).record())
+            .signed { bytes -> sign(mineKey, bytes) }!!.valid())
+    }
+
     @Test fun oneHopControlsRequireTheirAuthorWithoutPoisoningTheStormGate() {
         for (kind in listOf("request", "receipt")) {
             val envelope = fact(text = if (kind == "receipt") "useful-neighbour" else "", kind = kind)

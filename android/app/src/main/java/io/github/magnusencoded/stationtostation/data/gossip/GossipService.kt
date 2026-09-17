@@ -172,6 +172,11 @@ class GossipService : Service() {
                     val now = System.currentTimeMillis()
                     if (!gossipRelayShouldRun(activeUntil, Instant.ofEpochMilli(now))) return@launch
                     var accepted = 0
+                    // Only nights still running. A known Gig keeps its deadline after
+                    // participation ends, and last night's claim arriving in tonight's Pass
+                    // is not somebody standing here — the same test `offer` applies.
+                    val gigIds = participationEnds.filterValues { it > now }.keys
+                    val present = mutableSetOf<String>()
                     store.updatePublic(now) { state ->
                         val directRequests = delivery.pass.batch.filter { envelope ->
                             envelope.kind == "request" && state.receive(envelope, delivery.from, now)
@@ -211,7 +216,14 @@ class GossipService : Service() {
                             witnessFor(state, request, now) { claim -> GigIdentity(claim.scope)::sign }
                                 ?.let { witness -> state.receive(witness, "", now, local = true) }
                         }
+                        // Read after `recognizeContacts`, so a Contact recognised by this very
+                        // batch is named — and collected rather than stamped here, because
+                        // `GossipPresence` is process-wide and must not be written from inside
+                        // a persistence transaction that may run again.
+                        present += state.presenceFrom(directRequests + admitted, gigIds)
                     }
+                    present.forEach { GossipPresence.met(it, Instant.ofEpochMilli(now)) }
+                    if (present.isNotEmpty()) withContext(Dispatchers.Main) { startForegroundNotification(publicCount()) }
                     Log.i(TAG, "accepted $accepted of ${delivery.pass.batch.size} public envelopes")
                 }
             }
