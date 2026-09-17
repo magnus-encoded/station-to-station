@@ -613,7 +613,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             gossip.publicStates.collect { public ->
                 val witnessed = public.apply { prune(System.currentTimeMillis()) }.witnessedGigIds()
-                _state.update { it.copy(witnessedGigs = witnessed, publicGossip = public) }
+                val gigs = timelines.load().gigs
+                val projected = witnessed + witnessed.mapNotNull { gigs[it]?.setlistId }
+                _state.update { it.copy(witnessedGigs = projected, publicGossip = public) }
             }
         }
         viewModelScope.launch {
@@ -2408,6 +2410,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 ).signed(identity::sign)
                 if (update != null) gossip.updatePublic(now) { it.receive(update, "", now, local = true) }
             }
+            // A night adopted after participation ended sends nothing, but its old witnessed
+            // claim still decorates the same local record under the newly displayed ID.
+            val witnessed = gossip.publicStates.first().witnessedGigIds()
+            if (gigId in witnessed) _state.update { it.copy(witnessedGigs = it.witnessedGigs + setlistId) }
             _state.update { it.copy(notice = "Adopted — this night is on setlist.fm now.") }
             // The real record replaces the stub: it has the url, the songs whoever
             // typed them in logged, and an id friends' lines can meet at.
