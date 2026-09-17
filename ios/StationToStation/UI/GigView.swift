@@ -19,6 +19,21 @@ private let faint = Color(red: 0x5A / 255, green: 0x53 / 255, blue: 0x68 / 255)
 /// (same mark StationView draws its Spine with).
 private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
 
+/// "AmandaSvea is also here", for the **Contacts** a **Pass** just proved are in the room.
+///
+/// `nil` for an empty room rather than a line saying so: "nobody is here" is a claim this
+/// phone cannot make — a **Contact** across a hall, or with their phone in a pocket, is not
+/// absent — so silence is the honest answer, and it keeps the line out of the way on every
+/// quiet night. Three names collapse to a count because the sentence is a glance, not a list.
+func alsoHereSentence(_ here: [String]) -> String? {
+    switch here.count {
+    case 0: return nil
+    case 1: return "\(here[0]) is also here"
+    case 2: return "\(here[0]) and \(here[1]) are also here"
+    default: return "\(here[0]) and \(here.count - 1) others are also here"
+    }
+}
+
 /// A row of the night: an encore divider, or a performed song (numbered; a tape
 /// track has no number — it played but is not one of the band's songs).
 private enum EventRow {
@@ -98,6 +113,20 @@ struct GigView: View {
                         let arrivals = Set(publicState.arrivals(gigIds: [show.id]).compactMap { fact in
                             publicState.attributedName(fact.author, live: liveContacts)
                         })
+                        // Who is *still* here, above who checked in at all tonight. The two
+                        // lines answer different questions and the second cannot answer the
+                        // first: a check-in is authored once and stays in the record all
+                        // night, so only `metAt` — stamped when a Pass arrived, read through
+                        // `gossipNearbyWindow` — can say somebody is standing here now (#484).
+                        // Ink rather than amber: amber means *mine* at every Resolution.
+                        TimelineView(.periodic(from: .now, by: 10)) { tick in
+                            let here = gossipNearby(model.state.metAt, now: tick.date)
+                                .map { liveContacts[$0] ?? publicState.contactNames[$0] ?? "Someone" }
+                            if let sentence = alsoHereSentence(here) {
+                                Text(sentence).font(.system(size: 15, weight: .medium))
+                                    .foregroundStyle(ink).padding(.horizontal, 24).padding(.bottom, 8)
+                            }
+                        }
                         if !arrivals.isEmpty {
                             Text(arrivals.sorted().joined(separator: ", ") + " · checked in")
                                 .font(.system(size: 12)).foregroundStyle(muted).padding(.horizontal, 24)

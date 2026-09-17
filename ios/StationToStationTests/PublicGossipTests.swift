@@ -29,6 +29,103 @@ final class PublicGossipTests: XCTestCase {
         XCTAssertEqual(state.recognition[author], durable)
     }
 
+    /// A check-in signed by a nightly Gig key, sealed to `card` when there is one to recognise.
+    private func checkIn(gig: P256.Signing.PrivateKey, card: P256.Signing.PrivateKey?,
+                         scope: String, at: Int64 = 1000) throws -> GossipEnvelope {
+        let author = gig.publicKey.derRepresentation.base64EncodedString()
+        var draft = GossipEnvelope(gigId: "gig", scope: scope, author: author,
+                                   createdAt: at, expiresAt: 100000, kind: "request")
+        if let card {
+            let durable = card.publicKey.derRepresentation.base64EncodedString()
+            let signature = try card.signature(for: gossipIdentityBinding(scope: scope, author: author)).derRepresentation
+            let sealed = try AES.GCM.seal(signature, using: gossipRecognitionKey(durable: durable, scope: scope))
+            draft.attribution = try XCTUnwrap(sealed.combined).base64EncodedString()
+        }
+        return try XCTUnwrap(draft.signed { try? gig.signature(for: $0).derRepresentation })
+    }
+
+    /// Story 38 under v2: the line only ever names somebody this phone can actually name.
+    ///
+    /// Three check-ins arrive in one **Pass** and all three are believed — they are equally
+    /// valid **Facts** and every one of them projects. Only the recognised, unblocked
+    /// **Contact** becomes presence, because attribution is the gate: the stranger's phone is
+    /// a relay key until an **Exchange** says otherwise, and naming them would be inventing a
+    /// person. The block is applied the way a user applies one — to the durable **Card** key,
+    /// after the **Fact** was already stored unrecognised — so it is `recognition` catching up
+    /// that has to drop them, not `receive` having refused them earlier.
+    func testOnlyARecognisedUnblockedContactsCheckInBecomesPresence() throws {
+        let contactCard = P256.Signing.PrivateKey()
+        let blockedCard = P256.Signing.PrivateKey()
+        let contactDurable = contactCard.publicKey.derRepresentation.base64EncodedString()
+        let blockedDurable = blockedCard.publicKey.derRepresentation.base64EncodedString()
+        let contact = try checkIn(gig: P256.Signing.PrivateKey(), card: contactCard, scope: "contact-scope")
+        let stranger = try checkIn(gig: P256.Signing.PrivateKey(), card: nil, scope: "stranger-scope")
+        let blocked = try checkIn(gig: P256.Signing.PrivateKey(), card: blockedCard, scope: "blocked-scope")
+
+        var state = PublicGossipState()
+        let accepted = [contact, stranger, blocked].filter { state.receive($0, from: $0.author, now: 1500) }
+        XCTAssertEqual(accepted, [contact, stranger, blocked])
+        state.blocked.insert(blockedDurable)
+        state.recognizeContacts([contactDurable, blockedDurable])
+
+        // The stranger is carried and shown like anyone else; they are simply not named.
+        XCTAssertEqual(Set(state.arrivals(gigIds: ["gig"])), [contact, stranger])
+        XCTAssertEqual(state.presenceFrom(accepted: accepted, gigIds: ["gig"]), [contactDurable])
+        // Another night's Pass, same room: nobody here is at the Gig this phone is at.
+        XCTAssertEqual(state.presenceFrom(accepted: accepted, gigIds: ["other-gig"]), [])
+
+        // What the surface reads, on an injected clock rather than the app's.
+        let stamped = Dictionary(uniqueKeysWithValues:
+            state.presenceFrom(accepted: accepted, gigIds: ["gig"]).map { ($0, Date(timeIntervalSince1970: 0)) })
+        XCTAssertEqual(gossipNearby(stamped, now: Date(timeIntervalSince1970: 240)), [contactDurable])
+        XCTAssertTrue(gossipNearby(stamped, now: Date(timeIntervalSince1970: 360)).isEmpty)
+        XCTAssertEqual(alsoHereSentence(["AmandaSvea"]), "AmandaSvea is also here")
+        XCTAssertNil(alsoHereSentence([]))
+        // If this inverted, a pair mid-Pass would blink out of each other's rooms while
+        // actively talking.
+        XCTAssertGreaterThan(gossipNearbyWindow, gossipPeerCooldown)
+    }
+
+    /// A **Contact** one hop away still counts, and this device's own claim never does.
+    ///
+    /// The witness is what carries the claim the last hop, so the phone that did the
+    /// recognising need not have been the one in radio range — presence follows attribution,
+    /// not proximity. The local claim in the same batch is the control: a phone is never
+    /// "also here" to itself.
+    func testWitnessCarriesAContactsCheckInIntoPresenceAndNeverThisDevicesOwn() throws {
+        let card = P256.Signing.PrivateKey()
+        let durable = card.publicKey.derRepresentation.base64EncodedString()
+        let theirs = try checkIn(gig: P256.Signing.PrivateKey(), card: card, scope: "their-scope")
+        let mineKey = P256.Signing.PrivateKey()
+        let mine = try checkIn(gig: mineKey, card: nil, scope: "my-scope")
+        let witness = try XCTUnwrap(GossipEnvelope(gigId: "gig", scope: "my-scope", author: mine.author,
+            createdAt: 1600, expiresAt: 100000, kind: "witness", text: theirs.record())
+            .signed { try? mineKey.signature(for: $0).derRepresentation })
+
+        var state = PublicGossipState()
+        XCTAssertTrue(state.receive(mine, from: "", now: 1500, local: true))
+        XCTAssertTrue(state.receive(witness, from: "blind-relay", now: 1601))
+        state.recognizeContacts([durable])
+        XCTAssertNil(state.facts[theirs.id])
+        XCTAssertEqual(state.presenceFrom(accepted: [witness, mine], gigIds: ["gig"]), [durable])
+
+        // Blocking the Contact retires the claim the witness carries, without retiring the
+        // witness's own author, who is this device.
+        state.blocked.insert(durable)
+        XCTAssertEqual(state.presenceFrom(accepted: [witness, mine], gigIds: ["gig"]), [])
+
+        // Nothing here re-checks the claim a witness carries, and nothing needs to: `valid()`
+        // validates a witness's inner claim recursively, so `receive` never admits a
+        // validly-signed witness wrapped around a forged one.
+        var forged = theirs
+        forged.createdAt = 1700
+        let attack = try XCTUnwrap(GossipEnvelope(gigId: "gig", scope: "my-scope", author: mine.author,
+            createdAt: 1700, expiresAt: 100000, kind: "witness", text: forged.record())
+            .signed { try? mineKey.signature(for: $0).derRepresentation })
+        XCTAssertFalse(attack.valid())
+        XCTAssertFalse(state.receive(attack, from: "blind-relay", now: 1701))
+    }
+
     func testAlignmentPreservesReprisesAndEveryAuthorsOrder() {
         let a = ["A", "B", "A"].enumerated().map { index, text -> GossipEnvelope in
             var item = fact(text); item.line = index; return item

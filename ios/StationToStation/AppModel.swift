@@ -101,6 +101,14 @@ struct UiState {
     /// were there and a stranger's phone agreeing are two different claims, and a night
     /// with nobody else running the radio is still a night they attended.
     var witnessedGigs: Set<String> = []
+    /// When a verified check-in last arrived from each recognised **Contact**, by durable
+    /// **Card** key (#484). Read through `gossipNearby`, which is what decides "is also here".
+    ///
+    /// In memory and never persisted, because presence that did not survive the process was
+    /// not presence: a relaunched phone has heard from nobody yet, and restoring stamps would
+    /// name a room the app has not been in since. Merged, never replaced — each **Pass**
+    /// carries only who it just proved, and the window forgets the rest.
+    var metAt: [String: Date] = [:]
     /// The calendar event made for a planned gig, by gig id — EventKit's
     /// `eventIdentifier`. Presence is what the leaf reads as "already added".
     var calendarEventByGig: [String: String] = [:]
@@ -516,6 +524,13 @@ final class AppModel: ObservableObject {
         Task { await GossipChannel.shared.setNightEnds(ends) }
         // Read back rather than pushed at the moment of witnessing, so a phone that was
         // closed when the witness arrived projects it the same way after a relaunch.
+        Task { [weak self] in
+            await GossipChannel.shared.observePresence { present in
+                Task { @MainActor in
+                    self?.state.metAt.merge(present) { _, arrived in arrived }
+                }
+            }
+        }
         Task { [weak self] in
             await GossipChannel.shared.observePublic { publicState in
                 Task { @MainActor in
