@@ -15,11 +15,19 @@ import java.time.Instant
  * screen redraws on its own. A second copy of this map in the UI would drift from the one the
  * shade was built from, and the two would name different people in the same room.
  *
- * **Spoken to**, not seen. A radio advertisement is not presence — the token in it is
+ * **Attributed**, not seen. A radio advertisement is not presence — the token in it is
  * deliberately unlinkable, and a scan hit only says something is transmitting. A **Contact**
- * lands here when a signature has proved whose phone it was, in one direction or the other.
- * That is a stronger claim than proximity and a much weaker one than a check-in, which is
- * right for a line that only ever says somebody is nearby.
+ * lands here when a signature has proved whose phone it was: under public gossip v2 that
+ * proof is a verified check-in whose sealed attribution resolves to a **Contact** this device
+ * recognises, arriving in a **Pass** just now. `PublicGossipState.presenceFrom` is the only
+ * thing that decides it, so a stranger — whose check-in is admitted and shown like anyone
+ * else's — never reaches this map, and neither does a blocked **Contact**.
+ *
+ * That is a widening of the word from v1, where presence meant these two phones had spoken
+ * directly (#483). It now includes a claim a third device witnessed and carried the last hop,
+ * because attribution rather than proximity is what the line is built on, and a **Contact**
+ * standing one relay away is still in the room. The cost is that presence can outrun the
+ * radio by a hop; [GOSSIP_NEARBY_WINDOW] is what keeps that honest.
  *
  * In memory and process-wide on purpose. Nothing here is persisted, because presence that did
  * not survive the process was not presence: a phone that has been restarted has heard from
@@ -33,7 +41,7 @@ object GossipPresence {
     /** Every **Contact** heard from since the process started, most of them long stale. */
     val metAt: StateFlow<Map<String, Instant>> = _metAt.asStateFlow()
 
-    /** These two phones just spoke, so this **Contact** is here. */
+    /** A verified check-in of theirs just arrived, so this **Contact** is here. */
     fun met(contact: String, now: Instant = Instant.now()) = _metAt.update { it + (contact to now) }
 
     /** The relay stopped, so this phone is no longer in a position to claim anyone is near. */
