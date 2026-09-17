@@ -182,6 +182,10 @@ struct UiState {
     /// setlist.fm publishes. Only the open **Gig**'s, same reasoning as `gigMedia`.
     var gigLog = StoredLog()
     var publicGossip = PublicGossipState()
+    /// When gossip participation runs out, or nil when the radio is off (#448). Recomputed
+    /// by `gossipActiveUntil` rather than stored, so it is the same answer the radio acts on
+    /// and the screens have nothing of their own to fall out of step with.
+    var gossipActiveUntil: Date?
     /// An artist's own songs, once a **Curtain** pull has asked for them (#129) —
     /// the pool a **Log** entry is corrected against. Session-lived rather than
     /// stored: a pull is a gesture someone made on purpose, and a catalogue is a
@@ -505,10 +509,8 @@ final class AppModel: ObservableObject {
         let friends = state.friends
         Task {
             let cache = await timelines.load()
-            let deadlines = gossipParticipationEnds(cache: cache, stoppedAt: GossipTransport.shared.stoppedAt)
-            let until = deadlines.values.max().flatMap { millis in
-                millis > 0 ? Date(timeIntervalSince1970: Double(millis) / 1000) : nil
-            }
+            let until = gossipActiveUntil(cache: cache, stoppedAt: GossipTransport.shared.stoppedAt)
+            state.gossipActiveUntil = until
             GossipTransport.shared.contactsChanged(friends, activeUntil: until)
         }
         Task { await GossipChannel.shared.setNightEnds(ends) }
@@ -2035,6 +2037,24 @@ final class AppModel: ObservableObject {
     /// pool. Editing songs never touches `closed` — "that was the whole set" is a
     /// separate, deliberate sentence.
     func blockGossip(_ author: String) { Task { await GossipChannel.shared.blockAuthor(author) } }
+
+    /// The user-facing off switch (#448, story 31) — iOS's counterpart to Android's
+    /// notification stop action.
+    ///
+    /// It goes through here rather than straight to `GossipTransport` so the screens'
+    /// `gossipActiveUntil` is recomputed from the same policy the radio just acted on,
+    /// instead of a screen keeping its own idea of whether gossip is running.
+    ///
+    /// The transport writes the *moment* of the stop rather than a flag, and
+    /// `gossipParticipationUntil` only counts a check-in that outlives it: stopping ends
+    /// tonight, checking in again later is unaffected, and reopening a **Log** afterwards
+    /// does **not** resume — a stop the next edit undid would not be an off switch. Nothing
+    /// here touches the **Facts** already received (story 32); only the radio's reason to run
+    /// ends.
+    func stopGossip() {
+        GossipTransport.shared.stopParticipation()
+        gossipContactsChanged()
+    }
 
     func addToLog(_ song: String) { writeLog { $0.adding(song) } }
 
