@@ -431,4 +431,95 @@ class PublicGossipTest {
         assertEquals(mine, passAuthor(listOf(log, mine, theirs), setOf("me")))
         assertEquals(listOf(log, mine), passBatch(listOf(log, mine, theirs), mine, "me"))
     }
+
+    /**
+     * Story 8: a witness means shared presence, so this phone signs one only when it checked
+     * into the same **Gig** itself. Both ways of not having done so are here, because they
+     * fail for different reasons and only one of them is obvious: never having checked in at
+     * all, and having checked into a *different* night while this request arrives.
+     */
+    @Test fun noWitnessIsSignedWithoutThisPhonesOwnClaimAtTheSameGig() {
+        val strangerKey = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        fun signedBy(pair: java.security.KeyPair, gigId: String, scope: String) =
+            GossipEnvelope(gigId = gigId, scope = scope, author = gossipBase64(pair.public.encoded),
+                createdAt = 1000, expiresAt = 100000, kind = "request").signed { bytes ->
+                Signature.getInstance("SHA256withECDSA").run { initSign(pair.private); update(bytes); sign() }
+            }!!
+        val signer: (GossipEnvelope) -> ((ByteArray) -> ByteArray?) = { { bytes ->
+            Signature.getInstance("SHA256withECDSA").run { initSign(key.private); update(bytes); sign() }
+        } }
+        val request = signedBy(strangerKey, "gig", "their-scope")
+
+        // Carrying for a night I am not at. A request admitted from its author is still only
+        // their claim; nothing about receiving it makes this device able to speak for it.
+        val bystander = PublicGossipState()
+        assertTrue(bystander.receive(request, request.author, 1500))
+        assertNull(bystander.localClaimFor(request))
+        assertNull(witnessFor(bystander, request, 1600, signer))
+
+        // Checked in — at the wrong Gig. `sameGig` is the discriminator, and a claim that
+        // shares neither a current nor a former id is somebody else's night.
+        val elsewhere = PublicGossipState()
+        assertTrue(elsewhere.receive(signedBy(key, "other-gig", "my-scope"), "", 1500, local = true))
+        assertTrue(elsewhere.receive(request, request.author, 1501))
+        assertNull(elsewhere.localClaimFor(request))
+        assertNull(witnessFor(elsewhere, request, 1600, signer))
+
+        // Checked in, same night: now there is something to sign with, and the witness
+        // embeds the whole signed claim rather than a reference to it.
+        val here = PublicGossipState()
+        val mine = signedBy(key, "gig", "my-scope")
+        assertTrue(here.receive(mine, "", 1500, local = true))
+        assertTrue(here.receive(request, request.author, 1501))
+        assertEquals(mine, here.localClaimFor(request))
+        val witness = requireNotNull(witnessFor(here, request, 1600, signer))
+        assertEquals("witness", witness.kind)
+        assertEquals(mine.author, witness.author)
+        assertEquals(request, decodePublicEnvelope(witness.text))
+        assertTrue(here.receive(witness, "", 1601, local = true))
+        assertEquals(true to true, here.checkInEvidence(setOf("gig"), request.author))
+    }
+
+    /**
+     * Story 2: nobody was near enough to witness, and the night is captured anyway.
+     *
+     * The point is that the absence is not a gate anywhere — the claim is held and offered,
+     * the **Log** lines behind it publish, project and travel, and the only thing missing is
+     * the second half of [PublicGossipState.checkInEvidence]. A witness strengthens a claim;
+     * it never authorises one.
+     */
+    @Test fun aClaimNobodyWitnessedStillCapturesProjectsAndTravels() {
+        val state = PublicGossipState()
+        val request = fact(text = "", kind = "request")
+        assertTrue(state.receive(request, "", 1500, local = true))
+        assertEquals(true to false, state.checkInEvidence(setOf("gig"), request.author))
+        assertEquals(emptySet<String>(), state.witnessedGigIds())
+
+        // Capture proceeds. Two Log lines written with no witness in the room are admitted,
+        // projected and offered exactly as they would be with one.
+        val first = fact("Choke", at = 1600)
+        val second = fact("Evolve", at = 1700, line = 1)
+        assertTrue(state.receive(first, "", 1601, local = true))
+        assertTrue(state.receive(second, "", 1701, local = true))
+        assertEquals(listOf(request, first, second), state.project(setOf("gig")))
+        assertEquals(setOf(request.id, first.id, second.id),
+            state.offer("first-peer-of-the-night", 1800).map { it.id }.toSet())
+
+        // A witness arriving late changes only the second answer. Nothing captured before it
+        // is revisited, and nothing was waiting on it.
+        val witnessKey = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        val theirs = GossipEnvelope(gigId = "gig", scope = "their-scope",
+            author = gossipBase64(witnessKey.public.encoded), createdAt = 1000, expiresAt = 100000,
+            kind = "request").signed { bytes ->
+            Signature.getInstance("SHA256withECDSA").run { initSign(witnessKey.private); update(bytes); sign() }
+        }!!
+        val witness = requireNotNull(witnessRequest(request, theirs, 1900) { bytes ->
+            Signature.getInstance("SHA256withECDSA").run { initSign(witnessKey.private); update(bytes); sign() }
+        })
+        assertTrue(state.receive(witness, witness.author, 1901))
+        assertEquals(true to true, state.checkInEvidence(setOf("gig"), request.author))
+        assertEquals(setOf("gig"), state.witnessedGigIds())
+        assertEquals(listOf(request, first, second),
+            state.project(setOf("gig")).filter { it.author == request.author })
+    }
 }
