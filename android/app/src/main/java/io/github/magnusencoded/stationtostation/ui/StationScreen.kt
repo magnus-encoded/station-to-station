@@ -4042,10 +4042,13 @@ fun StationEventScreen(
                 val gossipFacts = state.publicGossip.project(setOf(setlist.id))
                     .filter { it.author !in state.publicGossip.localAuthors }
                 val contactNames = io.github.magnusencoded.stationtostation.data.gossip.contactNamesOf(state.friends)
-                val arrivals = state.publicGossip.arrivals(setOf(setlist.id))
-                    .mapNotNull { fact -> state.publicGossip.attributedName(fact.author, contactNames) }.distinct()
-                if (arrivals.isNotEmpty()) item {
-                    Text(arrivals.joinToString(", ") + " · checked in", color = Slate,
+                // Who was here, and it stays (#498). Asked under every id this night has been
+                // known by — adopting a setlist.fm id must not split the record or count the
+                // same device under both halves of it.
+                val seenWith = state.publicGossip.seenWith(
+                    state.gossipGigAliases[setlist.id] ?: setOf(setlist.id), contactNames)
+                if (!seenWith.isEmpty) item {
+                    Text(seenWithLine(seenWith), color = Slate,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
                 }
                 val gossipRows = io.github.magnusencoded.stationtostation.data.gossip.weaveGossip(
