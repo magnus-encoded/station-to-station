@@ -235,10 +235,15 @@ func gossipParticipationEnds(cache: TimelineCache, stoppedAt: Int64 = 0) -> [Str
 func gossipActiveGigId(cache: TimelineCache, stoppedAt: Int64 = 0, now: Int64) -> String? {
     let ends = gossipParticipationEnds(cache: cache, stoppedAt: stoppedAt)
     let attendance = cache.attendance()
-    return cache.gigs.values
-        .filter { (ends[$0.id] ?? 0) > now }
-        .compactMap { gig in attendance[gig.setlistId ?? gig.id]?.checkedInAt.map { (gig.id, $0) } }
-        .max { $0.1 == $1.1 ? $0.0 < $1.0 : $0.1 < $1.1 }?.0
+    var candidates: [(id: String, checkedInAt: Int64)] = []
+    for gig in cache.gigs.values {
+        guard (ends[gig.id] ?? 0) > now else { continue }
+        guard let checkedInAt = attendance[gig.setlistId ?? gig.id]?.checkedInAt else { continue }
+        candidates.append((gig.id, checkedInAt))
+    }
+    return candidates.max { lhs, rhs in
+        lhs.checkedInAt == rhs.checkedInAt ? lhs.id < rhs.id : lhs.checkedInAt < rhs.checkedInAt
+    }?.id
 }
 
 /// Every id one night has been known by, indexed under each of them (#497, #499).
