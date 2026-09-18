@@ -256,8 +256,15 @@ actor GossipChannel {
         // named, and only for nights still running: a known **Gig** keeps its deadline after
         // participation ends, and last night's claim arriving in tonight's **Pass** is not
         // somebody standing here. The same test `offer` applies.
-        let ends = gossipParticipationEnds(cache: await timeline.load(), stoppedAt: GossipTransport.shared.stoppedAt)
+        let cache = await timeline.load()
+        let ends = gossipParticipationEnds(cache: cache, stoppedAt: GossipTransport.shared.stoppedAt)
         let gigIds = Set(ends.filter { millis < $0.value }.keys)
+        // A **Pass** completed, so the night keeps it (#499). `pass.batch` rather than
+        // `accepted`: a claim this device already holds is refused as a replay and is still
+        // proof that the device handing it over is standing at the night it names.
+        await ledger.rememberPass(with: from, batch: pass.batch,
+            activeGigId: gossipActiveGigId(cache: cache, stoppedAt: GossipTransport.shared.stoppedAt, now: millis),
+            now: millis)
         // `accepted`, not `pass.batch`: a replay of a claim this device already holds is
         // refused by `receive` and is not evidence anybody is standing here now.
         let present = state.presenceFrom(accepted: accepted, gigIds: gigIds)
@@ -307,9 +314,23 @@ actor GossipChannel {
 
     /// The bytes landed. Only now is anything marked delivered — a handover that died halfway
     /// is offered again the next time these two phones are in the same room.
-    func confirmDelivery(to contact: String) async {
+    func confirmDelivery(to contact: String, now: Date = Date()) async {
         guard let ids = pending.removeValue(forKey: contact) else { return }
         GossipTally.shared.delivered(pendingReceipts.removeValue(forKey: contact) ?? 0)
         await ledger.deliveredPublic(ids, to: contact)
+        // Dialling out is a met device too, and it is recorded here rather than in
+        // `publicPass(to:nonce:)` for the same reason delivery is: bytes that never landed are
+        // not a **Pass**. `contact` is the key the peer's signed challenge proved — the relay
+        // key, the same space `receivePublic`'s `from` is in. This direction carries no claim
+        // of theirs, so the active **Gig** is the only night it can honestly be attached to.
+        let millis = Int64(now.timeIntervalSince1970 * 1000)
+        let cache = await timeline.load()
+        await ledger.rememberPass(with: contact, batch: [],
+            activeGigId: gossipActiveGigId(cache: cache, stoppedAt: GossipTransport.shared.stoppedAt, now: millis),
+            now: millis)
+        // Every other ledger write on this actor ends here, and this one has to as well:
+        // `onPublic` is the only route the record takes to a **Room** that is already open.
+        // Android gets it from a Flow off its store; iOS's callback has to be called.
+        await publishWitnessed(now: now)
     }
 }

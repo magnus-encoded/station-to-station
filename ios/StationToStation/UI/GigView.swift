@@ -34,6 +34,22 @@ func alsoHereSentence(_ here: [String]) -> String? {
     }
 }
 
+/// The **Seen with** line's words (#499).
+///
+/// "Seen with", not "here" and not "checked in": the record outlives the night's **Gossip**, and
+/// a present-tense line on a **Gig** from last March would be the app claiming a room it is not
+/// in. The unnamed devices are counted rather than listed because there is nothing to list —
+/// a **Blind relay** carries a key, never a person — and they are still said out loud, because
+/// silently dropping them would report a quieter room than this phone actually stood in.
+///
+/// Worded identically to Android's `seenWithLine`: two apps showing the same night should not
+/// phrase it differently.
+func seenWithLine(_ seen: SeenWith) -> String {
+    let others = seen.others == 0 ? nil : "\(seen.others) other\(seen.others == 1 ? "" : "s")"
+    let parts = [seen.named.isEmpty ? nil : seen.named.joined(separator: ", "), others].compactMap { $0 }
+    return "Seen with " + parts.joined(separator: " + ")
+}
+
 /// A row of the night: an encore divider, or a performed song (numbered; a tape
 /// track has no number — it played but is not one of the band's songs).
 private enum EventRow {
@@ -134,6 +150,16 @@ struct GigView: View {
                         if !arrivals.isEmpty {
                             Text(arrivals.sorted().joined(separator: ", ") + " · checked in")
                                 .font(.system(size: 12)).foregroundStyle(muted).padding(.horizontal, 24)
+                        }
+                        // Who was here, and it stays (#499). Asked under every id this night has
+                        // been known by — adopting a setlist.fm id must not split the record, and
+                        // `seenWith` folds by device so the union cannot count one phone twice.
+                        let seenRecord = publicState.seenWith(
+                            gigIds: model.state.gossipGigAliases[show.id] ?? [show.id], live: liveContacts)
+                        if !seenRecord.isEmpty {
+                            Text(seenWithLine(seenRecord))
+                                .font(.system(size: 12)).foregroundStyle(muted)
+                                .padding(.horizontal, 24).padding(.top, 2)
                         }
                         let log = model.state.gigLog
                         let woven = weaveSetlist(published: rows.map(publishedTitle),

@@ -90,6 +90,11 @@ actor GossipLedger {
         editPublic { $0.blocked.insert($0.recognition[author] ?? author) }
     }
 
+    /// Durably record a completed **Pass** with `peer` (#499). Both directions call it.
+    func rememberPass(with peer: String, batch: [GossipEnvelope], activeGigId: String?, now: Int64) {
+        editPublic { $0.rememberPass(with: peer, batch: batch, activeGigId: activeGigId, now: now) }
+    }
+
     func deliveredPublic(_ ids: [String], to peer: String) {
         editPublic { $0.delivered(to: peer, ids: ids) }
     }
