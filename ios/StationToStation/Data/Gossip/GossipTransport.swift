@@ -77,6 +77,14 @@ private let gossipPeripheralRestoreId = "io.github.magnusencoded.stationtostatio
 /// during launch, before the timeline's asynchronous load supplies tonight's state.
 private let gossipUntilKey = "gossip.participationUntil"
 private let gossipStoppedKey = "gossip.manuallyStoppedAt"
+/// The **Gig** somebody chose to stand at, by its local id (#501).
+///
+/// Here beside the stop, and deliberately not on `PublicGossipState`: that is the record of what
+/// crossed the radio, and this is a preference of this device's owner — nothing about it is
+/// evidence, nothing about it is anybody else's. Absent is a real answer, not an unset flag; see
+/// `gossipActiveGigId`, which falls back to the latest **Check-in** still running whenever this
+/// names no night that is still eligible.
+private let gossipSelectedKey = "gossip.selectedGigId"
 
 /// How long one meeting may take before it is abandoned.
 ///
@@ -206,6 +214,27 @@ final class GossipTransport: NSObject {
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: gossipStoppedKey)
         UserDefaults.standard.set(0, forKey: gossipUntilKey)
         queue.async { [weak self] in self?.stopLocked() }
+    }
+
+    /// Undo a stop, and only ever because somebody asked for it out loud (#501).
+    ///
+    /// The stop is a moment rather than a flag precisely so that *nothing else* can undo it —
+    /// reopening a **Log** after a stop must not resume. Clearing the key is therefore the one
+    /// explicit act, written from a tap on a dim **Presence row** or from Settings. It is
+    /// synchronous so that whoever called it can recompute `gossipActiveUntil` off the very next
+    /// read of `stoppedAt` and hand the radio back its deadline.
+    func resumeParticipation() {
+        UserDefaults.standard.removeObject(forKey: gossipStoppedKey)
+    }
+
+    /// The local **Gig** id somebody chose to stand at, or nil for "whichever is latest".
+    var selectedGigId: String? { UserDefaults.standard.string(forKey: gossipSelectedKey) }
+
+    /// The local id and never the adopted one: adoption (#496) changes the id a night answers
+    /// to, and a selection stored under the mutable one would quietly stop matching the night it
+    /// named.
+    func selectGig(localGigId: String) {
+        UserDefaults.standard.set(localGigId, forKey: gossipSelectedKey)
     }
 
     private var shutdown: DispatchWorkItem?

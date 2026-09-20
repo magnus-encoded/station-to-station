@@ -206,6 +206,22 @@ struct UiState {
     /// by `gossipActiveUntil` rather than stored, so it is the same answer the radio acts on
     /// and the screens have nothing of their own to fall out of step with.
     var gossipActiveUntil: Date?
+    /// When each night *could* **Gossip** until, under every id it answers to — the stop
+    /// deliberately not applied (#501).
+    ///
+    /// A stop zeroes every participation deadline, and the dim bullet is the one control that can
+    /// undo a stop; asking the stopped-aware deadline here would make it undrawable. What the
+    /// radio actually runs on stays `gossipActiveUntil`, with the stop, as it was.
+    var gossipEligibleUntil: [String: Int64] = [:]
+    /// The **Active Gig**, by its local id. A **Room** compares it through `gossipGigAliases`,
+    /// because the id a **Room** holds is the adopted one where the night has one.
+    var gossipActiveGig: String?
+    /// The nights a stop actually ended — the dim half of a **Presence row**'s bullet.
+    ///
+    /// A set and not a flag, because a stop is not global: it ends the nights already stood in,
+    /// and a **Check-in** made *after* it is a fresh consent the earlier stop says nothing about.
+    /// Keyed under both of a night's ids, like the deadlines it is derived from.
+    var gossipStoppedGigs: Set<String> = []
     /// An artist's own songs, once a **Curtain** pull has asked for them (#129) —
     /// the pool a **Log** entry is corrected against. Session-lived rather than
     /// stored: a pull is a gesture someone made on purpose, and a catalogue is a
@@ -536,8 +552,19 @@ final class AppModel: ObservableObject {
         let friends = state.friends
         Task {
             let cache = await timelines.load()
-            let until = gossipActiveUntil(cache: cache, stoppedAt: GossipTransport.shared.stoppedAt)
+            let stoppedAt = GossipTransport.shared.stoppedAt
+            let until = gossipActiveUntil(cache: cache, stoppedAt: stoppedAt)
             state.gossipActiveUntil = until
+            // What the **Presence rows** draw, read at the same moment as what the radio is
+            // told — two answers a moment apart would light a bullet for a night the transport
+            // has just stopped for.
+            let eligible = gossipParticipationEnds(cache: cache)
+            state.gossipEligibleUntil = eligible
+            state.gossipStoppedGigs = gossipStoppedGigs(
+                eligible: eligible, running: gossipParticipationEnds(cache: cache, stoppedAt: stoppedAt))
+            state.gossipActiveGig = gossipActiveGigId(cache: cache, stoppedAt: stoppedAt,
+                selected: GossipTransport.shared.selectedGigId,
+                now: Int64(Date().timeIntervalSince1970 * 1000))
             GossipTransport.shared.contactsChanged(friends, activeUntil: until)
         }
         Task { await GossipChannel.shared.setNightEnds(ends) }
@@ -2102,6 +2129,43 @@ final class AppModel: ObservableObject {
         GossipTransport.shared.stopParticipation()
         gossipContactsChanged()
     }
+
+    /// Stand at this **Gig**: the tap on a **Presence row** (#501).
+    ///
+    /// `gigId` is the id the **Room** holds, which is the adopted one where the night has one;
+    /// the selection is stored under the local id, because that is the only id for a night that
+    /// cannot change under the device.
+    ///
+    /// It mints no **Check-in** and touches no attendance — choosing which night you are standing
+    /// at is not a claim to have been at it, and that claim was already made by checking in. It
+    /// does clear a stop, and with the Settings button that is the only thing that clears one: a
+    /// dim bullet means *could be gossiping, is not*, and tapping it is the explicit Resume,
+    /// where reopening a **Log** deliberately still is not.
+    func selectGossipGig(_ gigId: String) {
+        Task {
+            let cache = await timelines.load()
+            guard let local = cache.gigs[gigId] ?? cache.gigForSetlist(gigId) else { return }
+            GossipTransport.shared.selectGig(localGigId: local.id)
+            GossipTransport.shared.resumeParticipation()
+            gossipContactsChanged()
+        }
+    }
+
+    /// Resume from Settings: the stop goes, and the fallback rule says which night the radio
+    /// comes back for. The dim **Presence row** is the same act with a night named.
+    func resumeGossip() {
+        GossipTransport.shared.resumeParticipation()
+        gossipContactsChanged()
+    }
+
+    /// Re-read what the **Presence rows** draw, on the **Room**'s own clock (#501).
+    ///
+    /// The deadlines are the only thing on that screen that changes without anybody doing
+    /// anything, and a night's grace running out has to take its bullet with it while somebody is
+    /// looking at the row — including handing the amber to whichever night is next, which is a
+    /// different **Room** and only the timeline knows which. Same call as every other input, so
+    /// the transport hears about it too.
+    func refreshGossipPresence() { gossipContactsChanged() }
 
     func addToLog(_ song: String) { writeLog { $0.adding(song) } }
 

@@ -168,6 +168,98 @@ final class GossipLifecycleTests: XCTestCase {
         XCTAssertEqual(state.held.count, 1)
     }
 
+    /// The whole of #501 at the policy seam: two eligible nights, one radio, and a person
+    /// choosing between them. The twin of Android's `GossipLifecycleTest` case.
+    ///
+    /// One test rather than six because the states are a sequence and each is only meaningful
+    /// after the last — a switch that did not follow an initial selection proves nothing, and a
+    /// fallback is only a fallback once something else was chosen. The clock is the argument, so
+    /// nothing here needs a device.
+    func testTappingAPresenceRowChoosesTheActiveGigAndItsEndHandsTheChoiceBack() async throws {
+        let night = Night()
+        let store = TimelineStore(file: night.timelineFile)
+        let first = await store.createLocalGig(date: night.date, artist: "First", venue: "Room")
+        let second = await store.createLocalGig(date: night.date, artist: "Second", venue: "Stage")
+        await store.saveAttendance(setlistId: first,
+            attendance: StoredAttendance(provenance: "checked_in", checkedInAt: night.done - 3_600_000))
+        await store.saveLog(setlistId: first, log: StoredLog().completing(true, now: night.done))
+        await store.saveAttendance(setlistId: second,
+            attendance: StoredAttendance(provenance: "checked_in", checkedInAt: night.done + 600_000))
+        // Inside the first night's grace and after both **Check-ins**: a stop ends the nights
+        // already stood in, and one checked into afterwards is a consent it says nothing about.
+        let during = night.done + 700_000
+        var cache = await store.load()
+        func active(selected: String? = nil, stoppedAt: Int64 = 0, now: Int64 = 0) -> String? {
+            gossipActiveGigId(cache: cache, stoppedAt: stoppedAt, selected: selected,
+                              now: now == 0 ? during : now)
+        }
+
+        // Nobody has chosen anything: the latest **Check-in** is where an unclaimed Pass lands.
+        XCTAssertEqual(active(), second)
+
+        // The tap. It moves the radio and writes nothing else — switching mints no **Check-in**.
+        let attendanceBefore = cache.attendance().mapValues { $0.checkedInAt }
+        XCTAssertEqual(active(selected: first), first)
+        let attendanceAfter = await store.load().attendance().mapValues { $0.checkedInAt }
+        XCTAssertEqual(attendanceAfter, attendanceBefore)
+
+        // Stopped: no night is active, and yet `first` still *could* gossip — which is the dim
+        // bullet, and the whole reason eligibility is asked without the stop applied.
+        let eligible = gossipParticipationEnds(cache: cache)
+        let running = gossipParticipationEnds(cache: cache, stoppedAt: during)
+        XCTAssertNil(active(selected: first, stoppedAt: during))
+        XCTAssertEqual(gossipStoppedGigs(eligible: eligible, running: running), [first, second])
+        XCTAssertEqual(gossipBullet(eligibleUntil: eligible[first], active: true, stopped: true, now: during), .off)
+        // Reopening the **Log** after a stop is deliberately not a resume.
+        await store.saveLog(setlistId: first, log: StoredLog().completing(false))
+        cache = await store.load()
+        XCTAssertNil(active(selected: first, stoppedAt: during))
+
+        // Tapping the dim row resumes — the stop gone — and the night it names is still chosen.
+        XCTAssertEqual(active(selected: first), first)
+        XCTAssertEqual(gossipBullet(eligibleUntil: gossipParticipationEnds(cache: cache)[first],
+                                    active: true, stopped: false, now: during), .on)
+
+        // The chosen night ends — reopened above, so put it back the way the story has it — and
+        // the most recently checked-in survivor takes over without anybody tapping anything.
+        await store.saveLog(setlistId: first, log: StoredLog().completing(true, now: night.done))
+        cache = await store.load()
+        let after = night.done + 31 * 60_000
+        XCTAssertNil(gossipBullet(eligibleUntil: gossipParticipationEnds(cache: cache)[first],
+                                  active: true, stopped: false, now: after))
+        XCTAssertEqual(active(selected: first, now: after), second)
+        // And once the night itself is over there is nothing to be standing at.
+        XCTAssertNil(active(selected: first, now: Int64(night.end.timeIntervalSince1970 * 1000) + 1))
+    }
+
+    /// The selection is persisted beside the stop, and it survives being read back — the choice
+    /// has to outlive the **Room** it was made in, because a phone goes in a pocket.
+    ///
+    /// Stored under the local id (adoption changes the other one), and matched against either,
+    /// because the surface offering the choice holds whichever id its **Room** is drawn under.
+    func testTheSelectionIsKeptUnderTheLocalIdAndMatchesTheAdoptedOne() async throws {
+        let night = Night()
+        let store = TimelineStore(file: night.timelineFile)
+        let local = await store.createLocalGig(date: night.date, artist: "First", venue: "Room")
+        await store.saveAttendance(setlistId: local,
+            attendance: StoredAttendance(provenance: "checked_in", checkedInAt: night.done - 3_600_000))
+        XCTAssertTrue(await store.adoptSetlistId(gigId: local, setlistId: "setlist-777"))
+        let cache = await store.load()
+        let during = night.done
+
+        XCTAssertEqual(gossipActiveGigId(cache: cache, now: during), local)
+        XCTAssertEqual(gossipActiveGigId(cache: cache, selected: local, now: during), local)
+        XCTAssertEqual(gossipActiveGigId(cache: cache, selected: "setlist-777", now: during), local)
+        // A selection whose night this device does not hold is simply not eligible, and the
+        // fallback answers instead. The stored id can reorder the live nights, never add one.
+        XCTAssertEqual(gossipActiveGigId(cache: cache, selected: "some-other-night", now: during), local)
+
+        let restore = GossipTransport.shared.selectedGigId
+        defer { restore.map { GossipTransport.shared.selectGig(localGigId: $0) } }
+        GossipTransport.shared.selectGig(localGigId: local)
+        XCTAssertEqual(GossipTransport.shared.selectedGigId, local)
+    }
+
     /// The deadline if it has not already passed at `at` — how the radio reads it, and the
     /// only way to assert the 30-minute and 06:00 edges without a clock to move.
     private func gossipParticipationUntilInForce(cache: TimelineCache, at: Date, stoppedAt: Int64 = 0) -> Date? {

@@ -279,7 +279,8 @@ actor GossipChannel {
         // `accepted`: a claim this device already holds is refused as a replay and is still
         // proof that the device handing it over is standing at the night it names.
         await ledger.rememberPass(with: from, batch: pass.batch,
-            activeGigId: gossipActiveGigId(cache: cache, stoppedAt: GossipTransport.shared.stoppedAt, now: millis),
+            activeGigId: gossipActiveGigId(cache: cache, stoppedAt: GossipTransport.shared.stoppedAt,
+                selected: GossipTransport.shared.selectedGigId, now: millis),
             now: millis)
         // `accepted`, not `pass.batch`: a replay of a claim this device already holds is
         // refused by `receive` and is not evidence anybody is standing here now.
@@ -342,7 +343,8 @@ actor GossipChannel {
         let millis = Int64(now.timeIntervalSince1970 * 1000)
         let cache = await timeline.load()
         await ledger.rememberPass(with: contact, batch: [],
-            activeGigId: gossipActiveGigId(cache: cache, stoppedAt: GossipTransport.shared.stoppedAt, now: millis),
+            activeGigId: gossipActiveGigId(cache: cache, stoppedAt: GossipTransport.shared.stoppedAt,
+                selected: GossipTransport.shared.selectedGigId, now: millis),
             now: millis)
         // Every other ledger write on this actor ends here, and this one has to as well:
         // `onPublic` is the only route the record takes to a **Room** that is already open.
