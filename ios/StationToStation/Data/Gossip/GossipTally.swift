@@ -14,9 +14,11 @@ import Foundation
 /// at a handful of places, nothing persisted. Losing it all to a process death is correct
 /// rather than a gap.
 ///
-/// `creditHits` stays at zero on this platform and that is honest rather than broken:
-/// `gossipPreferredPeers` has no caller here, because `GossipTransport` opens a meeting with
-/// every peripheral it sees and has no scarce slot to ration. See ADR-0022 §4.
+/// `creditHits` is live on both platforms as of #486: `GossipTransport` gathers a pick window
+/// and ranks it against `gossipMaxConcurrentMeetings` free slots, so a window that finds no
+/// credit is now a measurement rather than a missing caller. A zero here means the ranking ran
+/// and found nothing — which, given that credit is only learnable after a peer has been met
+/// once (ADR-0022 §4), is still the expected reading early in a night.
 ///
 /// These are counts of events, never of peers, and nothing here names anybody.
 final class GossipTally: @unchecked Sendable {

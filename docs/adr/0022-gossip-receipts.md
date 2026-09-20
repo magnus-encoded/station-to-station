@@ -200,7 +200,9 @@ gossip v1 had and what ADR-0021 removed when it widened relaying to blind edges.
 it means reintroducing the thing that made v1 Contact-only. That is a design decision, not a
 patch, and it is out of scope here.
 
-It binds on Android and not on iOS, and that asymmetry is deliberate. Android's `GossipCentral`
+~~It binds on Android and not on iOS, and that asymmetry is deliberate.~~ **Amended 2026-09-17
+(#486) — the second half of this paragraph no longer describes iOS. See the amendment at the
+end of this ADR.** Android's `GossipCentral`
 holds one connection at a time, so a sighting it takes is a sighting it spends — but the scan
 reports one device at a time, so without a gathering window there is no set to prefer *within*
 and the first advertisement always wins. Hence `GOSSIP_PICK_WINDOW_MS`: a second and a half of
@@ -297,4 +299,37 @@ What ships knowingly missing, said here rather than discovered later:
   trade is worth it is a question for a real night, not for the simulator.
 - **No locked-iPhone proof.** #446 stays deferred. Receipts shipping does not establish that an
   iPhone relays anything at all.
-- **iOS does not rank.** See above.
+- ~~**iOS does not rank.** See above.~~ Superseded 2026-09-17 by the amendment below.
+
+## Amendment, 2026-09-17 (#486): iOS ranks too
+
+§4 said wiring `gossipPreferredPeers` on iOS was "worth making when iOS caps concurrent
+meetings". It since does — `gossipMaxConcurrentMeetings = 4`, added with the background
+transport — so the condition that decision was waiting on is met, and `GossipTransport` now
+ranks. **Nothing about the rule itself changed**, and §4's correction of what the ranker is
+keyed by, plus its conclusion that credit cannot be known at sighting time, both stand
+unamended. What changed is only that iOS now has something scarce to spend the order on.
+
+The shape, and the one place iOS must differ from Android:
+
+- `didDiscover` no longer connects. It pools the peripheral and opens a `gossipPickWindow`, the
+  same second and a half Android holds. The window closes on its own timer, so a scan session
+  that reports one peer and nothing further still meets it.
+- The order fills whatever is free of the four slots, rather than Android's single connection.
+- **The overflow is retained, where Android discards it.** Android may clear `sighted` because
+  `onScanResult` fires for the same device again shortly; a backgrounded iOS central is never
+  told about a duplicate advertisement, so a declined sighting can be a peer it is not offered
+  again for the rest of the session. Dropping it would make the cap a permanent exclusion and
+  break story 39 — not through the ranking, but through the platform. So unpicked peers stay
+  pooled as `CBPeripheral` values (CoreBluetooth retains none for you), the cooldown is
+  re-applied when a window closes over an aged pool, and freeing a slot reopens the window.
+- `lastMet` is stamped only for peers actually met. A deferred peer that was stamped would be
+  held out for a full `GOSSIP_PEER_COOLDOWN` having never been spoken to.
+
+What this does **not** buy, and the sentence is unchanged from §4: ranking still almost never
+fires, because a peer cannot be credited until this phone has connected to it once. iOS now has
+the same narrow eligible window Android has, and `GossipTally.creditHits` becomes a real
+measurement on both platforms instead of a structural zero on one. The cost is a new one worth
+naming: the first meeting of a scan session opens 1.5 s later than it did, on a platform whose
+background wake is measured in seconds. Nothing has measured whether that trades well; the
+window is provisional for exactly that reason.
