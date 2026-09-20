@@ -1306,6 +1306,56 @@ private fun CheckInDialog(gig: FmSetlist, onCheckIn: () -> Unit, onDismiss: () -
 }
 
 /**
+ * The front door onto a local gig's own page, tonight, before a check-in (#225 follow-up).
+ *
+ * Anchored to the bottom rather than centred — a card that arrives from where the thumb
+ * already is, not a modal to read and dismiss. One clear action and one quiet way out:
+ * checking in is the default answer to "why did I open this gig," and skipping to capture
+ * is a real, named alternative rather than a corner of the screen to discover.
+ *
+ * Reappears on every fresh visit to the page rather than remembering a skip past this
+ * composition, because a skip means "not now," not "never ask again" — the same reasoning
+ * [AppViewModel.checkIn] already applies to the ambient offer.
+ */
+@Composable
+private fun CheckInPrompt(gig: FmSetlist, onCheckIn: () -> Unit, onSkip: () -> Unit) {
+    Dialog(onDismissRequest = onSkip, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                    .background(Raised)
+                    .padding(horizontal = 20.dp, vertical = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(gig.artist?.name ?: "This show", fontFamily = Serif, fontSize = 19.sp, color = Ink)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Checking in tells the app you're here — the set, who else showed up, all of it follows from this.",
+                    color = Muted,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(20.dp))
+                Button(
+                    onClick = onCheckIn,
+                    colors = ButtonDefaults.buttonColors(containerColor = Amber, contentColor = Ground),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Check in") }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "skip to capture",
+                    color = Faint,
+                    fontSize = 13.sp,
+                    modifier = Modifier.clickable(onClick = onSkip).padding(vertical = 6.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
  * The one question a handed-over card has to ask: it names someone I already hold, and
  * says something different about them (#188).
  *
@@ -3361,6 +3411,22 @@ fun StationEventScreen(
         (setlist.performed().isNotEmpty() || (log.closed && log.named().isNotEmpty()))
     val localGig = setlist != null && setlist.isLocal()
     val canLog = setlist != null && (checkedIn || localGig)
+    // Checking in is the default way of saying "I'm at this gig" — the door onto
+    // gig-relevant UX, not a fourth thing a local night needs on top of capture.
+    // `canLog` deliberately lets a local gig log without checking in (#225: a
+    // record typed in after the fact has nothing to check into), so this cannot
+    // gate capture the way the ticket track's own pre-step does — it offers the
+    // check-in and gets out of the way, on every fresh visit, until one lands.
+    val localTonight = setlist != null && localGig && !checkedIn &&
+        canCheckInManually(setlist, LocalDateTime.now())
+    var skippedCheckIn by remember(setlist?.id) { mutableStateOf(false) }
+    if (localTonight && !skippedCheckIn && setlist != null) {
+        CheckInPrompt(
+            gig = setlist,
+            onCheckIn = { viewModel.checkIn(setlist.id) },
+            onSkip = { skippedCheckIn = true },
+        )
+    }
     // Whose catalogue to offer when correcting an entry: the night's own setlist.fm
     // record. Hoisted above the Log editor because the pull-to-refresh curtain
     // (below) needs the same answer.
@@ -3501,26 +3567,6 @@ fun StationEventScreen(
                     Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    // `canLog` admits a local gig on its own, with no check-in required —
-                    // that's the point of it (#225) — so a *tonight* local gig that
-                    // hasn't been checked into yet would otherwise never reach the "I'm
-                    // here" action at all: `canLog` is true, so the branch below that
-                    // carries it is never reached. Surfaced here instead, alongside
-                    // capture rather than gating it, because logging what they played
-                    // was never the thing waiting on a check-in — only the gossip
-                    // window and the checked-in badge were.
-                    if (localGig && !checkedIn && setlist != null &&
-                        canCheckInManually(setlist, LocalDateTime.now())
-                    ) {
-                        Text(
-                            "I'm here — check in",
-                            color = Amber,
-                            fontSize = 13.sp,
-                            modifier = Modifier
-                                .clickable { viewModel.checkIn(setlist.id) }
-                                .padding(vertical = 6.dp),
-                        )
-                    }
                     // While it's happening, the entries above and "copy the set" below
                     // say everything there is to say — a caption pointing at them added
                     // nothing and pointed the wrong way once the editor moved under the
