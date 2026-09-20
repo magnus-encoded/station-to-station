@@ -243,7 +243,8 @@ final class GossipLifecycleTests: XCTestCase {
         let local = await store.createLocalGig(date: night.date, artist: "First", venue: "Room")
         await store.saveAttendance(setlistId: local,
             attendance: StoredAttendance(provenance: "checked_in", checkedInAt: night.done - 3_600_000))
-        XCTAssertTrue(await store.adoptSetlistId(gigId: local, setlistId: "setlist-777"))
+        let adopted = await store.adoptSetlistId(gigId: local, setlistId: "setlist-777")
+        XCTAssertTrue(adopted)
         let cache = await store.load()
         let during = night.done
 
