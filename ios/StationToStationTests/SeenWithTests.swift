@@ -173,6 +173,59 @@ final class SeenWithTests: XCTestCase {
         XCTAssertNil(gossipActiveGigId(cache: cache, now: Int64(over.timeIntervalSince1970 * 1000) + 1))
     }
 
+    /// A **Gig** chosen from its **Presence row** wins over the latest **Check-in**, and only
+    /// among the nights the deadlines already say are live (#501).
+    ///
+    /// The selection is a preference, never evidence: filtered through the same deadlines on
+    /// every read, so it can reorder which night is active and can never make an ended one
+    /// active. Matched against the adopted id as well, because a **Room** holds that one.
+    func testTheSelectedGigIsTheActiveOneWhileItIsStillEligible() throws {
+        var cache = TimelineCache()
+        let night = "02-05-2027"
+        cache.gigs["early"] = StoredGig(id: "early", date: night)
+        cache.gigs["later"] = StoredGig(id: "later", date: night, setlistId: "later-setlist")
+        cache.gigAttendance["early"] = StoredAttendance(provenance: "checked-in", checkedInAt: 1000)
+        cache.gigAttendance["later-setlist"] = StoredAttendance(provenance: "checked-in", checkedInAt: 2000)
+        XCTAssertEqual(gossipActiveGigId(cache: cache, selected: "early", now: 3000), "early")
+        // By either id, and the answer is the local one either way.
+        XCTAssertEqual(gossipActiveGigId(cache: cache, selected: "later-setlist", now: 3000), "later")
+        // A night nobody checked into cannot be chosen; the fallback answers instead.
+        cache.gigs["unattended"] = StoredGig(id: "unattended", date: night)
+        XCTAssertEqual(gossipActiveGigId(cache: cache, selected: "unattended", now: 3000), "later")
+        // And a selection cannot outlive the night it names.
+        let over = try XCTUnwrap(gossipExpiry(gigDate: night))
+        XCTAssertNil(gossipActiveGigId(cache: cache, selected: "early",
+                                       now: Int64(over.timeIntervalSince1970 * 1000) + 1))
+    }
+
+    /// What the **Active Gig** decides, and what it does not (#501).
+    ///
+    /// Only a **Pass** that carried no claim at all is attributed to it. A signed **Check-in**
+    /// naming another night is evidence about *that* night, and choosing where to stand must
+    /// never move somebody else's **Fact** onto the night you chose.
+    func testAnUnclaimedPassLandsOnTheSelectedGigWhileASignedOneKeepsItsOwn() throws {
+        var state = PublicGossipState()
+        let ada = P256.Signing.PrivateKey(), adaGig = P256.Signing.PrivateKey()
+        let bo = P256.Signing.PrivateKey(), boGig = P256.Signing.PrivateKey()
+
+        // No claim on the wire: the night being stood at is the only one it can honestly go to.
+        state.rememberPass(with: key(adaGig), batch: [], activeGigId: "selected", now: 2000)
+        XCTAssertEqual(state.seenWith(gigIds: ["selected"]).others, 1)
+        XCTAssertEqual(state.seenWith(gigIds: ["other"]).others, 0)
+
+        // A signed **Check-in** for another night: theirs, and it stays theirs.
+        let claim = try checkIn(gig: boGig, card: bo, scope: "bo-scope", at: 1000, gigId: "other")
+        state.rememberPass(with: key(boGig), batch: [claim], activeGigId: "selected", now: 3000)
+        XCTAssertEqual(state.seenWith(gigIds: ["other"]).others, 1)
+        XCTAssertEqual(state.seenWith(gigIds: ["selected"]).others, 1)
+
+        // And the **Fact** itself is filed under the night it names, not the one being stood at.
+        XCTAssertTrue(state.receive(try checkIn(gig: adaGig, card: ada, scope: "ada-scope", at: 1000, gigId: "other"),
+                                    from: key(adaGig), now: 1100))
+        XCTAssertEqual(state.project(gigIds: ["other"]).count, 1)
+        XCTAssertTrue(state.project(gigIds: ["selected"]).isEmpty)
+    }
+
     /// The attribution rule: recognition cannot be revoked, so removing a **Contact** does not
     /// turn a name this device already learned back into a stranger on an old night.
     func testRemovingAContactLeavesTheirNameOnTheNightAlreadyRecognised() throws {
