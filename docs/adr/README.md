@@ -66,7 +66,8 @@ hands over a **Card** — a radio, a link, a code — or before proposing a hand
 right after it before touching the gossip relay — it narrows 0016 rather than replacing it. Then
 0021, which is where gossip actually stands: it supersedes 0019's Contact-only propagation rule,
 so 0019 read alone will tell you the opposite of what the code does.
-0017 before
+0022 (receipts and why ranking is nearly inert), 0023 (the Room's durable Seen with) and 0024
+(the Active Gig is chosen) follow 0021 in that order. 0017 before
 touching UI on either platform, with 0001 and 0006 beside it: the three together are the parity model,
 and 0017 is the one an iOS session most often needs first. 0020 before adding a second process on
 either platform — an extension, a widget, a service — or before proposing that one of them write to

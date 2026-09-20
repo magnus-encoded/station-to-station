@@ -58,7 +58,7 @@ Four things follow, and they are the whole of what is being decided here:
   they never enter this device's record.
 
 Byte-level specification is not repeated here: [`docs/gossip-public-wire.md`](../gossip-public-wire.md)
-is normative, and its parameters are measured in [`sim/SWEEPS.md`](https://github.com/magnus-encoded/station-to-station/blob/gossip-sim/sim/SWEEPS.md) (branch `gossip-sim`).
+is normative, and its parameters are ~~measured~~ *simulated* in [`sim/SWEEPS.md`](https://github.com/magnus-encoded/station-to-station/blob/gossip-sim/sim/SWEEPS.md) (branch `gossip-sim`).
 
 ## What this does not cover
 
@@ -95,7 +95,7 @@ is normative, and its parameters are measured in [`sim/SWEEPS.md`](https://githu
   permission this relies on.
 - ADR-0016 — presence is the authentication; untouched, because nothing here mints a Contact.
 - `docs/gossip-public-wire.md` — the normative wire specification.
-- [`sim/SWEEPS.md`](https://github.com/magnus-encoded/station-to-station/blob/gossip-sim/sim/SWEEPS.md) (branch `gossip-sim`) — the measured basis for the Carry window and the relay parameters.
+- [`sim/SWEEPS.md`](https://github.com/magnus-encoded/station-to-station/blob/gossip-sim/sim/SWEEPS.md) (branch `gossip-sim`) — the ~~measured~~ *simulated* basis for the Carry window and the relay parameters.
 - #408 — the epic.
 
 
@@ -108,9 +108,9 @@ separate provisional parameters. ADR-0019's 2026-09-15 amendment supersedes its
 historical participation policy; its iOS background assumptions still need real
 locked-phone receive and forward trials.
 
-Receipts are accepted as one-hop controls, but no production emitter or useful-peer
+~~Receipts are accepted as one-hop controls, but no production emitter or useful-peer
 ranking exists yet. Binary decaying neighbour credit and random ties describe the
-intended policy, not current behaviour. #455 gates that work on iPhone viability.
+intended policy, not current behaviour.~~ *(Superseded 2026-09-20, see the last amendment.)* #455 gates that work on iPhone viability.
 The publication choice between each committed line and whole-Log completion is
 still pending; current code publishes committed Log changes during participation.
 
@@ -150,3 +150,36 @@ It is gossiped, not one-hop: the whole point is that a receiver can carry the ea
 request onto the identified **Gig** without the author ever writing again. Adoption
 after participation ends authors nothing and stays a local rename — the witness that
 device already holds is unaffected, and nobody else needed telling.
+
+
+## Amendment - 2026-09-20: what shipped after the v2 tickets (#471)
+
+Verified against code on this date. Nothing here is field-tested.
+
+- **Receipts and ranking exist.** Receipts are authored on receipt of a Contact's Fact
+  (both platforms, ADR-0022). Peer ranking is `gossipPreferredPeers` (shuffle under a seedable
+  RNG, credited band first, nobody excluded), not `PublicGossipState.offer`. Android has used it
+  since #462; iOS since #486 through its four-meeting cap. Credit is close to inert in the field
+  by design (identity resolves only after the challenge read; credit window overlaps the
+  cooldown); ADR-0022 section 4 says the fix needs a per-pair rotating token. The rule is
+  tested; its field effect is unmeasured.
+- **Carry window (15 min) and usefulness decay (2 min) are simulated, provisional numbers.**
+- **Three lifetimes**, all separate: Envelope expiry (06:00), the carry window, and seen IDs that
+  outlive eviction until expiry. Durable Facts outlive all three.
+- **A stranger can read the BLE challenge.** It proves a relay key, not Contact membership.
+- **Attribution survives removing a Contact.** The Contact's name is snapshotted at recognition
+  (#491, #492); before that, removal demoted already-received Facts to "Nearby listener".
+- **Presence is fed from the just-accepted batch.** Attribution, not proximity, is the gate
+  (`presenceFrom`); a verified Check-in relayed via someone's witness counts, so presence can
+  reach one hop beyond your own radio. The nearby window is 5 minutes and nothing re-triggers a
+  Contact after it (#493, #494). iOS built its presence surface in #494 and scopes the line to
+  the active Gig(s); Android's is not Gig-scoped.
+- **Later work:** ADR-0023 (Seen with) and ADR-0024 (Active Gig chosen). Android has the
+  Presence-row selection; iOS parity is in progress under #501.
+- **iOS persistence landmine.** `PublicGossipState` is `Codable` with synthesized decoding,
+  which throws on a missing key even when the property has a default, and `GossipLedger.load()`
+  decodes with `try?`, so a new required key silently wipes every saved ledger. New fields must
+  go through its hand-written `init(from:)` with `decodeIfPresent`, with a regression test.
+- **Verification limits.** No locked-iPhone run, no phone-to-phone Pass, no battery
+  measurement. The BLE wiring around `presenceFrom` has no test and no device run. #465 and #467
+  remain as field tests.

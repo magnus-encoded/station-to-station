@@ -23,7 +23,8 @@ base64 DER ECDSA signature. Empty optional fields remain present. Canonical sign
 are `station-to-station/gossip-fact/2` followed by the ten fields between hash and signature,
 separated by newlines. The content hash is lower-case SHA-256 of those bytes.
 
-Kinds are `log`, `request`, `witness`, `receipt`. Log replacements carry one complete line;
+Kinds are `log`, `request`, `witness`, `receipt` and (added 2026-09-17, ADR-0021) `update`, which
+relabels its own signer's earlier Facts under a newly adopted Gig ID and is gossiped, not one-hop. Log replacements carry one complete line;
 blank text is a Gap. A witness embeds the complete signed direct request as its text, so a
 relay cannot invent the subject's attendance. Requests and receipts are one-hop only.
 A receipt affects neighbour priority only, never the referenced Envelope's outbox. It is
@@ -69,9 +70,18 @@ seconds reaches 36-52%, and an unlimited window reaches 99.7-100%: shortening it
 far more than lengthening it gains. Median delivery is about 20 minutes from authoring
 and p95 about 39 minutes, at a mean relay depth of 7.5-8.3 hops. There is no hop count
 on the wire, and the same sweeps show what imposing one would cost. The usefulness policy is a binary boost with a provisional two-minute
-decay and random ties. Android ranks peers after a 1.5-second window of sightings, preferring
+decay. ~~and random ties. Android ranks peers after a 1.5-second window of sightings, preferring
 credited neighbours and never excluding the others; iOS holds the same rule but has no scarce
-connection slot to apply it to (ADR-0022). Receipts remain one-hop; the sweep of receipt hop
+connection slot to apply it to (ADR-0022).~~ Amended 2026-09-20: ties are random.
+`gossipPreferredPeers` (Android `GossipPolicy.kt`, iOS `GossipBudget.swift`) shuffles the
+candidates under an injected RNG, then puts credited peers first; it never excludes anyone. It
+ranks peers at the radio; it is not part of `PublicGossipState.offer`, which takes one peer. Both
+platforms rank after a 1.5-second window of sightings; on iOS the only production caller is the
+concurrent-meeting cap (4 meetings, ADR-0022 amendment, #486). Credit is nearly inert in the
+field by design: a peer resolves to its relay key only after a completed challenge read, and the
+two-minute credit window overlaps the one-minute peer cooldown, so a sighting is both eligible
+and credited for about a minute at most. ADR-0022 section 4 says a real fix needs a per-pair
+rotating token in the advertisement, which v2 deliberately does not have. Receipts remain one-hop; the sweep of receipt hop
 budgets, with what each extra hop costs in bytes and in duplicate arrivals at the author,
 does not settle production direct witnessing or usefulness signals.
 
@@ -95,6 +105,27 @@ background scheduling, which remains OS-throttled. Method, tables and caveats ar
 [`sim/SWEEPS.md`](https://github.com/magnus-encoded/station-to-station/blob/gossip-sim/sim/SWEEPS.md) on branch `gossip-sim`; reproduce with
 `cd sim && python -m station_to_station_sim.sweeps`.
 
+
+### Three lifetimes and what a stranger can read (2026-09-20, #471)
+
+Three clocks are separate and none implies another. Envelope expiry is 06:00 at the end of the
+Gig's night and is signed into the Envelope. The Carry window (15 minutes, capped by expiry) only
+bounds how long a relay offers its copy. Seen IDs outlive outbox eviction until expiry, so an
+evicted Envelope is not re-accepted. Durable admitted Facts outlive all of them. Presence
+(five-minute nearby window) and participation grace (30 minutes, capped at 06:00) are further,
+unrelated clocks.
+
+The BLE challenge is readable by any device in range, stranger included. It shows that the
+peripheral holds its night-scoped relay key; a Pass proof shows possession of that key, not
+Contact membership and not app attestation. Attribution stays sealed (see above).
+
+### Verification status (2026-09-20)
+
+Not yet field-tested. Behaviour is covered by unit and seam tests and by simulation
+(`sim/SWEEPS.md`, synthetic crowds); the simulated figures above are not measurements. Nothing
+here has been verified on real devices as a whole: no locked-iPhone receive or forward run, no
+phone-to-phone Pass, no battery measurement. Pixel/Pi plain-ATT receive tests passed earlier;
+the Pi ATT 13 bug (#465) and field testing (#467) remain open.
 
 ### Publication boundary — settled 2026-09-15 (#455)
 
