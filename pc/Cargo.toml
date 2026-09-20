@@ -1,0 +1,64 @@
+[package]
+name = "station-to-station-pc"
+version = "0.1.0"
+edition = "2021"
+description = "The PC face: a Contact that receives shared media over the LAN."
+
+[[bin]]
+name = "sts"
+path = "src/main.rs"
+
+[dependencies]
+# TLS. rustls rather than openssl: no system libssl to install on the Pi, and it hands
+# back the peer's certificate as raw DER — which is exactly what the fingerprint the
+# handshake signs is taken over.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pki-types = "1"
+rcgen = { version = "0.13", default-features = false, features = ["crypto", "ring", "pem"] }
+
+# The identity itself: ECDSA P-256, the curve ContactIdentity.kt settled on.
+p256 = { version = "0.13", features = ["ecdsa", "pkcs8"] }
+sha2 = "0.10"
+rand_core = { version = "0.6", features = ["getrandom"] }
+base64 = "0.22"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Clashfinder over HTTPS. Blocking, because this face is a REPL and has nothing else to be
+# doing while it waits. Its default features are rustls-with-ring — the same provider the
+# TLS above already links, so this adds a client and not a second crypto stack.
+ureq = "3"
+
+# mDNS. Pure Rust, so nothing to apt-install and no avahi-utils dependency; it shares
+# 5353 with the avahi-daemon already running on the Pi.
+mdns-sd = "0.11"
+
+# BLE central, for the one command that needs a radio.
+btleplug = "0.11"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+futures = "0.3"
+uuid = "1"
+
+# Tris Oaten's strict set (namtao.com/rust/#strict-lints). Two jobs: teach the language,
+# and stop panics at run time. On a machine that sits in a corner receiving other people's
+# photographs, the second one is the point — there is nobody watching it to restart it.
+[lints.clippy]
+# UM, ACTUALLY
+pedantic = { level = "deny", priority = -1 }
+# DEVELOPING LINTS
+nursery = { level = "deny", priority = -1 }
+# DENY PANICS
+unwrap_used = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+unreachable = "deny"
+unimplemented = "deny"
+unchecked_time_subtraction = "deny"
+todo = "deny"
+string_slice = "deny"
+panic_in_result_fn = "deny"
+panic = "deny"
+exit = "deny"
+as_conversions = "deny"

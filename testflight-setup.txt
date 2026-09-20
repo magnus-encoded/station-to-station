@@ -1,0 +1,112 @@
+TestFlight without a Mac — setup checklist
+==========================================
+Untracked scratch note. Not part of the repo; do not commit.
+Written 2026-08-28.
+
+The Mac is the CI runner (`runs-on: macos-latest` in .github/workflows/ios.yml).
+Everything below is a browser, a phone, and openssl on Windows.
+
+
+1. ENROL  ($99/yr)
+------------------
+[ ] Apple Developer app on the iPhone, or developer.apple.com/enroll
+[ ] Enrol as an Individual (an Organization needs a D-U-N-S number)
+[ ] Apple ID needs 2FA on
+[ ] Note the Team ID once approved (10 chars, e.g. A1B2C3D4E5)
+    -> developer.apple.com > Membership
+
+
+2. IDENTIFIERS  (developer.apple.com, web)
+------------------------------------------
+[ ] Certificates, Identifiers & Profiles > Identifiers > +
+[ ] App IDs > App
+[ ] Bundle ID (explicit): io.github.magnusencoded.stationtostation
+    Must match PRODUCT_BUNDLE_IDENTIFIER in ios/project.yml:38
+[ ] Capabilities: leave default unless the app gains an entitlement
+
+
+3. DISTRIBUTION CERTIFICATE  (no Keychain Access needed)
+--------------------------------------------------------
+On Windows, in git-bash:
+
+    openssl req -new -newkey rsa:2048 -nodes \
+      -keyout dist.key -out dist.csr \
+      -subj "/emailAddress=dizzi90@gmail.com/CN=Magnus Vikan/C=NO"
+
+[ ] developer.apple.com > Certificates > + > Apple Distribution
+[ ] Upload dist.csr, download the resulting distribution.cer
+
+    openssl x509 -in distribution.cer -inform DER -out dist.pem -outform PEM
+    openssl pkcs12 -export -inkey dist.key -in dist.pem -out dist.p12
+
+[ ] Pick a strong export password — it becomes a repo secret
+[ ] Keep dist.key safe and out of the repo. Losing it means a new cert.
+
+
+4. PROVISIONING PROFILE
+-----------------------
+[ ] developer.apple.com > Profiles > + > App Store Connect (distribution)
+[ ] App ID: the one from step 2
+[ ] Certificate: the one from step 3
+[ ] Download the .mobileprovision
+
+
+5. APP RECORD  (appstoreconnect.apple.com)
+------------------------------------------
+[ ] My Apps > + > New App
+[ ] Platform iOS, the bundle ID from step 2
+[ ] SKU: anything unique (e.g. station-to-station)
+[ ] No screenshots or metadata needed for TestFlight internal testing
+
+
+6. API KEY  (so CI can upload without a 2FA prompt)
+---------------------------------------------------
+[ ] appstoreconnect.apple.com > Users and Access > Integrations > App Store Connect API
+[ ] Generate a key, role: App Manager
+[ ] Download the .p8 — ONE download only, Apple will not show it again
+[ ] Note the Key ID and the Issuer ID
+
+
+7. REPO SECRETS  (gh secret set, or the web UI)
+-----------------------------------------------
+base64 the binary ones first:
+
+    base64 -w0 dist.p12          > p12.b64
+    base64 -w0 profile.mobileprovision > profile.b64
+    base64 -w0 AuthKey_XXXX.p8   > p8.b64
+
+[ ] IOS_DIST_P12          (base64 of dist.p12)
+[ ] IOS_DIST_P12_PASSWORD (the export password from step 3)
+[ ] IOS_PROVISION_PROFILE (base64 of the .mobileprovision)
+[ ] APPSTORE_API_KEY_P8   (base64 of the .p8)
+[ ] APPSTORE_API_KEY_ID
+[ ] APPSTORE_ISSUER_ID
+[ ] APPLE_TEAM_ID         (from step 1)
+
+Note: anyone with write access to the repo can then sign as you.
+Fine for a solo repo; worth knowing.
+
+
+8. WHAT I CHANGE ONCE THE ABOVE EXISTS
+--------------------------------------
+[ ] ios/project.yml: DEVELOPMENT_TEAM = the Team ID
+[ ] ios/project.yml:20 CURRENT_PROJECT_VERSION -> ${{ github.run_number }}
+    App Store Connect REJECTS a duplicate build number. This is the one
+    that will bite on the second upload if it is missed.
+[ ] ios.yml, main only: import cert into a temp keychain, install the
+    profile, xcodebuild archive, -exportArchive with an app-store-connect
+    ExportOptions.plist, xcrun altool --upload-app with the API key
+[ ] PR builds keep the existing unsigned path untouched
+
+
+9. ON THE PHONE
+---------------
+[ ] Install TestFlight from the App Store
+[ ] appstoreconnect.apple.com > the app > TestFlight > Internal Testing
+[ ] Add yourself as an internal tester (up to 100, no beta review,
+    build is available as soon as processing finishes ~5-10 min)
+[ ] Builds expire after 90 days. Any push to main replaces it.
+
+
+BLOCKING ON: step 1. The Team ID has to be real before project.yml can
+name it, so enrolment comes first and nothing else can be faked ahead of it.

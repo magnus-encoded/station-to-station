@@ -1,0 +1,5 @@
+# Prototype with .unwrap() where a panic is a failed test and nothing more.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true

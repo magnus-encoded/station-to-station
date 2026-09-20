@@ -1,0 +1,109 @@
+diff --git a/android/app/src/main/java/io/github/magnusencoded/stationtostation/ble/GossipRadio.kt b/android/app/src/main/java/io/github/magnusencoded/stationtostation/ble/GossipRadio.kt
+index 9dd19cc..7b256af 100644
+--- a/android/app/src/main/java/io/github/magnusencoded/stationtostation/ble/GossipRadio.kt
++++ b/android/app/src/main/java/io/github/magnusencoded/stationtostation/ble/GossipRadio.kt
+@@ -750,7 +750,6 @@ class GossipCentral(
+                     return finish(false)
+                 }
+                 val publicPayload = publicPassFor?.invoke(who, challenge.nonce)
+-                val batch = outboxFor(who)
+                 if (publicPayload != null) {
+                     phase = "pass"
+                     val limit = gossipWriteLimit(attMtu)
+@@ -759,8 +758,8 @@ class GossipCentral(
+                     if (!writeNext(gatt)) finish(false)
+                     return
+                 }
+-                if (batch.isEmpty()) {
+-                    Log.i(TAG, "contact resolved, nothing in the outbox for them")
++                if (outboxFor(who).isEmpty()) {
++                    Log.i(TAG, "contact resolved, nothing public in the outbox for them")
+                     why = "nothing to tell them"
+                     return finish(false)
+                 }
+diff --git a/android/app/src/main/java/io/github/magnusencoded/stationtostation/data/gossip/PublicGossip.kt b/android/app/src/main/java/io/github/magnusencoded/stationtostation/data/gossip/PublicGossip.kt
+index 66542cb..a321cda 100644
+--- a/android/app/src/main/java/io/github/magnusencoded/stationtostation/data/gossip/PublicGossip.kt
++++ b/android/app/src/main/java/io/github/magnusencoded/stationtostation/data/gossip/PublicGossip.kt
+@@ -70,8 +70,15 @@ fun decodePublicEnvelope(record: String): GossipEnvelope? {
+ data class PublicGossipPass(val from: String, val proof: String, val batch: List<GossipEnvelope>)
+ fun encodePublicGossipPass(pass: PublicGossipPass): ByteArray? {
+     if (listOf(pass.from, pass.proof).any { it.isBlank() || it.contains('\n') || it.contains('\t') }) return null
+-    val bytes = (listOf(PUBLIC_GOSSIP_PASS, "${pass.from}\t${pass.proof}") + pass.batch.map { it.record() }).joinToString("\n").toByteArray(Charsets.UTF_8)
+-    return bytes.takeIf { it.size <= GOSSIP_MAX_WIRE_BYTES }
++    val prefix = listOf(PUBLIC_GOSSIP_PASS, "${pass.from}\t${pass.proof}")
++    val records = buildList {
++        for (envelope in pass.batch) {
++            val candidate = (prefix + this + envelope.record()).joinToString("\n").toByteArray(Charsets.UTF_8)
++            if (candidate.size > GOSSIP_MAX_WIRE_BYTES) break
++            add(envelope.record())
++        }
++    }
++    return (prefix + records).joinToString("\n").toByteArray(Charsets.UTF_8)
+ }
+ fun decodePublicGossipPass(bytes: ByteArray?): PublicGossipPass? {
+     if (bytes == null || bytes.size > GOSSIP_MAX_WIRE_BYTES) return null
+@@ -118,7 +125,8 @@ data class PublicGossipState(
+     fun offer(peer: String, now: Long): List<GossipEnvelope> {
+         prune(now)
+         var bytes = 512
+-        return held.values.filter { peer !in it.delivered }.sortedByDescending { it.envelope.createdAt }.mapNotNull {
++        return held.values.filter { peer !in it.delivered }.sortedWith(compareByDescending<PublicHeld> { useful[it.envelope.id] ?: Long.MIN_VALUE }
++            .thenByDescending { it.envelope.createdAt }).mapNotNull {
+             val size = it.envelope.record().toByteArray().size + 1
+             if (bytes + size > GOSSIP_MAX_WIRE_BYTES) null else { bytes += size; it.envelope }
+         }.take(64)
+diff --git a/ios/StationToStation/Data/Gossip/GossipTransport.swift b/ios/StationToStation/Data/Gossip/GossipTransport.swift
+index f8be88b..4f0e73d 100644
+--- a/ios/StationToStation/Data/Gossip/GossipTransport.swift
++++ b/ios/StationToStation/Data/Gossip/GossipTransport.swift
+@@ -312,17 +312,11 @@ final class GossipTransport: NSObject {
+     private func send(_ meeting: GossipMeeting, to contact: String, nonce: Data) {
+         Task { [weak self] in
+             guard let self else { return }
+-            // v2 is the only wire spoken by new builds. Keep the old path as a local
+-            // fallback while a device has no public facts yet; the discriminator makes
+-            // this fail closed against a stale implementation.
+             let publicPayload = await self.channel.publicPass(to: contact, nonce: nonce, now: Date())
+-            let payload: Data?
+-            if let publicPayload { payload = publicPayload }
+-            else { payload = await self.channel.pass(to: contact, nonce: nonce, now: Date()) }
+             self.queue.async {
+                 let id = meeting.peripheral.identifier
+                 guard self.meetings[id] != nil, let characteristic = meeting.pass,
+-                      let payload
++                      let payload = publicPayload
+                 else { self.abandon(id); return }
+                 let limit = max(20, meeting.peripheral.maximumWriteValueLength(for: .withResponse))
+                 meeting.contact = contact
+diff --git a/ios/StationToStation/Data/Gossip/PublicGossip.swift b/ios/StationToStation/Data/Gossip/PublicGossip.swift
+index f18a718..cf8be0d 100644
+--- a/ios/StationToStation/Data/Gossip/PublicGossip.swift
++++ b/ios/StationToStation/Data/Gossip/PublicGossip.swift
+@@ -77,8 +77,14 @@ struct PublicGossipDelivery {
+ }
+ func encodePublicGossipPass(_ pass: PublicGossipPass) -> Data? {
+     guard [pass.from, pass.proof].allSatisfy({ !$0.isEmpty && !$0.contains("\t") && !$0.contains("\n") }) else { return nil }
+-    let bytes = Data(([publicGossipPassHeader, "\(pass.from)\t\(pass.proof)"] + pass.batch.map { $0.record() }).joined(separator: "\n").utf8)
+-    return bytes.count <= gossipMaxWireBytes ? bytes : nil
++    let prefix = [publicGossipPassHeader, "\(pass.from)\t\(pass.proof)"]
++    var records: [String] = []
++    for envelope in pass.batch {
++        let candidate = Data((prefix + records + [envelope.record()]).joined(separator: "\n").utf8)
++        if candidate.count > gossipMaxWireBytes { break }
++        records.append(envelope.record())
++    }
++    return Data((prefix + records).joined(separator: "\n").utf8)
+ }
+ func decodePublicGossipPass(_ bytes: Data) -> PublicGossipPass? {
+     guard bytes.count <= gossipMaxWireBytes, let text = String(data: bytes, encoding: .utf8) else { return nil }
+@@ -128,7 +134,8 @@ struct PublicGossipState: Codable {
+         prune(now: now)
+         var bytes = 512
+         return Array(held.values.filter { !$0.delivered.contains(peer) }.sorted {
+-            ($0.envelope.createdAt, $0.envelope.id) > ($1.envelope.createdAt, $1.envelope.id)
++            (useful[$0.envelope.id] ?? Int64.min, $0.envelope.createdAt, $0.envelope.id) >
++                (useful[$1.envelope.id] ?? Int64.min, $1.envelope.createdAt, $1.envelope.id)
+         }.compactMap { entry -> GossipEnvelope? in
+             let size = entry.envelope.record().utf8.count + 1
+             guard bytes + size <= gossipMaxWireBytes else { return nil }

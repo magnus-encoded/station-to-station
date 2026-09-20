@@ -3420,6 +3420,11 @@ fun StationEventScreen(
     val localTonight = setlist != null && localGig && !checkedIn &&
         canCheckInManually(setlist, LocalDateTime.now())
     var skippedCheckIn by remember(setlist?.id) { mutableStateOf(false) }
+    // Capture is the alternative to checking in, not the screen behind the question.
+    // Keep it out of the composition until the person has made either choice; a
+    // translucent dialog over an already-live editor makes capture look like the
+    // default and check-in like an interruption.
+    val captureRevealed = !localTonight || skippedCheckIn
     if (localTonight && !skippedCheckIn && setlist != null) {
         CheckInPrompt(
             gig = setlist,
@@ -3599,6 +3604,19 @@ fun StationEventScreen(
                                 .padding(vertical = 6.dp),
                         )
                     }
+                    // Skipping the arrival question means "capture now", not "give up
+                    // checking in". Keep the primary act reachable beside the other
+                    // bottom actions until it succeeds.
+                    if (localTonight && skippedCheckIn) {
+                        Text(
+                            "check in",
+                            color = Amber,
+                            fontSize = 13.sp,
+                            modifier = Modifier
+                                .clickable { viewModel.checkIn(setlist.id) }
+                                .padding(vertical = 6.dp),
+                        )
+                    }
                     if (localGig) {
                         // Reachable from the night itself, on purpose: deletion must
                         // not depend on anything else still existing.
@@ -3644,13 +3662,6 @@ fun StationEventScreen(
                     if (canCheckInManually(setlist, LocalDateTime.now())) {
                         if (checkedIn) {
                             Text("✓ checked in", color = Amber, fontSize = 13.sp, modifier = Modifier.padding(vertical = 6.dp))
-                            // Who else is here, on the one screen somebody has open while
-                            // standing at the venue. It is the question this whole relay
-                            // exists to answer, and the check-in line is the moment it
-                            // becomes askable — the phone only knows the room because it
-                            // has been in it. Silent when nobody is nearby, so a quiet
-                            // night reads exactly as it does today.
-                            NearbyContacts(state.friends)
                         } else {
                             if (offers.room.showQr) TicketQrCode(ticketQr)
                             Text(
@@ -4017,6 +4028,11 @@ fun StationEventScreen(
                                 )
                             }
                         }
+                        // Who else is here belongs to the checked-in night, not to the
+                        // ticket/planned bottom-bar branch. Local nights take the capture
+                        // branch, so keeping this there made their presence line
+                        // structurally unreachable.
+                        if (checkedIn) NearbyContacts(state.friends)
                         // Nothing can be pinned to a night nobody has been to yet — the
                         // slot comes back once the gig is checked into or no longer planned.
                         if (showsMediaBlock(planned, checkedIn)) {
@@ -4242,7 +4258,7 @@ fun StationEventScreen(
                 // and whether the set is complete — and a way in belongs below the
                 // thing it adds to. It also puts the field next to the end of the
                 // list, which is where a song lands when you tap it in.
-                if (canLog) {
+                if (canLog && captureRevealed) {
                     item {
                         Spacer(Modifier.height(6.dp))
                         LogEditor(
@@ -4270,18 +4286,20 @@ fun StationEventScreen(
                 // what "analysis happens after the show" means as a layout. Still
                 // above the **Alcove**, which is the room's fixture rather than the
                 // night's record.
-                item {
-                    Spacer(Modifier.height(14.dp))
-                    GigNotes(
-                        media = gigMedia,
-                        preamble = gigPreamble,
-                        senderName = { key -> state.friends.firstOrNull { it.setlistfm == key }?.name },
-                        contactLight = state.contactLight,
-                        editable = editable,
-                        onWrite = { band, text -> viewModel.setGigNote(setlist.id, band, text) },
-                        onVerdict = { id, v -> viewModel.setGigVerdict(setlist.id, id, v) },
-                        onMove = { id, band, index -> viewModel.moveGigMedia(setlist.id, id, band, index) },
-                    )
+                if (captureRevealed) {
+                    item {
+                        Spacer(Modifier.height(14.dp))
+                        GigNotes(
+                            media = gigMedia,
+                            preamble = gigPreamble,
+                            senderName = { key -> state.friends.firstOrNull { it.setlistfm == key }?.name },
+                            contactLight = state.contactLight,
+                            editable = editable,
+                            onWrite = { band, text -> viewModel.setGigNote(setlist.id, band, text) },
+                            onVerdict = { id, v -> viewModel.setGigVerdict(setlist.id, id, v) },
+                            onMove = { id, band, index -> viewModel.moveGigMedia(setlist.id, id, band, index) },
+                        )
+                    }
                 }
                 item { Spacer(Modifier.height(96.dp)) }
             }
