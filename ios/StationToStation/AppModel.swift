@@ -115,6 +115,10 @@ struct UiState {
     /// long as the window lasts. Replaced rather than merged, for the reason `observePresence`
     /// gives.
     var presentGigs: Set<String> = []
+    /// Every id each night answers to, indexed under each of them (#497, #499). The durable
+    /// **Seen with** record is keyed by whichever id a **Pass** proved, so a **Room** reading it
+    /// back has to union the night's aliases or an adopted setlist.fm id splits the record.
+    var gossipGigAliases: [String: Set<String>] = [:]
     /// The calendar event made for a planned gig, by gig id — EventKit's
     /// `eventIdentifier`. Presence is what the leaf reads as "already added".
     var calendarEventByGig: [String: String] = [:]
@@ -520,6 +524,7 @@ final class AppModel: ObservableObject {
     private func refreshWitnessed(_ publicState: PublicGossipState) async {
         let cache = await timelines.load()
         state.witnessedGigs = gossipWitnessedIds(publicState.witnessedGigIds(), cache: cache)
+        state.gossipGigAliases = gossipGigAliases(cache: cache)
     }
 
     private func gossipContactsChanged() {

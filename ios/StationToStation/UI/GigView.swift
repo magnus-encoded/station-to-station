@@ -135,6 +135,15 @@ struct GigView: View {
                             Text(arrivals.sorted().joined(separator: ", ") + " · checked in")
                                 .font(.system(size: 12)).foregroundStyle(muted).padding(.horizontal, 24)
                         }
+                        // Who was here, and it stays (#499). Asked under every id this night has
+                        // been known by — adopting a setlist.fm id must not split the record or
+                        // count the same device under both halves of it.
+                        let seenWith = publicState.seenWith(
+                            gigIds: model.state.gossipGigAliases[show.id] ?? [show.id], live: liveContacts)
+                        if !seenWith.isEmpty {
+                            Text(seenWithLine(seenWith))
+                                .font(.system(size: 12)).foregroundStyle(muted).padding(.horizontal, 24)
+                        }
                         let log = model.state.gigLog
                         let woven = weaveSetlist(published: rows.map(publishedTitle),
                                                  logged: log.songs)

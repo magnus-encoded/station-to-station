@@ -94,6 +94,13 @@ actor GossipLedger {
         editPublic { $0.delivered(to: peer, ids: ids) }
     }
 
+    /// A **Pass** with `peer` completed: write the durable **Seen with** evidence (#499). The
+    /// batch is passed whole so the rule about *whose* claim a **Pass** attaches to stays in
+    /// `PublicGossipState.rememberPass` with the rest of them.
+    func rememberPass(peer: String, batch: [GossipEnvelope], activeGigId: String?, now: Int64) {
+        editPublic { $0.rememberPass(peer: peer, batch: batch, activeGigId: activeGigId, now: now) }
+    }
+
     private func editPublic(_ edit: (inout PublicGossipState) -> Void) {
         var next = load()
         var state = next.publicState ?? PublicGossipState()

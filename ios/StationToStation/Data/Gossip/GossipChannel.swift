@@ -256,7 +256,8 @@ actor GossipChannel {
         // named, and only for nights still running: a known **Gig** keeps its deadline after
         // participation ends, and last night's claim arriving in tonight's **Pass** is not
         // somebody standing here. The same test `offer` applies.
-        let ends = gossipParticipationEnds(cache: await timeline.load(), stoppedAt: GossipTransport.shared.stoppedAt)
+        let cache = await timeline.load()
+        let ends = gossipParticipationEnds(cache: cache, stoppedAt: GossipTransport.shared.stoppedAt)
         let gigIds = Set(ends.filter { millis < $0.value }.keys)
         // `accepted`, not `pass.batch`: a replay of a claim this device already holds is
         // refused by `receive` and is not evidence anybody is standing here now.
@@ -278,6 +279,13 @@ actor GossipChannel {
                 GossipTally.shared.authored(receipts.count)
             }
         }
+        // The **Pass** itself, not its contents: these two phones met, whoever authored what
+        // they handed over (#499). The whole batch, so the rule about *whose* claim a **Pass**
+        // attaches to stays in `rememberPass`. Written before the repaint below so the durable
+        // **Seen with** line is fresh the next time the **Room** is drawn.
+        await ledger.rememberPass(peer: from, batch: pass.batch,
+            activeGigId: gossipActiveGigId(cache: cache, stoppedAt: GossipTransport.shared.stoppedAt, now: millis),
+            now: millis)
         await publishWitnessed(now: now)
     }
 
@@ -307,9 +315,17 @@ actor GossipChannel {
 
     /// The bytes landed. Only now is anything marked delivered — a handover that died halfway
     /// is offered again the next time these two phones are in the same room.
-    func confirmDelivery(to contact: String) async {
+    func confirmDelivery(to contact: String, now: Date = Date()) async {
         guard let ids = pending.removeValue(forKey: contact) else { return }
         GossipTally.shared.delivered(pendingReceipts.removeValue(forKey: contact) ?? 0)
         await ledger.deliveredPublic(ids, to: contact)
+        // Dialling out is a met device too. `contact` here is the key their signed challenge
+        // proved, the same space `receivePublic`'s `from` is in — and this direction carries no
+        // claim of theirs, so the active **Gig** is the only night it can honestly attach to (#499).
+        let millis = Int64(now.timeIntervalSince1970 * 1000)
+        let cache = await timeline.load()
+        await ledger.rememberPass(peer: contact, batch: [],
+            activeGigId: gossipActiveGigId(cache: cache, stoppedAt: GossipTransport.shared.stoppedAt, now: millis),
+            now: millis)
     }
 }
