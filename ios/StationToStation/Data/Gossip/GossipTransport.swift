@@ -125,7 +125,31 @@ final class GossipTransport: NSObject {
     /// When each peripheral was last talked to, so a stranger in range is not reconnected to on
     /// every discovery callback. In memory only — a per-boot list of nearby radios is not
     /// something to write down.
+    ///
+    /// Stamped when a meeting actually begins and never when one is merely considered: a peer
+    /// deferred by the cap has not been met, and stamping it would lock it out for a full
+    /// `gossipPeerCooldown` for the crime of being ranked second.
     private var lastMet: [UUID: Date] = [:]
+
+    /// Peers seen but not yet met, held as the `CBPeripheral` because CoreBluetooth does not
+    /// retain one for you and a deferred peer is in no other collection that would.
+    ///
+    /// This pool is what keeps the cap from becoming a blacklist. See `gossipPeersToMeet`: a
+    /// background scan does not redeliver duplicate advertisements, so a sighting dropped here
+    /// is a peer that may never be offered again tonight.
+    private var pool: [UUID: CBPeripheral] = [:]
+    /// Whether a pick window is already open, so a room full of radios opens one window and not
+    /// one per advertisement.
+    private var picking = false
+
+    /// The relay handle last proved at each peripheral, so a later sighting can be ranked by
+    /// what the previous meeting established.
+    ///
+    /// Learned only from a completed challenge read, which means a peer never met before is
+    /// uncredited by construction — there is nothing in a gossip advertisement but the service
+    /// UUID to key on instead. Android's `resolved` map carries the identical limitation, and
+    /// ADR-0022 §4 is where the fix would have to come from.
+    private var resolved: [UUID: String] = [:]
 
     /// A **Pass** arrives as a series of separate write operations (CoreBluetooth does not
     /// perform prepared writes), so the peripheral half accumulates per central and finalises on
@@ -223,6 +247,9 @@ final class GossipTransport: NSObject {
         central?.stopScan()
         for (_, meeting) in meetings { central?.cancelPeripheralConnection(meeting.peripheral) }
         meetings.removeAll()
+        pool.removeAll()
+        resolved.removeAll()
+        picking = false
         peripheral?.stopAdvertising()
         peripheral?.removeAllServices()
         advertising = false
@@ -270,6 +297,77 @@ final class GossipTransport: NSObject {
         guard let meeting = meetings.removeValue(forKey: id) else { return }
         meeting.timeout?.cancel()
         if cancel { central?.cancelPeripheralConnection(meeting.peripheral) }
+        // A slot just came back. Anything the cap deferred has been waiting for exactly this,
+        // and on this platform waiting is all it can do — nothing will advertise itself into
+        // view a second time.
+        openPickWindow()
+    }
+
+    /// A peripheral was discovered. Gather rather than connect (#444, story 38).
+    ///
+    /// The old behaviour was to meet whoever `didDiscover` named first, which meant the order
+    /// peers were spent in was the order the controller happened to report them — usefulness
+    /// had no way to express itself at all. One advertisement is not a choice.
+    private func sight(_ peripheral: CBPeripheral) {
+        guard participating else { stopLocked(); return }
+        let id = peripheral.identifier
+        guard meetings[id] == nil else { return }
+        pool[id] = peripheral
+        openPickWindow()
+    }
+
+    private func openPickWindow() {
+        guard !picking, !pool.isEmpty, participating else { return }
+        picking = true
+        // An unconditional timer, not one rearmed by each sighting: a background scan that
+        // reports one peer and then goes quiet is the common case, and it must still end in a
+        // meeting rather than in a window that never closes.
+        queue.asyncAfter(deadline: .now() + gossipPickWindow) { [weak self] in self?.closePickWindow() }
+    }
+
+    private func closePickWindow() {
+        picking = false
+        guard participating else { stopLocked(); return }
+        let now = Date()
+        // Re-applied here and not only at sighting time, because the pool outlives the window
+        // that gathered it: a peer kept across several windows can age past the cooldown
+        // decision that was made when it was first seen.
+        pool = pool.filter { meetings[$0.key] == nil }
+        let candidates = pool.keys.filter { id in
+            lastMet[id].map { now.timeIntervalSince($0) >= gossipPeerCooldown } ?? true
+        }
+        let free = gossipMaxConcurrentMeetings - meetings.count
+        guard !candidates.isEmpty, free > 0 else { return }
+        // Credit lives behind the channel actor, so the answer arrives after a hop. Asked once
+        // per window rather than once per candidate: the ledger's lock is not something a
+        // ranking should take six times.
+        let handles = candidates.reduce(into: [UUID: String]()) { $0[$1] = resolved[$1] }
+        Task { [weak self] in
+            guard let self else { return }
+            let credited = await self.channel.creditedPeers(now: now)
+            self.queue.async {
+                var rng = SystemRandomNumberGenerator()
+                let picked = gossipPeersToMeet(candidates.map(\.uuidString),
+                    // Re-read free slots *after* the hop rather than trusting the count taken
+                    // before it; `beginMeeting` enforces the cap again regardless.
+                    free: gossipMaxConcurrentMeetings - self.meetings.count,
+                    credited: { key in
+                        guard let id = UUID(uuidString: key), let handle = handles[id] else { return false }
+                        return credited.contains(handle)
+                    }, using: &rng)
+                GossipTally.shared.ranked(candidates: candidates.count,
+                    hits: candidates.filter { handles[$0].map(credited.contains) == true }.count)
+                for key in picked.chosen {
+                    guard let id = UUID(uuidString: key), let peripheral = self.pool[id] else { continue }
+                    self.beginMeeting(peripheral)
+                }
+                // `remaining` stays in the pool untouched; only what was actually met leaves it.
+                // Another window is opened only when this one made progress — a full slate is
+                // not a reason to re-rank every 1.5 s, and `abandon` reopens the moment a slot
+                // comes back, which is the only event that could change the answer.
+                if !picked.chosen.isEmpty && !picked.remaining.isEmpty { self.openPickWindow() }
+            }
+        }
     }
 
     private func beginMeeting(_ peripheral: CBPeripheral) {
@@ -277,6 +375,7 @@ final class GossipTransport: NSObject {
         let id = peripheral.identifier
         guard meetings[id] == nil, meetings.count < gossipMaxConcurrentMeetings else { return }
         if let last = lastMet[id], Date().timeIntervalSince(last) < gossipPeerCooldown { return }
+        pool[id] = nil
         lastMet[id] = Date()
         let meeting = GossipMeeting(peripheral: peripheral)
         let work = DispatchWorkItem { [weak self] in self?.abandon(id) }
@@ -370,7 +469,7 @@ extension GossipTransport: CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
-        beginMeeting(peripheral)
+        sight(peripheral)
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
@@ -416,6 +515,8 @@ extension GossipTransport: CBPeripheralDelegate {
               let meeting = meetings[id], let value = characteristic.value,
               let challenge = decodePublicGossipChallenge(value)
         else { abandon(id); return }
+        // The one place a peripheral gets a name this device can rank it by next time.
+        resolved[id] = challenge.from
         send(meeting, to: challenge.from, nonce: challenge.nonce)
     }
 
