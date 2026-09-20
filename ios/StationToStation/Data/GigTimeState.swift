@@ -221,6 +221,45 @@ func gossipParticipationEnds(cache: TimelineCache, stoppedAt: Int64 = 0) -> [Str
     }
 }
 
+/// The **Gig** a **Pass** that names no night belongs to: the latest **Check-in** still
+/// running (#499).
+///
+/// "Currently active" and "the initial active **Gig** is the latest **Check-in**" are one rule
+/// under this reading, which is why there is no stateful *active gig* anywhere — a field would
+/// be a second answer that could disagree with the deadlines, and `gossipParticipationEnds`
+/// already knows which nights are live. A festival night checked into after an earlier one wins
+/// by being later, and a night whose participation ended stops attracting **Passes** at all.
+///
+/// The local id, never the setlist.fm one: it is the one id for this night that cannot change
+/// under the device, and the read side unions the aliases (see `gossipGigAliases`).
+func gossipActiveGigId(cache: TimelineCache, stoppedAt: Int64 = 0, now: Int64) -> String? {
+    let ends = gossipParticipationEnds(cache: cache, stoppedAt: stoppedAt)
+    let attendance = cache.attendance()
+    var candidates: [(id: String, checkedInAt: Int64)] = []
+    for gig in cache.gigs.values {
+        guard (ends[gig.id] ?? 0) > now else { continue }
+        guard let checkedInAt = attendance[gig.setlistId ?? gig.id]?.checkedInAt else { continue }
+        candidates.append((gig.id, checkedInAt))
+    }
+    return candidates.max { lhs, rhs in
+        lhs.checkedInAt == rhs.checkedInAt ? lhs.id < rhs.id : lhs.checkedInAt < rhs.checkedInAt
+    }?.id
+}
+
+/// Every id one night has been known by, indexed under each of them (#497, #499).
+///
+/// A **Gig** collects ids: the local one it was minted with and the setlist.fm id it adopts.
+/// Anything read back per night has to union over the set rather than pick one, or adopting an
+/// id silently splits a night's record in two — and unioning *by id* would then count the same
+/// device once under each. `PublicGossipState.seenWith` folds onto device identity for exactly
+/// that reason.
+func gossipGigAliases(cache: TimelineCache) -> [String: Set<String>] {
+    cache.gigs.values.reduce(into: [:]) { aliases, gig in
+        let ids = Set([gig.id, gig.setlistId].compactMap { $0 })
+        for id in ids { aliases[id] = ids }
+    }
+}
+
 /// Both ids a witnessed night answers to, so the mark reads the same whichever one the
 /// **Room** is drawn from (#497).
 ///
