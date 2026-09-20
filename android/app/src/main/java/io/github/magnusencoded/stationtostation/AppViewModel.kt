@@ -101,7 +101,9 @@ import io.github.magnusencoded.stationtostation.data.gossip.gossipGigTonight
 import io.github.magnusencoded.stationtostation.data.gossip.GigIdentity
 import io.github.magnusencoded.stationtostation.data.gossip.GossipEnvelope
 import io.github.magnusencoded.stationtostation.data.gossip.gossipGigAliases
+import io.github.magnusencoded.stationtostation.data.gossip.gossipActiveGigId
 import io.github.magnusencoded.stationtostation.data.gossip.gossipParticipationEnds
+import io.github.magnusencoded.stationtostation.data.gossip.gossipStoppedGigs
 import io.github.magnusencoded.stationtostation.data.contactManifest
 import io.github.magnusencoded.stationtostation.data.GalleryItem
 import io.github.magnusencoded.stationtostation.data.exchange.readAccountsAck
@@ -363,6 +365,26 @@ data class UiState(
      * the record may still be filed under, so the lookup is a set. See [gossipGigAliases].
      */
     val gossipGigAliases: Map<String, Set<String>> = emptyMap(),
+    /**
+     * When each night *could* **Gossip** until, by the id its **Room** holds — the stop
+     * deliberately not applied (#500).
+     *
+     * A stop zeroes every participation deadline, and the dim bullet is the one control that can
+     * undo a stop; asking the stopped-aware deadline here would make it undrawable. What the
+     * radio actually runs on stays [gossipActiveUntil] with the stop, as it was.
+     */
+    val gossipEligibleUntil: Map<String, Long> = emptyMap(),
+    /** The **Active Gig**, under the id its **Room** holds. See [gossipActiveGigId]. */
+    val gossipActiveGig: String? = null,
+    /**
+     * The nights a stop actually ended, by the id their **Room** holds — the dim half of a
+     * **Presence row**'s bullet.
+     *
+     * A set and not a flag, because a stop is not global: it ends the nights already stood in,
+     * and a **Check-in** made *after* it is a fresh consent the earlier stop says nothing about.
+     * One boolean here drew a dim bullet on a night the radio was plainly running for.
+     */
+    val gossipStoppedGigs: Set<String> = emptySet(),
     /** The calendar event made for a gig, by gig id → its content URI; restored from disk. */
     val calendarEventByGig: Map<String, String> = emptyMap(),
     /**
@@ -2585,10 +2607,58 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * which is where it is argued and where a reviewer should push back on it.
      */
     private suspend fun syncGossip() {
+        val stoppedAt = gossip.stoppedAt()
         GossipService.sync(
             context = getApplication<Application>(),
-            activeUntil = io.github.magnusencoded.stationtostation.data.gossip.gossipActiveUntil(timelines, gossip.stoppedAt()),
+            activeUntil = io.github.magnusencoded.stationtostation.data.gossip.gossipActiveUntil(timelines, stoppedAt),
         )
+        // What the **Presence rows** draw, read at the same moment as what the radio is told —
+        // two answers a moment apart would light a bullet for a night the service has just
+        // stopped transmitting for.
+        val cache = timelines.load()
+        val active = gossipActiveGigId(timelines, stoppedAt, gossip.selectedGigId(), System.currentTimeMillis())
+        val eligible = gossipParticipationEnds(timelines)
+        val running = gossipParticipationEnds(timelines, stoppedAt)
+        _state.update {
+            it.copy(
+                gossipEligibleUntil = eligible,
+                gossipActiveGig = active?.let(cache::keyOf),
+                gossipStoppedGigs = gossipStoppedGigs(eligible, running),
+            )
+        }
+    }
+
+    /**
+     * Stand at this **Gig**: the tap on a **Presence row** (#500).
+     *
+     * [gigId] is the id the **Room** holds, which is the adopted one where the night has one;
+     * the selection is stored under the local id, because that is the only id for a night that
+     * cannot change under the device.
+     *
+     * It mints no **Check-in** and touches no attendance — choosing which night you are standing
+     * at is not a claim to have been at it, and the claim was already made by checking in. It
+     * does clear a stop, and that is the only thing that clears one: a dim bullet means "could
+     * be gossiping, isn't", and tapping it is the explicit Resume the story asks for, where
+     * reopening a **Log** deliberately still is not.
+     */
+    /**
+     * Re-read what the **Presence rows** draw, on the **Room**'s own clock.
+     *
+     * The deadlines are the only thing on this screen that changes without anybody doing
+     * anything, and a night's grace running out has to take its bullet with it while somebody is
+     * looking at the row — including handing the amber to whichever night is next. Same call as
+     * every other input, so the service hears about it too.
+     */
+    fun refreshGossip() { viewModelScope.launch { syncGossip() } }
+
+    fun selectGossipGig(gigId: String) {
+        viewModelScope.launch {
+            val local = timelines.load().gigs.values.firstOrNull { it.id == gigId || it.setlistId == gigId }
+                ?: return@launch
+            gossip.selectGig(local.id)
+            if (gossip.stoppedAt() > 0) gossip.resumeParticipation()
+            syncGossip()
+        }
     }
 
     /** Writes one gig's attendance to state and disk together, never one without the other. */

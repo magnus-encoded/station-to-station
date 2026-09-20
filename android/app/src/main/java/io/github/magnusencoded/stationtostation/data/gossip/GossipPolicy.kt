@@ -52,6 +52,40 @@ val GOSSIP_PEER_COOLDOWN: Duration = Duration.ofMinutes(1)
 fun gossipPassDue(lastAt: Instant?, now: Instant): Boolean =
     lastAt == null || !now.isBefore(lastAt.plus(GOSSIP_PEER_COOLDOWN))
 
+/**
+ * What a **Gig**'s **Presence row** says about the radio, or nothing at all (#500).
+ *
+ * [GossipBullet.ON] is amber: this is the **Active Gig** and **Gossip** is running for it.
+ * [GossipBullet.OFF] is dim and means *could be, is not* — either somebody stopped the radio,
+ * or another night is the active one — and it is the only state a tap changes anything from.
+ * `null` is the row with no bullet at all: this night cannot **Gossip**, so there is nothing to
+ * choose and nothing to say.
+ *
+ * [eligibleUntil] must be computed with **no stop applied** — `gossipParticipationEnds(timeline)`
+ * rather than the stopped-aware deadline the radio runs on. The two are different questions:
+ * "could this night **Gossip**" is what the bullet draws, and a stop zeroes every deadline, so
+ * asking the stopped-aware one would make the dim bullet — the one thing that can undo a stop —
+ * impossible to ever draw.
+ */
+enum class GossipBullet { ON, OFF }
+
+/**
+ * Which nights a stop actually ended: eligible with no stop applied, not eligible with it.
+ *
+ * A stop is not global, which is the whole reason this is a set. `gossipParticipationUntil`
+ * refuses to end a night whose **Check-in** came *after* the stop — walking to the other stage
+ * and checking in there is a fresh consent, and the radio runs again for that night. Asking one
+ * boolean instead drew a dim bullet on a **Gig** the radio was plainly running for.
+ */
+fun gossipStoppedGigs(eligible: Map<String, Long>, running: Map<String, Long>): Set<String> =
+    eligible.filterValues { it > 0 }.keys.filterTo(mutableSetOf()) { (running[it] ?: 0L) <= 0L }
+
+fun gossipBullet(eligibleUntil: Long?, active: Boolean, stopped: Boolean, now: Long): GossipBullet? = when {
+    (eligibleUntil ?: 0L) <= now -> null
+    active && !stopped -> GossipBullet.ON
+    else -> GossipBullet.OFF
+}
+
 /** Check-in is participation consent. Held facts and Contacts do not start a radio. */
 fun gossipRelayShouldRun(activeUntil: Instant?, now: Instant): Boolean =
     activeUntil != null && now.isBefore(activeUntil)

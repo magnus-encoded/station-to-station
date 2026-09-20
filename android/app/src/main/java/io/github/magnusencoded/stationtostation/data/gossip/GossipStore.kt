@@ -41,9 +41,28 @@ class GossipStore(private val data: DataStore<Preferences>) {
         val PUBLIC = stringPreferencesKey("public_v2")
         val SCOPES = stringPreferencesKey("author_scopes_v2")
         val ADOPTED = stringPreferencesKey("adopted_gig_ids_v2")
+        val SELECTED = stringPreferencesKey("selected_gig_v2")
     }
 
     suspend fun stoppedAt(): Long = data.data.first()[Keys.STOPPED] ?: 0
+
+    /**
+     * The **Gig** somebody chose to stand at, by its local id, or null for "whichever is latest".
+     *
+     * Persisted rather than held in the radio, because the choice has to outlive both the
+     * process and the **Room** it was made in — a phone put in a pocket at a festival is the
+     * normal case, and a selection that died with the Activity would silently hand the night
+     * back to the other stage. The local id and never [TimelineCache.keyOf]
+     * [io.github.magnusencoded.stationtostation.data.TimelineCache.keyOf]: adoption (#496)
+     * changes the id a night answers to, and a stored selection under the mutable one would
+     * quietly stop matching the night it named.
+     *
+     * Absent is a real answer, not an unset flag — see [gossipActiveGigId], which falls back to
+     * the latest **Check-in** still running whenever this names no night that is still eligible.
+     */
+    suspend fun selectedGigId(): String? = data.data.first()[Keys.SELECTED]
+
+    suspend fun selectGig(localGigId: String) { data.edit { it[Keys.SELECTED] = localGigId } }
 
     /** Local display aliases survive even when adoption happens after Gossip ends or
      * the local Gig loses its ID in a merge with an older setlist.fm record. */
@@ -59,6 +78,15 @@ class GossipStore(private val data: DataStore<Preferences>) {
         }
     }
     suspend fun stopParticipation(now: Long) { data.edit { it[Keys.STOPPED] = now } }
+
+    /**
+     * Undo a stop, and only ever because somebody asked for it out loud (#500).
+     *
+     * The stop is a moment rather than a flag precisely so that *nothing else* can undo it —
+     * reopening a **Log** after a stop must not resume. Removing the key is therefore the one
+     * explicit act, and it is written from the tap on a dim **Presence row**.
+     */
+    suspend fun resumeParticipation() { data.edit { it.remove(Keys.STOPPED) } }
 
     /** Bind a random signing scope to the local Gig, never its mutable external ID.
      * Kept separately from relay state: expiry must not rotate an author's identity.
