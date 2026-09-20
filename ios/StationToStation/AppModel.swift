@@ -196,6 +196,12 @@ struct UiState {
     /// setlist.fm publishes. Only the open **Gig**'s, same reasoning as `gigMedia`.
     var gigLog = StoredLog()
     var publicGossip = PublicGossipState()
+    /// Every id a night has been known by, under each of them (#497, #499).
+    ///
+    /// A **Room** asks the gossip record about *its* night, and the id it holds is whichever one
+    /// the night is displayed under now. An adopted setlist.fm id leaves an older local id the
+    /// record may still be filed under, so the lookup is a set. See `gossipGigAliases`.
+    var gossipGigAliases: [String: Set<String>] = [:]
     /// When gossip participation runs out, or nil when the radio is off (#448). Recomputed
     /// by `gossipActiveUntil` rather than stored, so it is the same answer the radio acts on
     /// and the screens have nothing of their own to fall out of step with.
@@ -520,6 +526,7 @@ final class AppModel: ObservableObject {
     private func refreshWitnessed(_ publicState: PublicGossipState) async {
         let cache = await timelines.load()
         state.witnessedGigs = gossipWitnessedIds(publicState.witnessedGigIds(), cache: cache)
+        state.gossipGigAliases = gossipGigAliases(cache: cache)
     }
 
     private func gossipContactsChanged() {
