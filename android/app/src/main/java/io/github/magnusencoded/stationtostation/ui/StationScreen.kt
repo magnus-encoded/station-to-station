@@ -3501,6 +3501,26 @@ fun StationEventScreen(
                     Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    // `canLog` admits a local gig on its own, with no check-in required —
+                    // that's the point of it (#225) — so a *tonight* local gig that
+                    // hasn't been checked into yet would otherwise never reach the "I'm
+                    // here" action at all: `canLog` is true, so the branch below that
+                    // carries it is never reached. Surfaced here instead, alongside
+                    // capture rather than gating it, because logging what they played
+                    // was never the thing waiting on a check-in — only the gossip
+                    // window and the checked-in badge were.
+                    if (localGig && !checkedIn && setlist != null &&
+                        canCheckInManually(setlist, LocalDateTime.now())
+                    ) {
+                        Text(
+                            "I'm here — check in",
+                            color = Amber,
+                            fontSize = 13.sp,
+                            modifier = Modifier
+                                .clickable { viewModel.checkIn(setlist.id) }
+                                .padding(vertical = 6.dp),
+                        )
+                    }
                     // While it's happening, the entries above and "copy the set" below
                     // say everything there is to say — a caption pointing at them added
                     // nothing and pointed the wrong way once the editor moved under the
