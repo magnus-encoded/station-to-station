@@ -326,8 +326,9 @@ the cross-platform one.
 ### 4. Messages are held until they expire, not relayed once
 
 `gossipStormGate` (#410) deliberately does not decide this and names the transports as its
-owners. The decision: an accepted message is **held and offered to every Contact met before it
-expires**, with per-Contact delivery recorded so it is never offered to the same person twice,
+owners. The decision: an accepted message is ~~**held and offered to every Contact met before it
+expires**~~ *(superseded 2026-09-20, see the last amendment: offered to any peer while
+participating)*, with per-Contact delivery recorded so it is never offered to the same person twice,
 and recorded only once the bytes are known to have landed.
 
 The alternative — relay at the moment of acceptance — was rejected because on iOS the moment a
@@ -378,7 +379,8 @@ expectation with. On iOS, concretely:
 Android's own throttle is chosen rather than imposed: `ADVERTISE_MODE_LOW_POWER` and
 `SCAN_MODE_BALANCED`, and a foreground service that runs only when the device holds a
 **Contact** *and* is either carrying a live message, inside a **Gig**'s night window, or has
-been told to always relay. Nothing schedules its shutdown; it falls out of the expiry the gate
+been told to always relay. ~~(all three reasons superseded 2026-09-20: one remains, an
+active Gig)~~ Nothing schedules its shutdown; it falls out of the expiry the gate
 already enforces.
 
 **The product consequence, which is the part that matters:** a check-in reaches a Contact
@@ -389,7 +391,8 @@ not.
 
 ### Still open
 
-- **No user-facing off switch.** Android decides *when* the radio runs (above), but neither
+- ~~**No user-facing off switch.**~~ *(Resolved 2026-09-15 and 2026-09-17: see the amendments
+  below.)* Android decides *when* the radio runs (above), but neither
   platform offers "gossip off" while Contacts exist: the only way to stop it is to remove
   every Contact or deny the Bluetooth permission. That is a product question this ADR did not
   settle and neither #416 nor #417 invented an answer to; it should be raised as its own
@@ -532,3 +535,28 @@ Unlike Android, iOS does keep a copy of the deadline on disk: `gossip.participat
 timeline is loaded and therefore cannot recompute anything. It is written from
 `gossipActiveUntil` and overwritten by it on the next sync; the derived value remains the
 authority, which is why the grace deadline still survives a restart without being restored.
+
+## Amendment - 2026-09-20: reconciling §4, §6 and "still open" with what shipped (#471)
+
+The dated amendments above stay as written; this one only says which original claims they
+replaced, verified against code on 2026-09-20.
+
+- **§4, "offered to every Contact":** replaced by ADR-0021. A held Envelope is offered to any
+  peer met while a Gig is in participation, Contact or stranger.
+- **§6, three reasons the radio runs:** replaced by one. The radio runs only while a Gig on the
+  timeline has been checked in to and its participation has not ended. With no active Gig it is
+  off, even with Contacts and held Envelopes. `always_relay` is removed (#477).
+- **"No user-facing off switch":** wrong since #487/#488. Android has the notification stop
+  action; iOS has the in-app stop (Settings, Gossip). A stop is per-Gig: it ends that night's
+  participation, a later Check-in is fresh consent, and reopening the Log after a stop does not
+  resume it. Reopening a completed-but-not-stopped Log does resume, until 06:00.
+- **iOS background:** still a platform constraint, not evidence. Nothing here has been
+  field-tested: no locked-iPhone receive/forward run, no phone-to-phone Pass. Issues #465 (Pi
+  ATT 13 bug) and #467 remain as field tests.
+- **Dangling pointer:** the 2026-09-15 amendment cites `docs/gossip-v2-next-pass.md` and says
+  receipt generation and ranking are unimplemented. That file does not exist on main, and both
+  are implemented (ADR-0022 and its 2026-09-17 amendment); the 2026-09-15 text is left as the
+  record of what was believed then.
+- **Known asymmetry:** iOS publishes the participation deadline into UI state for its stop
+  control; Android's notification has no equivalent published field. The iOS stop button can
+  show stale state after grace lapses until the next refresh (event-driven, not ticking).

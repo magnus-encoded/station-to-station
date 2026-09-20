@@ -174,6 +174,9 @@ to a stranger acceptable.
 | Term | Definition | Aliases to avoid |
 | ---- | ---------- | ---------------- |
 | **Fact** | One signed assertion about one **Gig**, and the unit **Gossip** moves. Five kinds and no more: a **Log** line, a **request** to be witnessed, the **witness** that attests one, a **receipt** saying something was useful, and an **Update** saying which ids one night answers to. Never a message, never a post, and never anything anyone replies to — a **Fact** is about a night, not addressed to a person. | message, event, post |
+| **Envelope** | The signed wire form of one **Fact**: content hash, **Gig** id, temporary author key, expiry, kind, sealed **Attribution** and signature (`docs/gossip-public-wire.md`). "Fact" is the meaning, "Envelope" is the bytes a **Pass** carries. Its expiry (06:00 at the end of the night) is a different clock from the **Carry** window and from how long a device remembers having seen its id. | packet, message |
+| **Witness** | The **Fact** by which a **Contact** in range attests a **request** to be witnessed, embedding the complete signed request so a relay cannot invent anyone's attendance. One-hop kinds (**request**, **receipt**) are only ever accepted from their own author; a **witness** is carried on. Nobody can witness their own request. | confirm, vouch |
+| **Receipt** | The **Fact** a device authors on admitting a **Contact**'s **Fact** from a neighbour, addressed to that neighbour alone: "you were useful." It only nudges which neighbour is offered first (never excludes anyone) and never touches the **Envelope** it names. Authored and consumed on both platforms; in the field nearly inert by design (ADR-0022), and not yet field-tested. | ack, delivery receipt, read receipt |
 | **Update** | The one **Fact** kind that is about naming rather than about the night: its author says a **Gig** it already spoke for now also answers to a new id, the night having been catalogued on setlist.fm mid-**Gossip**. It relabels only its own author's earlier **Facts**, in the same scope, so nobody can move a stranger's **Check-in** onto a **Gig** they chose. It makes no **Log** line, names nobody as arrived, and neither starts nor extends participation — adoption once the night is over stays local and authors nothing. | rename, merge, correction, edit |
 | **Check-in** | *I was at this **Gig**.* No longer its own payload: attendance is what a **Log** line or a **witness** already evidences. Kept as a word for the human act, not as a thing on the wire. | status, presence, ping, post |
 | **Active Gig** | The one night the radio is standing at: what a **Pass** that carries no signed claim is remembered under, and the only night a **Presence row** draws amber for. Chosen by tapping an eligible **Gig**'s **Presence row**, and the latest **Check-in** still running until somebody chooses otherwise; when the chosen night ends, the latest remaining one takes over. It decides nothing about a signed **Fact** or **Check-in** — those belong to the **Gig** they name, whichever night is active. Selecting is not attending: it mints no **Check-in**. | current gig, session, venue |
@@ -187,6 +190,16 @@ to a stranger acceptable.
 | **Seen with** | What a **Gig**'s **Room** still says about who was there: the **Contacts** this phone has direct evidence of — a completed **Pass**, or a verified **Check-in** for that night — named newest-met first, and every other device met directly counted as *others* without being named. **Durable and past-tense**, which is what separates it from **Presence**: the record stays on the night after its **Gossip** ends and after a restart, because a night does not stop having happened when the radio stops. An advertisement is never seen-with — a **Pass** is. | presence, attendance, guest list, who's here |
 | **Presence** | Who is in the room *now*, for the shade and the **Exchange** screen. In memory, process-wide, gone on restart: a phone that has been restarted has heard from nobody since, and saying otherwise would be inventing a room. The live counterpart to **Seen with**, never a persisted version of it. | seen with, attendance, online |
 | **Block** | Refusing an author's **Facts** *here*. Local admission only: blocked **Facts** still cross the radio and are still carried, they simply never enter this device's record. Blocking is not a thing anyone else can observe. | ban, mute (fine), report |
+
+Three separate lifetimes: an **Envelope** expires at 06:00, a **Carry** window (15 minutes,
+provisional and simulated, not measured) bounds how long a relay offers it, and its id stays
+*seen* after eviction until expiry. Any device in range, a stranger included, can read the BLE
+challenge; it proves a night-scoped relay key, never **Contact** membership. None of this has
+been field-tested: no locked-iPhone run and no phone-to-phone **Pass** yet (#465, #467).
+
+**Landmine:** iOS `PublicGossipState` is `Codable` with synthesized decoding, which throws on a
+missing key, and a failed ledger load wipes saved **Facts**. New fields go through its
+hand-written `init(from:)` with `decodeIfPresent`.
 
 **A Fact travels along any radio edge; what it never does is name its author to someone who
 has not already met them** (ADR-0021). This reads like the opposite of the rest
