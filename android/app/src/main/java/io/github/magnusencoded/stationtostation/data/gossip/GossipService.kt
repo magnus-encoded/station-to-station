@@ -76,6 +76,9 @@ class GossipService : Service() {
     /** Where this phone is standing, for a **Pass** that names no night. See [gossipActiveGigId]. */
     @Volatile private var activeGigId: String? = null
 
+    /** What to call that night in the shade — the artist, which is how a person names a gig. */
+    @Volatile private var activeGigName: String? = null
+
     private val activeUntil: Instant?
         get() = participationEnds.values.maxOrNull()?.takeIf { it > 0 }?.let(Instant::ofEpochMilli)
     private var starting = false
@@ -119,8 +122,7 @@ class GossipService : Service() {
         if (!starting) {
             starting = true
             scope.launch {
-                participationEnds = gossipParticipationEnds(timeline, store.stoppedAt())
-                activeGigId = gossipActiveGigId(timeline, store.stoppedAt(), System.currentTimeMillis())
+                refreshActiveGig()
                 withContext(Dispatchers.Main) {
                     starting = false
                     if (!gossipRelayShouldRun(activeUntil, Instant.now())) stopSelf()
@@ -292,8 +294,7 @@ class GossipService : Service() {
             while (isActive) {
                 val remaining = activeUntil?.toEpochMilli()?.minus(System.currentTimeMillis()) ?: 0
                 delay(remaining.coerceIn(1, 30_000))
-                participationEnds = gossipParticipationEnds(timeline, store.stoppedAt())
-                activeGigId = gossipActiveGigId(timeline, store.stoppedAt(), System.currentTimeMillis())
+                refreshActiveGig()
                 if (!gossipRelayShouldRun(activeUntil, Instant.now())) {
                     withContext(Dispatchers.Main) { stopSelf() }
                     return@launch
@@ -312,6 +313,20 @@ class GossipService : Service() {
      * notification still names the **Contacts** who have been heard from, and
      * [gossipRelayShouldRun] still asks how many exist.
      */
+    /**
+     * Re-read the deadlines and which night the radio is standing at (#500).
+     *
+     * One call because the two must never be read a moment apart: the **Active Gig** is a choice
+     * among the nights those deadlines say are live, and a stale pair would attribute a **Pass**
+     * to a night this service has already stopped transmitting for.
+     */
+    private suspend fun refreshActiveGig() {
+        val stoppedAt = store.stoppedAt()
+        participationEnds = gossipParticipationEnds(timeline, stoppedAt)
+        activeGigId = gossipActiveGigId(timeline, stoppedAt, store.selectedGigId(), System.currentTimeMillis())
+        activeGigName = activeGigId?.let { timeline.load().gigs[it]?.artist }
+    }
+
     private suspend fun refresh() {
         val friends = settings.friends.first()
         contacts = contactKeysOf(friends)
@@ -367,7 +382,14 @@ class GossipService : Service() {
         )
         val notification = Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_sync_noanim)
-            .setContentTitle(getString(R.string.gossip_notification_title))
+            // The night the radio is standing at, because with two **Gigs** eligible the shade is
+            // where somebody checks that switching took — and it is a **Gig**'s own name, which
+            // says nothing about who is near. The people stay on the content line below, behind
+            // VISIBILITY_PRIVATE.
+            .setContentTitle(
+                activeGigName?.let { getString(R.string.gossip_notification_at, it) }
+                    ?: getString(R.string.gossip_notification_title),
+            )
             .setContentText(presenceText(carrying))
             // The content names people this phone has been near. That belongs behind the
             // lock screen: the shade is the audit trail ADR-0019 promised its owner, not a
@@ -464,26 +486,49 @@ suspend fun gossipActiveUntil(timeline: TimelineStore, stoppedAt: Long = 0): Ins
     gossipParticipationEnds(timeline, stoppedAt).values.maxOrNull()?.takeIf { it > 0 }?.let(Instant::ofEpochMilli)
 
 /**
- * The **Gig** a **Pass** that names no night belongs to: the latest **Check-in** still running.
+ * The **Active Gig**: the night a **Pass** that names no **Gig** belongs to (#500).
  *
- * "Currently active" and "the initial active **Gig** is the latest **Check-in**" are one rule
- * under this reading, which is why there is no stateful *active gig* anywhere — a field would
- * be a second answer that could disagree with the deadlines, and [gossipParticipationEnds]
- * already knows which nights are live. A festival night checked into after an earlier one wins
- * by being later, and a night whose participation ended stops attracting **Passes** at all.
+ * [selected] is whoever tapped a **Presence row** last, by local id, and it wins for exactly as
+ * long as that night is still eligible. Everything else falls back to the latest **Check-in**
+ * still running, which is also the whole of the rule before anybody chooses anything — so the
+ * initial answer, and the answer after the chosen night ends, are the same line of code rather
+ * than a lifecycle to keep in step.
+ *
+ * Until #500 there was deliberately no stateful active **Gig** here, on the argument that a
+ * stored field would be a second answer able to disagree with the deadlines. What changed is
+ * that a person standing at a festival can be inside two eligible nights at once and only they
+ * know which one they are at; the disagreement is avoided instead by never trusting the stored
+ * id on its own — it is a *preference among* the eligible nights, filtered by the same
+ * deadlines, and never a claim that a night is live. See ADR-0024.
+ *
+ * A signed **Fact** or **Check-in** is untouched by any of this: it names its own **Gig**, and
+ * [PublicGossipState.rememberPass] only reaches for the active one when a **Pass** carried no
+ * claim at all.
  *
  * The local id, never [TimelineCache.keyOf]: it is the one id for this night that cannot change
- * under the device, and the read side unions the aliases (see [gossipGigAliases]).
+ * under the device, and the read side unions the aliases (see [gossipGigAliases]). [selected] is
+ * matched against both, because the surface that offers the choice holds a **Room**'s id, which
+ * is the adopted one where the night has one.
  */
-suspend fun gossipActiveGigId(timeline: TimelineStore, stoppedAt: Long = 0, now: Long): String? {
+suspend fun gossipActiveGigId(
+    timeline: TimelineStore,
+    stoppedAt: Long = 0,
+    selected: String? = null,
+    now: Long,
+): String? {
     val ends = gossipParticipationEnds(timeline, stoppedAt)
     val cache = timeline.load()
     val attendance = cache.attendance()
-    return cache.gigs.values
-        .filter { (ends[it.id] ?: 0L) > now }
-        .mapNotNull { gig -> attendance[cache.keyOf(gig.id)]?.checkedInAt?.let { gig.id to it } }
-        .maxWithOrNull(compareBy<Pair<String, Long>> { it.second }.thenBy { it.first })
-        ?.first
+    // Keyed by `keyOf`, like the deadlines and the attendance themselves. Reading them under
+    // the local id instead made a night that had adopted a setlist.fm id permanently ineligible
+    // — never the active Gig, however recently it was checked into.
+    val eligible = cache.gigs.values.mapNotNull { gig ->
+        val key = cache.keyOf(gig.id)
+        val checkedInAt = attendance[key]?.checkedInAt ?: return@mapNotNull null
+        if ((ends[key] ?: 0L) <= now) null else Triple(gig.id, key, checkedInAt)
+    }
+    return eligible.firstOrNull { (local, key, _) -> selected == local || selected == key }?.first
+        ?: eligible.maxWithOrNull(compareBy({ it.third }, { it.first }))?.first
 }
 
 /**
