@@ -80,9 +80,16 @@ struct SettingsView: View {
                 // Whether gossip is running is read back off the recomputed deadline rather
                 // than a bit this screen sets, so the button tells the truth after a stop,
                 // after the grace runs out, and on a fresh launch alike.
-                Button(s.gossipActiveUntil == nil ? "Gossip is off until your next check-in" : "Stop gossip") {
-                    model.stopGossip()
-                }.disabled(s.gossipActiveUntil == nil)
+                // Three states, not two (#501). A stop can now be undone, so a night that was
+                // stopped while it could still gossip offers Resume here as well as on its own
+                // dim **Presence row** — the row also says *which* night is being stood at,
+                // where this one leaves that to the fallback rule. "Off until your next
+                // check-in" stays for the case it was always about: nothing eligible at all.
+                let stopped = !s.gossipStoppedGigs.isEmpty
+                Button(s.gossipActiveUntil != nil ? "Stop gossip"
+                       : stopped ? "Resume gossip" : "Gossip is off until your next check-in") {
+                    if s.gossipActiveUntil != nil { model.stopGossip() } else { model.resumeGossip() }
+                }.disabled(s.gossipActiveUntil == nil && !stopped)
             } header: {
                 HStack(spacing: 8) {
                     Text("Gossip")

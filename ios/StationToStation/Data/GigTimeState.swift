@@ -221,29 +221,77 @@ func gossipParticipationEnds(cache: TimelineCache, stoppedAt: Int64 = 0) -> [Str
     }
 }
 
-/// The **Gig** a **Pass** that names no night belongs to: the latest **Check-in** still
-/// running (#499).
+/// The **Active Gig**: the night a **Pass** that names no **Gig** belongs to (#499, #501).
 ///
-/// "Currently active" and "the initial active **Gig** is the latest **Check-in**" are one rule
-/// under this reading, which is why there is no stateful *active gig* anywhere — a field would
-/// be a second answer that could disagree with the deadlines, and `gossipParticipationEnds`
-/// already knows which nights are live. A festival night checked into after an earlier one wins
-/// by being later, and a night whose participation ended stops attracting **Passes** at all.
+/// `selected` is whoever tapped a **Presence row** last, and it wins for exactly as long as that
+/// night is still eligible. Everything else falls back to the latest **Check-in** still running,
+/// which is also the whole of the rule before anybody chooses anything — so the initial answer,
+/// and the answer after the chosen night ends, are the same line of code rather than a lifecycle
+/// to keep in step.
 ///
-/// The local id, never the setlist.fm one: it is the one id for this night that cannot change
-/// under the device, and the read side unions the aliases (see `gossipGigAliases`).
-func gossipActiveGigId(cache: TimelineCache, stoppedAt: Int64 = 0, now: Int64) -> String? {
+/// Until #501 there was deliberately no stateful active **Gig** here, on the argument that a
+/// stored field would be a second answer able to disagree with the deadlines. What changed is
+/// that a person at a festival can be inside two eligible nights at once and only they know
+/// which one they are standing at; the disagreement is avoided instead by never trusting the
+/// stored id on its own — it is a *preference among* the eligible nights, filtered by the same
+/// deadlines, never a claim that a night is live. See ADR-0024.
+///
+/// A signed **Fact** or **Check-in** is untouched by any of this: it names its own **Gig**, and
+/// `PublicGossipState.rememberPass` reaches for the active one only when a **Pass** carried no
+/// claim at all.
+///
+/// The answer is the local id, never the setlist.fm one: it is the one id for this night that
+/// cannot change under the device, and the read side unions the aliases (see `gossipGigAliases`).
+/// `selected` is matched against both, because the surface offering the choice holds a **Room**'s
+/// id, which is the adopted one where the night has one.
+func gossipActiveGigId(cache: TimelineCache, stoppedAt: Int64 = 0,
+                       selected: String? = nil, now: Int64) -> String? {
     let ends = gossipParticipationEnds(cache: cache, stoppedAt: stoppedAt)
     let attendance = cache.attendance()
     var candidates: [(id: String, checkedInAt: Int64)] = []
     for gig in cache.gigs.values {
         guard (ends[gig.id] ?? 0) > now else { continue }
         guard let checkedInAt = attendance[gig.setlistId ?? gig.id]?.checkedInAt else { continue }
+        if let selected, selected == gig.id || selected == gig.setlistId { return gig.id }
         candidates.append((gig.id, checkedInAt))
     }
     return candidates.max { lhs, rhs in
         lhs.checkedInAt == rhs.checkedInAt ? lhs.id < rhs.id : lhs.checkedInAt < rhs.checkedInAt
     }?.id
+}
+
+/// What a **Gig**'s **Presence row** says about the radio, or nothing at all (#501).
+///
+/// `on` is amber: this is the **Active Gig** and **Gossip** is running for it. `off` is dim and
+/// means *could be, is not* — either somebody stopped the radio for this night, or another night
+/// is the active one — and it is the only state a tap changes anything from. `nil` is the row
+/// with no bullet at all: this night cannot **Gossip**, so there is nothing to choose and
+/// nothing to say.
+///
+/// `eligibleUntil` must be computed with **no stop applied** —
+/// `gossipParticipationEnds(cache:)` rather than the stopped-aware deadline the radio runs on.
+/// The two are different questions: "could this night **Gossip**" is what the bullet draws, and a
+/// stop zeroes every deadline, so asking the stopped-aware one would make the dim bullet — the
+/// one thing that can undo a stop — impossible to ever draw.
+enum GossipBullet { case on, off }
+
+func gossipBullet(eligibleUntil: Int64?, active: Bool, stopped: Bool, now: Int64) -> GossipBullet? {
+    guard (eligibleUntil ?? 0) > now else { return nil }
+    return active && !stopped ? .on : .off
+}
+
+/// Which nights a stop actually ended: eligible with no stop applied, not eligible with it.
+///
+/// A stop is not global, which is the whole reason this is a set. `gossipParticipationUntil`
+/// refuses to end a night whose **Check-in** came *after* the stop — walking to the other stage
+/// and checking in there is a fresh consent, and the radio runs again for that night. Asking one
+/// boolean instead would draw a dim bullet on a **Gig** the radio is plainly running for.
+///
+/// Nights already over sit in the deadline map at zero on purpose (see
+/// `gossipParticipationEnds`), so they are filtered out here: a night nobody can gossip for was
+/// not stopped, it simply ended.
+func gossipStoppedGigs(eligible: [String: Int64], running: [String: Int64]) -> Set<String> {
+    Set(eligible.filter { $0.value > 0 && (running[$0.key] ?? 0) <= 0 }.keys)
 }
 
 /// Every id one night has been known by, indexed under each of them (#497, #499).

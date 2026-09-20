@@ -71,6 +71,32 @@ still running whenever no stored choice is eligible.** It is chosen by tapping a
   ends the foreground service and a service kept alive only to offer Resume is the background cost
   ADR-0019 refused. The dim **Presence row** is the explicit Resume instead.
 
+## Note (2026-09-20, iOS #501)
+
+iOS took the same decision, at the same seam, with three platform readings worth recording.
+
+- **The Presence row is the check-in line.** iOS's **Room** already prints "✓ checked in" in its
+  header, so the bullet goes in front of that line and the line is the tap target. The *is also
+  here* (#484) and **Seen with** (#499) lines stay where they are, under the header: Android
+  composes all three because its bottom bar is one block, and copying that layout would be a port
+  of a screen rather than of a decision.
+- **Amber still means *mine*.** #501 asks for an amber bullet, and amber on iOS is reserved for
+  *mine* at every **Resolution**. It is kept, because the sentence it makes is true — the radio
+  is mine and it is standing here — and because the line it sits on is already amber. The off
+  state is `faint`, the same screen's quiet grey, distinct by lightness rather than by a hue
+  somebody has to compare.
+- **Settings gained Resume.** iOS has no ongoing notification to carry one, and the dim
+  **Presence row** is only reachable from a night's own **Room**. So the existing Stop button is
+  three-state: Stop while the radio runs, Resume while a stop is the only thing holding it off,
+  and the old "off until your next check-in" when nothing is eligible. Resume there clears the
+  stop and leaves the fallback rule to say which night; the dim row does both at once.
+
+The stored key is iOS's device-local `UserDefaults`, beside the stop moment and deliberately not
+on `PublicGossipState` — that is the record of what crossed the radio, and this is a preference,
+never evidence. iOS's deadline map is keyed under *both* of a night's ids already, so the
+adopted-id bug #500 fixed on Android never existed here; the selection is still matched against
+both ids, for the reason above.
+
 ## Amends
 
 ADR-0021 and ADR-0023 are unchanged. This supersedes only the reasoning recorded in

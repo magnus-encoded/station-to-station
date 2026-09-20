@@ -50,6 +50,85 @@ func seenWithLine(_ seen: SeenWith) -> String {
     return "Seen with " + parts.joined(separator: " + ")
 }
 
+/// The bullet on a **Presence row**: whether the radio is standing at this night (#501).
+///
+/// Amber for the **Active Gig**, which is this app's one meaning for amber — *mine* — and here
+/// it says the radio is mine and it is here. `faint` for the off state: plainly present, plainly
+/// not lit, and distinct from the amber at a glance rather than by a hue somebody has to
+/// compare. The blink is what says this is the radio's state and not a label; one animation for
+/// both colours, because two that pulsed differently would read as two kinds of thing.
+private struct GossipBulletMark: View {
+    let bullet: GossipBullet
+    @State private var dimmed = false
+
+    var body: some View {
+        Circle()
+            .fill(bullet == .on ? amber : faint)
+            .frame(width: 7, height: 7)
+            .opacity(dimmed ? 0.25 : 1)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { dimmed = true }
+            }
+    }
+}
+
+/// A **Gig**'s **Presence row**: that this phone is standing here, and whether the radio is
+/// standing here with it (#501).
+///
+/// The check-in line is the row, with the bullet in front of it and the whole line the tap
+/// target — iOS's **Room** already says "✓ checked in" in amber there, and a second control
+/// beside it would be two statements about one thing. The "is also here" and **Seen with** lines
+/// stay where #484 and #499 put them, under the header: Android composes all three because its
+/// bottom bar is one block, and copying that layout here would be a port of a screen rather than
+/// of a decision.
+///
+/// A night that cannot **Gossip** draws no bullet and does nothing when tapped, which is the
+/// honest reading of a control with nothing behind it.
+///
+/// The clock is here and not in the model: a night's grace runs out with nobody doing anything,
+/// and the bullet has to go out while somebody is looking at it. `onExpiry` hands that same tick
+/// back up, because the *other* night's row — the one that inherits the amber — is a different
+/// **Room**, and only the timeline knows which night is next.
+///
+/// `eligibleUntil` is the deadline with **no stop applied** (see `gossipBullet`).
+private struct GossipPresenceRow: View {
+    let label: String
+    let eligibleUntil: Int64?
+    let active: Bool
+    let stopped: Bool
+    let onSelect: () -> Void
+    let onExpiry: () -> Void
+
+    var body: some View {
+        // No clock and no blink on a night with nothing to draw: most **Rooms** ever opened are
+        // last year's, and a ticking view on each of them is a cost for a bullet that will
+        // never appear.
+        if (eligibleUntil ?? 0) <= 0 {
+            line(nil)
+        } else {
+            TimelineView(.periodic(from: .now, by: 1)) { tick in
+                let now = Int64(tick.date.timeIntervalSince1970 * 1000)
+                let bullet = gossipBullet(eligibleUntil: eligibleUntil, active: active,
+                                          stopped: stopped, now: now)
+                line(bullet)
+                    .onChange(of: bullet == nil) { gone in if gone { onExpiry() } }
+            }
+        }
+    }
+
+    private func line(_ bullet: GossipBullet?) -> some View {
+        HStack(spacing: 6) {
+            if let bullet { GossipBulletMark(bullet: bullet) }
+            Text(label).font(.system(size: 13)).foregroundStyle(amber)
+        }
+        .padding(.top, 6)
+        .contentShape(Rectangle())
+        .onTapGesture { if bullet != nil { onSelect() } }
+        .accessibilityElement(children: .combine)
+        .accessibilityHint(bullet == nil ? "" : "Stand at this gig — gossip speaks for it")
+    }
+}
+
 /// A row of the night: an encore divider, or a performed song (numbered; a tape
 /// track has no number — it played but is not one of the band's songs).
 private enum EventRow {
@@ -245,6 +324,11 @@ struct GigView: View {
                 Text("No gig selected.").foregroundStyle(muted)
             }
         }
+        // Opening a **Room** re-asks which night the radio is standing at (#501). The deadlines
+        // move while nobody is looking — a night whose grace lapsed in a pocket hands the amber
+        // to the next one — and the row's own clock only runs for a **Room** that was already
+        // open when it happened.
+        .task { model.refreshGossipPresence() }
         .toolbar {
             // Only for a night this app minted. A night that already has a setlist.fm
             // page has nothing to adopt, and offering it there would be an invitation
@@ -406,10 +490,22 @@ struct GigView: View {
             // inside — so the checked-in line replaces the QR rather than sitting
             // under it, and the branch stays the one branch it always was.
             if checkedIn {
-                Text(model.state.witnessedGigs.contains(show.id)
-                     ? "\u{2713} checked in \u{00B7} witnessed" : "\u{2713} checked in")
-                    .font(.system(size: 13)).foregroundStyle(amber)
-                    .padding(.top, 6)
+                // The **Presence row** (#501): the same line it always was, with the bullet
+                // that says whether the radio is standing at *this* night, and the tap that
+                // makes it so. Selecting mints no **Check-in** — the claim to have been here
+                // was made by the check-in this line is drawn from.
+                GossipPresenceRow(
+                    label: model.state.witnessedGigs.contains(show.id)
+                        ? "\u{2713} checked in \u{00B7} witnessed" : "\u{2713} checked in",
+                    eligibleUntil: model.state.gossipEligibleUntil[show.id],
+                    // Through the aliases, because the selection is kept under the local id
+                    // and this **Room** may be holding the adopted one.
+                    active: model.state.gossipActiveGig.map {
+                        (model.state.gossipGigAliases[show.id] ?? [show.id]).contains($0)
+                    } ?? false,
+                    stopped: model.state.gossipStoppedGigs.contains(show.id),
+                    onSelect: { model.selectGossipGig(show.id) },
+                    onExpiry: { model.refreshGossipPresence() })
             } else {
                 // The base64 is decoded here and nowhere earlier: the fold carries the
                 // stored string and decides only whether to show it, exactly as
