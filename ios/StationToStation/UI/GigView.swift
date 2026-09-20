@@ -324,6 +324,11 @@ struct GigView: View {
                 Text("No gig selected.").foregroundStyle(muted)
             }
         }
+        // Opening a **Room** re-asks which night the radio is standing at (#501). The deadlines
+        // move while nobody is looking — a night whose grace lapsed in a pocket hands the amber
+        // to the next one — and the row's own clock only runs for a **Room** that was already
+        // open when it happened.
+        .task { model.refreshGossipPresence() }
         .toolbar {
             // Only for a night this app minted. A night that already has a setlist.fm
             // page has nothing to adopt, and offering it there would be an invitation

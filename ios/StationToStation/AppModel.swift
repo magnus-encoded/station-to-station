@@ -558,13 +558,19 @@ final class AppModel: ObservableObject {
             // What the **Presence rows** draw, read at the same moment as what the radio is
             // told — two answers a moment apart would light a bullet for a night the transport
             // has just stopped for.
+            let now = Int64(Date().timeIntervalSince1970 * 1000)
             let eligible = gossipParticipationEnds(cache: cache)
             state.gossipEligibleUntil = eligible
+            // Only the nights that could still gossip *now*: a deadline in the map is a moment,
+            // not a promise, and every attended night in the timeline keeps a past one. Asked
+            // unfiltered, one old stop would leave Settings offering Resume forever. The
+            // bullet re-asks the same question on the **Room**'s own clock; this is what the
+            // Settings button has instead of one.
             state.gossipStoppedGigs = gossipStoppedGigs(
-                eligible: eligible, running: gossipParticipationEnds(cache: cache, stoppedAt: stoppedAt))
+                eligible: eligible.filter { $0.value > now },
+                running: gossipParticipationEnds(cache: cache, stoppedAt: stoppedAt))
             state.gossipActiveGig = gossipActiveGigId(cache: cache, stoppedAt: stoppedAt,
-                selected: GossipTransport.shared.selectedGigId,
-                now: Int64(Date().timeIntervalSince1970 * 1000))
+                selected: GossipTransport.shared.selectedGigId, now: now)
             GossipTransport.shared.contactsChanged(friends, activeUntil: until)
         }
         Task { await GossipChannel.shared.setNightEnds(ends) }

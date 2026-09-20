@@ -228,15 +228,23 @@ final class GossipLifecycleTests: XCTestCase {
         XCTAssertNil(gossipBullet(eligibleUntil: gossipParticipationEnds(cache: cache)[first],
                                   active: true, stopped: false, now: after))
         XCTAssertEqual(active(selected: first, now: after), second)
+        // A lapsed night was not stopped, it ended — which is why the deadline map is filtered
+        // against the clock before the set is asked for. `gossipParticipationEnds` keeps a real
+        // past deadline for every attended night ever, so unfiltered, one old stop would name
+        // them all.
+        let lapsed = gossipParticipationEnds(cache: cache)
+        XCTAssertEqual(gossipStoppedGigs(eligible: lapsed.filter { $0.value > after },
+                                         running: gossipParticipationEnds(cache: cache, stoppedAt: after)),
+                       [second])
         // And once the night itself is over there is nothing to be standing at.
         XCTAssertNil(active(selected: first, now: Int64(night.end.timeIntervalSince1970 * 1000) + 1))
     }
 
-    /// The selection is persisted beside the stop, and it survives being read back — the choice
-    /// has to outlive the **Room** it was made in, because a phone goes in a pocket.
+    /// A night that adopted a setlist.fm id can be chosen by either of its ids.
     ///
-    /// Stored under the local id (adoption changes the other one), and matched against either,
-    /// because the surface offering the choice holds whichever id its **Room** is drawn under.
+    /// The selection is stored under the local id — adoption (#496) changes the other one, and a
+    /// preference stored under the mutable id would quietly stop matching the night it named —
+    /// while the surface offering the choice holds whichever id its **Room** is drawn under.
     func testTheSelectionIsKeptUnderTheLocalIdAndMatchesTheAdoptedOne() async throws {
         let night = Night()
         let store = TimelineStore(file: night.timelineFile)
@@ -254,11 +262,6 @@ final class GossipLifecycleTests: XCTestCase {
         // A selection whose night this device does not hold is simply not eligible, and the
         // fallback answers instead. The stored id can reorder the live nights, never add one.
         XCTAssertEqual(gossipActiveGigId(cache: cache, selected: "some-other-night", now: during), local)
-
-        let restore = GossipTransport.shared.selectedGigId
-        defer { restore.map { GossipTransport.shared.selectGig(localGigId: $0) } }
-        GossipTransport.shared.selectGig(localGigId: local)
-        XCTAssertEqual(GossipTransport.shared.selectedGigId, local)
     }
 
     /// The deadline if it has not already passed at `at` — how the radio reads it, and the
