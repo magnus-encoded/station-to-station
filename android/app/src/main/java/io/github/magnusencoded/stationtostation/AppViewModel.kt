@@ -2000,33 +2000,51 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * always real; what was missing was a way onto it, because both affordances on
      * the empty spine led to setlist.fm.
      *
-     * **Attendance is ATTENDED, never CHECKED_IN.** Typing a night in is a claim
-     * about the past made now; a check-in is a claim the phone corroborated at the
-     * venue on the night. Recording the two as the same thing would make the
-     * provenance the Room shows a lie, which is the one thing this path must not do.
+     * **A past date is ATTENDED, never CHECKED_IN.** Typing a night in is a claim
+     * about the past made now; a check-in is a claim made on the night. Recording
+     * the two as the same thing would make the provenance the Room shows a lie,
+     * which is the one thing this path must not do.
+     *
+     * **Today is different: it's tonight.** The claim made now and a claim made on
+     * the night are the same claim, so this offers the check-in immediately rather
+     * than settling for ATTENDED — same door as [checkIn], just not gated on a
+     * location fix, because a local gig has no venue on record to gate against in
+     * the first place (and a manual check-in never required one anyway).
      *
      * A blank venue stays blank rather than becoming "": an unknown room is not a
      * place two gigs have in common, and `localGigSetlist` is careful about that.
      */
-    fun addLocalGig(artist: String, venue: String, date: String) {
+    fun addLocalGig(artist: String, venue: String, date: String): Boolean {
         val night = parseFmDate(date)
         if (artist.isBlank() || night == null) {
             _state.update { it.copy(errorKind = null, error = "A night needs who played and a date as dd-MM-yyyy.") }
-            return
+            return false
         }
         viewModelScope.launch {
             val gigId = timelines.createLocalGig(fmDate(night), artist.trim(), venue.trim())
             val gig = localGigSetlist(gigId, artist.trim(), night, venue.trim(), city = "")
-            val attendance = StoredAttendance(provenance = StoredAttendance.Provenance.ATTENDED)
-            timelines.savePlanned(gig)
-            timelines.saveAttendance(gigId, attendance)
-            _state.update {
-                it.copy(
-                    plannedGigs = sortedPlanned(it.plannedGigs + gig),
-                    attendanceByGig = it.attendanceByGig + (gigId to attendance),
-                )
+            if (night == LocalDate.now()) {
+                val attendance = timelines.savePlanned(gig)
+                _state.update {
+                    it.copy(
+                        plannedGigs = sortedPlanned(it.plannedGigs + gig),
+                        attendanceByGig = it.attendanceByGig + (gigId to attendance),
+                        checkInOffer = gig,
+                    )
+                }
+            } else {
+                val attendance = StoredAttendance(provenance = StoredAttendance.Provenance.ATTENDED)
+                timelines.savePlanned(gig)
+                timelines.saveAttendance(gigId, attendance)
+                _state.update {
+                    it.copy(
+                        plannedGigs = sortedPlanned(it.plannedGigs + gig),
+                        attendanceByGig = it.attendanceByGig + (gigId to attendance),
+                    )
+                }
             }
         }
+        return true
     }
 
     /**

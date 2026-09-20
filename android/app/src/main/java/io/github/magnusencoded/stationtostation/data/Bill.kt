@@ -140,10 +140,17 @@ fun spineNights(
 /** dd-MM-yyyy, the one date shape this app and setlist.fm both speak. */
 private val FM_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("dd-MM-yyyy", Locale.ENGLISH)
 
+/** yyyy-MM-dd, ISO 8601 — unambiguous, so typing it in is accepted alongside [FM_DATE]. */
+private val ISO_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.ENGLISH)
+
 fun fmDate(date: LocalDate): String = date.format(FM_DATE)
 
-fun parseFmDate(text: String): LocalDate? =
-    runCatching { LocalDate.parse(text.trim(), FM_DATE) }.getOrNull()
+/** Accepts dd-MM-yyyy (this app's own shape) or the unambiguous yyyy-MM-dd. */
+fun parseFmDate(text: String): LocalDate? {
+    val trimmed = text.trim()
+    return runCatching { LocalDate.parse(trimmed, FM_DATE) }.getOrNull()
+        ?: runCatching { LocalDate.parse(trimmed, ISO_DATE) }.getOrNull()
+}
 
 /**
  * A **Log**: the ordered songs *I* observed at one **Gig**, on my own device.

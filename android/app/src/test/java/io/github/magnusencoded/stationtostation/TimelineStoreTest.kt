@@ -1221,7 +1221,16 @@ class TimelineStoreTest {
     fun `a date the app cannot read is not a night`() {
         assertNull(parseFmDate(""))
         assertNull(parseFmDate("7 August 2026"))
-        assertNull(parseFmDate("2026-08-07")) // ISO, which is not what setlist.fm speaks
         assertEquals("07-08-2026", fmDate(parseFmDate(" 07-08-2026 ")!!))
+    }
+
+    /**
+     * ISO's yyyy-MM-dd is accepted alongside this app's own dd-MM-yyyy (#... date format
+     * feedback): the two shapes can never collide on a valid calendar date, so a person
+     * typing the unambiguous one in by habit is not punished for it.
+     */
+    @Test
+    fun `an ISO date typed in by hand is read the same as this app's own shape`() {
+        assertEquals(parseFmDate("07-08-2026"), parseFmDate("2026-08-07"))
     }
 }

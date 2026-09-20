@@ -192,7 +192,10 @@ import io.github.magnusencoded.stationtostation.ui.flyover.collectionBillboard
 import io.github.magnusencoded.stationtostation.ui.flyover.collectionFlyoverGigs
 import io.github.magnusencoded.stationtostation.ui.flyover.collectionMedia
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import java.time.LocalDateTime
+import io.github.magnusencoded.stationtostation.data.fmDate
+import io.github.magnusencoded.stationtostation.data.parseFmDate
 import kotlin.math.roundToInt
 
 // Station to Station — the timeline face of the app.
@@ -382,8 +385,7 @@ fun StationTimelineScreen(
             if (addingByHand) {
                 AddLocalGigDialog(
                     onAdd = { artist, venue, date ->
-                        viewModel.addLocalGig(artist, venue, date)
-                        addingByHand = false
+                        if (viewModel.addLocalGig(artist, venue, date)) addingByHand = false
                     },
                     onDismiss = { addingByHand = false },
                 )
@@ -1215,6 +1217,7 @@ private fun AddLocalGigDialog(
     var artist by remember { mutableStateOf("") }
     var venue by remember { mutableStateOf("") }
     var date by remember { mutableStateOf("") }
+    var dateError by remember { mutableStateOf(false) }
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
@@ -1235,12 +1238,25 @@ private fun AddLocalGigDialog(
             Spacer(Modifier.height(8.dp))
             StationField(venue, { venue = it }, "venue (optional)")
             Spacer(Modifier.height(8.dp))
-            StationField(date, { date = it }, "date (dd-MM-yyyy)", imeDone = true)
+            StationField(date, { date = it; dateError = false }, "date (dd-MM-yyyy)", imeDone = true)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                if (dateError) {
+                    Text("Couldn't read that as a date.", color = Amber, fontSize = 11.sp)
+                } else {
+                    Spacer(Modifier.width(1.dp))
+                }
+                TextButton(onClick = { date = fmDate(LocalDate.now()); dateError = false }) {
+                    Text("Today", color = Faint, fontSize = 12.sp)
+                }
+            }
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text("Cancel", color = Faint) }
                 TextButton(
-                    onClick = { onAdd(artist, venue, date) },
+                    onClick = {
+                        if (parseFmDate(date) == null) dateError = true
+                        else onAdd(artist, venue, date)
+                    },
                     enabled = artist.isNotBlank() && date.isNotBlank(),
                 ) {
                     Text(
@@ -3485,17 +3501,19 @@ fun StationEventScreen(
                     Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text(
-                        when (leaf) {
-                            // "above" was true when the editor sat over the set. The
-                            // entries are the set now and the way in is under it (#268).
-                            GigLeaf.CAPTURE -> "noting the set — add what they play below"
-                            else -> "your log · add anything you remember below"
-                        },
-                        color = Faint,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(vertical = 4.dp),
-                    )
+                    // While it's happening, the entries above and "copy the set" below
+                    // say everything there is to say — a caption pointing at them added
+                    // nothing and pointed the wrong way once the editor moved under the
+                    // set (#268). Kept only for the leaf that follows the night, where
+                    // "your log" distinguishes it from the setlist that just arrived.
+                    if (leaf != GigLeaf.CAPTURE) {
+                        Text(
+                            "your log · add anything you remember above",
+                            color = Faint,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(vertical = 4.dp),
+                        )
+                    }
                     Text(
                         "‹ copy the set and open setlist.fm",
                         color = Amber,
@@ -3516,14 +3534,6 @@ fun StationEventScreen(
                         )
                     }
                     if (localGig) {
-                        Text(
-                            "it's on setlist.fm now — paste the link",
-                            color = Slate,
-                            fontSize = 13.sp,
-                            modifier = Modifier
-                                .clickable { adopting = true }
-                                .padding(vertical = 6.dp),
-                        )
                         // Reachable from the night itself, on purpose: deletion must
                         // not depend on anything else still existing.
                         Text(
@@ -3929,11 +3939,16 @@ fun StationEventScreen(
                                 // has an id. Not "self-reported", which describes how
                                 // nearly every claim here was made and so marks nothing.
                                 //
-                                // Deliberately inert. `/edit` shows a signed-out user a
-                                // sign-in wall, and #34 is explicit that a dead-end link
-                                // is worse than no crumb — so the absence is stated and
-                                // the labelled action below is the door.
-                                EventTag("local", color = Faint)
+                                // Tapping it has nothing local to show — there is no
+                                // second source behind "local" — so the one thing it can
+                                // mean is the door to giving it an id: adopting the
+                                // setlist.fm link once the night is up there.
+                                EventTag(
+                                    "local",
+                                    color = Faint,
+                                    onClick = { adopting = true },
+                                    label = "Local — paste the setlist.fm link once it's up",
+                                )
                             }
                         }
                         // Nothing can be pinned to a night nobody has been to yet — the
