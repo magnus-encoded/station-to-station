@@ -140,6 +140,19 @@ struct PublicHeld: Codable {
     var until: Int64
     var delivered: Set<String> = []
 }
+
+/// The **Seen with** line: who this phone can name, and how many devices it met but cannot.
+///
+/// A **Gig** keeps this after its **Gossip** ends, which is what makes it a different thing from
+/// presence rather than a persisted copy of it. Presence answers "is someone here now" and must
+/// die with the process; this answers "who was there", and a night does not stop having
+/// happened because the radio stopped.
+struct SeenWith: Equatable {
+    let named: [String]
+    let others: Int
+    var isEmpty: Bool { named.isEmpty && others == 0 }
+}
+
 struct PublicGossipState: Codable {
     var facts: [String: GossipEnvelope] = [:]
     var seen: [String: Int64] = [:]
@@ -159,6 +172,19 @@ struct PublicGossipState: Codable {
     /// pretending not to know something it does know. Local only: this never goes on the wire,
     /// which carries `GossipEnvelope` and nothing else.
     var contactNames: [String: String] = [:]
+    /// Per **Gig**, every device this phone completed a **Pass** with and when it last did.
+    ///
+    /// The one genuinely new durable fact in the **Seen with** record. Everything else the line
+    /// needs is already in `facts` — a verified **Check-in** is a `request` and `arrivals` finds
+    /// it — but a completed **Pass** leaves no **Fact** behind at all. `useful` remembers the
+    /// neighbour for two minutes and then prunes it, because that entry is a routing preference;
+    /// this is evidence about a night, and evidence does not expire with the radio.
+    ///
+    /// Keyed by the key the transport proved, which is the peer's night-scoped **Gig** key when
+    /// their **Pass** carried their own claim and their nightly relay key otherwise. Those two
+    /// never unify — nothing on the wire links them, and inventing the link would be this device
+    /// asserting something it cannot see. See `seenWith`.
+    var metDevices: [String: [String: Int64]] = [:]
 
     init() {}
 
@@ -176,6 +202,7 @@ struct PublicGossipState: Codable {
         useful = try container.decodeIfPresent([String: Int64].self, forKey: .useful) ?? [:]
         localAuthors = try container.decodeIfPresent(Set<String>.self, forKey: .localAuthors) ?? []
         contactNames = try container.decodeIfPresent([String: String].self, forKey: .contactNames) ?? [:]
+        metDevices = try container.decodeIfPresent([String: [String: Int64]].self, forKey: .metDevices) ?? [:]
     }
 
     func isBlocked(_ author: String) -> Bool {
@@ -295,6 +322,80 @@ struct PublicGossipState: Codable {
                   seen.insert(claim.id).inserted else { return nil }
             return claim
         }
+    }
+
+    /// Write down that a **Pass** with [peer] completed (#498).
+    ///
+    /// Called for both directions, because a completed **Pass** is a completed **Pass**: the two
+    /// phones were in BLE range of each other and each proved a key to the other, and which one
+    /// dialled is an artefact of who happened to be scanning. An advertisement is deliberately
+    /// not this — the token in it names nobody and a scan hit only says something is
+    /// transmitting.
+    ///
+    /// Which **Gig** it attaches to: the night [peer]'s own claim names, when their **Pass**
+    /// carried one, and the active **Gig** otherwise. Only their *own* `request` counts, by the
+    /// same one-hop rule `receive` applies — a batch is mostly other people's **Facts** being
+    /// **Carried**, and a stranger's relayed claim about last Tuesday says nothing about where
+    /// the device handing it over is standing.
+    ///
+    /// Repeats are a timestamp move, never a second entry: `metDevices` is keyed by device.
+    mutating func rememberPass(_ peer: String, batch: [GossipEnvelope], activeGigId: String?, now: Int64) {
+        guard !peer.isEmpty else { return }
+        let claimed = Set(batch
+            .filter { $0.kind == "request" && $0.author == peer && $0.valid() }
+            .flatMap { linkedIds($0) })
+        let gigs = claimed.isEmpty ? Set([activeGigId].compactMap { $0 }) : claimed
+        for gig in gigs {
+            var devices = metDevices[gig] ?? [:]
+            devices[peer] = max(devices[peer] ?? 0, now)
+            metDevices[gig] = devices
+        }
+    }
+
+    /// Who this phone can say was at [gigIds] with it, and how many more it cannot name (#498).
+    ///
+    /// Two kinds of evidence, deliberately not merged into one rank. A completed **Pass** is this
+    /// device's own eyes: those phones met, and that is true of a stranger's phone as much as a
+    /// **Contact**'s. A verified **Check-in** is somebody's signed assertion, which counts for
+    /// the **Gig** it names even when a witness **Carried** the last hop — attribution is the
+    /// gate, not proximity (#483). So directly met **Contacts** come first, most recently met
+    /// first, and **Contacts** known only from a **Check-in** follow.
+    ///
+    /// Everything is folded onto the durable identity `recognition` resolves a key to before it
+    /// is counted, so a **Contact** met on their **Gig** key and again on their relay key is one
+    /// person — and one device with no recognition at all is still one device. What cannot be
+    /// folded is two keys of the same *stranger*: nothing links them, and this device does not
+    /// get to guess. That is the honest reading of "count each device once", not a dedup bug.
+    ///
+    /// [others] counts unnamed *directly met* devices and is never a subtraction. A **Contact**
+    /// known only from a relayed **Check-in** is named while no device of theirs was met, so
+    /// `named.count - others` would be a number this phone never observed; and a blocked
+    /// **Contact** is dropped from the naming and stays in the count, which is Block being
+    /// admission rather than a rewrite of what happened (ADR-0021).
+    func seenWith(gigIds: Set<String>, live: [String: String] = [:]) -> SeenWith {
+        func identity(_ key: String) -> String { recognition[key] ?? key }
+        var directAt: [String: Int64] = [:]
+        for gig in gigIds {
+            for (device, at) in metDevices[gig] ?? [:] {
+                let who = identity(device)
+                directAt[who] = max(directAt[who] ?? 0, at)
+            }
+        }
+        var checkedInAt: [String: Int64] = [:]
+        for claim in arrivals(gigIds: gigIds) {
+            let who = identity(claim.author)
+            checkedInAt[who] = max(checkedInAt[who] ?? 0, claim.createdAt)
+        }
+        func name(_ who: String) -> String? { blocked.contains(who) ? nil : (live[who] ?? contactNames[who]) }
+        func byRecencyThenKey(_ a: (key: String, value: Int64), _ b: (key: String, value: Int64)) -> Bool {
+            a.value != b.value ? a.value > b.value : a.key < b.key
+        }
+        let met = directAt.filter { name($0.key) != nil }.sorted(by: byRecencyThenKey)
+        let onlyCheckedIn = checkedInAt.filter { directAt[$0.key] == nil && name($0.key) != nil }
+            .sorted(by: byRecencyThenKey)
+        return SeenWith(
+            named: (met + onlyCheckedIn).compactMap { name($0.key) },
+            others: directAt.keys.filter { name($0) == nil }.count)
     }
 
     /// Self-asserted and witnessed are deliberately independent answers.

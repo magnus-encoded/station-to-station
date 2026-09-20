@@ -34,6 +34,25 @@ func alsoHereSentence(_ here: [String]) -> String? {
     }
 }
 
+/// The **Seen with** line's words (#498).
+///
+/// "Seen with", not "here" and not "checked in": the record outlives the night's **Gossip**, and
+/// a present-tense line on a **Gig** from last March would be the app claiming a room it is not
+/// in. The unnamed devices are counted rather than listed because there is nothing to list —
+/// a blind relay carries a key, never a person — and they are still said out loud, because
+/// silently dropping them would report a quieter room than this phone actually stood in.
+func seenWithLine(_ seen: SeenWith) -> String {
+    let others: String?
+    switch seen.others {
+    case 0: others = nil
+    case 1: others = "1 other"
+    default: others = "\(seen.others) others"
+    }
+    let names = seen.named.joined(separator: ", ")
+    let parts = [names.isEmpty ? nil : names, others].compactMap { $0 }
+    return "Seen with " + parts.joined(separator: " + ")
+}
+
 /// A row of the night: an encore divider, or a performed song (numbered; a tape
 /// track has no number — it played but is not one of the band's songs).
 private enum EventRow {
@@ -133,6 +152,14 @@ struct GigView: View {
                         }
                         if !arrivals.isEmpty {
                             Text(arrivals.sorted().joined(separator: ", ") + " · checked in")
+                                .font(.system(size: 12)).foregroundStyle(muted).padding(.horizontal, 24)
+                        }
+                        // Who was here, past tense — the durable record that outlives the night's
+                        // Gossip, above the present-tense "also here" line (#498). Only drawn when
+                        // there is somebody to name or count; an empty room says nothing.
+                        let seenWith = publicState.seenWith(gigIds: [show.id], live: liveContacts)
+                        if !seenWith.isEmpty {
+                            Text(seenWithLine(seenWith))
                                 .font(.system(size: 12)).foregroundStyle(muted).padding(.horizontal, 24)
                         }
                         let log = model.state.gigLog

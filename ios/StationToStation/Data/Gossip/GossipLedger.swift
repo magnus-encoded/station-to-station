@@ -94,6 +94,12 @@ actor GossipLedger {
         editPublic { $0.delivered(to: peer, ids: ids) }
     }
 
+    /// Write down that a **Pass** with [peer] completed, for the durable **Seen with** record
+    /// (#498). Both directions call it — dialling out is a met device too.
+    func rememberPass(_ peer: String, batch: [GossipEnvelope], activeGigId: String?, now: Int64) {
+        editPublic { $0.rememberPass(peer, batch: batch, activeGigId: activeGigId, now: now) }
+    }
+
     private func editPublic(_ edit: (inout PublicGossipState) -> Void) {
         var next = load()
         var state = next.publicState ?? PublicGossipState()

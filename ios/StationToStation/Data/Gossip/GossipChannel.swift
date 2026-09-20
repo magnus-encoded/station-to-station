@@ -256,12 +256,20 @@ actor GossipChannel {
         // named, and only for nights still running: a known **Gig** keeps its deadline after
         // participation ends, and last night's claim arriving in tonight's **Pass** is not
         // somebody standing here. The same test `offer` applies.
-        let ends = gossipParticipationEnds(cache: await timeline.load(), stoppedAt: GossipTransport.shared.stoppedAt)
+        let cache = await timeline.load()
+        let ends = gossipParticipationEnds(cache: cache, stoppedAt: GossipTransport.shared.stoppedAt)
         let gigIds = Set(ends.filter { millis < $0.value }.keys)
         // `accepted`, not `pass.batch`: a replay of a claim this device already holds is
         // refused by `receive` and is not evidence anybody is standing here now.
         let present = state.presenceFrom(accepted: accepted, gigIds: gigIds)
         if !present.isEmpty { onPresence?(present.reduce(into: [:]) { $0[$1] = now }, gigIds) }
+        // A completed **Pass** is a met device, whichever way it was dialled, and it outlives
+        // the night's Gossip in the durable **Seen with** record (#498). `pass.batch` rather than
+        // `accepted`: a claim of the peer's own that this phone already holds is refused by
+        // `receive`, but the two phones still met, and it is still evidence of the night their
+        // claim names. The active Gig catches a Pass that carries no claim of the peer's own.
+        let activeGigId = gossipActiveGigId(cache: cache, stoppedAt: GossipTransport.shared.stoppedAt, now: millis)
+        await ledger.rememberPass(from, batch: pass.batch, activeGigId: activeGigId, now: millis)
         let relay = relayScope(now)
         // A receipt is addressed, so it may only name a key this device can meet again: the
         // sender's relay key, which a Pass carrying the sender's own request does not prove.
@@ -311,5 +319,11 @@ actor GossipChannel {
         guard let ids = pending.removeValue(forKey: contact) else { return }
         GossipTally.shared.delivered(pendingReceipts.removeValue(forKey: contact) ?? 0)
         await ledger.deliveredPublic(ids, to: contact)
+        // Dialling out is a met device too (#498). `contact` is the key the peer's challenge
+        // proved, the same space the inbound `from` is in; this direction carries no claim of
+        // theirs, so the active Gig is the only night it can honestly be attached to.
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        let activeGigId = gossipActiveGigId(cache: await timeline.load(), stoppedAt: GossipTransport.shared.stoppedAt, now: now)
+        await ledger.rememberPass(contact, batch: [], activeGigId: activeGigId, now: now)
     }
 }

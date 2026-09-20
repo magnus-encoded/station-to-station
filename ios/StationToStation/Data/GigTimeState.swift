@@ -253,3 +253,24 @@ func gossipActiveUntil(cache: TimelineCache, stoppedAt: Int64 = 0) -> Date? {
     gossipParticipationEnds(cache: cache, stoppedAt: stoppedAt).values.max()
         .flatMap { $0 > 0 ? Date(timeIntervalSince1970: Double($0) / 1000) : nil }
 }
+
+/// The **Gig** a **Pass** that names no night belongs to: the latest **Check-in** still running
+/// (#498).
+///
+/// "Currently active" and "the initial active **Gig** is the latest **Check-in**" are one rule
+/// under this reading, which is why there is no stateful *active gig* anywhere — a field would be
+/// a second answer that could disagree with the deadlines, and `gossipParticipationEnds` already
+/// knows which nights are live. A festival night checked into after an earlier one wins by being
+/// later, and a night whose participation ended stops attracting **Passes** at all. The local id
+/// is returned, the one id for this night that cannot change under the device; the read side
+/// unions the aliases.
+func gossipActiveGigId(cache: TimelineCache, stoppedAt: Int64 = 0, now: Int64) -> String? {
+    let ends = gossipParticipationEnds(cache: cache, stoppedAt: stoppedAt)
+    let attendance = cache.attendance()
+    return cache.gigs.values
+        .filter { (ends[$0.id] ?? 0) > now }
+        .compactMap { gig -> (String, Int64)? in
+            attendance[gig.setlistId ?? gig.id]?.checkedInAt.map { (gig.id, $0) }
+        }
+        .max { $0.1 != $1.1 ? $0.1 < $1.1 : $0.0 < $1.0 }?.0
+}
