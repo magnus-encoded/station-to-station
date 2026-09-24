@@ -45,15 +45,24 @@ struct MediaWindow: View {
     private var isVideo: Bool { media.kind == StoredMedia.Kind.video }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Color.black.ignoresSafeArea()
-            content
-            Button(action: onDismiss) {
-                Image(systemName: "xmark").font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white).padding(12)
+        // The close button gets its own strip above the content rather than floating
+        // over it. Floated, a white glyph vanished against a bright photograph and sat
+        // on top of AVKit's own corner controls — and a full-screen cover has no swipe
+        // to dismiss, so a Window you could not find the way out of meant killing the app.
+        VStack(spacing: 0) {
+            HStack {
+                Spacer()
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark").font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white).padding(12)
+                        .background(Circle().fill(Color.white.opacity(0.18)))
+                }
+                .accessibilityLabel("Close")
             }
-            .accessibilityLabel("Close")
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            content.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .background(Color.black.ignoresSafeArea())
         .task {
             if isVideo {
                 let item = await PhotoLibrary.playerItem(assetId: media.ref)
@@ -94,6 +103,12 @@ struct MediaWindow: View {
             Image(uiImage: image).resizable().scaledToFit()
                 .accessibilityLabel("Your photo from this show")
                 .onTapGesture(perform: onDismiss)
+                // Swipe down, the way a photo closes everywhere else on the phone. Photos
+                // only: on a video it would fight the scrubber, and under the recording
+                // it would fight the setlist's own scroll.
+                .gesture(DragGesture(minimumDistance: 30).onEnded { drag in
+                    if drag.translation.height > 120 { onDismiss() }
+                })
         } else {
             ProgressView().tint(.white)
         }
