@@ -72,6 +72,10 @@ import io.github.magnusencoded.stationtostation.data.categoriesFor
 import io.github.magnusencoded.stationtostation.data.deviceManifest
 import io.github.magnusencoded.stationtostation.data.identitiesOnly
 import io.github.magnusencoded.stationtostation.data.mayClearCredentials
+import io.github.magnusencoded.stationtostation.data.unionAttendance
+import io.github.magnusencoded.stationtostation.data.unionLog
+import io.github.magnusencoded.stationtostation.data.unionMedia
+import io.github.magnusencoded.stationtostation.data.unionPlaylists
 import io.github.magnusencoded.stationtostation.data.exchange.HandoverInvite
 import io.github.magnusencoded.stationtostation.data.exchange.HandoverPhase
 import io.github.magnusencoded.stationtostation.data.exchange.HandoverProgress
@@ -479,6 +483,50 @@ data class UiState(
 ) {
     /** Who is currently tapped out. Derived so there is only [hiddenAt] to keep in step. */
     val hiddenLines: Set<String> get() = hiddenAt.keys
+}
+
+/**
+ * The state after a local **Gig** took [setlistId] (#515): everything the screens read by
+ * gig id, moved from [localId] to the new one in one step.
+ *
+ * The store needs no such move — it keys by its own id and adoption only changes `keyOf` —
+ * but the screens key by that answer. A **Room** reading its **Log** under the new id before
+ * this ran found none, and the next line written saved that empty **Log** over the real one.
+ * Its **Check-in** went missing the same way, and with it the Log editor itself.
+ *
+ * Where [setlistId] already holds an entry, the store has merged two **Gigs** into one
+ * (`adoptSetlistId`, #128), and the two entries combine by the same unions the store reads
+ * them back with; nothing is overwritten. The gossip projections keep the old id beside the
+ * new one, because the record may still be filed under either.
+ */
+internal fun UiState.adopting(localId: String, setlistId: String): UiState {
+    fun <V> Map<String, V>.moved(union: (V, V) -> V): Map<String, V> {
+        val mine = this[localId] ?: return this
+        val theirs = this[setlistId]
+        return this - localId + (setlistId to if (theirs == null) mine else union(theirs, mine))
+    }
+    fun FmSetlist.moved() = if (id == localId) copy(id = setlistId) else this
+    fun Set<String>.alsoAdopted() = if (localId in this) this + setlistId else this
+    val aliases = gossipGigAliases[localId].orEmpty() + gossipGigAliases[setlistId].orEmpty() +
+        localId + setlistId
+    return copy(
+        logsByGig = logsByGig.moved(::unionLog),
+        attendanceByGig = attendanceByGig.moved(::unionAttendance),
+        calendarEventByGig = calendarEventByGig.moved { kept, _ -> kept },
+        mediaBySetlist = mediaBySetlist.moved(::unionMedia),
+        playlistsBySetlist = playlistsBySetlist.moved(::unionPlaylists),
+        setlists = setlists.map { it.moved() },
+        plannedGigs = plannedGigs.map { it.moved() },
+        selectedSetlist = selectedSetlist?.moved(),
+        checkInOffer = checkInOffer?.moved(),
+        linkedGig = if (linkedGig == localId) setlistId else linkedGig,
+        witnessedGigs = witnessedGigs.alsoAdopted(),
+        gossipEligibleUntil = gossipEligibleUntil[localId]
+            ?.let { gossipEligibleUntil + (setlistId to it) } ?: gossipEligibleUntil,
+        gossipActiveGig = if (gossipActiveGig == localId) setlistId else gossipActiveGig,
+        gossipStoppedGigs = gossipStoppedGigs.alsoAdopted(),
+        gossipGigAliases = gossipGigAliases + aliases.associateWith { aliases },
+    )
 }
 
 /**
@@ -2435,6 +2483,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _state.update { it.copy(errorKind = null, error = "That night already has a setlist.fm id.") }
                 return@launch
             }
+            // Before anything else can read the night under its new id: a Log edit landing
+            // between the store's move and this one saved an empty Log over the real one.
+            _state.update { it.adopting(gigId, setlistId) }
             gossip.rememberAdoption(gigId, setlistId)
             if (now < until && original != null) {
                 val scope = gossip.authorScope(original.id)
@@ -2455,8 +2506,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 timelines.savePlanned(fresh)
                 _state.update {
                     it.copy(
-                        plannedGigs = sortedPlanned(it.plannedGigs.filterNot { g -> g.id == gigId } + fresh),
-                        selectedSetlist = if (it.selectedSetlist?.id == gigId) fresh else it.selectedSetlist,
+                        plannedGigs = sortedPlanned(it.plannedGigs.filterNot { g -> g.id == setlistId } + fresh),
+                        selectedSetlist = if (it.selectedSetlist?.id == setlistId) fresh else it.selectedSetlist,
                     )
                 }
             }
