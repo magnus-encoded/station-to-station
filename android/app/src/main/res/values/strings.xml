@@ -4,16 +4,18 @@
 
     <!-- The gossip channel's foreground service (#416). ADR-0019 lets this run in the
          background; the notification is what makes that visible rather than a silent
-         drain, so the wording says plainly what the radio is doing. -->
+         drain, so the wording says plainly what the radio is doing. Gossip passes to any
+         phone in range, Contact or stranger, so nothing here may say "contacts"; and a
+         Fact is never a "message" (CONTEXT.md, Gossip). -->
     <string name="gossip_channel_name">Passing on check-ins</string>
-    <string name="gossip_channel_description">Shown while your phone is carrying contacts\' check-ins between people at a gig.</string>
+    <string name="gossip_channel_description">Shown while your phone is carrying check-ins between phones at a gig.</string>
     <string name="gossip_notification_title">Passing on check-ins</string>
-    <string name="gossip_notification_idle">Listening for contacts nearby</string>
-    <string name="gossip_notification_carrying">Carrying %1$d check-in(s) for contacts nearby</string>
+    <string name="gossip_notification_idle">Listening for phones nearby</string>
+    <string name="gossip_notification_carrying">Carrying %1$d check-in(s) to pass on</string>
     <string name="gossip_notification_someone">Someone</string>
     <string name="gossip_notification_here_one">%1$s is at this gig with you</string>
     <string name="gossip_notification_here_two">%1$s and %2$s are at this gig with you</string>
     <string name="gossip_notification_here_many">%1$s and %2$d others are at this gig with you</string>
-    <string name="gossip_notification_at">Relaying messages at %1$s</string>
+    <string name="gossip_notification_at">Passing on check-ins at %1$s</string>
     <string name="gossip_notification_stop">Stop</string>
 </resources>
