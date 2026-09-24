@@ -125,7 +125,7 @@ class MainActivity : ComponentActivity() {
     private fun handleTicketIntent(intent: Intent?) {
         if (intent?.type != "application/pdf") return
         val uri = when (intent.action) {
-            Intent.ACTION_SEND -> ticketUriExtra(intent) ?: intent.data
+            Intent.ACTION_SEND -> ticketUriExtra(intent) ?: intent.data ?: clipDataUri(intent)
             Intent.ACTION_VIEW -> intent.data
             else -> null
         } ?: return
@@ -142,6 +142,11 @@ class MainActivity : ComponentActivity() {
         } else {
             intent.getParcelableExtra(Intent.EXTRA_STREAM)
         }
+
+    // The real system Share sheet (e.g. Files app -> Share) often lands the pdf here
+    // rather than in EXTRA_STREAM; adb am start doesn't reproduce this intent shape.
+    private fun clipDataUri(intent: Intent): android.net.Uri? =
+        intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
 
     /**
      * The manual two-device capture rig for #142's own verification procedure — never
