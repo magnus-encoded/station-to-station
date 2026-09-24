@@ -343,4 +343,22 @@ final class TicketParseTests: XCTestCase {
         XCTAssertEqual([complete], first.map(\.ticket))
         XCTAssertTrue(second.isEmpty)
     }
+
+    // A sideloader renames the App Group the way it renames the bundle id, so the
+    // declared group is not the one a sideloaded install holds.
+
+    func testASignedBuildTriesOnlyTheDeclaredGroup() {
+        XCTAssertEqual([TicketInbox.appGroup], TicketInbox.appGroupCandidates(
+            bundleIdentifier: "io.github.magnusencoded.stationtostation", isExtension: false))
+        XCTAssertEqual([TicketInbox.appGroup], TicketInbox.appGroupCandidates(
+            bundleIdentifier: "io.github.magnusencoded.stationtostation.ticketshare", isExtension: true))
+    }
+
+    func testASideloadedAppAndItsExtensionDeriveTheSameRenamedGroup() {
+        let renamed = "group.io.github.magnusencoded.stationtostation.VHZW7G33CV"
+        XCTAssertEqual([TicketInbox.appGroup, renamed], TicketInbox.appGroupCandidates(
+            bundleIdentifier: "io.github.magnusencoded.stationtostation.VHZW7G33CV", isExtension: false))
+        XCTAssertEqual([TicketInbox.appGroup, renamed], TicketInbox.appGroupCandidates(
+            bundleIdentifier: "io.github.magnusencoded.stationtostation.VHZW7G33CV.ticketshare", isExtension: true))
+    }
 }

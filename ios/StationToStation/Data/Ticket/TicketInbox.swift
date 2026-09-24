@@ -29,13 +29,38 @@ enum TicketInbox {
     /// whatever an already-installed extension has deposited.
     static let appGroup = "group.io.github.magnusencoded.stationtostation"
 
-    /// Nil when the group is not provisioned — a build signed by an Apple ID without
-    /// the App Groups capability, which is the ordinary case for a sideload. Callers
-    /// must degrade rather than crash: the extension says it could not reach the app,
-    /// and the app simply has nothing to drain.
+    /// The groups to try, in order: the declared one, then `group.<host app id>`.
+    ///
+    /// A re-signing sideloader renames the bundle id and the App Group the same way —
+    /// Sideloader appends the team id to both, so the installed app is
+    /// `….stationtostation.VHZW7G33CV` and holds `group.….stationtostation.VHZW7G33CV`.
+    /// The declared name is then one the process is not entitled to, while the name
+    /// derived from the host app's *installed* id is the one it holds. On a normally
+    /// signed build the two candidates are the same string.
+    ///
+    /// Inside the extension the bundle id is the host's plus one component
+    /// (`.ticketshare`), so that component is dropped to reach the host's.
+    static func appGroupCandidates(bundleIdentifier: String?, isExtension: Bool) -> [String] {
+        var candidates = [appGroup]
+        if var host = bundleIdentifier {
+            if isExtension, let dot = host.lastIndex(of: ".") { host = String(host[..<dot]) }
+            let derived = "group.\(host)"
+            if derived != appGroup { candidates.append(derived) }
+        }
+        return candidates
+    }
+
+    /// Nil when no group is provisioned — a build signed by an Apple ID without the
+    /// App Groups capability. Callers must degrade rather than crash: the extension
+    /// says it could not reach the app, and the app simply has nothing to drain.
     static var directory: URL? {
-        guard let container = FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: appGroup)
+        let candidates = appGroupCandidates(
+            bundleIdentifier: Bundle.main.bundleIdentifier,
+            isExtension: Bundle.main.bundleURL.pathExtension == "appex"
+        )
+        guard let container = candidates.lazy.compactMap({
+            FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: $0)
+        }).first
         else { return nil }
         let dir = container.appendingPathComponent("ticket-inbox", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
