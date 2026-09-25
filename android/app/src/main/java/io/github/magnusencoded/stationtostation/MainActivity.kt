@@ -120,15 +120,20 @@ class MainActivity : ComponentActivity() {
      * is the front door". `ACTION_SEND` with `application/pdf` is what an email or
      * wallet app's own "Share" offers, with the pdf usually as `EXTRA_STREAM` (rarely
      * as the intent's own [Intent.getData]); `ACTION_VIEW` is a Files app or browser's
-     * "Open with", where the pdf is always [Intent.getData].
+     * "Open with", where the pdf is always [Intent.getData]. A share that sets neither
+     * still carries the pdf as the first item of [Intent.getClipData] — the Files app's
+     * own "Share" does exactly this, and without that fallback the ticket was silently
+     * dropped (#514). The choice itself lives in [sharedTicketUri] so it can be tested.
      */
     private fun handleTicketIntent(intent: Intent?) {
-        if (intent?.type != "application/pdf") return
-        val uri = when (intent.action) {
-            Intent.ACTION_SEND -> ticketUriExtra(intent) ?: intent.data
-            Intent.ACTION_VIEW -> intent.data
-            else -> null
-        } ?: return
+        if (intent == null) return
+        val uri = sharedTicketUri(
+            action = intent.action,
+            type = intent.type,
+            stream = if (intent.action == Intent.ACTION_SEND) ticketUriExtra(intent) else null,
+            data = intent.data,
+            clip = intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri,
+        ) ?: return
         viewModel.handleSharedTicketPdf(uri)
     }
 
@@ -368,5 +373,27 @@ fun AppNavigation(viewModel: AppViewModel) {
                 onOpenSettings = { navController.navigate("settings") },
             )
         }
+    }
+}
+
+/**
+ * Which uri a ticket intent's pdf lives at (#411, #514) — pulled out of
+ * [MainActivity.handleTicketIntent] so it can be unit tested without an [Intent], and
+ * generic over the uri because `android.net.Uri` is only a stub under plain JUnit.
+ * `ACTION_SEND` tries `EXTRA_STREAM`, then the intent's own data, then the first clip
+ * item; `ACTION_VIEW` only ever has the data. Anything but a pdf is not a ticket.
+ */
+internal fun <U : Any> sharedTicketUri(
+    action: String?,
+    type: String?,
+    stream: U?,
+    data: U?,
+    clip: U?,
+): U? {
+    if (type != "application/pdf") return null
+    return when (action) {
+        Intent.ACTION_SEND -> stream ?: data ?: clip
+        Intent.ACTION_VIEW -> data
+        else -> null
     }
 }
