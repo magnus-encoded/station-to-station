@@ -1,0 +1,69 @@
+{
+  "about": "The same ticket with a text layer beside the real ML Kit reading. The text layer is reconstructed with the event block first and the booking block after it: the order a content stream often has, and ML Kit does not.",
+  "readings": [
+    {
+      "origin": "textLayer",
+      "lines": [
+        "Stageway, ATL & Ramalama presenterer:",
+        "Dumdumboys – XL [romertallførti]",
+        "28. nov. 2026 kl. 20.00",
+        "Trondheim Spektrum",
+        "Klostergata 90, 7030 Trondheim",
+        "Inngang 2/Inngang 4",
+        "STÅPLASS/STANDING",
+        "Dørene åpner 18:00",
+        "NOK 935,00 - fees included",
+        "Kunde: Kari Nordmann",
+        "OrdreID: 0000000001",
+        "Dette er din billett",
+        "Vis billetten på din telefon eller print den ut",
+        "Booking details",
+        "Kari Nordmann",
+        "Order number: 1000000001",
+        "E-ticket code: TESTCD1",
+        "Terms and conditions",
+        "Please check the ticket for event, date and time."
+      ]
+    },
+    {
+      "origin": "ocr",
+      "lines": [
+        "Dette er din billett",
+        "Vis billetten på din telefon eller print den ut",
+        "Booking details",
+        "Kari Nordmann",
+        "Order number: 1000000001",
+        "E-ticket code: TESTCD1",
+        "Terms and conditions",
+        "Please check the ticket for event, date and time.",
+        "123456789012345678901234",
+        "Stageway, ATL & Ramalama presenterer:",
+        "Dumdumboys – XL [romertallførti]",
+        "28. nov. 2026 kl. 20.00",
+        "Trondheim Spektrum",
+        "Klostergata 90, 7030 Trondheim",
+        "Kunde: Kari Nordmann",
+        "NOK 935,00 - fees included",
+        "Inngang 2/Inngang 4",
+        "STÅPLASS/STANDING",
+        "Dørene åpner 18:00",
+        "OrdreID: 0000000001"
+      ]
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "Dumdumboys – XL [romertallførti]",
+      "support": "both"
+    },
+    "venue": {
+      "value": "Trondheim Spektrum",
+      "support": "both"
+    },
+    "date": {
+      "value": "28-11-2026",
+      "support": "both"
+    },
+    "skipsPrompt": false
+  }
+}
