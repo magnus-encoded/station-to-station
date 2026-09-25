@@ -252,6 +252,28 @@ class TicketParsingTest {
     }
 
     @Test
+    fun aTicketForTonightIsAddedAndOnlyYesterdaysIsPast() {
+        // Tonight is a night you are going to — the day of the gig is when a ticket is
+        // most often shared. Same three days, same answers as iOS's
+        // testTheDayBeforeTheDayOfAndTheDayAfter.
+        fun dated(date: String) = ParsedTicket(
+            qrBytes = qr(),
+            artist = "Kaizers Orchestra",
+            venue = "Sentrum Scene",
+            date = date,
+        )
+        val today = LocalDate.of(2027, 6, 24)
+
+        val yesterday = routeTicket(dated("23-06-2027"), emptyList(), today = today)
+        val tonight = routeTicket(dated("24-06-2027"), emptyList(), today = today)
+        val tomorrow = routeTicket(dated("25-06-2027"), emptyList(), today = today)
+
+        assertTrue("yesterday's ticket is asked about", yesterday is TicketRouting.NeedsConfirmation)
+        assertTrue("tonight's ticket is added", tonight is TicketRouting.NewPlannedGig)
+        assertTrue("tomorrow's ticket is added", tomorrow is TicketRouting.NewPlannedGig)
+    }
+
+    @Test
     fun everyPartialParseNeedsConfirmationAsTheNormNotAnEdgeCase() {
         // #411's clarifying comment: confirm-first applies whether nothing was
         // extracted, only the QR, only some text fields, or everything short of a

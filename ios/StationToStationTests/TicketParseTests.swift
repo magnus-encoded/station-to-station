@@ -217,6 +217,20 @@ final class TicketParseTests: XCTestCase {
         XCTAssertEqual(.add(complete), route)
     }
 
+    /// The day either side of the night, held to the same answers Android's
+    /// `aTicketForTonightIsAddedAndOnlyYesterdaysIsPast` asserts: seen from the day
+    /// after, the ticket is past and asked about; from the day of or the day before,
+    /// it is added.
+    func testTheDayBeforeTheDayOfAndTheDayAfter() {
+        func route(on now: Date) -> TicketRoute {
+            routeTicket(.ticket(complete), knownNights: [], now: now, calendar: calendar)
+        }
+
+        XCTAssertEqual(.confirm(complete), route(on: day(2026, 9, 15)), "yesterday's ticket")
+        XCTAssertEqual(.add(complete), route(on: day(2026, 9, 14)), "tonight's ticket")
+        XCTAssertEqual(.add(complete), route(on: day(2026, 9, 13)), "tomorrow's ticket")
+    }
+
     func testNothingUsableRoutesToAnHonestBlank() {
         XCTAssertEqual(.unreadable,
                        routeTicket(.nothingUsable, knownNights: [],
