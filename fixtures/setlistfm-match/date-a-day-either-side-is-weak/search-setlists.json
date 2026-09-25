@@ -1,0 +1,75 @@
+{
+  "setlist": [
+    {
+      "id": "i1000001",
+      "eventDate": "28-02-2027",
+      "artist": {
+        "mbid": "00000000-0000-4000-8000-000000000003",
+        "name": "Ferrous Owls"
+      },
+      "venue": {
+        "name": "Driv",
+        "city": {
+          "name": "Tromsø",
+          "country": {
+            "name": "Norway"
+          }
+        }
+      }
+    },
+    {
+      "id": "i1000002",
+      "eventDate": "02-03-2027",
+      "artist": {
+        "mbid": "00000000-0000-4000-8000-000000000003",
+        "name": "Ferrous Owls"
+      },
+      "venue": {
+        "name": "Driv",
+        "city": {
+          "name": "Tromsø",
+          "country": {
+            "name": "Norway"
+          }
+        }
+      }
+    },
+    {
+      "id": "i1000003",
+      "eventDate": "27-02-2027",
+      "artist": {
+        "mbid": "00000000-0000-4000-8000-000000000003",
+        "name": "Ferrous Owls"
+      },
+      "venue": {
+        "name": "Driv",
+        "city": {
+          "name": "Tromsø",
+          "country": {
+            "name": "Norway"
+          }
+        }
+      }
+    },
+    {
+      "id": "i1000004",
+      "eventDate": "03-03-2027",
+      "artist": {
+        "mbid": "00000000-0000-4000-8000-000000000003",
+        "name": "Ferrous Owls"
+      },
+      "venue": {
+        "name": "Driv",
+        "city": {
+          "name": "Tromsø",
+          "country": {
+            "name": "Norway"
+          }
+        }
+      }
+    }
+  ],
+  "total": 4,
+  "page": 1,
+  "itemsPerPage": 20
+}

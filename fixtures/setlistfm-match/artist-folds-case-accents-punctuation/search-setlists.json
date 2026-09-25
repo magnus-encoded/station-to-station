@@ -1,0 +1,24 @@
+{
+  "setlist": [
+    {
+      "id": "d1000001",
+      "eventDate": "05-06-2027",
+      "artist": {
+        "mbid": "00000000-0000-4000-8000-000000000003",
+        "name": "Sigrod and the Love Boats"
+      },
+      "venue": {
+        "name": "Fjosloftet",
+        "city": {
+          "name": "Ålesund",
+          "country": {
+            "name": "Norway"
+          }
+        }
+      }
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "itemsPerPage": 20
+}

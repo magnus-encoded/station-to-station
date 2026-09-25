@@ -1,0 +1,41 @@
+{
+  "setlist": [
+    {
+      "id": "f1000001",
+      "eventDate": "18-09-2027",
+      "artist": {
+        "mbid": "00000000-0000-4000-8000-000000000001",
+        "name": "Harbour Lights (US)"
+      },
+      "venue": {
+        "name": "Tollboden",
+        "city": {
+          "name": "Drammen",
+          "country": {
+            "name": "Norway"
+          }
+        }
+      }
+    },
+    {
+      "id": "f1000002",
+      "eventDate": "18-09-2027",
+      "artist": {
+        "mbid": "00000000-0000-4000-8000-000000000002",
+        "name": "Harbour Lights (UK)"
+      },
+      "venue": {
+        "name": "Kulturhuset",
+        "city": {
+          "name": "Bergen",
+          "country": {
+            "name": "Norway"
+          }
+        }
+      }
+    }
+  ],
+  "total": 2,
+  "page": 1,
+  "itemsPerPage": 20
+}

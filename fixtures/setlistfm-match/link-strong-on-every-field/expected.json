@@ -1,0 +1,17 @@
+{
+  "about": "Strong on artist, date and venue, and the next-best hit is not as good: link without asking. The weaker hit is a day later in another room of the same city, learned from the hit in the ticket's room.",
+  "outcome": "linked",
+  "linked": "a1000001",
+  "levels": {
+    "a1000001": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "strong"
+    },
+    "a1000002": {
+      "artist": "strong",
+      "date": "weak",
+      "venue": "weak"
+    }
+  }
+}

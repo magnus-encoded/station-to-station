@@ -1,0 +1,92 @@
+{
+  "setlist": [
+    {
+      "id": "n1000001",
+      "eventDate": "11-10-2027",
+      "artist": {
+        "mbid": "00000000-0000-4000-8000-000000000003",
+        "name": "Ferrous Owls"
+      },
+      "venue": {
+        "name": "Kaia",
+        "city": {
+          "name": "Trondheim",
+          "country": {
+            "name": "Norway"
+          }
+        }
+      }
+    },
+    {
+      "id": "n1000002",
+      "eventDate": "10-10-2027",
+      "artist": {
+        "mbid": "00000000-0000-4000-8000-000000000003",
+        "name": "Ferrous Owls (NO)"
+      },
+      "venue": {
+        "name": "Driv",
+        "city": {
+          "name": "Tromsø",
+          "country": {
+            "name": "Norway"
+          }
+        }
+      }
+    },
+    {
+      "id": "n1000003",
+      "eventDate": "10-10-2027",
+      "artist": {
+        "mbid": "00000000-0000-4000-8000-000000000003",
+        "name": "Ferrous Owls"
+      },
+      "venue": {
+        "name": "Storgata Camping",
+        "city": {
+          "name": "Tromsø",
+          "country": {
+            "name": "Norway"
+          }
+        }
+      }
+    },
+    {
+      "id": "n1000004",
+      "eventDate": "09-10-2027",
+      "artist": {
+        "mbid": "00000000-0000-4000-8000-000000000003",
+        "name": "Ferrous Owls"
+      },
+      "venue": {
+        "name": "Driv",
+        "city": {
+          "name": "Tromsø",
+          "country": {
+            "name": "Norway"
+          }
+        }
+      }
+    },
+    {
+      "id": "n1000005",
+      "eventDate": "10-10-2027",
+      "artist": {
+        "mbid": "00000000-0000-4000-8000-000000000003",
+        "name": "Ferrous Owls"
+      },
+      "venue": {
+        "name": "Kaia",
+        "city": {
+          "name": "Trondheim",
+          "country": {
+            "name": "Norway"
+          }
+        }
+      }
+    }
+  ],
+  "total": 5,
+  "page": 1,
+  "itemsPerPage": 20
+}

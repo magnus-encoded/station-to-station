@@ -1,0 +1,20 @@
+{
+  "about": "Nothing says which city the ticket is in: a different room keeps the benefit of the doubt (Weak) rather than being ranked as though it were elsewhere. A tie, in setlist.fm's order.",
+  "outcome": "ask",
+  "ask": [
+    "m1000001",
+    "m1000002"
+  ],
+  "levels": {
+    "m1000001": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "weak"
+    },
+    "m1000002": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "weak"
+    }
+  }
+}

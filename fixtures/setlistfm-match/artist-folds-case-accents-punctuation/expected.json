@@ -1,0 +1,12 @@
+{
+  "about": "Folding: case, Nordic letters (ø/o), punctuation, and & read as and. Both the artist and the venue fold to the same name, so this links.",
+  "outcome": "linked",
+  "linked": "d1000001",
+  "levels": {
+    "d1000001": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "strong"
+    }
+  }
+}
