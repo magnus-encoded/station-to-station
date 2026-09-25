@@ -1,0 +1,47 @@
+{
+  "note": "Case and accents fold (RØYKSOPP / Röyksopp: NFD does not decompose ø), and a trailing city suffix on the ticket's venue folds away.",
+  "ticket": {
+    "artist": "RØYKSOPP",
+    "venue": "Sentrum Scene, Oslo",
+    "date": "01-03-2025"
+  },
+  "lineArtists": [],
+  "response": {
+    "type": "setlists",
+    "itemsPerPage": 20,
+    "page": 1,
+    "total": 1,
+    "setlist": [
+      {
+        "id": "2b3c4d01",
+        "eventDate": "01-03-2025",
+        "artist": {
+          "mbid": "mbid-röyksopp",
+          "name": "Röyksopp"
+        },
+        "venue": {
+          "name": "Sentrum Scene",
+          "city": {
+            "name": "Oslo",
+            "country": {
+              "name": "Norway"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "levels": {
+    "2b3c4d01": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "strong"
+    }
+  },
+  "expected": {
+    "outcome": "linked",
+    "ids": [
+      "2b3c4d01"
+    ]
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "note": "The magic path. A venue that contains the other is Strong (Rockefeller / Rockefeller Music Hall), and a hit three days out is dropped rather than counted as a rival.",
+  "ticket": {
+    "artist": "Motorpsycho",
+    "venue": "Rockefeller",
+    "date": "12-10-2024"
+  },
+  "lineArtists": [],
+  "response": {
+    "type": "setlists",
+    "itemsPerPage": 20,
+    "page": 1,
+    "total": 2,
+    "setlist": [
+      {
+        "id": "1a2b3c01",
+        "eventDate": "12-10-2024",
+        "artist": {
+          "mbid": "mbid-motorpsycho",
+          "name": "Motorpsycho"
+        },
+        "venue": {
+          "name": "Rockefeller Music Hall",
+          "city": {
+            "name": "Oslo",
+            "country": {
+              "name": "Norway"
+            }
+          }
+        }
+      },
+      {
+        "id": "1a2b3c02",
+        "eventDate": "15-10-2024",
+        "artist": {
+          "mbid": "mbid-motorpsycho",
+          "name": "Motorpsycho"
+        },
+        "venue": {
+          "name": "Rockefeller Music Hall",
+          "city": {
+            "name": "Oslo",
+            "country": {
+              "name": "Norway"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "levels": {
+    "1a2b3c01": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "strong"
+    },
+    "1a2b3c02": {
+      "artist": "strong",
+      "date": "none",
+      "venue": "strong"
+    }
+  },
+  "expected": {
+    "outcome": "linked",
+    "ids": [
+      "1a2b3c01"
+    ]
+  }
+}

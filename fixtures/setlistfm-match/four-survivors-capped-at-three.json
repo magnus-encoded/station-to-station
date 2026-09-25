@@ -1,0 +1,115 @@
+{
+  "note": "Four hits survive and none meets the bar. Ranked by venue, then artist, then date, and only the best three are offered.",
+  "ticket": {
+    "artist": "Wilco",
+    "venue": "Sentrum Scene, Oslo",
+    "date": "10-06-2024"
+  },
+  "lineArtists": [],
+  "response": {
+    "type": "setlists",
+    "itemsPerPage": 20,
+    "page": 1,
+    "total": 4,
+    "setlist": [
+      {
+        "id": "1e2f3a01",
+        "eventDate": "10-06-2024",
+        "artist": {
+          "mbid": "mbid-wilcous",
+          "name": "Wilco (US)"
+        },
+        "venue": {
+          "name": "Grieghallen",
+          "city": {
+            "name": "Bergen",
+            "country": {
+              "name": "Norway"
+            }
+          }
+        }
+      },
+      {
+        "id": "1e2f3a02",
+        "eventDate": "09-06-2024",
+        "artist": {
+          "mbid": "mbid-wilco",
+          "name": "Wilco"
+        },
+        "venue": {
+          "name": "Rockefeller Music Hall",
+          "city": {
+            "name": "Oslo",
+            "country": {
+              "name": "Norway"
+            }
+          }
+        }
+      },
+      {
+        "id": "1e2f3a03",
+        "eventDate": "11-06-2024",
+        "artist": {
+          "mbid": "mbid-wilco",
+          "name": "Wilco"
+        },
+        "venue": {
+          "name": "Sentrum Scene",
+          "city": {
+            "name": "Oslo",
+            "country": {
+              "name": "Norway"
+            }
+          }
+        }
+      },
+      {
+        "id": "1e2f3a04",
+        "eventDate": "10-06-2024",
+        "artist": {
+          "mbid": "mbid-wilcous",
+          "name": "Wilco (US)"
+        },
+        "venue": {
+          "name": "Sentrum Scene",
+          "city": {
+            "name": "Oslo",
+            "country": {
+              "name": "Norway"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "levels": {
+    "1e2f3a01": {
+      "artist": "weak",
+      "date": "strong",
+      "venue": "none"
+    },
+    "1e2f3a02": {
+      "artist": "strong",
+      "date": "weak",
+      "venue": "weak"
+    },
+    "1e2f3a03": {
+      "artist": "strong",
+      "date": "weak",
+      "venue": "strong"
+    },
+    "1e2f3a04": {
+      "artist": "weak",
+      "date": "strong",
+      "venue": "strong"
+    }
+  },
+  "expected": {
+    "outcome": "ask",
+    "ids": [
+      "1e2f3a03",
+      "1e2f3a04",
+      "1e2f3a02"
+    ]
+  }
+}

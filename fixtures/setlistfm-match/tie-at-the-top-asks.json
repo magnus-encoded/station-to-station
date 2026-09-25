@@ -1,0 +1,70 @@
+{
+  "note": "An early and a late show, both Strong on every field. Neither is better, so the person chooses; setlist.fm's order breaks the tie in the list.",
+  "ticket": {
+    "artist": "Motorpsycho",
+    "venue": "Rockefeller Music Hall",
+    "date": "12-10-2024"
+  },
+  "lineArtists": [],
+  "response": {
+    "type": "setlists",
+    "itemsPerPage": 20,
+    "page": 1,
+    "total": 2,
+    "setlist": [
+      {
+        "id": "0d1e2f01",
+        "eventDate": "12-10-2024",
+        "artist": {
+          "mbid": "mbid-motorpsycho",
+          "name": "Motorpsycho"
+        },
+        "venue": {
+          "name": "Rockefeller Music Hall",
+          "city": {
+            "name": "Oslo",
+            "country": {
+              "name": "Norway"
+            }
+          }
+        }
+      },
+      {
+        "id": "0d1e2f02",
+        "eventDate": "12-10-2024",
+        "artist": {
+          "mbid": "mbid-motorpsycho",
+          "name": "Motorpsycho"
+        },
+        "venue": {
+          "name": "Rockefeller Music Hall",
+          "city": {
+            "name": "Oslo",
+            "country": {
+              "name": "Norway"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "levels": {
+    "0d1e2f01": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "strong"
+    },
+    "0d1e2f02": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "strong"
+    }
+  },
+  "expected": {
+    "outcome": "ask",
+    "ids": [
+      "0d1e2f01",
+      "0d1e2f02"
+    ]
+  }
+}

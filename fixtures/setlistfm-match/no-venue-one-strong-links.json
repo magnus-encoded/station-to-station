@@ -1,0 +1,69 @@
+{
+  "note": "A ticket with no venue links on artist and date alone, when one hit is Strong on both and no other is as good.",
+  "ticket": {
+    "artist": "Motorpsycho",
+    "venue": null,
+    "date": "12-10-2024"
+  },
+  "lineArtists": [],
+  "response": {
+    "type": "setlists",
+    "itemsPerPage": 20,
+    "page": 1,
+    "total": 2,
+    "setlist": [
+      {
+        "id": "2f3a4b01",
+        "eventDate": "13-10-2024",
+        "artist": {
+          "mbid": "mbid-motorpsycho",
+          "name": "Motorpsycho"
+        },
+        "venue": {
+          "name": "Olavshallen",
+          "city": {
+            "name": "Trondheim",
+            "country": {
+              "name": "Norway"
+            }
+          }
+        }
+      },
+      {
+        "id": "2f3a4b02",
+        "eventDate": "12-10-2024",
+        "artist": {
+          "mbid": "mbid-motorpsycho",
+          "name": "Motorpsycho"
+        },
+        "venue": {
+          "name": "Rockefeller Music Hall",
+          "city": {
+            "name": "Oslo",
+            "country": {
+              "name": "Norway"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "levels": {
+    "2f3a4b01": {
+      "artist": "strong",
+      "date": "weak",
+      "venue": null
+    },
+    "2f3a4b02": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": null
+    }
+  },
+  "expected": {
+    "outcome": "linked",
+    "ids": [
+      "2f3a4b02"
+    ]
+  }
+}

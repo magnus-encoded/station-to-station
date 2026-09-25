@@ -1,0 +1,47 @@
+{
+  "note": "A ticket dated by doors after midnight: the day after setlist.fm's is Weak, and asked about.",
+  "ticket": {
+    "artist": "Kvelertak",
+    "venue": "Rockefeller Music Hall",
+    "date": "13-10-2024"
+  },
+  "lineArtists": [],
+  "response": {
+    "type": "setlists",
+    "itemsPerPage": 20,
+    "page": 1,
+    "total": 1,
+    "setlist": [
+      {
+        "id": "6f7a8b01",
+        "eventDate": "12-10-2024",
+        "artist": {
+          "mbid": "mbid-kvelertak",
+          "name": "Kvelertak"
+        },
+        "venue": {
+          "name": "Rockefeller Music Hall",
+          "city": {
+            "name": "Oslo",
+            "country": {
+              "name": "Norway"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "levels": {
+    "6f7a8b01": {
+      "artist": "strong",
+      "date": "weak",
+      "venue": "strong"
+    }
+  },
+  "expected": {
+    "outcome": "ask",
+    "ids": [
+      "6f7a8b01"
+    ]
+  }
+}
