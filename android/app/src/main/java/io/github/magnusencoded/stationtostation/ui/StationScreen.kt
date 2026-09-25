@@ -183,6 +183,8 @@ import io.github.magnusencoded.stationtostation.data.visibleToContacts
 import io.github.magnusencoded.stationtostation.data.withheldFromContacts
 import io.github.magnusencoded.stationtostation.data.gigInviteUri
 import io.github.magnusencoded.stationtostation.data.decodeTicketQrBase64
+import io.github.magnusencoded.stationtostation.data.ticketQrMatrix
+import io.github.magnusencoded.stationtostation.data.ticketQrText
 import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
 import io.github.magnusencoded.stationtostation.data.musicbrainz.MbArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
@@ -1154,7 +1156,7 @@ private fun TicketConfirmDialog(
             Text("From the shared ticket", fontFamily = Serif, fontSize = 19.sp, color = Ink)
             Spacer(Modifier.height(6.dp))
             Text(
-                if (pending.parsed.isEmpty) {
+                if (pending.parsed.isEmpty && pending.parsed.unsupportedBarcodeFormat == null) {
                     "Couldn't read anything off that PDF. Fill it in by hand, or discard it."
                 } else if (pending.possibleMatch != null) {
                     "This looks like a night already on your line — check it before saving."
@@ -1181,6 +1183,25 @@ private fun TicketConfirmDialog(
             if (pending.parsed.qrBytes != null) {
                 Spacer(Modifier.height(8.dp))
                 Text("A ticket QR was found and will be kept either way.", color = Faint, fontSize = 11.sp)
+            }
+            // A barcode was found that is not a QR (Code 128 on Eventim tickets). The
+            // app only stores and draws QRs until #441, so it is not kept — drawing
+            // its payload as a QR would look like a ticket and scan as nothing. Said
+            // plainly, since the alternative is finding out at the door. Not Faint:
+            // this is the one line in the dialog that changes what to bring.
+            pending.parsed.unsupportedBarcodeFormat?.let { format ->
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    if (pending.parsed.qrBytes == null) {
+                        "This ticket's barcode ($format) can't be shown by the app yet, so " +
+                            "it isn't saved. Bring the original PDF to the door."
+                    } else {
+                        "It also has a $format barcode, which the app can't show yet. If " +
+                            "that's the one the door scans, bring the original PDF."
+                    },
+                    color = Muted,
+                    fontSize = 11.sp,
+                )
             }
             Spacer(Modifier.height(4.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -3577,9 +3598,12 @@ fun StationEventScreen(
                     // either branch below, because it is worth showing on this gig's
                     // own page as soon as a ticket is attached — not held back until
                     // the day-of check-in window the way the offer to check in is.
+                    // Stored bytes are the payload's text as UTF-8 (TicketBarcode.kt);
+                    // a value that isn't valid UTF-8 is a pre-fix zxing `rawBytes`,
+                    // which never redrew correctly, so it draws nothing instead.
                     val ticketQr = remember(setlist.id) {
-                        gigAsKnown.ticketQr?.decodeTicketQrBase64()?.let { bytes ->
-                            runCatching { qrBitmap(String(bytes, Charsets.ISO_8859_1), 480) }.getOrNull()
+                        gigAsKnown.ticketQr?.decodeTicketQrBase64()?.let(::ticketQrText)?.let { text ->
+                            runCatching { matrixBitmap(ticketQrMatrix(text, 480)) }.getOrNull()
                         }
                     }
                     // The manual check-in, and the only one there is when location was
