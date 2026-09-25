@@ -1,0 +1,39 @@
+{
+  "about": "ticket_dayof2.pdf read on an iPhone: its text layer plus Vision OCR. The text layer is the one recorded in #526. The Vision reading is reconstructed from it, because the PDF is not in the repo.",
+  "readings": [
+    {
+      "origin": "textLayer",
+      "lines": [
+        "Your ticket",
+        "Static Halo",
+        "24-09-2026",
+        "Rockefeller, Oslo"
+      ]
+    },
+    {
+      "origin": "ocr",
+      "lines": [
+        "Your ticket",
+        "Static Halo",
+        "24-09-2026",
+        "Rockefeller, Oslo"
+      ]
+    }
+  ],
+  "barcode": "dayof2-qr-payload",
+  "expected": {
+    "artist": {
+      "value": "Static Halo",
+      "support": "both"
+    },
+    "venue": {
+      "value": "Rockefeller, Oslo",
+      "support": "both"
+    },
+    "date": {
+      "value": "24-09-2026",
+      "support": "both"
+    },
+    "skipsPrompt": true
+  }
+}

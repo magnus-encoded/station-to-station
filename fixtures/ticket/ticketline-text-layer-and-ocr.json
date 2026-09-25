@@ -1,0 +1,40 @@
+{
+  "about": "The Pixel's Gig f9c51210 ('TICKETLINE' at 'MORK WATER', 28-09-2026). UNVERIFIED ASSUMPTION: the vendor name is drawn as an image, so only OCR sees it, and the real artist is in the text layer. Only TICKETLINE, MORK WATER and the date come from the Gig; the other lines are reconstructed. An OCR-only line cannot take a field that the text layer has a candidate for.",
+  "readings": [
+    {
+      "origin": "textLayer",
+      "lines": [
+        "MORK WATER",
+        "28-09-2026",
+        "Parkteatret, Oslo",
+        "Ordre 88213407"
+      ]
+    },
+    {
+      "origin": "ocr",
+      "lines": [
+        "TICKETLINE",
+        "MORK WATER",
+        "28-09-2026",
+        "Parkteatret, Oslo",
+        "Ordre 88213407"
+      ]
+    }
+  ],
+  "barcode": "ticketline-qr-payload",
+  "expected": {
+    "artist": {
+      "value": "MORK WATER",
+      "support": "both"
+    },
+    "venue": {
+      "value": "Parkteatret, Oslo",
+      "support": "both"
+    },
+    "date": {
+      "value": "28-09-2026",
+      "support": "both"
+    },
+    "skipsPrompt": true
+  }
+}

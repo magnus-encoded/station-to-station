@@ -1,0 +1,31 @@
+{
+  "about": "The same ticket read by OCR alone. No text layer is there to outvote the logo, so the vendor-name guard is what keeps TICKETLINE from being taken as the artist.",
+  "readings": [
+    {
+      "origin": "ocr",
+      "lines": [
+        "TICKETLINE",
+        "MORK WATER",
+        "28-09-2026",
+        "Parkteatret, Oslo",
+        "Ordre 88213407"
+      ]
+    }
+  ],
+  "barcode": "ticketline-qr-payload",
+  "expected": {
+    "artist": {
+      "value": "MORK WATER",
+      "support": "ocr"
+    },
+    "venue": {
+      "value": "Parkteatret, Oslo",
+      "support": "ocr"
+    },
+    "date": {
+      "value": "28-09-2026",
+      "support": "ocr"
+    },
+    "skipsPrompt": true
+  }
+}

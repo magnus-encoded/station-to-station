@@ -3,10 +3,11 @@ import XCTest
 
 /// Reading a PDF ticket (#412, #408).
 ///
-/// Fed pre-extracted QR bytes and OCR text blocks directly, never a real PDF — the
-/// seam is deliberately above PDFKit and Vision so these assertions say something
-/// about the rules rather than about a device's renderer. The Android twin (#411,
-/// landed) is held to the same cases on the same inputs.
+/// Fed evidence directly, never a real PDF — the seam is deliberately above PDFKit and
+/// Vision so these assertions say something about the rules rather than about a
+/// device's renderer. Most cases here are one OCR reading, which is what a scan gives;
+/// the cross-checking between two readings is `TicketFixtureTests`, over the corpus in
+/// `fixtures/ticket/` that the Android twin runs too.
 final class TicketParseTests: XCTestCase {
 
     /// Fixed, because "day first unless a number says otherwise" is a rule about the
@@ -21,8 +22,11 @@ final class TicketParseTests: XCTestCase {
         calendar.date(from: DateComponents(year: year, month: month, day: dayOfMonth))!
     }
 
-    private func parse(qr: Data? = nil, _ blocks: [String]) -> TicketParse {
-        parseTicket(qr: qr, blocks: blocks, calendar: calendar)
+    private func parse(qr: Data? = nil, _ lines: [String]) -> TicketParse {
+        let evidence = TicketEvidence(
+            readings: [TicketReading(origin: .ocr, lines: lines)],
+            barcode: qr.map { TicketBarcode(image: Data(), payload: $0, symbology: "qr") })
+        return parseTicketFields(evidence, calendar: calendar)
     }
 
     private func ticket(qr: Data? = nil, _ blocks: [String]) -> Ticket {
@@ -303,13 +307,55 @@ final class TicketParseTests: XCTestCase {
     }
 
     /// The rule that is deliberately absent. A dash separates a great many things on a
-    /// ticket, and it is the one rule that could hand a *complete-looking* parse a
-    /// wrong artist — which is the parse that skips the prompt.
+    /// ticket ("Doors — 19:00"), so a dashed line is never cut into an artist and a
+    /// venue. It can still be guessed whole, like any other line, for the person to fix.
     func testADashIsNotASeparator() {
         let found = ticket(qr: qrBytes, ["Big Thief — Sentrum Scene"])
 
-        XCTAssertNil(found.artist)
+        XCTAssertEqual("Big Thief — Sentrum Scene", found.artist)
         XCTAssertNil(found.venue)
+    }
+
+    // MARK: - Guessing (#526)
+
+    /// No labels and no "at": the lines either side of the date. This is
+    /// ticket_dayof2.pdf, which iOS used to leave for the person to type.
+    func testAnUnlabelledTicketIsGuessedFromTheLinesAroundTheDate() {
+        let found = ticket(["Your ticket", "Static Halo", "24-09-2026", "Rockefeller, Oslo"])
+
+        XCTAssertEqual("Static Halo", found.artist)
+        XCTAssertEqual("Rockefeller, Oslo", found.venue)
+        XCTAssertEqual(day(2026, 9, 24), found.date)
+        XCTAssertEqual(.ocr, found.artistSupport)
+    }
+
+    /// A label outranks a guess, and the line it used is not guessed again.
+    func testALabelledArtistLeavesOnlyTheVenueToGuess() {
+        let found = ticket(["Artist: Big Thief", "Sentrum Scene", "Order #4471193"])
+
+        XCTAssertEqual("Big Thief", found.artist)
+        XCTAssertEqual("Sentrum Scene", found.venue)
+    }
+
+    /// Caps lines go ahead of prose, but a caps line with a digit, a slash or an ad's
+    /// exclamation mark is a code, a seat or a tagline, never a name.
+    func testACapsEventLineOutranksABannerAndACode() {
+        let found = ticket([
+            "Dette er din billett", "OPT2901", "DEL EN OPPLEVELSE!", "STÅPLASS/STANDING",
+            "SKAMBANKT", "PARKTEATRET SCENE", "TORSDAG 29.01.2015",
+        ])
+
+        XCTAssertEqual("SKAMBANKT", found.artist)
+        XCTAssertEqual("PARKTEATRET SCENE", found.venue)
+    }
+
+    /// A vendor's name on a line of its own is never the artist, even as a caps line on
+    /// a scan with no text layer to outvote it (the Pixel's "TICKETLINE" Gig).
+    func testAVendorNameIsNeverGuessed() {
+        let found = ticket(["TICKETLINE", "MORK WATER", "28-09-2026", "Parkteatret, Oslo"])
+
+        XCTAssertEqual("MORK WATER", found.artist)
+        XCTAssertEqual("Parkteatret, Oslo", found.venue)
     }
 
     /// A line carrying the date is not a line carrying an artist, whatever else is on
@@ -340,6 +386,51 @@ final class TicketParseTests: XCTestCase {
     func testTheFirstLabelledValueWins() {
         let found = ticket(["Artist: Big Thief", "Artist: Support Act"])
         XCTAssertEqual("Big Thief", found.artist)
+    }
+
+    // MARK: - Support (#526)
+
+    /// Complete, but the text layer never backed the artist: asked, not minted. This is
+    /// the shape a vendor logo read as an artist takes.
+    func testACompleteParseOneReadingAloneBackedIsConfirmed() {
+        var guessed = complete
+        guessed.readingCount = 2
+        guessed.artistSupport = .ocr
+        guessed.venueSupport = .both
+        guessed.dateSupport = .both
+
+        let route = routeTicket(.ticket(guessed), knownNights: [],
+                                now: day(2026, 8, 1), calendar: calendar)
+
+        XCTAssertEqual(.confirm(guessed), route)
+    }
+
+    /// Both readings agreed on every field: nothing left to ask.
+    func testACompleteParseBothReadingsBackedIsAdded() {
+        var agreed = complete
+        agreed.readingCount = 2
+        agreed.artistSupport = .both
+        agreed.venueSupport = .both
+        agreed.dateSupport = .both
+
+        let route = routeTicket(.ticket(agreed), knownNights: [],
+                                now: day(2026, 8, 1), calendar: calendar)
+
+        XCTAssertEqual(.add(agreed), route)
+    }
+
+    /// A scan only ever has one reading. Holding it to agreement it can never reach
+    /// would make every scanned ticket a prompt.
+    func testACompleteScanIsAddedOnItsOneReading() {
+        var scan = complete
+        scan.readingCount = 1
+        scan.artistSupport = .ocr
+        scan.venueSupport = .ocr
+        scan.dateSupport = .ocr
+
+        XCTAssertTrue(scan.canSkipPrompt)
+        XCTAssertEqual(.add(scan), routeTicket(.ticket(scan), knownNights: [],
+                                               now: day(2026, 8, 1), calendar: calendar))
     }
 
     // MARK: - The drop box
