@@ -15,7 +15,9 @@ fun String.decodeTicketQrBase64(): ByteArray? = runCatching { Base64.getDecoder(
 /**
  * What one rasterized page handed back, before any judgment is made about it (#411).
  *
- * [qrBytes] is whatever zxing decoded from the page image, raw. [textBlocks] is ML
+ * [qrBytes] is the decoded text of the first QR zxing found, as UTF-8 (see
+ * [chooseTicketBarcode]). [unsupportedBarcodeFormat] names a barcode that was found
+ * but is not a QR, which this app cannot yet store or redraw. [textBlocks] is ML
  * Kit's OCR result, one entry per recognised text block, in the order it read them —
  * which for most tickets is roughly top-to-bottom, but nothing here relies on that
  * being exact. Both are independently optional: a scanned ticket with no text layer
@@ -25,6 +27,7 @@ fun String.decodeTicketQrBase64(): ByteArray? = runCatching { Base64.getDecoder(
 data class TicketExtract(
     val qrBytes: ByteArray? = null,
     val textBlocks: List<String> = emptyList(),
+    val unsupportedBarcodeFormat: String? = null,
 ) {
     // ByteArray has no structural equals/hashCode; generated data class ones do not
     // do a content-comparison, which silently breaks `==` in tests. Ticket payloads
@@ -33,9 +36,11 @@ data class TicketExtract(
     override fun equals(other: Any?): Boolean =
         other is TicketExtract &&
             qrBytes.contentEqualsOrBothNull(other.qrBytes) &&
-            textBlocks == other.textBlocks
+            textBlocks == other.textBlocks &&
+            unsupportedBarcodeFormat == other.unsupportedBarcodeFormat
 
-    override fun hashCode(): Int = (qrBytes?.contentHashCode() ?: 0) * 31 + textBlocks.hashCode()
+    override fun hashCode(): Int =
+        listOf(qrBytes?.contentHashCode(), textBlocks, unsupportedBarcodeFormat).hashCode()
 }
 
 private fun ByteArray?.contentEqualsOrBothNull(other: ByteArray?): Boolean =
@@ -48,22 +53,30 @@ private fun ByteArray?.contentEqualsOrBothNull(other: ByteArray?): Boolean =
  *
  * [date] is dd-MM-yyyy, the one shape this app and setlist.fm both speak (see
  * [fmDate]/[parseFmDate] in Bill.kt).
+ *
+ * [unsupportedBarcodeFormat] is carried through from [TicketExtract] for the confirm
+ * prompt alone, and deliberately plays no part in [isEmpty] or [isComplete]: a ticket
+ * whose only barcode is a Code 128 has no [qrBytes], so it is never complete and
+ * always reaches the prompt — which is where it has to say that the app cannot show
+ * that barcode. Routing is otherwise exactly what it was.
  */
 data class ParsedTicket(
     val qrBytes: ByteArray? = null,
     val artist: String? = null,
     val venue: String? = null,
     val date: String? = null,
+    val unsupportedBarcodeFormat: String? = null,
 ) {
     override fun equals(other: Any?): Boolean =
         other is ParsedTicket &&
             qrBytes.contentEqualsOrBothNull(other.qrBytes) &&
             artist == other.artist &&
             venue == other.venue &&
-            date == other.date
+            date == other.date &&
+            unsupportedBarcodeFormat == other.unsupportedBarcodeFormat
 
     override fun hashCode(): Int =
-        listOf(qrBytes?.contentHashCode(), artist, venue, date).hashCode()
+        listOf(qrBytes?.contentHashCode(), artist, venue, date, unsupportedBarcodeFormat).hashCode()
 
     /** Nothing at all came out of the page — the honest "couldn't read this" (story 9). */
     val isEmpty: Boolean get() = qrBytes == null && artist == null && venue == null && date == null
@@ -149,7 +162,13 @@ fun parseTicket(extract: TicketExtract): ParsedTicket {
         artist = ordered.getOrNull(0)
         venue = ordered.getOrNull(1)
     }
-    return ParsedTicket(qrBytes = extract.qrBytes, artist = artist, venue = venue, date = date)
+    return ParsedTicket(
+        qrBytes = extract.qrBytes,
+        artist = artist,
+        venue = venue,
+        date = date,
+        unsupportedBarcodeFormat = extract.unsupportedBarcodeFormat,
+    )
 }
 
 /** A blank line or a vendor's own label line (ending ":") is never the neighbour's answer. */
