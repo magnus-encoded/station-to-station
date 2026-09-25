@@ -1,0 +1,52 @@
+{
+  "note": "A name that does not fold to the ticket's is still Strong when its MusicBrainz id is the one the Line holds for that artist.",
+  "ticket": {
+    "artist": "Honningbarna",
+    "venue": "Blå",
+    "date": "20-04-2024"
+  },
+  "lineArtists": [
+    {
+      "mbid": "mbid-honningbarna",
+      "name": "Honningbarna"
+    }
+  ],
+  "response": {
+    "type": "setlists",
+    "itemsPerPage": 20,
+    "page": 1,
+    "total": 1,
+    "setlist": [
+      {
+        "id": "4d5e6f01",
+        "eventDate": "20-04-2024",
+        "artist": {
+          "mbid": "mbid-honningbarna",
+          "name": "The Honey Children"
+        },
+        "venue": {
+          "name": "Blå",
+          "city": {
+            "name": "Oslo",
+            "country": {
+              "name": "Norway"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "levels": {
+    "4d5e6f01": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "strong"
+    }
+  },
+  "expected": {
+    "outcome": "linked",
+    "ids": [
+      "4d5e6f01"
+    ]
+  }
+}

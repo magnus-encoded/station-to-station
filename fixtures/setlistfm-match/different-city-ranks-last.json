@@ -1,0 +1,70 @@
+{
+  "note": "The same city ranks before a different one, even when the different city has the better date. The ticket's city here is its trailing word, with no comma.",
+  "ticket": {
+    "artist": "Motorpsycho",
+    "venue": "John Dee Oslo",
+    "date": "12-10-2024"
+  },
+  "lineArtists": [],
+  "response": {
+    "type": "setlists",
+    "itemsPerPage": 20,
+    "page": 1,
+    "total": 2,
+    "setlist": [
+      {
+        "id": "9c0d1e01",
+        "eventDate": "12-10-2024",
+        "artist": {
+          "mbid": "mbid-motorpsycho",
+          "name": "Motorpsycho"
+        },
+        "venue": {
+          "name": "Grieghallen",
+          "city": {
+            "name": "Bergen",
+            "country": {
+              "name": "Norway"
+            }
+          }
+        }
+      },
+      {
+        "id": "9c0d1e02",
+        "eventDate": "13-10-2024",
+        "artist": {
+          "mbid": "mbid-motorpsycho",
+          "name": "Motorpsycho"
+        },
+        "venue": {
+          "name": "Rockefeller Music Hall",
+          "city": {
+            "name": "Oslo",
+            "country": {
+              "name": "Norway"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "levels": {
+    "9c0d1e01": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "none"
+    },
+    "9c0d1e02": {
+      "artist": "strong",
+      "date": "weak",
+      "venue": "weak"
+    }
+  },
+  "expected": {
+    "outcome": "ask",
+    "ids": [
+      "9c0d1e02",
+      "9c0d1e01"
+    ]
+  }
+}

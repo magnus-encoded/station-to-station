@@ -1,0 +1,67 @@
+{
+  "note": "A different artist (Wilko Johnson is not Wilco) and a date two days out are both dropped, so nothing survives.",
+  "ticket": {
+    "artist": "Wilco",
+    "venue": "Sentrum Scene",
+    "date": "10-06-2024"
+  },
+  "lineArtists": [],
+  "response": {
+    "type": "setlists",
+    "itemsPerPage": 20,
+    "page": 1,
+    "total": 2,
+    "setlist": [
+      {
+        "id": "7a8b9c01",
+        "eventDate": "10-06-2024",
+        "artist": {
+          "mbid": "mbid-wilkojohnson",
+          "name": "Wilko Johnson"
+        },
+        "venue": {
+          "name": "Sentrum Scene",
+          "city": {
+            "name": "Oslo",
+            "country": {
+              "name": "Norway"
+            }
+          }
+        }
+      },
+      {
+        "id": "7a8b9c02",
+        "eventDate": "12-06-2024",
+        "artist": {
+          "mbid": "mbid-wilco",
+          "name": "Wilco"
+        },
+        "venue": {
+          "name": "Sentrum Scene",
+          "city": {
+            "name": "Oslo",
+            "country": {
+              "name": "Norway"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "levels": {
+    "7a8b9c01": {
+      "artist": "none",
+      "date": "strong",
+      "venue": "strong"
+    },
+    "7a8b9c02": {
+      "artist": "strong",
+      "date": "none",
+      "venue": "strong"
+    }
+  },
+  "expected": {
+    "outcome": "noMatch",
+    "ids": []
+  }
+}

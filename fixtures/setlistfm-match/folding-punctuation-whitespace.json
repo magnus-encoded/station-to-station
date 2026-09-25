@@ -1,0 +1,47 @@
+{
+  "note": "Punctuation and whitespace fold: Guns N Roses / Guns N' Roses, and a doubled space in the venue.",
+  "ticket": {
+    "artist": "Guns N Roses",
+    "venue": "Telenor  Arena",
+    "date": "07-07-2023"
+  },
+  "lineArtists": [],
+  "response": {
+    "type": "setlists",
+    "itemsPerPage": 20,
+    "page": 1,
+    "total": 1,
+    "setlist": [
+      {
+        "id": "3c4d5e01",
+        "eventDate": "07-07-2023",
+        "artist": {
+          "mbid": "mbid-gunsnroses",
+          "name": "Guns N' Roses"
+        },
+        "venue": {
+          "name": "Telenor Arena",
+          "city": {
+            "name": "Bærum",
+            "country": {
+              "name": "Norway"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "levels": {
+    "3c4d5e01": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "strong"
+    }
+  },
+  "expected": {
+    "outcome": "linked",
+    "ids": [
+      "3c4d5e01"
+    ]
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "note": "Sold out and moved: the ticket says John Dee, setlist.fm lists Rockefeller, both in Oslo. Weak, so asked, never assumed.",
+  "ticket": {
+    "artist": "Honningbarna",
+    "venue": "John Dee, Oslo",
+    "date": "20-04-2024"
+  },
+  "lineArtists": [],
+  "response": {
+    "type": "setlists",
+    "itemsPerPage": 20,
+    "page": 1,
+    "total": 1,
+    "setlist": [
+      {
+        "id": "8b9c0d01",
+        "eventDate": "20-04-2024",
+        "artist": {
+          "mbid": "mbid-honningbarna",
+          "name": "Honningbarna"
+        },
+        "venue": {
+          "name": "Rockefeller Music Hall",
+          "city": {
+            "name": "Oslo",
+            "country": {
+              "name": "Norway"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "levels": {
+    "8b9c0d01": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "weak"
+    }
+  },
+  "expected": {
+    "outcome": "ask",
+    "ids": [
+      "8b9c0d01"
+    ]
+  }
+}

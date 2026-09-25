@@ -1,0 +1,21 @@
+{
+  "note": "setlist.fm found nothing at all.",
+  "ticket": {
+    "artist": "Motorpsycho",
+    "venue": "Rockefeller",
+    "date": "12-10-2030"
+  },
+  "lineArtists": [],
+  "response": {
+    "type": "setlists",
+    "itemsPerPage": 20,
+    "page": 1,
+    "total": 0,
+    "setlist": []
+  },
+  "levels": {},
+  "expected": {
+    "outcome": "noMatch",
+    "ids": []
+  }
+}

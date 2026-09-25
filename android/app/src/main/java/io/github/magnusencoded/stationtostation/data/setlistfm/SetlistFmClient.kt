@@ -113,6 +113,28 @@ class SetlistFmClient(
     suspend fun artistSetlists(mbid: String, page: Int = 1): SetlistsResponse =
         json.decodeFromString(get("artist/$mbid/setlists", mapOf("p" to page.toString())))
 
+    /**
+     * The setlists for one artist on one night (#531). [date] is `dd-MM-yyyy`. setlist.fm
+     * lists upcoming nights here too, which is how a future **Ticket** can link at import.
+     *
+     * [venueName] narrows the search, so a lookup that means to catch a moved gig (John
+     * Dee to Rockefeller) leaves it out and lets `matchSetlistFm` rank the venues instead.
+     * A search that finds nothing is a 404 on setlist.fm, and reads here as no hits.
+     */
+    suspend fun searchSetlists(
+        artistName: String,
+        date: String,
+        venueName: String? = null,
+        page: Int = 1,
+    ): SetlistsResponse =
+        json.decodeFromString(
+            get(
+                "search/setlists",
+                mapOf("artistName" to artistName, "date" to date, "venueName" to venueName, "p" to page.toString()),
+                notFoundIsEmpty = true,
+            )
+        )
+
     /** One setlist, fresh — for when it was just edited on setlist.fm. */
     suspend fun setlist(setlistId: String): FmSetlist =
         json.decodeFromString(get("setlist/$setlistId", emptyMap()))

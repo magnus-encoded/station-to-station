@@ -1,0 +1,47 @@
+{
+  "note": "Wilco (US) contains Wilco: Weak, so the one surviving hit is asked about rather than linked.",
+  "ticket": {
+    "artist": "Wilco (US)",
+    "venue": "Sentrum Scene",
+    "date": "10-06-2024"
+  },
+  "lineArtists": [],
+  "response": {
+    "type": "setlists",
+    "itemsPerPage": 20,
+    "page": 1,
+    "total": 1,
+    "setlist": [
+      {
+        "id": "5e6f7a01",
+        "eventDate": "10-06-2024",
+        "artist": {
+          "mbid": "mbid-wilco",
+          "name": "Wilco"
+        },
+        "venue": {
+          "name": "Sentrum Scene",
+          "city": {
+            "name": "Oslo",
+            "country": {
+              "name": "Norway"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "levels": {
+    "5e6f7a01": {
+      "artist": "weak",
+      "date": "strong",
+      "venue": "strong"
+    }
+  },
+  "expected": {
+    "outcome": "ask",
+    "ids": [
+      "5e6f7a01"
+    ]
+  }
+}
