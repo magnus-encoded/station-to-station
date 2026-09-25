@@ -1,0 +1,14 @@
+{
+  "about": "The upgrade after a sell-out (John Dee to Rockefeller): another room in the city the ticket names. Weak, so ask.",
+  "outcome": "ask",
+  "ask": [
+    "k1000001"
+  ],
+  "levels": {
+    "k1000001": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "weak"
+    }
+  }
+}

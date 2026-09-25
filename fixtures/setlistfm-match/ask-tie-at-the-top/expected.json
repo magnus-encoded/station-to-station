@@ -1,0 +1,20 @@
+{
+  "about": "Two hits both Strong on every field (a night entered twice on setlist.fm): neither is better than the other, so ask.",
+  "outcome": "ask",
+  "ask": [
+    "c1000001",
+    "c1000002"
+  ],
+  "levels": {
+    "c1000001": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "strong"
+    },
+    "c1000002": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "strong"
+    }
+  }
+}

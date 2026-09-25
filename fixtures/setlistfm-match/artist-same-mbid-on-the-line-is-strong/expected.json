@@ -1,0 +1,17 @@
+{
+  "about": "The same country-tagged name, but the Line already holds Harbour Lights with this MusicBrainz id: Strong, so it links. The namesake with another id stays Weak, and is in another city from the one the linked hit is in.",
+  "outcome": "linked",
+  "linked": "f1000001",
+  "levels": {
+    "f1000001": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "strong"
+    },
+    "f1000002": {
+      "artist": "weak",
+      "date": "strong",
+      "venue": "noMatch"
+    }
+  }
+}

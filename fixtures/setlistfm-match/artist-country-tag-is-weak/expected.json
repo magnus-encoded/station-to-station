@@ -1,0 +1,14 @@
+{
+  "about": "The Wilco (US) / Wilco case, as the spec's table has it: one name holds the other, so the artist is Weak and the answer is a question. This becomes linked if the owner adopts nameKey's rule for the matcher.",
+  "outcome": "ask",
+  "ask": [
+    "e1000001"
+  ],
+  "levels": {
+    "e1000001": {
+      "artist": "weak",
+      "date": "strong",
+      "venue": "strong"
+    }
+  }
+}

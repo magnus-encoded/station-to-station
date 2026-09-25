@@ -1,0 +1,41 @@
+{
+  "setlist": [
+    {
+      "id": "m1000001",
+      "eventDate": "12-03-2027",
+      "artist": {
+        "mbid": "00000000-0000-4000-8000-000000000003",
+        "name": "Ferrous Owls"
+      },
+      "venue": {
+        "name": "Store Sal",
+        "city": {
+          "name": "Bergen",
+          "country": {
+            "name": "Norway"
+          }
+        }
+      }
+    },
+    {
+      "id": "m1000002",
+      "eventDate": "12-03-2027",
+      "artist": {
+        "mbid": "00000000-0000-4000-8000-000000000003",
+        "name": "Ferrous Owls"
+      },
+      "venue": {
+        "name": "Kaia",
+        "city": {
+          "name": "Trondheim",
+          "country": {
+            "name": "Norway"
+          }
+        }
+      }
+    }
+  ],
+  "total": 2,
+  "page": 1,
+  "itemsPerPage": 20
+}

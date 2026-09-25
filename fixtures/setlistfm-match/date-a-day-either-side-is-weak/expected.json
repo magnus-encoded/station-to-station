@@ -1,0 +1,20 @@
+{
+  "about": "The day before and the day after are Weak (a ticket dated by the doors after midnight), across a month end in a non-leap year; two days off either way is dropped. Neither Weak hit meets the bar, so ask.",
+  "outcome": "ask",
+  "ask": [
+    "i1000001",
+    "i1000002"
+  ],
+  "levels": {
+    "i1000001": {
+      "artist": "strong",
+      "date": "weak",
+      "venue": "strong"
+    },
+    "i1000002": {
+      "artist": "strong",
+      "date": "weak",
+      "venue": "strong"
+    }
+  }
+}

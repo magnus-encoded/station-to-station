@@ -1,0 +1,26 @@
+{
+  "about": "The ticket names no city, but a hit in its own room is in Bergen, so Bergen is the ticket's city: Store Sal is Weak and Kaia in Trondheim is No match. Ranked by venue level, best first.",
+  "outcome": "ask",
+  "ask": [
+    "l1000002",
+    "l1000003",
+    "l1000001"
+  ],
+  "levels": {
+    "l1000001": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "noMatch"
+    },
+    "l1000002": {
+      "artist": "strong",
+      "date": "weak",
+      "venue": "strong"
+    },
+    "l1000003": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "weak"
+    }
+  }
+}

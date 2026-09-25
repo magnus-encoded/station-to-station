@@ -1,0 +1,12 @@
+{
+  "about": "One venue name holding the other is the same room: Strong, so this links.",
+  "outcome": "linked",
+  "linked": "j2000001",
+  "levels": {
+    "j2000001": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "strong"
+    }
+  }
+}

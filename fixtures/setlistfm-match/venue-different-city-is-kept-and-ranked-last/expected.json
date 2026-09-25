@@ -1,0 +1,20 @@
+{
+  "about": "A hit in another city is No match on venue but is not dropped; it ranks after the hit in the ticket's own city, whatever setlist.fm's order.",
+  "outcome": "ask",
+  "ask": [
+    "k2000002",
+    "k2000001"
+  ],
+  "levels": {
+    "k2000001": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "noMatch"
+    },
+    "k2000002": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "weak"
+    }
+  }
+}

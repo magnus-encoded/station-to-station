@@ -1,0 +1,14 @@
+{
+  "about": "One name holding the other means whole words: Owl is in Owl Choir (Weak) but not in Owls of Ferrous (dropped).",
+  "outcome": "ask",
+  "ask": [
+    "g1000002"
+  ],
+  "levels": {
+    "g1000002": {
+      "artist": "weak",
+      "date": "strong",
+      "venue": null
+    }
+  }
+}

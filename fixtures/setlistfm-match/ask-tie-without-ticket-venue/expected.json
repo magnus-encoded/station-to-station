@@ -1,0 +1,20 @@
+{
+  "about": "Two nights by the same artist on the same day and no venue to tell them apart: a tie at the top is a question, in setlist.fm's order.",
+  "outcome": "ask",
+  "ask": [
+    "b1000001",
+    "b1000002"
+  ],
+  "levels": {
+    "b1000001": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": null
+    },
+    "b1000002": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": null
+    }
+  }
+}
