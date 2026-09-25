@@ -1,0 +1,44 @@
+{
+  "cases": [
+    {
+      "name": "never looked up: look up now",
+      "now": "2026-09-25T21:00:00Z", "lastLookupAt": null,
+      "expect": "lookUpNow"
+    },
+    {
+      "name": "looked up a moment ago: friction",
+      "now": "2026-09-25T21:00:00Z", "lastLookupAt": "2026-09-25T20:59:59Z",
+      "expect": "friction"
+    },
+    {
+      "name": "looked up just now: friction",
+      "now": "2026-09-25T21:00:00Z", "lastLookupAt": "2026-09-25T21:00:00Z",
+      "expect": "friction"
+    },
+    {
+      "name": "59 seconds ago: still friction",
+      "now": "2026-09-25T21:00:59Z", "lastLookupAt": "2026-09-25T21:00:00Z",
+      "expect": "friction"
+    },
+    {
+      "name": "a minute ago: look up now",
+      "now": "2026-09-25T21:01:00Z", "lastLookupAt": "2026-09-25T21:00:00Z",
+      "expect": "lookUpNow"
+    },
+    {
+      "name": "after the 14 days, automatic checks have stopped: a refresh still looks up",
+      "now": "2026-11-01T12:00:00Z", "lastLookupAt": "2026-10-09T08:00:00Z",
+      "expect": "lookUpNow"
+    },
+    {
+      "name": "after the 14 days, a second refresh within the minute: friction still applies",
+      "now": "2026-11-01T12:00:30Z", "lastLookupAt": "2026-11-01T12:00:00Z",
+      "expect": "friction"
+    },
+    {
+      "name": "a last lookup in the future is a clock that moved: look up now",
+      "now": "2026-09-25T21:00:00Z", "lastLookupAt": "2026-09-25T21:00:30Z",
+      "expect": "lookUpNow"
+    }
+  ]
+}

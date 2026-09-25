@@ -735,7 +735,10 @@ final class AppModel: ObservableObject {
                     // `savePlanned` hands back whatever claim already stood, and a
                     // check-in outranks this one.
                     if played.contains(actKey(act)), claim.provenance == "planned" {
-                        let attended = StoredAttendance(provenance: "attended")
+                        // The rest of the claim is carried, not dropped: the ticket's QR
+                        // and #531's lookup state are facts about the night.
+                        var attended = claim
+                        attended.provenance = "attended"
                         await timelines.saveAttendance(setlistId: gigId, attendance: attended)
                         attendances[gigId] = attended
                     } else {
@@ -1757,7 +1760,8 @@ final class AppModel: ObservableObject {
                 provenance: cache.attendance()[gig.id]?.provenance ?? "planned",
                 checkedInAt: cache.attendance()[gig.id]?.checkedInAt,
                 venueLat: found.lat, venueLon: found.lon,
-                ticketQr: cache.attendance()[gig.id]?.ticketQr
+                ticketQr: cache.attendance()[gig.id]?.ticketQr,
+                setlistFmLookup: cache.attendance()[gig.id]?.setlistFmLookup
             )
         )
         return found
@@ -1778,7 +1782,8 @@ final class AppModel: ObservableObject {
                 provenance: "checked_in",
                 checkedInAt: Int64(Date().timeIntervalSince1970 * 1000),
                 venueLat: existing?.venueLat, venueLon: existing?.venueLon,
-                ticketQr: existing?.ticketQr
+                ticketQr: existing?.ticketQr,
+                setlistFmLookup: existing?.setlistFmLookup
             )
             await timelines.saveAttendance(setlistId: gigId, attendance: attendance)
             // The claim goes into state as well as onto disk: the night has just stopped
