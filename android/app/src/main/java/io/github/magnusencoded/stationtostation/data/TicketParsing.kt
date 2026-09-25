@@ -251,7 +251,7 @@ sealed interface TicketRouting {
     /** A future- or past-dated night this app already has a record of — a match, not a duplicate. */
     data class AlreadyKnown(val gig: FmSetlist) : TicketRouting
 
-    /** A complete, unmatched guess for a future night — goes straight onto the plan. */
+    /** A complete, unmatched guess for tonight or a later night — goes straight onto the plan. */
     data class NewPlannedGig(
         val artist: String,
         val venue: String,
@@ -293,8 +293,11 @@ fun matchKnownNight(parsed: ParsedTicket, knownGigs: List<FmSetlist>): FmSetlist
  *
  * A complete, unmatched parse for a **past** date is also routed to confirmation
  * rather than minted as a plan (story 13): the local-planned-gig path means "I'm
- * going", and an old ticket found while cleaning out email is not that. [today]
- * defaults to the real clock and exists only so a test can pin it.
+ * going", and an old ticket found while cleaning out email is not that. Tonight is
+ * not past: the day of the gig is when a ticket is most often shared, so a ticket
+ * dated [today] is minted like a later one — the same line iOS's `routeTicket` draws
+ * at the start of today. [today] defaults to the real clock and exists only so a
+ * test can pin it.
  */
 fun routeTicket(
     parsed: ParsedTicket,
@@ -305,7 +308,7 @@ fun routeTicket(
     if (parsed.isComplete) {
         if (match != null) return TicketRouting.AlreadyKnown(match)
         val night = parseFmDate(parsed.date!!)
-        if (night != null && night.isAfter(today)) {
+        if (night != null && !night.isBefore(today)) {
             return TicketRouting.NewPlannedGig(parsed.artist!!, parsed.venue!!, parsed.date, parsed.qrBytes)
         }
     }
