@@ -81,6 +81,52 @@ class TicketParsingTest {
     }
 
     @Test
+    fun anUnsupportedBarcodeIsCarriedThroughAndChangesNothingElse() {
+        // #441 interim: a Code 128 is reported for the confirm prompt, not stored as a
+        // QR. The text parse is exactly what it would have been without it.
+        val blocks = listOf("Kaizers Orchestra", "Sentrum Scene, Oslo", "24-06-2027")
+
+        val flagged = parseTicket(TicketExtract(textBlocks = blocks, unsupportedBarcodeFormat = "CODE_128"))
+        val plain = parseTicket(TicketExtract(textBlocks = blocks))
+
+        assertEquals("CODE_128", flagged.unsupportedBarcodeFormat)
+        assertNull(flagged.qrBytes)
+        assertEquals(plain.copy(unsupportedBarcodeFormat = "CODE_128"), flagged)
+        assertEquals(plain.isEmpty, flagged.isEmpty)
+        assertEquals(plain.isComplete, flagged.isComplete)
+    }
+
+    @Test
+    fun aTicketWhoseOnlyBarcodeIsUnsupportedAlwaysReachesThePrompt() {
+        // No QR means never complete, so the prompt that says "bring the PDF" is
+        // always shown — even when every text field parsed and the night is future.
+        val parsed = parseTicket(
+            TicketExtract(
+                textBlocks = listOf("Kaizers Orchestra", "Sentrum Scene, Oslo", "24-06-2027"),
+                unsupportedBarcodeFormat = "CODE_128",
+            ),
+        )
+
+        val routing = routeTicket(parsed, emptyList(), today = LocalDate.of(2027, 1, 1))
+
+        assertTrue(routing is TicketRouting.NeedsConfirmation)
+        assertEquals("CODE_128", (routing as TicketRouting.NeedsConfirmation).parsed.unsupportedBarcodeFormat)
+    }
+
+    @Test
+    fun theFlagDoesNotChangeRoutingWhenAQrWasAlsoFound() {
+        val gigs = listOf(known("g1", "24-06-2027", "Kaizers Orchestra"))
+        val base = ParsedTicket(qrBytes = qr(), artist = "Kaizers Orchestra", venue = "Sentrum Scene", date = "24-06-2027")
+        val today = LocalDate.of(2027, 1, 1)
+
+        for (nights in listOf(gigs, emptyList())) {
+            val plain = routeTicket(base, nights, today)
+            val flagged = routeTicket(base.copy(unsupportedBarcodeFormat = "CODE_128"), nights, today)
+            assertEquals(plain::class, flagged::class)
+        }
+    }
+
+    @Test
     fun aBannerLineAboveTheEventDetailsDoesNotWinOverTheStyledEventLine() {
         // Real bug, real ticket (a Norwegian Billettservice/Ticketmaster e-ticket):
         // OCR reads an instructional banner ahead of the actual event details, and
