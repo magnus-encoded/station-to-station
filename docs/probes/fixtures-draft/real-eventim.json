@@ -1,0 +1,675 @@
+{
+  "id": "real-eventim",
+  "sourceKind": "local-input-provenance-unverified",
+  "readings": [
+    {
+      "origin": "textLayer",
+      "lines": [
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]"
+      ]
+    },
+    {
+      "origin": "ocr",
+      "lines": [
+        "eventim",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "eventim",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "eventim",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "eventim",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "format": "CODE_128",
+      "payload": {
+        "sha256": "4ac5638dcdd3acc27c3fa18db1ec58f35ce0e8557311040192b29e8df4306e22",
+        "length": 22,
+        "isUtf8": true,
+        "charset": "UTF-8-compatible; encoding not proven"
+      },
+      "rawBytes": {
+        "sha256": "8c768dd448bb952414869a8875d66a464ae1df1268da36dc1e95058a12ffe33e",
+        "length": 14,
+        "isUtf8": true,
+        "charset": "UTF-8-compatible; encoding not proven"
+      },
+      "rawEqualsTextUtf8": false,
+      "byteSegments": [],
+      "symbologyIdentifier": "]C0",
+      "roundTrips": {
+        "textDefault": {
+          "status": "decoded",
+          "format": "CODE_128",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 11.601155
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "CODE_128",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 10.993978
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "CODE_128",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 11.350545
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 19.857422
+        }
+      },
+      "occurrences": [
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            229,
+            2159,
+            713.5,
+            2159
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            229,
+            2159,
+            713.5,
+            2159
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            343.5,
+            3236,
+            1070,
+            3236
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            343.5,
+            3236,
+            1070,
+            3236
+          ]
+        }
+      ],
+      "actualMainRedraw480": {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": false,
+        "ms": 13.463867,
+        "decodedTextUtf8": {
+          "sha256": "8c768dd448bb952414869a8875d66a464ae1df1268da36dc1e95058a12ffe33e",
+          "length": 14,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    },
+    {
+      "format": "EAN_8",
+      "payload": {
+        "sha256": "1075ff43c83d87f83cc053432e6b87070d6f175c92609d4b940bd3d751ab371d",
+        "length": 8,
+        "isUtf8": true,
+        "charset": "UTF-8-compatible; encoding not proven"
+      },
+      "rawBytes": null,
+      "rawEqualsTextUtf8": null,
+      "byteSegments": [],
+      "symbologyIdentifier": "]E4",
+      "roundTrips": {
+        "textDefault": {
+          "status": "decoded",
+          "format": "EAN_8",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 27.55721
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "EAN_8",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 27.998616
+        },
+        "rawLatin1": null,
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 17.421834
+        }
+      },
+      "occurrences": [
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            1182.5,
+            2350,
+            1354.5,
+            2350
+          ]
+        },
+        {
+          "page": 2,
+          "dpi": 300,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            1182.5,
+            2350,
+            1354.5,
+            2350
+          ]
+        }
+      ],
+      "actualMainRedraw480": {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": true,
+        "ms": 13.048137,
+        "decodedTextUtf8": {
+          "sha256": "1075ff43c83d87f83cc053432e6b87070d6f175c92609d4b940bd3d751ab371d",
+          "length": 8,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    },
+    {
+      "format": "CODE_128",
+      "payload": {
+        "sha256": "d201e6ad00f718928e10a226cfc980bd68235d02298df574efe055e72e5e9e83",
+        "length": 22,
+        "isUtf8": true,
+        "charset": "UTF-8-compatible; encoding not proven"
+      },
+      "rawBytes": {
+        "sha256": "a57a3236f46610f0b75b38a3bdd73bacb424545c4d1c645f0d62d5e61e5a3148",
+        "length": 14,
+        "isUtf8": true,
+        "charset": "UTF-8-compatible; encoding not proven"
+      },
+      "rawEqualsTextUtf8": false,
+      "byteSegments": [],
+      "symbologyIdentifier": "]C0",
+      "roundTrips": {
+        "textDefault": {
+          "status": "decoded",
+          "format": "CODE_128",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 10.864786
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "CODE_128",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 10.058146
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "CODE_128",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 10.383138
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 17.915975
+        }
+      },
+      "occurrences": [
+        {
+          "page": 2,
+          "dpi": 200,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            229,
+            2159,
+            713.5,
+            2159
+          ]
+        },
+        {
+          "page": 2,
+          "dpi": 200,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            229,
+            2159,
+            713.5,
+            2159
+          ]
+        },
+        {
+          "page": 2,
+          "dpi": 300,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            343.5,
+            3236,
+            1070,
+            3236
+          ]
+        },
+        {
+          "page": 2,
+          "dpi": 300,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            343.5,
+            3236,
+            1070,
+            3236
+          ]
+        }
+      ],
+      "actualMainRedraw480": {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": false,
+        "ms": 11.587931,
+        "decodedTextUtf8": {
+          "sha256": "a57a3236f46610f0b75b38a3bdd73bacb424545c4d1c645f0d62d5e61e5a3148",
+          "length": 14,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    },
+    {
+      "format": "UPC_E",
+      "payload": {
+        "sha256": "ab213559e25d3e108ae065f0691e363083a0776164550e4a078322699f54f35e",
+        "length": 8,
+        "isUtf8": true,
+        "charset": "UTF-8-compatible; encoding not proven"
+      },
+      "rawBytes": null,
+      "rawEqualsTextUtf8": null,
+      "byteSegments": [],
+      "symbologyIdentifier": "]E0",
+      "roundTrips": {
+        "textDefault": {
+          "status": "decoded",
+          "format": "UPC_E",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 31.374512
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "UPC_E",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 31.639404
+        },
+        "rawLatin1": null,
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 20.008545
+        }
+      },
+      "occurrences": [
+        {
+          "page": 2,
+          "dpi": 200,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            1018,
+            2253,
+            1586.5,
+            2253
+          ]
+        }
+      ],
+      "actualMainRedraw480": {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": true,
+        "ms": 11.607219,
+        "decodedTextUtf8": {
+          "sha256": "ab213559e25d3e108ae065f0691e363083a0776164550e4a078322699f54f35e",
+          "length": 8,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    },
+    {
+      "format": "UPC_E",
+      "payload": {
+        "sha256": "8d20a09996e1e9ba9d446a596cbdd6e450b51a2d89b5281a495ef441ddc294e2",
+        "length": 8,
+        "isUtf8": true,
+        "charset": "UTF-8-compatible; encoding not proven"
+      },
+      "rawBytes": null,
+      "rawEqualsTextUtf8": null,
+      "byteSegments": [],
+      "symbologyIdentifier": "]E0",
+      "roundTrips": {
+        "textDefault": {
+          "status": "decoded",
+          "format": "UPC_E",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 30.873902
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "UPC_E",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 31.881591
+        },
+        "rawLatin1": null,
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 20.509359
+        }
+      },
+      "occurrences": [
+        {
+          "page": 2,
+          "dpi": 200,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            210,
+            2255,
+            343,
+            2255
+          ]
+        }
+      ],
+      "actualMainRedraw480": {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": true,
+        "ms": 11.946533,
+        "decodedTextUtf8": {
+          "sha256": "8d20a09996e1e9ba9d446a596cbdd6e450b51a2d89b5281a495ef441ddc294e2",
+          "length": 8,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "",
+      "support": ""
+    },
+    "venue": {
+      "value": "",
+      "support": ""
+    },
+    "date": {
+      "value": "",
+      "support": ""
+    }
+  },
+  "observedParser": {
+    "pooledOcrBlocks": {
+      "artist": "[REDACTED_UNREVIEWED_TEXT]",
+      "venue": "[ORDER_OR_REFERENCE]",
+      "date": "11-08-2024",
+      "isComplete": false,
+      "route": "NeedsConfirmation",
+      "parseMs": 2.354329,
+      "routeMs": 0.080037
+    },
+    "textLayerLines": {
+      "artist": "[REDACTED_UNREVIEWED_TEXT]",
+      "venue": "[REDACTED_UNREVIEWED_TEXT]",
+      "date": "11-08-2024",
+      "isComplete": false,
+      "route": "NeedsConfirmation",
+      "parseMs": 1.890503,
+      "routeMs": 0.032145
+    },
+    "ocrLines": {
+      "artist": "[REDACTED_UNREVIEWED_TEXT]",
+      "venue": "[ORDER_OR_REFERENCE]",
+      "date": "11-08-2024",
+      "isComplete": false,
+      "route": "NeedsConfirmation",
+      "parseMs": 2.592936,
+      "routeMs": 0.023682
+    }
+  },
+  "notes": [
+    "Draft shape per #526; expected values/support are proposals, not a new shared spec.",
+    "OCR reading is 200 dpi. Original item boundaries/bounds and 300 dpi readings stay in the local dump.",
+    "Real/unverified inputs use a conservative text allowlist; placeholders also cover unreviewed harmless text.",
+    "Payload descriptor describes decoded text encoded as UTF-8, not proof of original barcode encoding.",
+    "Point bounds are the extrema of decoder result points, not guaranteed full symbol/quiet-zone bounds."
+  ]
+}

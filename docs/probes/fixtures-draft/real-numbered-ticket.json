@@ -1,0 +1,519 @@
+{
+  "id": "real-numbered-ticket",
+  "sourceKind": "local-input-provenance-unverified",
+  "readings": [
+    {
+      "origin": "textLayer",
+      "lines": [
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[ORDER_OR_REFERENCE]",
+        "[ORDER_OR_REFERENCE]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "20.06.2024\r",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "21.06.2024\r",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]"
+      ]
+    },
+    {
+      "origin": "ocr",
+      "lines": [
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "20.06.2024",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "21.06.2024",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "format": "QR_CODE",
+      "payload": {
+        "sha256": "e9c74038cd0dcbd79e76a5ce88a682e95451aa5b6c3485e59dc028d98259a0b7",
+        "length": 15,
+        "isUtf8": true,
+        "charset": "UTF-8-compatible; encoding not proven"
+      },
+      "rawBytes": {
+        "sha256": "31d9320f62be446de575a82dded556e6e1bc4a6f3e9aa5f5bebf71770f8af24a",
+        "length": 19,
+        "isUtf8": false,
+        "charset": "unknown"
+      },
+      "rawEqualsTextUtf8": false,
+      "byteSegments": [],
+      "symbologyIdentifier": "]Q1",
+      "roundTrips": {
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 22.576131
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 22.863689
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 42.123536
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 23.587239
+        }
+      },
+      "occurrences": [
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "unhinted",
+          "pointBoundsPx": [
+            1473.5,
+            272.5,
+            1521.5,
+            320.5
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            1473.5,
+            272.5,
+            1521.5,
+            320.5
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            1473.5,
+            272.5,
+            1521.5,
+            320.5
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "unhinted",
+          "pointBoundsPx": [
+            2211.5,
+            409,
+            2283.5,
+            480.5
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            2211.5,
+            409,
+            2283.5,
+            480.5
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            2211.5,
+            409,
+            2283.5,
+            480.5
+          ]
+        }
+      ],
+      "actualMainRedraw480": {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 15.183472,
+        "decodedTextUtf8": {
+          "sha256": "f87204b65acc03c2c2d082f22279ec37687af2e97a8cc099fa57e2498829cc58",
+          "length": 33,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    },
+    {
+      "format": "QR_CODE",
+      "payload": {
+        "sha256": "10bad1a73ac79f6fcbb90391e12ccc6d8b6b04231bfbc5576166104bd7952c57",
+        "length": 52,
+        "isUtf8": true,
+        "charset": "UTF-8-compatible; encoding not proven"
+      },
+      "rawBytes": {
+        "sha256": "437847c25c5cf0c9dec3acd85e604a006cab3fcb5836ecdfcf71d625b791db99",
+        "length": 55,
+        "isUtf8": false,
+        "charset": "unknown"
+      },
+      "rawEqualsTextUtf8": false,
+      "byteSegments": [
+        {
+          "sha256": "10bad1a73ac79f6fcbb90391e12ccc6d8b6b04231bfbc5576166104bd7952c57",
+          "length": 52,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      ],
+      "symbologyIdentifier": "]Q1",
+      "roundTrips": {
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 27.42037
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 27.190552
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 27.488078
+        },
+        "byteSegmentsLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 25.990275
+        },
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 27.011719
+        }
+      },
+      "occurrences": [
+        {
+          "page": 2,
+          "dpi": 200,
+          "mode": "unhinted",
+          "pointBoundsPx": [
+            1413.5,
+            63,
+            1562.5,
+            212.5
+          ]
+        },
+        {
+          "page": 2,
+          "dpi": 200,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            1413.5,
+            63,
+            1562.5,
+            212.5
+          ]
+        },
+        {
+          "page": 2,
+          "dpi": 200,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            1413.5,
+            63,
+            1562.5,
+            212.5
+          ]
+        },
+        {
+          "page": 2,
+          "dpi": 300,
+          "mode": "unhinted",
+          "pointBoundsPx": [
+            2121,
+            94.5,
+            2345,
+            318.5
+          ]
+        },
+        {
+          "page": 2,
+          "dpi": 300,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            2121,
+            94.5,
+            2345,
+            318.5
+          ]
+        },
+        {
+          "page": 2,
+          "dpi": 300,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            2121,
+            94.5,
+            2345,
+            318.5
+          ]
+        }
+      ],
+      "actualMainRedraw480": {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 23.789306,
+        "decodedTextUtf8": {
+          "sha256": "e8496db1dfe628d458b26d846db8c0b42b27bf58bea1bbfb49f4f41feaabca4c",
+          "length": 95,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "",
+      "support": ""
+    },
+    "venue": {
+      "value": "",
+      "support": ""
+    },
+    "date": {
+      "value": "",
+      "support": ""
+    }
+  },
+  "observedParser": {
+    "pooledOcrBlocks": {
+      "artist": "[REDACTED_UNREVIEWED_TEXT]",
+      "venue": "[REDACTED_UNREVIEWED_TEXT]",
+      "date": "21-05-2024",
+      "isComplete": true,
+      "route": "NeedsConfirmation",
+      "parseMs": 2.46224,
+      "routeMs": 0.148926
+    },
+    "textLayerLines": {
+      "artist": "[REDACTED_UNREVIEWED_TEXT]",
+      "venue": "[ORDER_OR_REFERENCE]",
+      "date": "21-05-2024",
+      "isComplete": true,
+      "route": "NeedsConfirmation",
+      "parseMs": 2.168213,
+      "routeMs": 0.081218
+    },
+    "ocrLines": {
+      "artist": "[REDACTED_UNREVIEWED_TEXT]",
+      "venue": "[REDACTED_UNREVIEWED_TEXT]",
+      "date": "21-05-2024",
+      "isComplete": true,
+      "route": "NeedsConfirmation",
+      "parseMs": 2.778565,
+      "routeMs": 0.065836
+    }
+  },
+  "notes": [
+    "Draft shape per #526; expected values/support are proposals, not a new shared spec.",
+    "OCR reading is 200 dpi. Original item boundaries/bounds and 300 dpi readings stay in the local dump.",
+    "Real/unverified inputs use a conservative text allowlist; placeholders also cover unreviewed harmless text.",
+    "Payload descriptor describes decoded text encoded as UTF-8, not proof of original barcode encoding.",
+    "Point bounds are the extrema of decoder result points, not guaranteed full symbol/quiet-zone bounds."
+  ]
+}

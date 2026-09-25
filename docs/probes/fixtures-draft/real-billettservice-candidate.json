@@ -1,0 +1,289 @@
+{
+  "id": "real-billettservice-candidate",
+  "sourceKind": "local-input-provenance-unverified",
+  "readings": [
+    {
+      "origin": "textLayer",
+      "lines": [
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]"
+      ]
+    },
+    {
+      "origin": "ocr",
+      "lines": [
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "format": "QR_CODE",
+      "payload": {
+        "sha256": "be85c22ed1a322791bb87159be367d07191646c807a964fca35e58492647ba55",
+        "length": 32,
+        "isUtf8": true,
+        "charset": "UTF-8-compatible; encoding not proven"
+      },
+      "rawBytes": {
+        "sha256": "0e43fb9d6a81e9f9f89c6f9b3b6a688eb0c87dbad536ab4914046e99d9e57226",
+        "length": 34,
+        "isUtf8": false,
+        "charset": "unknown"
+      },
+      "rawEqualsTextUtf8": false,
+      "byteSegments": [
+        {
+          "sha256": "be85c22ed1a322791bb87159be367d07191646c807a964fca35e58492647ba55",
+          "length": 32,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      ],
+      "symbologyIdentifier": "]Q1",
+      "roundTrips": {
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 26.311808
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 28.462362
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 27.220906
+        },
+        "byteSegmentsLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 26.556275
+        },
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 26.648804
+        }
+      },
+      "occurrences": [
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "unhinted",
+          "pointBoundsPx": [
+            731.5,
+            400,
+            936.5,
+            604
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            731.5,
+            400,
+            936.5,
+            604
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            731.5,
+            400,
+            936.5,
+            604
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "unhinted",
+          "pointBoundsPx": [
+            1097.5,
+            599.5,
+            1404.5,
+            905.5
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            1097.5,
+            599.5,
+            1404.5,
+            905.5
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            1097.5,
+            599.5,
+            1404.5,
+            905.5
+          ]
+        }
+      ],
+      "actualMainRedraw480": {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 59.159383,
+        "decodedTextUtf8": {
+          "sha256": "d19fc279b377686bc3ef882dde438c60bdf8a584840a311ca378e0fa63dd2f12",
+          "length": 56,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "",
+      "support": ""
+    },
+    "venue": {
+      "value": "",
+      "support": ""
+    },
+    "date": {
+      "value": "",
+      "support": ""
+    }
+  },
+  "observedParser": {
+    "pooledOcrBlocks": {
+      "artist": "[REDACTED_UNREVIEWED_TEXT]",
+      "venue": "[REDACTED_UNREVIEWED_TEXT]",
+      "date": null,
+      "isComplete": false,
+      "route": "NeedsConfirmation",
+      "parseMs": 8.934082,
+      "routeMs": 0.160401
+    },
+    "textLayerLines": {
+      "artist": "[REDACTED_UNREVIEWED_TEXT]",
+      "venue": "[ORDER_OR_REFERENCE]",
+      "date": null,
+      "isComplete": false,
+      "route": "NeedsConfirmation",
+      "parseMs": 3.453003,
+      "routeMs": 0.019694
+    },
+    "ocrLines": {
+      "artist": "[REDACTED_UNREVIEWED_TEXT]",
+      "venue": "[REDACTED_UNREVIEWED_TEXT]",
+      "date": null,
+      "isComplete": false,
+      "route": "NeedsConfirmation",
+      "parseMs": 3.69222,
+      "routeMs": 0.015015
+    }
+  },
+  "notes": [
+    "Draft shape per #526; expected values/support are proposals, not a new shared spec.",
+    "OCR reading is 200 dpi. Original item boundaries/bounds and 300 dpi readings stay in the local dump.",
+    "Real/unverified inputs use a conservative text allowlist; placeholders also cover unreviewed harmless text.",
+    "Payload descriptor describes decoded text encoded as UTF-8, not proof of original barcode encoding.",
+    "Point bounds are the extrema of decoder result points, not guaranteed full symbol/quiet-zone bounds."
+  ]
+}

@@ -1,0 +1,601 @@
+{
+  "id": "real-eticket",
+  "sourceKind": "local-input-provenance-unverified",
+  "readings": [
+    {
+      "origin": "textLayer",
+      "lines": [
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]"
+      ]
+    },
+    {
+      "origin": "ocr",
+      "lines": [
+        "ticketmaster",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "ticketmaster",
+        "ticketmaster",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[ORDER_OR_REFERENCE]",
+        "[REDACTED_UNREVIEWED_TEXT]"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "format": "QR_CODE",
+      "payload": {
+        "sha256": "25b622a8afeca83a0ce45d878a06241b9f8c3f51051a0b3fcf46dc54c2ba87c6",
+        "length": 9,
+        "isUtf8": true,
+        "charset": "UTF-8-compatible; encoding not proven"
+      },
+      "rawBytes": {
+        "sha256": "24166ad54cda7d8705ba0e335b65fab5524847d8644037f544c396f1c3ab09c3",
+        "length": 16,
+        "isUtf8": false,
+        "charset": "unknown"
+      },
+      "rawEqualsTextUtf8": false,
+      "byteSegments": [
+        {
+          "sha256": "25b622a8afeca83a0ce45d878a06241b9f8c3f51051a0b3fcf46dc54c2ba87c6",
+          "length": 9,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      ],
+      "symbologyIdentifier": "]Q1",
+      "roundTrips": {
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 34.820353
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 31.265584
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 29.204631
+        },
+        "byteSegmentsLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 21.380127
+        },
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 21.375122
+        }
+      },
+      "occurrences": [
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "unhinted",
+          "pointBoundsPx": [
+            1459,
+            237,
+            1523.5,
+            302
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            1459,
+            237,
+            1523.5,
+            302
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            1459,
+            237,
+            1523.5,
+            302
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "unhinted",
+          "pointBoundsPx": [
+            2188.5,
+            355.5,
+            2286.5,
+            453.5
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            2188.5,
+            355.5,
+            2286.5,
+            453.5
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            2188.5,
+            355.5,
+            2286.5,
+            453.5
+          ]
+        }
+      ],
+      "actualMainRedraw480": {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 19.267049,
+        "decodedTextUtf8": {
+          "sha256": "fca5a739eeb1e2c013b5683c28113c698f1fc5377b4046b2ac92cb698bdbc26b",
+          "length": 34,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    },
+    {
+      "format": "UPC_E",
+      "payload": {
+        "sha256": "86f1970d70dcd63b259f53a83ece91189d96378ffa31982bd11a731c29137dec",
+        "length": 8,
+        "isUtf8": true,
+        "charset": "UTF-8-compatible; encoding not proven"
+      },
+      "rawBytes": null,
+      "rawEqualsTextUtf8": null,
+      "byteSegments": [],
+      "symbologyIdentifier": "]E0",
+      "roundTrips": {
+        "textDefault": {
+          "status": "decoded",
+          "format": "UPC_E",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 33.568359
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "UPC_E",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 34.005493
+        },
+        "rawLatin1": null,
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 21.529297
+        }
+      },
+      "occurrences": [
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            640.5,
+            500,
+            839.5,
+            500
+          ]
+        }
+      ],
+      "actualMainRedraw480": {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": true,
+        "ms": 18.328003,
+        "decodedTextUtf8": {
+          "sha256": "86f1970d70dcd63b259f53a83ece91189d96378ffa31982bd11a731c29137dec",
+          "length": 8,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    },
+    {
+      "format": "UPC_E",
+      "payload": {
+        "sha256": "e41a62bfafd1093fe0e548670475c8d71268d3169a6bb8e21259c197c94c4925",
+        "length": 8,
+        "isUtf8": true,
+        "charset": "UTF-8-compatible; encoding not proven"
+      },
+      "rawBytes": null,
+      "rawEqualsTextUtf8": null,
+      "byteSegments": [],
+      "symbologyIdentifier": "]E0",
+      "roundTrips": {
+        "textDefault": {
+          "status": "decoded",
+          "format": "UPC_E",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 34.775268
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "UPC_E",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 36.469889
+        },
+        "rawLatin1": null,
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 21.367269
+        }
+      },
+      "occurrences": [
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            581.5,
+            454,
+            854.5,
+            454
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            872.5,
+            682,
+            1282.5,
+            682
+          ]
+        }
+      ],
+      "actualMainRedraw480": {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": true,
+        "ms": 16.565226,
+        "decodedTextUtf8": {
+          "sha256": "e41a62bfafd1093fe0e548670475c8d71268d3169a6bb8e21259c197c94c4925",
+          "length": 8,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    },
+    {
+      "format": "EAN_13",
+      "payload": {
+        "sha256": "1db4eb917823f16e60296575443b4821fca27a5d0d51ddb319c984cfd4bc1d61",
+        "length": 13,
+        "isUtf8": true,
+        "charset": "UTF-8-compatible; encoding not proven"
+      },
+      "rawBytes": null,
+      "rawEqualsTextUtf8": null,
+      "byteSegments": [],
+      "symbologyIdentifier": "]E0",
+      "roundTrips": {
+        "textDefault": {
+          "status": "decoded",
+          "format": "EAN_13",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 33.710327
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "EAN_13",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 34.148193
+        },
+        "rawLatin1": null,
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 23.343465
+        }
+      },
+      "occurrences": [
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            370,
+            1896,
+            607,
+            1896
+          ]
+        }
+      ],
+      "actualMainRedraw480": {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": true,
+        "ms": 17.12618,
+        "decodedTextUtf8": {
+          "sha256": "1db4eb917823f16e60296575443b4821fca27a5d0d51ddb319c984cfd4bc1d61",
+          "length": 13,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    },
+    {
+      "format": "EAN_8",
+      "payload": {
+        "sha256": "fff89e7c3860799602f14ecf8bc1932e24d4149b84b625463176ce137b0617bc",
+        "length": 8,
+        "isUtf8": true,
+        "charset": "UTF-8-compatible; encoding not proven"
+      },
+      "rawBytes": null,
+      "rawEqualsTextUtf8": null,
+      "byteSegments": [],
+      "symbologyIdentifier": "]E4",
+      "roundTrips": {
+        "textDefault": {
+          "status": "decoded",
+          "format": "EAN_8",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 34.621704
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "EAN_8",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 34.648519
+        },
+        "rawLatin1": null,
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 21.88387
+        }
+      },
+      "occurrences": [
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            97,
+            2037,
+            329,
+            2037
+          ]
+        }
+      ],
+      "actualMainRedraw480": {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": true,
+        "ms": 16.014974,
+        "decodedTextUtf8": {
+          "sha256": "fff89e7c3860799602f14ecf8bc1932e24d4149b84b625463176ce137b0617bc",
+          "length": 8,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "",
+      "support": ""
+    },
+    "venue": {
+      "value": "",
+      "support": ""
+    },
+    "date": {
+      "value": "",
+      "support": ""
+    }
+  },
+  "observedParser": {
+    "pooledOcrBlocks": {
+      "artist": "[REDACTED_UNREVIEWED_TEXT]",
+      "venue": "[REDACTED_UNREVIEWED_TEXT]",
+      "date": "27-06-2026",
+      "isComplete": true,
+      "route": "NeedsConfirmation",
+      "parseMs": 2.81779,
+      "routeMs": 0.185506
+    },
+    "textLayerLines": {
+      "artist": "[REDACTED_UNREVIEWED_TEXT]",
+      "venue": "[REDACTED_UNREVIEWED_TEXT]",
+      "date": "27-06-2026",
+      "isComplete": true,
+      "route": "NeedsConfirmation",
+      "parseMs": 1.769735,
+      "routeMs": 0.111043
+    },
+    "ocrLines": {
+      "artist": "[REDACTED_UNREVIEWED_TEXT]",
+      "venue": "[REDACTED_UNREVIEWED_TEXT]",
+      "date": "27-06-2026",
+      "isComplete": true,
+      "route": "NeedsConfirmation",
+      "parseMs": 2.106446,
+      "routeMs": 0.096842
+    }
+  },
+  "notes": [
+    "Draft shape per #526; expected values/support are proposals, not a new shared spec.",
+    "OCR reading is 200 dpi. Original item boundaries/bounds and 300 dpi readings stay in the local dump.",
+    "Real/unverified inputs use a conservative text allowlist; placeholders also cover unreviewed harmless text.",
+    "Payload descriptor describes decoded text encoded as UTF-8, not proof of original barcode encoding.",
+    "Point bounds are the extrema of decoder result points, not guaranteed full symbol/quiet-zone bounds."
+  ]
+}

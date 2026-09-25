@@ -1,0 +1,226 @@
+{
+  "id": "synthetic-date-numeric",
+  "sourceKind": "synthetic",
+  "readings": [
+    {
+      "origin": "textLayer",
+      "lines": [
+        "Ocean Colour Scene\r",
+        "24-09-2026\r",
+        "Auditorio Marina Norte, Valencia\r",
+        "Synthetic test ticket - not valid for admission\r",
+        "Visor Fest / setlist.fm ID 1b498dc4"
+      ]
+    },
+    {
+      "origin": "ocr",
+      "lines": [
+        "Ocean Colour Scene",
+        "24-09-2026",
+        "Auditorio Marina Norte, Valencia",
+        "Synthetic test ticket - not valid for admission",
+        "Visor Fest / setlist.fm ID 1b498dc4"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "format": "QR_CODE",
+      "payload": {
+        "sha256": "2756dbada8478f4142acd47c4b00eed10a7ef2eae77cc79ca37fcfd66a2c3a65",
+        "length": 22,
+        "isUtf8": true,
+        "charset": "UTF-8-compatible; encoding not proven"
+      },
+      "rawBytes": {
+        "sha256": "724920b0a9246c763b5859e0482d3c44e7ca93dfdadbd6a3dc056f93daee3d1b",
+        "length": 34,
+        "isUtf8": false,
+        "charset": "unknown"
+      },
+      "rawEqualsTextUtf8": false,
+      "byteSegments": [
+        {
+          "sha256": "2756dbada8478f4142acd47c4b00eed10a7ef2eae77cc79ca37fcfd66a2c3a65",
+          "length": 22,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      ],
+      "symbologyIdentifier": "]Q1",
+      "roundTrips": {
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 16.446167
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 16.014404
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 16.916911
+        },
+        "byteSegmentsLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 16.348064
+        },
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 16.802612
+        }
+      },
+      "occurrences": [
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "unhinted",
+          "pointBoundsPx": [
+            698.5,
+            1087,
+            953.5,
+            1342
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            698.5,
+            1087,
+            953.5,
+            1342
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            698.5,
+            1087,
+            953.5,
+            1342
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "unhinted",
+          "pointBoundsPx": [
+            1048.5,
+            1631,
+            1431,
+            2013.5
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            1048.5,
+            1631,
+            1431,
+            2013.5
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            1048.5,
+            1631,
+            1431,
+            2013.5
+          ]
+        }
+      ],
+      "actualMainRedraw480": {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 12.960002,
+        "decodedTextUtf8": {
+          "sha256": "2b1d6ae761b60ec4c4d7f7871562ff2ccf52ded910c5038b02deee9d2e1ae34f",
+          "length": 62,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "Ocean Colour Scene",
+      "support": "both"
+    },
+    "venue": {
+      "value": "Auditorio Marina Norte, Valencia",
+      "support": "both"
+    },
+    "date": {
+      "value": "24-09-2026",
+      "support": "both"
+    }
+  },
+  "observedParser": {
+    "pooledOcrBlocks": {
+      "artist": "Ocean Colour Scene",
+      "venue": "Auditorio Marina Norte, Valencia",
+      "date": "24-09-2026",
+      "isComplete": true,
+      "route": "NeedsConfirmation",
+      "parseMs": 0.415568,
+      "routeMs": 0.096151
+    },
+    "textLayerLines": {
+      "artist": "Ocean Colour Scene",
+      "venue": "Auditorio Marina Norte, Valencia",
+      "date": "24-09-2026",
+      "isComplete": true,
+      "route": "NeedsConfirmation",
+      "parseMs": 0.151001,
+      "routeMs": 0.02063
+    },
+    "ocrLines": {
+      "artist": "Ocean Colour Scene",
+      "venue": "Auditorio Marina Norte, Valencia",
+      "date": "24-09-2026",
+      "isComplete": true,
+      "route": "NeedsConfirmation",
+      "parseMs": 0.127605,
+      "routeMs": 0.017701
+    }
+  },
+  "notes": [
+    "Draft shape per #526; expected values/support are proposals, not a new shared spec.",
+    "OCR reading is 200 dpi. Original item boundaries/bounds and 300 dpi readings stay in the local dump.",
+    "Real/unverified inputs use a conservative text allowlist; placeholders also cover unreviewed harmless text.",
+    "Payload descriptor describes decoded text encoded as UTF-8, not proof of original barcode encoding.",
+    "Point bounds are the extrema of decoder result points, not guaranteed full symbol/quiet-zone bounds."
+  ]
+}

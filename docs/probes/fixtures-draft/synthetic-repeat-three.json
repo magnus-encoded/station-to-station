@@ -1,0 +1,364 @@
+{
+  "id": "synthetic-repeat-three",
+  "sourceKind": "synthetic",
+  "readings": [
+    {
+      "origin": "textLayer",
+      "lines": [
+        "Ocean Colour Scene\r",
+        "25-09-2026\r",
+        "Auditorio Marina Norte, Valencia\r",
+        "Synthetic test ticket - not valid for admission\r",
+        "Visor Fest / setlist.fm ID 1b498dc4",
+        "Ocean Colour Scene\r",
+        "25-09-2026\r",
+        "Auditorio Marina Norte, Valencia\r",
+        "Synthetic test ticket - not valid for admission\r",
+        "Visor Fest / setlist.fm ID 1b498dc4",
+        "Ocean Colour Scene\r",
+        "25-09-2026\r",
+        "Auditorio Marina Norte, Valencia\r",
+        "Synthetic test ticket - not valid for admission\r",
+        "Visor Fest / setlist.fm ID 1b498dc4"
+      ]
+    },
+    {
+      "origin": "ocr",
+      "lines": [
+        "Ocean Colour Scene",
+        "25-09-2026",
+        "Auditorio Marina Norte, Valencia",
+        "Synthetic test ticket - not valid for admission",
+        "Visor Fest / setlist.fm ID 1b498dc4",
+        "Ocean Colour Scene",
+        "25-09-2026",
+        "Auditorio Marina Norte, Valencia",
+        "Synthetic test ticket - not valid for admission",
+        "Visor Fest / setlist.fm ID 1b498dc4",
+        "Ocean Colour Scene",
+        "25-09-2026",
+        "Auditorio Marina Norte, Valencia",
+        "Synthetic test ticket - not valid for admission",
+        "Visor Fest / setlist.fm ID 1b498dc4"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "format": "QR_CODE",
+      "payload": {
+        "sha256": "fcde7d553f0d94a139c1bc467c4ef898bf8bbfed462d022aa1cd57395692cdcc",
+        "length": 18,
+        "isUtf8": true,
+        "charset": "UTF-8-compatible; encoding not proven"
+      },
+      "rawBytes": {
+        "sha256": "9e8b523d7226211299a7b3ff2b17d9423dd70f6c5e58cc12adef9fd87763a5e9",
+        "length": 19,
+        "isUtf8": false,
+        "charset": "unknown"
+      },
+      "rawEqualsTextUtf8": false,
+      "byteSegments": [],
+      "symbologyIdentifier": "]Q1",
+      "roundTrips": {
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 18.382853
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 17.224487
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 17.950358
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 17.711222
+        }
+      },
+      "occurrences": [
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "unhinted",
+          "pointBoundsPx": [
+            720.5,
+            1108.5,
+            930.5,
+            1319.5
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            720.5,
+            1108.5,
+            930.5,
+            1319.5
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            720.5,
+            1108.5,
+            930.5,
+            1319.5
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "unhinted",
+          "pointBoundsPx": [
+            1080.5,
+            1664,
+            1397,
+            1980
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            1080.5,
+            1664,
+            1397,
+            1980
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            1080.5,
+            1664,
+            1397,
+            1980
+          ]
+        },
+        {
+          "page": 2,
+          "dpi": 200,
+          "mode": "unhinted",
+          "pointBoundsPx": [
+            720.5,
+            1108.5,
+            930.5,
+            1319.5
+          ]
+        },
+        {
+          "page": 2,
+          "dpi": 200,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            720.5,
+            1108.5,
+            930.5,
+            1319.5
+          ]
+        },
+        {
+          "page": 2,
+          "dpi": 200,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            720.5,
+            1108.5,
+            930.5,
+            1319.5
+          ]
+        },
+        {
+          "page": 2,
+          "dpi": 300,
+          "mode": "unhinted",
+          "pointBoundsPx": [
+            1080.5,
+            1664,
+            1397,
+            1980
+          ]
+        },
+        {
+          "page": 2,
+          "dpi": 300,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            1080.5,
+            1664,
+            1397,
+            1980
+          ]
+        },
+        {
+          "page": 2,
+          "dpi": 300,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            1080.5,
+            1664,
+            1397,
+            1980
+          ]
+        },
+        {
+          "page": 3,
+          "dpi": 200,
+          "mode": "unhinted",
+          "pointBoundsPx": [
+            720.5,
+            1108.5,
+            930.5,
+            1319.5
+          ]
+        },
+        {
+          "page": 3,
+          "dpi": 200,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            720.5,
+            1108.5,
+            930.5,
+            1319.5
+          ]
+        },
+        {
+          "page": 3,
+          "dpi": 200,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            720.5,
+            1108.5,
+            930.5,
+            1319.5
+          ]
+        },
+        {
+          "page": 3,
+          "dpi": 300,
+          "mode": "unhinted",
+          "pointBoundsPx": [
+            1080.5,
+            1664,
+            1397,
+            1980
+          ]
+        },
+        {
+          "page": 3,
+          "dpi": 300,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            1080.5,
+            1664,
+            1397,
+            1980
+          ]
+        },
+        {
+          "page": 3,
+          "dpi": 300,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            1080.5,
+            1664,
+            1397,
+            1980
+          ]
+        }
+      ],
+      "actualMainRedraw480": {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 11.037964,
+        "decodedTextUtf8": {
+          "sha256": "34f3282599c9604444ab0a841d2d33b216f9943c4f1be4a5641f8113c9f8c777",
+          "length": 39,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "Ocean Colour Scene",
+      "support": "both"
+    },
+    "venue": {
+      "value": "Auditorio Marina Norte, Valencia",
+      "support": "both"
+    },
+    "date": {
+      "value": "25-09-2026",
+      "support": "both"
+    }
+  },
+  "observedParser": {
+    "pooledOcrBlocks": {
+      "artist": "Ocean Colour Scene",
+      "venue": "Auditorio Marina Norte, Valencia",
+      "date": "25-09-2026",
+      "isComplete": true,
+      "route": "NeedsConfirmation",
+      "parseMs": 0.430054,
+      "routeMs": 0.07487
+    },
+    "textLayerLines": {
+      "artist": "Ocean Colour Scene",
+      "venue": "Auditorio Marina Norte, Valencia",
+      "date": "25-09-2026",
+      "isComplete": true,
+      "route": "NeedsConfirmation",
+      "parseMs": 0.30957,
+      "routeMs": 0.024699
+    },
+    "ocrLines": {
+      "artist": "Ocean Colour Scene",
+      "venue": "Auditorio Marina Norte, Valencia",
+      "date": "25-09-2026",
+      "isComplete": true,
+      "route": "NeedsConfirmation",
+      "parseMs": 0.248413,
+      "routeMs": 0.019328
+    }
+  },
+  "notes": [
+    "Draft shape per #526; expected values/support are proposals, not a new shared spec.",
+    "OCR reading is 200 dpi. Original item boundaries/bounds and 300 dpi readings stay in the local dump.",
+    "Real/unverified inputs use a conservative text allowlist; placeholders also cover unreviewed harmless text.",
+    "Payload descriptor describes decoded text encoded as UTF-8, not proof of original barcode encoding.",
+    "Point bounds are the extrema of decoder result points, not guaranteed full symbol/quiet-zone bounds."
+  ]
+}

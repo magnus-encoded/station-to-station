@@ -1,0 +1,272 @@
+{
+  "id": "synthetic-small-corner",
+  "sourceKind": "synthetic",
+  "readings": [
+    {
+      "origin": "textLayer",
+      "lines": [
+        "Ocean Colour Scene\r",
+        "25-09-2026\r",
+        "Auditorio Marina Norte, Valencia\r",
+        "Synthetic test ticket - not valid for admission\r",
+        "Visor Fest / setlist.fm ID 1b498dc4\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.\r",
+        "Synthetic layout filler. Bring this example to a test, never to a venue."
+      ]
+    },
+    {
+      "origin": "ocr",
+      "lines": [
+        "Ocean Colour Scene",
+        "25-09-2026",
+        "Auditorio Marina Norte, Valencia",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic layout filler. Bring this example to a test, never to a venue.",
+        "Synthetic test ticket - not valid for admission",
+        "Visor Fest / setlist.fm ID 1b498dc4"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "format": "QR_CODE",
+      "payload": {
+        "sha256": "22dc6a7b9c1fad7d73eca74509dd3c94d0457c0ae7831a3ad801699f6c1abbe1",
+        "length": 22,
+        "isUtf8": true,
+        "charset": "UTF-8-compatible; encoding not proven"
+      },
+      "rawBytes": {
+        "sha256": "3b6050999d9509c0ad568c234662513bca630f7e805bd6782133d6240ed42591",
+        "length": 19,
+        "isUtf8": false,
+        "charset": "unknown"
+      },
+      "rawEqualsTextUtf8": false,
+      "byteSegments": [],
+      "symbologyIdentifier": "]Q1",
+      "roundTrips": {
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 17.745077
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 16.955811
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 17.897583
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 17.74825
+        }
+      },
+      "occurrences": [
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "unhinted",
+          "pointBoundsPx": [
+            1484,
+            129,
+            1523,
+            168
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            1484,
+            129,
+            1523,
+            168
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            1484,
+            129,
+            1523,
+            168
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "unhinted",
+          "pointBoundsPx": [
+            2227,
+            193,
+            2285.5,
+            251.5
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            2227,
+            193,
+            2285.5,
+            251.5
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            2227,
+            193,
+            2285.5,
+            251.5
+          ]
+        }
+      ],
+      "actualMainRedraw480": {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 11.204672,
+        "decodedTextUtf8": {
+          "sha256": "d6dfe3d0139745f1a3c47da2332eec545fb54be3291bff1ff43234716055d563",
+          "length": 37,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "Ocean Colour Scene",
+      "support": "both"
+    },
+    "venue": {
+      "value": "Auditorio Marina Norte, Valencia",
+      "support": "both"
+    },
+    "date": {
+      "value": "25-09-2026",
+      "support": "both"
+    }
+  },
+  "observedParser": {
+    "pooledOcrBlocks": {
+      "artist": "Ocean Colour Scene",
+      "venue": "Auditorio Marina Norte, Valencia",
+      "date": "25-09-2026",
+      "isComplete": true,
+      "route": "NeedsConfirmation",
+      "parseMs": 0.956136,
+      "routeMs": 0.088298
+    },
+    "textLayerLines": {
+      "artist": "Ocean Colour Scene",
+      "venue": "Auditorio Marina Norte, Valencia",
+      "date": "25-09-2026",
+      "isComplete": true,
+      "route": "NeedsConfirmation",
+      "parseMs": 0.983561,
+      "routeMs": 0.024699
+    },
+    "ocrLines": {
+      "artist": "Ocean Colour Scene",
+      "venue": "Auditorio Marina Norte, Valencia",
+      "date": "25-09-2026",
+      "isComplete": true,
+      "route": "NeedsConfirmation",
+      "parseMs": 0.939453,
+      "routeMs": 0.022786
+    }
+  },
+  "notes": [
+    "Draft shape per #526; expected values/support are proposals, not a new shared spec.",
+    "OCR reading is 200 dpi. Original item boundaries/bounds and 300 dpi readings stay in the local dump.",
+    "Real/unverified inputs use a conservative text allowlist; placeholders also cover unreviewed harmless text.",
+    "Payload descriptor describes decoded text encoded as UTF-8, not proof of original barcode encoding.",
+    "Point bounds are the extrema of decoder result points, not guaranteed full symbol/quiet-zone bounds."
+  ]
+}

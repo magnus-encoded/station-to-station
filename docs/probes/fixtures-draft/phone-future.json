@@ -1,0 +1,216 @@
+{
+  "id": "phone-future",
+  "sourceKind": "local-input-provenance-unverified",
+  "readings": [
+    {
+      "origin": "textLayer",
+      "lines": [
+        "TICKETLINE\r",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "MORK WATER\r",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "28-09-2026\r",
+        "STÅPLASS/STANDING\r",
+        "[REDACTED_UNREVIEWED_TEXT]"
+      ]
+    },
+    {
+      "origin": "ocr",
+      "lines": [
+        "TICKETLINE",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "MORK WATER",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "28-09-2026",
+        "[REDACTED_UNREVIEWED_TEXT]",
+        "[REDACTED_UNREVIEWED_TEXT]"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "format": "QR_CODE",
+      "payload": {
+        "sha256": "1f75b8733116c1fdf904d1ce073c4956b7391cc9aa8906e8c5f6a5fd1b3a3e73",
+        "length": 16,
+        "isUtf8": true,
+        "charset": "UTF-8-compatible; encoding not proven"
+      },
+      "rawBytes": {
+        "sha256": "768518d51155fca739a1debb3a64d6030ac3b7e230e8a4aff147e7eb6147cf6a",
+        "length": 16,
+        "isUtf8": false,
+        "charset": "unknown"
+      },
+      "rawEqualsTextUtf8": false,
+      "byteSegments": [],
+      "symbologyIdentifier": "]Q1",
+      "roundTrips": {
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 29.6816
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 28.102783
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 30.372721
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 27.725138
+        }
+      },
+      "occurrences": [
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "unhinted",
+          "pointBoundsPx": [
+            149.5,
+            881.5,
+            283.5,
+            1014.5
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            149.5,
+            881.5,
+            283.5,
+            1014.5
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 200,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            149.5,
+            881.5,
+            283.5,
+            1014.5
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "unhinted",
+          "pointBoundsPx": [
+            225,
+            1322.5,
+            425,
+            1522.5
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "tryHarder",
+          "pointBoundsPx": [
+            225,
+            1322.5,
+            425,
+            1522.5
+          ]
+        },
+        {
+          "page": 1,
+          "dpi": 300,
+          "mode": "multiple",
+          "pointBoundsPx": [
+            225,
+            1322.5,
+            425,
+            1522.5
+          ]
+        }
+      ],
+      "actualMainRedraw480": {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 198.580932,
+        "decodedTextUtf8": {
+          "sha256": "ec2d1021b4fb32f680a67f8a7ebc27a5a0ba6fd93c912690ef393074ac20499e",
+          "length": 32,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "MORK WATER",
+      "support": ""
+    },
+    "venue": {
+      "value": "",
+      "support": ""
+    },
+    "date": {
+      "value": "28-09-2026",
+      "support": ""
+    }
+  },
+  "observedParser": {
+    "pooledOcrBlocks": {
+      "artist": "TICKETLINE",
+      "venue": "MORK WATER",
+      "date": "28-09-2026",
+      "isComplete": true,
+      "route": "NewPlannedGig",
+      "parseMs": 7.471395,
+      "routeMs": 0.348022
+    },
+    "textLayerLines": {
+      "artist": "TICKETLINE",
+      "venue": "MORK WATER",
+      "date": "28-09-2026",
+      "isComplete": true,
+      "route": "NewPlannedGig",
+      "parseMs": 0.928955,
+      "routeMs": 0.114054
+    },
+    "ocrLines": {
+      "artist": "TICKETLINE",
+      "venue": "MORK WATER",
+      "date": "28-09-2026",
+      "isComplete": true,
+      "route": "NewPlannedGig",
+      "parseMs": 0.658447,
+      "routeMs": 0.100098
+    }
+  },
+  "notes": [
+    "Draft shape per #526; expected values/support are proposals, not a new shared spec.",
+    "OCR reading is 200 dpi. Original item boundaries/bounds and 300 dpi readings stay in the local dump.",
+    "Real/unverified inputs use a conservative text allowlist; placeholders also cover unreviewed harmless text.",
+    "Payload descriptor describes decoded text encoded as UTF-8, not proof of original barcode encoding.",
+    "Point bounds are the extrema of decoder result points, not guaranteed full symbol/quiet-zone bounds."
+  ]
+}

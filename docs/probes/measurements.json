@@ -1,0 +1,4547 @@
+[
+  {
+    "id": "phone-future",
+    "pages": 1,
+    "counts": {
+      "200/unhinted": 1,
+      "200/tryHarder": 1,
+      "200/multiple": 1,
+      "300/unhinted": 1,
+      "300/tryHarder": 1,
+      "300/multiple": 1
+    },
+    "distinctDetected": 1,
+    "formats": [
+      "QR_CODE"
+    ],
+    "currentKeeps": 1,
+    "textLayerLines": 7,
+    "ocrLines": 7,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 7,
+    "ticketlineInTextLayer": true,
+    "morkWaterInTextLayer": true,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "TICKETLINE",
+        "venue": "MORK WATER",
+        "date": "28-09-2026",
+        "isComplete": true,
+        "route": "NewPlannedGig",
+        "parseMs": 7.471395,
+        "routeMs": 0.348022
+      },
+      "textLayerLines": {
+        "artist": "TICKETLINE",
+        "venue": "MORK WATER",
+        "date": "28-09-2026",
+        "isComplete": true,
+        "route": "NewPlannedGig",
+        "parseMs": 0.928955,
+        "routeMs": 0.114054
+      },
+      "ocrLines": {
+        "artist": "TICKETLINE",
+        "venue": "MORK WATER",
+        "date": "28-09-2026",
+        "isComplete": true,
+        "route": "NewPlannedGig",
+        "parseMs": 0.658447,
+        "routeMs": 0.100098
+      }
+    },
+    "totalMs": 3193.105837,
+    "sampledPeakPssKb": 321892,
+    "timings": {
+      "renderMs": 13.22,
+      "ocrMs": 923.98
+    },
+    "barcodeDecodeMs": 1557.03,
+    "textLayerMs": 2.65,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 198.580932,
+        "decodedTextUtf8": {
+          "sha256": "ec2d1021b4fb32f680a67f8a7ebc27a5a0ba6fd93c912690ef393074ac20499e",
+          "length": 32,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 29.6816
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 28.102783
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 30.372721
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 27.725138
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 24,
+    "androidTextLayerWordCoverageVsPoppler": 1.0,
+    "ocrWordCoverageVsPoppler": 0.9167,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": false,
+        "venue": null,
+        "date": true
+      },
+      "textLayerLines": {
+        "artist": false,
+        "venue": null,
+        "date": true
+      },
+      "ocrLines": {
+        "artist": false,
+        "venue": null,
+        "date": true
+      }
+    }
+  },
+  {
+    "id": "real-billettservice-candidate",
+    "pages": 1,
+    "counts": {
+      "200/unhinted": 1,
+      "200/tryHarder": 1,
+      "200/multiple": 1,
+      "300/unhinted": 1,
+      "300/tryHarder": 1,
+      "300/multiple": 1
+    },
+    "distinctDetected": 1,
+    "formats": [
+      "QR_CODE"
+    ],
+    "currentKeeps": 1,
+    "textLayerLines": 34,
+    "ocrLines": 39,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 34,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "[REDACTED_UNREVIEWED_TEXT]",
+        "venue": "[REDACTED_UNREVIEWED_TEXT]",
+        "date": null,
+        "isComplete": false,
+        "route": "NeedsConfirmation",
+        "parseMs": 8.934082,
+        "routeMs": 0.160401
+      },
+      "textLayerLines": {
+        "artist": "[REDACTED_UNREVIEWED_TEXT]",
+        "venue": "[ORDER_OR_REFERENCE]",
+        "date": null,
+        "isComplete": false,
+        "route": "NeedsConfirmation",
+        "parseMs": 3.453003,
+        "routeMs": 0.019694
+      },
+      "ocrLines": {
+        "artist": "[REDACTED_UNREVIEWED_TEXT]",
+        "venue": "[REDACTED_UNREVIEWED_TEXT]",
+        "date": null,
+        "isComplete": false,
+        "route": "NeedsConfirmation",
+        "parseMs": 3.69222,
+        "routeMs": 0.015015
+      }
+    },
+    "totalMs": 5055.173424,
+    "sampledPeakPssKb": 515549,
+    "timings": {
+      "renderMs": 339.39,
+      "ocrMs": 1429.75
+    },
+    "barcodeDecodeMs": 2380.66,
+    "textLayerMs": 2.36,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 59.159383,
+        "decodedTextUtf8": {
+          "sha256": "d19fc279b377686bc3ef882dde438c60bdf8a584840a311ca378e0fa63dd2f12",
+          "length": 56,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 26.311808
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 28.462362
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 27.220906
+        },
+        "byteSegmentsLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 26.556275
+        },
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 26.648804
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 186,
+    "androidTextLayerWordCoverageVsPoppler": 1.0,
+    "ocrWordCoverageVsPoppler": 1.0,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": null,
+        "venue": null,
+        "date": null
+      },
+      "textLayerLines": {
+        "artist": null,
+        "venue": null,
+        "date": null
+      },
+      "ocrLines": {
+        "artist": null,
+        "venue": null,
+        "date": null
+      }
+    }
+  },
+  {
+    "id": "real-eticket-2",
+    "pages": 3,
+    "counts": {
+      "200/unhinted": 0,
+      "200/tryHarder": 3,
+      "200/multiple": 3,
+      "300/unhinted": 0,
+      "300/tryHarder": 3,
+      "300/multiple": 4
+    },
+    "distinctDetected": 4,
+    "formats": [
+      "QR_CODE",
+      "UPC_E"
+    ],
+    "currentKeeps": 0,
+    "textLayerLines": 132,
+    "ocrLines": 237,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 132,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "KJØPTE BILL. REFUNDERES IKKE",
+        "venue": "[REDACTED_UNREVIEWED_TEXT]",
+        "date": "29-01-2015",
+        "isComplete": false,
+        "route": "NeedsConfirmation",
+        "parseMs": 9.977783,
+        "routeMs": 0.090616
+      },
+      "textLayerLines": {
+        "artist": "[REDACTED_UNREVIEWED_TEXT]",
+        "venue": "PARKTEATRET SCENE",
+        "date": "29-01-2015",
+        "isComplete": false,
+        "route": "NeedsConfirmation",
+        "parseMs": 7.215129,
+        "routeMs": 0.023438
+      },
+      "ocrLines": {
+        "artist": "SKAMBANKT",
+        "venue": "PARKTEATRET SCENE",
+        "date": "29-01-2015",
+        "isComplete": false,
+        "route": "NeedsConfirmation",
+        "parseMs": 7.333415,
+        "routeMs": 0.02303
+      }
+    },
+    "totalMs": 56460.971056,
+    "sampledPeakPssKb": 523390,
+    "timings": {
+      "renderMs": 381.35,
+      "ocrMs": 4975.7
+    },
+    "barcodeDecodeMs": 49172.06,
+    "textLayerMs": 3.71,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 0,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 0,
+          "300/tryHarder": 1,
+          "300/multiple": 2
+        }
+      },
+      {
+        "page": 2,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 0,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 0,
+          "300/tryHarder": 1,
+          "300/multiple": 2
+        }
+      },
+      {
+        "page": 3,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 0,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 0,
+          "300/tryHarder": 1,
+          "300/multiple": 2
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 22.51827,
+        "decodedTextUtf8": {
+          "sha256": "c58e57ef09ebc052f80a5a78a3070f61d785c84013c294f956a18eba84e2fe6e",
+          "length": 30,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      },
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": true,
+        "ms": 23.027384,
+        "decodedTextUtf8": {
+          "sha256": "c9dd4f38d69a1f89d0f71c49547ec63a5c3a2dcb4ad7572d1af7f349dd8edfbb",
+          "length": 8,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      },
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 19.123495,
+        "decodedTextUtf8": {
+          "sha256": "7c27abb95178d36174c4f601edaed76b26f6ddcc2d94bb2870a22a3c037fa107",
+          "length": 34,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      },
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 20.936035,
+        "decodedTextUtf8": {
+          "sha256": "208c29709c706a38e5d344cbd249033d94e0a9b41ff8cd56145f780fd1259e8e",
+          "length": 30,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 22.985352
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 21.210897
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 21.881551
+        },
+        "byteSegmentsLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 21.454346
+        },
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 21.981486
+        }
+      },
+      {
+        "format": "UPC_E",
+        "textDefault": {
+          "status": "decoded",
+          "format": "UPC_E",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 32.138712
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "UPC_E",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 31.899781
+        },
+        "rawLatin1": null,
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 21.73584
+        }
+      },
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 22.241373
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 21.762411
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 23.570069
+        },
+        "byteSegmentsLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 21.015218
+        },
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 21.500651
+        }
+      },
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 21.933105
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 20.930827
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 31.248373
+        },
+        "byteSegmentsLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 28.806356
+        },
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 24.855062
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 626,
+    "androidTextLayerWordCoverageVsPoppler": 1.0,
+    "ocrWordCoverageVsPoppler": 0.9808,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": false,
+        "venue": false,
+        "date": null
+      },
+      "textLayerLines": {
+        "artist": false,
+        "venue": true,
+        "date": null
+      },
+      "ocrLines": {
+        "artist": true,
+        "venue": true,
+        "date": null
+      }
+    }
+  },
+  {
+    "id": "real-eticket",
+    "pages": 1,
+    "counts": {
+      "200/unhinted": 1,
+      "200/tryHarder": 1,
+      "200/multiple": 5,
+      "300/unhinted": 1,
+      "300/tryHarder": 1,
+      "300/multiple": 2
+    },
+    "distinctDetected": 5,
+    "formats": [
+      "EAN_13",
+      "EAN_8",
+      "QR_CODE",
+      "UPC_E"
+    ],
+    "currentKeeps": 1,
+    "textLayerLines": 39,
+    "ocrLines": 67,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 39,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "[REDACTED_UNREVIEWED_TEXT]",
+        "venue": "[REDACTED_UNREVIEWED_TEXT]",
+        "date": "27-06-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 2.81779,
+        "routeMs": 0.185506
+      },
+      "textLayerLines": {
+        "artist": "[REDACTED_UNREVIEWED_TEXT]",
+        "venue": "[REDACTED_UNREVIEWED_TEXT]",
+        "date": "27-06-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 1.769735,
+        "routeMs": 0.111043
+      },
+      "ocrLines": {
+        "artist": "[REDACTED_UNREVIEWED_TEXT]",
+        "venue": "[REDACTED_UNREVIEWED_TEXT]",
+        "date": "27-06-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 2.106446,
+        "routeMs": 0.096842
+      }
+    },
+    "totalMs": 18896.48646,
+    "sampledPeakPssKb": 453377,
+    "timings": {
+      "renderMs": 165.43,
+      "ocrMs": 1267.51
+    },
+    "barcodeDecodeMs": 16168.34,
+    "textLayerMs": 0.9,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 5,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 2
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 19.267049,
+        "decodedTextUtf8": {
+          "sha256": "fca5a739eeb1e2c013b5683c28113c698f1fc5377b4046b2ac92cb698bdbc26b",
+          "length": 34,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      },
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": true,
+        "ms": 18.328003,
+        "decodedTextUtf8": {
+          "sha256": "86f1970d70dcd63b259f53a83ece91189d96378ffa31982bd11a731c29137dec",
+          "length": 8,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      },
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": true,
+        "ms": 16.565226,
+        "decodedTextUtf8": {
+          "sha256": "e41a62bfafd1093fe0e548670475c8d71268d3169a6bb8e21259c197c94c4925",
+          "length": 8,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      },
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": true,
+        "ms": 17.12618,
+        "decodedTextUtf8": {
+          "sha256": "1db4eb917823f16e60296575443b4821fca27a5d0d51ddb319c984cfd4bc1d61",
+          "length": 13,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      },
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": true,
+        "ms": 16.014974,
+        "decodedTextUtf8": {
+          "sha256": "fff89e7c3860799602f14ecf8bc1932e24d4149b84b625463176ce137b0617bc",
+          "length": 8,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 34.820353
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 31.265584
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 29.204631
+        },
+        "byteSegmentsLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 21.380127
+        },
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 21.375122
+        }
+      },
+      {
+        "format": "UPC_E",
+        "textDefault": {
+          "status": "decoded",
+          "format": "UPC_E",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 33.568359
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "UPC_E",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 34.005493
+        },
+        "rawLatin1": null,
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 21.529297
+        }
+      },
+      {
+        "format": "UPC_E",
+        "textDefault": {
+          "status": "decoded",
+          "format": "UPC_E",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 34.775268
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "UPC_E",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 36.469889
+        },
+        "rawLatin1": null,
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 21.367269
+        }
+      },
+      {
+        "format": "EAN_13",
+        "textDefault": {
+          "status": "decoded",
+          "format": "EAN_13",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 33.710327
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "EAN_13",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 34.148193
+        },
+        "rawLatin1": null,
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 23.343465
+        }
+      },
+      {
+        "format": "EAN_8",
+        "textDefault": {
+          "status": "decoded",
+          "format": "EAN_8",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 34.621704
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "EAN_8",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 34.648519
+        },
+        "rawLatin1": null,
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 21.88387
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 148,
+    "androidTextLayerWordCoverageVsPoppler": 1.0,
+    "ocrWordCoverageVsPoppler": 0.9932,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": null,
+        "venue": null,
+        "date": null
+      },
+      "textLayerLines": {
+        "artist": null,
+        "venue": null,
+        "date": null
+      },
+      "ocrLines": {
+        "artist": null,
+        "venue": null,
+        "date": null
+      }
+    }
+  },
+  {
+    "id": "real-eventim-2",
+    "pages": 2,
+    "counts": {
+      "200/unhinted": 0,
+      "200/tryHarder": 2,
+      "200/multiple": 2,
+      "300/unhinted": 0,
+      "300/tryHarder": 2,
+      "300/multiple": 5
+    },
+    "distinctDetected": 5,
+    "formats": [
+      "CODE_128",
+      "EAN_8",
+      "UPC_E"
+    ],
+    "currentKeeps": 0,
+    "textLayerLines": 84,
+    "ocrLines": 96,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 84,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "[REDACTED_UNREVIEWED_TEXT]",
+        "venue": "[REDACTED_UNREVIEWED_TEXT]\n[REDACTED_UNREVIEWED_TEXT]",
+        "date": "28-11-2026",
+        "isComplete": false,
+        "route": "NeedsConfirmation",
+        "parseMs": 2.169475,
+        "routeMs": 0.062134
+      },
+      "textLayerLines": {
+        "artist": "[ORDER_OR_REFERENCE]",
+        "venue": "[REDACTED_UNREVIEWED_TEXT]",
+        "date": "01-05-2025",
+        "isComplete": false,
+        "route": "NeedsConfirmation",
+        "parseMs": 2.207641,
+        "routeMs": 0.023844
+      },
+      "ocrLines": {
+        "artist": "[REDACTED_UNREVIEWED_TEXT]",
+        "venue": "[REDACTED_UNREVIEWED_TEXT]",
+        "date": "28-11-2026",
+        "isComplete": false,
+        "route": "NeedsConfirmation",
+        "parseMs": 2.154907,
+        "routeMs": 0.027751
+      }
+    },
+    "totalMs": 34854.727352,
+    "sampledPeakPssKb": 472583,
+    "timings": {
+      "renderMs": 235.37,
+      "ocrMs": 2750.79
+    },
+    "barcodeDecodeMs": 30749.89,
+    "textLayerMs": 2.86,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 0,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 0,
+          "300/tryHarder": 1,
+          "300/multiple": 4
+        }
+      },
+      {
+        "page": 2,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 0,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 0,
+          "300/tryHarder": 1,
+          "300/multiple": 3
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": false,
+        "ms": 16.595825,
+        "decodedTextUtf8": {
+          "sha256": "7ada6665284f7335a3a16165e665b691b6f95239fe98fc5471d24184cd29b2e5",
+          "length": 15,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      },
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": true,
+        "ms": 16.371988,
+        "decodedTextUtf8": {
+          "sha256": "a00e3ade867dd6525fcb4f843c4ff596eda611403eaa2186609016a32f53990a",
+          "length": 8,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      },
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": true,
+        "ms": 15.511027,
+        "decodedTextUtf8": {
+          "sha256": "eed0d4275509cc5dbeec690943310e88d35cbc416bd9ffc0f718021d98139555",
+          "length": 8,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      },
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": true,
+        "ms": 14.917521,
+        "decodedTextUtf8": {
+          "sha256": "6136e0b6d911ec30e9c55a7def63ac10a9a5b30e083471dbf5f586aafb7af5d0",
+          "length": 8,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      },
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": false,
+        "ms": 15.709066,
+        "decodedTextUtf8": {
+          "sha256": "473100b274258693f5b47c48dc53ff67cb3c319f002f937354d4a9f2b4be97a1",
+          "length": 15,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "CODE_128",
+        "textDefault": {
+          "status": "decoded",
+          "format": "CODE_128",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 17.191243
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "CODE_128",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 11.675903
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "CODE_128",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 11.986084
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 21.032756
+        }
+      },
+      {
+        "format": "EAN_8",
+        "textDefault": {
+          "status": "decoded",
+          "format": "EAN_8",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 32.401001
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "EAN_8",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 34.086263
+        },
+        "rawLatin1": null,
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 20.450114
+        }
+      },
+      {
+        "format": "EAN_8",
+        "textDefault": {
+          "status": "decoded",
+          "format": "EAN_8",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 31.708089
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "EAN_8",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 34.842774
+        },
+        "rawLatin1": null,
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 20.209717
+        }
+      },
+      {
+        "format": "UPC_E",
+        "textDefault": {
+          "status": "decoded",
+          "format": "UPC_E",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 31.678223
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "UPC_E",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 32.761759
+        },
+        "rawLatin1": null,
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 23.114868
+        }
+      },
+      {
+        "format": "CODE_128",
+        "textDefault": {
+          "status": "decoded",
+          "format": "CODE_128",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 13.603434
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "CODE_128",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 11.608398
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "CODE_128",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 12.045695
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 21.235636
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 400,
+    "androidTextLayerWordCoverageVsPoppler": 1.0,
+    "ocrWordCoverageVsPoppler": 0.96,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": false,
+        "venue": null,
+        "date": true
+      },
+      "textLayerLines": {
+        "artist": false,
+        "venue": null,
+        "date": false
+      },
+      "ocrLines": {
+        "artist": false,
+        "venue": null,
+        "date": true
+      }
+    }
+  },
+  {
+    "id": "real-eventim",
+    "pages": 2,
+    "counts": {
+      "200/unhinted": 0,
+      "200/tryHarder": 2,
+      "200/multiple": 4,
+      "300/unhinted": 0,
+      "300/tryHarder": 2,
+      "300/multiple": 3
+    },
+    "distinctDetected": 5,
+    "formats": [
+      "CODE_128",
+      "EAN_8",
+      "UPC_E"
+    ],
+    "currentKeeps": 0,
+    "textLayerLines": 82,
+    "ocrLines": 89,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 82,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "[REDACTED_UNREVIEWED_TEXT]",
+        "venue": "[ORDER_OR_REFERENCE]",
+        "date": "11-08-2024",
+        "isComplete": false,
+        "route": "NeedsConfirmation",
+        "parseMs": 2.354329,
+        "routeMs": 0.080037
+      },
+      "textLayerLines": {
+        "artist": "[REDACTED_UNREVIEWED_TEXT]",
+        "venue": "[REDACTED_UNREVIEWED_TEXT]",
+        "date": "11-08-2024",
+        "isComplete": false,
+        "route": "NeedsConfirmation",
+        "parseMs": 1.890503,
+        "routeMs": 0.032145
+      },
+      "ocrLines": {
+        "artist": "[REDACTED_UNREVIEWED_TEXT]",
+        "venue": "[ORDER_OR_REFERENCE]",
+        "date": "11-08-2024",
+        "isComplete": false,
+        "route": "NeedsConfirmation",
+        "parseMs": 2.592936,
+        "routeMs": 0.023682
+      }
+    },
+    "totalMs": 30874.101496,
+    "sampledPeakPssKb": 580972,
+    "timings": {
+      "renderMs": 203.48,
+      "ocrMs": 2167.88
+    },
+    "barcodeDecodeMs": 27520.79,
+    "textLayerMs": 2.45,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 0,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 0,
+          "300/tryHarder": 1,
+          "300/multiple": 2
+        }
+      },
+      {
+        "page": 2,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 0,
+          "200/tryHarder": 1,
+          "200/multiple": 3,
+          "300/unhinted": 0,
+          "300/tryHarder": 1,
+          "300/multiple": 2
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": false,
+        "ms": 13.463867,
+        "decodedTextUtf8": {
+          "sha256": "8c768dd448bb952414869a8875d66a464ae1df1268da36dc1e95058a12ffe33e",
+          "length": 14,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      },
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": true,
+        "ms": 13.048137,
+        "decodedTextUtf8": {
+          "sha256": "1075ff43c83d87f83cc053432e6b87070d6f175c92609d4b940bd3d751ab371d",
+          "length": 8,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      },
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": false,
+        "ms": 11.587931,
+        "decodedTextUtf8": {
+          "sha256": "a57a3236f46610f0b75b38a3bdd73bacb424545c4d1c645f0d62d5e61e5a3148",
+          "length": 14,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      },
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": true,
+        "ms": 11.607219,
+        "decodedTextUtf8": {
+          "sha256": "ab213559e25d3e108ae065f0691e363083a0776164550e4a078322699f54f35e",
+          "length": 8,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      },
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": true,
+        "ms": 11.946533,
+        "decodedTextUtf8": {
+          "sha256": "8d20a09996e1e9ba9d446a596cbdd6e450b51a2d89b5281a495ef441ddc294e2",
+          "length": 8,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "CODE_128",
+        "textDefault": {
+          "status": "decoded",
+          "format": "CODE_128",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 11.601155
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "CODE_128",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 10.993978
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "CODE_128",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 11.350545
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 19.857422
+        }
+      },
+      {
+        "format": "EAN_8",
+        "textDefault": {
+          "status": "decoded",
+          "format": "EAN_8",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 27.55721
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "EAN_8",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 27.998616
+        },
+        "rawLatin1": null,
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 17.421834
+        }
+      },
+      {
+        "format": "CODE_128",
+        "textDefault": {
+          "status": "decoded",
+          "format": "CODE_128",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 10.864786
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "CODE_128",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 10.058146
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "CODE_128",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 10.383138
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 17.915975
+        }
+      },
+      {
+        "format": "UPC_E",
+        "textDefault": {
+          "status": "decoded",
+          "format": "UPC_E",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 31.374512
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "UPC_E",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 31.639404
+        },
+        "rawLatin1": null,
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 20.008545
+        }
+      },
+      {
+        "format": "UPC_E",
+        "textDefault": {
+          "status": "decoded",
+          "format": "UPC_E",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 30.873902
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "UPC_E",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 31.881591
+        },
+        "rawLatin1": null,
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 20.509359
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 342,
+    "androidTextLayerWordCoverageVsPoppler": 0.9942,
+    "ocrWordCoverageVsPoppler": 0.9649,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": null,
+        "venue": null,
+        "date": null
+      },
+      "textLayerLines": {
+        "artist": null,
+        "venue": null,
+        "date": null
+      },
+      "ocrLines": {
+        "artist": null,
+        "venue": null,
+        "date": null
+      }
+    }
+  },
+  {
+    "id": "real-host-ticket",
+    "pages": 1,
+    "counts": {
+      "200/unhinted": 1,
+      "200/tryHarder": 1,
+      "200/multiple": 1,
+      "300/unhinted": 1,
+      "300/tryHarder": 1,
+      "300/multiple": 1
+    },
+    "distinctDetected": 1,
+    "formats": [
+      "QR_CODE"
+    ],
+    "currentKeeps": 1,
+    "textLayerLines": 34,
+    "ocrLines": 42,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 34,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "[REDACTED_UNREVIEWED_TEXT]",
+        "venue": "[REDACTED_UNREVIEWED_TEXT]",
+        "date": null,
+        "isComplete": false,
+        "route": "NeedsConfirmation",
+        "parseMs": 2.173177,
+        "routeMs": 0.074992
+      },
+      "textLayerLines": {
+        "artist": "[REDACTED_UNREVIEWED_TEXT]",
+        "venue": "[ORDER_OR_REFERENCE]",
+        "date": null,
+        "isComplete": false,
+        "route": "NeedsConfirmation",
+        "parseMs": 2.201416,
+        "routeMs": 0.018433
+      },
+      "ocrLines": {
+        "artist": "[REDACTED_UNREVIEWED_TEXT]",
+        "venue": "[REDACTED_UNREVIEWED_TEXT]",
+        "date": null,
+        "isComplete": false,
+        "route": "NeedsConfirmation",
+        "parseMs": 2.479167,
+        "routeMs": 0.014119
+      }
+    },
+    "totalMs": 5091.66081,
+    "sampledPeakPssKb": 483519,
+    "timings": {
+      "renderMs": 273.29,
+      "ocrMs": 1497.44
+    },
+    "barcodeDecodeMs": 2452.32,
+    "textLayerMs": 2.24,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 18.518636,
+        "decodedTextUtf8": {
+          "sha256": "95b0de422f15af8677ea7a9be2061d45b2ae1be215717c0f24b3319b10c22992",
+          "length": 60,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 24.798828
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 24.294555
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 24.488769
+        },
+        "byteSegmentsLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 23.674113
+        },
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 26.278727
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 183,
+    "androidTextLayerWordCoverageVsPoppler": 1.0,
+    "ocrWordCoverageVsPoppler": 0.9945,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": null,
+        "venue": null,
+        "date": null
+      },
+      "textLayerLines": {
+        "artist": null,
+        "venue": null,
+        "date": null
+      },
+      "ocrLines": {
+        "artist": null,
+        "venue": null,
+        "date": null
+      }
+    }
+  },
+  {
+    "id": "real-numbered-ticket",
+    "pages": 2,
+    "counts": {
+      "200/unhinted": 2,
+      "200/tryHarder": 2,
+      "200/multiple": 2,
+      "300/unhinted": 2,
+      "300/tryHarder": 2,
+      "300/multiple": 2
+    },
+    "distinctDetected": 2,
+    "formats": [
+      "QR_CODE"
+    ],
+    "currentKeeps": 1,
+    "textLayerLines": 74,
+    "ocrLines": 95,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 74,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "[REDACTED_UNREVIEWED_TEXT]",
+        "venue": "[REDACTED_UNREVIEWED_TEXT]",
+        "date": "21-05-2024",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 2.46224,
+        "routeMs": 0.148926
+      },
+      "textLayerLines": {
+        "artist": "[REDACTED_UNREVIEWED_TEXT]",
+        "venue": "[ORDER_OR_REFERENCE]",
+        "date": "21-05-2024",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 2.168213,
+        "routeMs": 0.081218
+      },
+      "ocrLines": {
+        "artist": "[REDACTED_UNREVIEWED_TEXT]",
+        "venue": "[REDACTED_UNREVIEWED_TEXT]",
+        "date": "21-05-2024",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 2.778565,
+        "routeMs": 0.065836
+      }
+    },
+    "totalMs": 10925.75855,
+    "sampledPeakPssKb": 563877,
+    "timings": {
+      "renderMs": 176.24,
+      "ocrMs": 3768.86
+    },
+    "barcodeDecodeMs": 4876.73,
+    "textLayerMs": 4.36,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      },
+      {
+        "page": 2,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 15.183472,
+        "decodedTextUtf8": {
+          "sha256": "f87204b65acc03c2c2d082f22279ec37687af2e97a8cc099fa57e2498829cc58",
+          "length": 33,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      },
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 23.789306,
+        "decodedTextUtf8": {
+          "sha256": "e8496db1dfe628d458b26d846db8c0b42b27bf58bea1bbfb49f4f41feaabca4c",
+          "length": 95,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 22.576131
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 22.863689
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 42.123536
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 23.587239
+        }
+      },
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 27.42037
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 27.190552
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 27.488078
+        },
+        "byteSegmentsLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 25.990275
+        },
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 27.011719
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 667,
+    "androidTextLayerWordCoverageVsPoppler": 1.0,
+    "ocrWordCoverageVsPoppler": 0.994,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": null,
+        "venue": null,
+        "date": null
+      },
+      "textLayerLines": {
+        "artist": null,
+        "venue": null,
+        "date": null
+      },
+      "ocrLines": {
+        "artist": null,
+        "venue": null,
+        "date": null
+      }
+    }
+  },
+  {
+    "id": "synthetic-artist-image",
+    "pages": 1,
+    "counts": {
+      "200/unhinted": 1,
+      "200/tryHarder": 1,
+      "200/multiple": 1,
+      "300/unhinted": 1,
+      "300/tryHarder": 1,
+      "300/multiple": 1
+    },
+    "distinctDetected": 1,
+    "formats": [
+      "QR_CODE"
+    ],
+    "currentKeeps": 1,
+    "textLayerLines": 4,
+    "ocrLines": 5,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 4,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.607381,
+        "routeMs": 0.155925
+      },
+      "textLayerLines": {
+        "artist": "Auditorio Marina Norte, Valencia",
+        "venue": "Synthetic test ticket - not valid for admission",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.252685,
+        "routeMs": 0.122315
+      },
+      "ocrLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.299764,
+        "routeMs": 0.047811
+      }
+    },
+    "totalMs": 4885.663088,
+    "sampledPeakPssKb": 569338,
+    "timings": {
+      "renderMs": 94.41,
+      "ocrMs": 1372.77
+    },
+    "barcodeDecodeMs": 2640.39,
+    "textLayerMs": 0.48,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 19.889119,
+        "decodedTextUtf8": {
+          "sha256": "15b7ec68d131d472a1557bd876b539f4f4deec3fcf1680cd31007df3758eba1c",
+          "length": 33,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 27.666626
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 24.919027
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 26.839599
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 26.641073
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 20,
+    "androidTextLayerWordCoverageVsPoppler": 1.0,
+    "ocrWordCoverageVsPoppler": 1.0,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "textLayerLines": {
+        "artist": false,
+        "venue": false,
+        "date": true
+      },
+      "ocrLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      }
+    }
+  },
+  {
+    "id": "synthetic-aztec",
+    "pages": 1,
+    "counts": {
+      "200/unhinted": 1,
+      "200/tryHarder": 1,
+      "200/multiple": 1,
+      "300/unhinted": 1,
+      "300/tryHarder": 1,
+      "300/multiple": 1
+    },
+    "distinctDetected": 1,
+    "formats": [
+      "AZTEC"
+    ],
+    "currentKeeps": 1,
+    "textLayerLines": 5,
+    "ocrLines": 5,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 5,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.583822,
+        "routeMs": 0.141561
+      },
+      "textLayerLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.389038,
+        "routeMs": 0.058675
+      },
+      "ocrLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.286376,
+        "routeMs": 0.044108
+      }
+    },
+    "totalMs": 5437.73686,
+    "sampledPeakPssKb": 523556,
+    "timings": {
+      "renderMs": 89.99,
+      "ocrMs": 1600.3
+    },
+    "barcodeDecodeMs": 2808.28,
+    "textLayerMs": 0.81,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": false,
+        "ms": 14.552246,
+        "decodedTextUtf8": {
+          "sha256": "cba1da59d8d01627353d9b668a4bfe2f2f618a4172fb9b9ca3db8c28429c78d1",
+          "length": 36,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "AZTEC",
+        "textDefault": {
+          "status": "decoded",
+          "format": "AZTEC",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 34.007121
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "AZTEC",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 36.054851
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "AZTEC",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 54.927409
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 32.636922
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 23,
+    "androidTextLayerWordCoverageVsPoppler": 1.0,
+    "ocrWordCoverageVsPoppler": 1.0,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "textLayerLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "ocrLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      }
+    }
+  },
+  {
+    "id": "synthetic-binary-qr",
+    "pages": 1,
+    "counts": {
+      "200/unhinted": 1,
+      "200/tryHarder": 1,
+      "200/multiple": 1,
+      "300/unhinted": 1,
+      "300/tryHarder": 1,
+      "300/multiple": 1
+    },
+    "distinctDetected": 1,
+    "formats": [
+      "QR_CODE"
+    ],
+    "currentKeeps": 1,
+    "textLayerLines": 5,
+    "ocrLines": 5,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 5,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.328003,
+        "routeMs": 0.073934
+      },
+      "textLayerLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.155639,
+        "routeMs": 0.022135
+      },
+      "ocrLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.169596,
+        "routeMs": 0.024211
+      }
+    },
+    "totalMs": 4752.677615,
+    "sampledPeakPssKb": 526168,
+    "timings": {
+      "renderMs": 85.1,
+      "ocrMs": 1018.44
+    },
+    "barcodeDecodeMs": 2663.1,
+    "textLayerMs": 0.57,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 12.692749,
+        "decodedTextUtf8": {
+          "sha256": "4bb7a9ff19fef7021e809213422b0b74512724582e828175bc69a8dc9a4e507f",
+          "length": 35,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 29.164348
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 27.525187
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 30.458292
+        },
+        "byteSegmentsLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 27.373251
+        },
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 28.636271
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 23,
+    "androidTextLayerWordCoverageVsPoppler": 1.0,
+    "ocrWordCoverageVsPoppler": 1.0,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "textLayerLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "ocrLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      }
+    }
+  },
+  {
+    "id": "synthetic-code_128",
+    "pages": 1,
+    "counts": {
+      "200/unhinted": 1,
+      "200/tryHarder": 1,
+      "200/multiple": 1,
+      "300/unhinted": 1,
+      "300/tryHarder": 1,
+      "300/multiple": 1
+    },
+    "distinctDetected": 1,
+    "formats": [
+      "CODE_128"
+    ],
+    "currentKeeps": 1,
+    "textLayerLines": 5,
+    "ocrLines": 5,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 5,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.335775,
+        "routeMs": 0.089518
+      },
+      "textLayerLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.147502,
+        "routeMs": 0.019979
+      },
+      "ocrLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.121379,
+        "routeMs": 0.017375
+      }
+    },
+    "totalMs": 4806.047528,
+    "sampledPeakPssKb": 598571,
+    "timings": {
+      "renderMs": 46.68,
+      "ocrMs": 304.43
+    },
+    "barcodeDecodeMs": 4049.99,
+    "textLayerMs": 0.3,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": false,
+        "ms": 12.646322,
+        "decodedTextUtf8": {
+          "sha256": "225fca9fa0c8171a637e72b2c26d1eccfe24328f88e284ab961db02f6af87f90",
+          "length": 34,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "CODE_128",
+        "textDefault": {
+          "status": "decoded",
+          "format": "CODE_128",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 11.021362
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "CODE_128",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 10.15035
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "CODE_128",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 10.449341
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 17.386393
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 23,
+    "androidTextLayerWordCoverageVsPoppler": 1.0,
+    "ocrWordCoverageVsPoppler": 1.0,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "textLayerLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "ocrLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      }
+    }
+  },
+  {
+    "id": "synthetic-data_matrix",
+    "pages": 1,
+    "counts": {
+      "200/unhinted": 1,
+      "200/tryHarder": 1,
+      "200/multiple": 1,
+      "300/unhinted": 1,
+      "300/tryHarder": 1,
+      "300/multiple": 1
+    },
+    "distinctDetected": 1,
+    "formats": [
+      "DATA_MATRIX"
+    ],
+    "currentKeeps": 1,
+    "textLayerLines": 5,
+    "ocrLines": 5,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 5,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.324056,
+        "routeMs": 0.126546
+      },
+      "textLayerLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.168131,
+        "routeMs": 0.022502
+      },
+      "ocrLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.131144,
+        "routeMs": 0.017619
+      }
+    },
+    "totalMs": 2690.194174,
+    "sampledPeakPssKb": 527147,
+    "timings": {
+      "renderMs": 54.86,
+      "ocrMs": 401.95
+    },
+    "barcodeDecodeMs": 1652.15,
+    "textLayerMs": 0.31,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": false,
+        "ms": 11.087443,
+        "decodedTextUtf8": {
+          "sha256": "093bc3759095b3b1694754c56b92e0ff8c77b04f6d76a853f176d820a657c271",
+          "length": 48,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "DATA_MATRIX",
+        "textDefault": {
+          "status": "decoded",
+          "format": "DATA_MATRIX",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 27.720378
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "DATA_MATRIX",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 42.533691
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "DATA_MATRIX",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 19.706991
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 16.683838
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 23,
+    "androidTextLayerWordCoverageVsPoppler": 1.0,
+    "ocrWordCoverageVsPoppler": 1.0,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "textLayerLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "ocrLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      }
+    }
+  },
+  {
+    "id": "synthetic-date-english",
+    "pages": 1,
+    "counts": {
+      "200/unhinted": 1,
+      "200/tryHarder": 1,
+      "200/multiple": 1,
+      "300/unhinted": 1,
+      "300/tryHarder": 1,
+      "300/multiple": 1
+    },
+    "distinctDetected": 1,
+    "formats": [
+      "QR_CODE"
+    ],
+    "currentKeeps": 1,
+    "textLayerLines": 5,
+    "ocrLines": 5,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 5,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "24-06-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.435994,
+        "routeMs": 0.154704
+      },
+      "textLayerLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "24-06-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.228963,
+        "routeMs": 0.023885
+      },
+      "ocrLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "24-06-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.143962,
+        "routeMs": 0.017822
+      }
+    },
+    "totalMs": 2780.570111,
+    "sampledPeakPssKb": 489755,
+    "timings": {
+      "renderMs": 57.99,
+      "ocrMs": 458.19
+    },
+    "barcodeDecodeMs": 1640.65,
+    "textLayerMs": 0.3,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 13.454386,
+        "decodedTextUtf8": {
+          "sha256": "61e26de9a3b2bee11d1b364e0cffccb79541d4ba478fa1886955dc61ffab9700",
+          "length": 60,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 16.908895
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 16.143107
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 17.218221
+        },
+        "byteSegmentsLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 17.26473
+        },
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 17.172201
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 23,
+    "androidTextLayerWordCoverageVsPoppler": 1.0,
+    "ocrWordCoverageVsPoppler": 1.0,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "textLayerLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "ocrLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      }
+    }
+  },
+  {
+    "id": "synthetic-date-norwegian",
+    "pages": 1,
+    "counts": {
+      "200/unhinted": 1,
+      "200/tryHarder": 1,
+      "200/multiple": 1,
+      "300/unhinted": 1,
+      "300/tryHarder": 1,
+      "300/multiple": 1
+    },
+    "distinctDetected": 1,
+    "formats": [
+      "QR_CODE"
+    ],
+    "currentKeeps": 1,
+    "textLayerLines": 5,
+    "ocrLines": 5,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 5,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "28-11-2026",
+        "isComplete": true,
+        "route": "NewPlannedGig",
+        "parseMs": 0.328654,
+        "routeMs": 0.106689
+      },
+      "textLayerLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "28-11-2026",
+        "isComplete": true,
+        "route": "NewPlannedGig",
+        "parseMs": 0.169678,
+        "routeMs": 0.024903
+      },
+      "ocrLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "28-11-2026",
+        "isComplete": true,
+        "route": "NewPlannedGig",
+        "parseMs": 0.138509,
+        "routeMs": 0.019247
+      }
+    },
+    "totalMs": 2666.573732,
+    "sampledPeakPssKb": 543417,
+    "timings": {
+      "renderMs": 54.2,
+      "ocrMs": 364.34
+    },
+    "barcodeDecodeMs": 1646.27,
+    "textLayerMs": 0.29,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 13.030599,
+        "decodedTextUtf8": {
+          "sha256": "27cd66ce63075f8a65e88130cf52b31274407b2cf6025edcc2d9c12337c9a083",
+          "length": 64,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 16.91211
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 16.445068
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 16.934692
+        },
+        "byteSegmentsLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 16.353881
+        },
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 16.883138
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 23,
+    "androidTextLayerWordCoverageVsPoppler": 1.0,
+    "ocrWordCoverageVsPoppler": 1.0,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "textLayerLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "ocrLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      }
+    }
+  },
+  {
+    "id": "synthetic-date-numeric",
+    "pages": 1,
+    "counts": {
+      "200/unhinted": 1,
+      "200/tryHarder": 1,
+      "200/multiple": 1,
+      "300/unhinted": 1,
+      "300/tryHarder": 1,
+      "300/multiple": 1
+    },
+    "distinctDetected": 1,
+    "formats": [
+      "QR_CODE"
+    ],
+    "currentKeeps": 1,
+    "textLayerLines": 5,
+    "ocrLines": 5,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 5,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "24-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.415568,
+        "routeMs": 0.096151
+      },
+      "textLayerLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "24-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.151001,
+        "routeMs": 0.02063
+      },
+      "ocrLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "24-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.127605,
+        "routeMs": 0.017701
+      }
+    },
+    "totalMs": 2811.327476,
+    "sampledPeakPssKb": 524144,
+    "timings": {
+      "renderMs": 54.41,
+      "ocrMs": 376.19
+    },
+    "barcodeDecodeMs": 1765.31,
+    "textLayerMs": 0.35,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 12.960002,
+        "decodedTextUtf8": {
+          "sha256": "2b1d6ae761b60ec4c4d7f7871562ff2ccf52ded910c5038b02deee9d2e1ae34f",
+          "length": 62,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 16.446167
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 16.014404
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 16.916911
+        },
+        "byteSegmentsLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 16.348064
+        },
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 16.802612
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 23,
+    "androidTextLayerWordCoverageVsPoppler": 1.0,
+    "ocrWordCoverageVsPoppler": 1.0,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "textLayerLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "ocrLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      }
+    }
+  },
+  {
+    "id": "synthetic-flattened",
+    "pages": 1,
+    "counts": {
+      "200/unhinted": 1,
+      "200/tryHarder": 1,
+      "200/multiple": 1,
+      "300/unhinted": 1,
+      "300/tryHarder": 1,
+      "300/multiple": 1
+    },
+    "distinctDetected": 1,
+    "formats": [
+      "QR_CODE"
+    ],
+    "currentKeeps": 1,
+    "textLayerLines": 1,
+    "ocrLines": 5,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 0,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.376261,
+        "routeMs": 0.093221
+      },
+      "textLayerLines": {
+        "artist": null,
+        "venue": null,
+        "date": null,
+        "isComplete": false,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.061604,
+        "routeMs": 0.007203
+      },
+      "ocrLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.14502,
+        "routeMs": 0.021037
+      }
+    },
+    "totalMs": 2908.286989,
+    "sampledPeakPssKb": 501260,
+    "timings": {
+      "renderMs": 210.4,
+      "ocrMs": 377.65
+    },
+    "barcodeDecodeMs": 1681.26,
+    "textLayerMs": 0.07,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 13.305257,
+        "decodedTextUtf8": {
+          "sha256": "a5a3a0efe8431d23b553f16a68ab242fd2f8cc8888dd3bd43ccdb6abbb245535",
+          "length": 62,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 17.822754
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 16.847494
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 18.231811
+        },
+        "byteSegmentsLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 17.756144
+        },
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 18.537557
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 0,
+    "androidTextLayerWordCoverageVsPoppler": null,
+    "ocrWordCoverageVsPoppler": null,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "textLayerLines": {
+        "artist": false,
+        "venue": false,
+        "date": false
+      },
+      "ocrLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      }
+    }
+  },
+  {
+    "id": "synthetic-pdf_417",
+    "pages": 1,
+    "counts": {
+      "200/unhinted": 1,
+      "200/tryHarder": 1,
+      "200/multiple": 1,
+      "300/unhinted": 1,
+      "300/tryHarder": 1,
+      "300/multiple": 1
+    },
+    "distinctDetected": 1,
+    "formats": [
+      "PDF_417"
+    ],
+    "currentKeeps": 1,
+    "textLayerLines": 5,
+    "ocrLines": 5,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 5,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.30778,
+        "routeMs": 0.077149
+      },
+      "textLayerLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.146688,
+        "routeMs": 0.024211
+      },
+      "ocrLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.122437,
+        "routeMs": 0.017944
+      }
+    },
+    "totalMs": 2775.096274,
+    "sampledPeakPssKb": 521833,
+    "timings": {
+      "renderMs": 43.68,
+      "ocrMs": 331.2
+    },
+    "barcodeDecodeMs": 2010.48,
+    "textLayerMs": 0.33,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": false,
+        "sameText": true,
+        "ms": 11.010905,
+        "decodedTextUtf8": {
+          "sha256": "1717655f52d98a96232b79fa6900899f13381c1c932e26a208000158fe469693",
+          "length": 30,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "PDF_417",
+        "textDefault": {
+          "status": "decoded",
+          "format": "PDF_417",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 17.82666
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "PDF_417",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": null,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 15.381144
+        },
+        "rawLatin1": null,
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 16.775065
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 23,
+    "androidTextLayerWordCoverageVsPoppler": 1.0,
+    "ocrWordCoverageVsPoppler": 1.0,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "textLayerLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "ocrLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      }
+    }
+  },
+  {
+    "id": "synthetic-qr_code",
+    "pages": 1,
+    "counts": {
+      "200/unhinted": 1,
+      "200/tryHarder": 1,
+      "200/multiple": 1,
+      "300/unhinted": 1,
+      "300/tryHarder": 1,
+      "300/multiple": 1
+    },
+    "distinctDetected": 1,
+    "formats": [
+      "QR_CODE"
+    ],
+    "currentKeeps": 1,
+    "textLayerLines": 5,
+    "ocrLines": 5,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 5,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.36613,
+        "routeMs": 0.064738
+      },
+      "textLayerLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.14978,
+        "routeMs": 0.022135
+      },
+      "ocrLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.127401,
+        "routeMs": 0.018066
+      }
+    },
+    "totalMs": 2907.39258,
+    "sampledPeakPssKb": 613986,
+    "timings": {
+      "renderMs": 57.89,
+      "ocrMs": 348.94
+    },
+    "barcodeDecodeMs": 1807.24,
+    "textLayerMs": 0.29,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 13.226563,
+        "decodedTextUtf8": {
+          "sha256": "a5a3a0efe8431d23b553f16a68ab242fd2f8cc8888dd3bd43ccdb6abbb245535",
+          "length": 62,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 17.798665
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 17.123454
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 17.455933
+        },
+        "byteSegmentsLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": true,
+          "ms": 17.005168
+        },
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": false,
+          "ms": 18.055868
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 23,
+    "androidTextLayerWordCoverageVsPoppler": 1.0,
+    "ocrWordCoverageVsPoppler": 1.0,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "textLayerLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "ocrLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      }
+    }
+  },
+  {
+    "id": "synthetic-repeat-three",
+    "pages": 3,
+    "counts": {
+      "200/unhinted": 1,
+      "200/tryHarder": 1,
+      "200/multiple": 1,
+      "300/unhinted": 1,
+      "300/tryHarder": 1,
+      "300/multiple": 1
+    },
+    "distinctDetected": 1,
+    "formats": [
+      "QR_CODE"
+    ],
+    "currentKeeps": 1,
+    "textLayerLines": 15,
+    "ocrLines": 15,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 15,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.430054,
+        "routeMs": 0.07487
+      },
+      "textLayerLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.30957,
+        "routeMs": 0.024699
+      },
+      "ocrLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.248413,
+        "routeMs": 0.019328
+      }
+    },
+    "totalMs": 8370.745853,
+    "sampledPeakPssKb": 626690,
+    "timings": {
+      "renderMs": 168.4,
+      "ocrMs": 1047.83
+    },
+    "barcodeDecodeMs": 5450.04,
+    "textLayerMs": 0.92,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      },
+      {
+        "page": 2,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      },
+      {
+        "page": 3,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 11.037964,
+        "decodedTextUtf8": {
+          "sha256": "34f3282599c9604444ab0a841d2d33b216f9943c4f1be4a5641f8113c9f8c777",
+          "length": 39,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 18.382853
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 17.224487
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 17.950358
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 17.711222
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 69,
+    "androidTextLayerWordCoverageVsPoppler": 1.0,
+    "ocrWordCoverageVsPoppler": 1.0,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "textLayerLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "ocrLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      }
+    }
+  },
+  {
+    "id": "synthetic-small-corner",
+    "pages": 1,
+    "counts": {
+      "200/unhinted": 1,
+      "200/tryHarder": 1,
+      "200/multiple": 1,
+      "300/unhinted": 1,
+      "300/tryHarder": 1,
+      "300/multiple": 1
+    },
+    "distinctDetected": 1,
+    "formats": [
+      "QR_CODE"
+    ],
+    "currentKeeps": 1,
+    "textLayerLines": 35,
+    "ocrLines": 35,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 35,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.956136,
+        "routeMs": 0.088298
+      },
+      "textLayerLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.983561,
+        "routeMs": 0.024699
+      },
+      "ocrLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.939453,
+        "routeMs": 0.022786
+      }
+    },
+    "totalMs": 3466.386313,
+    "sampledPeakPssKb": 647467,
+    "timings": {
+      "renderMs": 88.34,
+      "ocrMs": 904.65
+    },
+    "barcodeDecodeMs": 1891.44,
+    "textLayerMs": 2.77,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 11.204672,
+        "decodedTextUtf8": {
+          "sha256": "d6dfe3d0139745f1a3c47da2332eec545fb54be3291bff1ff43234716055d563",
+          "length": 37,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 17.745077
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 16.955811
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 17.897583
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 17.74825
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 413,
+    "androidTextLayerWordCoverageVsPoppler": 1.0,
+    "ocrWordCoverageVsPoppler": 1.0,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "textLayerLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "ocrLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      }
+    }
+  },
+  {
+    "id": "synthetic-two-one-page",
+    "pages": 1,
+    "counts": {
+      "200/unhinted": 1,
+      "200/tryHarder": 1,
+      "200/multiple": 2,
+      "300/unhinted": 1,
+      "300/tryHarder": 1,
+      "300/multiple": 2
+    },
+    "distinctDetected": 2,
+    "formats": [
+      "QR_CODE"
+    ],
+    "currentKeeps": 1,
+    "textLayerLines": 5,
+    "ocrLines": 5,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 5,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.369344,
+        "routeMs": 0.097209
+      },
+      "textLayerLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.16805,
+        "routeMs": 0.022827
+      },
+      "ocrLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.137207,
+        "routeMs": 0.024699
+      }
+    },
+    "totalMs": 4931.932741,
+    "sampledPeakPssKb": 645507,
+    "timings": {
+      "renderMs": 79.2,
+      "ocrMs": 358.21
+    },
+    "barcodeDecodeMs": 3732.15,
+    "textLayerMs": 0.31,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 2,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 2
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 10.570475,
+        "decodedTextUtf8": {
+          "sha256": "ab99d9736d899549fb2658ad6f16b56c84b8b6dc6365e2dcd983c306e44bc51a",
+          "length": 37,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      },
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 10.712972,
+        "decodedTextUtf8": {
+          "sha256": "ab99d9736d899549fb2658ad6f16b56c84b8b6dc6365e2dcd983c306e44bc51a",
+          "length": 37,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 18.097738
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 16.80892
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 18.256551
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 17.561483
+        }
+      },
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 18.56486
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 18.434326
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 19.516032
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 19.513998
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 23,
+    "androidTextLayerWordCoverageVsPoppler": 1.0,
+    "ocrWordCoverageVsPoppler": 1.0,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "textLayerLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "ocrLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      }
+    }
+  },
+  {
+    "id": "synthetic-two-pages",
+    "pages": 2,
+    "counts": {
+      "200/unhinted": 2,
+      "200/tryHarder": 2,
+      "200/multiple": 2,
+      "300/unhinted": 2,
+      "300/tryHarder": 2,
+      "300/multiple": 2
+    },
+    "distinctDetected": 2,
+    "formats": [
+      "QR_CODE"
+    ],
+    "currentKeeps": 1,
+    "textLayerLines": 10,
+    "ocrLines": 10,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 10,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.422119,
+        "routeMs": 0.118978
+      },
+      "textLayerLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.239136,
+        "routeMs": 0.023641
+      },
+      "ocrLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.194092,
+        "routeMs": 0.024618
+      }
+    },
+    "totalMs": 5975.375776,
+    "sampledPeakPssKb": 588167,
+    "timings": {
+      "renderMs": 124.77,
+      "ocrMs": 868.56
+    },
+    "barcodeDecodeMs": 3877.35,
+    "textLayerMs": 0.67,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      },
+      {
+        "page": 2,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 10.530355,
+        "decodedTextUtf8": {
+          "sha256": "e50ca41a6d332e90ae6f9eea329e3213302fd6a520336b1e3f2ad5d2bcb765c0",
+          "length": 37,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      },
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 10.958741,
+        "decodedTextUtf8": {
+          "sha256": "e50ca41a6d332e90ae6f9eea329e3213302fd6a520336b1e3f2ad5d2bcb765c0",
+          "length": 37,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 20.159586
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 17.938924
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 18.790365
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 18.670085
+        }
+      },
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 19.051106
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 17.858643
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 18.897461
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 19.089111
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 46,
+    "androidTextLayerWordCoverageVsPoppler": 1.0,
+    "ocrWordCoverageVsPoppler": 1.0,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "textLayerLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "ocrLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      }
+    }
+  },
+  {
+    "id": "synthetic-vendor-image",
+    "pages": 1,
+    "counts": {
+      "200/unhinted": 1,
+      "200/tryHarder": 1,
+      "200/multiple": 1,
+      "300/unhinted": 1,
+      "300/tryHarder": 1,
+      "300/multiple": 1
+    },
+    "distinctDetected": 1,
+    "formats": [
+      "QR_CODE"
+    ],
+    "currentKeeps": 1,
+    "textLayerLines": 5,
+    "ocrLines": 6,
+    "lineOrdersEqual": false,
+    "nonemptyTextLayerLines": 5,
+    "ticketlineInTextLayer": false,
+    "morkWaterInTextLayer": false,
+    "parser": {
+      "pooledOcrBlocks": {
+        "artist": "TICKETLINE",
+        "venue": "Ocean Colour Scene",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.467204,
+        "routeMs": 0.09843
+      },
+      "textLayerLines": {
+        "artist": "Ocean Colour Scene",
+        "venue": "Auditorio Marina Norte, Valencia",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.202921,
+        "routeMs": 0.029174
+      },
+      "ocrLines": {
+        "artist": "TICKETLINE",
+        "venue": "Ocean Colour Scene",
+        "date": "25-09-2026",
+        "isComplete": true,
+        "route": "NeedsConfirmation",
+        "parseMs": 0.190023,
+        "routeMs": 0.019897
+      }
+    },
+    "totalMs": 3122.796673,
+    "sampledPeakPssKb": 641167,
+    "timings": {
+      "renderMs": 73.9,
+      "ocrMs": 435.63
+    },
+    "barcodeDecodeMs": 2026.22,
+    "textLayerMs": 0.38,
+    "perPage": [
+      {
+        "page": 1,
+        "textContents": 1,
+        "runs": {
+          "200/unhinted": 1,
+          "200/tryHarder": 1,
+          "200/multiple": 1,
+          "300/unhinted": 1,
+          "300/tryHarder": 1,
+          "300/multiple": 1
+        }
+      }
+    ],
+    "actualMainRedraw480": [
+      {
+        "status": "decoded",
+        "format": "QR_CODE",
+        "sameFormat": true,
+        "sameText": false,
+        "ms": 10.910523,
+        "decodedTextUtf8": {
+          "sha256": "1a05eec5933818e9acbaf18b6a275a9732bb1b4d82296f959231b3b504c1b0a2",
+          "length": 31,
+          "isUtf8": true,
+          "charset": "UTF-8-compatible; encoding not proven"
+        }
+      }
+    ],
+    "roundTrips": [
+      {
+        "format": "QR_CODE",
+        "textDefault": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 20.075887
+        },
+        "textUtf8": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": true,
+          "rawEqualsOriginal": true,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 19.77478
+        },
+        "rawLatin1": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 20.422078
+        },
+        "byteSegmentsLatin1": null,
+        "mainRedraw": {
+          "status": "decoded",
+          "format": "QR_CODE",
+          "textEqualsOriginal": false,
+          "rawEqualsOriginal": false,
+          "byteSegmentsEqualOriginal": null,
+          "ms": 20.619182
+        }
+      }
+    ],
+    "errors": [],
+    "hostTextLayerWordCount": 23,
+    "androidTextLayerWordCoverageVsPoppler": 1.0,
+    "ocrWordCoverageVsPoppler": 1.0,
+    "knownFieldChecks": {
+      "pooledOcrBlocks": {
+        "artist": false,
+        "venue": false,
+        "date": true
+      },
+      "textLayerLines": {
+        "artist": true,
+        "venue": true,
+        "date": true
+      },
+      "ocrLines": {
+        "artist": false,
+        "venue": false,
+        "date": true
+      }
+    }
+  }
+]
