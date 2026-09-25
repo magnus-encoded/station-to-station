@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.MultiFormatWriter
+import com.google.zxing.common.BitMatrix
 import io.github.magnusencoded.stationtostation.AppViewModel
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangePeer
@@ -569,17 +570,25 @@ internal fun qrBitmap(
     sizePx: Int,
     ink: Int = android.graphics.Color.BLACK,
     paper: Int = android.graphics.Color.WHITE,
+): Bitmap = matrixBitmap(MultiFormatWriter().encode(content, BarcodeFormat.QR_CODE, sizePx, sizePx), ink, paper)
+
+/** Paints an already-encoded [matrix] one pixel per module — [qrBitmap]'s drawing half, shared with the ticket redraw. */
+internal fun matrixBitmap(
+    matrix: BitMatrix,
+    ink: Int = android.graphics.Color.BLACK,
+    paper: Int = android.graphics.Color.WHITE,
 ): Bitmap {
-    val matrix = MultiFormatWriter().encode(content, BarcodeFormat.QR_CODE, sizePx, sizePx)
-    val pixels = IntArray(sizePx * sizePx)
-    for (y in 0 until sizePx) {
-        val row = y * sizePx
-        for (x in 0 until sizePx) {
+    val width = matrix.width
+    val height = matrix.height
+    val pixels = IntArray(width * height)
+    for (y in 0 until height) {
+        val row = y * width
+        for (x in 0 until width) {
             pixels[row + x] = if (matrix[x, y]) ink else paper
         }
     }
-    return Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888).apply {
-        setPixels(pixels, 0, sizePx, 0, 0, sizePx, sizePx)
+    return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply {
+        setPixels(pixels, 0, width, 0, 0, width, height)
     }
 }
 
