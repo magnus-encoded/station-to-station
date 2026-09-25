@@ -2175,7 +2175,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         if (actKey(act) in played &&
                             claim.provenance == StoredAttendance.Provenance.PLANNED
                         ) {
-                            StoredAttendance(provenance = StoredAttendance.Provenance.ATTENDED)
+                            // A copy, so the upgrade carries the rest of the claim
+                            // (the ticket's QR, #531's lookup state) instead of dropping it.
+                            claim.copy(provenance = StoredAttendance.Provenance.ATTENDED)
                                 .also { timelines.saveAttendance(gigId, it) }
                         } else {
                             claim

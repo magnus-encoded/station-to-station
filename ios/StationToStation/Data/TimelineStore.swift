@@ -63,15 +63,20 @@ struct StoredAttendance: Codable, Equatable {
     /// Base64 rather than raw bytes for the reason Android gives: JSON has no binary,
     /// and a string is the shape both sides already agree on.
     var ticketQr: String?
+    /// Where a local **Gig** stands with setlist.fm's `search/setlists` (#531). Nil for a
+    /// night never looked up, which is every record written before #531. Here rather than
+    /// in a map of its own for `ticketQr`'s reason, and under Android's name.
+    var setlistFmLookup: StoredSetlistFmLookup?
 
     init(provenance: String = "planned", checkedInAt: Int64? = nil,
          venueLat: Double? = nil, venueLon: Double? = nil,
-         ticketQr: String? = nil) {
+         ticketQr: String? = nil, setlistFmLookup: StoredSetlistFmLookup? = nil) {
         self.provenance = provenance
         self.checkedInAt = checkedInAt
         self.venueLat = venueLat
         self.venueLon = venueLon
         self.ticketQr = ticketQr
+        self.setlistFmLookup = setlistFmLookup
     }
 
     init(from decoder: Decoder) throws {
@@ -81,12 +86,63 @@ struct StoredAttendance: Codable, Equatable {
         venueLat = (try? c.decodeIfPresent(Double.self, forKey: .venueLat)) ?? nil
         venueLon = (try? c.decodeIfPresent(Double.self, forKey: .venueLon)) ?? nil
         ticketQr = (try? c.decodeIfPresent(String.self, forKey: .ticketQr)) ?? nil
+        setlistFmLookup = (try? c.decodeIfPresent(StoredSetlistFmLookup.self, forKey: .setlistFmLookup)) ?? nil
     }
 
     /// The QR as bytes, or nil where there is none and where what was stored is not
     /// base64 at all. A payload that will not decode is treated as no payload: there is
     /// nothing to hold up at a door, and a half-decoded barcode is worse than none.
     var ticketQrBytes: Data? { ticketQr.flatMap { Data(base64Encoded: $0) } }
+}
+
+/// One local **Gig**'s lookups on setlist.fm (#531), kept so that a restart does not turn
+/// "once a day" into "once a launch". Field for field with Android's `StoredSetlistFmLookup`.
+/// `setlistFmLookupDue` and `manualSetlistFmLookup` decide what it means; this only
+/// remembers it.
+///
+/// - `lastLookupAt`: epoch millis of the last lookup that went out, automatic or pulled.
+///   A pull that met the friction rule sent nothing and stamps nothing.
+/// - `rejectedIds`: setlist.fm ids the person said were not this night. Never offered
+///   again, for this Gig only.
+/// - `pendingHitIds`: the hits a "Possible match on setlist.fm" chip is asking about.
+///   Non-empty is the chip, and lookups pause until it is answered.
+struct StoredSetlistFmLookup: Codable, Equatable {
+    var lastLookupAt: Int64?
+    var rejectedIds: [String] = []
+    var pendingHitIds: [String] = []
+
+    init(lastLookupAt: Int64? = nil, rejectedIds: [String] = [], pendingHitIds: [String] = []) {
+        self.lastLookupAt = lastLookupAt
+        self.rejectedIds = rejectedIds
+        self.pendingHitIds = pendingHitIds
+    }
+
+    // Field by field, like `StoredAttendance`: an absent key costs that field only.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        lastLookupAt = (try? c.decodeIfPresent(Int64.self, forKey: .lastLookupAt)) ?? nil
+        rejectedIds = (try? c.decodeIfPresent([String].self, forKey: .rejectedIds)) ?? nil ?? []
+        pendingHitIds = (try? c.decodeIfPresent([String].self, forKey: .pendingHitIds)) ?? nil ?? []
+    }
+
+    var possibleMatchPending: Bool { !pendingHitIds.isEmpty }
+
+    func lookedUp(at millis: Int64) -> StoredSetlistFmLookup {
+        var next = self
+        next.lastLookupAt = millis
+        return next
+    }
+
+    /// "None of these": every hit the chip offered is remembered as not this night.
+    func rejectingPending() -> StoredSetlistFmLookup {
+        var next = self
+        for id in pendingHitIds where !next.rejectedIds.contains(id) { next.rejectedIds.append(id) }
+        next.pendingHitIds = []
+        return next
+    }
+
+    /// `hitIds` less the ones already rejected here, in their order.
+    func unrejected(_ hitIds: [String]) -> [String] { hitIds.filter { !rejectedIds.contains($0) } }
 }
 
 /// One night, as *this app* knows it — the identity everything else hangs off
