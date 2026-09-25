@@ -1,0 +1,77 @@
+{
+  "about": "The same ticket with a text layer beside the real ML Kit reading. The text layer is reconstructed in a plausible content-stream order (the ticket block, then the order block, then the insert), not captured from the PDF. The vendor logo 'billettservice' and the insert's broken lines are OCR-only.",
+  "readings": [
+    {
+      "origin": "textLayer",
+      "lines": [
+        "Dette er din billett",
+        "Ta med hele siden til arrangementet",
+        "SKAMBANKT",
+        "PARKTEATRET SCENE",
+        "OLAF RYES PLASS 11",
+        "TORSDAG 29.01.2015",
+        "DØRENE ÅPNER KL.18.00",
+        "FRI ALDERSGRENSE",
+        "KJØPTE BILL. REFUNDERES IKKE",
+        "Magnus Hustveit",
+        "Kundenummer:",
+        "1813111",
+        "Arrangementskode:",
+        "OPT2901",
+        "Kjøpsdato:",
+        "Ordrenummer:",
+        "17424705",
+        "DEL EN OPPLEVELSE!",
+        "Gi levende underholdning i gave",
+        "YNGLING & ØYA UNDER 18:",
+        "Vi har to forskjellige typer gavekort:",
+        "Send gavekort per post"
+      ]
+    },
+    {
+      "origin": "ocr",
+      "lines": [
+        "Dette er din billett",
+        "Ta med hele siden til arrangementet",
+        "Magnus Hustveit",
+        "Kundenummer:",
+        "1813111",
+        "Arrangementskode:",
+        "OPT2901",
+        "Kjøpsdato:",
+        "Ordrenummer:",
+        "17424705",
+        "billettservice",
+        "I Gaver",
+        "Gi levende",
+        "underholdningi gave",
+        "DEL EN OPPLEVELSE!",
+        "YNGLING & ØYA UNDER 18:",
+        "SKAMBANKT",
+        "Vi har to forskjellige typer gavekort:",
+        "PARKTEATRET SCENE",
+        "OLAF RYES PLASS 11",
+        "DØRENE ÅPNER KL.18.00",
+        "Send gavekort per post",
+        "TORSDAG 29.01.2015",
+        "FRI ALDERSGRENSE",
+        "KJØPTE BILL. REFUNDERES IKKE"
+      ]
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "SKAMBANKT",
+      "support": "both"
+    },
+    "venue": {
+      "value": "PARKTEATRET SCENE",
+      "support": "both"
+    },
+    "date": {
+      "value": "29-01-2015",
+      "support": "both"
+    },
+    "skipsPrompt": false
+  }
+}

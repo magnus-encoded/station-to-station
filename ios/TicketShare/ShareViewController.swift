@@ -29,8 +29,7 @@ final class ShareViewController: UIViewController {
             return finish("That doesn't look like a ticket PDF.")
         }
         let read = await Task.detached(priority: .userInitiated) {
-            let extracted = TicketExtractor.extract(pdf: data)
-            return parseTicket(qr: extracted.qr, blocks: extracted.blocks)
+            await parseTicket(data, with: PdfTicketExtractor.onDevice)
         }.value
 
         let ticket: Ticket
