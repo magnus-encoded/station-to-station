@@ -207,7 +207,8 @@ final class TicketParseTests: XCTestCase {
     }
 
     /// Even one that matches. What matched was a partial parse, and a partial parse is
-    /// exactly what the person is there to correct.
+    /// exactly what the person is there to correct. The night it matched goes with it as
+    /// the prompt's hint, as Android's `possibleMatch` always has.
     func testAPartialParseThatMatchesIsStillConfirmed() {
         var partial = complete
         partial.venue = nil
@@ -216,7 +217,61 @@ final class TicketParseTests: XCTestCase {
                                 knownNights: [night("g1", "14-09-2026", "Big Thief")],
                                 now: day(2026, 8, 1), calendar: calendar)
 
-        XCTAssertEqual(.confirm(partial), route)
+        XCTAssertEqual(.confirm(partial, possibleMatch: "g1"), route)
+    }
+
+    // MARK: - A known night's date, under another name (the #441 review)
+
+    /// Eventim's `Dumdumboys – XL [romertallførti]`: both readings agree on it, the
+    /// Code 128s read back, and the night was already planned by hand as `Dumdumboys`.
+    /// No artist match, but a night that day: asked about, with that night as the hint.
+    func testACompleteReadForAKnownNightsDateUnderAnotherNameIsAskedAboutNotMinted() {
+        let eventim = Ticket(admissions: [drawnQr], artist: "Dumdumboys – XL [romertallførti]",
+                             venue: "Rockefeller", date: day(2026, 9, 14))
+        XCTAssertEqual(.add(eventim), routeTicket(.ticket(eventim), knownNights: [],
+                                                  now: day(2026, 8, 1), calendar: calendar),
+                       "minted when nothing is known that day")
+
+        let route = routeTicket(.ticket(eventim),
+                                knownNights: [night("g1", "14-09-2026", "Dumdumboys")],
+                                now: day(2026, 8, 1), calendar: calendar)
+
+        XCTAssertEqual(.confirm(eventim, possibleMatch: "g1"), route)
+    }
+
+    func testAKnownNightOnAnotherDateDoesNotStopTheMint() {
+        let route = routeTicket(.ticket(complete),
+                                knownNights: [night("g1", "15-09-2026", "Dumdumboys")],
+                                now: day(2026, 8, 1), calendar: calendar)
+
+        XCTAssertEqual(.add(complete), route)
+    }
+
+    /// A festival day mints many nights on one date. The hint is the one at the room the
+    /// ticket names; failing that, the first known that day. Provisional.
+    func testOfSeveralNightsThatDateTheHintIsTheOneAtTheTicketsVenue() {
+        let nights = [night("g1", "14-09-2026", "Big Thief", venue: "Sentrum Scene"),
+                      night("g2", "14-09-2026", "Dumdumboys", venue: "Rockefeller")]
+        func at(_ venue: String) -> Ticket {
+            Ticket(admissions: [drawnQr], artist: "Dumdumboys – XL", venue: venue, date: day(2026, 9, 14))
+        }
+
+        XCTAssertEqual(.confirm(at("Rockefeller"), possibleMatch: "g2"),
+                       routeTicket(.ticket(at("Rockefeller")), knownNights: nights,
+                                   now: day(2026, 8, 1), calendar: calendar))
+        XCTAssertEqual(.confirm(at("Somewhere Else"), possibleMatch: "g1"),
+                       routeTicket(.ticket(at("Somewhere Else")), knownNights: nights,
+                                   now: day(2026, 8, 1), calendar: calendar))
+    }
+
+    /// Asked about anyway; the hint is the same one a complete read gets.
+    func testAPartialReadOnAKnownNightsDateCarriesTheSameHint() {
+        let partial = Ticket(admissions: [qrAdmission], artist: "Dumdumboys – XL", date: day(2026, 9, 14))
+
+        XCTAssertEqual(.confirm(partial, possibleMatch: "g1"),
+                       routeTicket(.ticket(partial),
+                                   knownNights: [night("g1", "14-09-2026", "Dumdumboys")],
+                                   now: day(2026, 8, 1), calendar: calendar))
     }
 
     /// An old ticket found while clearing out an inbox. Complete, unmatched, and in
@@ -493,7 +548,7 @@ final class TicketParseTests: XCTestCase {
         eventim.admissions = [drawnQr, Admission(payload: Data("CODE".utf8), symbology: "datamatrix",
                                                  redrawable: false)]
 
-        XCTAssertEqual(.confirm(eventim),
+        XCTAssertEqual(.confirm(eventim, possibleMatch: "g1"),
                        routeTicket(.ticket(eventim),
                                    knownNights: [night("g1", "14-09-2026", "Big Thief")],
                                    now: day(2026, 8, 1), calendar: calendar))
@@ -508,7 +563,7 @@ final class TicketParseTests: XCTestCase {
         XCTAssertFalse(unchecked.redrawsEveryAdmission)
         XCTAssertEqual(.confirm(unchecked), routeTicket(.ticket(unchecked), knownNights: [],
                                                         now: day(2026, 8, 1), calendar: calendar))
-        XCTAssertEqual(.confirm(unchecked),
+        XCTAssertEqual(.confirm(unchecked, possibleMatch: "g1"),
                        routeTicket(.ticket(unchecked),
                                    knownNights: [night("g1", "14-09-2026", "Big Thief")],
                                    now: day(2026, 8, 1), calendar: calendar))

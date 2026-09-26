@@ -16,6 +16,8 @@ private let slate = Color(red: 0x6D / 255, green: 0x7E / 255, blue: 0x9B / 255)
 /// all (story 8).
 struct ConfirmTicketSheet: View {
     let ticket: Ticket
+    /// `TicketDraft.possibleMatch`: said on the form, never acted on.
+    let possibleMatch: String?
     let onAdd: (String, String, String) -> Void
     let onCancel: () -> Void
 
@@ -28,9 +30,11 @@ struct ConfirmTicketSheet: View {
     @State private var picked = ""
 
     init(ticket: Ticket,
+         possibleMatch: String? = nil,
          onAdd: @escaping (String, String, String) -> Void,
          onCancel: @escaping () -> Void) {
         self.ticket = ticket
+        self.possibleMatch = possibleMatch
         self.onAdd = onAdd
         self.onCancel = onCancel
         _artist = State(initialValue: ticket.artist ?? "")
@@ -104,7 +108,10 @@ struct ConfirmTicketSheet: View {
                 + "this app can't make sense of. Fill it in and it goes on your line "
                 + "like any night you add by hand."
         }
-        var lines = ["Read from the ticket. Check it before it goes on your line."]
+        var lines = [possibleMatch.map { "This looks like a night already on your line (\($0)). "
+                         + "Check it before saving: it is added to that night only if who's "
+                         + "playing and the date match it." }
+                     ?? "Read from the ticket. Check it before it goes on your line."]
         switch ticket.admissions.count {
         case 0:
             // Story 8: the text read, the barcode did not. Said here, not discovered at

@@ -904,6 +904,10 @@ fun matchKnownNight(parsed: ParsedTicket, knownGigs: List<FmSetlist>): FmSetlist
  * Admission that did not read back as itself when redrawn ([checkedForRedraw]; an
  * unchecked one counts as not) sends the ticket to the prompt, which says which barcode
  * it is and to bring the PDF. Found at import, not at the door.
+ *
+ * **Nor is one for a date a known night is already on** when it matched no act (the
+ * #441 review): [knownNightThatDay] says why, and that night goes to the prompt as the
+ * possible match.
  */
 fun routeTicket(
     parsed: ParsedTicket,
@@ -911,12 +915,32 @@ fun routeTicket(
     today: LocalDate = LocalDate.now(),
 ): TicketRouting {
     val match = matchKnownNight(parsed, knownGigs)
+    val sameDay = if (match == null) knownNightThatDay(parsed, knownGigs) else null
     if (parsed.isComplete && parsed.redrawsEveryAdmission) {
         if (match != null) return TicketRouting.AlreadyKnown(match)
         val night = parseFmDate(parsed.date!!)
-        if (parsed.canSkipPrompt && night != null && !night.isBefore(today)) {
+        if (sameDay == null && parsed.canSkipPrompt && night != null && !night.isBefore(today)) {
             return TicketRouting.NewPlannedGig(parsed.artist!!, parsed.venue!!, parsed.date, parsed.admissions)
         }
     }
-    return TicketRouting.NeedsConfirmation(parsed, match)
+    return TicketRouting.NeedsConfirmation(parsed, match ?: sameDay)
+}
+
+/**
+ * A night already known on the ticket's date, when no artist matched it (the #441
+ * review). [routeTicket] never mints past one: a ticket whose artist line carries a tour
+ * name (`Dumdumboys – XL [romertallførti]`) is complete and agreed by both readings, and
+ * matches no act, yet the person already planned `Dumdumboys` that night. Asked about,
+ * with that night as the prompt's possible match, rather than a second night minted.
+ *
+ * Of several that day (a festival day), the one whose venue folds equal to the ticket's
+ * ([nameKey]), else the first. Provisional, as the rule is: generic, no vendor or artist
+ * named. The iOS twin is `nightThatDay`.
+ */
+fun knownNightThatDay(parsed: ParsedTicket, knownGigs: List<FmSetlist>): FmSetlist? {
+    val date = parsed.date ?: return null
+    val thatDay = knownGigs.filter { it.eventDate == date }
+    val venueKey = parsed.venue?.let(::nameKey)?.ifEmpty { null }
+    return thatDay.firstOrNull { venueKey != null && nameKey(it.venue?.name.orEmpty()) == venueKey }
+        ?: thatDay.firstOrNull()
 }
