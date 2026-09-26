@@ -2,7 +2,7 @@
 
 A **Ticket** is read twice (#526): once from the PDF's own text layer and once by OCR.
 `parseTicketFields` compares the two readings and picks the artist, the venue and the
-date. It exists twice, in Swift and in Kotlin, and these are the cases both copies must
+date, and reconciles the barcodes into **Admissions** (#441). It exists twice, in Swift and in Kotlin, and these are the cases both copies must
 agree on. Neither platform owns them. This file is the contract: the schema, what each
 platform's test does with it, and the rules the cases pin.
 
@@ -14,12 +14,12 @@ One file per case:
 {
   "about": "what the case is, and which lines are real, placed or reconstructed",
   "readings": [{ "origin": "textLayer", "lines": ["…"] }, { "origin": "ocr", "lines": ["…"] }],
-  "barcodes": [{ "symbology": "qr", "payload": "SYNTHETIC-…" }],
+  "barcodes": [{ "symbology": "qr", "payload": "SYNTHETIC-…", "page": 0 }],
   "expected": {
     "artist": { "value": "…", "support": "both" },
     "venue": "unchecked",
     "date": { "value": "dd-MM-yyyy", "support": "ocr" },
-    "barcode": "SYNTHETIC-…",
+    "admissions": [{ "symbology": "qr", "payload": "SYNTHETIC-…", "corroborated": false }],
     "skipsPrompt": true
   },
   "knownFailure": { "artist": "why no rule gets this right yet" }
@@ -30,16 +30,20 @@ One file per case:
   that produced text, so no PDF is needed. `origin` is `textLayer` or `ocr`. Lines are
   as captured, including a text layer's trailing `\r` (see *Lines*).
 - **`barcodes`**: every barcode the evidence carries, in the order found. It may be
-  empty. `symbology` is one of `qr`, `code128`, `ean13`, `ean8`, `upce`, `aztec`,
-  `pdf417`, `datamatrix` (zxing's `QR_CODE` is `qr`, `CODE_128` is `code128`, and so
-  on; Vision's `.qr` is `qr`). `payload` is the decoded payload as text. Every payload
-  here is synthetic: never a real ticket's payload, and never a hash of one.
+  empty. `symbology` is one of `qr`, `code128`, `ean13`, `ean8`, `upca`, `upce`,
+  `aztec`, `pdf417`, `datamatrix` (zxing's `QR_CODE` is `qr`, `CODE_128` is `code128`,
+  and so on; Vision's `.qr` is `qr`). `payload` is the decoded payload as text, handed
+  to the parser as its UTF-8 bytes. `page` is the zero-based page it was found on, and
+  0 when absent. Every payload here is synthetic: never a real ticket's payload, and
+  never a hash of one.
 - **`expected`**: every key is always present.
   - `artist`, `venue`, `date`: `{value, support}`, or `null` when nothing may be
     found, or `"unchecked"` when the case deliberately asserts nothing about it.
     `date` is `dd-MM-yyyy`. `support` is `both` when both readings produced the value,
     otherwise the one origin that did (`textLayer` or `ocr`).
-  - `barcode`: the payload of the one barcode the result carries, as text, or `null`.
+  - `admissions`: every **Admission** the result carries, in order, each as
+    `{symbology, payload, corroborated}` (payload as text). `[]` when there are none.
+    Never `"unchecked"`: nothing about it depends on a redacted line.
   - `skipsPrompt`: whether a complete read may be added without asking, or
     `"unchecked"`.
 - **`knownFailure`** (optional): a map from a field name (`artist`, `venue`, `date` or
@@ -58,9 +62,10 @@ One file per case:
   the fix. iOS wraps just that field's assertions in `XCTExpectFailure`'s block form. A
   platform without strict xfail asserts that the field is *not* the expected value.
   Every other field of the case is asserted as usual.
-- Read every `*.json` in the folder, fail if there are fewer than 19 (raise the floor
+- `admissions` is asserted in full: the same count, and each entry's symbology,
+  payload and corroboration, in order.
+- Read every `*.json` in the folder, fail if there are fewer than 26 (raise the floor
   with the corpus), and print how many ran.
-- Android's `unsupportedBarcodeFormat` (#534) is outside this corpus. Don't assert it.
 
 ## Lines
 
@@ -147,14 +152,34 @@ For the date, "equal" means the same day, and "appears" means that some line of 
 other reading reads as that day. When only one reading has a candidate, that candidate
 wins with its origin's support.
 
-### The barcode, completeness and the prompt
+### The Admissions
 
-- The evidence carries **every** barcode (`barcodes`). Until #441, the result carries
-  one: **the first `qr` entry with a non-empty payload**. This is the first QR, not the
-  first barcode, because real tickets show EAN and UPC candidates beside their QR (the
-  probe, #441), and a Code 128 is not something the Room can redraw as a QR. So a
-  ticket whose only codes are Code 128 (Eventim) is never complete.
-- `isComplete`: the barcode, artist, venue and date are all present.
+The evidence carries **every** barcode (`barcodes`); the result carries its **Admissions**
+(#441), reconciled from them:
+
+1. **What can be one.** A barcode with a symbology and a non-empty payload. Anything else
+   is not something a door can be shown.
+2. **Retail formats only when alone.** `ean13`, `ean8`, `upca` and `upce` are dropped
+   when anything else was found, and kept when they are all there is. Real tickets
+   showed EAN and UPC hits beside the QR that is the Admission (the Android probe,
+   #441): unverified, possibly other print, possibly false positives. **Provisional**:
+   a default until a real ticket says otherwise, not a finding.
+3. **In page order**, and within a page in the order found.
+4. **One per payload**, the first kept. The same payload on three pages is one
+   **Admission**; the same payload in two symbologies keeps the first one's.
+5. **Corroborated** when the payload, read as strict UTF-8 with whitespace and `*` taken
+   out, appears inside some line of some reading with the same taken out (`*TESTQRAA1*`
+   corroborates `TESTQRAA1`). Every reading's raw lines count, before tidying. A payload
+   that is not valid UTF-8 is never corroborated. Corroboration is evidence recorded on
+   the **Admission**, never a filter: an uncorroborated one is kept and shown.
+
+Nothing here prefers a QR. A Code 128 is an **Admission** like any other; whether the
+Room can redraw it yet is the Room's business, not the parse's.
+
+### Completeness and the prompt
+
+- `isComplete`: at least one **Admission**, and the artist, venue and date all present.
+  Since #441 a ticket whose only codes are Code 128 (Eventim) can be complete.
 - `skipsPrompt`: complete, and either the source had one reading or every field has
   `both` support.
 
@@ -170,10 +195,10 @@ case's `about` says which lines are which.
 | `ticketline-*` | **Real** Pixel readings of `phone-future` (the Gig `f9c51210`), from the Android probe (2026-09-25). Redacted lines are the marker. The venue is `unchecked` because the probe couldn't confirm it, and `skipsPrompt` is `unchecked` because it depends on the venue. |
 | `skambankt-billettservice-ocr-only` | **Real** ML Kit lines, page 1 of `real-eticket-2`. The probe's own lines are 11, 15, 17, 19, 25, 27 and 62. The rest of lines 0–25 are **placed** from the real ML Kit blocks in Android's `TicketParsingTest`, which match the probe's skeleton one to one. The buyer name and numbers are made up. |
 | `skambankt-billettservice-text-layer-and-ocr` | **Real** text-layer skeleton: only `PARKTEATRET SCENE` survived redaction, and `SKAMBANKT` isn't a text-layer line at all. The date line is reconstructed. Only the date is asserted. |
-| `dumdumboys-eventim-ocr-only` | **Real** ML Kit blocks from Android's `TicketParsingTest`. Personal data and the printed barcode number are made up. `knownFailure: artist`. |
-| `dumdumboys-eventim-text-layer-and-ocr` | **Real** text-layer skeleton of `real-eventim-2` (3 real lines). The purchase-date line, the date, the venue and the address are **reconstructed**. It pins the date rule. `knownFailure: artist`, and the venue is `unchecked`. |
+| `dumdumboys-eventim-ocr-only` | **Real** ML Kit blocks from Android's `TicketParsingTest`. Personal data and the printed barcode number are made up. `knownFailure: artist` and `skipsPrompt` (see *Decisions*). |
+| `dumdumboys-eventim-text-layer-and-ocr` | **Real** text-layer skeleton of `real-eventim-2` (3 real lines). The purchase-date line, the date, the venue and the address are **reconstructed**. It pins the date rule. `knownFailure: artist` and `skipsPrompt`, and the venue is `unchecked`. |
 | `ocs-*` | **Real** Pixel readings of PDFs the probe generated (Ocean Colour Scene, not valid for admission). `ocs-flattened-ocr-only` is the OCR-only twin of every `ocs-*` case. `ocs-artist-image` has `knownFailure` on artist, venue and skipsPrompt (see *Decisions*). |
-| `date-rule-*`, `guard-around-the-date`, `barcode-rule-first-qr` | **Synthetic**, written by hand to pin one rule each. |
+| `date-rule-*`, `guard-around-the-date`, `admission-rule-*`, `admissions-*` | **Synthetic**, written by hand to pin one rule each. `admissions-three-on-three-pages` and `admissions-code128-pair-printed` take the shapes of the probe's Billettservice and Eventim tickets, with made-up payloads. |
 
 Replace a reconstructed or redacted reading with a captured one whenever the real PDF
 turns up, and drop `unchecked` and `knownFailure` as the evidence allows. The broader
@@ -188,4 +213,9 @@ subset.
   would skip the prompt. Fixing it means weakening the TICKETLINE protection, so the
   case is marked as a known failure until someone decides.
 - **Dumdumboys**: the event line is `Dumdumboys – XL [romertallførti]`. Nothing generic
-  says where the band's name ends.
+  says where the band's name ends. Since #441 its Code 128s make the read complete, so
+  both cases would now be added without asking, under that wrong artist: marked a known
+  failure on `skipsPrompt` as well. Whether a complete read should need the prompt when
+  its artist line carries a tour name is the same open question as the artist rule.
+- **The retail rule** (*The Admissions*, rule 2) is provisional. A real ticket whose
+  Admission is an EAN beside a QR that isn't would be read wrong by it.

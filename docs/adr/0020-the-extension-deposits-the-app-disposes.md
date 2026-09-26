@@ -102,6 +102,14 @@ read by both twins and Android has no unknown-key carrying on *save*, so a key o
 would survive until the next write from the other and then vanish. That is the data loss #107 exists
 to prevent, and it is the reason #414's first attempt at a persisted key was correctly reverted.
 
+**Superseded in its specifics by #441, under the same constraint.** `ticketQr` is now
+`StoredAttendance.admissions`, a list of **Admissions** (payload in base64, symbology, page,
+corroborated), because a Code 128 stored in a field called `ticketQr` was a record whose name
+lied. The rename landed on both twins in one change for exactly the reason above. The old key is
+read once, as one QR **Admission**, and is never written again. `fixtures/timeline/admissions/`
+is the file both twins' tests round-trip. What the extension deposits grew to match: a
+**Ticket**'s `admissions` in place of its `qr`.
+
 ## Related
 
 - ADR-0001 — the logic/plumbing split this sits under. `parseTicket` is logic; everything in

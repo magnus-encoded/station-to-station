@@ -98,10 +98,10 @@ struct VisionBarcodeLocator: BarcodeLocator {
         guard let image = page.rendered() else { return [] }
         return autoreleasepool {
             let request = VNDetectBarcodesRequest()
-            // QR only. Aztec and PDF417 are common on tickets too, but the field this
-            // fills is called a QR everywhere in this app and on the Android twin, and a
-            // record whose name is a lie costs more than the extra symbology is worth.
-            // #441 is where that widens.
+            // QR only, still. The record is no longer named for a QR (#441 stores
+            // Admissions with their symbology), so nothing downstream stops this from
+            // widening to the linear and matrix formats real tickets carry; that, with a
+            // mapping from Vision's names to the fixtures' ones, is #441's next slice.
             request.symbologies = [.qr]
             try? VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
             // Every code on the page, not only the first: which of them count is the
@@ -115,7 +115,7 @@ struct VisionBarcodeLocator: BarcodeLocator {
     }
 
     /// `payloadData` is iOS 17. On 16 a binary payload only comes back as a lossy
-    /// string, which is stated on `Ticket.qr` rather than silently accepted here.
+    /// string, which is stated on `Admission.payload` rather than silently accepted here.
     private func payload(of found: VNBarcodeObservation) -> Data? {
         if #available(iOS 17.0, *), let bytes = found.payloadData, !bytes.isEmpty {
             return bytes

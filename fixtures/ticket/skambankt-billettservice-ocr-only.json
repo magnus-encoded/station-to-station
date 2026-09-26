@@ -89,15 +89,18 @@
   "barcodes": [
     {
       "symbology": "qr",
-      "payload": "SYNTHETIC-BS-1"
+      "payload": "SYNTHETIC-BS-1",
+      "page": 0
     },
     {
       "symbology": "qr",
-      "payload": "SYNTHETIC-BS-2"
+      "payload": "SYNTHETIC-BS-2",
+      "page": 1
     },
     {
       "symbology": "qr",
-      "payload": "SYNTHETIC-BS-3"
+      "payload": "SYNTHETIC-BS-3",
+      "page": 2
     }
   ],
   "expected": {
@@ -113,7 +116,23 @@
       "value": "29-01-2015",
       "support": "ocr"
     },
-    "barcode": "SYNTHETIC-BS-1",
+    "admissions": [
+      {
+        "symbology": "qr",
+        "payload": "SYNTHETIC-BS-1",
+        "corroborated": false
+      },
+      {
+        "symbology": "qr",
+        "payload": "SYNTHETIC-BS-2",
+        "corroborated": false
+      },
+      {
+        "symbology": "qr",
+        "payload": "SYNTHETIC-BS-3",
+        "corroborated": false
+      }
+    ],
     "skipsPrompt": true
   }
 }

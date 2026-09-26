@@ -52,7 +52,7 @@ final class GigOffersTests: XCTestCase {
     private func ticketed(_ date: String? = nil, _ provenance: String? = nil,
                           _ setlistId: String? = nil, _ songs: Int = 0) -> GigAsKnown {
         var gig = night(date, provenance, nil, setlistId, songs)
-        gig.ticketQr = ticketBytes.base64EncodedString()
+        gig.admissionCount = 1
         return gig
     }
 
@@ -193,17 +193,17 @@ final class GigOffersTests: XCTestCase {
     // --- The ticket (#414) ----------------------------------------------------
 
     func testANightWithNoTicketHoldsNothingUp() {
-        XCTAssertFalse(offers(night(today, planned)).room.showQr)
+        XCTAssertFalse(offers(night(today, planned)).room.showTicket)
     }
 
     func testATicketIsHeldUpUntilTheCheckIn() {
-        XCTAssertTrue(offers(ticketed(today, planned)).room.showQr)
+        XCTAssertTrue(offers(ticketed(today, planned)).room.showTicket)
     }
 
     func testCheckingInRetiresTheTicket() {
         // The swap the Room renders: one branch, never both at once.
         let o = offers(ticketed(today, checkedIn))
-        XCTAssertFalse(o.room.showQr)
+        XCTAssertFalse(o.room.showTicket)
         XCTAssertFalse(o.room.checkIn)
     }
 
@@ -212,7 +212,7 @@ final class GigOffersTests: XCTestCase {
         // not gated on the window — a QR withheld until the music starts is a QR you
         // cannot get in with.
         let o = offers(ticketed(inThreeWeeks, planned))
-        XCTAssertTrue(o.room.showQr)
+        XCTAssertTrue(o.room.showTicket)
         XCTAssertFalse(o.room.checkIn)
     }
 
@@ -239,29 +239,40 @@ final class GigOffersTests: XCTestCase {
         XCTAssertNotNil(qrImage(Data([0x00, 0xFF, 0xFE, 0x80, 0x01])))
     }
 
-    /// The seam to #412, asserted rather than assumed: what the fold carries is the
-    /// stored `StoredAttendance.ticketQr` verbatim — base64, undecoded, exactly as
-    /// Android's twin carries it — and the bytes are only produced at the render edge.
-    func testTheFoldCarriesTheStoredFieldAndDecodesOnlyToDraw() {
-        let claim = StoredAttendance(provenance: planned,
-                                     ticketQr: ticketBytes.base64EncodedString())
+    /// The seam to the store, asserted rather than assumed: what the fold carries is how
+    /// many Admissions the stored claim holds (#441) — the same fact under the same name
+    /// as Android's twin — and the bytes are only produced at the render edge.
+    func testTheFoldCarriesTheStoredCountAndDecodesOnlyToDraw() {
+        let claim = StoredAttendance(provenance: planned, admissions: [
+            StoredAdmission(payload: ticketBytes.base64EncodedString(), symbology: "qr"),
+        ])
         var gig = night(today, claim.provenance)
-        gig.ticketQr = claim.ticketQr
+        gig.admissionCount = claim.admissions.count
 
-        XCTAssertEqual(claim.ticketQr, gig.ticketQr)
-        XCTAssertTrue(offers(gig).room.showQr)
-        XCTAssertEqual(ticketBytes, claim.ticketQrBytes)
+        XCTAssertTrue(offers(gig).room.showTicket)
+        XCTAssertEqual(ticketBytes, claim.admissions.first?.payloadBytes)
     }
 
-    /// Presence decides, content does not. A stored payload that will not decode still
-    /// says "this night had a ticket"; what it cannot do is draw, and the render edge
-    /// is where that is caught rather than here.
+    /// Presence decides, content does not. A stored payload that will not decode — or a
+    /// Code 128 the app cannot redraw yet — still says "this night had a ticket"; what
+    /// it cannot do is draw as a QR, and the render edge is where that is caught.
     func testTheFoldAsksOnlyWhetherThereIsATicketAtAll() {
         var gig = night(today, planned)
-        gig.ticketQr = "not base64 at all!"
+        gig.admissionCount = 1
 
-        XCTAssertTrue(offers(gig).room.showQr)
-        XCTAssertNil(StoredAttendance(ticketQr: gig.ticketQr).ticketQrBytes)
+        XCTAssertTrue(offers(gig).room.showTicket)
+        XCTAssertNil(StoredAdmission(payload: "not base64 at all!", symbology: "qr").payloadBytes)
+    }
+
+    /// Two people on one PDF, or a second ticket for the night (#441): still one ticket
+    /// held up, and the check-in retires every Admission at once.
+    func testSeveralAdmissionsAreOneTicketToShowUntilTheCheckIn() {
+        var gig = night(today, planned)
+        gig.admissionCount = 3
+        XCTAssertTrue(offers(gig).room.showTicket)
+
+        gig.provenance = checkedIn
+        XCTAssertFalse(offers(gig).room.showTicket)
     }
 
     // --- The lattice ----------------------------------------------------------

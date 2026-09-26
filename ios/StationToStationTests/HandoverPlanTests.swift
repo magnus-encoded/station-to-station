@@ -120,6 +120,37 @@ final class HandoverPlanTests: XCTestCase {
         XCTAssertEqual(plan.merged.gigAttendance["g1"]?.checkedInAt, 42)
     }
 
+    /// #441: both phones planned the night, and the ticket was shared into only one.
+    /// Before, the two claims tied and mine was kept whole — with no ticket in it.
+    func testATicketOnlyTheArrivingPhoneHoldsSurvivesTwoPlannedClaims() {
+        let ticket = StoredAdmission(payload: "U1lOVEhFVElDLUhBTkRPVkVS", symbology: "qr")
+        var mine = cache(gigs: [gig("g1", setlistId: "sl-1")])
+        mine.gigAttendance = ["g1": StoredAttendance(provenance: "planned")]
+        var theirs = cache(gigs: [gig("g1", setlistId: "sl-1")])
+        theirs.gigAttendance = ["g1": StoredAttendance(provenance: "planned", admissions: [ticket])]
+
+        let plan = handoverPlan(mine: mine, offer: offer(theirs), allow: all, verified: true)
+
+        XCTAssertEqual(plan.merged.gigAttendance["g1"]?.admissions, [ticket])
+    }
+
+    /// Both phones' Admissions for one night are kept once each, behind the stronger claim.
+    func testBothPhonesAdmissionsAreKeptOnceEachBehindTheStrongerClaim() {
+        let first = StoredAdmission(payload: "U1lOVEhFVElDLTE=", symbology: "qr")
+        let second = StoredAdmission(payload: "U1lOVEhFVElDLTI=", symbology: "code128", page: 1)
+        var mine = cache(gigs: [gig("g1", setlistId: "sl-1")])
+        mine.gigAttendance = ["g1": StoredAttendance(provenance: "checked_in", checkedInAt: 42, admissions: [first])]
+        var theirs = cache(gigs: [gig("g1", setlistId: "sl-1")])
+        theirs.gigAttendance = ["g1": StoredAttendance(provenance: "planned", admissions: [second, first])]
+
+        let merged = handoverPlan(mine: mine, offer: offer(theirs), allow: all, verified: true)
+            .merged.gigAttendance["g1"]
+
+        XCTAssertEqual(merged?.provenance, "checked_in")
+        XCTAssertEqual(merged?.checkedInAt, 42)
+        XCTAssertEqual(merged?.admissions, [first, second])
+    }
+
     // MARK: - What travels, and what does not
 
     /// The tick list is applied at construction: an item the source did not offer never

@@ -27,7 +27,7 @@
       "value": "25-09-2026",
       "support": "ocr"
     },
-    "barcode": null,
+    "admissions": [],
     "skipsPrompt": false
   }
 }

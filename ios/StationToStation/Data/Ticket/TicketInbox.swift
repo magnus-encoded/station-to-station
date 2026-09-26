@@ -22,7 +22,7 @@ struct TicketDeposit: Codable, Equatable, Identifiable, Sendable {
 /// **What is in the container is deliberately small.** The parse happens in the
 /// extension, so the PDF itself — which carries a name, an order number and sometimes
 /// a card fragment — is never written anywhere. Only the four facts, which readings
-/// backed them, and the QR payload cross — never the barcode's crop — and they are
+/// backed them, and the **Admissions** cross — never the barcode's crop — and they are
 /// deleted the moment the app has read them.
 enum TicketInbox {
 

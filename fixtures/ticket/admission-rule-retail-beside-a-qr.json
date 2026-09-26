@@ -1,5 +1,5 @@
 {
-  "about": "SYNTHETIC, written by hand for the barcode rule. A retail EAN-13 is found before the ticket's two QR codes, the order the probe saw candidates in on a real Ticketmaster PDF. The result carries the first QR, not the first barcode, so the read is still complete.",
+  "about": "SYNTHETIC, written by hand for the retail rule (#441). A retail EAN-13 is found before the ticket's two QR codes, the order the probe saw candidates in on a real Ticketmaster PDF. Beside anything else, a retail format is dropped, so the two QRs are the Admissions.",
   "readings": [
     {
       "origin": "ocr",
@@ -39,7 +39,18 @@
       "value": "25-09-2026",
       "support": "ocr"
     },
-    "barcode": "SYNTHETIC-FIRST-QR",
+    "admissions": [
+      {
+        "symbology": "qr",
+        "payload": "SYNTHETIC-FIRST-QR",
+        "corroborated": false
+      },
+      {
+        "symbology": "qr",
+        "payload": "SYNTHETIC-SECOND-QR",
+        "corroborated": false
+      }
+    ],
     "skipsPrompt": true
   }
 }
