@@ -1,0 +1,12 @@
+{
+  "about": "A trailing city on the ticket's venue comes off (Sentrum Scene, Oslo = Sentrum Scene), and ø folds to o: the same room, so this links.",
+  "outcome": "linked",
+  "linked": "j1000001",
+  "levels": {
+    "j1000001": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "strong"
+    }
+  }
+}

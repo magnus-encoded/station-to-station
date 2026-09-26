@@ -1,0 +1,17 @@
+{
+  "about": "A ticket with no venue links on artist and date alone; venue carries no level because there was nothing to compare.",
+  "outcome": "linked",
+  "linked": "a2000001",
+  "levels": {
+    "a2000001": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": null
+    },
+    "a2000002": {
+      "artist": "strong",
+      "date": "weak",
+      "venue": null
+    }
+  }
+}

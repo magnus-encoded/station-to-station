@@ -1,0 +1,41 @@
+{
+  "setlist": [
+    {
+      "id": "b1000001",
+      "eventDate": "12-03-2027",
+      "artist": {
+        "mbid": "00000000-0000-4000-8000-000000000003",
+        "name": "Ferrous Owls"
+      },
+      "venue": {
+        "name": "Driv",
+        "city": {
+          "name": "Tromsø",
+          "country": {
+            "name": "Norway"
+          }
+        }
+      }
+    },
+    {
+      "id": "b1000002",
+      "eventDate": "12-03-2027",
+      "artist": {
+        "mbid": "00000000-0000-4000-8000-000000000003",
+        "name": "Ferrous Owls"
+      },
+      "venue": {
+        "name": "Blå",
+        "city": {
+          "name": "Oslo",
+          "country": {
+            "name": "Norway"
+          }
+        }
+      }
+    }
+  ],
+  "total": 2,
+  "page": 1,
+  "itemsPerPage": 20
+}

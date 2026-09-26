@@ -1,0 +1,36 @@
+{
+  "about": "Five hits survive and none meets the bar. The question shows three, ranked by venue level, then artist, then date; the two cut still carry their levels.",
+  "outcome": "ask",
+  "ask": [
+    "n1000004",
+    "n1000002",
+    "n1000003"
+  ],
+  "levels": {
+    "n1000001": {
+      "artist": "strong",
+      "date": "weak",
+      "venue": "noMatch"
+    },
+    "n1000002": {
+      "artist": "weak",
+      "date": "strong",
+      "venue": "strong"
+    },
+    "n1000003": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "weak"
+    },
+    "n1000004": {
+      "artist": "strong",
+      "date": "weak",
+      "venue": "strong"
+    },
+    "n1000005": {
+      "artist": "strong",
+      "date": "strong",
+      "venue": "noMatch"
+    }
+  }
+}
