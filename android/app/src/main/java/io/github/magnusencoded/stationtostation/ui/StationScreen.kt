@@ -1350,7 +1350,8 @@ private fun TicketConfirmDialog(
                 if (pending.parsed.isEmpty) {
                     "Couldn't read anything off that PDF. Fill it in by hand, or discard it."
                 } else if (pending.possibleMatch != null) {
-                    "This looks like a night already on your line — check it before saving."
+                    "This looks like a night already on your line — check it before saving: " +
+                        "it is added to that night only if who's playing and the date match it."
                 } else {
                     "Here's what the ticket seemed to say. Check it before it's added."
                 },

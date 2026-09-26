@@ -239,6 +239,24 @@ final class TicketParseTests: XCTestCase {
         XCTAssertEqual(.confirm(eventim, possibleMatch: "g1"), route)
     }
 
+    /// What `confirmTicket` checks on Save: `knownNight` on the confirmed values, never
+    /// the routing hint and never `nightThatDay`. Saved as read, the tour-name ticket is
+    /// a night of its own; edited to the act, it is that night. The Android twin is
+    /// `ConfirmPendingTicketTest` (#526).
+    func testTheConfirmReCheckAttachesOnlyOnTheAct() {
+        let nights = [night("g1", "14-09-2026", "Dumdumboys"), night("g2", "15-09-2026", "Dumdumboys")]
+        let asRead = Ticket(admissions: [qrAdmission], artist: "Dumdumboys – XL [romertallførti]",
+                            venue: "Rockefeller", date: day(2026, 9, 14))
+
+        XCTAssertNil(knownNight(asRead, among: nights, calendar: calendar))
+        var edited = asRead
+        edited.artist = "Dumdumboys"
+        XCTAssertEqual("g1", knownNight(edited, among: nights, calendar: calendar)?.id)
+        edited.date = day(2026, 9, 15)
+        XCTAssertEqual("g2", knownNight(edited, among: nights, calendar: calendar)?.id,
+                       "an edited date names the other night, whatever routing hinted")
+    }
+
     func testAKnownNightOnAnotherDateDoesNotStopTheMint() {
         let route = routeTicket(.ticket(complete),
                                 knownNights: [night("g1", "15-09-2026", "Dumdumboys")],
