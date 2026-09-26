@@ -173,8 +173,12 @@ The evidence carries **every** barcode (`barcodes`); the result carries its **Ad
    that is not valid UTF-8 is never corroborated. Corroboration is evidence recorded on
    the **Admission**, never a filter: an uncorroborated one is kept and shown.
 
-Nothing here prefers a QR. A Code 128 is an **Admission** like any other; whether the
-Room can redraw it yet is the Room's business, not the parse's.
+Nothing here prefers a QR. A Code 128 is an **Admission** like any other. Whether the
+app can redraw one is not the parse's business either: each app redraws every
+**Admission** and reads it back at import (`checkedForRedraw`, #441 story 29), and
+routing will not act without the person on a ticket with one that did not read back.
+That check is not in this corpus, because what can be redrawn differs by platform
+(CoreImage has no Data Matrix generator); `skipsPrompt` stays a property of the read.
 
 ### Completeness and the prompt
 
