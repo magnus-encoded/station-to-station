@@ -105,6 +105,9 @@ final class AdmissionRedrawTests: XCTestCase {
         XCTAssertEqual(1, strip.height)
         XCTAssertTrue((0..<10).allSatisfy { !strip.isDark($0, 0) && !strip.isDark(strip.width - 1 - $0, 0) })
         XCTAssertTrue(strip.isDark(11, 0), "the start pattern begins at the quiet zone's edge")
+        // Story 9's module width is set by how many modules the strip needs. Printed so
+        // CI shows it beside Android's figure for the same payload (AdmissionRedrawTest).
+        print("AdmissionRedraw: code128 \(eventimShaped.count)-digit strip is \(strip.width) modules")
     }
 
     /// Every module the same whole number of pixels: no uneven bars from scaling.

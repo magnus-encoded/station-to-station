@@ -153,6 +153,10 @@ class AdmissionRedrawTest {
             assertFalse(strip.modules[strip.width - 1 - x, 0])
         }
         assertTrue("the start pattern begins at the quiet zone's edge", strip.modules[11, 0])
+        // Story 9's module width is set by how many modules the strip needs: zxing packs
+        // digits two to a symbol (Code 128 set C), so 24 digits are 12 symbols, plus
+        // start, check and stop, plus 11 quiet modules each side.
+        assertEquals(11 + (12 + 2) * 11 + 13 + 11, strip.width)
     }
 
     @Test
