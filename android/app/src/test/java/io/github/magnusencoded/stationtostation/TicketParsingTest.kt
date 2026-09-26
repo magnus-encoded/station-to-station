@@ -158,13 +158,13 @@ class TicketParsingTest {
                 readings = emptyList(),
                 barcodes = listOf(
                     barcode("qr", "SYNTHETIC-QR-2", page = 1),
-                    barcode("code128", "SYNTHETIC-CODE128-0001", page = 0),
+                    barcode("aztec", "SYNTHETIC-AZTEC-0001", page = 0),
                     barcode("qr", "SYNTHETIC-QR-1", page = 0),
                 ),
             ),
         )
 
-        assertEquals(listOf("SYNTHETIC-CODE128-0001", "SYNTHETIC-QR-1", "SYNTHETIC-QR-2"), parsed.admissions.payloads())
+        assertEquals(listOf("SYNTHETIC-AZTEC-0001", "SYNTHETIC-QR-1", "SYNTHETIC-QR-2"), parsed.admissions.payloads())
         assertEquals(listOf(0, 0, 1), parsed.admissions.map { it.page })
     }
 

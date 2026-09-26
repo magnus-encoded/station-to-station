@@ -453,18 +453,18 @@ final class TicketParseTests: XCTestCase {
 
     // MARK: - Admissions (#441)
 
-    /// Every Admission, in page order, whatever its symbology — a Code 128 is kept as
-    /// what it is, where #534 only flagged it.
+    /// Every Admission, in page order, whatever its symbology. (A Code 128 beside a 2D
+    /// code is not one: `admission-rule-linear-beside-a-qr` in the fixtures.)
     func testEveryAdmissionIsKeptInPageOrderWhateverItsSymbology() {
         let found = admissions([
             barcode("qr", "SYNTHETIC-QR-2", page: 1),
-            barcode("code128", "SYNTHETIC-CODE128-0001", page: 0),
+            barcode("aztec", "SYNTHETIC-AZTEC-0001", page: 0),
             barcode("qr", "SYNTHETIC-QR-1", page: 0),
         ])
 
-        XCTAssertEqual(["SYNTHETIC-CODE128-0001", "SYNTHETIC-QR-1", "SYNTHETIC-QR-2"],
+        XCTAssertEqual(["SYNTHETIC-AZTEC-0001", "SYNTHETIC-QR-1", "SYNTHETIC-QR-2"],
                        found.map { String(decoding: $0.payload, as: UTF8.self) })
-        XCTAssertEqual(["code128", "qr", "qr"], found.map(\.symbology))
+        XCTAssertEqual(["aztec", "qr", "qr"], found.map(\.symbology))
         XCTAssertEqual([0, 0, 1], found.map(\.page))
     }
 
