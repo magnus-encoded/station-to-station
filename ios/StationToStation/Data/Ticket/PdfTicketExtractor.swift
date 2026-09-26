@@ -35,13 +35,33 @@ protocol PdfTextReader {
     func lines(of page: any PdfPage) async -> [String]
 }
 
-/// Finds the barcode on a page. Always visual, whatever the text readers did.
+/// Finds the barcodes on a page. Always visual, whatever the text readers did.
+///
+/// Every one it sees, in whatever order it sees them; the page they were on is the
+/// extractor's to stamp, and repeats are the extractor's to drop.
 protocol BarcodeLocator {
-    func locate(on page: any PdfPage) async -> TicketBarcode?
+    func locate(on page: any PdfPage) async -> [TicketBarcode]
 }
 
-/// A PDF's evidence: every reader over every page, and the barcode off the first page
-/// that has one.
+/// A page's one rasterization: drawn on the first ask, and the same pixels — or the
+/// same failure to draw — on every ask after that. What a `PdfPage` holds so that the
+/// OCR reader and the barcode locator share one render.
+final class RenderOnce {
+    private let draw: () -> CGImage?
+    private var image: CGImage?
+    private var drawn = false
+
+    init(_ draw: @escaping () -> CGImage?) { self.draw = draw }
+
+    func callAsFunction() -> CGImage? {
+        if drawn { return image }
+        drawn = true
+        image = draw()
+        return image
+    }
+}
+
+/// A PDF's evidence: every reader over every page, and every barcode on them.
 ///
 /// **Both readers always run, on every page.** Comparing what they found is
 /// `parseTicketFields`'s job, not this one's, so nothing here stops early or picks a
@@ -62,7 +82,7 @@ struct PdfTicketExtractor: TicketExtractor {
     func extract(_ source: Data) async -> TicketEvidence {
         guard let pages = open(source) else { return TicketEvidence(readings: []) }
         var lines = Array(repeating: [String](), count: readers.count)
-        var found: TicketBarcode?
+        var found: [TicketBarcode] = []
 
         for index in 0..<min(pages.count, pageLimit) {
             // Held for this iteration only: the page's cached pixels go with it.
@@ -72,15 +92,36 @@ struct PdfTicketExtractor: TicketExtractor {
                     !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 }
             }
-            if found == nil { found = await barcode.locate(on: page) }
+            // Every page the readers read, not only until one turns up: a ticket can
+            // carry one Admission per page, or a QR beside a Code 128 (#441). The
+            // pixels are already drawn for OCR, so this costs a request and no render.
+            for var code in await barcode.locate(on: page) {
+                code.page = index
+                found.append(code)
+            }
         }
 
         let readings = zip(readers, lines)
             .filter { !$0.1.isEmpty }
             .map { TicketReading(origin: $0.0.origin, lines: $0.1) }
-        // One barcode today: the locator stops at the first page with one. The evidence
-        // is a list because a ticket can carry several (#441).
-        return TicketEvidence(readings: readings, barcodes: found.map { [$0] } ?? [])
+        return TicketEvidence(readings: readings, barcodes: distinctBarcodes(found))
+    }
+}
+
+/// One entry per (symbology, payload), at its first sighting, in the order found. A
+/// PDF that repeats its ticket's code on every page has one code, not three.
+///
+/// A barcode with no payload is always kept: its crop is all there is of it, and two
+/// undecodable codes cannot be told to be the same one.
+func distinctBarcodes(_ barcodes: [TicketBarcode]) -> [TicketBarcode] {
+    struct Key: Hashable {
+        let symbology: String?
+        let payload: Data
+    }
+    var seen = Set<Key>()
+    return barcodes.filter { code in
+        guard let payload = code.payload else { return true }
+        return seen.insert(Key(symbology: code.symbology, payload: payload)).inserted
     }
 }
 
