@@ -351,4 +351,33 @@ final class GigOffersTests: XCTestCase {
     func testCheckEventDispatchesToNothingNoEventMovedEndpointExists() {
         XCTAssertEqual(.nothing, curtainAction(.checkEvent))
     }
+
+    // MARK: - Stepping between Admissions (#441, story 5)
+
+    func testThreeAdmissionsAreStepped1Of3To3Of3AndStopAtEachEnd() {
+        let first = AdmissionPage(index: 0, count: 3)
+        XCTAssertEqual("1 of 3", first.label)
+        XCTAssertFalse(first.hasPrevious)
+        XCTAssertEqual(first, first.previous())
+
+        let last = first.next().next()
+        XCTAssertEqual("3 of 3", last.label)
+        XCTAssertFalse(last.hasNext)
+        // No wrapping round to the first: that is the same barcode shown twice.
+        XCTAssertEqual(last, last.next())
+        XCTAssertEqual("2 of 3", last.previous().label)
+    }
+
+    func testOneAdmissionHasNothingToStepTo() {
+        let only = AdmissionPage(index: 0, count: 1)
+        XCTAssertNil(only.label)
+        XCTAssertFalse(only.hasNext)
+        XCTAssertFalse(only.hasPrevious)
+    }
+
+    func testAPageIsHeldInsideTheAdmissionsThereAre() {
+        XCTAssertEqual(1, AdmissionPage(index: 5, count: 2).index)
+        XCTAssertEqual(0, AdmissionPage(index: -1, count: 2).index)
+        XCTAssertEqual(0, AdmissionPage(index: 3, count: 0).index)
+    }
 }

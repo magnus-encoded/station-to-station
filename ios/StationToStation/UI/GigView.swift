@@ -508,18 +508,11 @@ struct GigView: View {
                     onExpiry: { model.refreshGossipPresence() })
             } else {
                 // The fold decides only whether to show the ticket, exactly as Android's
-                // does; which Admission to draw is decided here (#441). The first QR
-                // Admission is drawn as a QR, as before. One in another symbology is
-                // never redrawn as a QR — it would look like a ticket and scan as
-                // nothing — so a night with only those says so instead. A payload that
-                // will not decode draws nothing. The symbology-aware redraw and stepping
-                // between Admissions are #441's next slice, and land here.
-                if room?.showTicket == true, let admissions = model.state.selectedAttendance?.admissions {
-                    if let qr = admissions.first(where: { $0.symbology == qrSymbology })?.payloadBytes {
-                        TicketQR(payload: qr).padding(.top, 10)
-                    } else if let other = admissions.first(where: { $0.symbology != qrSymbology }) {
-                        TicketCannotBeShown(symbology: other.symbology).padding(.top, 10)
-                    }
+                // does; `TicketAtTheDoor` draws every Admission in its own symbology,
+                // one at a time, and says so plainly of one it cannot redraw (#441).
+                if room?.showTicket == true,
+                   let admissions = model.state.selectedAttendance?.admissions, !admissions.isEmpty {
+                    TicketAtTheDoor(admissions: admissions).padding(.top, 10)
                 }
                 if room?.checkIn == true {
                     Text("I'm here — check in").font(.system(size: 13)).foregroundStyle(amber)

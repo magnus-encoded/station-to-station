@@ -47,6 +47,7 @@ import io.github.magnusencoded.stationtostation.data.matchKnownNight
 import io.github.magnusencoded.stationtostation.data.PdfTicketExtractor
 import io.github.magnusencoded.stationtostation.data.onDevice
 import io.github.magnusencoded.stationtostation.data.parseTicket
+import io.github.magnusencoded.stationtostation.data.checkedForRedraw
 import io.github.magnusencoded.stationtostation.data.routeTicket
 import io.github.magnusencoded.stationtostation.data.QR_SYMBOLOGY
 import io.github.magnusencoded.stationtostation.data.TimelineLogic
@@ -1974,8 +1975,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { routeParsedTicket(parsed) }
     }
 
-    /** [handleSharedTicketPdf] and [handleTicketLink]'s shared decision, once each has its own [ParsedTicket]. */
-    private suspend fun routeParsedTicket(parsed: ParsedTicket) {
+    /**
+     * [handleSharedTicketPdf] and [handleTicketLink]'s shared decision, once each has its own [ParsedTicket].
+     *
+     * Every Admission is redrawn in its own symbology and read back first (#441, story
+     * 29), whichever path it came in by: [routeTicket] adds nothing without asking whose
+     * barcode the app could not show, and the prompt says which one. One zxing decode
+     * each, off the main thread.
+     */
+    private suspend fun routeParsedTicket(read: ParsedTicket) {
+        val parsed = withContext(Dispatchers.Default) { read.checkedForRedraw() }
         val known = _state.value.setlists + _state.value.plannedGigs
         when (val routing = routeTicket(parsed, known)) {
             is TicketRouting.AlreadyKnown -> attachAdmissions(routing.gig.id, parsed.admissions)

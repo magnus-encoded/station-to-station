@@ -57,7 +57,8 @@ final class ShareViewController: UIViewController {
         if let venue = ticket.venue { found.append(venue) }
         if let date = ticket.date { found.append(shortDate(date)) }
         switch ticket.admissions.count {
-        case 0: break
+        // Story 8, while the person still holds the PDF: text read, no barcode.
+        case 0: found.append("no barcode could be read, so bring the PDF to the door")
         case 1: found.append("a ticket barcode")
         case let n: found.append("\(n) ticket barcodes")
         }

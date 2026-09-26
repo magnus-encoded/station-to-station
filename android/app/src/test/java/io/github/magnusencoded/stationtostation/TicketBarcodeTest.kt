@@ -8,13 +8,13 @@ import com.google.zxing.common.BitMatrix
 import io.github.magnusencoded.stationtostation.data.PixelRect
 import io.github.magnusencoded.stationtostation.data.StoredAdmission
 import io.github.magnusencoded.stationtostation.data.TicketEvidence
+import io.github.magnusencoded.stationtostation.data.admissionDrawing
+import io.github.magnusencoded.stationtostation.data.admissionText
 import io.github.magnusencoded.stationtostation.data.barcodeCrop
 import io.github.magnusencoded.stationtostation.data.decodeTicketBarcode
 import io.github.magnusencoded.stationtostation.data.decodeTicketBarcodes
 import io.github.magnusencoded.stationtostation.data.distinctTicketBarcodes
 import io.github.magnusencoded.stationtostation.data.parseTicketFields
-import io.github.magnusencoded.stationtostation.data.ticketQrMatrix
-import io.github.magnusencoded.stationtostation.data.ticketQrText
 import io.github.magnusencoded.stationtostation.data.ticketSymbology
 import io.github.magnusencoded.stationtostation.data.toTicketBarcode
 import io.github.magnusencoded.stationtostation.data.zxingFormatName
@@ -27,7 +27,7 @@ import org.junit.Test
 /**
  * The barcode half of a ticket import (TicketBarcode.kt), round-tripped through real
  * zxing on the JVM: encode, decode with the same hinted reader the extractor uses,
- * keep what [parseTicketFields] keeps, read it back as [ticketQrText] does, and
+ * keep what [parseTicketFields] keeps, read it back as [admissionText] does, and
  * compare **text** — what a scanner at the door reads out. This is the assertion that
  * would have caught #441's `rawBytes` fault; the probe (2026-09-25) found it on device
  * instead.
@@ -81,13 +81,17 @@ class TicketBarcodeTest {
             .admissions.firstOrNull { it.symbology == "qr" }
             ?.let(StoredAdmission::of)?.payloadBytes
 
+    /** A QR as the Room draws it (AdmissionRedraw.kt), [modulePx] per module. */
+    private fun qr(text: String, modulePx: Int = 6): BitMatrix =
+        admissionDrawing("qr", text.toByteArray(Charsets.UTF_8))!!.scaled(modulePx)
+
     private fun roundTrip(payload: String): String? {
-        val decoded = decode(onAPage(ticketQrMatrix(payload, 240)))
+        val decoded = decode(onAPage(qr(payload)))
         assertNotNull("nothing decoded for $payload", decoded)
         val stored = stored(decoded!!)
         assertNotNull("nothing stored for $payload", stored)
         // What the day-of view redraws, decoded again: the text has to survive twice.
-        val redrawn = decode(ticketQrMatrix(ticketQrText(stored!!)!!, 480))
+        val redrawn = decode(admissionDrawing("qr", stored!!)!!.scaled(8))
         return redrawn?.text
     }
 
@@ -102,7 +106,7 @@ class TicketBarcodeTest {
     @Test
     fun nonAsciiTextSurvivesTheRoundTripToo() {
         // zxing's writer defaults to ISO-8859-1 with no ECI, and its reader guessed
-        // "ÆØÅ" back as Shift_JIS; ticketQrMatrix writes UTF-8 with an ECI instead.
+        // "ÆØÅ" back as Shift_JIS; admissionDrawing writes UTF-8 with an ECI instead.
         for (payload in listOf("Parkteatret Scene ÆØÅ", "Kjøpt – 🎫 1/2")) {
             assertEquals(payload, roundTrip(payload))
         }
@@ -110,7 +114,7 @@ class TicketBarcodeTest {
 
     @Test
     fun theStoredBytesAreTheDecodedTextAsUtf8NotZxingsRawBytes() {
-        val decoded = decode(ticketQrMatrix("SYNTH46G7", 240))!!
+        val decoded = decode(qr("SYNTH46G7"))!!
 
         val stored = stored(decoded)!!
 
@@ -139,8 +143,8 @@ class TicketBarcodeTest {
     fun everyQrOnAPageIsFoundAndTheSinglePassHitStaysFirst() {
         // A Billettservice ticket prints three QRs; the single pass alone kept one.
         val page = onAPage(
-            ticketQrMatrix("SYNTHETIC-QR-1", 240) to (120 to 160),
-            ticketQrMatrix("SYNTHETIC-QR-2", 240) to (1200 to 1400),
+            qr("SYNTHETIC-QR-1") to (120 to 160),
+            qr("SYNTHETIC-QR-2") to (1200 to 1400),
         )
 
         val results = decodeAll(page)
@@ -216,7 +220,7 @@ class TicketBarcodeTest {
         // A pre-fix `rawBytes` value: QR codewords, which are rarely valid UTF-8.
         val oldRawBytes = byteArrayOf(0x40, 0x94.toByte(), 0xB3.toByte(), 0x85.toByte(), 0xFF.toByte(), 0x11)
 
-        assertNull(ticketQrText(oldRawBytes))
-        assertEquals("SYNTH46G7", ticketQrText("SYNTH46G7".toByteArray(Charsets.UTF_8)))
+        assertNull(admissionText(oldRawBytes))
+        assertEquals("SYNTH46G7", admissionText("SYNTH46G7".toByteArray(Charsets.UTF_8)))
     }
 }

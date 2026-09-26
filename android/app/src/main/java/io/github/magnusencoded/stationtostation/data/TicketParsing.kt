@@ -113,24 +113,36 @@ enum class TicketSupport {
  * `code128`, …). [page] is the zero-based page it was first found on. [corroborated]
  * says the ticket's own text prints the same code — evidence recorded, never a reason
  * to drop one that isn't.
+ *
+ * [redrawable] is the check at import (story 29, [checkedForRedraw]): the Admission
+ * redrawn in its own symbology read back as the same payload. Null until asked — the
+ * parse never asks — and null counts as no. Never stored: [StoredAdmission] has no field
+ * for it, and the Room asks again ([doorDrawing]) rather than trust a verdict written by
+ * an older build.
  */
 class Admission(
     val payload: ByteArray,
     val symbology: String,
     val page: Int = 0,
     val corroborated: Boolean = false,
+    val redrawable: Boolean? = null,
 ) {
+    fun withRedrawable(redrawable: Boolean?) = Admission(payload, symbology, page, corroborated, redrawable)
+
     override fun equals(other: Any?): Boolean =
         other is Admission &&
             payload.contentEquals(other.payload) &&
             symbology == other.symbology &&
             page == other.page &&
-            corroborated == other.corroborated
+            corroborated == other.corroborated &&
+            redrawable == other.redrawable
 
-    override fun hashCode(): Int = listOf(payload.contentHashCode(), symbology, page, corroborated).hashCode()
+    override fun hashCode(): Int =
+        listOf(payload.contentHashCode(), symbology, page, corroborated, redrawable).hashCode()
 
     override fun toString(): String =
-        "Admission(symbology=$symbology, page=$page, corroborated=$corroborated, payload=${payload.size} bytes)"
+        "Admission(symbology=$symbology, page=$page, corroborated=$corroborated, redrawable=$redrawable, " +
+            "payload=${payload.size} bytes)"
 }
 
 /**
@@ -186,6 +198,17 @@ data class ParsedTicket(
             if (count == null || count <= 1) return true
             return listOf(artistSupport, venueSupport, dateSupport).all { it == TicketSupport.BOTH }
         }
+
+    /**
+     * Every Admission was redrawn in its own symbology and read back as itself (#441,
+     * story 29). [routeTicket] asks this beside [isComplete]/[canSkipPrompt] before it
+     * acts without the person: a ticket the app cannot show at the door is shown to them
+     * at import instead, while they still hold the PDF. Not part of [canSkipPrompt],
+     * which is the shared fixtures' `skipsPrompt` and a property of the *read*: what a
+     * platform can redraw is not the same on both (iOS has no Data Matrix generator), so
+     * it is not in the corpus both twins assert.
+     */
+    val redrawsEveryAdmission: Boolean get() = admissions.all { it.redrawable == true }
 }
 
 // --- Picking fields ---
@@ -273,7 +296,7 @@ fun parseTicketFields(evidence: TicketEvidence): ParsedTicket {
     )
 }
 
-/** `qr`: the one symbology the Room redraws until the symbology-aware redraw (#441). */
+/** `qr`: the QR's name in `fixtures/ticket/README.md`, and what an old `ticketQr` and a `?qr=` link always are. */
 const val QR_SYMBOLOGY = "qr"
 
 /**
@@ -860,6 +883,11 @@ fun matchKnownNight(parsed: ParsedTicket, knownGigs: List<FmSetlist>): FmSetlist
  * out of both — or there was only one reading to begin with, as with a scan. The
  * vendor logo OCR read as an artist is exactly a complete, confident, wrong parse. A
  * match still needs only completeness, as on iOS: it adds nothing new to the line.
+ *
+ * **Nor is one whose barcode the app cannot show** (#441, story 29), on either path. An
+ * Admission that did not read back as itself when redrawn ([checkedForRedraw]; an
+ * unchecked one counts as not) sends the ticket to the prompt, which says which barcode
+ * it is and to bring the PDF. Found at import, not at the door.
  */
 fun routeTicket(
     parsed: ParsedTicket,
@@ -867,7 +895,7 @@ fun routeTicket(
     today: LocalDate = LocalDate.now(),
 ): TicketRouting {
     val match = matchKnownNight(parsed, knownGigs)
-    if (parsed.isComplete) {
+    if (parsed.isComplete && parsed.redrawsEveryAdmission) {
         if (match != null) return TicketRouting.AlreadyKnown(match)
         val night = parseFmDate(parsed.date!!)
         if (parsed.canSkipPrompt && night != null && !night.isBefore(today)) {

@@ -3,14 +3,11 @@ package io.github.magnusencoded.stationtostation.data
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
-import com.google.zxing.EncodeHintType
 import com.google.zxing.MultiFormatReader
-import com.google.zxing.MultiFormatWriter
 import com.google.zxing.NotFoundException
 import com.google.zxing.RGBLuminanceSource
 import com.google.zxing.Result
 import com.google.zxing.ResultPoint
-import com.google.zxing.common.BitMatrix
 import com.google.zxing.common.HybridBinarizer
 import com.google.zxing.multi.GenericMultipleBarcodeReader
 import java.nio.ByteBuffer
@@ -22,15 +19,14 @@ import kotlin.math.floor
 
 /*
  * The exact half of reading a Ticket: the barcodes decoded off a page, each kept as the
- * text a scanner at the door would read back out, and a QR redrawn from that text. Pure
+ * text a scanner at the door would read back out. Pure
  * zxing core on plain pixel arrays — no Bitmap, no PdfRenderer — so the round trip is
  * asserted on the JVM (TicketBarcodeTest) rather than assumed. `ZxingBarcodeLocator`
  * (TicketExtraction.kt) is the only caller that feeds it real pages.
  *
  * The evidence carries every barcode (#526); `parseTicketFields` reconciles them into
  * Admissions, which `StoredAttendance.admissions` keeps with their symbology (#441).
- * Only a QR is redrawn so far: the symbology-aware redraw is #441's next slice, and
- * [ticketQrMatrix] is the seam it widens.
+ * Redrawing one, in its own symbology, is AdmissionRedraw.kt.
  */
 
 // zxing's unhinted single pass is tuned for a camera frame filled by a barcode. A
@@ -178,8 +174,9 @@ fun barcodeCrop(
 }
 
 /**
- * A stored QR Admission's bytes back to the text to redraw — strictly UTF-8, the one
- * charset everything since this change writes. Null when the bytes are not valid UTF-8.
+ * A stored Admission's bytes back to the text to redraw — strictly UTF-8, the one
+ * charset everything since #534 writes. Null when the bytes are not valid UTF-8, and
+ * [admissionDrawing] then draws nothing.
  *
  * That null is how values written before this change behave: the PDF path used to
  * store zxing's `rawBytes`, which were never the payload and never redrew correctly
@@ -188,7 +185,7 @@ fun barcodeCrop(
  * be valid UTF-8 still draws wrong; it cannot be told apart from a real payload, and
  * re-sharing the ticket PDF replaces it.
  */
-fun ticketQrText(bytes: ByteArray): String? =
+fun admissionText(bytes: ByteArray): String? =
     try {
         Charsets.UTF_8.newDecoder()
             .onMalformedInput(CodingErrorAction.REPORT)
@@ -198,22 +195,3 @@ fun ticketQrText(bytes: ByteArray): String? =
     } catch (e: CharacterCodingException) {
         null
     }
-
-/**
- * The QR matrix the day-of view draws for a ticket's stored text, [sizePx] square.
- *
- * zxing's writer defaults to ISO-8859-1 with no ECI, and its own reader then *guesses*
- * the charset back: checked against zxing 3.5.4, "ÆØÅ" came back as Shift_JIS
- * half-width katakana and "–" as "?". So anything outside ASCII is written as UTF-8
- * with an ECI marker saying so; pure ASCII — every real ticket payload seen so far —
- * is written exactly as it was before, with no ECI, since that is the form most
- * likely to be read by whatever scanner a venue owns.
- */
-fun ticketQrMatrix(text: String, sizePx: Int): BitMatrix {
-    val hints = if (text.all { it.code < 0x80 }) {
-        emptyMap()
-    } else {
-        mapOf<EncodeHintType, Any>(EncodeHintType.CHARACTER_SET to Charsets.UTF_8.name())
-    }
-    return MultiFormatWriter().encode(text, BarcodeFormat.QR_CODE, sizePx, sizePx, hints)
-}
