@@ -675,15 +675,22 @@ final class TicketParseTests: XCTestCase {
         return dir
     }
 
+    /// What the extension deposits: read, never checked (the verdict is not deposited).
+    private var shared: Ticket {
+        var read = complete
+        read.admissions = [qrAdmission]
+        return read
+    }
+
     /// The extension writes and the app reads, then deletes each deposit once what it
     /// became is on disk (the #441 review). Read but not yet removed, it is still there
     /// for a launch that follows a kill mid-routing; removed, it is gone for good.
     func testADepositStaysInTheBoxUntilItIsRemoved() throws {
         let box = try scratchBox()
-        XCTAssertTrue(TicketInbox.deposit(complete, in: box))
+        XCTAssertTrue(TicketInbox.deposit(shared, in: box))
 
         let first = TicketInbox.pending(in: box)
-        XCTAssertEqual([complete], first.map(\.ticket))
+        XCTAssertEqual([shared], first.map(\.ticket))
         XCTAssertEqual(first, TicketInbox.pending(in: box), "reading does not take it out")
 
         TicketInbox.remove(first[0].id, in: box)
@@ -695,9 +702,9 @@ final class TicketParseTests: XCTestCase {
         let box = try scratchBox()
         let bad = box.appendingPathComponent("garbage.json")
         try Data("{ not json".utf8).write(to: bad)
-        XCTAssertTrue(TicketInbox.deposit(complete, in: box))
+        XCTAssertTrue(TicketInbox.deposit(shared, in: box))
 
-        XCTAssertEqual([complete], TicketInbox.pending(in: box).map(\.ticket))
+        XCTAssertEqual([shared], TicketInbox.pending(in: box).map(\.ticket))
         XCTAssertFalse(FileManager.default.fileExists(atPath: bad.path))
     }
 
