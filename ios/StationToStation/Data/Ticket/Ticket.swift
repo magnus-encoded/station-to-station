@@ -135,6 +135,10 @@ enum TicketSupport: String, Codable, Sendable {
 struct TicketDraft: Identifiable, Equatable {
     let id = UUID()
     let ticket: Ticket
+    /// The night already on the **Line** this may be for, as the prompt says it
+    /// ("Dumdumboys — Rockefeller — 14-09-2026"). A hint and nothing more: the prompt's
+    /// answer is matched again (`confirmTicket`).
+    var possibleMatch: String? = nil
 }
 
 /// What one PDF turned out to be worth.

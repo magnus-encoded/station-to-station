@@ -522,8 +522,12 @@ final class AppModel: ObservableObject {
             state.notice = "That night is already on your line."
         case .add(let complete):
             await put(complete)
-        case .confirm(let found):
-            state.ticketDrafts.append(TicketDraft(ticket: found))
+        case .confirm(let found, let possible):
+            let hint = possible.flatMap { id in knownNights.first { $0.id == id } }.map { night in
+                [night.artist?.name ?? "", night.venueLine(), night.eventDate ?? ""]
+                    .filter { !$0.isEmpty }.joined(separator: " — ")
+            }
+            state.ticketDrafts.append(TicketDraft(ticket: found, possibleMatch: hint))
         case .unreadable:
             state.ticketDrafts.append(TicketDraft(ticket: Ticket()))
         }

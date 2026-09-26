@@ -220,7 +220,7 @@ private struct BannersModifier: ViewModifier {
                 get: { model.state.ticketDrafts.first },
                 set: { if $0 == nil { model.dismissTicket() } }
             )) { draft in
-                ConfirmTicketSheet(ticket: draft.ticket) { artist, venue, date in
+                ConfirmTicketSheet(ticket: draft.ticket, possibleMatch: draft.possibleMatch) { artist, venue, date in
                     model.confirmTicket(artist: artist, venue: venue, date: date)
                 } onCancel: {
                     model.dismissTicket()
