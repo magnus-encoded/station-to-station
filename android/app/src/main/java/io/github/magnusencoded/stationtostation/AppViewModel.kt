@@ -40,9 +40,10 @@ import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.StoredPlaylist
 import io.github.magnusencoded.stationtostation.data.ParsedTicket
 import io.github.magnusencoded.stationtostation.data.TicketRouting
-import io.github.magnusencoded.stationtostation.data.extractTicket
 import io.github.magnusencoded.stationtostation.data.findDate
 import io.github.magnusencoded.stationtostation.data.matchKnownNight
+import io.github.magnusencoded.stationtostation.data.PdfTicketExtractor
+import io.github.magnusencoded.stationtostation.data.onDevice
 import io.github.magnusencoded.stationtostation.data.parseTicket
 import io.github.magnusencoded.stationtostation.data.routeTicket
 import io.github.magnusencoded.stationtostation.data.toTicketQrBase64
@@ -1924,9 +1925,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * A PDF shared into the app via the system share sheet (#411) — MainActivity's
      * `handleTicketIntent` is the sibling of `handleAuthIntent` that reaches this.
      *
-     * `extractTicket` is the one rasterization pipeline: it reads the same bitmap
-     * for a QR (zxing) and best-effort text (ML Kit), then `parseTicket`/`routeTicket`
-     * decide what that adds up to. Per #411's clarified spec, only a complete,
+     * `PdfTicketExtractor.onDevice` reads every page twice — its own text layer and
+     * ML Kit's OCR of one rasterization, which zxing reads for barcodes too — and
+     * `parseTicket` (through `parseTicketFields`) and `routeTicket` decide what that
+     * adds up to (#526). Per #411's clarified spec, only a complete,
      * unambiguous parse acts on its own — [TicketRouting.AlreadyKnown] merges into
      * the gig it matched, [TicketRouting.NewPlannedGig] takes the same
      * local-planned-gig path [addPlannedGigByHand] does. Anything else becomes
@@ -1934,7 +1936,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun handleSharedTicketPdf(uri: Uri) {
         viewModelScope.launch {
-            val parsed = parseTicket(extractTicket(getApplication(), uri))
+            val parsed = parseTicket(uri, PdfTicketExtractor.onDevice(getApplication()))
             routeParsedTicket(parsed)
         }
     }

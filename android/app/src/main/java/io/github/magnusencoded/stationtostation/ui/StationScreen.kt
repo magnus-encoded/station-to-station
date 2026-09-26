@@ -189,6 +189,7 @@ import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
 import io.github.magnusencoded.stationtostation.data.musicbrainz.MbArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSong
+import io.github.magnusencoded.stationtostation.data.zxingFormatName
 import io.github.magnusencoded.stationtostation.ui.flyover.CollectionFlyoverScreen
 import io.github.magnusencoded.stationtostation.ui.flyover.collectionBillboard
 import io.github.magnusencoded.stationtostation.ui.flyover.collectionFlyoverGigs
@@ -1189,7 +1190,7 @@ private fun TicketConfirmDialog(
             // its payload as a QR would look like a ticket and scan as nothing. Said
             // plainly, since the alternative is finding out at the door. Not Faint:
             // this is the one line in the dialog that changes what to bring.
-            pending.parsed.unsupportedBarcodeFormat?.let { format ->
+            pending.parsed.unsupportedBarcodeFormat?.let(::zxingFormatName)?.let { format ->
                 Spacer(Modifier.height(8.dp))
                 Text(
                     if (pending.parsed.qrBytes == null) {
