@@ -1,0 +1,148 @@
+{
+  "defaults": "local true, chipPending false, sharedKey true; lastLookupAt, participationUntil and sharedQuotaSpentAt null",
+  "cases": [
+    {
+      "name": "future, never looked up: due now",
+      "night": "25-09-2026", "now": "2026-09-20T12:00:00Z",
+      "expectDue": "2026-09-20T12:00:00Z"
+    },
+    {
+      "name": "future: once a day",
+      "night": "25-09-2026", "now": "2026-09-20T12:00:00Z",
+      "lastLookupAt": "2026-09-20T09:00:00Z",
+      "expectDue": "2026-09-21T09:00:00Z"
+    },
+    {
+      "name": "future, a day missed: due now, not a day after the missed one",
+      "night": "25-09-2026", "now": "2026-09-20T12:00:00Z",
+      "lastLookupAt": "2026-09-18T09:00:00Z",
+      "expectDue": "2026-09-20T12:00:00Z"
+    },
+    {
+      "name": "future, the day before: the day of the night starts the hourly rate at midnight",
+      "night": "25-09-2026", "now": "2026-09-24T20:00:00Z",
+      "lastLookupAt": "2026-09-24T09:00:00Z",
+      "expectDue": "2026-09-25T00:00:00Z"
+    },
+    {
+      "name": "the day of the night, not checked in: once an hour",
+      "night": "25-09-2026", "now": "2026-09-25T15:00:00Z",
+      "lastLookupAt": "2026-09-25T14:30:00Z",
+      "expectDue": "2026-09-25T15:30:00Z"
+    },
+    {
+      "name": "the day of the night holds through 06:00 the morning after",
+      "night": "25-09-2026", "now": "2026-09-26T04:30:00Z",
+      "lastLookupAt": "2026-09-26T04:10:00Z",
+      "expectDue": "2026-09-26T05:10:00Z"
+    },
+    {
+      "name": "an hour that would end after 06:00 falls to the daily rate after the night",
+      "night": "25-09-2026", "now": "2026-09-26T05:30:00Z",
+      "lastLookupAt": "2026-09-26T05:10:00Z",
+      "expectDue": "2026-09-27T05:10:00Z"
+    },
+    {
+      "name": "checked in, inside the window: every 5 minutes",
+      "night": "25-09-2026", "now": "2026-09-25T21:00:00Z",
+      "lastLookupAt": "2026-09-25T20:58:00Z",
+      "participationUntil": "2026-09-26T06:00:00Z",
+      "expectDue": "2026-09-25T21:03:00Z"
+    },
+    {
+      "name": "checked in, the 5 minutes would outlast the window: the hourly rate takes over",
+      "night": "25-09-2026", "now": "2026-09-25T23:28:00Z",
+      "lastLookupAt": "2026-09-25T23:27:00Z",
+      "participationUntil": "2026-09-25T23:30:00Z",
+      "expectDue": "2026-09-26T00:27:00Z"
+    },
+    {
+      "name": "checked in, the window closed early by a completed Log: back to once an hour",
+      "night": "25-09-2026", "now": "2026-09-25T23:45:00Z",
+      "lastLookupAt": "2026-09-25T23:28:00Z",
+      "participationUntil": "2026-09-25T23:30:00Z",
+      "expectDue": "2026-09-26T00:28:00Z"
+    },
+    {
+      "name": "after the night: once a day",
+      "night": "25-09-2026", "now": "2026-09-28T12:00:00Z",
+      "lastLookupAt": "2026-09-28T08:00:00Z",
+      "expectDue": "2026-09-29T08:00:00Z"
+    },
+    {
+      "name": "after the night, a day that ends inside the 14 days: still due",
+      "night": "25-09-2026", "now": "2026-10-09T03:00:00Z",
+      "lastLookupAt": "2026-10-09T02:00:00Z",
+      "expectDue": "2026-10-10T02:00:00Z"
+    },
+    {
+      "name": "after the night, the next day would land past the 14 days: never",
+      "night": "25-09-2026", "now": "2026-10-09T12:00:00Z",
+      "lastLookupAt": "2026-10-09T08:00:00Z",
+      "expectDue": null
+    },
+    {
+      "name": "a moment before the 14 days end, never looked up: due now",
+      "night": "25-09-2026", "now": "2026-10-10T05:59:59Z",
+      "expectDue": "2026-10-10T05:59:59Z"
+    },
+    {
+      "name": "the 14 days have ended: never, even never looked up",
+      "night": "25-09-2026", "now": "2026-10-10T06:00:00Z",
+      "expectDue": null
+    },
+    {
+      "name": "not local: never, it has its setlist.fm id",
+      "night": "25-09-2026", "now": "2026-09-25T15:00:00Z",
+      "local": false,
+      "expectDue": null
+    },
+    {
+      "name": "a possible-match chip pending: paused",
+      "night": "25-09-2026", "now": "2026-09-25T21:00:00Z",
+      "lastLookupAt": "2026-09-25T20:00:00Z",
+      "participationUntil": "2026-09-26T06:00:00Z",
+      "chipPending": true,
+      "expectDue": null
+    },
+    {
+      "name": "no date: never, a lookup needs one",
+      "night": "", "now": "2026-09-25T15:00:00Z",
+      "expectDue": null
+    },
+    {
+      "name": "shared quota spent: nothing is due until its memory lapses",
+      "night": "25-09-2026", "now": "2026-09-25T15:00:00Z",
+      "lastLookupAt": "2026-09-25T14:00:00Z",
+      "sharedQuotaSpentAt": "2026-09-25T14:50:00Z",
+      "expectDue": "2026-09-25T15:50:00Z"
+    },
+    {
+      "name": "shared quota spent, but the key is the person's own: unaffected",
+      "night": "25-09-2026", "now": "2026-09-25T15:00:00Z",
+      "lastLookupAt": "2026-09-25T14:00:00Z",
+      "sharedQuotaSpentAt": "2026-09-25T14:50:00Z",
+      "sharedKey": false,
+      "expectDue": "2026-09-25T15:00:00Z"
+    },
+    {
+      "name": "shared quota refusal an hour old: forgotten",
+      "night": "25-09-2026", "now": "2026-09-25T15:00:00Z",
+      "lastLookupAt": "2026-09-25T14:00:00Z",
+      "sharedQuotaSpentAt": "2026-09-25T14:00:00Z",
+      "expectDue": "2026-09-25T15:00:00Z"
+    },
+    {
+      "name": "shared quota lapses after the 14 days: never",
+      "night": "25-09-2026", "now": "2026-10-10T05:30:00Z",
+      "sharedQuotaSpentAt": "2026-10-10T05:15:00Z",
+      "expectDue": null
+    },
+    {
+      "name": "a last lookup in the future is a clock that moved: due now",
+      "night": "25-09-2026", "now": "2026-09-20T12:00:00Z",
+      "lastLookupAt": "2026-09-22T12:00:00Z",
+      "expectDue": "2026-09-20T12:00:00Z"
+    }
+  ]
+}

@@ -78,6 +78,13 @@ data class StoredAttendance(
      * read by both, and neither carries unknown keys on save (ADR-0020).
      */
     val admissions: List<StoredAdmission> = emptyList(),
+    /**
+     * Where a local **Gig** stands with setlist.fm's `search/setlists` (#531). Null for a
+     * night never looked up, which is every record written before #531. Here rather than
+     * in a map of its own for [admissions]' reason: the claim is what both twins already
+     * carry per night, and a new top-level key is one an older build would drop on save.
+     */
+    val setlistFmLookup: StoredSetlistFmLookup? = null,
 ) {
     /**
      * This claim at [provenance], with every other field — the ticket's Admissions, the
@@ -197,6 +204,36 @@ object LegacyTicketQr : JsonTransformingSerializer<StoredAttendance>(StoredAtten
         }
         return JsonObject(attendance + ("admissions" to JsonArray(kept)))
     }
+}
+
+/**
+ * One local **Gig**'s lookups on setlist.fm (#531), kept so that a restart does not turn
+ * "once a day" into "once a launch". `setlistFmLookupDue` and `manualSetlistFmLookup`
+ * decide what it means; this only remembers it.
+ *
+ * - [lastLookupAt]: epoch millis of the last lookup that went out, automatic or pulled.
+ *   A pull that met the friction rule sent nothing and stamps nothing.
+ * - [rejectedIds]: setlist.fm ids the person said were not this night. Never offered
+ *   again, for this Gig only.
+ * - [pendingHitIds]: the hits a "Possible match on setlist.fm" chip is asking about.
+ *   Non-empty is the chip, and lookups pause until it is answered.
+ */
+@Serializable
+data class StoredSetlistFmLookup(
+    val lastLookupAt: Long? = null,
+    val rejectedIds: List<String> = emptyList(),
+    val pendingHitIds: List<String> = emptyList(),
+) {
+    val possibleMatchPending: Boolean get() = pendingHitIds.isNotEmpty()
+
+    fun lookedUp(atMillis: Long): StoredSetlistFmLookup = copy(lastLookupAt = atMillis)
+
+    /** "None of these": every hit the chip offered is remembered as not this night. */
+    fun rejectingPending(): StoredSetlistFmLookup =
+        copy(rejectedIds = (rejectedIds + pendingHitIds).distinct(), pendingHitIds = emptyList())
+
+    /** [hitIds] less the ones already rejected here, in their order. */
+    fun unrejected(hitIds: List<String>): List<String> = hitIds.filterNot { it in rejectedIds }
 }
 
 /**

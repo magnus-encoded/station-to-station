@@ -61,15 +61,21 @@ struct StoredAttendance: Codable, Equatable {
     /// closing note, #107). Nested here rather than a top-level map for the reason
     /// `ticketQr` was.
     var admissions: [StoredAdmission] = []
+    /// Where a local **Gig** stands with setlist.fm's `search/setlists` (#531). Nil for a
+    /// night never looked up, which is every record written before #531. Here rather than
+    /// in a map of its own for `admissions`' reason, and under Android's name.
+    var setlistFmLookup: StoredSetlistFmLookup?
 
     init(provenance: String = "planned", checkedInAt: Int64? = nil,
          venueLat: Double? = nil, venueLon: Double? = nil,
-         admissions: [StoredAdmission] = []) {
+         admissions: [StoredAdmission] = [],
+         setlistFmLookup: StoredSetlistFmLookup? = nil) {
         self.provenance = provenance
         self.checkedInAt = checkedInAt
         self.venueLat = venueLat
         self.venueLon = venueLon
         self.admissions = admissions
+        self.setlistFmLookup = setlistFmLookup
     }
 
     /// This claim at `provenance`, with every other field — the ticket's **Admissions**,
@@ -82,7 +88,7 @@ struct StoredAttendance: Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case provenance, checkedInAt, venueLat, venueLon, admissions
+        case provenance, checkedInAt, venueLat, venueLon, admissions, setlistFmLookup
         /// Read by the migration only. Never written.
         case ticketQr
     }
@@ -98,6 +104,7 @@ struct StoredAttendance: Codable, Equatable {
         // review). A value that is not an array at all still reads as none.
         admissions = ((try? c.decodeIfPresent([LenientAdmission].self, forKey: .admissions)) ?? nil)?
             .compactMap(\.admission) ?? []
+        setlistFmLookup = (try? c.decodeIfPresent(StoredSetlistFmLookup.self, forKey: .setlistFmLookup)) ?? nil
         // #441's migration. A value that is not base64 was never drawable and migrates
         // to nothing, as it was read before.
         if let legacy = (try? c.decodeIfPresent(String.self, forKey: .ticketQr)) ?? nil,
@@ -113,6 +120,7 @@ struct StoredAttendance: Codable, Equatable {
         try c.encodeIfPresent(venueLat, forKey: .venueLat)
         try c.encodeIfPresent(venueLon, forKey: .venueLon)
         try c.encode(admissions, forKey: .admissions)
+        try c.encodeIfPresent(setlistFmLookup, forKey: .setlistFmLookup)
     }
 }
 
@@ -179,6 +187,56 @@ func mergedAdmissions(_ kept: [StoredAdmission], _ added: [StoredAdmission]) -> 
 
 private extension StoredAdmission {
     var payloadKey: Data { payloadBytes ?? Data(payload.utf8) }
+}
+
+/// One local **Gig**'s lookups on setlist.fm (#531), kept so that a restart does not turn
+/// "once a day" into "once a launch". Field for field with Android's `StoredSetlistFmLookup`.
+/// `setlistFmLookupDue` and `manualSetlistFmLookup` decide what it means; this only
+/// remembers it.
+///
+/// - `lastLookupAt`: epoch millis of the last lookup that went out, automatic or pulled.
+///   A pull that met the friction rule sent nothing and stamps nothing.
+/// - `rejectedIds`: setlist.fm ids the person said were not this night. Never offered
+///   again, for this Gig only.
+/// - `pendingHitIds`: the hits a "Possible match on setlist.fm" chip is asking about.
+///   Non-empty is the chip, and lookups pause until it is answered.
+struct StoredSetlistFmLookup: Codable, Equatable {
+    var lastLookupAt: Int64?
+    var rejectedIds: [String] = []
+    var pendingHitIds: [String] = []
+
+    init(lastLookupAt: Int64? = nil, rejectedIds: [String] = [], pendingHitIds: [String] = []) {
+        self.lastLookupAt = lastLookupAt
+        self.rejectedIds = rejectedIds
+        self.pendingHitIds = pendingHitIds
+    }
+
+    // Field by field, like `StoredAttendance`: an absent key costs that field only.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        lastLookupAt = (try? c.decodeIfPresent(Int64.self, forKey: .lastLookupAt)) ?? nil
+        rejectedIds = (try? c.decodeIfPresent([String].self, forKey: .rejectedIds)) ?? nil ?? []
+        pendingHitIds = (try? c.decodeIfPresent([String].self, forKey: .pendingHitIds)) ?? nil ?? []
+    }
+
+    var possibleMatchPending: Bool { !pendingHitIds.isEmpty }
+
+    func lookedUp(at millis: Int64) -> StoredSetlistFmLookup {
+        var next = self
+        next.lastLookupAt = millis
+        return next
+    }
+
+    /// "None of these": every hit the chip offered is remembered as not this night.
+    func rejectingPending() -> StoredSetlistFmLookup {
+        var next = self
+        for id in pendingHitIds where !next.rejectedIds.contains(id) { next.rejectedIds.append(id) }
+        next.pendingHitIds = []
+        return next
+    }
+
+    /// `hitIds` less the ones already rejected here, in their order.
+    func unrejected(_ hitIds: [String]) -> [String] { hitIds.filter { !rejectedIds.contains($0) } }
 }
 
 /// One night, as *this app* knows it — the identity everything else hangs off
