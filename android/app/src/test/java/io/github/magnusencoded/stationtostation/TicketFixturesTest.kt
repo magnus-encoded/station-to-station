@@ -157,6 +157,6 @@ class TicketFixturesTest {
 
     private companion object {
         /** README: fail below this, and raise it with the corpus. */
-        const val FLOOR = 26
+        const val FLOOR = 29
     }
 }

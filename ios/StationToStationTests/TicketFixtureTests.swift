@@ -84,7 +84,7 @@ final class TicketFixtureTests: XCTestCase {
         let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "json" }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        XCTAssertGreaterThanOrEqual(files.count, 26, "fixtures/ticket lost cases")
+        XCTAssertGreaterThanOrEqual(files.count, 29, "fixtures/ticket lost cases")
 
         var ran = 0
         for file in files {

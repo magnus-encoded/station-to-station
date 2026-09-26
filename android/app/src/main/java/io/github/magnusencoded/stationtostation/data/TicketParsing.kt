@@ -307,13 +307,22 @@ const val QR_SYMBOLOGY = "qr"
 private val RETAIL_SYMBOLOGIES = setOf("ean13", "ean8", "upca", "upce")
 
 /**
+ * The 2D symbologies. A ticket that carries any of them is a ticket whose door code is
+ * one of them: a linear code beside it is an order or reference number (the #441
+ * review's QR beside an order-number Code 128). Provisional, like the retail rule.
+ */
+private val MATRIX_SYMBOLOGIES = setOf("qr", "aztec", "pdf417", "datamatrix")
+
+/**
  * The evidence's barcodes, reconciled into Admissions (`fixtures/ticket/README.md`,
  * "The Admissions"; the Swift twin is line for line):
  *
  * 1. Only a barcode with a symbology and a non-empty payload can be one.
- * 2. Retail formats ([RETAIL_SYMBOLOGIES]) are dropped when anything else was found,
- *    and kept only when they are all there is. Provisional: a ticket that really is an
- *    EAN keeps it, and one beside a QR loses a probable false positive.
+ * 2. Linear codes are dropped when any 2D code ([MATRIX_SYMBOLOGIES]) was found, on any
+ *    page: beside a QR, a Code 128 is the order number. Otherwise retail formats
+ *    ([RETAIL_SYMBOLOGIES]) are dropped when anything else was found, and kept only when
+ *    they are all there is. Both provisional: a ticket that really is an EAN keeps it,
+ *    and one beside a QR loses a probable false positive.
  * 3. In page order (stable: found order within a page).
  * 4. One per payload, first kept: the same code on three pages is one Admission, and
  *    the same payload in two symbologies keeps the first.
@@ -326,10 +335,10 @@ private fun admissions(evidence: TicketEvidence): List<Admission> {
         val payload = barcode.payload?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
         Triple(payload, symbology, barcode.page ?: 0)
     }
-    val kept = if (candidates.all { it.second in RETAIL_SYMBOLOGIES }) {
-        candidates
-    } else {
-        candidates.filter { it.second !in RETAIL_SYMBOLOGIES }
+    val kept = when {
+        candidates.any { it.second in MATRIX_SYMBOLOGIES } -> candidates.filter { it.second in MATRIX_SYMBOLOGIES }
+        candidates.all { it.second in RETAIL_SYMBOLOGIES } -> candidates
+        else -> candidates.filter { it.second !in RETAIL_SYMBOLOGIES }
     }
     val printed = evidence.readings.flatMap { it.lines }.map(::printedKey)
     return kept
@@ -346,8 +355,15 @@ private fun admissions(evidence: TicketEvidence): List<Admission> {
         }
 }
 
-/** Whitespace and `*` (a Code 39-style printed delimiter, `*K8TZC46G7*`) taken out. */
-private fun printedKey(text: String): String = text.filterNot { it.isWhitespace() || it == '*' }
+/**
+ * Space, tab, newline, carriage return and `*` (a Code 39-style printed delimiter,
+ * `*K8TZC46G7*`) taken out: exactly those, the same set as the Swift twin. Not
+ * [Char.isWhitespace], which also takes U+001C–001F, so a GS1 payload's GS (FNC1) would
+ * vanish here and stay on iOS.
+ */
+private val PRINTED_KEY_DROPS = setOf(' ', '\t', '\n', '\r', '*')
+
+private fun printedKey(text: String): String = text.filterNot { it in PRINTED_KEY_DROPS }
 
 /** The bytes as UTF-8, or null where they are not valid UTF-8 — never a U+FFFD guess. */
 private fun strictUtf8(bytes: ByteArray): String? =

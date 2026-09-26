@@ -1,0 +1,50 @@
+{
+  "about": "SYNTHETIC, written by hand for the 2D rule (#441 review). One page carries the ticket's QR and a Code 128 of its order number, found in that order. Where a ticket has any 2D code, its linear codes are reference numbers and not Admissions, so the QR is the one Admission. Before this rule iOS (every symbology Vision saw) made two Admissions of this page and Android (zxing's multi pass in the first hit's format) one.",
+  "readings": [
+    {
+      "origin": "ocr",
+      "lines": [
+        "Ocean Colour Scene",
+        "25-09-2026",
+        "Auditorio Marina Norte, Valencia",
+        "Synthetic test ticket - not valid for admission",
+        "Visor Fest / setlist.fm ID 1b498dc4",
+        "Order SYNTHETIC-ORDER-4711"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "symbology": "code128",
+      "payload": "SYNTHETIC-ORDER-4711",
+      "page": 0
+    },
+    {
+      "symbology": "qr",
+      "payload": "SYNTHETIC-DOOR-QR",
+      "page": 0
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "Ocean Colour Scene",
+      "support": "ocr"
+    },
+    "venue": {
+      "value": "Auditorio Marina Norte, Valencia",
+      "support": "ocr"
+    },
+    "date": {
+      "value": "25-09-2026",
+      "support": "ocr"
+    },
+    "admissions": [
+      {
+        "symbology": "qr",
+        "payload": "SYNTHETIC-DOOR-QR",
+        "corroborated": false
+      }
+    ],
+    "skipsPrompt": true
+  }
+}
