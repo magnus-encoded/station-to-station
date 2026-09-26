@@ -64,7 +64,7 @@ One file per case:
   Every other field of the case is asserted as usual.
 - `admissions` is asserted in full: the same count, and each entry's symbology,
   payload and corroboration, in order.
-- Read every `*.json` in the folder, fail if there are fewer than 26 (raise the floor
+- Read every `*.json` in the folder, fail if there are fewer than 29 (raise the floor
   with the corpus), and print how many ran.
 
 ## Lines
@@ -159,21 +159,33 @@ The evidence carries **every** barcode (`barcodes`); the result carries its **Ad
 
 1. **What can be one.** A barcode with a symbology and a non-empty payload. Anything else
    is not something a door can be shown.
-2. **Retail formats only when alone.** `ean13`, `ean8`, `upca` and `upce` are dropped
-   when anything else was found, and kept when they are all there is. Real tickets
-   showed EAN and UPC hits beside the QR that is the Admission (the Android probe,
-   #441): unverified, possibly other print, possibly false positives. **Provisional**:
-   a default until a real ticket says otherwise, not a finding.
+2. **Linear codes only when no 2D code was found.** When the ticket's barcodes include
+   any 2D code (`qr`, `aztec`, `pdf417`, `datamatrix`), on any page, only the 2D codes
+   can be Admissions: a linear code beside one is an order or reference number. The two
+   extractors see different evidence here: iOS's Vision reports every symbology on a
+   page, and Android's zxing pass looks for more of the first code's own format. Putting
+   the rule in the parse is what makes a page with a QR and an order-number Code 128 one
+   Admission on both (`admission-rule-linear-beside-a-qr`).
+   **Retail formats only when alone.** Among linear codes, `ean13`, `ean8`, `upca` and
+   `upce` are dropped when anything else was found, and kept when they are all there
+   is. Real tickets showed EAN and UPC hits beside the QR that is the Admission (the
+   Android probe, #441): unverified, possibly other print, possibly false positives.
+   **Provisional**, both halves: a default until a real ticket says otherwise, not a
+   finding.
 3. **In page order**, and within a page in the order found.
 4. **One per payload**, the first kept. The same payload on three pages is one
    **Admission**; the same payload in two symbologies keeps the first one's.
-5. **Corroborated** when the payload, read as strict UTF-8 with whitespace and `*` taken
-   out, appears inside some line of some reading with the same taken out (`*TESTQRAA1*`
-   corroborates `TESTQRAA1`). Every reading's raw lines count, before tidying. A payload
+5. **Corroborated** when the payload, read as strict UTF-8 with space, tab, `\n`, `\r`
+   and `*` taken out, appears inside some line of some reading with the same taken out
+   (`*TESTQRAA1*` corroborates `TESTQRAA1`). Exactly those five, spelled out on both
+   twins: Kotlin's `isWhitespace` and Swift's `whitespacesAndNewlines` disagree about
+   U+001C–001F, and a GS1 payload's GS (FNC1) is U+001D
+   (`admission-rule-corroboration-keeps-gs`). Every reading's raw lines count, before tidying. A payload
    that is not valid UTF-8 is never corroborated. Corroboration is evidence recorded on
    the **Admission**, never a filter: an uncorroborated one is kept and shown.
 
-Nothing here prefers a QR. A Code 128 is an **Admission** like any other. Whether the
+Nothing here prefers a QR over another 2D code, and a Code 128 on a ticket with no 2D
+code is an **Admission** like any other. Whether the
 app can redraw one is not the parse's business either: each app redraws every
 **Admission** and reads it back at import (`checkedForRedraw`, #441 story 29), and
 routing will not act without the person on a ticket with one that did not read back.
@@ -221,5 +233,6 @@ subset.
   both cases would now be added without asking, under that wrong artist: marked a known
   failure on `skipsPrompt` as well. Whether a complete read should need the prompt when
   its artist line carries a tour name is the same open question as the artist rule.
-- **The retail rule** (*The Admissions*, rule 2) is provisional. A real ticket whose
-  Admission is an EAN beside a QR that isn't would be read wrong by it.
+- **The retail rule and the 2D rule** (*The Admissions*, rule 2) are provisional. A
+  real ticket whose Admission is an EAN or a Code 128 beside a QR that isn't would be
+  read wrong by them.
