@@ -1759,19 +1759,16 @@ final class AppModel: ObservableObject {
         guard let found = await location.geocodeVenue(
             [query, gig.venue?.city?.country?.name].compactMap { $0 }.joined(separator: ", ")
         ) else { return nil }
-        await timelines.saveAttendance(
-            setlistId: gig.id,
-            // Every field of the existing claim is carried, not just the ones this
-            // write is about: `saveAttendance` replaces the record wholesale, so a
-            // field left out here is a field deleted. The ticket joined it in #412, and
-            // is `admissions` since #441.
-            attendance: StoredAttendance(
-                provenance: cache.attendance()[gig.id]?.provenance ?? "planned",
-                checkedInAt: cache.attendance()[gig.id]?.checkedInAt,
-                venueLat: found.lat, venueLon: found.lon,
-                admissions: cache.attendance()[gig.id]?.admissions ?? []
-            )
-        )
+        // Only the coordinates, onto the record as it is after the geocode: `cache` was
+        // read before it, and saving a record built from that would put back its old
+        // Admissions and claim over a ticket attached or a check-in made meanwhile (the
+        // #441 review). Android's `updateAttendance { it.copy(…) }`.
+        let settled = await timelines.updateAttendance(setlistId: gig.id) {
+            $0.venueLat = found.lat
+            $0.venueLon = found.lon
+        }
+        state.attendanceByGig[gig.id] = settled
+        if state.selectedSetlist?.id == gig.id { state.selectedAttendance = settled }
         return found
     }
 
@@ -1781,18 +1778,14 @@ final class AppModel: ObservableObject {
     func checkIn(_ gigId: String) {
         state.checkInOffer = nil
         Task {
-            let existing = await timelines.load().attendance()[gigId]
-            // The ticket's Admissions are carried across the check-in rather than dropped by it.
-            // It is a fact about the night and not about the claim, and this write
-            // replaces the whole record — Android's `updateAttendance` gets the same
-            // answer from `copy()`, which is why that side needed no such line (#412).
-            let attendance = StoredAttendance(
-                provenance: "checked_in",
-                checkedInAt: Int64(Date().timeIntervalSince1970 * 1000),
-                venueLat: existing?.venueLat, venueLon: existing?.venueLon,
-                admissions: existing?.admissions ?? []
-            )
-            await timelines.saveAttendance(setlistId: gigId, attendance: attendance)
+            // Only the claim changes. The ticket's Admissions and the venue's coordinates
+            // are carried across the check-in by editing the record in place, read and
+            // written under one lock — Android's `updateAttendance { it.copy(…) }` (#412).
+            let checkedInAt = Int64(Date().timeIntervalSince1970 * 1000)
+            let attendance = await timelines.updateAttendance(setlistId: gigId) {
+                $0.provenance = "checked_in"
+                $0.checkedInAt = checkedInAt
+            }
             // The claim goes into state as well as onto disk: the night has just stopped
             // being a plan, and the lane it leaves is drawn from this map.
             state.attendanceByGig[gigId] = attendance
