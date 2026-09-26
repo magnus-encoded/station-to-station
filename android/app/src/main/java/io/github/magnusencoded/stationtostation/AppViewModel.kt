@@ -463,8 +463,12 @@ data class UiState(
      * including a parse that found nothing at all, which the confirm screen reads
      * as "couldn't read this ticket" rather than a silent failure (ADR-0004: a
      * partial or absent result is a state to show, never an error to hide).
+     *
+     * A queue, oldest first, as iOS's `ticketDrafts` is (the #441 review): with one slot,
+     * a second share while the prompt was open dropped the first. The dialog shows
+     * [pendingTicket], the head; answering it shows the next.
      */
-    val pendingTicket: PendingTicket? = null,
+    val pendingTickets: List<PendingTicket> = emptyList(),
     // Transient error surfaced as a snackbar
     val error: String? = null,
     /**
@@ -487,7 +491,16 @@ data class UiState(
 ) {
     /** Who is currently tapped out. Derived so there is only [hiddenAt] to keep in step. */
     val hiddenLines: Set<String> get() = hiddenAt.keys
+
+    /** The ticket the confirm dialog is showing: the oldest of [pendingTickets]. */
+    val pendingTicket: PendingTicket? get() = pendingTickets.firstOrNull()
 }
+
+/** [ticket] behind whatever is already waiting on the prompt, never in its place. */
+fun UiState.queuingTicket(ticket: PendingTicket): UiState = copy(pendingTickets = pendingTickets + ticket)
+
+/** The ticket [id] answered (saved or discarded) and off the queue; the next one shows. */
+fun UiState.answeringTicket(id: String): UiState = copy(pendingTickets = pendingTickets.filterNot { it.id == id })
 
 /**
  * The state after a local **Gig** took [setlistId] (#515): everything the screens read by
@@ -562,6 +575,8 @@ enum class HandoverRole { SOURCE, RECEIVER }
 data class PendingTicket(
     val parsed: ParsedTicket,
     val possibleMatch: FmSetlist?,
+    /** Its own identity, so the dialog's answer names the ticket it was given for. */
+    val id: String = UUID.randomUUID().toString(),
 )
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
@@ -1993,7 +2008,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 addParsedPlannedGig(routing.artist, routing.venue, night, routing.admissions)
             }
             is TicketRouting.NeedsConfirmation ->
-                _state.update { it.copy(pendingTicket = PendingTicket(routing.parsed, routing.possibleMatch)) }
+                _state.update { it.queuingTicket(PendingTicket(routing.parsed, routing.possibleMatch)) }
         }
     }
 
@@ -2005,8 +2020,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * edited — they are preserved even when the text half of the ticket needed fixing
      * by hand (#441, story 16).
      */
-    fun confirmPendingTicket(artist: String, venue: String, date: String) {
-        val pending = _state.value.pendingTicket ?: return
+    fun confirmPendingTicket(id: String, artist: String, venue: String, date: String) {
+        val pending = _state.value.pendingTickets.firstOrNull { it.id == id } ?: return
         val night = parseFmDate(date)
         if (artist.isBlank() || night == null) {
             _state.update { it.copy(errorKind = null, error = "A night needs who is playing and a date as dd-MM-yyyy.") }
@@ -2021,12 +2036,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 addParsedPlannedGig(artist.trim(), venue.trim(), night, pending.parsed.admissions)
             }
-            _state.update { it.copy(pendingTicket = null) }
+            _state.update { it.answeringTicket(id) }
         }
     }
 
     /** The confirm dialog's Discard — the guess is dropped, nothing is written. */
-    fun dismissPendingTicket() = _state.update { it.copy(pendingTicket = null) }
+    fun dismissPendingTicket(id: String) = _state.update { it.answeringTicket(id) }
 
     /** [addPlannedGigByHand]'s write, shared by both ticket paths above. */
     private suspend fun addParsedPlannedGig(artist: String, venue: String, night: LocalDate, admissions: List<Admission>) {

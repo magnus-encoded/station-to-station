@@ -88,6 +88,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -398,11 +399,15 @@ fun StationTimelineScreen(
                 )
             }
             state.pendingTicket?.let { pending ->
-                TicketConfirmDialog(
-                    pending = pending,
-                    onConfirm = { artist, venue, date -> viewModel.confirmPendingTicket(artist, venue, date) },
-                    onDismiss = { viewModel.dismissPendingTicket() },
-                )
+                // Keyed by the ticket, so the next one in the queue opens with its own
+                // fields rather than the last one's edits.
+                key(pending.id) {
+                    TicketConfirmDialog(
+                        pending = pending,
+                        onConfirm = { artist, venue, date -> viewModel.confirmPendingTicket(pending.id, artist, venue, date) },
+                        onDismiss = { viewModel.dismissPendingTicket(pending.id) },
+                    )
+                }
             }
             when {
                 state.setlistsLoading && state.setlists.isEmpty() ->
