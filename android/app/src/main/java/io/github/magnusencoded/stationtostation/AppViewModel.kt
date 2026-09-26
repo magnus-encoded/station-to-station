@@ -1985,6 +1985,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * gig. The QR travels from the original parse regardless of what the person
      * edited — it is preserved even when the text half of the ticket needed fixing
      * by hand (#413's day-of view needs it either way).
+     *
+     * The match is checked *again* on the confirmed values rather than trusted from
+     * routing, as iOS's `confirmTicket` does. [PendingTicket.possibleMatch] was found
+     * for what the parse read; a person who corrected the artist or the date has said
+     * it is some other night, and a partial parse that matched nothing may, once
+     * filled in, name a night that was already there.
      */
     fun confirmPendingTicket(artist: String, venue: String, date: String) {
         val pending = _state.value.pendingTicket ?: return
@@ -1995,8 +2001,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             val known = _state.value.setlists + _state.value.plannedGigs
-            val matched = pending.possibleMatch
-                ?: matchKnownNight(ParsedTicket(artist = artist.trim(), venue = venue.trim(), date = fmDate(night)), known)
+            val matched = matchKnownNight(ParsedTicket(artist = artist.trim(), venue = venue.trim(), date = fmDate(night)), known)
             if (matched != null) {
                 attachTicketQr(matched.id, pending.parsed.qrBytes)
             } else {
