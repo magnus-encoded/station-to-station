@@ -70,7 +70,9 @@ struct TicketAtTheDoor: View {
     }
 
     @State private var index = 0
-    @State private var shown = Shown.checking
+    /// Tagged with the Admission it is about, so a page stepped to while the last one's
+    /// check was still running reads as checking, never as the last one's drawing.
+    @State private var verdict: DoorVerdict<StoredAdmission, Shown>?
     @State private var width: CGFloat = 0
 
     private var page: AdmissionPage { AdmissionPage(index: index, count: admissions.count) }
@@ -81,6 +83,7 @@ struct TicketAtTheDoor: View {
         } else {
             let page = self.page
             let admission = admissions[page.index]
+            let shown = verdict?.forAdmission(admission) ?? .checking
             VStack(alignment: .leading, spacing: 6) {
                 Group {
                     switch shown {
@@ -113,13 +116,15 @@ struct TicketAtTheDoor: View {
             .onPreferenceChange(DoorWidthKey.self) { width = $0 }
             .onChange(of: admissions) { _ in index = 0 }
             .task(id: admission) {
-                shown = .checking
                 guard let bytes = admission.payloadBytes else {
-                    shown = .cannotShow
+                    verdict = DoorVerdict(admission: admission, verdict: .cannotShow)
                     return
                 }
                 let ok = await AdmissionVerdicts.shared.redraws(symbology: admission.symbology, payload: bytes)
-                if ok, let drawing = admissionDrawing(admission) { shown = .drawn(drawing) } else { shown = .cannotShow }
+                // Stepped away while Vision ran: this answer is for a page no longer shown.
+                guard !Task.isCancelled else { return }
+                let drawing = ok ? admissionDrawing(admission) : nil
+                verdict = DoorVerdict(admission: admission, verdict: drawing.map(Shown.drawn) ?? .cannotShow)
             }
         }
     }
