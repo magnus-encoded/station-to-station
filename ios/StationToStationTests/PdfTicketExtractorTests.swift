@@ -7,16 +7,28 @@ import XCTest
 /// PDFKit and Vision readers stay untested, as they always have: they need a device.
 final class PdfTicketExtractorTests: XCTestCase {
 
+    /// A page with a text layer and the barcodes a locator would see on it.
     private final class FakePage: PdfPage {
         let textLayer: String?
-        init(_ text: String?) { textLayer = text }
+        let codes: [TicketBarcode]
+        init(_ text: String?, codes: [TicketBarcode] = []) {
+            textLayer = text
+            self.codes = codes
+        }
         func rendered() -> CGImage? { nil }
     }
 
-    private struct FakePages: PdfPages {
+    /// Counts how often each page was asked for, so a test can tell a page that was
+    /// opened once and shared from one opened per reader.
+    private final class FakePages: PdfPages {
         let pages: [FakePage]
+        private(set) var opened: [Int] = []
+        init(pages: [FakePage]) { self.pages = pages }
         var count: Int { pages.count }
-        func page(at index: Int) -> (any PdfPage)? { pages[index] }
+        func page(at index: Int) -> (any PdfPage)? {
+            opened.append(index)
+            return pages[index]
+        }
     }
 
     /// Reads whatever the page's text layer says, prefixed, and remembers every page it
@@ -37,22 +49,31 @@ final class PdfTicketExtractorTests: XCTestCase {
         }
     }
 
+    /// Hands back the page's own codes, and remembers every page it was handed.
     private final class RecordingLocator: BarcodeLocator {
-        let onPage: Int?
-        private(set) var asked = 0
-        init(foundOnPage: Int?) { onPage = foundOnPage }
+        private(set) var seen: [ObjectIdentifier] = []
 
-        func locate(on page: any PdfPage) async -> TicketBarcode? {
-            defer { asked += 1 }
-            guard asked == onPage else { return nil }
-            return TicketBarcode(image: Data([0x89]), payload: Data("code".utf8), symbology: "qr")
+        func locate(on page: any PdfPage) async -> [TicketBarcode] {
+            seen.append(ObjectIdentifier(page))
+            return (page as! FakePage).codes
         }
     }
 
+    private func code(_ payload: String?, _ symbology: String = "qr") -> TicketBarcode {
+        TicketBarcode(image: Data([0x89]), payload: payload.map { Data($0.utf8) },
+                      symbology: symbology)
+    }
+
     private func extractor(_ pages: [FakePage], readers: [any PdfTextReader],
-                           locator: any BarcodeLocator = RecordingLocator(foundOnPage: nil))
+                           locator: any BarcodeLocator = RecordingLocator())
     -> PdfTicketExtractor {
-        PdfTicketExtractor(open: { _ in FakePages(pages: pages) }, readers: readers, barcode: locator)
+        extractor(FakePages(pages: pages), readers: readers, locator: locator)
+    }
+
+    private func extractor(_ pages: FakePages, readers: [any PdfTextReader],
+                           locator: any BarcodeLocator = RecordingLocator())
+    -> PdfTicketExtractor {
+        PdfTicketExtractor(open: { _ in pages }, readers: readers, barcode: locator)
     }
 
     /// Every reader on every page, and one reading per reader, in page order.
@@ -82,33 +103,123 @@ final class PdfTicketExtractorTests: XCTestCase {
         XCTAssertEqual([TicketReading(origin: .ocr, lines: ["Static Halo"])], evidence.readings)
     }
 
-    /// Finding the barcode on page one does not stop the text readers from reading page
-    /// two — comparing is the parser's job, and it needs everything.
-    func testAFoundBarcodeDoesNotStopTheReaders() async {
-        let pages = [FakePage("a"), FakePage("b")]
+    /// Each page is opened once, and that one page is what every reader and the locator
+    /// are handed — which is what lets OCR and the barcode share one render.
+    func testEachPageIsOpenedOnceAndShared() async {
+        let pages = FakePages(pages: [FakePage("a"), FakePage("b")])
+        let text = RecordingReader(.textLayer) { [$0.textLayer ?? ""] }
         let ocr = RecordingReader(.ocr) { [$0.textLayer ?? ""] }
-        let locator = RecordingLocator(foundOnPage: 0)
+        let locator = RecordingLocator()
+
+        _ = await extractor(pages, readers: [text, ocr], locator: locator).extract(Data())
+
+        XCTAssertEqual([0, 1], pages.opened)
+        let each = pages.pages.map { ObjectIdentifier($0) }
+        XCTAssertEqual(each, text.seen)
+        XCTAssertEqual(each, ocr.seen)
+        XCTAssertEqual(each, locator.seen)
+    }
+
+    /// The render a page hands out is drawn on the first ask and never again, even when
+    /// drawing failed.
+    func testAPageIsRenderedOnce() {
+        var draws = 0
+        let render = RenderOnce {
+            draws += 1
+            return nil
+        }
+
+        _ = render()
+        _ = render()
+        _ = render()
+
+        XCTAssertEqual(1, draws)
+    }
+
+    // MARK: - Barcodes
+
+    /// A barcode on page one does not stop the text readers or the locator from reading
+    /// page two — comparing is the parser's job, and it needs everything.
+    func testAFoundBarcodeDoesNotStopTheReading() async {
+        let pages = [FakePage("a", codes: [code("one")]), FakePage("b")]
+        let ocr = RecordingReader(.ocr) { [$0.textLayer ?? ""] }
+        let locator = RecordingLocator()
 
         let evidence = await extractor(pages, readers: [ocr], locator: locator).extract(Data())
 
         XCTAssertEqual(2, ocr.seen.count)
-        XCTAssertEqual(1, locator.asked, "the first barcode found is the one kept")
-        XCTAssertEqual([Data("code".utf8)], evidence.barcodes.map(\.payload))
+        XCTAssertEqual(2, locator.seen.count)
+        XCTAssertEqual([Data("one".utf8)], evidence.barcodes.map(\.payload))
+    }
+
+    /// Every barcode on every page, in the order found, each stamped with its page.
+    func testEveryBarcodeOnEveryPageIsKept() async {
+        let pages = [
+            FakePage("a", codes: [code("A1"), code("0001", "code128")]),
+            FakePage("b"),
+            FakePage("c", codes: [code("A2")]),
+        ]
+
+        let evidence = await extractor(pages, readers: []).extract(Data())
+
+        XCTAssertEqual(["A1", "0001", "A2"],
+                       evidence.barcodes.map { String(decoding: $0.payload!, as: UTF8.self) })
+        XCTAssertEqual(["qr", "code128", "qr"], evidence.barcodes.map(\.symbology))
+        XCTAssertEqual([0, 0, 2], evidence.barcodes.map(\.page))
+        XCTAssertTrue(evidence.barcodes.allSatisfy { $0.image == Data([0x89]) }, "the crop is carried")
+    }
+
+    /// A code repeated on every page, or seen twice on one, is one code: kept at its
+    /// first sighting.
+    func testARepeatedBarcodeIsKeptOnce() async {
+        let pages = [
+            FakePage("a", codes: [code("same"), code("same")]),
+            FakePage("b", codes: [code("same"), code("other")]),
+        ]
+
+        let evidence = await extractor(pages, readers: []).extract(Data())
+
+        XCTAssertEqual([Data("same".utf8), Data("other".utf8)], evidence.barcodes.map(\.payload))
+        XCTAssertEqual([0, 1], evidence.barcodes.map(\.page))
+    }
+
+    /// The same payload under two symbologies is two codes: the door scans a symbol,
+    /// not a string.
+    func testTheSamePayloadInTwoSymbologiesIsTwoBarcodes() async {
+        let pages = [FakePage("a", codes: [code("1234"), code("1234", "code128")])]
+
+        let evidence = await extractor(pages, readers: []).extract(Data())
+
+        XCTAssertEqual(["qr", "code128"], evidence.barcodes.map(\.symbology))
+    }
+
+    /// A code with no payload cannot be told to be the same as another, so none is
+    /// dropped as a repeat.
+    func testBarcodesWithNoPayloadAreAllKept() async {
+        let pages = [FakePage("a", codes: [code(nil)]), FakePage("b", codes: [code(nil)])]
+
+        let evidence = await extractor(pages, readers: []).extract(Data())
+
+        XCTAssertEqual(2, evidence.barcodes.count)
+        XCTAssertEqual([0, 1], evidence.barcodes.map(\.page))
     }
 
     func testPagesPastTheLimitAreNotRead() async {
-        let pages = (0..<5).map { FakePage("page \($0)") }
+        let pages = (0..<5).map { FakePage("page \($0)", codes: [code("code \($0)")]) }
         let ocr = RecordingReader(.ocr) { [$0.textLayer ?? ""] }
+        let locator = RecordingLocator()
 
-        _ = await extractor(pages, readers: [ocr]).extract(Data())
+        let evidence = await extractor(pages, readers: [ocr], locator: locator).extract(Data())
 
         XCTAssertEqual(3, ocr.seen.count)
+        XCTAssertEqual(3, locator.seen.count)
+        XCTAssertEqual([0, 1, 2], evidence.barcodes.map(\.page))
     }
 
     func testDataThatIsNotAPdfIsNoEvidence() async {
         let ocr = RecordingReader(.ocr) { _ in ["x"] }
         let extractor = PdfTicketExtractor(open: { _ in nil }, readers: [ocr],
-                                           barcode: RecordingLocator(foundOnPage: nil))
+                                           barcode: RecordingLocator())
 
         let evidence = await extractor.extract(Data())
 

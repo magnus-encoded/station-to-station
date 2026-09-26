@@ -43,21 +43,18 @@ final class PdfKitPage: PdfPage {
     static let maxEdge: CGFloat = 2000
 
     private let page: PDFPage
-    private var image: CGImage?
-    private var drawn = false
+    private let render: RenderOnce
 
-    init(_ page: PDFPage) { self.page = page }
+    init(_ page: PDFPage) {
+        self.page = page
+        render = RenderOnce { autoreleasepool { PdfKitPage.rasterize(page) } }
+    }
 
     var textLayer: String? { page.string }
 
-    func rendered() -> CGImage? {
-        if drawn { return image }
-        drawn = true
-        image = autoreleasepool { rasterize() }
-        return image
-    }
+    func rendered() -> CGImage? { render() }
 
-    private func rasterize() -> CGImage? {
+    private static func rasterize(_ page: PDFPage) -> CGImage? {
         let bounds = page.bounds(for: .mediaBox).size
         guard bounds.width > 0, bounds.height > 0 else { return nil }
         let longEdge = max(bounds.width, bounds.height)
@@ -95,10 +92,10 @@ struct OcrReader: PdfTextReader {
     }
 }
 
-/// Vision's barcode detection over the same pixels, cropped to what it found.
+/// Vision's barcode detection over the same pixels, cropped to each code it found.
 struct VisionBarcodeLocator: BarcodeLocator {
-    func locate(on page: any PdfPage) async -> TicketBarcode? {
-        guard let image = page.rendered() else { return nil }
+    func locate(on page: any PdfPage) async -> [TicketBarcode] {
+        guard let image = page.rendered() else { return [] }
         return autoreleasepool {
             let request = VNDetectBarcodesRequest()
             // QR only. Aztec and PDF417 are common on tickets too, but the field this
@@ -107,10 +104,13 @@ struct VisionBarcodeLocator: BarcodeLocator {
             // #441 is where that widens.
             request.symbologies = [.qr]
             try? VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
-            guard let found = (request.results ?? []).first else { return nil }
-            return TicketBarcode(image: crop(image, to: found.boundingBox) ?? Data(),
-                                 payload: payload(of: found),
-                                 symbology: "qr")
+            // Every code on the page, not only the first: which of them count is the
+            // parser's call (#441), and the extractor drops the repeats.
+            return (request.results ?? []).map { found in
+                TicketBarcode(image: crop(image, to: found.boundingBox) ?? Data(),
+                              payload: payload(of: found),
+                              symbology: "qr")
+            }
         }
     }
 

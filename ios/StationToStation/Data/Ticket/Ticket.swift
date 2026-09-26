@@ -113,6 +113,8 @@ struct TicketBarcode: Equatable, Sendable {
     var payload: Data?
     /// "qr" is the only value today. #441 widens this.
     var symbology: String?
+    /// The page it was found on, counted from 0 in the source's own page order.
+    var page: Int = 0
 }
 
 /// Turns one kind of input into evidence. `Source` is the input type:
