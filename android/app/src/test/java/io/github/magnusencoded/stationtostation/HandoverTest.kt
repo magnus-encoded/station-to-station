@@ -4,6 +4,7 @@ import io.github.magnusencoded.stationtostation.data.CATEGORY_SETLISTS
 import io.github.magnusencoded.stationtostation.data.GalleryItem
 import io.github.magnusencoded.stationtostation.data.HandoverManifest
 import io.github.magnusencoded.stationtostation.data.OfferedMedia
+import io.github.magnusencoded.stationtostation.data.StoredAdmission
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredGig
 import io.github.magnusencoded.stationtostation.data.StoredLog
@@ -117,6 +118,52 @@ class HandoverTest {
 
         assertEquals(StoredAttendance.Provenance.CHECKED_IN, plan.merged.gigAttendance["a"]?.provenance)
         assertEquals(1_700L, plan.merged.gigAttendance["a"]?.checkedInAt)
+    }
+
+    @Test
+    fun `a ticket only the arriving phone holds survives two planned claims`() {
+        // #441: both phones planned the night, and the ticket was shared into only one.
+        // Before, the two claims tied and mine was kept whole — with no ticket in it.
+        val ticket = StoredAdmission(payload = "U1lOVEhFVElDLUhBTkRPVkVS", symbology = "qr")
+        val mine = TimelineCache(
+            gigs = mapOf("a" to gig("a", setlistId = "s1")),
+            gigAttendance = mapOf("a" to StoredAttendance(provenance = StoredAttendance.Provenance.PLANNED)),
+        )
+        val theirs = TimelineCache(
+            gigs = mapOf("a" to gig("a", setlistId = "s1")),
+            gigAttendance = mapOf(
+                "a" to StoredAttendance(provenance = StoredAttendance.Provenance.PLANNED, admissions = listOf(ticket)),
+            ),
+        )
+
+        val plan = handoverPlan(mine, HandoverManifest(timeline = theirs), all, verified = true)
+
+        assertEquals(listOf(ticket), plan.merged.gigAttendance["a"]?.admissions)
+    }
+
+    @Test
+    fun `both phones' Admissions for one night are kept once each, behind the stronger claim`() {
+        val first = StoredAdmission(payload = "U1lOVEhFVElDLTE=", symbology = "qr")
+        val second = StoredAdmission(payload = "U1lOVEhFVElDLTI=", symbology = "code128", page = 1)
+        val mine = TimelineCache(
+            gigs = mapOf("a" to gig("a", setlistId = "s1")),
+            gigAttendance = mapOf(
+                "a" to StoredAttendance(
+                    provenance = StoredAttendance.Provenance.CHECKED_IN, checkedInAt = 1_700L, admissions = listOf(first),
+                ),
+            ),
+        )
+        val theirs = TimelineCache(
+            gigs = mapOf("a" to gig("a", setlistId = "s1")),
+            gigAttendance = mapOf(
+                "a" to StoredAttendance(provenance = StoredAttendance.Provenance.PLANNED, admissions = listOf(second, first)),
+            ),
+        )
+
+        val merged = handoverPlan(mine, HandoverManifest(timeline = theirs), all, verified = true).merged.gigAttendance["a"]
+
+        assertEquals(StoredAttendance.Provenance.CHECKED_IN, merged?.provenance)
+        assertEquals(listOf(first, second), merged?.admissions)
     }
 
     @Test

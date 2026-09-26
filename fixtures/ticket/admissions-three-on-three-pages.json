@@ -1,0 +1,62 @@
+{
+  "about": "SYNTHETIC, the shape of the probe's Billettservice ticket (#441): three pages, one QR each, three different payloads. Three Admissions, in page order, so three people get in.",
+  "readings": [
+    {
+      "origin": "ocr",
+      "lines": [
+        "Kaizers Orchestra",
+        "Sentrum Scene",
+        "24.06.2027"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "symbology": "qr",
+      "payload": "SYNTHETIC-MULTI-1",
+      "page": 0
+    },
+    {
+      "symbology": "qr",
+      "payload": "SYNTHETIC-MULTI-2",
+      "page": 1
+    },
+    {
+      "symbology": "qr",
+      "payload": "SYNTHETIC-MULTI-3",
+      "page": 2
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "Kaizers Orchestra",
+      "support": "ocr"
+    },
+    "venue": {
+      "value": "Sentrum Scene",
+      "support": "ocr"
+    },
+    "date": {
+      "value": "24-06-2027",
+      "support": "ocr"
+    },
+    "admissions": [
+      {
+        "symbology": "qr",
+        "payload": "SYNTHETIC-MULTI-1",
+        "corroborated": false
+      },
+      {
+        "symbology": "qr",
+        "payload": "SYNTHETIC-MULTI-2",
+        "corroborated": false
+      },
+      {
+        "symbology": "qr",
+        "payload": "SYNTHETIC-MULTI-3",
+        "corroborated": false
+      }
+    ],
+    "skipsPrompt": true
+  }
+}

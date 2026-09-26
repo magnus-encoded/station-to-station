@@ -38,7 +38,7 @@
       "value": "28-11-2026",
       "support": "both"
     },
-    "barcode": null,
+    "admissions": [],
     "skipsPrompt": false
   }
 }

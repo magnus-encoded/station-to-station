@@ -7,8 +7,8 @@ import Foundation
 
 /// What the app should do with a **Ticket** the extension left in the inbox.
 enum TicketRoute: Equatable {
-    /// The night is already on the **Line**. Nothing is minted; the QR is kept
-    /// against the night that was already there.
+    /// The night is already on the **Line**. Nothing is minted; the **Admissions** are
+    /// added to the night that was already there.
     case match(String)
     /// Mint an ordinary local planned **Gig**, no prompt. The *only* case that skips
     /// the prompt, and it is narrow on purpose — see `routeTicket`.
@@ -24,7 +24,7 @@ enum TicketRoute: Equatable {
 ///
 /// **Confirm-first is the rule.** The parse function's job is to report what it found;
 /// this one's is to route it, and all it routes past a person is a parse with nothing
-/// left to ask about: a QR, an artist, a venue and a date, all four present. That is
+/// left to ask about: an **Admission**, an artist, a venue and a date, all four present. That is
 /// the same rule Android's `TicketRouting` landed with in #411.
 ///
 /// **Nor is one only a single reading backed** (#526). A PDF is read twice, from its own

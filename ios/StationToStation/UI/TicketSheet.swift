@@ -93,8 +93,15 @@ struct ConfirmTicketSheet: View {
                 + "like any night you add by hand."
         }
         var lines = ["Read from the ticket. Check it before it goes on your line."]
-        if ticket.qr != nil {
-            lines.append("The QR code was read and is kept whatever you put here.")
+        switch ticket.admissions.count {
+        case 0: break
+        case 1: lines.append("The ticket's barcode was read and is kept whatever you put here.")
+        case let n: lines.append("\(n) ticket barcodes were read and are kept whatever you put here.")
+        }
+        if let other = ticket.admissions.first(where: { $0.symbology != qrSymbology }) {
+            // Kept (#441), but not redrawn yet: a door that scans it needs the PDF.
+            lines.append("Its \(other.symbology.uppercased()) barcode can't be shown by the app yet, "
+                         + "so bring the original PDF to the door.")
         }
         return lines.joined(separator: " ")
     }

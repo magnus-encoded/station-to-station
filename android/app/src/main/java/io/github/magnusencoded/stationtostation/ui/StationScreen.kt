@@ -182,7 +182,8 @@ import io.github.magnusencoded.stationtostation.data.isMyNight
 import io.github.magnusencoded.stationtostation.data.visibleToContacts
 import io.github.magnusencoded.stationtostation.data.withheldFromContacts
 import io.github.magnusencoded.stationtostation.data.gigInviteUri
-import io.github.magnusencoded.stationtostation.data.decodeTicketQrBase64
+import io.github.magnusencoded.stationtostation.data.QR_SYMBOLOGY
+import io.github.magnusencoded.stationtostation.data.StoredAdmission
 import io.github.magnusencoded.stationtostation.data.ticketQrMatrix
 import io.github.magnusencoded.stationtostation.data.ticketQrText
 import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
@@ -1019,6 +1020,29 @@ private fun TicketQrCode(bitmap: Bitmap?) {
 }
 
 /**
+ * The ticket at the door (#441): the first QR **Admission** drawn as a QR, exactly as
+ * before. A night whose Admissions are all another symbology (an Eventim Code 128) is
+ * never redrawn as a QR — that would look like a ticket and scan as nothing — and says
+ * so instead, in the confirm prompt's words. The symbology-aware redraw, and stepping
+ * between several Admissions, are the next slice of #441; this is where they land.
+ */
+@Composable
+private fun TicketAtTheDoor(admissions: List<StoredAdmission>, qr: Bitmap?) {
+    if (qr != null) {
+        TicketQrCode(qr)
+        return
+    }
+    val other = admissions.firstOrNull { it.symbology != QR_SYMBOLOGY } ?: return
+    Text(
+        "Your ticket's barcode (${zxingFormatName(other.symbology)}) can't be shown by " +
+            "the app yet. Bring the original PDF to the door.",
+        color = Muted,
+        fontSize = 12.sp,
+        modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp),
+    )
+}
+
+/**
  * A gig you're going to: who is playing, where, and when.
  *
  * **This used to be a paste box for a setlist.fm link**, defended on two grounds. The
@@ -1157,7 +1181,7 @@ private fun TicketConfirmDialog(
             Text("From the shared ticket", fontFamily = Serif, fontSize = 19.sp, color = Ink)
             Spacer(Modifier.height(6.dp))
             Text(
-                if (pending.parsed.isEmpty && pending.parsed.unsupportedBarcodeFormat == null) {
+                if (pending.parsed.isEmpty) {
                     "Couldn't read anything off that PDF. Fill it in by hand, or discard it."
                 } else if (pending.possibleMatch != null) {
                     "This looks like a night already on your line — check it before saving."
@@ -1181,21 +1205,31 @@ private fun TicketConfirmDialog(
             StationField(venue, { venue = it }, "venue (optional)")
             Spacer(Modifier.height(8.dp))
             StationField(date, { date = it }, "date (dd-MM-yyyy)", imeDone = true)
-            if (pending.parsed.qrBytes != null) {
-                Spacer(Modifier.height(8.dp))
-                Text("A ticket QR was found and will be kept either way.", color = Faint, fontSize = 11.sp)
-            }
-            // A barcode was found that is not a QR (Code 128 on Eventim tickets). The
-            // app only stores and draws QRs until #441, so it is not kept — drawing
-            // its payload as a QR would look like a ticket and scan as nothing. Said
-            // plainly, since the alternative is finding out at the door. Not Faint:
-            // this is the one line in the dialog that changes what to bring.
-            pending.parsed.unsupportedBarcodeFormat?.let(::zxingFormatName)?.let { format ->
+            val admissions = pending.parsed.admissions
+            val hasQr = admissions.any { it.symbology == QR_SYMBOLOGY }
+            if (admissions.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    if (pending.parsed.qrBytes == null) {
-                        "This ticket's barcode ($format) can't be shown by the app yet, so " +
-                            "it isn't saved. Bring the original PDF to the door."
+                    if (admissions.size == 1) {
+                        "A ticket barcode was found and will be kept either way."
+                    } else {
+                        "${admissions.size} ticket barcodes were found and will be kept either way."
+                    },
+                    color = Faint,
+                    fontSize = 11.sp,
+                )
+            }
+            // An Admission that is not a QR (Code 128 on Eventim tickets). It is kept
+            // (#441), but the app only redraws QRs until the symbology-aware redraw
+            // lands — drawing its payload as a QR would look like a ticket and scan as
+            // nothing. Said plainly, since the alternative is finding out at the door.
+            // Not Faint: this is the one line in the dialog that changes what to bring.
+            admissions.firstOrNull { it.symbology != QR_SYMBOLOGY }?.let { zxingFormatName(it.symbology) }?.let { format ->
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    if (!hasQr) {
+                        "This ticket's barcode ($format) is saved, but the app can't show " +
+                            "it yet. Bring the original PDF to the door."
                     } else {
                         "It also has a $format barcode, which the app can't show yet. If " +
                             "that's the one the door scans, bring the original PDF."
@@ -3406,7 +3440,7 @@ fun StationEventScreen(
         setlistId = setlist?.id?.takeUnless { localGig },
         songCount = setlist?.performed()?.size ?: 0,
         calendarEvent = calendarEventUri,
-        ticketQr = setlist?.let { state.attendanceByGig[it.id]?.ticketQr },
+        admissionCount = setlist?.let { state.attendanceByGig[it.id]?.admissions?.size } ?: 0,
     )
     // The phase and the curtain come off the same value as the offers, so they cannot
     // disagree. The alcove is still not dispatched from — the swipe's action order is
@@ -3601,11 +3635,15 @@ fun StationEventScreen(
                     // the day-of check-in window the way the offer to check in is.
                     // Stored bytes are the payload's text as UTF-8 (TicketBarcode.kt);
                     // a value that isn't valid UTF-8 is a pre-fix zxing `rawBytes`,
-                    // which never redrew correctly, so it draws nothing instead.
-                    val ticketQr = remember(setlist.id) {
-                        gigAsKnown.ticketQr?.decodeTicketQrBase64()?.let(::ticketQrText)?.let { text ->
-                            runCatching { matrixBitmap(ticketQrMatrix(text, 480)) }.getOrNull()
-                        }
+                    // which never redrew correctly, so it draws nothing instead. Only
+                    // a QR Admission is drawn as one (#441); keyed on the Admissions
+                    // too, so a second ticket attached while this is open redraws.
+                    val admissions = state.attendanceByGig[setlist.id]?.admissions.orEmpty()
+                    val ticketQr = remember(setlist.id, admissions) {
+                        admissions.firstOrNull { it.symbology == QR_SYMBOLOGY }
+                            ?.payloadBytes?.let(::ticketQrText)?.let { text ->
+                                runCatching { matrixBitmap(ticketQrMatrix(text, 480)) }.getOrNull()
+                            }
                     }
                     // The manual check-in, and the only one there is when location was
                     // refused or the venue couldn't be geocoded. Same night window as
@@ -3614,7 +3652,7 @@ fun StationEventScreen(
                         if (checkedIn) {
                             presenceRow()
                         } else {
-                            if (offers.room.showQr) TicketQrCode(ticketQr)
+                            if (offers.room.showTicket) TicketAtTheDoor(admissions, ticketQr)
                             Text(
                                 "I'm here — check in",
                                 color = Amber,
@@ -3627,7 +3665,7 @@ fun StationEventScreen(
                     } else if (!checkedIn) {
                         // Outside the check-in window: no "I'm here" offer yet, but
                         // still worth showing that the ticket's barcode was captured.
-                        TicketQrCode(ticketQr)
+                        TicketAtTheDoor(admissions, ticketQr)
                     }
                     when (timeState) {
                         // Over: adding a setlist is a past action, so the setlist.fm

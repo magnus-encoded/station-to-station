@@ -21,18 +21,16 @@ import kotlin.math.ceil
 import kotlin.math.floor
 
 /*
- * The exact half of reading a Ticket, as far as it goes before #441: the barcodes
- * decoded off a page, each kept as the text a scanner at the door would read back out,
- * and a QR redrawn from that text. Pure zxing core on plain pixel arrays — no Bitmap,
- * no PdfRenderer — so the round trip is asserted on the JVM (TicketBarcodeTest) rather
- * than assumed. `ZxingBarcodeLocator` (TicketExtraction.kt) is the only caller that
- * feeds it real pages.
+ * The exact half of reading a Ticket: the barcodes decoded off a page, each kept as the
+ * text a scanner at the door would read back out, and a QR redrawn from that text. Pure
+ * zxing core on plain pixel arrays — no Bitmap, no PdfRenderer — so the round trip is
+ * asserted on the JVM (TicketBarcodeTest) rather than assumed. `ZxingBarcodeLocator`
+ * (TicketExtraction.kt) is the only caller that feeds it real pages.
  *
- * This is an interim slice of #441, Android only. The stored shape is unchanged:
- * `StoredAttendance.ticketQr` stays one base64 value with no symbology beside it,
- * because renaming or reshaping it is a lockstep change on both twins (ADR-0020's
- * closing note; a key only one twin knows is lost when the other writes). The
- * evidence carries every barcode (#526); `parseTicketFields` keeps the first QR.
+ * The evidence carries every barcode (#526); `parseTicketFields` reconciles them into
+ * Admissions, which `StoredAttendance.admissions` keeps with their symbology (#441).
+ * Only a QR is redrawn so far: the symbology-aware redraw is #441's next slice, and
+ * [ticketQrMatrix] is the seam it widens.
  */
 
 // zxing's unhinted single pass is tuned for a camera frame filled by a barcode. A
@@ -41,7 +39,7 @@ import kotlin.math.floor
 // three QRs on a real Billettservice ticket or the two Code 128s on each Eventim one;
 // with TRY_HARDER it found all of them at 200dpi. POSSIBLE_FORMATS is left
 // unrestricted on purpose for the first pass: a non-QR has to be *seen* to be
-// reported honestly (see `ParsedTicket.unsupportedBarcodeFormat`), not silently
+// kept as an Admission and reported honestly (#441), not silently
 // missed. With TRY_HARDER and no format list, MultiFormatReader tries the matrix
 // readers (QR first) before the linear ones, so a page carrying a QR returns the QR.
 private val DECODE_HINTS: Map<DecodeHintType, Any> = mapOf(DecodeHintType.TRY_HARDER to true)
@@ -180,7 +178,7 @@ fun barcodeCrop(
 }
 
 /**
- * A stored `ticketQr`'s bytes back to the text to redraw — strictly UTF-8, the one
+ * A stored QR Admission's bytes back to the text to redraw — strictly UTF-8, the one
  * charset everything since this change writes. Null when the bytes are not valid UTF-8.
  *
  * That null is how values written before this change behave: the PDF path used to

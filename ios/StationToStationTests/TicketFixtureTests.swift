@@ -36,6 +36,15 @@ final class TicketFixtureTests: XCTestCase {
             var symbology: String
             /// The decoded payload, as text.
             var payload: String
+            /// Zero-based; 0 when the case leaves it out.
+            var page: Int?
+        }
+        /// One expected **Admission** (#441): the payload as text.
+        struct Admission: Decodable, Equatable, CustomStringConvertible {
+            var symbology: String
+            var payload: String
+            var corroborated: Bool
+            var description: String { "\(symbology):\(payload)\(corroborated ? " (corroborated)" : "")" }
         }
         struct Field: Decodable, Equatable {
             var value: String
@@ -46,8 +55,8 @@ final class TicketFixtureTests: XCTestCase {
             var venue: Expect<Field?>
             /// dd-MM-yyyy, the one shape both platforms write.
             var date: Expect<Field?>
-            /// The payload of the one barcode the result carries, as text.
-            var barcode: String?
+            /// Every **Admission** the result carries, in order.
+            var admissions: [Admission]
             var skipsPrompt: Expect<Bool>
         }
         var readings: [Reading]
@@ -75,7 +84,7 @@ final class TicketFixtureTests: XCTestCase {
         let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "json" }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        XCTAssertGreaterThanOrEqual(files.count, 19, "fixtures/ticket lost cases")
+        XCTAssertGreaterThanOrEqual(files.count, 26, "fixtures/ticket lost cases")
 
         var ran = 0
         for file in files {
@@ -99,7 +108,8 @@ final class TicketFixtureTests: XCTestCase {
         let evidence = TicketEvidence(
             readings: fixture.readings.map { TicketReading(origin: $0.origin, lines: $0.lines) },
             barcodes: fixture.barcodes.map {
-                TicketBarcode(image: Data(), payload: Data($0.payload.utf8), symbology: $0.symbology)
+                TicketBarcode(image: Data(), payload: Data($0.payload.utf8), symbology: $0.symbology,
+                              page: $0.page ?? 0)
             })
 
         guard case .ticket(let found) = parseTicketFields(evidence, calendar: calendar) else {
@@ -132,8 +142,10 @@ final class TicketFixtureTests: XCTestCase {
             }
         }
 
-        XCTAssertEqual(want.barcode, found.qr.map { String(decoding: $0, as: UTF8.self) },
-                       "\(name): barcode")
+        XCTAssertEqual(want.admissions, found.admissions.map {
+            Case.Admission(symbology: $0.symbology, payload: String(decoding: $0.payload, as: UTF8.self),
+                           corroborated: $0.corroborated)
+        }, "\(name): admissions")
 
         if case .value(let skips) = want.skipsPrompt {
             assertField("skipsPrompt") {

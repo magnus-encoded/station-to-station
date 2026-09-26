@@ -3,22 +3,20 @@ import Foundation
 /// A PDF shared into the app, read for what it can prove about a night (#412, #408).
 ///
 /// **Evidence, never a Gig.** Every field is optional and independently found: a
-/// **Ticket** that yielded only a QR is as real a Ticket as one that yielded
-/// everything. What turns one into a **Gig** is a person confirming it, through the
+/// **Ticket** that yielded only an **Admission** is as real a Ticket as one that
+/// yielded everything. What turns one into a **Gig** is a person confirming it, through the
 /// same local-planned-gig path a hand-typed night already uses.
 ///
 /// Shared with the Share Extension target, which is why nothing here knows about
 /// `FmSetlist`, PDFKit or Vision. The extension extracts; this parses; the app routes.
 struct Ticket: Codable, Equatable, Sendable {
-    /// The decoded QR payload, kept whatever the text parse managed. On iOS 17+ this
-    /// is Vision's `payloadData` verbatim; on iOS 16 Vision only hands back a string,
-    /// so it is that string's UTF-8 — a binary payload read on 16 is lossy, and the
-    /// day-of view (#414) has to tolerate that.
+    /// Every **Admission** the ticket yielded, in page order (#441), kept whatever the
+    /// text parse managed and untouched by a person's corrections to it (story 16).
     ///
-    /// The payload only, never the crop the locator found it in (`TicketBarcode.image`).
-    /// A **Ticket** is what crosses into the App Group and what the app stores, and the
-    /// stored format is still the payload the Room redraws a QR from (#526, #441).
-    var qr: Data?
+    /// Payloads only, never the crop the locator found them in (`TicketBarcode.image`):
+    /// a **Ticket** is what crosses into the App Group, and what the app stores is the
+    /// payload the Room redraws from.
+    var admissions: [Admission] = []
     var artist: String?
     var venue: String?
     /// Midnight of the night, in the reader's own calendar — a **Ticket** is dated at
@@ -34,11 +32,13 @@ struct Ticket: Codable, Equatable, Sendable {
     /// cross-check against: a scan has only its OCR, and that is all it will ever have.
     var readingCount: Int?
 
-    var isEmpty: Bool { qr == nil && artist == nil && venue == nil && date == nil }
+    var isEmpty: Bool { admissions.isEmpty && artist == nil && venue == nil && date == nil }
 
     /// Everything, and therefore the only shape allowed past the confirmation prompt.
     /// Three facts out of four is not "nearly right", it is a guess with a gap in it.
-    var isComplete: Bool { qr != nil && artist != nil && venue != nil && date != nil }
+    /// Any **Admission** counts, whatever its symbology (#441): a Code 128 gets you in
+    /// as surely as a QR, whether or not the Room can redraw it yet.
+    var isComplete: Bool { !admissions.isEmpty && artist != nil && venue != nil && date != nil }
 
     /// Complete, *and* nothing the two readings could have disagreed about was left
     /// to one of them alone. A field only one reading produced is a guess the other
@@ -54,6 +54,49 @@ struct Ticket: Codable, Equatable, Sendable {
         return [artistSupport, venueSupport, dateSupport].allSatisfy { $0 == .both }
     }
 }
+
+extension Ticket {
+    private enum LegacyKeys: String, CodingKey { case qr }
+
+    /// Decoded field by field so a deposit written before #441 still drains: its single
+    /// `qr` reads as one uncorroborated QR **Admission** on page 0, as the stored
+    /// `ticketQr` does. In an extension so the memberwise initializer stays.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        admissions = (try? c.decodeIfPresent([Admission].self, forKey: .admissions)) ?? nil ?? []
+        artist = (try? c.decodeIfPresent(String.self, forKey: .artist)) ?? nil
+        venue = (try? c.decodeIfPresent(String.self, forKey: .venue)) ?? nil
+        date = (try? c.decodeIfPresent(Date.self, forKey: .date)) ?? nil
+        artistSupport = (try? c.decodeIfPresent(TicketSupport.self, forKey: .artistSupport)) ?? nil
+        venueSupport = (try? c.decodeIfPresent(TicketSupport.self, forKey: .venueSupport)) ?? nil
+        dateSupport = (try? c.decodeIfPresent(TicketSupport.self, forKey: .dateSupport)) ?? nil
+        readingCount = (try? c.decodeIfPresent(Int.self, forKey: .readingCount)) ?? nil
+        if admissions.isEmpty,
+           let legacy = try? decoder.container(keyedBy: LegacyKeys.self),
+           let qr = (try? legacy.decodeIfPresent(Data.self, forKey: .qr)) ?? nil, !qr.isEmpty {
+            admissions = [Admission(payload: qr, symbology: qrSymbology)]
+        }
+    }
+}
+
+/// One scannable barcode — the right of entry for one person (#441, `CONTEXT.md`). A
+/// **Ticket** yields one or more. Field for field with Android's `Admission`.
+///
+/// `payload` is the decoded payload, byte for byte as the evidence carried it. On iOS
+/// 17+ that is Vision's `payloadData`; on 16 Vision only hands back a string, so it is
+/// that string's UTF-8 — a binary payload read on 16 is lossy. `symbology` is
+/// `fixtures/ticket/README.md`'s name for the format it was printed in. `page` is the
+/// zero-based page it was first found on. `corroborated` says the ticket's own text
+/// prints the same code — evidence recorded, never a reason to drop one that isn't.
+struct Admission: Codable, Equatable, Sendable {
+    var payload: Data
+    var symbology: String
+    var page: Int = 0
+    var corroborated: Bool = false
+}
+
+/// `qr`: the one symbology the Room redraws until the symbology-aware redraw (#441).
+let qrSymbology = "qr"
 
 /// Where a field of a **Ticket** came from: both readings, or only one of them.
 enum TicketSupport: String, Codable, Sendable {
@@ -92,8 +135,7 @@ struct TicketEvidence: Equatable, Sendable {
     var readings: [TicketReading]
     /// Every barcode the source showed, in the order found. A ticket can carry several
     /// (one Admission each, or a QR beside a Code 128), so the evidence keeps them all;
-    /// which of them count, and how many are stored, is #441's. Today the parser keeps
-    /// the first QR.
+    /// which of them are **Admissions** is `parseTicketFields`'s call alone (#441).
     var barcodes: [TicketBarcode] = []
 }
 
@@ -111,7 +153,9 @@ struct TicketBarcode: Equatable, Sendable {
     var image: Data
     /// The decoded payload. nil when the symbology cannot be decoded.
     var payload: Data?
-    /// "qr" is the only value today. #441 widens this.
+    /// `fixtures/ticket/README.md`'s name for the format. Vision is asked for `.qr` only
+    /// today, so "qr" is the only value this platform produces yet; widening it is the
+    /// next slice of #441, and nothing downstream assumes it.
     var symbology: String?
     /// The page it was found on, counted from 0 in the source's own page order.
     var page: Int = 0
@@ -168,7 +212,7 @@ func parseTicketFields(_ evidence: TicketEvidence, calendar: Calendar = .current
         .filter { !$0.lines.isEmpty }
 
     var ticket = Ticket()
-    ticket.qr = firstQrPayload(evidence.barcodes)
+    ticket.admissions = admissions(evidence)
     ticket.readingCount = readings.count
 
     let text = readings.first { $0.origin == .textLayer }
@@ -212,18 +256,52 @@ func parseTicketFields(_ evidence: TicketEvidence, calendar: Calendar = .current
     return ticket.isEmpty ? .nothingUsable : .ticket(ticket)
 }
 
-/// The one barcode a **Ticket** carries until #441: the first QR with a payload.
+/// The linear retail formats zxing reports beside a ticket's real code (the Android
+/// probe, #441: EAN-13, EAN-8 and UPC-E hits on tickets whose Admission is a QR).
+/// Unverified — possibly other print, possibly false positives.
+private let retailSymbologies: Set<String> = ["ean13", "ean8", "upca", "upce"]
+
+/// The evidence's barcodes, reconciled into **Admissions** (`fixtures/ticket/README.md`,
+/// "The Admissions"; the Kotlin twin is line for line):
 ///
-/// A QR, because a QR is what the app stores and the Room redraws. A Code 128 kept here
-/// would be redrawn as a QR no door accepts, so a ticket whose only code is one stays
-/// incomplete and reaches the prompt. The first *QR* rather than the first barcode,
-/// because real tickets show EAN and UPC candidates beside the QR that is the Admission
-/// (the Android probe, #441), and one found first must not cost the ticket its QR.
-private func firstQrPayload(_ barcodes: [TicketBarcode]) -> Data? {
-    barcodes.lazy
-        .filter { $0.symbology == "qr" }
-        .compactMap { $0.payload }
-        .first { !$0.isEmpty }
+/// 1. Only a barcode with a symbology and a non-empty payload can be one.
+/// 2. Retail formats are dropped when anything else was found, and kept only when they
+///    are all there is. Provisional: a ticket that really is an EAN keeps it, and one
+///    beside a QR loses a probable false positive.
+/// 3. In page order, and within a page in the order found — sorted on both, because
+///    `sorted` is not promised to be stable.
+/// 4. One per payload, first kept: the same code on three pages is one **Admission**,
+///    and the same payload in two symbologies keeps the first.
+/// 5. Corroborated when the payload, as strict UTF-8 with whitespace and `*` taken out,
+///    appears in some line of some reading with the same taken out.
+private func admissions(_ evidence: TicketEvidence) -> [Admission] {
+    let candidates: [(order: Int, payload: Data, symbology: String, page: Int)] =
+        evidence.barcodes.enumerated().compactMap { order, barcode in
+            guard let symbology = barcode.symbology, let payload = barcode.payload, !payload.isEmpty
+            else { return nil }
+            return (order, payload, symbology, barcode.page)
+        }
+    let kept = candidates.allSatisfy { retailSymbologies.contains($0.symbology) }
+        ? candidates
+        : candidates.filter { !retailSymbologies.contains($0.symbology) }
+    let printed = evidence.readings.flatMap(\.lines).map(printedKey)
+    var seen = Set<Data>()
+    return kept
+        .sorted { ($0.page, $0.order) < ($1.page, $1.order) }
+        .filter { seen.insert($0.payload).inserted }
+        .map { found in
+            // Foundation's UTF-8 decode is strict: nil, never a U+FFFD guess.
+            let key = String(data: found.payload, encoding: .utf8).map(printedKey) ?? ""
+            return Admission(payload: found.payload, symbology: found.symbology, page: found.page,
+                             corroborated: !key.isEmpty && printed.contains { $0.contains(key) })
+        }
+}
+
+/// Whitespace and `*` (a Code 39-style printed delimiter, `*K8TZC46G7*`) taken out.
+private func printedKey(_ text: String) -> String {
+    String(String.UnicodeScalarView(text.unicodeScalars.filter {
+        !CharacterSet.whitespacesAndNewlines.contains($0) && $0 != "*"
+    }))
 }
 
 /// OCR's own answer, read beside a text layer: first from the lines the text layer

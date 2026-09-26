@@ -1,15 +1,18 @@
 package io.github.magnusencoded.stationtostation.data
 
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
+import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
 import java.time.DateTimeException
 import java.time.LocalDate
 import java.util.Base64
 import java.util.Locale
 
-/** [StoredAttendance.ticketQr] is base64; these two are the only place that turns it. */
-fun ByteArray.toTicketQrBase64(): String = Base64.getEncoder().encodeToString(this)
+/** [StoredAdmission.payload] is base64; these two are the only place that turns it. */
+fun ByteArray.toAdmissionBase64(): String = Base64.getEncoder().encodeToString(this)
 
-fun String.decodeTicketQrBase64(): ByteArray? = runCatching { Base64.getDecoder().decode(this) }.getOrNull()
+fun String.decodeAdmissionBase64(): ByteArray? = runCatching { Base64.getDecoder().decode(this) }.getOrNull()
 
 // --- Evidence ---
 //
@@ -26,8 +29,7 @@ data class TicketEvidence(
     /**
      * Every barcode the source showed, in the order found. A ticket can carry several
      * (one Admission each, or a QR beside a Code 128), so the evidence keeps them all;
-     * which of them count, and how many are stored, is #441's. Today the parser keeps
-     * the first QR.
+     * which of them are Admissions is [parseTicketFields]'s call alone (#441).
      */
     val barcodes: List<TicketBarcode> = emptyList(),
 )
@@ -44,7 +46,7 @@ data class TicketReading(val origin: Origin, val lines: List<String>) {
  * [payload] is the decoded text as UTF-8 (#534), null when the symbology cannot be
  * decoded. [symbology] is `fixtures/ticket/README.md`'s name for it — `qr`, `code128`,
  * `ean13` and so on — not zxing's. [page] is the zero-based page it was found on, when
- * the source has pages; iOS does not carry it yet, and nothing here reads it.
+ * the source has pages, and read as page 0 when null; it orders the Admissions (#441).
  */
 class TicketBarcode(
     val image: ByteArray,
@@ -103,9 +105,41 @@ enum class TicketSupport {
 }
 
 /**
+ * One scannable barcode — the right of entry for one person (#441, `CONTEXT.md`). A
+ * **Ticket** yields one or more.
+ *
+ * [payload] is the decoded payload, byte for byte as the evidence carried it. [symbology]
+ * is `fixtures/ticket/README.md`'s name for the format it was printed in (`qr`,
+ * `code128`, …). [page] is the zero-based page it was first found on. [corroborated]
+ * says the ticket's own text prints the same code — evidence recorded, never a reason
+ * to drop one that isn't.
+ */
+class Admission(
+    val payload: ByteArray,
+    val symbology: String,
+    val page: Int = 0,
+    val corroborated: Boolean = false,
+) {
+    override fun equals(other: Any?): Boolean =
+        other is Admission &&
+            payload.contentEquals(other.payload) &&
+            symbology == other.symbology &&
+            page == other.page &&
+            corroborated == other.corroborated
+
+    override fun hashCode(): Int = listOf(payload.contentHashCode(), symbology, page, corroborated).hashCode()
+
+    override fun toString(): String =
+        "Admission(symbology=$symbology, page=$page, corroborated=$corroborated, payload=${payload.size} bytes)"
+}
+
+/**
  * The pipeline's best guess, reported honestly rather than decided on (#411 comment
- * clarifying #408's spec). Every field is independently nullable — a QR with no
- * readable date is not "half a failure", it is exactly what it says.
+ * clarifying #408's spec). Every field is independently nullable — an Admission with
+ * no readable date is not "half a failure", it is exactly what it says.
+ *
+ * [admissions] is every Admission the ticket yielded, in page order (#441). A person's
+ * corrections to the text never touch it (story 16).
  *
  * [date] is dd-MM-yyyy, the one shape this app and setlist.fm both speak (see
  * [fmDate]/[parseFmDate] in Bill.kt).
@@ -114,50 +148,26 @@ enum class TicketSupport {
  * field (#526): null where the field is null, and null on a ticket that was never read
  * from evidence at all — one a link or a person typed. [readingCount] is how many
  * readings the source gave; null or one means there was nothing to cross-check against.
- *
- * [unsupportedBarcodeFormat] is the symbology of the first barcode found that is not a
- * QR (#534), for the confirm prompt alone, and deliberately plays no part in [isEmpty],
- * [isComplete] or [canSkipPrompt]: a ticket whose only barcode is a Code 128 has no
- * [qrBytes], so it is never complete and always reaches the prompt — which is where it
- * has to say that the app cannot show that barcode.
  */
 data class ParsedTicket(
-    val qrBytes: ByteArray? = null,
+    val admissions: List<Admission> = emptyList(),
     val artist: String? = null,
     val venue: String? = null,
     val date: String? = null,
-    val unsupportedBarcodeFormat: String? = null,
     val artistSupport: TicketSupport? = null,
     val venueSupport: TicketSupport? = null,
     val dateSupport: TicketSupport? = null,
     val readingCount: Int? = null,
 ) {
-    override fun equals(other: Any?): Boolean =
-        other is ParsedTicket &&
-            qrBytes.contentEqualsOrBothNull(other.qrBytes) &&
-            artist == other.artist &&
-            venue == other.venue &&
-            date == other.date &&
-            unsupportedBarcodeFormat == other.unsupportedBarcodeFormat &&
-            artistSupport == other.artistSupport &&
-            venueSupport == other.venueSupport &&
-            dateSupport == other.dateSupport &&
-            readingCount == other.readingCount
-
-    override fun hashCode(): Int =
-        listOf(
-            qrBytes?.contentHashCode(), artist, venue, date, unsupportedBarcodeFormat,
-            artistSupport, venueSupport, dateSupport, readingCount,
-        ).hashCode()
-
     /** Nothing at all came out of the page — the honest "couldn't read this" (story 9). */
-    val isEmpty: Boolean get() = qrBytes == null && artist == null && venue == null && date == null
+    val isEmpty: Boolean get() = admissions.isEmpty() && artist == null && venue == null && date == null
 
     /**
-     * QR + artist + venue + date, all present. Three facts out of four is not "nearly
-     * right", it is a guess with a gap in it.
+     * At least one Admission + artist + venue + date. Three facts out of four is not
+     * "nearly right", it is a guess with a gap in it. Any symbology counts (#441): a
+     * Code 128 is as much an Admission as a QR, whether or not the Room can redraw it yet.
      */
-    val isComplete: Boolean get() = qrBytes != null && artist != null && venue != null && date != null
+    val isComplete: Boolean get() = admissions.isNotEmpty() && artist != null && venue != null && date != null
 
     /**
      * Complete, *and* nothing the two readings could have disagreed about was left to
@@ -252,12 +262,10 @@ fun parseTicketFields(evidence: TicketEvidence): ParsedTicket {
     }
 
     return ParsedTicket(
-        qrBytes = firstQrPayload(evidence.barcodes),
+        admissions = admissions(evidence),
         artist = artist?.first,
         venue = venue?.first,
         date = date?.first?.let(::fmDate),
-        unsupportedBarcodeFormat = evidence.barcodes
-            .firstOrNull { it.symbology != null && it.symbology != QR }?.symbology,
         artistSupport = artist?.second,
         venueSupport = venue?.second,
         dateSupport = date?.second,
@@ -265,22 +273,70 @@ fun parseTicketFields(evidence: TicketEvidence): ParsedTicket {
     )
 }
 
-private const val QR = "qr"
+/** `qr`: the one symbology the Room redraws until the symbology-aware redraw (#441). */
+const val QR_SYMBOLOGY = "qr"
 
 /**
- * The one barcode a ticket carries until #441: the first QR with a payload.
- *
- * A QR, because a QR is what the app stores and the Room redraws. A Code 128 kept here
- * would be redrawn as a QR no door accepts, so a ticket whose only code is one stays
- * incomplete and reaches the prompt. The first *QR* rather than the first barcode,
- * because real tickets show EAN and UPC candidates beside the QR that is the Admission
- * (the Android probe, #441), and one found first must not cost the ticket its QR.
+ * The linear retail formats zxing reports beside a ticket's real code (the Android
+ * probe, #441: EAN-13, EAN-8 and UPC-E hits on tickets whose Admission is a QR).
+ * Unverified — possibly other print, possibly false positives.
  */
-private fun firstQrPayload(barcodes: List<TicketBarcode>): ByteArray? =
-    barcodes.asSequence()
-        .filter { it.symbology == QR }
-        .mapNotNull { it.payload }
-        .firstOrNull { it.isNotEmpty() }
+private val RETAIL_SYMBOLOGIES = setOf("ean13", "ean8", "upca", "upce")
+
+/**
+ * The evidence's barcodes, reconciled into Admissions (`fixtures/ticket/README.md`,
+ * "The Admissions"; the Swift twin is line for line):
+ *
+ * 1. Only a barcode with a symbology and a non-empty payload can be one.
+ * 2. Retail formats ([RETAIL_SYMBOLOGIES]) are dropped when anything else was found,
+ *    and kept only when they are all there is. Provisional: a ticket that really is an
+ *    EAN keeps it, and one beside a QR loses a probable false positive.
+ * 3. In page order (stable: found order within a page).
+ * 4. One per payload, first kept: the same code on three pages is one Admission, and
+ *    the same payload in two symbologies keeps the first.
+ * 5. [Admission.corroborated] when the payload, as strict UTF-8 with whitespace and
+ *    `*` taken out, appears in some line of some reading with the same taken out.
+ */
+private fun admissions(evidence: TicketEvidence): List<Admission> {
+    val candidates = evidence.barcodes.mapNotNull { barcode ->
+        val symbology = barcode.symbology ?: return@mapNotNull null
+        val payload = barcode.payload?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+        Triple(payload, symbology, barcode.page ?: 0)
+    }
+    val kept = if (candidates.all { it.second in RETAIL_SYMBOLOGIES }) {
+        candidates
+    } else {
+        candidates.filter { it.second !in RETAIL_SYMBOLOGIES }
+    }
+    val printed = evidence.readings.flatMap { it.lines }.map(::printedKey)
+    return kept
+        .sortedBy { it.third }
+        .distinctBy { it.first.toList() }
+        .map { (payload, symbology, page) ->
+            val key = strictUtf8(payload)?.let(::printedKey).orEmpty()
+            Admission(
+                payload = payload,
+                symbology = symbology,
+                page = page,
+                corroborated = key.isNotEmpty() && printed.any { it.contains(key) },
+            )
+        }
+}
+
+/** Whitespace and `*` (a Code 39-style printed delimiter, `*K8TZC46G7*`) taken out. */
+private fun printedKey(text: String): String = text.filterNot { it.isWhitespace() || it == '*' }
+
+/** The bytes as UTF-8, or null where they are not valid UTF-8 — never a U+FFFD guess. */
+private fun strictUtf8(bytes: ByteArray): String? =
+    try {
+        Charsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(bytes))
+            .toString()
+    } catch (e: CharacterCodingException) {
+        null
+    }
 
 /**
  * OCR's own answer, read beside a text layer: first from the lines the text layer also
@@ -755,7 +811,7 @@ sealed interface TicketRouting {
         val artist: String,
         val venue: String,
         val date: String,
-        val qrBytes: ByteArray?,
+        val admissions: List<Admission>,
     ) : TicketRouting
 
     /**
@@ -785,7 +841,7 @@ fun matchKnownNight(parsed: ParsedTicket, knownGigs: List<FmSetlist>): FmSetlist
 
 /**
  * Turns a [ParsedTicket] into a routing decision, per #411's clarified spec: only a
- * complete parse (QR + artist + venue + date) may skip the confirm step, and only
+ * complete parse (an Admission + artist + venue + date) may skip the confirm step, and only
  * when it either clearly matches an existing night or clearly doesn't. Everything
  * else — a partial parse, or nothing at all — is [TicketRouting.NeedsConfirmation],
  * never a silent add and never a silent drop.
@@ -815,7 +871,7 @@ fun routeTicket(
         if (match != null) return TicketRouting.AlreadyKnown(match)
         val night = parseFmDate(parsed.date!!)
         if (parsed.canSkipPrompt && night != null && !night.isBefore(today)) {
-            return TicketRouting.NewPlannedGig(parsed.artist!!, parsed.venue!!, parsed.date, parsed.qrBytes)
+            return TicketRouting.NewPlannedGig(parsed.artist!!, parsed.venue!!, parsed.date, parsed.admissions)
         }
     }
     return TicketRouting.NeedsConfirmation(parsed, match)

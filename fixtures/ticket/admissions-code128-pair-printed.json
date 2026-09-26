@@ -1,0 +1,56 @@
+{
+  "about": "SYNTHETIC, the shape of the probe's Eventim ticket (#441): 'Ticket number: 1 of 2', two Code 128s, and each number printed under its bars, once plain and once between Code 39-style asterisks. Two Admissions, both corroborated, and the read is complete although neither is a QR.",
+  "readings": [
+    {
+      "origin": "textLayer",
+      "lines": [
+        "Kaizers Orchestra",
+        "Sentrum Scene",
+        "24.06.2027",
+        "Ticket number: 1 of 2",
+        "000000000000000000000011",
+        "Ticket number: 2 of 2",
+        "*000000000000000000000012*"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "symbology": "code128",
+      "payload": "000000000000000000000011",
+      "page": 0
+    },
+    {
+      "symbology": "code128",
+      "payload": "000000000000000000000012",
+      "page": 1
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "Kaizers Orchestra",
+      "support": "textLayer"
+    },
+    "venue": {
+      "value": "Sentrum Scene",
+      "support": "textLayer"
+    },
+    "date": {
+      "value": "24-06-2027",
+      "support": "textLayer"
+    },
+    "admissions": [
+      {
+        "symbology": "code128",
+        "payload": "000000000000000000000011",
+        "corroborated": true
+      },
+      {
+        "symbology": "code128",
+        "payload": "000000000000000000000012",
+        "corroborated": true
+      }
+    ],
+    "skipsPrompt": true
+  }
+}

@@ -329,8 +329,16 @@ func unionLog(_ kept: StoredLog, _ arriving: StoredLog) -> StoredLog {
 /// route must not be flattened back to `planned` by the other. An unrecognised provenance
 /// ranks lowest rather than throwing — the field is a plain string precisely so a newer
 /// app's value costs this one gig, not the cache.
+///
+/// **The Admissions are not part of the claim, and both sides' are kept** (#441): the
+/// stronger record's first, then any payload only the other holds. Two phones that both
+/// planned the night, only one of them holding the ticket, must not lose the ticket to
+/// whichever record happened to win. Field for field with Android's `unionAttendance`.
 func unionAttendance(_ kept: StoredAttendance, _ arriving: StoredAttendance) -> StoredAttendance {
-    evidence(arriving.provenance) > evidence(kept.provenance) ? arriving : kept
+    let arrivingWins = evidence(arriving.provenance) > evidence(kept.provenance)
+    var winner = arrivingWins ? arriving : kept
+    winner.admissions = mergedAdmissions(winner.admissions, arrivingWins ? kept.admissions : arriving.admissions)
+    return winner
 }
 
 private func evidence(_ provenance: String) -> Int {

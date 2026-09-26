@@ -11,6 +11,13 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonTransformingSerializer
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -59,18 +66,99 @@ data class StoredAttendance(
     val venueLat: Double? = null,
     val venueLon: Double? = null,
     /**
-     * A ticket PDF's decoded QR, base64 (#411), kept even when the rest of that
-     * PDF's parse failed (#413 needs it for the day-of view regardless). Base64
-     * rather than a raw `ByteArray` field for the same reason [Friends.kt]'s public
-     * keys are: kotlinx.serialization has no default codec for binary.
+     * Every **Admission** a **Ticket** yielded for this night (#441), in the order they
+     * were attached, one per payload. Kept even when the rest of that ticket's parse
+     * failed — the day-of view needs them regardless.
+     *
+     * Replaces the single `ticketQr` (#411), which named a Code 128 a QR. That key is
+     * read once, as exactly one QR Admission, and never written again — see
+     * [LegacyTicketQr]. The rename landed on both twins in one change: this file is
+     * read by both, and neither carries unknown keys on save (ADR-0020).
      */
-    val ticketQr: String? = null,
+    val admissions: List<StoredAdmission> = emptyList(),
 ) {
     /** Evidence strength, weakest first. Room for `attested` later; not built yet. */
     object Provenance {
         const val PLANNED = "planned"
         const val ATTENDED = "attended"
         const val CHECKED_IN = "checked_in"
+    }
+}
+
+/**
+ * One **Admission** as stored (#441): field for field with iOS's `StoredAdmission`.
+ *
+ * [payload] is base64 of the decoded payload's bytes — base64 rather than a raw
+ * `ByteArray` for the same reason [Friends.kt]'s public keys are: kotlinx.serialization
+ * has no default codec for binary. [symbology] is `fixtures/ticket/README.md`'s name
+ * (`qr`, `code128`, …). Every field is defaulted, as everything in this file is: one
+ * malformed Admission must cost that Admission's field, never the whole timeline.
+ */
+@Serializable
+data class StoredAdmission(
+    val payload: String = "",
+    val symbology: String = "",
+    val page: Int = 0,
+    val corroborated: Boolean = false,
+) {
+    /** The payload's bytes, or null where what is stored is not base64. */
+    val payloadBytes: ByteArray? get() = payload.decodeAdmissionBase64()
+
+    companion object {
+        fun of(admission: Admission) = StoredAdmission(
+            payload = admission.payload.toAdmissionBase64(),
+            symbology = admission.symbology,
+            page = admission.page,
+            corroborated = admission.corroborated,
+        )
+    }
+}
+
+/**
+ * [kept], then every Admission of [added] whose payload [kept] does not already hold
+ * (#441, stories 18 and 19): a second ticket for a night adds its Admissions, and the
+ * same PDF shared twice adds nothing. Compared on the decoded bytes where both decode,
+ * so two spellings of one base64 value are one payload.
+ */
+fun mergedAdmissions(kept: List<StoredAdmission>, added: List<StoredAdmission>): List<StoredAdmission> {
+    val out = kept.toMutableList()
+    val seen = kept.map { it.payloadKey() }.toMutableSet()
+    for (a in added) {
+        if (seen.add(a.payloadKey())) out += a
+    }
+    return out
+}
+
+private fun StoredAdmission.payloadKey(): Any = payloadBytes?.toList() ?: payload
+
+/**
+ * The migration of #411's single `ticketQr` into [StoredAttendance.admissions] (#441),
+ * applied to every value of [TimelineCache.gigAttendance] as it is decoded — from disk
+ * and off the handover wire alike, so no path has to remember to call it.
+ *
+ * The old key reads as exactly one Admission: symbology `qr` (all the old pipeline could
+ * store), page 0, uncorroborated (nothing checked it). It is removed from the element
+ * before the ordinary decode, so the class has no field for it and it can never be
+ * written back. A value that is not base64 was never drawable and migrates to nothing,
+ * as it was read before. Total by construction: anything unexpected leaves the element
+ * as it was, for the ordinary decoder's defaults to deal with.
+ */
+object LegacyTicketQr : JsonTransformingSerializer<StoredAttendance>(StoredAttendance.serializer()) {
+    override fun transformDeserialize(element: JsonElement): JsonElement {
+        val obj = element as? JsonObject ?: return element
+        val legacy = obj["ticketQr"] ?: return element
+        val rest = JsonObject(obj - "ticketQr")
+        val base64 = (legacy as? JsonPrimitive)?.takeIf { it.isString }?.content
+        if (base64 == null || base64.decodeAdmissionBase64() == null) return rest
+        val migrated = buildJsonObject {
+            put("payload", base64)
+            put("symbology", QR_SYMBOLOGY)
+            put("page", 0)
+            put("corroborated", false)
+        }
+        val existing = rest["admissions"] as? JsonArray ?: JsonArray(emptyList())
+        val already = existing.any { (it as? JsonObject)?.get("payload") == JsonPrimitive(base64) }
+        return JsonObject(rest + ("admissions" to if (already) existing else JsonArray(existing + migrated)))
     }
 }
 
@@ -500,8 +588,8 @@ data class TimelineCache(
      * onto the video they belong to. See [StoredMedia.songOffsets].
      */
     val gigSongOffsets: Map<String, List<Long>> = emptyMap(),
-    /** Replaces [attendanceByGig]. */
-    val gigAttendance: Map<String, StoredAttendance> = emptyMap(),
+    /** Replaces [attendanceByGig]. Each value through [LegacyTicketQr] (#441). */
+    val gigAttendance: Map<String, @Serializable(with = LegacyTicketQr::class) StoredAttendance> = emptyMap(),
     /** Replaces [calendarEventByGig]. */
     val gigCalendarEvent: Map<String, String> = emptyMap(),
     /** Replaces [playlistsMade]. */
@@ -642,11 +730,18 @@ internal fun unionLog(kept: StoredLog, dropped: StoredLog): StoredLog =
  * one route must not be flattened back to `planned` by the other. Never downgrades,
  * for the reason `savePlanned` never does.
  *
+ * **The Admissions are not part of the claim, and both sides' are kept** (#441): the
+ * stronger record's first, then any payload only the other holds. Two phones that both
+ * planned the night, only one of them holding the ticket, must not lose the ticket to
+ * whichever record happened to win.
+ *
  * An unrecognised provenance ranks lowest rather than throwing — the field is a
  * plain string precisely so a newer app's value costs this one gig, not the cache.
  */
-internal fun unionAttendance(kept: StoredAttendance, dropped: StoredAttendance): StoredAttendance =
-    if (evidence(dropped.provenance) > evidence(kept.provenance)) dropped else kept
+internal fun unionAttendance(kept: StoredAttendance, dropped: StoredAttendance): StoredAttendance {
+    val (winner, other) = if (evidence(dropped.provenance) > evidence(kept.provenance)) dropped to kept else kept to dropped
+    return winner.copy(admissions = mergedAdmissions(winner.admissions, other.admissions))
+}
 
 private fun evidence(provenance: String): Int = when (provenance) {
     StoredAttendance.Provenance.CHECKED_IN -> 2
@@ -866,21 +961,26 @@ class TimelineStore(
     }
 
     /**
-     * Attaches a ticket's decoded QR (#411) to whatever attendance record the gig
+     * Attaches a ticket's Admissions (#441) to whatever attendance record the gig
      * already has, or a fresh [StoredAttendance.Provenance.PLANNED] one if it has
-     * none yet. Kept separate from [savePlanned] because the QR is preserved even
-     * when the rest of a ticket's parse failed (#413's day-of view needs it
+     * none yet. Kept separate from [savePlanned] because the Admissions are preserved
+     * even when the rest of a ticket's parse failed (the day-of view needs them
      * regardless) — there may be no artist/venue/date guess worth writing at all,
-     * only a gig this QR is being attached to after the fact.
+     * only a gig they are being attached to after the fact.
+     *
+     * **Appended, never replaced** (stories 18, 19): a second ticket for the night adds
+     * its Admissions, and a payload already there is not added twice — see
+     * [mergedAdmissions].
      *
      * Returns the settled record, same reason as [savePlanned]: a caller's own
      * state must reflect what was actually written, not reinvent it.
      */
-    suspend fun attachTicketQr(gigId: String, qrBase64: String): StoredAttendance {
+    suspend fun attachAdmissions(gigId: String, admissions: List<StoredAdmission>): StoredAttendance {
         var settled = StoredAttendance()
         writeMerged {
             val (c, id) = it.withGig(gigId)
-            settled = (c.gigAttendance[id] ?: StoredAttendance()).copy(ticketQr = qrBase64)
+            val had = c.gigAttendance[id] ?: StoredAttendance()
+            settled = had.copy(admissions = mergedAdmissions(had.admissions, admissions))
             c.copy(gigAttendance = c.gigAttendance + (id to settled))
         }
         return settled
