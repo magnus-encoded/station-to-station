@@ -665,18 +665,51 @@ final class TicketParseTests: XCTestCase {
 
     // MARK: - The drop box
 
-    /// The extension writes and the app reads-and-deletes; a drained box is empty, so
-    /// the same ticket can never be routed onto the **Line** twice.
-    func testDrainingTheInboxEmptiesIt() throws {
-        try XCTSkipIf(TicketInbox.directory == nil,
-                      "no App Group container — see ADR-0020 and the PR's signing note")
+    /// A box of its own in the temporary directory: the App Group container is missing
+    /// on CI, and these are about the files, not the entitlement.
+    private func scratchBox() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ticket-inbox-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        return dir
+    }
 
-        XCTAssertTrue(TicketInbox.deposit(complete))
-        let first = TicketInbox.drain()
-        let second = TicketInbox.drain()
+    /// The extension writes and the app reads, then deletes each deposit once what it
+    /// became is on disk (the #441 review). Read but not yet removed, it is still there
+    /// for a launch that follows a kill mid-routing; removed, it is gone for good.
+    func testADepositStaysInTheBoxUntilItIsRemoved() throws {
+        let box = try scratchBox()
+        XCTAssertTrue(TicketInbox.deposit(complete, in: box))
 
+        let first = TicketInbox.pending(in: box)
         XCTAssertEqual([complete], first.map(\.ticket))
-        XCTAssertTrue(second.isEmpty)
+        XCTAssertEqual(first, TicketInbox.pending(in: box), "reading does not take it out")
+
+        TicketInbox.remove(first[0].id, in: box)
+        XCTAssertTrue(TicketInbox.pending(in: box).isEmpty)
+    }
+
+    /// One bad file must not wedge every later ticket behind it.
+    func testADepositThatWillNotDecodeIsDeletedWhenRead() throws {
+        let box = try scratchBox()
+        let bad = box.appendingPathComponent("garbage.json")
+        try Data("{ not json".utf8).write(to: bad)
+        XCTAssertTrue(TicketInbox.deposit(complete, in: box))
+
+        XCTAssertEqual([complete], TicketInbox.pending(in: box).map(\.ticket))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bad.path))
+    }
+
+    /// Oldest first, whatever order the directory lists them in.
+    func testDepositsAreReadInTheOrderTheyWereShared() throws {
+        let box = try scratchBox()
+        for (at, artist) in [(3, "C"), (1, "A"), (2, "B")] {
+            let deposit = TicketDeposit(depositedAt: Int64(at), ticket: Ticket(artist: artist))
+            try JSONEncoder().encode(deposit).write(to: box.appendingPathComponent("\(deposit.id).json"))
+        }
+
+        XCTAssertEqual(["A", "B", "C"], TicketInbox.pending(in: box).map(\.ticket.artist))
     }
 
     // A sideloader renames the App Group the way it renames the bundle id, so the

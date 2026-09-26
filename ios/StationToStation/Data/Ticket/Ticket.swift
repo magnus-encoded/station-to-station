@@ -139,6 +139,9 @@ struct TicketDraft: Identifiable, Equatable {
     /// ("Dumdumboys — Rockefeller — 14-09-2026"). A hint and nothing more: the prompt's
     /// answer is matched again (`confirmTicket`).
     var possibleMatch: String? = nil
+    /// The inbox deposit this came from, left in the box until the prompt is answered
+    /// (`TicketInbox.remove`). Nil for a draft no deposit stands behind.
+    var depositId: String? = nil
 }
 
 /// What one PDF turned out to be worth.
