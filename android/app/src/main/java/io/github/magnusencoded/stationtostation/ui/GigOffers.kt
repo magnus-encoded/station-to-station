@@ -38,13 +38,12 @@ data class GigAsKnown(
     /** The calendar entry made for this night, if one was. */
     val calendarEvent: String? = null,
     /**
-     * [StoredAttendance.ticketQr], carried here only for the one fact below —
-     * presence, not content. Base64, same as the stored field; decoding it into
-     * bitmap-ready bytes is the rendering side's job, not this fold's. Null for a
-     * night with no ticket at all, and for every night imported from setlist.fm
-     * rather than a ticket.
+     * How many **Admissions** [StoredAttendance.admissions] holds (#441), carried here
+     * only for the one fact below — presence, not content. Which of them to draw, and
+     * how, is the rendering side's job, not this fold's. Zero for a night with no
+     * ticket at all, and for every night imported from setlist.fm rather than a ticket.
      */
-    val ticketQr: String? = null,
+    val admissionCount: Int = 0,
 ) {
     val checkedIn: Boolean get() = provenance == StoredAttendance.Provenance.CHECKED_IN
     val linked: Boolean get() = setlistId != null
@@ -129,13 +128,15 @@ data class Room(
     /** The **Log** and the media: only once there is something to record. */
     val capture: Boolean,
     /**
-     * The ticket's own QR, worth showing at the door — pre-check-in, and only for a
-     * night that actually has one. Once checked in the claim is already made and the
-     * same conditional branch that flips this off shows "checked in" instead, so
-     * there is never a moment with both on screen. No ticket at all omits cleanly:
-     * this is false, not a placeholder QR.
+     * The ticket, worth showing at the door — pre-check-in, and only for a night with
+     * at least one **Admission** (#441), whatever its symbology: a Code 128 the app
+     * cannot redraw yet is still a ticket, and the Room says so rather than hiding it.
+     * Once checked in the claim is already made and the same conditional branch that
+     * flips this off shows "checked in" instead, so there is never a moment with both
+     * on screen. No ticket at all omits cleanly: this is false, not a placeholder.
+     * Was `showQr`, which named every Admission a QR.
      */
-    val showQr: Boolean,
+    val showTicket: Boolean,
 )
 
 /** What a **Gig** offers, decided once, rendered everywhere. */
@@ -216,7 +217,7 @@ fun gigOffers(gig: GigAsKnown, now: LocalDateTime): GigOffers {
             capture = started,
             // Pre-check-in only — a claim already made needs no code to prove it, and
             // that is exactly the state the "checked in" branch it swaps with takes over.
-            showQr = gig.ticketQr != null && !gig.checkedIn,
+            showTicket = gig.admissionCount > 0 && !gig.checkedIn,
         ),
         alcove = alcove,
         curtain = curtain,

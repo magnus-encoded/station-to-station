@@ -5,8 +5,8 @@ import SwiftUI
 // so neither side takes a dependency for one barcode — `qrImage` is the Exchange's own
 // generator, widened to bytes rather than copied.
 //
-// Whether this is drawn at all is `Room.qr`, from the fold both platforms read. Nothing
-// here asks about check-ins or windows.
+// Whether this is drawn at all is `Room.showTicket`, from the fold both platforms read,
+// and only for a QR **Admission** (#441). Nothing here asks about check-ins or windows.
 
 struct TicketQR: View {
     let payload: Data
@@ -30,5 +30,20 @@ struct TicketQR: View {
                 .accessibilityElement()
                 .accessibilityLabel("Your ticket's QR code. Hold it up to be scanned.")
         }
+    }
+}
+
+/// A ticket whose **Admissions** are all in a symbology the app cannot redraw yet — an
+/// Eventim Code 128 (#441). Said plainly, in the confirm prompt's words, because the
+/// alternative is finding out at the door. `symbology` is the fixtures' name for it.
+struct TicketCannotBeShown: View {
+    let symbology: String
+
+    var body: some View {
+        Text("Your ticket's barcode (\(symbology.uppercased())) can't be shown by the app yet. "
+             + "Bring the original PDF to the door.")
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }

@@ -1,0 +1,30 @@
+{
+  "about": "SYNTHETIC (#441): every field read, and no barcode. The text still parses; with no Admission the read is not complete, so it is never added without asking.",
+  "readings": [
+    {
+      "origin": "ocr",
+      "lines": [
+        "Kaizers Orchestra",
+        "Sentrum Scene",
+        "24.06.2027"
+      ]
+    }
+  ],
+  "barcodes": [],
+  "expected": {
+    "artist": {
+      "value": "Kaizers Orchestra",
+      "support": "ocr"
+    },
+    "venue": {
+      "value": "Sentrum Scene",
+      "support": "ocr"
+    },
+    "date": {
+      "value": "24-06-2027",
+      "support": "ocr"
+    },
+    "admissions": [],
+    "skipsPrompt": false
+  }
+}

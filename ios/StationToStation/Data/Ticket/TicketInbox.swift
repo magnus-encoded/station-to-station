@@ -21,8 +21,9 @@ struct TicketDeposit: Codable, Equatable, Identifiable, Sendable {
 ///
 /// **What is in the container is deliberately small.** The parse happens in the
 /// extension, so the PDF itself — which carries a name, an order number and sometimes
-/// a card fragment — is never written anywhere. Only the four facts and the QR payload
-/// cross, and they are deleted the moment the app has read them.
+/// a card fragment — is never written anywhere. Only the four facts, which readings
+/// backed them, and the **Admissions** cross — never the barcode's crop — and they are
+/// deleted the moment the app has read them.
 enum TicketInbox {
 
     /// Must match the App Group on both targets' entitlements. Changing it strands

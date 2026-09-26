@@ -120,9 +120,9 @@ final class SetlistFmLookupScheduleTests: XCTestCase {
 
     /// Written before #531: no `setlistFmLookup` key at all. It must read as never looked up.
     func testAnAttendanceRecordWrittenBeforeTheLookupStateDecodesWithNone() throws {
-        let old = Data(#"{"provenance":"checked_in","checkedInAt":42,"ticketQr":"VEtU"}"#.utf8)
+        let old = Data(#"{"provenance":"checked_in","checkedInAt":42}"#.utf8)
         let decoded = try JSONDecoder().decode(StoredAttendance.self, from: old)
-        XCTAssertEqual(decoded, StoredAttendance(provenance: "checked_in", checkedInAt: 42, ticketQr: "VEtU"))
+        XCTAssertEqual(decoded, StoredAttendance(provenance: "checked_in", checkedInAt: 42))
         XCTAssertNil(decoded.setlistFmLookup)
     }
 
@@ -143,7 +143,7 @@ final class SetlistFmLookupScheduleTests: XCTestCase {
     /// Android's `encodeDefaults` writes the empty lists and a null time; that reads too.
     func testALookupStateAndroidWroteDecodes() throws {
         let android = Data(("{\"provenance\":\"planned\",\"checkedInAt\":null,\"venueLat\":null,"
-            + "\"venueLon\":null,\"ticketQr\":null,\"setlistFmLookup\":"
+            + "\"venueLon\":null,\"admissions\":[],\"setlistFmLookup\":"
             + "{\"lastLookupAt\":null,\"rejectedIds\":[\"r1\"],\"pendingHitIds\":[]}}").utf8)
         let decoded = try JSONDecoder().decode(StoredAttendance.self, from: android)
         XCTAssertEqual(decoded.setlistFmLookup, StoredSetlistFmLookup(rejectedIds: ["r1"]))

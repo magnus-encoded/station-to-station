@@ -1,0 +1,44 @@
+{
+  "about": "SYNTHETIC, written by hand for the date rule. Two purchase dates print above the night, one labelled on its own line and one on the line above it ('Kjøpsdato:', then the value), the shape Billettservice prints. Neither is the night: a date on a purchase-labelled line only counts when there is no other date.",
+  "readings": [
+    {
+      "origin": "textLayer",
+      "lines": [
+        "Kjøpsdato:",
+        "01.05.2025",
+        "Ordered 02.05.2025 14:32",
+        "Ocean Colour Scene",
+        "28. nov. 2026",
+        "Auditorio Marina Norte, Valencia"
+      ]
+    },
+    {
+      "origin": "ocr",
+      "lines": [
+        "Kjøpsdato:",
+        "01.05.2025",
+        "Ordered 02.05.2025 14:32",
+        "Ocean Colour Scene",
+        "28. nov. 2026",
+        "Auditorio Marina Norte, Valencia"
+      ]
+    }
+  ],
+  "barcodes": [],
+  "expected": {
+    "artist": {
+      "value": "Ocean Colour Scene",
+      "support": "both"
+    },
+    "venue": {
+      "value": "Auditorio Marina Norte, Valencia",
+      "support": "both"
+    },
+    "date": {
+      "value": "28-11-2026",
+      "support": "both"
+    },
+    "admissions": [],
+    "skipsPrompt": false
+  }
+}

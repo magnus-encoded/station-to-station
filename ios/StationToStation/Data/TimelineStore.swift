@@ -49,34 +49,39 @@ struct StoredAttendance: Codable, Equatable {
     var checkedInAt: Int64?
     var venueLat: Double?
     var venueLon: Double?
-    /// A **Ticket** PDF's decoded QR, base64 (#412), kept even when the rest of that
-    /// PDF's parse failed — the day-of view (#414) needs it regardless.
+    /// Every **Admission** a **Ticket** yielded for this night (#441), in the order they
+    /// were attached, one per payload. Kept even when the rest of that ticket's parse
+    /// failed — the day-of view needs them regardless.
     ///
-    /// **The field Android already writes** (`StoredAttendance.ticketQr`, landed with
-    /// #411), read and written here under the same name and the same encoding. A
-    /// top-level map of its own was the obvious alternative and is the wrong one: this
-    /// file is read by both twins, Android has no unknown-key carrying on save, and a
-    /// key only iOS knew would vanish the next time an Android build wrote the file.
-    /// Nesting it here also costs the cross-platform key set nothing —
-    /// `testWhatWeWriteCarriesEveryKeyAndroidExpects` is unchanged by this.
-    ///
-    /// Base64 rather than raw bytes for the reason Android gives: JSON has no binary,
-    /// and a string is the shape both sides already agree on.
-    var ticketQr: String?
+    /// **Replaces `ticketQr`** (#411, #412), a single base64 value whose name called a
+    /// Code 128 a QR. That key is read once, as exactly one QR **Admission** on page 0,
+    /// uncorroborated, and never written again (`encode(to:)` has no case for it). The
+    /// rename landed on both twins in one change, under the same name and shape: this
+    /// file is read by both, and neither carries unknown keys on save (ADR-0020's
+    /// closing note, #107). Nested here rather than a top-level map for the reason
+    /// `ticketQr` was.
+    var admissions: [StoredAdmission] = []
     /// Where a local **Gig** stands with setlist.fm's `search/setlists` (#531). Nil for a
     /// night never looked up, which is every record written before #531. Here rather than
-    /// in a map of its own for `ticketQr`'s reason, and under Android's name.
+    /// in a map of its own for `admissions`' reason, and under Android's name.
     var setlistFmLookup: StoredSetlistFmLookup?
 
     init(provenance: String = "planned", checkedInAt: Int64? = nil,
          venueLat: Double? = nil, venueLon: Double? = nil,
-         ticketQr: String? = nil, setlistFmLookup: StoredSetlistFmLookup? = nil) {
+         admissions: [StoredAdmission] = [],
+         setlistFmLookup: StoredSetlistFmLookup? = nil) {
         self.provenance = provenance
         self.checkedInAt = checkedInAt
         self.venueLat = venueLat
         self.venueLon = venueLon
-        self.ticketQr = ticketQr
+        self.admissions = admissions
         self.setlistFmLookup = setlistFmLookup
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case provenance, checkedInAt, venueLat, venueLon, admissions, setlistFmLookup
+        /// Read by the migration only. Never written.
+        case ticketQr
     }
 
     init(from decoder: Decoder) throws {
@@ -85,14 +90,80 @@ struct StoredAttendance: Codable, Equatable {
         checkedInAt = (try? c.decodeIfPresent(Int64.self, forKey: .checkedInAt)) ?? nil
         venueLat = (try? c.decodeIfPresent(Double.self, forKey: .venueLat)) ?? nil
         venueLon = (try? c.decodeIfPresent(Double.self, forKey: .venueLon)) ?? nil
-        ticketQr = (try? c.decodeIfPresent(String.self, forKey: .ticketQr)) ?? nil
+        admissions = (try? c.decodeIfPresent([StoredAdmission].self, forKey: .admissions)) ?? nil ?? []
         setlistFmLookup = (try? c.decodeIfPresent(StoredSetlistFmLookup.self, forKey: .setlistFmLookup)) ?? nil
+        // #441's migration. A value that is not base64 was never drawable and migrates
+        // to nothing, as it was read before.
+        if let legacy = (try? c.decodeIfPresent(String.self, forKey: .ticketQr)) ?? nil,
+           Data(base64Encoded: legacy) != nil {
+            admissions = mergedAdmissions(admissions, [StoredAdmission(payload: legacy, symbology: qrSymbology)])
+        }
     }
 
-    /// The QR as bytes, or nil where there is none and where what was stored is not
-    /// base64 at all. A payload that will not decode is treated as no payload: there is
-    /// nothing to hold up at a door, and a half-decoded barcode is worse than none.
-    var ticketQrBytes: Data? { ticketQr.flatMap { Data(base64Encoded: $0) } }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(provenance, forKey: .provenance)
+        try c.encodeIfPresent(checkedInAt, forKey: .checkedInAt)
+        try c.encodeIfPresent(venueLat, forKey: .venueLat)
+        try c.encodeIfPresent(venueLon, forKey: .venueLon)
+        try c.encode(admissions, forKey: .admissions)
+        try c.encodeIfPresent(setlistFmLookup, forKey: .setlistFmLookup)
+    }
+}
+
+/// One **Admission** as stored (#441): field for field with Android's `StoredAdmission`.
+///
+/// `payload` is base64 of the decoded payload's bytes — JSON has no binary, and a string
+/// is the shape both twins already agree on. `symbology` is `fixtures/ticket/README.md`'s
+/// name (`qr`, `code128`, …). Decoded field by field, each defaulted, so one malformed
+/// **Admission** costs its own field and never the list or the night.
+struct StoredAdmission: Codable, Equatable {
+    var payload: String = ""
+    var symbology: String = ""
+    var page: Int = 0
+    var corroborated: Bool = false
+
+    init(payload: String, symbology: String, page: Int = 0, corroborated: Bool = false) {
+        self.payload = payload
+        self.symbology = symbology
+        self.page = page
+        self.corroborated = corroborated
+    }
+
+    init(_ admission: Admission) {
+        self.init(payload: admission.payload.base64EncodedString(), symbology: admission.symbology,
+                  page: admission.page, corroborated: admission.corroborated)
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        payload = (try? c.decodeIfPresent(String.self, forKey: .payload)) ?? nil ?? ""
+        symbology = (try? c.decodeIfPresent(String.self, forKey: .symbology)) ?? nil ?? ""
+        page = (try? c.decodeIfPresent(Int.self, forKey: .page)) ?? nil ?? 0
+        corroborated = (try? c.decodeIfPresent(Bool.self, forKey: .corroborated)) ?? nil ?? false
+    }
+
+    /// The payload's bytes, or nil where what is stored is not base64. A payload that
+    /// will not decode is treated as no payload: there is nothing to hold up at a door,
+    /// and a half-decoded barcode is worse than none.
+    var payloadBytes: Data? { Data(base64Encoded: payload) }
+}
+
+/// `kept`, then every **Admission** of `added` whose payload `kept` does not already hold
+/// (#441, stories 18 and 19): a second ticket for a night adds its **Admissions**, and the
+/// same PDF shared twice adds nothing. Compared on the decoded bytes where both decode.
+/// Field for field with Android's `mergedAdmissions`.
+func mergedAdmissions(_ kept: [StoredAdmission], _ added: [StoredAdmission]) -> [StoredAdmission] {
+    var out = kept
+    var seen = Set(kept.map(\.payloadKey))
+    for admission in added where seen.insert(admission.payloadKey).inserted {
+        out.append(admission)
+    }
+    return out
+}
+
+private extension StoredAdmission {
+    var payloadKey: Data { payloadBytes ?? Data(payload.utf8) }
 }
 
 /// One local **Gig**'s lookups on setlist.fm (#531), kept so that a restart does not turn
@@ -820,29 +891,30 @@ actor TimelineStore {
         return settled
     }
 
-    /// The QR a shared **Ticket** carried, kept against the night (#412).
+    /// The **Admissions** a shared **Ticket** carried, kept against the night (#412, #441).
     ///
-    /// Field for field with Android's `attachTicketQr`, down to reusing whatever claim
+    /// Field for field with Android's `attachAdmissions`, down to reusing whatever claim
     /// the gig already has and minting a `planned` one only where it has none. Kept
-    /// apart from `savePlanned` for the reason that side gives too: the QR is preserved
-    /// even when the rest of a ticket's parse failed, so there may be no artist, venue
-    /// or date worth writing at all — only a gig this QR is being attached to after
-    /// the fact.
+    /// apart from `savePlanned` for the reason that side gives too: the **Admissions**
+    /// are preserved even when the rest of a ticket's parse failed, so there may be no
+    /// artist, venue or date worth writing at all — only a gig they are being attached
+    /// to after the fact.
     ///
     /// **Returns the settled claim**, same reason `savePlanned` does: a caller's own
     /// state has to reflect what was actually written rather than reinvent it, and this
     /// write changes a record the lanes are drawn from.
     ///
-    /// One QR per night, replaced. Sharing the same ticket twice is the same ticket,
-    /// and there is no reading of "two QRs for one gig" that is not a bug.
+    /// **Appended, never replaced** (stories 18, 19). A second ticket for the night is a
+    /// second guest, and replacing the first would drop them silently; the same ticket
+    /// shared twice adds nothing, because a payload already there is not added again.
     @discardableResult
-    func attachTicketQr(setlistId: String, qr: Data) -> StoredAttendance {
+    func attachAdmissions(setlistId: String, admissions: [StoredAdmission]) -> StoredAttendance {
         var settled = StoredAttendance()
         writeMerged { cache in
             var c = cache
             let gigId = c.withGig(setlistId)
             settled = c.gigAttendance[gigId] ?? StoredAttendance()
-            settled.ticketQr = qr.base64EncodedString()
+            settled.admissions = mergedAdmissions(settled.admissions, admissions)
             c.gigAttendance[gigId] = settled
             return c
         }

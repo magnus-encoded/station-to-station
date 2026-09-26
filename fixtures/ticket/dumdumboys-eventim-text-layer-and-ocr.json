@@ -1,0 +1,115 @@
+{
+  "about": "The same ticket with its text layer, which is where the probe's text-layer parse took the PURCHASE date (01-05-2025) instead of the night: it prints first. Page 1 of the probe's text-layer skeleton: 'Ticket number:' (8), the event line (29) and 'STÅPLASS/STANDING' (38) are REAL; the purchase-date line (5), 'presenterer:' (28), the date, venue and address (30-32) are RECONSTRUCTED from the OCR reading (the purchase date's label is a guess), and the rest are redacted. Pins the date rule: the show date wins over a date on a purchase-labelled line. The venue is not asserted, because where the text layer prints it is reconstructed.",
+  "readings": [
+    {
+      "origin": "textLayer",
+      "lines": [
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "Order date: 01.05.2025\r",
+        "████",
+        "████",
+        "Ticket number:\r",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "Stageway, ATL & Ramalama presenterer:\r",
+        "Dumdumboys – XL [romertallførti]\r",
+        "28. nov. 2026 kl. 20.00\r",
+        "Trondheim Spektrum\r",
+        "Klostergata 90, 7030 Trondheim\r",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "STÅPLASS/STANDING\r",
+        "████",
+        "████",
+        "████"
+      ]
+    },
+    {
+      "origin": "ocr",
+      "lines": [
+        "Dette er din billett",
+        "Vis billetten på din telefon eller print den ut",
+        "Booking details",
+        "Kari Nordmann",
+        "Order number: 1000000001",
+        "E-ticket code: ABCD1E2",
+        "Terms and conditions",
+        "Please check the ticket for event, date and time.",
+        "000000000000000000000001",
+        "Stageway, ATL & Ramalama presenterer:",
+        "Dumdumboys – XL [romertallførti]",
+        "28. nov. 2026 kl. 20.00",
+        "Trondheim Spektrum",
+        "Klostergata 90, 7030 Trondheim",
+        "Kunde: Kari Nordmann",
+        "NOK 935,00 - fees included",
+        "Inngang 2/Inngang 4",
+        "STÅPLASS/STANDING",
+        "Dørene åpner 18:00",
+        "OrdreID: 0000000001"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "symbology": "code128",
+      "payload": "000000000000000000000001"
+    },
+    {
+      "symbology": "code128",
+      "payload": "000000000000000000000002"
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "Dumdumboys",
+      "support": "both"
+    },
+    "venue": "unchecked",
+    "date": {
+      "value": "28-11-2026",
+      "support": "both"
+    },
+    "admissions": [
+      {
+        "symbology": "code128",
+        "payload": "000000000000000000000001",
+        "corroborated": true
+      },
+      {
+        "symbology": "code128",
+        "payload": "000000000000000000000002",
+        "corroborated": false
+      }
+    ],
+    "skipsPrompt": false
+  },
+  "knownFailure": {
+    "artist": "No reading and no rule recovers the artist (probe 2026-09-25): the event line carries the tour name, 'Dumdumboys – XL [romertallførti]', and nothing generic says where the band's name ends. Remove this flag when a rule covers it.",
+    "skipsPrompt": "A Code 128 is an Admission since #441, so this read is now complete, and it would be added without asking, under the wrong artist (see artist). Asking is the right answer; no rule gets there until one recovers the artist. Remove with the artist's flag."
+  }
+}

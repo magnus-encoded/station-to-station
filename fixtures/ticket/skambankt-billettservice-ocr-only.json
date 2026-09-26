@@ -1,0 +1,138 @@
+{
+  "about": "A Billettservice e-ticket bundled with a gift-card insert, by OCR alone: page 1 of the probe's REAL ML Kit line reading ('real-eticket-2'). Lines 11, 15, 17, 19, 25, 27 and 62 are the probe's own. The other lines 0-25 were redacted by the probe and are placed back from the real ML Kit blocks in Android's TicketParsingTest, which match the probe's line skeleton one to one; line 8 and everything after line 27 stay redacted. The buyer name, customer number and order number are replaced with made-up values. The probe found that OCR lines (not pooled blocks) get artist and venue right here: the booking code OPT2901, the ad's tagline and the small print are caps too, and must not outrank the event line. The three QR codes are the PDF's three pages; payloads are synthetic.",
+  "readings": [
+    {
+      "origin": "ocr",
+      "lines": [
+        "Dette er din billett",
+        "Ta med hele siden til arrangementet",
+        "Kari Nordmann",
+        "Kundenummer:",
+        "1000001",
+        "Arrangementskode:",
+        "OPT2901",
+        "Kjøpsdato:",
+        "████",
+        "Ordrenummer:",
+        "10000001",
+        "billettservice",
+        "I Gaver",
+        "Gi levende",
+        "underholdningi gave",
+        "DEL EN OPPLEVELSE!",
+        "YNGLING & ØYA UNDER 18:",
+        "SKAMBANKT",
+        "Vi har to forskjellige typer gavekort:",
+        "PARKTEATRET SCENE",
+        "OLAF RYES PLASS 11",
+        "DØRENE ÅPNER KL.18.00",
+        "Send gavekort per post",
+        "TORSDAG 29.01.2015",
+        "FRI ALDERSGRENSE",
+        "KJØPTE BILL. REFUNDERES IKKE",
+        "████",
+        "billettservice",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "billettservice",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████",
+        "████"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "symbology": "qr",
+      "payload": "SYNTHETIC-BS-1",
+      "page": 0
+    },
+    {
+      "symbology": "qr",
+      "payload": "SYNTHETIC-BS-2",
+      "page": 1
+    },
+    {
+      "symbology": "qr",
+      "payload": "SYNTHETIC-BS-3",
+      "page": 2
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "SKAMBANKT",
+      "support": "ocr"
+    },
+    "venue": {
+      "value": "PARKTEATRET SCENE",
+      "support": "ocr"
+    },
+    "date": {
+      "value": "29-01-2015",
+      "support": "ocr"
+    },
+    "admissions": [
+      {
+        "symbology": "qr",
+        "payload": "SYNTHETIC-BS-1",
+        "corroborated": false
+      },
+      {
+        "symbology": "qr",
+        "payload": "SYNTHETIC-BS-2",
+        "corroborated": false
+      },
+      {
+        "symbology": "qr",
+        "payload": "SYNTHETIC-BS-3",
+        "corroborated": false
+      }
+    ],
+    "skipsPrompt": true
+  }
+}

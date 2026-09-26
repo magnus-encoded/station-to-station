@@ -1,0 +1,45 @@
+{
+  "shows": {},
+  "gigs": {
+    "g-admissions": {
+      "id": "g-admissions",
+      "date": "24-06-2027",
+      "artist": "Paper Cranes",
+      "venue": "The Long Room",
+      "setlistId": null,
+      "createdAt": 1
+    },
+    "g-legacy": {
+      "id": "g-legacy",
+      "date": "25-06-2027",
+      "artist": "Paper Cranes",
+      "venue": "The Long Room",
+      "setlistId": null,
+      "createdAt": 2
+    }
+  },
+  "gigAttendance": {
+    "g-admissions": {
+      "provenance": "planned",
+      "admissions": [
+        {
+          "payload": "U1lOVEhFVElDLVRJTUVMSU5FLVFSLTE=",
+          "symbology": "qr",
+          "page": 0,
+          "corroborated": false
+        },
+        {
+          "payload": "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDIx",
+          "symbology": "code128",
+          "page": 1,
+          "corroborated": true
+        }
+      ]
+    },
+    "g-legacy": {
+      "provenance": "checked_in",
+      "checkedInAt": 1782410400000,
+      "ticketQr": "U1lOVEhFVElDLUxFR0FDWS1RUg=="
+    }
+  }
+}

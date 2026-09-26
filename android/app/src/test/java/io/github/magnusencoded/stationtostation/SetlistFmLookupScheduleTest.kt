@@ -141,9 +141,9 @@ class SetlistFmLookupScheduleTest {
     /** Written before #531: no `setlistFmLookup` key at all. It must read as never looked up. */
     @Test
     fun `an attendance record written before the lookup state decodes with none`() {
-        val old = """{"provenance":"checked_in","checkedInAt":42,"ticketQr":"VEtU"}"""
+        val old = """{"provenance":"checked_in","checkedInAt":42}"""
         val decoded = Json { ignoreUnknownKeys = true }.decodeFromString<StoredAttendance>(old)
-        assertEquals(StoredAttendance(provenance = "checked_in", checkedInAt = 42, ticketQr = "VEtU"), decoded)
+        assertEquals(StoredAttendance(provenance = "checked_in", checkedInAt = 42), decoded)
         assertNull(decoded.setlistFmLookup)
     }
 

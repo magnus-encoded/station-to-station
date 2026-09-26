@@ -29,8 +29,7 @@ final class ShareViewController: UIViewController {
             return finish("That doesn't look like a ticket PDF.")
         }
         let read = await Task.detached(priority: .userInitiated) {
-            let extracted = TicketExtractor.extract(pdf: data)
-            return parseTicket(qr: extracted.qr, blocks: extracted.blocks)
+            await parseTicket(data, with: PdfTicketExtractor.onDevice)
         }.value
 
         let ticket: Ticket
@@ -57,7 +56,11 @@ final class ShareViewController: UIViewController {
         if let artist = ticket.artist { found.append(artist) }
         if let venue = ticket.venue { found.append(venue) }
         if let date = ticket.date { found.append(shortDate(date)) }
-        if ticket.qr != nil { found.append("a QR code") }
+        switch ticket.admissions.count {
+        case 0: break
+        case 1: found.append("a ticket barcode")
+        case let n: found.append("\(n) ticket barcodes")
+        }
         return found.joined(separator: " · ")
             + "\n\nOpen Station to Station to put it on your line."
     }

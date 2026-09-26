@@ -1,0 +1,23 @@
+{
+  "about": "SYNTHETIC (#441): a QR and no readable text at all. Not empty, and not complete: the Admission is kept and the person fills in the night.",
+  "readings": [],
+  "barcodes": [
+    {
+      "symbology": "qr",
+      "payload": "SYNTHETIC-NO-TEXT"
+    }
+  ],
+  "expected": {
+    "artist": null,
+    "venue": null,
+    "date": null,
+    "admissions": [
+      {
+        "symbology": "qr",
+        "payload": "SYNTHETIC-NO-TEXT",
+        "corroborated": false
+      }
+    ],
+    "skipsPrompt": false
+  }
+}

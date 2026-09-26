@@ -1,0 +1,42 @@
+{
+  "about": "The same ticket read by OCR alone: the probe's REAL ML Kit line reading of 'phone-future', redacted lines as the marker. A scan has no text layer to compare with, so only the banner guard keeps TICKETLINE from being taken as the artist. Venue and skipsPrompt are not asserted, as in the two-reading case.",
+  "readings": [
+    {
+      "origin": "ocr",
+      "lines": [
+        "TICKETLINE",
+        "████",
+        "MORK WATER",
+        "████",
+        "28-09-2026",
+        "████",
+        "████"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "symbology": "qr",
+      "payload": "SYNTHETIC-TICKETLINE-QR"
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "MORK WATER",
+      "support": "ocr"
+    },
+    "venue": "unchecked",
+    "date": {
+      "value": "28-09-2026",
+      "support": "ocr"
+    },
+    "admissions": [
+      {
+        "symbology": "qr",
+        "payload": "SYNTHETIC-TICKETLINE-QR",
+        "corroborated": false
+      }
+    ],
+    "skipsPrompt": "unchecked"
+  }
+}

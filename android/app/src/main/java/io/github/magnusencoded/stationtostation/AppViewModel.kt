@@ -21,6 +21,7 @@ import io.github.magnusencoded.stationtostation.data.programmeDays
 import io.github.magnusencoded.stationtostation.data.clashfinder.ClashfinderClient
 import io.github.magnusencoded.stationtostation.data.clashfinder.clashfinderUrl
 import io.github.magnusencoded.stationtostation.data.SettingsRepository
+import io.github.magnusencoded.stationtostation.data.StoredAdmission
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredFestival
 import io.github.magnusencoded.stationtostation.data.ProgrammeDiff
@@ -38,14 +39,16 @@ import io.github.magnusencoded.stationtostation.data.parseFmDate
 import io.github.magnusencoded.stationtostation.data.plannedLane
 import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.StoredPlaylist
+import io.github.magnusencoded.stationtostation.data.Admission
 import io.github.magnusencoded.stationtostation.data.ParsedTicket
 import io.github.magnusencoded.stationtostation.data.TicketRouting
-import io.github.magnusencoded.stationtostation.data.extractTicket
 import io.github.magnusencoded.stationtostation.data.findDate
 import io.github.magnusencoded.stationtostation.data.matchKnownNight
+import io.github.magnusencoded.stationtostation.data.PdfTicketExtractor
+import io.github.magnusencoded.stationtostation.data.onDevice
 import io.github.magnusencoded.stationtostation.data.parseTicket
 import io.github.magnusencoded.stationtostation.data.routeTicket
-import io.github.magnusencoded.stationtostation.data.toTicketQrBase64
+import io.github.magnusencoded.stationtostation.data.QR_SYMBOLOGY
 import io.github.magnusencoded.stationtostation.data.TimelineLogic
 import io.github.magnusencoded.stationtostation.data.TimelineCache
 import io.github.magnusencoded.stationtostation.data.TimelineStore
@@ -1924,9 +1927,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * A PDF shared into the app via the system share sheet (#411) — MainActivity's
      * `handleTicketIntent` is the sibling of `handleAuthIntent` that reaches this.
      *
-     * `extractTicket` is the one rasterization pipeline: it reads the same bitmap
-     * for a QR (zxing) and best-effort text (ML Kit), then `parseTicket`/`routeTicket`
-     * decide what that adds up to. Per #411's clarified spec, only a complete,
+     * `PdfTicketExtractor.onDevice` reads every page twice — its own text layer and
+     * ML Kit's OCR of one rasterization, which zxing reads for barcodes too — and
+     * `parseTicket` (through `parseTicketFields`) and `routeTicket` decide what that
+     * adds up to (#526). Per #411's clarified spec, only a complete,
      * unambiguous parse acts on its own — [TicketRouting.AlreadyKnown] merges into
      * the gig it matched, [TicketRouting.NewPlannedGig] takes the same
      * local-planned-gig path [addPlannedGigByHand] does. Anything else becomes
@@ -1934,7 +1938,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun handleSharedTicketPdf(uri: Uri) {
         viewModelScope.launch {
-            val parsed = parseTicket(extractTicket(getApplication(), uri))
+            val parsed = parseTicket(uri, PdfTicketExtractor.onDevice(getApplication()))
             routeParsedTicket(parsed)
         }
     }
@@ -1948,7 +1952,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * [findDate] every PDF ticket's text is, so a provider can send whatever
      * reasonably-dated shape they already format dates in rather than being made to
      * learn this app's own dd-MM-yyyy. `qr` is the barcode's own decoded payload
-     * (plain text, not base64) — optional, since a page may not have it at hand.
+     * (plain text, not base64) — optional, since a page may not have it at hand. It
+     * becomes the same Admission shape the PDF path stores (#441): the text's UTF-8
+     * bytes, symbology `qr` (the parameter's own name for it), page 0, uncorroborated —
+     * a link has no printed text to check it against.
      *
      * Reuses [routeTicket] exactly as the PDF path does: a complete, unambiguous
      * parse acts on its own, anything less is shown to the person to confirm. A link
@@ -1959,8 +1966,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val artist = uri.getQueryParameter("artist")?.trim()?.ifBlank { null }
         val venue = uri.getQueryParameter("venue")?.trim()?.ifBlank { null }
         val date = uri.getQueryParameter("date")?.trim()?.ifBlank { null }?.let { findDate(it) }
-        val qrBytes = uri.getQueryParameter("qr")?.trim()?.ifBlank { null }?.toByteArray(Charsets.UTF_8)
-        val parsed = ParsedTicket(qrBytes = qrBytes, artist = artist, venue = venue, date = date)
+        val admissions = listOfNotNull(
+            uri.getQueryParameter("qr")?.trim()?.ifBlank { null }
+                ?.let { Admission(payload = it.toByteArray(Charsets.UTF_8), symbology = QR_SYMBOLOGY) },
+        )
+        val parsed = ParsedTicket(admissions = admissions, artist = artist, venue = venue, date = date)
         viewModelScope.launch { routeParsedTicket(parsed) }
     }
 
@@ -1968,10 +1978,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun routeParsedTicket(parsed: ParsedTicket) {
         val known = _state.value.setlists + _state.value.plannedGigs
         when (val routing = routeTicket(parsed, known)) {
-            is TicketRouting.AlreadyKnown -> attachTicketQr(routing.gig.id, parsed.qrBytes)
+            is TicketRouting.AlreadyKnown -> attachAdmissions(routing.gig.id, parsed.admissions)
             is TicketRouting.NewPlannedGig -> {
                 val night = parseFmDate(routing.date) ?: return
-                addParsedPlannedGig(routing.artist, routing.venue, night, routing.qrBytes)
+                addParsedPlannedGig(routing.artist, routing.venue, night, routing.admissions)
             }
             is TicketRouting.NeedsConfirmation ->
                 _state.update { it.copy(pendingTicket = PendingTicket(routing.parsed, routing.possibleMatch)) }
@@ -1982,9 +1992,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * The confirm dialog's Save — [handleSharedTicketPdf]'s pending guess, corrected
      * or filled in by hand, then routed the same way a complete auto-parse would be:
      * matched if it turns out to be a night already known, otherwise a new planned
-     * gig. The QR travels from the original parse regardless of what the person
-     * edited — it is preserved even when the text half of the ticket needed fixing
-     * by hand (#413's day-of view needs it either way).
+     * gig. The Admissions travel from the original parse regardless of what the person
+     * edited — they are preserved even when the text half of the ticket needed fixing
+     * by hand (#441, story 16).
      */
     fun confirmPendingTicket(artist: String, venue: String, date: String) {
         val pending = _state.value.pendingTicket ?: return
@@ -1998,9 +2008,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val matched = pending.possibleMatch
                 ?: matchKnownNight(ParsedTicket(artist = artist.trim(), venue = venue.trim(), date = fmDate(night)), known)
             if (matched != null) {
-                attachTicketQr(matched.id, pending.parsed.qrBytes)
+                attachAdmissions(matched.id, pending.parsed.admissions)
             } else {
-                addParsedPlannedGig(artist.trim(), venue.trim(), night, pending.parsed.qrBytes)
+                addParsedPlannedGig(artist.trim(), venue.trim(), night, pending.parsed.admissions)
             }
             _state.update { it.copy(pendingTicket = null) }
         }
@@ -2010,7 +2020,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun dismissPendingTicket() = _state.update { it.copy(pendingTicket = null) }
 
     /** [addPlannedGigByHand]'s write, shared by both ticket paths above. */
-    private suspend fun addParsedPlannedGig(artist: String, venue: String, night: LocalDate, qrBytes: ByteArray?) {
+    private suspend fun addParsedPlannedGig(artist: String, venue: String, night: LocalDate, admissions: List<Admission>) {
         val gigId = timelines.createLocalGig(fmDate(night), artist, venue)
         val gig = localGigSetlist(gigId, artist, night, venue, city = "")
         val attendance = timelines.savePlanned(gig)
@@ -2020,13 +2030,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 attendanceByGig = it.attendanceByGig + (gig.id to attendance),
             )
         }
-        attachTicketQr(gig.id, qrBytes)
+        attachAdmissions(gig.id, admissions)
     }
 
-    /** No-op when there is no QR to keep — most confirmations and most matches. */
-    private suspend fun attachTicketQr(gigId: String, qrBytes: ByteArray?) {
-        if (qrBytes == null) return
-        val attendance = timelines.attachTicketQr(gigId, qrBytes.toTicketQrBase64())
+    /**
+     * Every Admission onto the night, appended (#441). No-op when there is none to
+     * keep — most confirmations and most matches.
+     */
+    private suspend fun attachAdmissions(gigId: String, admissions: List<Admission>) {
+        if (admissions.isEmpty()) return
+        val attendance = timelines.attachAdmissions(gigId, admissions.map(StoredAdmission::of))
         _state.update { it.copy(attendanceByGig = it.attendanceByGig + (gigId to attendance)) }
     }
 

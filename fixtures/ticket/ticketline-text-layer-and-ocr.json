@@ -1,0 +1,54 @@
+{
+  "about": "REAL Pixel readings (probe 2026-09-25, input 'phone-future'; the Gig f9c51210 'TICKETLINE' at 'MORK WATER'). TICKETLINE is in the text layer too, at line 0 of both readings, so agreement between the readings cannot keep it out: the banner guard (a caps line naming the ticket itself) does. Lines the probe redacted are the redaction marker; the text layer's trailing carriage returns are as captured. The venue is not asserted: the probe could not confirm it, and with the redacted lines gone MORK WATER is the only name candidate left. skipsPrompt is not asserted either, since it depends on the venue.",
+  "readings": [
+    {
+      "origin": "textLayer",
+      "lines": [
+        "TICKETLINE\r",
+        "████",
+        "MORK WATER\r",
+        "████",
+        "28-09-2026\r",
+        "STÅPLASS/STANDING\r",
+        "████"
+      ]
+    },
+    {
+      "origin": "ocr",
+      "lines": [
+        "TICKETLINE",
+        "████",
+        "MORK WATER",
+        "████",
+        "28-09-2026",
+        "████",
+        "████"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "symbology": "qr",
+      "payload": "SYNTHETIC-TICKETLINE-QR"
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "MORK WATER",
+      "support": "both"
+    },
+    "venue": "unchecked",
+    "date": {
+      "value": "28-09-2026",
+      "support": "both"
+    },
+    "admissions": [
+      {
+        "symbology": "qr",
+        "payload": "SYNTHETIC-TICKETLINE-QR",
+        "corroborated": false
+      }
+    ],
+    "skipsPrompt": "unchecked"
+  }
+}

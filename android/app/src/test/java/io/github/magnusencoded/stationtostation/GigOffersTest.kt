@@ -36,7 +36,7 @@ class GigOffersTest {
         setlistId: String? = null,
         songs: Int = 0,
         calendarEvent: String? = null,
-        ticketQr: String? = null,
+        admissions: Int = 0,
     ) = GigAsKnown(
         window = nightWindow(date),
         provenance = provenance,
@@ -44,7 +44,7 @@ class GigOffersTest {
         setlistId = setlistId,
         songCount = songs,
         calendarEvent = calendarEvent,
-        ticketQr = ticketQr,
+        admissionCount = admissions,
     )
 
     private val openLog = StoredLog(songs = listOf("Hollowmoor", ""), closed = false)
@@ -86,29 +86,38 @@ class GigOffersTest {
     }
 
     @Test
-    fun `a ticket's QR shows before check-in`() {
-        val o = offers(night(provenance = planned, ticketQr = "AQID"))
-        assertTrue(o.room.showQr)
+    fun `a ticket shows before check-in`() {
+        val o = offers(night(provenance = planned, admissions = 1))
+        assertTrue(o.room.showTicket)
     }
 
     @Test
-    fun `no ticket, no QR — never a placeholder`() {
+    fun `several Admissions are one ticket to show, and check-in retires them all`() {
+        // #441: two people on one PDF, or a second ticket added for the same night.
+        // Which symbology each is in is the drawing's business, not this fold's — a
+        // night holding only a Code 128 shows its ticket as much as a QR one does.
+        assertTrue(offers(night(provenance = planned, admissions = 3)).room.showTicket)
+        assertFalse(offers(night(provenance = checkedIn, admissions = 3)).room.showTicket)
+    }
+
+    @Test
+    fun `no ticket, no barcode — never a placeholder`() {
         val o = offers(night(provenance = planned))
-        assertFalse(o.room.showQr)
+        assertFalse(o.room.showTicket)
     }
 
     @Test
-    fun `checking in retires the QR — the claim is already made`() {
-        val o = offers(night(provenance = checkedIn, ticketQr = "AQID"))
-        assertFalse(o.room.showQr)
+    fun `checking in retires the ticket — the claim is already made`() {
+        val o = offers(night(provenance = checkedIn, admissions = 1))
+        assertFalse(o.room.showTicket)
     }
 
     @Test
     fun `the gate is checked-in specifically, not any claim at all`() {
         // `attended` is not `checkedIn` — an imported night with a ticket still
         // shows the QR, because nothing here has claimed I stood in this room.
-        val o = offers(night(provenance = attended, ticketQr = "AQID"))
-        assertTrue(o.room.showQr)
+        val o = offers(night(provenance = attended, admissions = 1))
+        assertTrue(o.room.showTicket)
     }
 
     @Test
