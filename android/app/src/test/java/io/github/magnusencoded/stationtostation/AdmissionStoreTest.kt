@@ -151,6 +151,20 @@ class AdmissionStoreTest {
         assertEquals(listOf(admission("SYNTHETIC-1")), settled.admissions)
     }
 
+    @Test
+    fun `a claim raised to attended keeps its Admissions and coordinates`() {
+        // A festival act whose set has finished is upgraded from planned; the ticket
+        // attached to it goes with it (the #441 review).
+        val planned = StoredAttendance(venueLat = 59.9, venueLon = 10.7, admissions = listOf(admission("SYNTHETIC-1")))
+
+        val attended = planned.withProvenance(StoredAttendance.Provenance.ATTENDED)
+
+        assertEquals(StoredAttendance.Provenance.ATTENDED, attended.provenance)
+        assertEquals(listOf(admission("SYNTHETIC-1")), attended.admissions)
+        assertEquals(59.9, attended.venueLat!!, 0.0)
+        assertEquals(10.7, attended.venueLon!!, 0.0)
+    }
+
     // --- Merging two records of one night -------------------------------------
 
     @Test

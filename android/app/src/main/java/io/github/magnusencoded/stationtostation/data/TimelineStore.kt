@@ -77,6 +77,14 @@ data class StoredAttendance(
      */
     val admissions: List<StoredAdmission> = emptyList(),
 ) {
+    /**
+     * This claim at [provenance], with every other field — the ticket's Admissions, the
+     * venue's coordinates — carried rather than dropped by a fresh record (the #441
+     * review: a festival act's "played" upgrade lost them). The Swift twin is
+     * `StoredAttendance.withProvenance`.
+     */
+    fun withProvenance(provenance: String): StoredAttendance = copy(provenance = provenance)
+
     /** Evidence strength, weakest first. Room for `attested` later; not built yet. */
     object Provenance {
         const val PLANNED = "planned"

@@ -669,6 +669,17 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual(StoredAttendance(provenance: "planned", venueLat: 1), settled)
     }
 
+    /// A festival act whose set has finished is upgraded from planned; the ticket
+    /// attached to it goes with it (the #441 review).
+    func testAClaimRaisedToAttendedKeepsItsAdmissionsAndCoordinates() {
+        let planned = StoredAttendance(venueLat: 59.9, venueLon: 10.7, admissions: [admission("TKT-9F31")])
+
+        let attended = planned.withProvenance("attended")
+
+        XCTAssertEqual(StoredAttendance(provenance: "attended", venueLat: 59.9, venueLon: 10.7,
+                                        admissions: [admission("TKT-9F31")]), attended)
+    }
+
     /// A gig with no claim yet still takes the Admissions: the parse may have yielded
     /// nothing but a barcode, and there is then no artist, venue or date worth writing.
     func testAdmissionsCanBeAttachedToANightWithNoClaimOnItYet() async {
