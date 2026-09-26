@@ -1,0 +1,33 @@
+{
+  "about": "SYNTHETIC, written by hand. The lines either side of the date pass the same guard as every other guessed line: a door time (a digit) and a seating category (a slash) are skipped, so the artist is the nearest guessable line above the date and the venue the nearest guessable line below it.",
+  "readings": [
+    {
+      "origin": "ocr",
+      "lines": [
+        "Your ticket",
+        "Ocean Colour Scene",
+        "Dører 19:00",
+        "25-09-2026",
+        "STÅPLASS/STANDING",
+        "Auditorio Marina Norte, Valencia"
+      ]
+    }
+  ],
+  "barcodes": [],
+  "expected": {
+    "artist": {
+      "value": "Ocean Colour Scene",
+      "support": "ocr"
+    },
+    "venue": {
+      "value": "Auditorio Marina Norte, Valencia",
+      "support": "ocr"
+    },
+    "date": {
+      "value": "25-09-2026",
+      "support": "ocr"
+    },
+    "barcode": null,
+    "skipsPrompt": false
+  }
+}

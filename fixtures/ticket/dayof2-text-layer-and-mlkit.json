@@ -1,0 +1,45 @@
+{
+  "about": "The same ticket on Android 15 or later: its text layer plus ML Kit OCR. The ML Kit reading is RECONSTRUCTED, and drops the space after the comma the way OCR does, so folding has to see through it. The answer must be the Vision case's answer.",
+  "readings": [
+    {
+      "origin": "textLayer",
+      "lines": [
+        "Your ticket",
+        "Static Halo",
+        "24-09-2026",
+        "Rockefeller, Oslo"
+      ]
+    },
+    {
+      "origin": "ocr",
+      "lines": [
+        "Your ticket",
+        "Static Halo",
+        "24-09-2026",
+        "Rockefeller,Oslo"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "symbology": "qr",
+      "payload": "SYNTHETIC-DAYOF2-QR"
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "Static Halo",
+      "support": "both"
+    },
+    "venue": {
+      "value": "Rockefeller, Oslo",
+      "support": "both"
+    },
+    "date": {
+      "value": "24-09-2026",
+      "support": "both"
+    },
+    "barcode": "SYNTHETIC-DAYOF2-QR",
+    "skipsPrompt": true
+  }
+}

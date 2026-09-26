@@ -27,6 +27,12 @@ enum TicketRoute: Equatable {
 /// left to ask about: a QR, an artist, a venue and a date, all four present. That is
 /// the same rule Android's `TicketRouting` landed with in #411.
 ///
+/// **Nor is one only a single reading backed** (#526). A PDF is read twice, from its own
+/// text layer and by OCR, and a complete parse is minted without asking only when every
+/// field came out of both — or when there was only one reading to begin with, as with a
+/// scan. The vendor logo OCR read as an artist is exactly a complete, confident, wrong
+/// parse; the text layer not having it is the tell. `Ticket.canSkipPrompt` holds the rule.
+///
 /// **A past night is never minted silently** even when the parse is complete. An old
 /// ticket found while clearing out an inbox is exactly the case that would otherwise
 /// plant a phantom plan above today (#408, story 13), and the cost of asking is one
@@ -42,7 +48,7 @@ func routeTicket(_ parse: TicketParse,
     if let known = knownNight(ticket, among: knownNights, calendar: calendar) {
         return ticket.isComplete ? .match(known.id) : .confirm(ticket)
     }
-    guard ticket.isComplete, let date = ticket.date,
+    guard ticket.canSkipPrompt, let date = ticket.date,
           date >= calendar.startOfDay(for: now)
     else { return .confirm(ticket) }
     return .add(ticket)

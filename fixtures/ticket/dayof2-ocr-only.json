@@ -1,0 +1,36 @@
+{
+  "about": "The same ticket on a phone older than Android 15, which has no text layer to read: ML Kit alone (RECONSTRUCTED reading). A single reading has nothing to cross-check against, so a complete read still skips the prompt.",
+  "readings": [
+    {
+      "origin": "ocr",
+      "lines": [
+        "Your ticket",
+        "Static Halo",
+        "24-09-2026",
+        "Rockefeller,Oslo"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "symbology": "qr",
+      "payload": "SYNTHETIC-DAYOF2-QR"
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "Static Halo",
+      "support": "ocr"
+    },
+    "venue": {
+      "value": "Rockefeller,Oslo",
+      "support": "ocr"
+    },
+    "date": {
+      "value": "24-09-2026",
+      "support": "ocr"
+    },
+    "barcode": "SYNTHETIC-DAYOF2-QR",
+    "skipsPrompt": true
+  }
+}

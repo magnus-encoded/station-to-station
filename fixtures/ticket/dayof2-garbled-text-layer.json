@@ -1,0 +1,45 @@
+{
+  "about": "RECONSTRUCTED: the text layer's font has no usable Unicode map, so each letter it cannot name comes out as U+FFFD, while OCR reads the page cleanly. The readings disagree, so the candidate with more letters wins and its support is single. That keeps it out of auto-add.",
+  "readings": [
+    {
+      "origin": "textLayer",
+      "lines": [
+        "Y�ur ticket",
+        "St�tic H�lo",
+        "24-09-2026",
+        "R�ckefeller, Osl�"
+      ]
+    },
+    {
+      "origin": "ocr",
+      "lines": [
+        "Your ticket",
+        "Static Halo",
+        "24-09-2026",
+        "Rockefeller, Oslo"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "symbology": "qr",
+      "payload": "SYNTHETIC-DAYOF2-QR"
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "Static Halo",
+      "support": "ocr"
+    },
+    "venue": {
+      "value": "Rockefeller, Oslo",
+      "support": "ocr"
+    },
+    "date": {
+      "value": "24-09-2026",
+      "support": "both"
+    },
+    "barcode": "SYNTHETIC-DAYOF2-QR",
+    "skipsPrompt": false
+  }
+}
