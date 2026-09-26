@@ -72,6 +72,15 @@ struct StoredAttendance: Codable, Equatable {
         self.admissions = admissions
     }
 
+    /// This claim at `provenance`, with every other field — the ticket's **Admissions**,
+    /// the venue's coordinates — carried rather than dropped by a fresh record (the #441
+    /// review: a festival act's "played" upgrade lost them). Android's `withProvenance`.
+    func withProvenance(_ provenance: String) -> StoredAttendance {
+        var raised = self
+        raised.provenance = provenance
+        return raised
+    }
+
     private enum CodingKeys: String, CodingKey {
         case provenance, checkedInAt, venueLat, venueLon, admissions
         /// Read by the migration only. Never written.

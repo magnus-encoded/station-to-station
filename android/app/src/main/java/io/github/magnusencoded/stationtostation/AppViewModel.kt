@@ -2197,7 +2197,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         if (actKey(act) in played &&
                             claim.provenance == StoredAttendance.Provenance.PLANNED
                         ) {
-                            StoredAttendance(provenance = StoredAttendance.Provenance.ATTENDED)
+                            claim.withProvenance(StoredAttendance.Provenance.ATTENDED)
                                 .also { timelines.saveAttendance(gigId, it) }
                         } else {
                             claim

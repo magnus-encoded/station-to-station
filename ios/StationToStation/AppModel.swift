@@ -784,7 +784,7 @@ final class AppModel: ObservableObject {
                     // `savePlanned` hands back whatever claim already stood, and a
                     // check-in outranks this one.
                     if played.contains(actKey(act)), claim.provenance == "planned" {
-                        let attended = StoredAttendance(provenance: "attended")
+                        let attended = claim.withProvenance("attended")
                         await timelines.saveAttendance(setlistId: gigId, attendance: attended)
                         attendances[gigId] = attended
                     } else {
