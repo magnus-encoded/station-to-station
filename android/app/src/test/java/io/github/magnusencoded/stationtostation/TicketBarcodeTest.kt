@@ -63,7 +63,7 @@ class TicketBarcodeTest {
     @Test
     fun aTicketQrsTextSurvivesDecodeStoreAndRedraw() {
         // Shapes seen on real tickets: a short code, a long digit string, a URL.
-        for (payload in listOf("K8TZC46G7", "000310038500200020010000", "https://tickets.example/t?id=K8TZC46G7&n=1")) {
+        for (payload in listOf("TESTQRAA1", "123456789012345678901234", "https://tickets.example/t?id=TESTQRAA1&n=1")) {
             assertEquals(payload, roundTrip(payload))
         }
     }
@@ -79,11 +79,11 @@ class TicketBarcodeTest {
 
     @Test
     fun theStoredBytesAreTheDecodedTextAsUtf8NotZxingsRawBytes() {
-        val decoded = decode(ticketQrMatrix("K8TZC46G7", 240))!!
+        val decoded = decode(ticketQrMatrix("TESTQRAA1", 240))!!
 
         val stored = chooseTicketBarcode(listOf(decoded)).qrBytes!!
 
-        assertArrayEquals("K8TZC46G7".toByteArray(Charsets.UTF_8), stored)
+        assertArrayEquals("TESTQRAA1".toByteArray(Charsets.UTF_8), stored)
         // rawBytes are the symbol's codewords (mode, length, padding) — the fault.
         assertEquals(false, decoded.rawBytes.contentEquals(stored))
     }
@@ -92,7 +92,7 @@ class TicketBarcodeTest {
     fun aCode128IsSeenButFlaggedUnsupportedAndNotStored() {
         // Eventim's real barcode shape: 24 digits, Code 128. Found with the same
         // hinted reader, then refused a place in a field that can only redraw a QR.
-        val strip = MultiFormatWriter().encode("000310038500200020010000", BarcodeFormat.CODE_128, 600, 120)
+        val strip = MultiFormatWriter().encode("123456789012345678901234", BarcodeFormat.CODE_128, 600, 120)
         val decoded = decode(onAPage(strip))
 
         assertEquals(BarcodeFormat.CODE_128, decoded?.barcodeFormat)
@@ -103,13 +103,13 @@ class TicketBarcodeTest {
 
     @Test
     fun theFirstQrIsKeptAndAnEarlierNonQrIsStillReported() {
-        val code128 = Result("000310038500200020010000", null, null, BarcodeFormat.CODE_128)
-        val first = Result("K8TZC46G7", null, null, BarcodeFormat.QR_CODE)
-        val second = Result("MCZ2MGKW9", null, null, BarcodeFormat.QR_CODE)
+        val code128 = Result("123456789012345678901234", null, null, BarcodeFormat.CODE_128)
+        val first = Result("TESTQRAA1", null, null, BarcodeFormat.QR_CODE)
+        val second = Result("TESTQRBB2", null, null, BarcodeFormat.QR_CODE)
 
         val choice = chooseTicketBarcode(listOf(code128, first, second))
 
-        assertArrayEquals("K8TZC46G7".toByteArray(Charsets.UTF_8), choice.qrBytes)
+        assertArrayEquals("TESTQRAA1".toByteArray(Charsets.UTF_8), choice.qrBytes)
         assertEquals("CODE_128", choice.unsupportedFormat)
     }
 
@@ -128,6 +128,6 @@ class TicketBarcodeTest {
         val oldRawBytes = byteArrayOf(0x40, 0x94.toByte(), 0xB3.toByte(), 0x85.toByte(), 0xFF.toByte(), 0x11)
 
         assertNull(ticketQrText(oldRawBytes))
-        assertEquals("K8TZC46G7", ticketQrText("K8TZC46G7".toByteArray(Charsets.UTF_8)))
+        assertEquals("TESTQRAA1", ticketQrText("TESTQRAA1".toByteArray(Charsets.UTF_8)))
     }
 }
