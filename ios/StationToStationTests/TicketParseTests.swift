@@ -39,6 +39,9 @@ final class TicketParseTests: XCTestCase {
 
     private let qrBytes = Data("TKT-9F31-0042".utf8)
     private var qrAdmission: Admission { Admission(payload: qrBytes, symbology: "qr") }
+    /// The same QR once the app has redrawn it and read it back (story 29): what every
+    /// ticket routed past the prompt must carry.
+    private var drawnQr: Admission { Admission(payload: qrBytes, symbology: "qr", redrawable: true) }
 
     private func barcode(_ symbology: String, _ payload: String, page: Int = 0) -> TicketBarcode {
         TicketBarcode(image: Data(), payload: Data(payload.utf8), symbology: symbology, page: page)
@@ -120,7 +123,7 @@ final class TicketParseTests: XCTestCase {
     }
 
     private var complete: Ticket {
-        Ticket(admissions: [qrAdmission], artist: "Big Thief", venue: "Sentrum Scene",
+        Ticket(admissions: [drawnQr], artist: "Big Thief", venue: "Sentrum Scene",
                date: day(2026, 9, 14))
     }
 
@@ -159,7 +162,7 @@ final class TicketParseTests: XCTestCase {
     /// The country tag clashfinder and setlist.fm disagree about, folded the same way
     /// every other match in this app folds it.
     func testTheArtistNameIsFoldedBeforeItIsMatched() {
-        let ticket = Ticket(admissions: [qrAdmission], artist: "Wilco (US)", venue: "Sentrum Scene",
+        let ticket = Ticket(admissions: [drawnQr], artist: "Wilco (US)", venue: "Sentrum Scene",
                             date: day(2026, 9, 14))
 
         let route = routeTicket(.ticket(ticket),
@@ -460,8 +463,61 @@ final class TicketParseTests: XCTestCase {
 
         XCTAssertTrue(found.isComplete)
         XCTAssertEqual(2, found.admissions.count)
-        XCTAssertEqual(.add(found), routeTicket(.ticket(found), knownNights: [],
+        // Unchecked is not redrawable: straight from the parse, it is asked about.
+        XCTAssertEqual(.confirm(found), routeTicket(.ticket(found), knownNights: [],
+                                                    now: day(2026, 8, 1), calendar: calendar))
+        let drawn = found.checkedForRedraw { _, _ in true }
+        XCTAssertEqual(.add(drawn), routeTicket(.ticket(drawn), knownNights: [],
                                                 now: day(2026, 8, 1), calendar: calendar))
+    }
+
+    // MARK: - Redrawn at import (#441, story 29)
+
+    /// A complete Eventim read whose Code 128 did not read back as itself is not added
+    /// without asking: the prompt says which barcode can't be shown and to bring the
+    /// PDF. Closes #542's open question 1.
+    func testACompleteTicketWhoseBarcodeCannotBeRedrawnIsAskedAbout() {
+        var eventim = complete
+        eventim.admissions = [Admission(payload: Data("000000000000000000000001".utf8),
+                                        symbology: "code128", redrawable: false)]
+
+        XCTAssertTrue(eventim.canSkipPrompt, "the read itself is complete and agreed")
+        XCTAssertEqual(.confirm(eventim), routeTicket(.ticket(eventim), knownNights: [],
+                                                      now: day(2026, 8, 1), calendar: calendar))
+    }
+
+    /// The match path is gated too: attaching an undrawable barcode to a night already
+    /// on the line, silently, is the same surprise at the door.
+    func testAMatchWhoseBarcodeCannotBeRedrawnIsAskedAbout() {
+        var eventim = complete
+        eventim.admissions = [drawnQr, Admission(payload: Data("CODE".utf8), symbology: "datamatrix",
+                                                 redrawable: false)]
+
+        XCTAssertEqual(.confirm(eventim),
+                       routeTicket(.ticket(eventim),
+                                   knownNights: [night("g1", "14-09-2026", "Big Thief")],
+                                   now: day(2026, 8, 1), calendar: calendar))
+    }
+
+    /// Nothing checked is nothing known: a ticket straight off the parse never skips
+    /// the prompt, whichever path it would take.
+    func testAnUncheckedAdmissionCountsAsNotRedrawable() {
+        var unchecked = complete
+        unchecked.admissions = [qrAdmission]
+
+        XCTAssertFalse(unchecked.redrawsEveryAdmission)
+        XCTAssertEqual(.confirm(unchecked), routeTicket(.ticket(unchecked), knownNights: [],
+                                                        now: day(2026, 8, 1), calendar: calendar))
+        XCTAssertEqual(.confirm(unchecked),
+                       routeTicket(.ticket(unchecked),
+                                   knownNights: [night("g1", "14-09-2026", "Big Thief")],
+                                   now: day(2026, 8, 1), calendar: calendar))
+    }
+
+    /// The verdict is the app's, never the extension's: it is not deposited.
+    func testTheVerdictIsNeverDeposited() throws {
+        let json = String(decoding: try JSONEncoder().encode(complete), as: UTF8.self)
+        XCTAssertFalse(json.contains("redrawable"), json)
     }
 
     /// A deposit the extension wrote before #441 carried one `qr`; it still drains, as
@@ -473,7 +529,8 @@ final class TicketParseTests: XCTestCase {
         XCTAssertEqual([qrAdmission], decoded.admissions)
         XCTAssertEqual("Big Thief", decoded.artist)
         let roundTripped = try JSONDecoder().decode(Ticket.self, from: JSONEncoder().encode(complete))
-        XCTAssertEqual(complete, roundTripped)
+        XCTAssertEqual(complete.checkedForRedraw { _, _ in true },
+                       roundTripped.checkedForRedraw { _, _ in true })
     }
 
     /// A line carrying the date is not a line carrying an artist, whatever else is on

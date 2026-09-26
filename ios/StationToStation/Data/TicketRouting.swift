@@ -38,6 +38,11 @@ enum TicketRoute: Equatable {
 /// plant a phantom plan above today (#408, story 13), and the cost of asking is one
 /// tap. `now` is a parameter so that rule is testable rather than clock-dependent.
 ///
+/// **Nor is one whose barcode the app cannot show** (#441, story 29), on either path. An
+/// **Admission** that did not read back as itself when redrawn (`checkedForRedraw`, and
+/// an unchecked one counts as not) sends the ticket to the prompt, which says which
+/// barcode it is and to bring the PDF. Found at import, not at the door.
+///
 /// A match wins over a mint whether the night ahead or behind: sharing the ticket for
 /// a night already logged some other way must be safe to do twice.
 func routeTicket(_ parse: TicketParse,
@@ -46,9 +51,9 @@ func routeTicket(_ parse: TicketParse,
                  calendar: Calendar = .current) -> TicketRoute {
     guard case .ticket(let ticket) = parse else { return .unreadable }
     if let known = knownNight(ticket, among: knownNights, calendar: calendar) {
-        return ticket.isComplete ? .match(known.id) : .confirm(ticket)
+        return ticket.isComplete && ticket.redrawsEveryAdmission ? .match(known.id) : .confirm(ticket)
     }
-    guard ticket.canSkipPrompt, let date = ticket.date,
+    guard ticket.canSkipPrompt, ticket.redrawsEveryAdmission, let date = ticket.date,
           date >= calendar.startOfDay(for: now)
     else { return .confirm(ticket) }
     return .add(ticket)
