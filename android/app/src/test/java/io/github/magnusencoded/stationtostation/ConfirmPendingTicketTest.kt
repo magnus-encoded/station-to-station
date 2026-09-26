@@ -63,9 +63,10 @@ class ConfirmPendingTicketTest {
         // a night of its own, as on iOS. The prompt says so; the person edits the artist
         // to `Dumdumboys` to attach instead.
         val gigs = listOf(known("g1", "14-09-2027", "Dumdumboys", venue = "Sentrum Scene"))
+        val asRead = "Dumdumboys – XL [romertallførti]"
         val parsed = ParsedTicket(
             admissions = admissions,
-            artist = "Dumdumboys – XL [romertallførti]",
+            artist = asRead,
             venue = "Sentrum Scene",
             date = "14-09-2027",
         )
@@ -74,8 +75,8 @@ class ConfirmPendingTicketTest {
         val night = LocalDate.of(2027, 9, 14)
 
         assertEquals(
-            ConfirmedTicket.Mint(parsed.artist!!, "Sentrum Scene", night, admissions),
-            pending.confirmedAs(parsed.artist!!, "Sentrum Scene", night, gigs),
+            ConfirmedTicket.Mint(asRead, "Sentrum Scene", night, admissions),
+            pending.confirmedAs(asRead, "Sentrum Scene", night, gigs),
         )
         assertEquals(
             ConfirmedTicket.Attach("g1", admissions),
