@@ -2,6 +2,11 @@
 
 # Station to Station
 
+[![Android CI](https://github.com/magnus-encoded/station-to-station/actions/workflows/android.yml/badge.svg?branch=main)](https://github.com/magnus-encoded/station-to-station/actions/workflows/android.yml?query=branch%3Amain)
+[![iOS CI](https://github.com/magnus-encoded/station-to-station/actions/workflows/ios.yml/badge.svg?branch=main)](https://github.com/magnus-encoded/station-to-station/actions/workflows/ios.yml?query=branch%3Amain)
+[![Android release](https://github.com/magnus-encoded/station-to-station/actions/workflows/android-release.yml/badge.svg)](https://github.com/magnus-encoded/station-to-station/actions/workflows/android-release.yml)
+[![Latest release](https://img.shields.io/github/v/release/magnus-encoded/station-to-station?sort=semver)](https://github.com/magnus-encoded/station-to-station/releases/latest)
+
 Your concert-going life as a single continuous line — the gigs you attended, the
 festivals they collapse into, and the nights your line crossed someone else's.
 
