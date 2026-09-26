@@ -1,29 +1,44 @@
 package io.github.magnusencoded.stationtostation
 
 import io.github.magnusencoded.stationtostation.data.ParsedTicket
-import io.github.magnusencoded.stationtostation.data.TicketExtract
+import io.github.magnusencoded.stationtostation.data.TicketBarcode
+import io.github.magnusencoded.stationtostation.data.TicketEvidence
+import io.github.magnusencoded.stationtostation.data.TicketReading
 import io.github.magnusencoded.stationtostation.data.TicketRouting
+import io.github.magnusencoded.stationtostation.data.TicketSupport
 import io.github.magnusencoded.stationtostation.data.matchKnownNight
-import io.github.magnusencoded.stationtostation.data.parseTicket
+import io.github.magnusencoded.stationtostation.data.parseTicketFields
 import io.github.magnusencoded.stationtostation.data.routeTicket
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmVenue
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 
 /**
- * [io.github.magnusencoded.stationtostation.data.parseTicket] and
+ * [io.github.magnusencoded.stationtostation.data.parseTicketFields] and
  * [io.github.magnusencoded.stationtostation.data.routeTicket] against synthetic
  * inputs, per #408/#411's own testing decision: the pure seam is exercised directly,
  * with no PDF, no bitmap, and no zxing/ML Kit call anywhere near these cases.
+ *
+ * The rules themselves are pinned by the shared corpus (TicketFixturesTest, which runs
+ * `fixtures/ticket/` exactly as iOS does); these are the Android-side cases around it.
+ * Real tickets' personal data here is made up.
  */
 class TicketParsingTest {
 
     private fun qr(payload: String = "ticket-payload") = payload.toByteArray()
+
+    private fun barcode(symbology: String, payload: String) =
+        TicketBarcode(image = ByteArray(0), payload = payload.toByteArray(), symbology = symbology)
+
+    /** One OCR reading, as a scan or a phone below API 35 gives. */
+    private fun ocrOnly(lines: List<String>, barcodes: List<TicketBarcode> = emptyList()) =
+        parseTicketFields(TicketEvidence(listOf(TicketReading(TicketReading.Origin.OCR, lines)), barcodes))
 
     private fun known(id: String, date: String, artist: String, venue: String = "Rockefeller") = FmSetlist(
         id = id,
@@ -32,26 +47,29 @@ class TicketParsingTest {
         venue = FmVenue(name = venue),
     )
 
-    // --- parseTicket: reporting only, never a decision ---
+    // --- parseTicketFields: reporting only, never a decision ---
 
     @Test
     fun aCleanParseFindsAllFourFields() {
-        val extract = TicketExtract(
-            qrBytes = qr(),
-            textBlocks = listOf("Kaizers Orchestra", "Sentrum Scene, Oslo", "24-06-2027"),
+        val parsed = ocrOnly(
+            listOf("Kaizers Orchestra", "Sentrum Scene, Oslo", "24-06-2027"),
+            barcodes = listOf(barcode("qr", "ticket-payload")),
         )
-
-        val parsed = parseTicket(extract)
 
         assertEquals("Kaizers Orchestra", parsed.artist)
         assertEquals("Sentrum Scene, Oslo", parsed.venue)
         assertEquals("24-06-2027", parsed.date)
+        assertEquals(TicketSupport.OCR, parsed.artistSupport)
+        assertEquals(1, parsed.readingCount)
         assertTrue(parsed.isComplete)
+        assertTrue("one reading passes on completeness alone", parsed.canSkipPrompt)
     }
 
     @Test
     fun qrOnlyWithNoUsableTextIsIncompleteNotEmpty() {
-        val parsed = parseTicket(TicketExtract(qrBytes = qr(), textBlocks = emptyList()))
+        val parsed = parseTicketFields(
+            TicketEvidence(readings = emptyList(), barcodes = listOf(barcode("qr", "ticket-payload"))),
+        )
 
         assertEquals(qr().toList(), parsed.qrBytes!!.toList())
         assertNull(parsed.artist)
@@ -62,9 +80,7 @@ class TicketParsingTest {
 
     @Test
     fun textOnlyWithNoQrIsIncomplete() {
-        val parsed = parseTicket(
-            TicketExtract(qrBytes = null, textBlocks = listOf("Kaizers Orchestra", "Sentrum Scene", "24-06-2027")),
-        )
+        val parsed = ocrOnly(listOf("Kaizers Orchestra", "Sentrum Scene", "24-06-2027"))
 
         assertNull(parsed.qrBytes)
         assertEquals("Kaizers Orchestra", parsed.artist)
@@ -74,43 +90,92 @@ class TicketParsingTest {
 
     @Test
     fun nothingUsableAtAllIsReportedAsEmpty() {
-        val parsed = parseTicket(TicketExtract())
+        val parsed = parseTicketFields(TicketEvidence(readings = emptyList()))
 
         assertTrue(parsed.isEmpty)
         assertTrue(!parsed.isComplete)
     }
 
     @Test
+    fun aCompleteReadSkipsThePromptOnlyWhenBothReadingsBackEveryField() {
+        // #526: the text layer and OCR agree on every field — or one field came out of
+        // OCR alone (here the date, printed as a picture), and a person looks first.
+        val qrs = listOf(barcode("qr", "ticket-payload"))
+        val agreed = parseTicketFields(
+            TicketEvidence(
+                listOf(
+                    TicketReading(TicketReading.Origin.TEXT_LAYER, listOf("Kaizers Orchestra", "24-06-2027", "Sentrum Scene")),
+                    TicketReading(TicketReading.Origin.OCR, listOf("KAIZERS ORCHESTRA", "24.06.2027", "Sentrum Scene")),
+                ),
+                qrs,
+            ),
+        )
+        val disputed = parseTicketFields(
+            TicketEvidence(
+                listOf(
+                    TicketReading(TicketReading.Origin.TEXT_LAYER, listOf("Kaizers Orchestra", "Sentrum Scene")),
+                    TicketReading(TicketReading.Origin.OCR, listOf("Kaizers Orchestra", "Sentrum Scene", "24-06-2027")),
+                ),
+                qrs,
+            ),
+        )
+
+        assertEquals("Kaizers Orchestra", agreed.artist)
+        assertEquals(TicketSupport.BOTH, agreed.artistSupport)
+        assertTrue(agreed.canSkipPrompt)
+        assertEquals(TicketSupport.OCR, disputed.dateSupport)
+        assertTrue(disputed.isComplete)
+        assertFalse(disputed.canSkipPrompt)
+    }
+
+    @Test
     fun anUnsupportedBarcodeIsCarriedThroughAndChangesNothingElse() {
         // #441 interim: a Code 128 is reported for the confirm prompt, not stored as a
         // QR. The text parse is exactly what it would have been without it.
-        val blocks = listOf("Kaizers Orchestra", "Sentrum Scene, Oslo", "24-06-2027")
+        val lines = listOf("Kaizers Orchestra", "Sentrum Scene, Oslo", "24-06-2027")
 
-        val flagged = parseTicket(TicketExtract(textBlocks = blocks, unsupportedBarcodeFormat = "CODE_128"))
-        val plain = parseTicket(TicketExtract(textBlocks = blocks))
+        val flagged = ocrOnly(lines, barcodes = listOf(barcode("code128", "SYNTHETIC-CODE128-0001")))
+        val plain = ocrOnly(lines)
 
-        assertEquals("CODE_128", flagged.unsupportedBarcodeFormat)
+        assertEquals("code128", flagged.unsupportedBarcodeFormat)
         assertNull(flagged.qrBytes)
-        assertEquals(plain.copy(unsupportedBarcodeFormat = "CODE_128"), flagged)
+        assertEquals(plain.copy(unsupportedBarcodeFormat = "code128"), flagged)
         assertEquals(plain.isEmpty, flagged.isEmpty)
         assertEquals(plain.isComplete, flagged.isComplete)
+    }
+
+    @Test
+    fun aNonQrFoundBeforeTheQrIsStillReportedAndTheFirstQrIsKept() {
+        // That ticket may well be the Code 128 with an unrelated QR printed after it —
+        // the prompt saying "bring the PDF" costs nothing there.
+        val parsed = parseTicketFields(
+            TicketEvidence(
+                readings = emptyList(),
+                barcodes = listOf(
+                    barcode("code128", "SYNTHETIC-CODE128-0001"),
+                    barcode("qr", "SYNTHETIC-QR-1"),
+                    barcode("qr", "SYNTHETIC-QR-2"),
+                ),
+            ),
+        )
+
+        assertEquals("SYNTHETIC-QR-1", parsed.qrBytes?.toString(Charsets.UTF_8))
+        assertEquals("code128", parsed.unsupportedBarcodeFormat)
     }
 
     @Test
     fun aTicketWhoseOnlyBarcodeIsUnsupportedAlwaysReachesThePrompt() {
         // No QR means never complete, so the prompt that says "bring the PDF" is
         // always shown — even when every text field parsed and the night is future.
-        val parsed = parseTicket(
-            TicketExtract(
-                textBlocks = listOf("Kaizers Orchestra", "Sentrum Scene, Oslo", "24-06-2027"),
-                unsupportedBarcodeFormat = "CODE_128",
-            ),
+        val parsed = ocrOnly(
+            listOf("Kaizers Orchestra", "Sentrum Scene, Oslo", "24-06-2027"),
+            barcodes = listOf(barcode("code128", "SYNTHETIC-CODE128-0001")),
         )
 
         val routing = routeTicket(parsed, emptyList(), today = LocalDate.of(2027, 1, 1))
 
         assertTrue(routing is TicketRouting.NeedsConfirmation)
-        assertEquals("CODE_128", (routing as TicketRouting.NeedsConfirmation).parsed.unsupportedBarcodeFormat)
+        assertEquals("code128", (routing as TicketRouting.NeedsConfirmation).parsed.unsupportedBarcodeFormat)
     }
 
     @Test
@@ -121,7 +186,7 @@ class TicketParsingTest {
 
         for (nights in listOf(gigs, emptyList())) {
             val plain = routeTicket(base, nights, today)
-            val flagged = routeTicket(base.copy(unsupportedBarcodeFormat = "CODE_128"), nights, today)
+            val flagged = routeTicket(base.copy(unsupportedBarcodeFormat = "code128"), nights, today)
             assertEquals(plain::class, flagged::class)
         }
     }
@@ -133,8 +198,8 @@ class TicketParsingTest {
         // "first two non-date lines" confidently handed the banner to the confirm
         // dialog instead of the artist/venue. Both banner lines are ordinary
         // sentence-case Norwegian; the real event/venue line is vendor-styled caps.
-        val extract = TicketExtract(
-            textBlocks = listOf(
+        val parsed = ocrOnly(
+            listOf(
                 "Dette er din billett",
                 "Ta med hele siden til arrangementet",
                 "SKAMBANKT",
@@ -142,8 +207,6 @@ class TicketParsingTest {
                 "TORSDAG 29.01.2015",
             ),
         )
-
-        val parsed = parseTicket(extract)
 
         assertEquals("SKAMBANKT", parsed.artist)
         assertEquals("PARKTEATRET SCENE", parsed.venue)
@@ -159,19 +222,21 @@ class TicketParsingTest {
         // themselves caps-styled — a caps preference alone hands the confirm dialog
         // "OPT2901" / "DEL EN OPPLEVELSE!" instead of "SKAMBANKT" / "PARKTEATRET
         // SCENE". This is that real ML Kit output, trimmed to the blocks that matter
-        // for this decision.
-        val extract = TicketExtract(
-            textBlocks = listOf(
+        // for this decision; the buyer and the numbers are made up.
+        // `skambankt-billettservice-ocr-only` in fixtures/ticket is the same ticket as
+        // ML Kit lines.
+        val parsed = ocrOnly(
+            listOf(
                 "Dette er din billett",
                 "Ta med hele siden til arrangementet",
-                "Magnus Hustveit",
+                "Kari Nordmann",
                 "Kundenummer:",
-                "1813111",
+                "1000001",
                 "Arrangementskode:",
                 "OPT2901",
                 "Kjøpsdato:",
                 "Ordrenummer:",
-                "17424705",
+                "10000001",
                 "billettservice",
                 "I Gaver",
                 "Gi levende",
@@ -190,8 +255,6 @@ class TicketParsingTest {
             ),
         )
 
-        val parsed = parseTicket(extract)
-
         assertEquals("SKAMBANKT", parsed.artist)
         assertEquals("PARKTEATRET SCENE", parsed.venue)
         assertEquals("29-01-2015", parsed.date)
@@ -200,40 +263,42 @@ class TicketParsingTest {
     @Test
     fun anUnstyledEventimTicketFallsBackToTheLinesBesideTheDate() {
         // A third real ticket (Eventim), reported alongside the Billettservice one:
-        // no line on this layout is vendor-styled caps at all, so isShoutyLabel finds
-        // nothing to prefer and "first two non-date lines" would hand the confirm
+        // no line on this layout is vendor-styled caps at all, so there is no caps
+        // line to prefer and "first two non-date lines" would hand the confirm
         // dialog the banner ("Dette er din billett") again. The layout does carry a
         // different, still-generic signal: the artist prints immediately before the
-        // date and the venue immediately after it. Trimmed to the blocks that matter;
-        // "presenterer:" is the vendor's own label line and must not win instead.
-        val extract = TicketExtract(
-            textBlocks = listOf(
+        // date and the venue immediately after it. "presenterer:" is the vendor's own
+        // label line and must not win instead. Personal data and numbers are made up.
+        //
+        // Only the venue and the date are asserted. The line above the date is
+        // "Dumdumboys – XL [romertallførti]", and the artist is "Dumdumboys": no rule
+        // says where the band's name ends, which `dumdumboys-eventim-ocr-only` in
+        // fixtures/ticket carries as a known failure on both platforms.
+        val parsed = ocrOnly(
+            listOf(
                 "Dette er din billett",
                 "Vis billetten på din telefon eller print den ut",
                 "Booking details",
-                "Magnus Meyer Europa",
-                "Order number: 1102933078",
-                "E-ticket code: NUSA7D2",
+                "Kari Nordmann",
+                "Order number: 1000000001",
+                "E-ticket code: ABCD1E2",
                 "Terms and conditions",
                 "Please check the ticket for event, date and time.",
-                "000310038500200020010000",
+                "000000000000000000000001",
                 "Stageway, ATL & Ramalama presenterer:",
                 "Dumdumboys – XL [romertallførti]",
                 "28. nov. 2026 kl. 20.00",
                 "Trondheim Spektrum",
                 "Klostergata 90, 7030 Trondheim",
-                "Kunde: Magnus Meyer Europa",
+                "Kunde: Kari Nordmann",
                 "NOK 935,00 - fees included",
                 "Inngang 2/Inngang 4",
                 "STÅPLASS/STANDING",
                 "Dørene åpner 18:00",
-                "OrdreID: 0003081683",
+                "OrdreID: 0000000001",
             ),
         )
 
-        val parsed = parseTicket(extract)
-
-        assertEquals("Dumdumboys – XL [romertallførti]", parsed.artist)
         assertEquals("Trondheim Spektrum", parsed.venue)
         assertEquals("28-11-2026", parsed.date)
     }
@@ -241,7 +306,7 @@ class TicketParsingTest {
     @Test
     fun aLongFormDateIsRecognisedToo() {
         // Generic date shapes, not any one vendor's — see routeTicket's own doc.
-        val parsed = parseTicket(TicketExtract(textBlocks = listOf("Doors 19:00, 24th June 2027")))
+        val parsed = ocrOnly(listOf("Doors 19:00, 24th June 2027"))
 
         assertEquals("24-06-2027", parsed.date)
     }
@@ -279,6 +344,47 @@ class TicketParsingTest {
         val gig = routing as TicketRouting.NewPlannedGig
         assertEquals("Kaizers Orchestra", gig.artist)
         assertEquals("24-06-2027", gig.date)
+    }
+
+    @Test
+    fun aCompleteParseOnlyOneReadingBackedIsAskedAboutNotMinted() {
+        // #526: two readings, and the artist came out of OCR alone — the vendor logo
+        // case. A ticket built from a link has no readings at all and still mints.
+        val single = ParsedTicket(
+            qrBytes = qr(),
+            artist = "TICKETLINE",
+            venue = "Sentrum Scene",
+            date = "24-06-2027",
+            artistSupport = TicketSupport.OCR,
+            venueSupport = TicketSupport.BOTH,
+            dateSupport = TicketSupport.BOTH,
+            readingCount = 2,
+        )
+        val backed = single.copy(artist = "Kaizers Orchestra", artistSupport = TicketSupport.BOTH)
+        val linked = ParsedTicket(qrBytes = qr(), artist = "Kaizers Orchestra", venue = "Sentrum Scene", date = "24-06-2027")
+        val today = LocalDate.of(2027, 1, 1)
+
+        assertTrue(routeTicket(single, emptyList(), today) is TicketRouting.NeedsConfirmation)
+        assertTrue(routeTicket(backed, emptyList(), today) is TicketRouting.NewPlannedGig)
+        assertTrue(routeTicket(linked, emptyList(), today) is TicketRouting.NewPlannedGig)
+    }
+
+    @Test
+    fun aCompleteParseMatchingAKnownNightIsAMatchWhateverItsSupport() {
+        // As on iOS: a match adds nothing new to the line, so completeness is enough.
+        val gigs = listOf(known("g1", "24-06-2027", "Kaizers Orchestra"))
+        val parsed = ParsedTicket(
+            qrBytes = qr(),
+            artist = "Kaizers Orchestra",
+            venue = "Sentrum Scene",
+            date = "24-06-2027",
+            artistSupport = TicketSupport.OCR,
+            venueSupport = TicketSupport.TEXT_LAYER,
+            dateSupport = TicketSupport.BOTH,
+            readingCount = 2,
+        )
+
+        assertTrue(routeTicket(parsed, gigs, today = LocalDate.of(2027, 1, 1)) is TicketRouting.AlreadyKnown)
     }
 
     @Test
