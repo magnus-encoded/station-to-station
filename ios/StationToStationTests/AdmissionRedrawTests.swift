@@ -12,7 +12,7 @@ import XCTest
 final class AdmissionRedrawTests: XCTestCase {
 
     /// A 24-digit number in the shape of an Eventim ticket's Code 128, made up.
-    private let eventimShaped = "000310038500100020019999"
+    private let eventimShaped = "123456789012345678901234"
 
     private func roundTrips(_ symbology: String, _ text: String,
                             file: StaticString = #filePath, line: UInt = #line) {

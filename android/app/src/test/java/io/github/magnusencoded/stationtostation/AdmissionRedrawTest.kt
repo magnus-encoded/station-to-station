@@ -29,7 +29,7 @@ import org.junit.Test
 class AdmissionRedrawTest {
 
     /** A 24-digit number in the shape of an Eventim ticket's Code 128, made up. */
-    private val eventimShaped = "000310038500100020019999"
+    private val eventimShaped = "123456789012345678901234"
 
     private fun bytes(text: String) = text.toByteArray(Charsets.UTF_8)
 

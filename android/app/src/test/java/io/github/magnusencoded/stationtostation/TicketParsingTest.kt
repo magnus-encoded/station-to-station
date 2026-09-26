@@ -244,7 +244,7 @@ class TicketParsingTest {
         // Closes #542's open question 1: a complete Eventim read whose Code 128 did not
         // read back as itself is not added without asking.
         val eventim = ParsedTicket(
-            admissions = listOf(Admission("000310038500100020019999".toByteArray(), "code128", redrawable = false)),
+            admissions = listOf(Admission("123456789012345678901234".toByteArray(), "code128", redrawable = false)),
             artist = "Kaizers Orchestra",
             venue = "Sentrum Scene",
             date = "24-06-2027",
@@ -294,7 +294,7 @@ class TicketParsingTest {
             date = "24-06-2027",
         ).checkedForRedraw()
 
-        assertTrue(routeTicket(eventim("000310038500100020019999"), emptyList(), today) is TicketRouting.NewPlannedGig)
+        assertTrue(routeTicket(eventim("123456789012345678901234"), emptyList(), today) is TicketRouting.NewPlannedGig)
         assertTrue(routeTicket(eventim("Kjøpt – ÆØÅ"), emptyList(), today) is TicketRouting.NeedsConfirmation)
     }
 
