@@ -93,7 +93,11 @@ struct StoredAttendance: Codable, Equatable {
         checkedInAt = (try? c.decodeIfPresent(Int64.self, forKey: .checkedInAt)) ?? nil
         venueLat = (try? c.decodeIfPresent(Double.self, forKey: .venueLat)) ?? nil
         venueLon = (try? c.decodeIfPresent(Double.self, forKey: .venueLon)) ?? nil
-        admissions = (try? c.decodeIfPresent([StoredAdmission].self, forKey: .admissions)) ?? nil ?? []
+        // Element by element: one malformed entry (not an object, say) costs that entry,
+        // never the list — `try?` over the whole array dropped every Admission (the #441
+        // review). A value that is not an array at all still reads as none.
+        admissions = ((try? c.decodeIfPresent([LenientAdmission].self, forKey: .admissions)) ?? nil)?
+            .compactMap(\.admission) ?? []
         // #441's migration. A value that is not base64 was never drawable and migrates
         // to nothing, as it was read before.
         if let legacy = (try? c.decodeIfPresent(String.self, forKey: .ticketQr)) ?? nil,
@@ -148,6 +152,16 @@ struct StoredAdmission: Codable, Equatable {
     /// will not decode is treated as no payload: there is nothing to hold up at a door,
     /// and a half-decoded barcode is worse than none.
     var payloadBytes: Data? { Data(base64Encoded: payload) }
+}
+
+/// One element of a stored `admissions` list, decoded without failing the list: an
+/// element that is not an **Admission** at all reads as nil and is skipped.
+private struct LenientAdmission: Decodable {
+    let admission: StoredAdmission?
+
+    init(from decoder: Decoder) throws {
+        admission = try? StoredAdmission(from: decoder)
+    }
 }
 
 /// `kept`, then every **Admission** of `added` whose payload `kept` does not already hold

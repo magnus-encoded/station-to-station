@@ -780,6 +780,28 @@ final class TimelineStoreTests: XCTestCase {
                         StoredAdmission(payload: "", symbology: "")], claim.admissions)
     }
 
+    /// One element that is not an Admission at all costs that element, not the list
+    /// (the #441 review): before, `try?` over the whole array dropped every Admission.
+    func testAMalformedAdmissionCostsOnlyItself() throws {
+        let claim = try JSONDecoder().decode(StoredAttendance.self, from: Data("""
+        {"provenance":"checked_in","admissions":[{"payload":"VEtULTlGMzE="},"not an object",null,7,\
+        {"payload":"U1lOVEg=","symbology":"qr","page":"two","corroborated":"yes"}]}
+        """.utf8))
+
+        XCTAssertEqual("checked_in", claim.provenance)
+        XCTAssertEqual([StoredAdmission(payload: "VEtULTlGMzE=", symbology: ""),
+                        StoredAdmission(payload: "U1lOVEg=", symbology: "qr")], claim.admissions)
+    }
+
+    /// A list that is not a list reads as none, and the claim survives it.
+    func testAnAdmissionsValueThatIsNotAListReadsAsNone() throws {
+        let claim = try JSONDecoder().decode(StoredAttendance.self, from: Data("""
+        {"provenance":"attended","admissions":"oops"}
+        """.utf8))
+
+        XCTAssertEqual(StoredAttendance(provenance: "attended"), claim)
+    }
+
     /// A stored payload that is not base64 is treated as no payload: there is nothing
     /// to hold up at a door, and a half-decoded barcode is worse than none.
     func testAPayloadThatIsNotBase64ReadsAsNoBytesAtAll() {
