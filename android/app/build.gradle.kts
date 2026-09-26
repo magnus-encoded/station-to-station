@@ -273,3 +273,16 @@ dependencies {
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
 }
+
+// Unit tests' stdout reaches the CI log, and a failure's full message with it. No local
+// JDK runs these, so the log is the only place a result is read: the shared fixture
+// corpora print how many cases ran (TicketFixturesTest), and without FULL a failed
+// assertion shows up in `gh run view --log-failed` as a bare class name. The HTML
+// report is not uploaded.
+tasks.withType<Test>().configureEach {
+    testLogging {
+        showStandardStreams = true
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+}
