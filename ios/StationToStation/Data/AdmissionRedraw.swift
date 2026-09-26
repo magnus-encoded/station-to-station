@@ -212,6 +212,13 @@ func redrawsExactly(symbology: String, payload: Data) -> Bool {
     else { return false }
     return autoreleasepool {
         let request = VNDetectBarcodesRequest()
+        #if targetEnvironment(simulator)
+        // The simulator cannot compile the model the current revisions run ("e5rt …
+        // OPERATION ERROR" on CI, and no results), so there — and only there, which is
+        // where the tests run — the pre-model detector reads the redraw back. A phone
+        // uses the revision it reads tickets with.
+        request.revision = VNDetectBarcodesRequestRevision1
+        #endif
         request.symbologies = [vision]
         try? VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
         return (request.results ?? []).contains { found in
