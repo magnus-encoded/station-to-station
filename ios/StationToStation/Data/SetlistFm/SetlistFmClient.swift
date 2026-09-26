@@ -130,6 +130,25 @@ final class SetlistFmClient {
             get("user/\(userId)/attended", params: ["p": "\(page)"], notFoundIsEmpty: true))
     }
 
+    /// The setlists for one artist on one night (#531). `date` is `dd-MM-yyyy`. setlist.fm
+    /// lists upcoming nights here too, which is how a future **Ticket** can link at import.
+    ///
+    /// `venueName` narrows the search, so a lookup that means to catch a moved gig (John
+    /// Dee to Rockefeller) leaves it out and lets `matchSetlistFm` rank the venues instead.
+    /// A search that finds nothing is a 404 on setlist.fm, and reads here as no hits.
+    /// Term for term with Android's `searchSetlists`.
+    func searchSetlists(
+        artistName: String,
+        date: String,
+        venueName: String? = nil,
+        page: Int = 1
+    ) async throws -> SetlistsResponse {
+        try await decoder.decode(SetlistsResponse.self, from:
+            get("search/setlists",
+                params: ["artistName": artistName, "date": date, "venueName": venueName, "p": "\(page)"],
+                notFoundIsEmpty: true))
+    }
+
     /// One setlist, fresh — for when it was just edited on setlist.fm, and the only
     /// way a gig that has not happened yet can be fetched at all. See `parseSetlistId`.
     func setlist(_ setlistId: String) async throws -> FmSetlist {
