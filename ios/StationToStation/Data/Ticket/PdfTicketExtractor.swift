@@ -78,7 +78,9 @@ struct PdfTicketExtractor: TicketExtractor {
         let readings = zip(readers, lines)
             .filter { !$0.1.isEmpty }
             .map { TicketReading(origin: $0.0.origin, lines: $0.1) }
-        return TicketEvidence(readings: readings, barcode: found)
+        // One barcode today: the locator stops at the first page with one. The evidence
+        // is a list because a ticket can carry several (#441).
+        return TicketEvidence(readings: readings, barcodes: found.map { [$0] } ?? [])
     }
 }
 

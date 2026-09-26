@@ -1,0 +1,38 @@
+{
+  "about": "A PDF the probe generated (not valid for admission) and read on a Pixel 7 Pro; both readings are REAL device output, verbatim. The same page by OCR alone, as a scan would give it: TICKETLINE is the only caps line, and the banner guard keeps it out.",
+  "readings": [
+    {
+      "origin": "ocr",
+      "lines": [
+        "TICKETLINE",
+        "Ocean Colour Scene",
+        "25-09-2026",
+        "Auditorio Marina Norte, Valencia",
+        "Synthetic test ticket - not valid for admission",
+        "Visor Fest / setlist.fm ID 1b498dc4"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "symbology": "qr",
+      "payload": "SYNTHETIC-OCS-QR"
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "Ocean Colour Scene",
+      "support": "ocr"
+    },
+    "venue": {
+      "value": "Auditorio Marina Norte, Valencia",
+      "support": "ocr"
+    },
+    "date": {
+      "value": "25-09-2026",
+      "support": "ocr"
+    },
+    "barcode": "SYNTHETIC-OCS-QR",
+    "skipsPrompt": true
+  }
+}

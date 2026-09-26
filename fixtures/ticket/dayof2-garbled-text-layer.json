@@ -1,5 +1,5 @@
 {
-  "about": "The text layer's font has no usable Unicode map, so each letter it cannot name comes out as U+FFFD, while OCR reads the page cleanly. The readings disagree, so the candidate with more letters wins and its support is single. That keeps it out of auto-add.",
+  "about": "RECONSTRUCTED: the text layer's font has no usable Unicode map, so each letter it cannot name comes out as U+FFFD, while OCR reads the page cleanly. The readings disagree, so the candidate with more letters wins and its support is single. That keeps it out of auto-add.",
   "readings": [
     {
       "origin": "textLayer",
@@ -20,7 +20,12 @@
       ]
     }
   ],
-  "barcode": "dayof2-qr-payload",
+  "barcodes": [
+    {
+      "symbology": "qr",
+      "payload": "SYNTHETIC-DAYOF2-QR"
+    }
+  ],
   "expected": {
     "artist": {
       "value": "Static Halo",
@@ -34,6 +39,7 @@
       "value": "24-09-2026",
       "support": "both"
     },
+    "barcode": "SYNTHETIC-DAYOF2-QR",
     "skipsPrompt": false
   }
 }

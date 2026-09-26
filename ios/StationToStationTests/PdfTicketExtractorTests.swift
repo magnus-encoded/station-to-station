@@ -93,7 +93,7 @@ final class PdfTicketExtractorTests: XCTestCase {
 
         XCTAssertEqual(2, ocr.seen.count)
         XCTAssertEqual(1, locator.asked, "the first barcode found is the one kept")
-        XCTAssertEqual(Data("code".utf8), evidence.barcode?.payload)
+        XCTAssertEqual([Data("code".utf8)], evidence.barcodes.map(\.payload))
     }
 
     func testPagesPastTheLimitAreNotRead() async {

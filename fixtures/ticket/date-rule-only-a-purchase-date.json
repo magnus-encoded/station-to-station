@@ -1,0 +1,30 @@
+{
+  "about": "SYNTHETIC, written by hand for the date rule. The only date is a purchase date. It is still read, as the last resort, because the person reviews the read either way and a date is easier to correct than to type.",
+  "readings": [
+    {
+      "origin": "ocr",
+      "lines": [
+        "Ocean Colour Scene",
+        "Auditorio Marina Norte, Valencia",
+        "Kjøpt 01.05.2025"
+      ]
+    }
+  ],
+  "barcodes": [],
+  "expected": {
+    "artist": {
+      "value": "Ocean Colour Scene",
+      "support": "ocr"
+    },
+    "venue": {
+      "value": "Auditorio Marina Norte, Valencia",
+      "support": "ocr"
+    },
+    "date": {
+      "value": "01-05-2025",
+      "support": "ocr"
+    },
+    "barcode": null,
+    "skipsPrompt": false
+  }
+}

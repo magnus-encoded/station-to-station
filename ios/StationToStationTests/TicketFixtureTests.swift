@@ -4,32 +4,57 @@ import XCTest
 
 /// The shared ticket corpus (`fixtures/ticket/`, #526): the same readings into
 /// `parseTicketFields` on both platforms, and the same fields out, each with the same
-/// support. Android's `TicketFixturesTest` runs these files unchanged.
+/// support. `fixtures/ticket/README.md` is the schema and the rules; Android's fixture
+/// test runs these files unchanged.
 ///
 /// Required, never skipped: a missing corpus would make the parity this exists for
 /// pass by saying nothing.
 final class TicketFixtureTests: XCTestCase {
+
+    /// What a case expects of one field: a value with its support, nothing found, or
+    /// deliberately not asserted.
+    private enum Expect<Value: Decodable & Equatable>: Decodable {
+        case value(Value)
+        case unchecked
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            if let word = try? container.decode(String.self), word == "unchecked" {
+                self = .unchecked
+            } else {
+                self = .value(try container.decode(Value.self))
+            }
+        }
+    }
 
     private struct Case: Decodable {
         struct Reading: Decodable {
             var origin: TicketReading.Origin
             var lines: [String]
         }
-        struct Field: Decodable {
+        struct Barcode: Decodable {
+            var symbology: String
+            /// The decoded payload, as text.
+            var payload: String
+        }
+        struct Field: Decodable, Equatable {
             var value: String
             var support: TicketSupport
         }
         struct Expected: Decodable {
-            var artist: Field?
-            var venue: Field?
+            var artist: Expect<Field?>
+            var venue: Expect<Field?>
             /// dd-MM-yyyy, the one shape both platforms write.
-            var date: Field?
-            var skipsPrompt: Bool
+            var date: Expect<Field?>
+            /// The payload of the one barcode the result carries, as text.
+            var barcode: String?
+            var skipsPrompt: Expect<Bool>
         }
         var readings: [Reading]
-        /// The decoded payload, as UTF-8. Absent when the case has no barcode.
-        var barcode: String?
+        var barcodes: [Barcode]
         var expected: Expected
+        /// Field name to the reason it is expected to fail, on both platforms.
+        var knownFailure: [String: String]?
     }
 
     private let calendar: Calendar = {
@@ -50,30 +75,70 @@ final class TicketFixtureTests: XCTestCase {
         let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "json" }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        XCTAssertGreaterThanOrEqual(files.count, 10, "fixtures/ticket lost cases")
+        XCTAssertGreaterThanOrEqual(files.count, 18, "fixtures/ticket lost cases")
 
+        var ran = 0
         for file in files {
             let name = file.deletingPathExtension().lastPathComponent
             let fixture = try JSONDecoder().decode(Case.self, from: Data(contentsOf: file))
-            let evidence = TicketEvidence(
-                readings: fixture.readings.map { TicketReading(origin: $0.origin, lines: $0.lines) },
-                barcode: fixture.barcode.map {
-                    TicketBarcode(image: Data(), payload: Data($0.utf8), symbology: "qr")
-                })
-
-            guard case .ticket(let found) = parseTicketFields(evidence, calendar: calendar) else {
-                XCTFail("\(name): read nothing")
-                continue
+            XCTContext.runActivity(named: "fixture \(name)") { _ in
+                check(fixture, name)
             }
-            let want = fixture.expected
-            XCTAssertEqual(want.artist?.value, found.artist, "\(name): artist")
-            XCTAssertEqual(want.artist?.support, found.artistSupport, "\(name): artist support")
-            XCTAssertEqual(want.venue?.value, found.venue, "\(name): venue")
-            XCTAssertEqual(want.venue?.support, found.venueSupport, "\(name): venue support")
-            XCTAssertEqual(want.date?.value, found.date.map { fmDate($0, calendar: calendar) },
-                           "\(name): date")
-            XCTAssertEqual(want.date?.support, found.dateSupport, "\(name): date support")
-            XCTAssertEqual(want.skipsPrompt, found.canSkipPrompt, "\(name): skips prompt")
+            ran += 1
+        }
+        print("TicketFixtureTests: ran \(ran) fixture cases")
+    }
+
+    private func check(_ fixture: Case, _ name: String) {
+        let known = fixture.knownFailure ?? [:]
+        for field in known.keys {
+            XCTAssertTrue(["artist", "venue", "date", "skipsPrompt"].contains(field),
+                          "\(name): knownFailure names no field \(field)")
+        }
+
+        let evidence = TicketEvidence(
+            readings: fixture.readings.map { TicketReading(origin: $0.origin, lines: $0.lines) },
+            barcodes: fixture.barcodes.map {
+                TicketBarcode(image: Data(), payload: Data($0.payload.utf8), symbology: $0.symbology)
+            })
+
+        guard case .ticket(let found) = parseTicketFields(evidence, calendar: calendar) else {
+            XCTFail("\(name): read nothing")
+            return
+        }
+
+        /// A known failure is asserted inside `XCTExpectFailure`'s block, and strictly:
+        /// if the field starts reading right, this fails until the flag is removed.
+        func assertField(_ field: String, _ body: () -> Void) {
+            if let reason = known[field] {
+                XCTExpectFailure("\(name): \(field) — \(reason)", failingBlock: body)
+            } else {
+                body()
+            }
+        }
+
+        let want = fixture.expected
+        let date = found.date.map { fmDate($0, calendar: calendar) }
+        let fields: [(String, Expect<Case.Field?>, String?, TicketSupport?)] = [
+            ("artist", want.artist, found.artist, found.artistSupport),
+            ("venue", want.venue, found.venue, found.venueSupport),
+            ("date", want.date, date, found.dateSupport),
+        ]
+        for (field, expect, value, support) in fields {
+            guard case .value(let expected) = expect else { continue }
+            assertField(field) {
+                XCTAssertEqual(expected?.value, value, "\(name): \(field)")
+                XCTAssertEqual(expected?.support, support, "\(name): \(field) support")
+            }
+        }
+
+        XCTAssertEqual(want.barcode, found.qr.map { String(decoding: $0, as: UTF8.self) },
+                       "\(name): barcode")
+
+        if case .value(let skips) = want.skipsPrompt {
+            assertField("skipsPrompt") {
+                XCTAssertEqual(skips, found.canSkipPrompt, "\(name): skips prompt")
+            }
         }
     }
 }
