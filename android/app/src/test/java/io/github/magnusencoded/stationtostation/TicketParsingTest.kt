@@ -630,4 +630,47 @@ class TicketParsingTest {
         assertNull(matchKnownNight(ParsedTicket(date = "24-06-2027"), gigs))
         assertNull(matchKnownNight(ParsedTicket(artist = "Kaizers Orchestra"), gigs))
     }
+
+    @Test
+    fun theArtistNameIsFoldedBeforeItIsMatched() {
+        // The country tag clashfinder and setlist.fm disagree about, folded through
+        // nameKey the way every other match in this app folds it — and iOS's knownNight.
+        val gigs = listOf(known("g1", "14-09-2027", "Wilco"))
+        val parsed = ParsedTicket(qrBytes = qr(), artist = "Wilco (US)", venue = "Sentrum Scene", date = "14-09-2027")
+
+        val routing = routeTicket(parsed, gigs, today = LocalDate.of(2027, 1, 1))
+
+        assertEquals("g1", (routing as TicketRouting.AlreadyKnown).gig.id)
+    }
+
+    @Test
+    fun anArtistThatFoldsToNothingMatchesNoNight() {
+        // nameKey("") is "", so without a guard a ticket artist of pure punctuation
+        // would match any night that day whose artist is missing.
+        val gigs = listOf(FmSetlist(id = "g1", eventDate = "14-09-2027", artist = null))
+
+        assertNull(matchKnownNight(ParsedTicket(artist = "—", date = "14-09-2027"), gigs))
+    }
+
+    // --- the confirm step: the match is checked again on what was confirmed ---
+
+    @Test
+    fun editingTheArtistAtConfirmDropsTheRoutingTimeMatch() {
+        // What routing matched is a hint for the prompt, not the answer: the person
+        // said it is a different act, so the night routing found is not this one.
+        val gigs = listOf(known("g1", "14-09-2027", "Wilco"))
+        val routing = routeTicket(ParsedTicket(artist = "Wilco", date = "14-09-2027"), gigs, today = LocalDate.of(2027, 1, 1))
+        assertEquals("g1", (routing as TicketRouting.NeedsConfirmation).possibleMatch?.id)
+
+        assertNull(matchKnownNight(ParsedTicket(artist = "Big Thief", venue = "Sentrum Scene", date = "14-09-2027"), gigs))
+    }
+
+    @Test
+    fun editingTheDateAtConfirmFindsTheNightItNowNames() {
+        val gigs = listOf(known("g1", "14-09-2027", "Wilco"), known("g2", "15-09-2027", "Wilco"))
+        val routing = routeTicket(ParsedTicket(artist = "Wilco", date = "14-09-2027"), gigs, today = LocalDate.of(2027, 1, 1))
+        assertEquals("g1", (routing as TicketRouting.NeedsConfirmation).possibleMatch?.id)
+
+        assertEquals("g2", matchKnownNight(ParsedTicket(artist = "Wilco (US)", date = "15-09-2027"), gigs)?.id)
+    }
 }
