@@ -206,10 +206,30 @@ private func modules(of image: CGImage, shape: AdmissionShape) -> AdmissionDrawi
 ///
 /// Synchronous and not cheap (one Vision pass): call it off the main actor.
 func redrawsExactly(symbology: String, payload: Data) -> Bool {
+    redrawCheck(symbology: symbology, payload: payload) == .readsBack
+}
+
+/// What one draw-and-decode found. Only the first two are answers: `unanswered` is
+/// Vision failing to say (it threw, or read nothing at all off a drawing it was given),
+/// which may not be true the next time it is asked, so `AdmissionVerdicts` never keeps
+/// it (the #441 review). The import's check still counts it as not redrawable.
+enum RedrawCheck: Equatable, Sendable {
+    /// Read back as the same payload in the same symbology.
+    case readsBack
+    /// No: nothing this platform can draw it with, or Vision read something else.
+    case readsDifferently
+    /// Vision threw, or found no barcode at all.
+    case unanswered
+}
+
+/// `redrawsExactly`, with Vision's failures told apart from its answers.
+func redrawCheck(symbology: String, payload: Data) -> RedrawCheck {
+    // Nothing to draw it with, or no Vision symbology to read it as: the same answer
+    // every time.
     guard let drawing = admissionDrawing(symbology: symbology, payload: payload),
           let image = drawing.image(modulePixels: 4, linearHeight: 160, border: 32),
           let vision = visionSymbology(symbology)
-    else { return false }
+    else { return .readsDifferently }
     return autoreleasepool {
         let request = VNDetectBarcodesRequest()
         #if targetEnvironment(simulator)
@@ -220,11 +240,18 @@ func redrawsExactly(symbology: String, payload: Data) -> Bool {
         request.revision = VNDetectBarcodesRequestRevision1
         #endif
         request.symbologies = [vision]
-        try? VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
-        return (request.results ?? []).contains { found in
+        do {
+            try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
+        } catch {
+            return .unanswered
+        }
+        let results = request.results ?? []
+        guard !results.isEmpty else { return .unanswered }
+        let same = results.contains { found in
             ticketSymbology(found.symbology) == symbology
                 && found.payloadStringValue.map { Data($0.utf8) } == payload
         }
+        return same ? .readsBack : .readsDifferently
     }
 }
 
@@ -252,17 +279,30 @@ extension Ticket {
 /// does not run Vision again for an Admission it has already read back. Stored
 /// Admissions carry no verdict (it can always be recomputed, and one written by an older
 /// build — a migrated `ticketQr` — was never checked at all), so the Room asks here.
+///
+/// Only answers are kept (`RedrawCheck`): a Vision failure is not a verdict, and caching
+/// one would say "can't be shown" for as long as the app runs about a code that might
+/// read back the next time (the #441 review). Such a code is checked again on every
+/// Room render until Vision answers, which costs time, not correctness.
 actor AdmissionVerdicts {
     static let shared = AdmissionVerdicts()
     private var known: [String: Bool] = [:]
+    private let check: @Sendable (String, Data) -> RedrawCheck
+
+    init(check: @escaping @Sendable (String, Data) -> RedrawCheck = { redrawCheck(symbology: $0, payload: $1) }) {
+        self.check = check
+    }
 
     func redraws(symbology: String, payload: Data) async -> Bool {
         let key = symbology + ":" + payload.base64EncodedString()
         if let verdict = known[key] { return verdict }
-        let verdict = await Task.detached(priority: .userInitiated) {
-            redrawsExactly(symbology: symbology, payload: payload)
-        }.value
-        known[key] = verdict
-        return verdict
+        let check = self.check
+        let found = await Task.detached(priority: .userInitiated) { check(symbology, payload) }.value
+        switch found {
+        case .readsBack: known[key] = true
+        case .readsDifferently: known[key] = false
+        case .unanswered: break
+        }
+        return found == .readsBack
     }
 }
