@@ -16,7 +16,9 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonTransformingSerializer
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import java.io.File
 import java.nio.file.Files
@@ -154,8 +156,8 @@ private fun StoredAdmission.payloadKey(): Any = payloadBytes?.toList() ?: payloa
 object LegacyTicketQr : JsonTransformingSerializer<StoredAttendance>(StoredAttendance.serializer()) {
     override fun transformDeserialize(element: JsonElement): JsonElement {
         val obj = element as? JsonObject ?: return element
-        val legacy = obj["ticketQr"] ?: return element
-        val rest = JsonObject(obj - "ticketQr")
+        val rest = lenientAdmissions(JsonObject(obj - "ticketQr"))
+        val legacy = obj["ticketQr"] ?: return rest
         val base64 = (legacy as? JsonPrimitive)?.takeIf { it.isString }?.content
         if (base64 == null || base64.decodeAdmissionBase64() == null) return rest
         val migrated = buildJsonObject {
@@ -167,6 +169,33 @@ object LegacyTicketQr : JsonTransformingSerializer<StoredAttendance>(StoredAtten
         val existing = rest["admissions"] as? JsonArray ?: JsonArray(emptyList())
         val already = existing.any { (it as? JsonObject)?.get("payload") == JsonPrimitive(base64) }
         return JsonObject(rest + ("admissions" to if (already) existing else JsonArray(existing + migrated)))
+    }
+
+    /**
+     * `admissions` made safe to decode, element by element (the #441 review): an element
+     * that is not an object is dropped, and a field of the wrong type is dropped for its
+     * default to fill — so one malformed Admission costs itself, or its field, and never
+     * the whole cache (which `load` would otherwise read as empty). A value that is not
+     * a list reads as none. The Swift twin decodes each element with `try?`. Only this
+     * one field is touched: the Json configuration stays as it is for everything else.
+     */
+    private fun lenientAdmissions(attendance: JsonObject): JsonObject {
+        val admissions = attendance["admissions"] ?: return attendance
+        val kept = (admissions as? JsonArray).orEmpty().mapNotNull { item ->
+            val fields = item as? JsonObject ?: return@mapNotNull null
+            JsonObject(
+                fields.filter { (key, value) ->
+                    val primitive = value as? JsonPrimitive
+                    when (key) {
+                        "payload", "symbology" -> primitive != null && primitive.isString
+                        "page" -> primitive != null && !primitive.isString && primitive.intOrNull != null
+                        "corroborated" -> primitive != null && !primitive.isString && primitive.booleanOrNull != null
+                        else -> false
+                    }
+                },
+            )
+        }
+        return JsonObject(attendance + ("admissions" to JsonArray(kept)))
     }
 }
 

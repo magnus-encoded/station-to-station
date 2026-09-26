@@ -121,6 +121,44 @@ class AdmissionStoreTest {
         assertEquals(listOf(StoredAdmission("VEtULTlGMzE=", "", 0, false)), loaded.gigAttendance["g1"]?.admissions)
     }
 
+    @Test
+    fun `a malformed Admission costs only itself, never the timeline`() = runBlocking {
+        // The #441 review: a wrong-typed field failed the whole TimelineCache decode, and
+        // load() read that as an empty cache.
+        val store = TimelineStore(
+            tempFile(
+                """{"gigs":{"g1":{"id":"g1","date":"14-09-2026","artist":"Paper Cranes","venue":"","createdAt":1}},""" +
+                    """"gigAttendance":{"g1":{"provenance":"checked_in","admissions":[{"payload":"VEtULTlGMzE="},""" +
+                    """"not an object",null,7,{"payload":"U1lOVEg=","symbology":"qr","page":"two","corroborated":"yes"},""" +
+                    """{"payload":5,"symbology":null,"page":1.5}]}}}""",
+            ),
+        )
+
+        val loaded = store.load()
+
+        assertEquals(setOf("g1"), loaded.gigs.keys)
+        assertEquals(StoredAttendance.Provenance.CHECKED_IN, loaded.gigAttendance["g1"]?.provenance)
+        assertEquals(
+            listOf(StoredAdmission("VEtULTlGMzE=", "", 0, false), StoredAdmission("U1lOVEg=", "qr", 0, false), StoredAdmission()),
+            loaded.gigAttendance["g1"]?.admissions,
+        )
+    }
+
+    @Test
+    fun `an admissions value that is not a list reads as none and the night survives`() = runBlocking {
+        val store = TimelineStore(
+            tempFile(
+                """{"gigs":{"g1":{"id":"g1","date":"14-09-2026","artist":"Paper Cranes","venue":"","createdAt":1}},""" +
+                    """"gigAttendance":{"g1":{"provenance":"attended","admissions":"oops"}}}""",
+            ),
+        )
+
+        val loaded = store.load()
+
+        assertEquals(setOf("g1"), loaded.gigs.keys)
+        assertEquals(StoredAttendance(provenance = StoredAttendance.Provenance.ATTENDED), loaded.gigAttendance["g1"])
+    }
+
     // --- Attaching: appended, one per payload (stories 18, 19) ----------------
 
     @Test
