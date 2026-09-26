@@ -636,7 +636,7 @@ class TicketParsingTest {
         // The country tag clashfinder and setlist.fm disagree about, folded through
         // nameKey the way every other match in this app folds it — and iOS's knownNight.
         val gigs = listOf(known("g1", "14-09-2027", "Wilco"))
-        val parsed = ParsedTicket(qrBytes = qr(), artist = "Wilco (US)", venue = "Sentrum Scene", date = "14-09-2027")
+        val parsed = ParsedTicket(admissions = drawnQr(), artist = "Wilco (US)", venue = "Sentrum Scene", date = "14-09-2027")
 
         val routing = routeTicket(parsed, gigs, today = LocalDate.of(2027, 1, 1))
 
