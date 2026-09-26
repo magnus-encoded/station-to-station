@@ -636,6 +636,39 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual(settled, onDisk)
     }
 
+    /// The check-in offer's geocode (the #441 review): coordinates written after an
+    /// await go onto the record as it is *then*, so a ticket attached while the geocoder
+    /// ran is kept. Before, the record read before the await was saved back whole.
+    func testAnUpdateChangesOnlyItsOwnFieldsOnTheRecordAsItIsNow() async {
+        let store = TimelineStore(file: tempFile(contents: "{}"))
+        let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
+        await store.saveAttendance(setlistId: id, attendance: StoredAttendance(provenance: "planned"))
+        // Attached while the geocoder was out.
+        await store.attachAdmissions(setlistId: id, admissions: [admission("TKT-9F31")])
+
+        let settled = await store.updateAttendance(setlistId: id) {
+            $0.venueLat = 59.9
+            $0.venueLon = 10.7
+        }
+
+        XCTAssertEqual([admission("TKT-9F31")], settled.admissions)
+        XCTAssertEqual("planned", settled.provenance)
+        XCTAssertEqual(59.9, settled.venueLat)
+        let onDisk = await store.load().gigAttendance[id]
+        XCTAssertEqual(settled, onDisk)
+    }
+
+    /// Where there is no record yet, the default one is edited — Android's
+    /// `updateAttendance` falls back the same way.
+    func testAnUpdateOfANightWithNoClaimStartsFromTheDefault() async {
+        let store = TimelineStore(file: tempFile(contents: "{}"))
+        let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
+
+        let settled = await store.updateAttendance(setlistId: id) { $0.venueLat = 1 }
+
+        XCTAssertEqual(StoredAttendance(provenance: "planned", venueLat: 1), settled)
+    }
+
     /// A gig with no claim yet still takes the Admissions: the parse may have yielded
     /// nothing but a barcode, and there is then no artist, venue or date worth writing.
     func testAdmissionsCanBeAttachedToANightWithNoClaimOnItYet() async {

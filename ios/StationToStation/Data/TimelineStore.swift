@@ -800,6 +800,28 @@ actor TimelineStore {
         }
     }
 
+    /// Changes only what `edit` changes on the record as it stands *now*, read and
+    /// written under one lock — Android's `updateAttendance(gigId) { it.copy(…) }`, and
+    /// the same default (`StoredAttendance()`) where there is none yet.
+    ///
+    /// For a writer that awaited something first (the check-in offer's geocode): a
+    /// record read before the await and saved after it would put back whatever it held
+    /// then, and drop a ticket attached in between (the #441 review).
+    @discardableResult
+    func updateAttendance(setlistId: String,
+                          _ edit: (inout StoredAttendance) -> Void) -> StoredAttendance {
+        var settled = StoredAttendance()
+        writeMerged { cache in
+            var c = cache
+            let gigId = c.withGig(setlistId)
+            settled = c.gigAttendance[gigId] ?? StoredAttendance()
+            edit(&settled)
+            c.gigAttendance[gigId] = settled
+            return c
+        }
+        return settled
+    }
+
     /// Adds a gig I am going to, with the attendance claim that goes with it (#175).
     ///
     /// **One write**, because the record and the claim are useless apart: a planned gig
