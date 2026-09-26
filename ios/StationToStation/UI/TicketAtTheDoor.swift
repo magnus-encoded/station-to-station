@@ -79,7 +79,7 @@ struct TicketAtTheDoor: View {
         if admissions.isEmpty {
             EmptyView()
         } else {
-            let page = page
+            let page = self.page
             let admission = admissions[page.index]
             VStack(alignment: .leading, spacing: 6) {
                 Group {
@@ -119,7 +119,7 @@ struct TicketAtTheDoor: View {
                     return
                 }
                 let ok = await AdmissionVerdicts.shared.redraws(symbology: admission.symbology, payload: bytes)
-                shown = ok ? admissionDrawing(admission).map(Shown.drawn) ?? .cannotShow : .cannotShow
+                if ok, let drawing = admissionDrawing(admission) { shown = .drawn(drawing) } else { shown = .cannotShow }
             }
         }
     }
@@ -141,7 +141,7 @@ struct TicketAtTheDoor: View {
 }
 
 private struct DoorWidthKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
+    static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
