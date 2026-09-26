@@ -47,6 +47,7 @@ import io.github.magnusencoded.stationtostation.data.matchKnownNight
 import io.github.magnusencoded.stationtostation.data.PdfTicketExtractor
 import io.github.magnusencoded.stationtostation.data.onDevice
 import io.github.magnusencoded.stationtostation.data.parseTicket
+import io.github.magnusencoded.stationtostation.data.checkedForRedraw
 import io.github.magnusencoded.stationtostation.data.routeTicket
 import io.github.magnusencoded.stationtostation.data.QR_SYMBOLOGY
 import io.github.magnusencoded.stationtostation.data.TimelineLogic
@@ -462,8 +463,12 @@ data class UiState(
      * including a parse that found nothing at all, which the confirm screen reads
      * as "couldn't read this ticket" rather than a silent failure (ADR-0004: a
      * partial or absent result is a state to show, never an error to hide).
+     *
+     * A queue, oldest first, as iOS's `ticketDrafts` is (the #441 review): with one slot,
+     * a second share while the prompt was open dropped the first. The dialog shows
+     * [pendingTicket], the head; answering it shows the next.
      */
-    val pendingTicket: PendingTicket? = null,
+    val pendingTickets: List<PendingTicket> = emptyList(),
     // Transient error surfaced as a snackbar
     val error: String? = null,
     /**
@@ -486,7 +491,16 @@ data class UiState(
 ) {
     /** Who is currently tapped out. Derived so there is only [hiddenAt] to keep in step. */
     val hiddenLines: Set<String> get() = hiddenAt.keys
+
+    /** The ticket the confirm dialog is showing: the oldest of [pendingTickets]. */
+    val pendingTicket: PendingTicket? get() = pendingTickets.firstOrNull()
 }
+
+/** [ticket] behind whatever is already waiting on the prompt, never in its place. */
+fun UiState.queuingTicket(ticket: PendingTicket): UiState = copy(pendingTickets = pendingTickets + ticket)
+
+/** The ticket [id] answered (saved or discarded) and off the queue; the next one shows. */
+fun UiState.answeringTicket(id: String): UiState = copy(pendingTickets = pendingTickets.filterNot { it.id == id })
 
 /**
  * The state after a local **Gig** took [setlistId] (#515): everything the screens read by
@@ -561,7 +575,47 @@ enum class HandoverRole { SOURCE, RECEIVER }
 data class PendingTicket(
     val parsed: ParsedTicket,
     val possibleMatch: FmSetlist?,
+    /** Its own identity, so the dialog's answer names the ticket it was given for. */
+    val id: String = UUID.randomUUID().toString(),
 )
+
+/** What the confirm dialog's Save does with a [PendingTicket]: see [PendingTicket.confirmedAs]. */
+sealed interface ConfirmedTicket {
+    /** The confirmed values name a night already known: its Admissions go onto it. */
+    data class Attach(val gigId: String, val admissions: List<Admission>) : ConfirmedTicket
+
+    /** They name no known night: a new planned gig, carrying the Admissions. */
+    data class Mint(
+        val artist: String,
+        val venue: String,
+        val night: LocalDate,
+        val admissions: List<Admission>,
+    ) : ConfirmedTicket
+}
+
+/**
+ * Where this ticket lands once a person has said what it is (#526) — decided on the
+ * confirmed [artist], [venue] and [night], never on [PendingTicket.possibleMatch], as
+ * iOS's `confirmTicket` does. That hint was found for what the parse read; a person who
+ * edited the artist or the date has named some other night.
+ *
+ * Only an artist match attaches ([matchKnownNight]). [knownNightThatDay]'s same-date
+ * possible match is not re-applied here: it is why routing asked, and the prompt shows
+ * it, but a Save whose act is not that night's act is a night of its own. iOS draws the
+ * same line (its `nightThatDay` is routing-only). The Admissions are the parse's,
+ * whatever was edited (#441, story 16).
+ */
+fun PendingTicket.confirmedAs(
+    artist: String,
+    venue: String,
+    night: LocalDate,
+    knownGigs: List<FmSetlist>,
+): ConfirmedTicket {
+    val confirmed = ParsedTicket(artist = artist.trim(), venue = venue.trim(), date = fmDate(night))
+    return matchKnownNight(confirmed, knownGigs)
+        ?.let { ConfirmedTicket.Attach(it.id, parsed.admissions) }
+        ?: ConfirmedTicket.Mint(artist.trim(), venue.trim(), night, parsed.admissions)
+}
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -1974,8 +2028,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { routeParsedTicket(parsed) }
     }
 
-    /** [handleSharedTicketPdf] and [handleTicketLink]'s shared decision, once each has its own [ParsedTicket]. */
-    private suspend fun routeParsedTicket(parsed: ParsedTicket) {
+    /**
+     * [handleSharedTicketPdf] and [handleTicketLink]'s shared decision, once each has its own [ParsedTicket].
+     *
+     * Every Admission is redrawn in its own symbology and read back first (#441, story
+     * 29), whichever path it came in by: [routeTicket] adds nothing without asking whose
+     * barcode the app could not show, and the prompt says which one. One zxing decode
+     * each, off the main thread.
+     */
+    private suspend fun routeParsedTicket(read: ParsedTicket) {
+        val parsed = withContext(Dispatchers.Default) { read.checkedForRedraw() }
         val known = _state.value.setlists + _state.value.plannedGigs
         when (val routing = routeTicket(parsed, known)) {
             is TicketRouting.AlreadyKnown -> attachAdmissions(routing.gig.id, parsed.admissions)
@@ -1984,7 +2046,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 addParsedPlannedGig(routing.artist, routing.venue, night, routing.admissions)
             }
             is TicketRouting.NeedsConfirmation ->
-                _state.update { it.copy(pendingTicket = PendingTicket(routing.parsed, routing.possibleMatch)) }
+                _state.update { it.queuingTicket(PendingTicket(routing.parsed, routing.possibleMatch)) }
         }
     }
 
@@ -1995,9 +2057,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * gig. The Admissions travel from the original parse regardless of what the person
      * edited — they are preserved even when the text half of the ticket needed fixing
      * by hand (#441, story 16).
+     *
+     * The match is checked *again* on the confirmed values rather than trusted from
+     * routing, as iOS's `confirmTicket` does. [PendingTicket.possibleMatch] was found
+     * for what the parse read; a person who corrected the artist or the date has said
+     * it is some other night, and a partial parse that matched nothing may, once
+     * filled in, name a night that was already there.
      */
-    fun confirmPendingTicket(artist: String, venue: String, date: String) {
-        val pending = _state.value.pendingTicket ?: return
+    fun confirmPendingTicket(id: String, artist: String, venue: String, date: String) {
+        val pending = _state.value.pendingTickets.firstOrNull { it.id == id } ?: return
         val night = parseFmDate(date)
         if (artist.isBlank() || night == null) {
             _state.update { it.copy(errorKind = null, error = "A night needs who is playing and a date as dd-MM-yyyy.") }
@@ -2005,19 +2073,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             val known = _state.value.setlists + _state.value.plannedGigs
-            val matched = pending.possibleMatch
-                ?: matchKnownNight(ParsedTicket(artist = artist.trim(), venue = venue.trim(), date = fmDate(night)), known)
-            if (matched != null) {
-                attachAdmissions(matched.id, pending.parsed.admissions)
-            } else {
-                addParsedPlannedGig(artist.trim(), venue.trim(), night, pending.parsed.admissions)
+            when (val confirmed = pending.confirmedAs(artist, venue, night, known)) {
+                is ConfirmedTicket.Attach -> attachAdmissions(confirmed.gigId, confirmed.admissions)
+                is ConfirmedTicket.Mint ->
+                    addParsedPlannedGig(confirmed.artist, confirmed.venue, confirmed.night, confirmed.admissions)
             }
-            _state.update { it.copy(pendingTicket = null) }
+            _state.update { it.answeringTicket(id) }
         }
     }
 
     /** The confirm dialog's Discard — the guess is dropped, nothing is written. */
-    fun dismissPendingTicket() = _state.update { it.copy(pendingTicket = null) }
+    fun dismissPendingTicket(id: String) = _state.update { it.answeringTicket(id) }
 
     /** [addPlannedGigByHand]'s write, shared by both ticket paths above. */
     private suspend fun addParsedPlannedGig(artist: String, venue: String, night: LocalDate, admissions: List<Admission>) {
@@ -2188,9 +2254,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         if (actKey(act) in played &&
                             claim.provenance == StoredAttendance.Provenance.PLANNED
                         ) {
-                            // A copy, so the upgrade carries the rest of the claim
-                            // (the ticket's QR, #531's lookup state) instead of dropping it.
-                            claim.copy(provenance = StoredAttendance.Provenance.ATTENDED)
+                            claim.withProvenance(StoredAttendance.Provenance.ATTENDED)
                                 .also { timelines.saveAttendance(gigId, it) }
                         } else {
                             claim

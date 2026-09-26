@@ -98,29 +98,40 @@ struct VisionBarcodeLocator: BarcodeLocator {
         guard let image = page.rendered() else { return [] }
         return autoreleasepool {
             let request = VNDetectBarcodesRequest()
-            // QR only, still. The record is no longer named for a QR (#441 stores
-            // Admissions with their symbology), so nothing downstream stops this from
-            // widening to the linear and matrix formats real tickets carry; that, with a
-            // mapping from Vision's names to the fixtures' ones, is #441's next slice.
-            request.symbologies = [.qr]
+            // Every format a real ticket has been seen to carry (#441, story 21), named
+            // as the fixtures name them (`ticketVisionSymbologies`). No longer `.qr`
+            // alone: the record is **Admissions** with their symbology, and an Eventim
+            // Code 128 this could not see was a ticket this platform lost whole.
+            // Intersected with what this request revision supports, because asking for
+            // one it does not makes `perform` throw, and `try?` would turn that into
+            // "no barcodes on any page".
+            let supported = Set((try? request.supportedSymbologies()) ?? ticketVisionSymbologies)
+            request.symbologies = ticketVisionSymbologies.filter(supported.contains)
             try? VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
             // Every code on the page, not only the first: which of them count is the
             // parser's call (#441), and the extractor drops the repeats.
             return (request.results ?? []).map { found in
                 TicketBarcode(image: crop(image, to: found.boundingBox) ?? Data(),
                               payload: payload(of: found),
-                              symbology: "qr")
+                              symbology: ticketSymbology(found.symbology))
             }
         }
     }
 
-    /// `payloadData` is iOS 17. On 16 a binary payload only comes back as a lossy
-    /// string, which is stated on `Admission.payload` rather than silently accepted here.
+    /// The decoded **text**, as UTF-8: what a scanner at the door reads back out, and
+    /// the form Android stores (`toTicketBarcode`) and the fixtures carry. Only when there
+    /// is no text (a binary payload), `payloadData` on iOS 17: whether that is the
+    /// decoded bytes or the symbol's raw codewords is #441's open iOS question, and the
+    /// app's check at import (`redrawsExactly`) reports such a payload as not redrawable
+    /// rather than trusting it. Before the redraw (#441) this preferred `payloadData`.
     private func payload(of found: VNBarcodeObservation) -> Data? {
+        if let text = found.payloadStringValue, !text.isEmpty {
+            return Data(text.utf8)
+        }
         if #available(iOS 17.0, *), let bytes = found.payloadData, !bytes.isEmpty {
             return bytes
         }
-        return found.payloadStringValue?.data(using: .utf8)
+        return nil
     }
 
     /// PNG of the symbol and its quiet zone. Vision's box is normalized with its origin

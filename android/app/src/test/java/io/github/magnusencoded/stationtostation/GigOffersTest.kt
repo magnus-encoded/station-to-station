@@ -1,17 +1,22 @@
 package io.github.magnusencoded.stationtostation
 
+import io.github.magnusencoded.stationtostation.data.StoredAdmission
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredLog
+import io.github.magnusencoded.stationtostation.ui.AdmissionPage
 import io.github.magnusencoded.stationtostation.ui.Alcove
 import io.github.magnusencoded.stationtostation.ui.Curtain
 import io.github.magnusencoded.stationtostation.ui.CurtainAction
+import io.github.magnusencoded.stationtostation.ui.DoorVerdict
 import io.github.magnusencoded.stationtostation.ui.GigAsKnown
 import io.github.magnusencoded.stationtostation.ui.GigLeaf
 import io.github.magnusencoded.stationtostation.ui.curtainAction
+import io.github.magnusencoded.stationtostation.ui.forAdmission
 import io.github.magnusencoded.stationtostation.ui.gigOffers
 import io.github.magnusencoded.stationtostation.ui.nightWindow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -314,5 +319,56 @@ class GigOffersTest {
     @Test
     fun `CHECK_EVENT dispatches to nothing — no event-moved endpoint exists yet`() {
         assertEquals(CurtainAction.NONE, curtainAction(Curtain.CHECK_EVENT))
+    }
+
+    // --- Stepping between Admissions (#441, story 5) ---
+
+    @Test
+    fun threeAdmissionsAreStepped1Of3To3Of3AndStopAtEachEnd() {
+        val first = AdmissionPage.of(0, 3)
+        assertEquals("1 of 3", first.label)
+        assertFalse(first.hasPrevious)
+        assertEquals(first, first.previous())
+
+        val last = first.next().next()
+        assertEquals("3 of 3", last.label)
+        assertFalse(last.hasNext)
+        // No wrapping round to the first: that is the same barcode shown twice.
+        assertEquals(last, last.next())
+        assertEquals("2 of 3", last.previous().label)
+    }
+
+    @Test
+    fun oneAdmissionHasNothingToStepTo() {
+        val only = AdmissionPage.of(0, 1)
+        assertEquals(null, only.label)
+        assertFalse(only.hasNext)
+        assertFalse(only.hasPrevious)
+    }
+
+    @Test
+    fun aPageIsHeldInsideTheAdmissionsThereAre() {
+        assertEquals(1, AdmissionPage.of(5, 2).index)
+        assertEquals(0, AdmissionPage.of(-1, 2).index)
+        assertEquals(0, AdmissionPage.of(3, 0).index)
+    }
+
+    @Test
+    fun aVerdictIsOnlyReadBackForTheAdmissionItWasReachedFor() {
+        // Stepping from 1 of 2 to 2 of 2 while the first is still shown: the new page is
+        // checking, never the previous page's drawing under the new label.
+        val first = StoredAdmission(payload = "QQ==", symbology = "qr")
+        val second = StoredAdmission(payload = "Qg==", symbology = "code128", page = 1)
+        val reached = DoorVerdict(first, "drawing of the first")
+
+        assertEquals("drawing of the first", reached.forAdmission(first))
+        assertNull(reached.forAdmission(second))
+        assertNull((null as DoorVerdict<StoredAdmission, String>?).forAdmission(first))
+    }
+
+    @Test
+    fun severalAdmissionsAreOneTicketOnOffer() {
+        // The fold offers the ticket once, however many Admissions; stepping is the Room's.
+        assertTrue(offers(night(provenance = planned, admissions = 3)).room.showTicket)
     }
 }

@@ -36,6 +36,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
@@ -87,7 +88,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -103,6 +106,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.graphics.Path
@@ -182,15 +186,17 @@ import io.github.magnusencoded.stationtostation.data.isMyNight
 import io.github.magnusencoded.stationtostation.data.visibleToContacts
 import io.github.magnusencoded.stationtostation.data.withheldFromContacts
 import io.github.magnusencoded.stationtostation.data.gigInviteUri
-import io.github.magnusencoded.stationtostation.data.QR_SYMBOLOGY
 import io.github.magnusencoded.stationtostation.data.StoredAdmission
-import io.github.magnusencoded.stationtostation.data.ticketQrMatrix
-import io.github.magnusencoded.stationtostation.data.ticketQrText
 import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
 import io.github.magnusencoded.stationtostation.data.musicbrainz.MbArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSong
 import io.github.magnusencoded.stationtostation.data.zxingFormatName
+import io.github.magnusencoded.stationtostation.data.AdmissionDrawing
+import io.github.magnusencoded.stationtostation.data.AdmissionShape
+import io.github.magnusencoded.stationtostation.data.ParsedTicket
+import io.github.magnusencoded.stationtostation.data.admissionDrawing
+import io.github.magnusencoded.stationtostation.data.doorDrawing
 import io.github.magnusencoded.stationtostation.ui.flyover.CollectionFlyoverScreen
 import io.github.magnusencoded.stationtostation.ui.flyover.collectionBillboard
 import io.github.magnusencoded.stationtostation.ui.flyover.collectionFlyoverGigs
@@ -393,11 +399,15 @@ fun StationTimelineScreen(
                 )
             }
             state.pendingTicket?.let { pending ->
-                TicketConfirmDialog(
-                    pending = pending,
-                    onConfirm = { artist, venue, date -> viewModel.confirmPendingTicket(artist, venue, date) },
-                    onDismiss = { viewModel.dismissPendingTicket() },
-                )
+                // Keyed by the ticket, so the next one in the queue opens with its own
+                // fields rather than the last one's edits.
+                key(pending.id) {
+                    TicketConfirmDialog(
+                        pending = pending,
+                        onConfirm = { artist, venue, date -> viewModel.confirmPendingTicket(pending.id, artist, venue, date) },
+                        onDismiss = { viewModel.dismissPendingTicket(pending.id) },
+                    )
+                }
             }
             when {
                 state.setlistsLoading && state.setlists.isEmpty() ->
@@ -999,47 +1009,203 @@ private fun FuturePrompt(loading: Boolean) {
     )
 }
 
-/** A ticket's barcode, redrawn as a scannable QR — nothing at all when there is none. */
+/**
+ * One Admission drawn for a scanner (#441, story 9): [drawing] at a whole number of
+ * pixels per module, as many as fit — [maxWidth] across, and for a matrix code
+ * [matrixMax] down — so every bar and cell is the same width on screen. A linear code
+ * fills the width it is given, [linearHeight] tall. Nearest-neighbour: the bitmap is
+ * shown at its own pixel size, never scaled by the Image.
+ */
 @Composable
-private fun TicketQrCode(bitmap: Bitmap?) {
-    if (bitmap == null) return
-    Box(
-        Modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color.White)
-            .border(1.dp, LineLit, RoundedCornerShape(14.dp))
-            .padding(14.dp),
-    ) {
-        Image(
-            bitmap = bitmap.asImageBitmap(),
-            contentDescription = "Your ticket's QR code",
-            modifier = Modifier.size(180.dp),
-        )
+private fun AdmissionBarcode(
+    drawing: AdmissionDrawing,
+    maxWidth: Dp,
+    matrixMax: Dp,
+    linearHeight: Dp,
+    description: String,
+) {
+    val density = LocalDensity.current
+    val bitmap = remember(drawing, maxWidth, matrixMax, linearHeight, density) {
+        with(density) {
+            val across = maxWidth.roundToPx() / drawing.width
+            val modulePx = when (drawing.shape) {
+                AdmissionShape.LINEAR -> across
+                AdmissionShape.MATRIX -> minOf(across, matrixMax.roundToPx() / drawing.height)
+            }.coerceAtLeast(1)
+            matrixBitmap(drawing.scaled(modulePx, linearHeight.roundToPx()))
+        }
+    }
+    Image(
+        bitmap = bitmap.asImageBitmap(),
+        contentDescription = description,
+        filterQuality = FilterQuality.None,
+        modifier = with(density) { Modifier.size(bitmap.width.toDp(), bitmap.height.toDp()) },
+    )
+}
+
+/** What the Room has for the Admission on show: still reading it back, its drawing, or nothing it can show. */
+private sealed interface AtTheDoor {
+    data object Checking : AtTheDoor
+    class Shown(val drawing: AdmissionDrawing) : AtTheDoor
+    data object CannotShow : AtTheDoor
+}
+
+/** The line said wherever an Admission cannot be redrawn: which one, and what to do instead. */
+private fun cannotShowLine(symbology: String, page: AdmissionPage? = null): String =
+    "${page?.label?.let { "Barcode $it" } ?: "This ticket's barcode"} (${zxingFormatName(symbology)}) " +
+        "can't be shown by the app. Bring the original PDF to the door."
+
+/**
+ * The ticket at the door (#441): every **Admission** in its own symbology, one at a
+ * time, with "1 of 3" and a way to step between them when there are several (story 5;
+ * [AdmissionPage] holds the rules). Black on white, whatever the Room's ground: a
+ * scanner reads contrast.
+ *
+ * What is drawn is [doorDrawing]'s: the Admission redrawn and read back as itself, the
+ * same check the import ran, asked again here because nothing stored carries a verdict
+ * and an Admission migrated from an old `ticketQr` was never checked at all. One that
+ * does not read back keeps its page and says so, in the prompt's words — never a
+ * guess, and never its payload drawn as some other symbology.
+ *
+ * The card's look is unchanged from the QR it replaces; its redesign, brightness and a
+ * full-screen view are #525's.
+ */
+@Composable
+private fun TicketAtTheDoor(admissions: List<StoredAdmission>) {
+    if (admissions.isEmpty()) return
+    var index by remember(admissions) { mutableStateOf(0) }
+    val page = AdmissionPage.of(index, admissions.size)
+    val admission = admissions[page.index]
+    // Tagged with the Admission it is about: produceState keeps its last value when the
+    // key changes, so an untagged one would put the previous page's drawing under the
+    // new "2 of 3" until the next check ends.
+    val verdict by produceState<DoorVerdict<StoredAdmission, AtTheDoor>?>(null, admission) {
+        val door = withContext(Dispatchers.Default) { doorDrawing(admission) }
+            ?.let { AtTheDoor.Shown(it) } ?: AtTheDoor.CannotShow
+        value = DoorVerdict(admission, door)
+    }
+    val shown = verdict.forAdmission(admission) ?: AtTheDoor.Checking
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
+        // The card's own padding and border, inside the width the Room gives it.
+        val inner = maxWidth - 30.dp
+        when (val door = shown) {
+            is AtTheDoor.Shown -> Box(
+                Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color.White)
+                    .border(1.dp, LineLit, RoundedCornerShape(14.dp))
+                    .padding(14.dp),
+            ) {
+                AdmissionBarcode(
+                    door.drawing,
+                    maxWidth = inner,
+                    matrixMax = 200.dp,
+                    linearHeight = 110.dp,
+                    description = "Your ticket's barcode${page.label?.let { ", $it" }.orEmpty()}. Hold it up to be scanned.",
+                )
+            }
+            AtTheDoor.CannotShow -> Text(
+                cannotShowLine(admission.symbology, page),
+                color = Muted,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(vertical = 6.dp),
+            )
+            AtTheDoor.Checking -> Unit
+        }
+    }
+    page.label?.let { label ->
+        Row(
+            Modifier.padding(top = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            Text(
+                "‹ previous",
+                color = if (page.hasPrevious) Amber else Faint,
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .clickable(enabled = page.hasPrevious) { index = page.previous().index }
+                    .padding(vertical = 6.dp),
+            )
+            Text(label, color = Ink, fontSize = 13.sp)
+            Text(
+                "next ›",
+                color = if (page.hasNext) Amber else Faint,
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .clickable(enabled = page.hasNext) { index = page.next().index }
+                    .padding(vertical = 6.dp),
+            )
+        }
     }
     Spacer(Modifier.height(10.dp))
 }
 
 /**
- * The ticket at the door (#441): the first QR **Admission** drawn as a QR, exactly as
- * before. A night whose Admissions are all another symbology (an Eventim Code 128) is
- * never redrawn as a QR — that would look like a ticket and scan as nothing — and says
- * so instead, in the confirm prompt's words. The symbology-aware redraw, and stepping
- * between several Admissions, are the next slice of #441; this is where they land.
+ * The confirm prompt's Admissions, as they will be presented at the door (#441, story
+ * 7): each one [Admission.redrawable] said reads back, drawn small by the same
+ * [admissionDrawing] the Room uses; a plain line for each that did not (story 29); and,
+ * for a ticket that read but carried no barcode at all, a line saying so (story 8).
  */
 @Composable
-private fun TicketAtTheDoor(admissions: List<StoredAdmission>, qr: Bitmap?) {
-    if (qr != null) {
-        TicketQrCode(qr)
+private fun ConfirmAdmissions(parsed: ParsedTicket) {
+    val admissions = parsed.admissions
+    if (admissions.isEmpty()) {
+        if (!parsed.isEmpty) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "No barcode could be read off this ticket, so the app has nothing to show " +
+                    "at the door. Bring the original PDF.",
+                color = Muted,
+                fontSize = 11.sp,
+            )
+        }
         return
     }
-    val other = admissions.firstOrNull { it.symbology != QR_SYMBOLOGY } ?: return
+    Spacer(Modifier.height(8.dp))
     Text(
-        "Your ticket's barcode (${zxingFormatName(other.symbology)}) can't be shown by " +
-            "the app yet. Bring the original PDF to the door.",
-        color = Muted,
-        fontSize = 12.sp,
-        modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp),
+        if (admissions.size == 1) {
+            "The ticket's barcode, as it will be shown at the door. It's kept whatever you put above."
+        } else {
+            "The ticket's ${admissions.size} barcodes, as they will be shown at the door. They're kept whatever you put above."
+        },
+        color = Faint,
+        fontSize = 11.sp,
     )
+    val drawn = remember(admissions) {
+        admissions.mapIndexedNotNull { i, a ->
+            if (a.redrawable == true) admissionDrawing(a.symbology, a.payload)?.let { i to it } else null
+        }
+    }
+    if (drawn.isNotEmpty()) {
+        Spacer(Modifier.height(8.dp))
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            for ((i, drawing) in drawn) {
+                Box(Modifier.clip(RoundedCornerShape(8.dp)).background(Color.White).padding(6.dp)) {
+                    AdmissionBarcode(
+                        drawing,
+                        maxWidth = 220.dp,
+                        matrixMax = 96.dp,
+                        linearHeight = 48.dp,
+                        description = "Barcode ${i + 1} of ${admissions.size}, as it will be shown at the door",
+                    )
+                }
+            }
+        }
+    }
+    // Not Faint: these are the lines in the dialog that change what to bring.
+    admissions.forEachIndexed { i, a ->
+        if (a.redrawable == true && drawn.any { it.first == i }) return@forEachIndexed
+        Spacer(Modifier.height(6.dp))
+        Text(
+            cannotShowLine(a.symbology, AdmissionPage(i, admissions.size)),
+            color = Muted,
+            fontSize = 11.sp,
+        )
+    }
 }
 
 /**
@@ -1184,7 +1350,8 @@ private fun TicketConfirmDialog(
                 if (pending.parsed.isEmpty) {
                     "Couldn't read anything off that PDF. Fill it in by hand, or discard it."
                 } else if (pending.possibleMatch != null) {
-                    "This looks like a night already on your line — check it before saving."
+                    "This looks like a night already on your line — check it before saving: " +
+                        "it is added to that night only if who's playing and the date match it."
                 } else {
                     "Here's what the ticket seemed to say. Check it before it's added."
                 },
@@ -1205,39 +1372,7 @@ private fun TicketConfirmDialog(
             StationField(venue, { venue = it }, "venue (optional)")
             Spacer(Modifier.height(8.dp))
             StationField(date, { date = it }, "date (dd-MM-yyyy)", imeDone = true)
-            val admissions = pending.parsed.admissions
-            val hasQr = admissions.any { it.symbology == QR_SYMBOLOGY }
-            if (admissions.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    if (admissions.size == 1) {
-                        "A ticket barcode was found and will be kept either way."
-                    } else {
-                        "${admissions.size} ticket barcodes were found and will be kept either way."
-                    },
-                    color = Faint,
-                    fontSize = 11.sp,
-                )
-            }
-            // An Admission that is not a QR (Code 128 on Eventim tickets). It is kept
-            // (#441), but the app only redraws QRs until the symbology-aware redraw
-            // lands — drawing its payload as a QR would look like a ticket and scan as
-            // nothing. Said plainly, since the alternative is finding out at the door.
-            // Not Faint: this is the one line in the dialog that changes what to bring.
-            admissions.firstOrNull { it.symbology != QR_SYMBOLOGY }?.let { zxingFormatName(it.symbology) }?.let { format ->
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    if (!hasQr) {
-                        "This ticket's barcode ($format) is saved, but the app can't show " +
-                            "it yet. Bring the original PDF to the door."
-                    } else {
-                        "It also has a $format barcode, which the app can't show yet. If " +
-                            "that's the one the door scans, bring the original PDF."
-                    },
-                    color = Muted,
-                    fontSize = 11.sp,
-                )
-            }
+            ConfirmAdmissions(pending.parsed)
             Spacer(Modifier.height(4.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text("Discard", color = Faint) }
@@ -3625,26 +3760,13 @@ fun StationEventScreen(
                     Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    // The ticket's own barcode. Gone the moment checked in — see
-                    // `checkedIn` below — and never drawn at all when there is no
-                    // ticket to show. Plain black-on-white, unlike the Amber exchange
-                    // card: this one has to scan for a venue's own reader, not just
-                    // decode for another phone. Computed once here rather than inside
-                    // either branch below, because it is worth showing on this gig's
-                    // own page as soon as a ticket is attached — not held back until
-                    // the day-of check-in window the way the offer to check in is.
-                    // Stored bytes are the payload's text as UTF-8 (TicketBarcode.kt);
-                    // a value that isn't valid UTF-8 is a pre-fix zxing `rawBytes`,
-                    // which never redrew correctly, so it draws nothing instead. Only
-                    // a QR Admission is drawn as one (#441); keyed on the Admissions
-                    // too, so a second ticket attached while this is open redraws.
+                    // The ticket's own barcodes (#441), every Admission in its own
+                    // symbology — see TicketAtTheDoor. Gone the moment checked in (see
+                    // `checkedIn` below) and never drawn at all when there is no ticket
+                    // to show. Worth showing on this gig's own page as soon as a ticket
+                    // is attached, not held back until the day-of check-in window the
+                    // way the offer to check in is.
                     val admissions = state.attendanceByGig[setlist.id]?.admissions.orEmpty()
-                    val ticketQr = remember(setlist.id, admissions) {
-                        admissions.firstOrNull { it.symbology == QR_SYMBOLOGY }
-                            ?.payloadBytes?.let(::ticketQrText)?.let { text ->
-                                runCatching { matrixBitmap(ticketQrMatrix(text, 480)) }.getOrNull()
-                            }
-                    }
                     // The manual check-in, and the only one there is when location was
                     // refused or the venue couldn't be geocoded. Same night window as
                     // the ambient offer; no location involved at all.
@@ -3652,7 +3774,7 @@ fun StationEventScreen(
                         if (checkedIn) {
                             presenceRow()
                         } else {
-                            if (offers.room.showTicket) TicketAtTheDoor(admissions, ticketQr)
+                            if (offers.room.showTicket) TicketAtTheDoor(admissions)
                             Text(
                                 "I'm here — check in",
                                 color = Amber,
@@ -3665,7 +3787,7 @@ fun StationEventScreen(
                     } else if (!checkedIn) {
                         // Outside the check-in window: no "I'm here" offer yet, but
                         // still worth showing that the ticket's barcode was captured.
-                        TicketAtTheDoor(admissions, ticketQr)
+                        TicketAtTheDoor(admissions)
                     }
                     when (timeState) {
                         // Over: adding a setlist is a past action, so the setlist.fm

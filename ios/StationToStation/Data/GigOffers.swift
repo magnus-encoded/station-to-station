@@ -211,3 +211,47 @@ func gigOffers(_ gig: GigAsKnown, now: Date) -> GigOffers {
         phase: phase
     )
 }
+
+/// Which of a night's **Admissions** the Room is showing, of how many (#441, story 5).
+/// The Kotlin twin is `AdmissionPage` in GigOffers.kt.
+///
+/// Every Admission has a page, in stored order: one the app cannot redraw keeps its
+/// page and says so there, so "2 of 3" means the ticket's own second barcode. Stepping
+/// stops at either end rather than wrapping: at a door, coming back round to the first
+/// without noticing is how the same barcode is shown twice. A single Admission has no
+/// `label` and nothing to step to.
+struct AdmissionPage: Equatable {
+    let index: Int
+    let count: Int
+
+    /// `index` held inside `count`, so a night that lost an Admission never points past
+    /// its last.
+    init(index: Int, count: Int) {
+        self.index = min(max(index, 0), max(count - 1, 0))
+        self.count = count
+    }
+
+    var hasPrevious: Bool { index > 0 }
+    var hasNext: Bool { index < count - 1 }
+
+    /// "2 of 3", or nil for one Admission (or none).
+    var label: String? { count > 1 ? "\(index + 1) of \(count)" : nil }
+
+    func next() -> AdmissionPage { hasNext ? AdmissionPage(index: index + 1, count: count) : self }
+    func previous() -> AdmissionPage { hasPrevious ? AdmissionPage(index: index - 1, count: count) : self }
+}
+
+/// What the Room decided about one Admission, tagged with the Admission it was decided
+/// for (the #441 review). The check runs off the main actor, and a person stepping to the
+/// next page while it runs must never see the previous drawing under the new "2 of 3": a
+/// verdict is only ever read back for the Admission it was reached for, and anything
+/// else is still being checked. The Kotlin twin is `DoorVerdict` in GigOffers.kt.
+struct DoorVerdict<Key: Equatable, Verdict> {
+    let admission: Key
+    let verdict: Verdict
+
+    /// The verdict when it was reached for `admission`; nil — still checking — otherwise.
+    func forAdmission(_ admission: Key) -> Verdict? {
+        self.admission == admission ? self.verdict : nil
+    }
+}

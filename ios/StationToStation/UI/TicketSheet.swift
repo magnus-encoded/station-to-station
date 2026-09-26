@@ -9,10 +9,15 @@ private let slate = Color(red: 0x6D / 255, green: 0x7E / 255, blue: 0x9B / 255)
 /// four facts are present, and one that read nothing comes through here too — an
 /// honest blank form with a line saying so beats a guess on the **Line**.
 ///
-/// The QR is never on this form. It is not a fact a person can check, correct or
-/// usefully see, and it is kept whatever they do with the rest.
+/// The **Admissions** are on it as they will be shown at the door (#441, story 7), not
+/// as fields: nothing about a barcode is a person's to correct, and they are kept
+/// whatever is done with the rest. What the form adds is the chance to see, while the
+/// PDF is still to hand, that one cannot be shown (story 29) or that none was read at
+/// all (story 8).
 struct ConfirmTicketSheet: View {
     let ticket: Ticket
+    /// `TicketDraft.possibleMatch`: said on the form, never acted on.
+    let possibleMatch: String?
     let onAdd: (String, String, String) -> Void
     let onCancel: () -> Void
 
@@ -25,9 +30,11 @@ struct ConfirmTicketSheet: View {
     @State private var picked = ""
 
     init(ticket: Ticket,
+         possibleMatch: String? = nil,
          onAdd: @escaping (String, String, String) -> Void,
          onCancel: @escaping () -> Void) {
         self.ticket = ticket
+        self.possibleMatch = possibleMatch
         self.onAdd = onAdd
         self.onCancel = onCancel
         _artist = State(initialValue: ticket.artist ?? "")
@@ -68,6 +75,15 @@ struct ConfirmTicketSheet: View {
                 } footer: {
                     Text(footer)
                 }
+                if !ticket.admissions.isEmpty {
+                    Section {
+                        ConfirmAdmissions(admissions: ticket.admissions)
+                    } header: {
+                        Text(ticket.admissions.count == 1
+                             ? "The barcode, as the door will see it"
+                             : "The \(ticket.admissions.count) barcodes, as the door will see them")
+                    }
+                }
             }
             .navigationTitle("From your ticket")
             .navigationBarTitleDisplayMode(.inline)
@@ -92,16 +108,18 @@ struct ConfirmTicketSheet: View {
                 + "this app can't make sense of. Fill it in and it goes on your line "
                 + "like any night you add by hand."
         }
-        var lines = ["Read from the ticket. Check it before it goes on your line."]
+        var lines = [possibleMatch.map { "This looks like a night already on your line (\($0)). "
+                         + "Check it before saving: it is added to that night only if who's "
+                         + "playing and the date match it." }
+                     ?? "Read from the ticket. Check it before it goes on your line."]
         switch ticket.admissions.count {
-        case 0: break
-        case 1: lines.append("The ticket's barcode was read and is kept whatever you put here.")
-        case let n: lines.append("\(n) ticket barcodes were read and are kept whatever you put here.")
-        }
-        if let other = ticket.admissions.first(where: { $0.symbology != qrSymbology }) {
-            // Kept (#441), but not redrawn yet: a door that scans it needs the PDF.
-            lines.append("Its \(other.symbology.uppercased()) barcode can't be shown by the app yet, "
-                         + "so bring the original PDF to the door.")
+        case 0:
+            // Story 8: the text read, the barcode did not. Said here, not discovered at
+            // the door.
+            lines.append("No barcode could be read off this ticket, so the app has nothing "
+                         + "to show at the door. Bring the original PDF.")
+        case 1: lines.append("Its barcode is kept whatever you put here.")
+        case let n: lines.append("Its \(n) barcodes are kept whatever you put here.")
         }
         return lines.joined(separator: " ")
     }

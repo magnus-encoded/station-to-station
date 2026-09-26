@@ -7,6 +7,7 @@ import io.github.magnusencoded.stationtostation.data.TicketEvidence
 import io.github.magnusencoded.stationtostation.data.TicketReading
 import io.github.magnusencoded.stationtostation.data.TicketRouting
 import io.github.magnusencoded.stationtostation.data.TicketSupport
+import io.github.magnusencoded.stationtostation.data.checkedForRedraw
 import io.github.magnusencoded.stationtostation.data.matchKnownNight
 import io.github.magnusencoded.stationtostation.data.parseTicketFields
 import io.github.magnusencoded.stationtostation.data.routeTicket
@@ -33,6 +34,9 @@ import java.time.LocalDate
 class TicketParsingTest {
 
     private fun qr(payload: String = "ticket-payload") = listOf(Admission(payload.toByteArray(), "qr"))
+
+    /** The same QR once the app has redrawn it and read it back (story 29): what every ticket routed past the prompt carries. */
+    private fun drawnQr(payload: String = "ticket-payload") = qr(payload).map { it.withRedrawable(true) }
 
     private fun barcode(symbology: String, payload: String, page: Int? = null) =
         TicketBarcode(image = ByteArray(0), payload = payload.toByteArray(), symbology = symbology, page = page)
@@ -154,13 +158,13 @@ class TicketParsingTest {
                 readings = emptyList(),
                 barcodes = listOf(
                     barcode("qr", "SYNTHETIC-QR-2", page = 1),
-                    barcode("code128", "SYNTHETIC-CODE128-0001", page = 0),
+                    barcode("aztec", "SYNTHETIC-AZTEC-0001", page = 0),
                     barcode("qr", "SYNTHETIC-QR-1", page = 0),
                 ),
             ),
         )
 
-        assertEquals(listOf("SYNTHETIC-CODE128-0001", "SYNTHETIC-QR-1", "SYNTHETIC-QR-2"), parsed.admissions.payloads())
+        assertEquals(listOf("SYNTHETIC-AZTEC-0001", "SYNTHETIC-QR-1", "SYNTHETIC-QR-2"), parsed.admissions.payloads())
         assertEquals(listOf(0, 0, 1), parsed.admissions.map { it.page })
     }
 
@@ -217,22 +221,141 @@ class TicketParsingTest {
     @Test
     fun aTicketWhoseOnlyAdmissionIsACode128CanBeComplete() {
         // #441: "first QR" is gone. An Eventim ticket read in full is as complete as a
-        // QR one; that the Room cannot redraw it yet is the Room's to say.
+        // QR one, and once its Code 128 has been redrawn and read back it is added
+        // like one. Straight off the parse (unchecked) it is asked about.
         val parsed = ocrOnly(
             listOf("Kaizers Orchestra", "Sentrum Scene, Oslo", "24-06-2027"),
             barcodes = listOf(barcode("code128", "SYNTHETIC-CODE128-0001")),
         )
-
-        val routing = routeTicket(parsed, emptyList(), today = LocalDate.of(2027, 1, 1))
+        val today = LocalDate.of(2027, 1, 1)
 
         assertTrue(parsed.isComplete)
+        assertTrue(routeTicket(parsed, emptyList(), today) is TicketRouting.NeedsConfirmation)
+        val drawn = parsed.checkedForRedraw()
+        val routing = routeTicket(drawn, emptyList(), today)
         assertTrue(routing is TicketRouting.NewPlannedGig)
-        assertEquals(parsed.admissions, (routing as TicketRouting.NewPlannedGig).admissions)
+        assertEquals(drawn.admissions, (routing as TicketRouting.NewPlannedGig).admissions)
+    }
+
+    // --- #441, story 29: redrawn and read back at import, or asked about ---
+
+    @Test
+    fun aCompleteTicketWhoseBarcodeCannotBeRedrawnIsAskedAbout() {
+        // Closes #542's open question 1: a complete Eventim read whose Code 128 did not
+        // read back as itself is not added without asking.
+        val eventim = ParsedTicket(
+            admissions = listOf(Admission("123456789012345678901234".toByteArray(), "code128", redrawable = false)),
+            artist = "Kaizers Orchestra",
+            venue = "Sentrum Scene",
+            date = "24-06-2027",
+        )
+
+        assertTrue("the read itself is complete", eventim.canSkipPrompt)
+        assertTrue(routeTicket(eventim, emptyList(), LocalDate.of(2027, 1, 1)) is TicketRouting.NeedsConfirmation)
+    }
+
+    @Test
+    fun aMatchWhoseBarcodeCannotBeRedrawnIsAskedAboutToo() {
+        val gigs = listOf(known("g1", "24-06-2027", "Kaizers Orchestra"))
+        val parsed = ParsedTicket(
+            admissions = drawnQr() + Admission("SYNTH".toByteArray(), "maxicode", redrawable = false),
+            artist = "Kaizers Orchestra",
+            venue = "Sentrum Scene",
+            date = "24-06-2027",
+        )
+
+        val routing = routeTicket(parsed, gigs, LocalDate.of(2027, 1, 1))
+
+        assertTrue(routing is TicketRouting.NeedsConfirmation)
+        assertEquals("g1", (routing as TicketRouting.NeedsConfirmation).possibleMatch?.id)
+    }
+
+    @Test
+    fun anUncheckedAdmissionCountsAsNotRedrawable() {
+        val gigs = listOf(known("g1", "24-06-2027", "Kaizers Orchestra"))
+        val unchecked = ParsedTicket(admissions = qr(), artist = "Kaizers Orchestra", venue = "Sentrum Scene", date = "24-06-2027")
+        val today = LocalDate.of(2027, 1, 1)
+
+        assertFalse(unchecked.redrawsEveryAdmission)
+        assertTrue(routeTicket(unchecked, emptyList(), today) is TicketRouting.NeedsConfirmation)
+        assertTrue(routeTicket(unchecked, gigs, today) is TicketRouting.NeedsConfirmation)
+    }
+
+    @Test
+    fun aCode128OnlyTicketIsCheckedWithTheRealRedraw() {
+        // Through the real zxing redraw, not a stub: an Eventim-shaped 24-digit Code 128
+        // reads back, so the complete ticket is added; a payload Code 128 cannot carry
+        // does not, so it is asked about.
+        val today = LocalDate.of(2027, 1, 1)
+        fun eventim(payload: String) = ParsedTicket(
+            admissions = listOf(Admission(payload.toByteArray(), "code128")),
+            artist = "Kaizers Orchestra",
+            venue = "Sentrum Scene",
+            date = "24-06-2027",
+        ).checkedForRedraw()
+
+        assertTrue(routeTicket(eventim("123456789012345678901234"), emptyList(), today) is TicketRouting.NewPlannedGig)
+        assertTrue(routeTicket(eventim("Kjøpt – ÆØÅ"), emptyList(), today) is TicketRouting.NeedsConfirmation)
+    }
+
+    // --- the #441 review: a complete read naming no known act, on a known night's date ---
+
+    @Test
+    fun aCompleteReadForAKnownNightsDateUnderAnotherNameIsAskedAboutNotMinted() {
+        // Eventim's `Dumdumboys – XL [romertallførti]`: both readings agree on it, the
+        // Code 128s read back, and the night was already planned by hand as `Dumdumboys`.
+        // No artist match, but a night that day: asked about, with that night as the hint.
+        val today = LocalDate.of(2027, 1, 1)
+        val parsed = ParsedTicket(
+            admissions = drawnQr(),
+            artist = "Dumdumboys – XL [romertallførti]",
+            venue = "Rockefeller",
+            date = "24-06-2027",
+        )
+        assertTrue("minted when nothing is known that day", routeTicket(parsed, emptyList(), today) is TicketRouting.NewPlannedGig)
+
+        val routing = routeTicket(parsed, listOf(known("g1", "24-06-2027", "Dumdumboys")), today)
+
+        assertEquals("g1", (routing as TicketRouting.NeedsConfirmation).possibleMatch?.id)
+    }
+
+    @Test
+    fun aKnownNightOnAnotherDateDoesNotStopTheMint() {
+        val parsed = ParsedTicket(admissions = drawnQr(), artist = "Kaizers Orchestra", venue = "Sentrum Scene", date = "24-06-2027")
+
+        val routing = routeTicket(parsed, listOf(known("g1", "25-06-2027", "Dumdumboys")), LocalDate.of(2027, 1, 1))
+
+        assertTrue(routing is TicketRouting.NewPlannedGig)
+    }
+
+    @Test
+    fun ofSeveralNightsThatDateTheHintIsTheOneAtTheTicketsVenue() {
+        // A festival day mints many nights on one date. The hint is the one at the room the
+        // ticket names; failing that, the first known that day. Provisional.
+        val gigs = listOf(
+            known("g1", "24-06-2027", "Big Thief", venue = "Sentrum Scene"),
+            known("g2", "24-06-2027", "Dumdumboys", venue = "Rockefeller"),
+        )
+        val today = LocalDate.of(2027, 1, 1)
+        fun at(venue: String) = ParsedTicket(admissions = drawnQr(), artist = "Dumdumboys – XL", venue = venue, date = "24-06-2027")
+
+        assertEquals("g2", (routeTicket(at("Rockefeller"), gigs, today) as TicketRouting.NeedsConfirmation).possibleMatch?.id)
+        assertEquals("g1", (routeTicket(at("Somewhere Else"), gigs, today) as TicketRouting.NeedsConfirmation).possibleMatch?.id)
+    }
+
+    @Test
+    fun aPartialReadOnAKnownNightsDateCarriesTheSameHint() {
+        // Asked about anyway; the hint is the same one a complete read gets.
+        val parsed = ParsedTicket(admissions = qr(), artist = "Dumdumboys – XL", date = "24-06-2027")
+
+        val routing = routeTicket(parsed, listOf(known("g1", "24-06-2027", "Dumdumboys")), LocalDate.of(2027, 1, 1))
+
+        assertEquals("g1", (routing as TicketRouting.NeedsConfirmation).possibleMatch?.id)
     }
 
     @Test
     fun routingCarriesEveryAdmissionNotTheFirst() {
-        val three = listOf("A", "B", "C").map { Admission("SYNTHETIC-$it".toByteArray(), "qr") }
+        val three = listOf("A", "B", "C").map { Admission("SYNTHETIC-$it".toByteArray(), "qr", redrawable = true) }
         val parsed = ParsedTicket(admissions = three, artist = "Kaizers Orchestra", venue = "Sentrum Scene", date = "24-06-2027")
 
         val routing = routeTicket(parsed, emptyList(), today = LocalDate.of(2027, 1, 1))
@@ -366,7 +489,7 @@ class TicketParsingTest {
     fun aCompleteParseMatchingAKnownNightIsAMatchNotADuplicate() {
         val gigs = listOf(known("g1", "24-06-2027", "Kaizers Orchestra"))
         val parsed = ParsedTicket(
-            admissions = qr(),
+            admissions = drawnQr(),
             artist = "Kaizers Orchestra",
             venue = "Sentrum Scene",
             date = "24-06-2027",
@@ -381,7 +504,7 @@ class TicketParsingTest {
     @Test
     fun aCompleteUnmatchedFutureParseIsANewPlannedGig() {
         val parsed = ParsedTicket(
-            admissions = qr(),
+            admissions = drawnQr(),
             artist = "Kaizers Orchestra",
             venue = "Sentrum Scene",
             date = "24-06-2027",
@@ -400,7 +523,7 @@ class TicketParsingTest {
         // #526: two readings, and the artist came out of OCR alone — the vendor logo
         // case. A ticket built from a link has no readings at all and still mints.
         val single = ParsedTicket(
-            admissions = qr(),
+            admissions = drawnQr(),
             artist = "TICKETLINE",
             venue = "Sentrum Scene",
             date = "24-06-2027",
@@ -410,7 +533,7 @@ class TicketParsingTest {
             readingCount = 2,
         )
         val backed = single.copy(artist = "Kaizers Orchestra", artistSupport = TicketSupport.BOTH)
-        val linked = ParsedTicket(admissions = qr(), artist = "Kaizers Orchestra", venue = "Sentrum Scene", date = "24-06-2027")
+        val linked = ParsedTicket(admissions = drawnQr(), artist = "Kaizers Orchestra", venue = "Sentrum Scene", date = "24-06-2027")
         val today = LocalDate.of(2027, 1, 1)
 
         assertTrue(routeTicket(single, emptyList(), today) is TicketRouting.NeedsConfirmation)
@@ -423,7 +546,7 @@ class TicketParsingTest {
         // As on iOS: a match adds nothing new to the line, so completeness is enough.
         val gigs = listOf(known("g1", "24-06-2027", "Kaizers Orchestra"))
         val parsed = ParsedTicket(
-            admissions = qr(),
+            admissions = drawnQr(),
             artist = "Kaizers Orchestra",
             venue = "Sentrum Scene",
             date = "24-06-2027",
@@ -441,7 +564,7 @@ class TicketParsingTest {
         // Story 13: an old ticket found while cleaning out email must not become a
         // phantom future plan just because every field happened to parse.
         val parsed = ParsedTicket(
-            admissions = qr(),
+            admissions = drawnQr(),
             artist = "Kaizers Orchestra",
             venue = "Sentrum Scene",
             date = "24-06-2020",
@@ -458,7 +581,7 @@ class TicketParsingTest {
         // most often shared. Same three days, same answers as iOS's
         // testTheDayBeforeTheDayOfAndTheDayAfter.
         fun dated(date: String) = ParsedTicket(
-            admissions = qr(),
+            admissions = drawnQr(),
             artist = "Kaizers Orchestra",
             venue = "Sentrum Scene",
             date = date,
@@ -480,9 +603,9 @@ class TicketParsingTest {
         // extracted, only the QR, only some text fields, or everything short of a
         // full match/no-match — never a silent add, never a silent drop.
         val cases = listOf(
-            ParsedTicket(admissions = qr()),
+            ParsedTicket(admissions = drawnQr()),
             ParsedTicket(artist = "Kaizers Orchestra", venue = "Sentrum Scene", date = "24-06-2027"),
-            ParsedTicket(admissions = qr(), artist = "Kaizers Orchestra"),
+            ParsedTicket(admissions = drawnQr(), artist = "Kaizers Orchestra"),
             ParsedTicket(),
         )
         for (parsed in cases) {
@@ -506,5 +629,48 @@ class TicketParsingTest {
 
         assertNull(matchKnownNight(ParsedTicket(date = "24-06-2027"), gigs))
         assertNull(matchKnownNight(ParsedTicket(artist = "Kaizers Orchestra"), gigs))
+    }
+
+    @Test
+    fun theArtistNameIsFoldedBeforeItIsMatched() {
+        // The country tag clashfinder and setlist.fm disagree about, folded through
+        // nameKey the way every other match in this app folds it — and iOS's knownNight.
+        val gigs = listOf(known("g1", "14-09-2027", "Wilco"))
+        val parsed = ParsedTicket(admissions = drawnQr(), artist = "Wilco (US)", venue = "Sentrum Scene", date = "14-09-2027")
+
+        val routing = routeTicket(parsed, gigs, today = LocalDate.of(2027, 1, 1))
+
+        assertEquals("g1", (routing as TicketRouting.AlreadyKnown).gig.id)
+    }
+
+    @Test
+    fun anArtistThatFoldsToNothingMatchesNoNight() {
+        // nameKey("") is "", so without a guard a ticket artist of pure punctuation
+        // would match any night that day whose artist is missing.
+        val gigs = listOf(FmSetlist(id = "g1", eventDate = "14-09-2027", artist = null))
+
+        assertNull(matchKnownNight(ParsedTicket(artist = "—", date = "14-09-2027"), gigs))
+    }
+
+    // --- the confirm step: the match is checked again on what was confirmed ---
+
+    @Test
+    fun editingTheArtistAtConfirmDropsTheRoutingTimeMatch() {
+        // What routing matched is a hint for the prompt, not the answer: the person
+        // said it is a different act, so the night routing found is not this one.
+        val gigs = listOf(known("g1", "14-09-2027", "Wilco"))
+        val routing = routeTicket(ParsedTicket(artist = "Wilco", date = "14-09-2027"), gigs, today = LocalDate.of(2027, 1, 1))
+        assertEquals("g1", (routing as TicketRouting.NeedsConfirmation).possibleMatch?.id)
+
+        assertNull(matchKnownNight(ParsedTicket(artist = "Big Thief", venue = "Sentrum Scene", date = "14-09-2027"), gigs))
+    }
+
+    @Test
+    fun editingTheDateAtConfirmFindsTheNightItNowNames() {
+        val gigs = listOf(known("g1", "14-09-2027", "Wilco"), known("g2", "15-09-2027", "Wilco"))
+        val routing = routeTicket(ParsedTicket(artist = "Wilco", date = "14-09-2027"), gigs, today = LocalDate.of(2027, 1, 1))
+        assertEquals("g1", (routing as TicketRouting.NeedsConfirmation).possibleMatch?.id)
+
+        assertEquals("g2", matchKnownNight(ParsedTicket(artist = "Wilco (US)", date = "15-09-2027"), gigs)?.id)
     }
 }

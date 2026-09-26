@@ -224,3 +224,43 @@ fun gigOffers(gig: GigAsKnown, now: LocalDateTime): GigOffers {
         phase = phase,
     )
 }
+
+/**
+ * Which of a night's **Admissions** the Room is showing, of how many (#441, story 5).
+ * The Swift twin is `AdmissionPage` in GigOffers.swift.
+ *
+ * Every Admission has a page, in stored order: one the app cannot redraw keeps its
+ * page and says so there, so "2 of 3" means the ticket's own second barcode. Stepping
+ * stops at either end rather than wrapping: at a door, coming back round to the first
+ * without noticing is how the same barcode is shown twice. A single Admission has no
+ * [label] and nothing to step to.
+ */
+data class AdmissionPage(val index: Int, val count: Int) {
+    val hasPrevious: Boolean get() = index > 0
+    val hasNext: Boolean get() = index < count - 1
+
+    /** "2 of 3", or null for one Admission (or none). */
+    val label: String? get() = if (count > 1) "${index + 1} of $count" else null
+
+    fun next(): AdmissionPage = if (hasNext) copy(index = index + 1) else this
+    fun previous(): AdmissionPage = if (hasPrevious) copy(index = index - 1) else this
+
+    companion object {
+        /** [index] held inside [count], so a night that lost an Admission never points past its last. */
+        fun of(index: Int, count: Int): AdmissionPage = AdmissionPage(index.coerceIn(0, maxOf(count - 1, 0)), count)
+    }
+}
+
+/**
+ * What the Room decided about one Admission, tagged with the Admission it was decided
+ * for (the #441 review). The check runs off the main thread, and a person stepping to
+ * the next page while it runs must never see the previous drawing under the new "2 of 3":
+ * a verdict is only ever read back for the Admission it was reached for
+ * ([forAdmission]), and anything else is still being checked. The Swift twin is
+ * `DoorVerdict` in GigOffers.swift.
+ */
+data class DoorVerdict<A, V>(val admission: A, val verdict: V)
+
+/** The verdict when it was reached for [admission]; null — still checking — otherwise. */
+fun <A, V> DoorVerdict<A, V>?.forAdmission(admission: A): V? =
+    this?.takeIf { it.admission == admission }?.verdict
