@@ -250,3 +250,17 @@ data class AdmissionPage(val index: Int, val count: Int) {
         fun of(index: Int, count: Int): AdmissionPage = AdmissionPage(index.coerceIn(0, maxOf(count - 1, 0)), count)
     }
 }
+
+/**
+ * What the Room decided about one Admission, tagged with the Admission it was decided
+ * for (the #441 review). The check runs off the main thread, and a person stepping to
+ * the next page while it runs must never see the previous drawing under the new "2 of 3":
+ * a verdict is only ever read back for the Admission it was reached for
+ * ([forAdmission]), and anything else is still being checked. The Swift twin is
+ * `DoorVerdict` in GigOffers.swift.
+ */
+data class DoorVerdict<A, V>(val admission: A, val verdict: V)
+
+/** The verdict when it was reached for [admission]; null — still checking — otherwise. */
+fun <A, V> DoorVerdict<A, V>?.forAdmission(admission: A): V? =
+    this?.takeIf { it.admission == admission }?.verdict

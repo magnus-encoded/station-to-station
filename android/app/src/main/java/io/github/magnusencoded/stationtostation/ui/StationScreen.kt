@@ -1071,10 +1071,15 @@ private fun TicketAtTheDoor(admissions: List<StoredAdmission>) {
     var index by remember(admissions) { mutableStateOf(0) }
     val page = AdmissionPage.of(index, admissions.size)
     val admission = admissions[page.index]
-    val shown by produceState<AtTheDoor>(AtTheDoor.Checking, admission) {
-        value = withContext(Dispatchers.Default) { doorDrawing(admission) }
+    // Tagged with the Admission it is about: produceState keeps its last value when the
+    // key changes, so an untagged one would put the previous page's drawing under the
+    // new "2 of 3" until the next check ends.
+    val verdict by produceState<DoorVerdict<StoredAdmission, AtTheDoor>?>(null, admission) {
+        val door = withContext(Dispatchers.Default) { doorDrawing(admission) }
             ?.let { AtTheDoor.Shown(it) } ?: AtTheDoor.CannotShow
+        value = DoorVerdict(admission, door)
     }
+    val shown = verdict.forAdmission(admission) ?: AtTheDoor.Checking
     BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
         // The card's own padding and border, inside the width the Room gives it.
         val inner = maxWidth - 30.dp

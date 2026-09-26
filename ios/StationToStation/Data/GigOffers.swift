@@ -240,3 +240,18 @@ struct AdmissionPage: Equatable {
     func next() -> AdmissionPage { hasNext ? AdmissionPage(index: index + 1, count: count) : self }
     func previous() -> AdmissionPage { hasPrevious ? AdmissionPage(index: index - 1, count: count) : self }
 }
+
+/// What the Room decided about one Admission, tagged with the Admission it was decided
+/// for (the #441 review). The check runs off the main actor, and a person stepping to the
+/// next page while it runs must never see the previous drawing under the new "2 of 3": a
+/// verdict is only ever read back for the Admission it was reached for, and anything
+/// else is still being checked. The Kotlin twin is `DoorVerdict` in GigOffers.kt.
+struct DoorVerdict<Key: Equatable, Verdict> {
+    let admission: Key
+    let verdict: Verdict
+
+    /// The verdict when it was reached for `admission`; nil — still checking — otherwise.
+    func forAdmission(_ admission: Key) -> Verdict? {
+        self.admission == admission ? self.verdict : nil
+    }
+}
