@@ -2019,6 +2019,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * gig. The Admissions travel from the original parse regardless of what the person
      * edited — they are preserved even when the text half of the ticket needed fixing
      * by hand (#441, story 16).
+     *
+     * The match is checked *again* on the confirmed values rather than trusted from
+     * routing, as iOS's `confirmTicket` does. [PendingTicket.possibleMatch] was found
+     * for what the parse read; a person who corrected the artist or the date has said
+     * it is some other night, and a partial parse that matched nothing may, once
+     * filled in, name a night that was already there.
      */
     fun confirmPendingTicket(id: String, artist: String, venue: String, date: String) {
         val pending = _state.value.pendingTickets.firstOrNull { it.id == id } ?: return
@@ -2029,8 +2035,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             val known = _state.value.setlists + _state.value.plannedGigs
-            val matched = pending.possibleMatch
-                ?: matchKnownNight(ParsedTicket(artist = artist.trim(), venue = venue.trim(), date = fmDate(night)), known)
+            val matched = matchKnownNight(ParsedTicket(artist = artist.trim(), venue = venue.trim(), date = fmDate(night)), known)
             if (matched != null) {
                 attachAdmissions(matched.id, pending.parsed.admissions)
             } else {
