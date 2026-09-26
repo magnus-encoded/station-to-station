@@ -21,9 +21,22 @@ import sys
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 
 PACKAGE = "io.github.magnusencoded.stationtostation"
+
+
+def track_version_codes(edits, edit_id: str, track: str) -> set[int]:
+    """Every versionCode the track's current releases name. Empty for a new track."""
+    try:
+        releases = edits.tracks().get(packageName=PACKAGE, editId=edit_id,
+                                      track=track).execute().get("releases", [])
+    except HttpError as e:
+        if e.resp.status == 404:
+            return set()
+        raise
+    return {int(code) for r in releases for code in r.get("versionCodes", [])}
 
 
 def main() -> int:
@@ -47,6 +60,11 @@ def main() -> int:
     # updates. The dangerous direction should be the one you have to type.
     p.add_argument("--commit", action="store_true",
                    help="actually release. Omitted, this uploads and rolls back.")
+    # A re-pushed old tag rebuilds an old versionCode and would put it back on the
+    # track, replacing whatever newer build testers had been offered. Deliberate
+    # rollbacks are rare enough to spell out.
+    p.add_argument("--allow-downgrade", action="store_true",
+                   help="release even if the track already serves a higher versionCode")
     args = p.parse_args()
 
     raw = os.environ.get("PLAY_SERVICE_ACCOUNT_JSON")
@@ -104,6 +122,14 @@ def main() -> int:
         edits.delete(packageName=PACKAGE, editId=edit_id).execute()
         print("dry run: nothing released. Re-run with --commit.")
         return 0
+
+    serving = track_version_codes(edits, edit_id, args.track)
+    if serving and max(serving) > version_code and not args.allow_downgrade:
+        edits.delete(packageName=PACKAGE, editId=edit_id).execute()
+        print(f"{args.track} already serves versionCode {max(serving)}; refusing to "
+              f"replace it with {version_code}. Pass --allow-downgrade to roll back.",
+              file=sys.stderr)
+        return 3
 
     release = {"versionCodes": [str(version_code)]}
     if args.rollout is not None:

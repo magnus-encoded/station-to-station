@@ -59,6 +59,19 @@ derives it from `git rev-list --count HEAD` and passes it in as `VERSION_CODE`
 The consequence to remember is that tags must be cut from `main` — a tag on a
 branch that is behind produces a lower count than the last upload.
 
+**A new sensitive permission needs a Play declaration before its first release.**
+1.9.0 added `FOREGROUND_SERVICE_CONNECTED_DEVICE` for Gossip, and every release
+from then on died at the Play commit with a 403 ("You must let us know whether
+your app uses any Foreground Service permissions") while alpha stayed on 1.8.0.
+The form only appears in App content once Play holds a bundle that uses the
+permission, and a failed commit discards CI's upload, so the way through is one
+manual upload in the console: Closed testing → Create new release → upload the
+`.aab` from the run's artifact, which brings the form up on Review release.
+The release workflow now publishes to Play before the GitHub release, so a
+refusal like this leaves no GitHub release behind it; and `publish_play.py`
+refuses to put a lower versionCode on a track than the one it serves, so
+re-pushing an old tag cannot quietly roll testers back.
+
 **The bundle has the setlist.fm key baked in.** That is scoped to a small cohort
 sharing one key, raised on 2026-09-16 to 16 requests/second and 50,000/day (same
 key string, so no rebuild was needed for the raise). Do not promote this bundle
