@@ -465,10 +465,10 @@ struct GigView: View {
                 songCount: show.performed().count,
                 calendarEvent: model.state.calendarEventByGig[show.id],
                 // Off the same claim `provenance` above is read from, rather than a
-                // map of its own: #412 keeps the QR on `StoredAttendance`, which is
-                // the record this screen already holds for the open night. Android
-                // reaches the same field through `state.attendanceByGig[id]`.
-                ticketQr: model.state.selectedAttendance?.ticketQr
+                // map of its own: #441 keeps the Admissions on `StoredAttendance`,
+                // which is the record this screen already holds for the open night.
+                // Android reaches the same field through `state.attendanceByGig[id]`.
+                admissionCount: model.state.selectedAttendance?.admissions.count ?? 0
             ),
             now: Date()
         )
@@ -507,11 +507,19 @@ struct GigView: View {
                     onSelect: { model.selectGossipGig(show.id) },
                     onExpiry: { model.refreshGossipPresence() })
             } else {
-                // The base64 is decoded here and nowhere earlier: the fold carries the
-                // stored string and decides only whether to show it, exactly as
-                // Android's does (#413). A payload that will not decode draws nothing.
-                if room?.showQr == true, let qr = model.state.selectedAttendance?.ticketQrBytes {
-                    TicketQR(payload: qr).padding(.top, 10)
+                // The fold decides only whether to show the ticket, exactly as Android's
+                // does; which Admission to draw is decided here (#441). The first QR
+                // Admission is drawn as a QR, as before. One in another symbology is
+                // never redrawn as a QR — it would look like a ticket and scan as
+                // nothing — so a night with only those says so instead. A payload that
+                // will not decode draws nothing. The symbology-aware redraw and stepping
+                // between Admissions are #441's next slice, and land here.
+                if room?.showTicket == true, let admissions = model.state.selectedAttendance?.admissions {
+                    if let qr = admissions.first(where: { $0.symbology == qrSymbology })?.payloadBytes {
+                        TicketQR(payload: qr).padding(.top, 10)
+                    } else if let other = admissions.first(where: { $0.symbology != qrSymbology }) {
+                        TicketCannotBeShown(symbology: other.symbology).padding(.top, 10)
+                    }
                 }
                 if room?.checkIn == true {
                     Text("I'm here — check in").font(.system(size: 13)).foregroundStyle(amber)

@@ -1,5 +1,5 @@
 {
-  "about": "A PDF the probe generated (not valid for admission) and read on a Pixel 7 Pro; both readings are REAL device output, verbatim. Two pages, one ticket each, with two different QR codes: the readings run on from page one into page two. The result carries the first QR; every barcode stays in the evidence for #441.",
+  "about": "A PDF the probe generated (not valid for admission) and read on a Pixel 7 Pro; both readings are REAL device output, verbatim. Two pages, one ticket each, with two different QR codes: the readings run on from page one into page two. Two Admissions, one per page (#441).",
   "readings": [
     {
       "origin": "textLayer",
@@ -35,11 +35,13 @@
   "barcodes": [
     {
       "symbology": "qr",
-      "payload": "SYNTHETIC-OCS-PAGE-1"
+      "payload": "SYNTHETIC-OCS-PAGE-1",
+      "page": 0
     },
     {
       "symbology": "qr",
-      "payload": "SYNTHETIC-OCS-PAGE-2"
+      "payload": "SYNTHETIC-OCS-PAGE-2",
+      "page": 1
     }
   ],
   "expected": {
@@ -55,7 +57,18 @@
       "value": "25-09-2026",
       "support": "both"
     },
-    "barcode": "SYNTHETIC-OCS-PAGE-1",
+    "admissions": [
+      {
+        "symbology": "qr",
+        "payload": "SYNTHETIC-OCS-PAGE-1",
+        "corroborated": false
+      },
+      {
+        "symbology": "qr",
+        "payload": "SYNTHETIC-OCS-PAGE-2",
+        "corroborated": false
+      }
+    ],
     "skipsPrompt": true
   }
 }

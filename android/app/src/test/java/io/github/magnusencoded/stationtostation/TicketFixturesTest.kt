@@ -11,6 +11,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -28,9 +29,6 @@ import java.io.File
  * Required, never skipped: a missing corpus would make the parity this exists for pass
  * by saying nothing. Every mismatch in every case is collected and reported together,
  * so one CI run shows the whole picture rather than the first failure.
- *
- * `unsupportedBarcodeFormat` (#534) is Android's own and outside the corpus, so it is
- * not asserted here (README, "What each platform's test does").
  */
 class TicketFixturesTest {
 
@@ -83,6 +81,7 @@ class TicketFixturesTest {
                     image = ByteArray(0),
                     payload = b.getValue("payload").jsonPrimitive.content.toByteArray(Charsets.UTF_8),
                     symbology = b.getValue("symbology").jsonPrimitive.content,
+                    page = b["page"]?.jsonPrimitive?.int ?: 0,
                 )
             },
         )
@@ -126,9 +125,17 @@ class TicketFixturesTest {
             )
         }
 
-        val wantBarcode = want.getValue("barcode").let { if (it is JsonNull) null else it.jsonPrimitive.content }
-        val barcode = found.qrBytes?.toString(Charsets.UTF_8)
-        if (barcode != wantBarcode) failures += "$name: barcode is \"$barcode\", expected \"$wantBarcode\""
+        // Every Admission, in order: symbology, payload as text, corroboration (#441).
+        val wantAdmissions = want.getValue("admissions").jsonArray.map { a ->
+            val o = a.jsonObject
+            Triple(
+                o.getValue("symbology").jsonPrimitive.content,
+                o.getValue("payload").jsonPrimitive.content,
+                o.getValue("corroborated").jsonPrimitive.boolean,
+            )
+        }
+        val admissions = found.admissions.map { Triple(it.symbology, it.payload.toString(Charsets.UTF_8), it.corroborated) }
+        if (admissions != wantAdmissions) failures += "$name: admissions are $admissions, expected $wantAdmissions"
 
         val skips = want.getValue("skipsPrompt")
         if (!skips.isUnchecked()) {
@@ -150,6 +157,6 @@ class TicketFixturesTest {
 
     private companion object {
         /** README: fail below this, and raise it with the corpus. */
-        const val FLOOR = 19
+        const val FLOOR = 26
     }
 }

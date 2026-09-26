@@ -30,7 +30,13 @@
       "value": "28-09-2026",
       "support": "ocr"
     },
-    "barcode": "SYNTHETIC-TICKETLINE-QR",
+    "admissions": [
+      {
+        "symbology": "qr",
+        "payload": "SYNTHETIC-TICKETLINE-QR",
+        "corroborated": false
+      }
+    ],
     "skipsPrompt": "unchecked"
   }
 }

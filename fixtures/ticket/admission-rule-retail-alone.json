@@ -1,0 +1,41 @@
+{
+  "about": "SYNTHETIC, written by hand for the retail rule's other half (#441). The only barcode is an EAN-13, so it is kept: a retail format is dropped only beside something else. Provisional, like the rule.",
+  "readings": [
+    {
+      "origin": "ocr",
+      "lines": [
+        "Kaizers Orchestra",
+        "Sentrum Scene",
+        "24.06.2027"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "symbology": "ean13",
+      "payload": "0000000000017"
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "Kaizers Orchestra",
+      "support": "ocr"
+    },
+    "venue": {
+      "value": "Sentrum Scene",
+      "support": "ocr"
+    },
+    "date": {
+      "value": "24-06-2027",
+      "support": "ocr"
+    },
+    "admissions": [
+      {
+        "symbology": "ean13",
+        "payload": "0000000000017",
+        "corroborated": false
+      }
+    ],
+    "skipsPrompt": true
+  }
+}

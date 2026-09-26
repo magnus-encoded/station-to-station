@@ -24,7 +24,7 @@
       "value": "01-05-2025",
       "support": "ocr"
     },
-    "barcode": null,
+    "admissions": [],
     "skipsPrompt": false
   }
 }

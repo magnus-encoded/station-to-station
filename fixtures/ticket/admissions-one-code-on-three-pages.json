@@ -1,0 +1,52 @@
+{
+  "about": "SYNTHETIC (#441, story 6): the same QR printed on each of three pages is one Admission, not three.",
+  "readings": [
+    {
+      "origin": "ocr",
+      "lines": [
+        "Kaizers Orchestra",
+        "Sentrum Scene",
+        "24.06.2027"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "symbology": "qr",
+      "payload": "SYNTHETIC-REPEATED",
+      "page": 0
+    },
+    {
+      "symbology": "qr",
+      "payload": "SYNTHETIC-REPEATED",
+      "page": 1
+    },
+    {
+      "symbology": "qr",
+      "payload": "SYNTHETIC-REPEATED",
+      "page": 2
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "Kaizers Orchestra",
+      "support": "ocr"
+    },
+    "venue": {
+      "value": "Sentrum Scene",
+      "support": "ocr"
+    },
+    "date": {
+      "value": "24-06-2027",
+      "support": "ocr"
+    },
+    "admissions": [
+      {
+        "symbology": "qr",
+        "payload": "SYNTHETIC-REPEATED",
+        "corroborated": false
+      }
+    ],
+    "skipsPrompt": true
+  }
+}

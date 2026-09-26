@@ -514,7 +514,7 @@ final class AppModel: ObservableObject {
         let parse: TicketParse = ticket.isEmpty ? .nothingUsable : .ticket(ticket)
         switch routeTicket(parse, knownNights: knownNights, now: now) {
         case .match(let gigId):
-            if let qr = ticket.qr { await attachTicketQr(gigId: gigId, qr: qr) }
+            await attachAdmissions(gigId: gigId, ticket.admissions)
             state.notice = "That night is already on your line."
         case .add(let complete):
             await put(complete)
@@ -594,23 +594,27 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// The QR onto the night's attendance record, and into state with it (#412).
+    /// Every **Admission** onto the night's attendance record, appended, and into state
+    /// with it (#412, #441). No-op when there is none to keep — most confirmations and
+    /// most matches.
     ///
     /// State as well as disk for the reason `mintPlannedGig` writes the claim into
-    /// both: the day-of view (#414) reads the QR out of `attendanceByGig`, so a write
-    /// that only landed on disk would show nothing until the next cold start.
-    private func attachTicketQr(gigId: String, qr: Data) async {
-        let settled = await timelines.attachTicketQr(setlistId: gigId, qr: qr)
+    /// both: the day-of view (#414) reads the Admissions out of `attendanceByGig`, so a
+    /// write that only landed on disk would show nothing until the next cold start.
+    private func attachAdmissions(gigId: String, _ admissions: [Admission]) async {
+        guard !admissions.isEmpty else { return }
+        let settled = await timelines.attachAdmissions(setlistId: gigId,
+                                                       admissions: admissions.map { StoredAdmission($0) })
         state.attendanceByGig[gigId] = settled
         if state.selectedSetlist?.id == gigId { state.selectedAttendance = settled }
     }
 
     /// What was confirmed — by the parse being complete, or by a person — put on the
-    /// **Line**. The QR rides along whether or not the text parse managed anything.
+    /// **Line**. The Admissions ride along whether or not the text parse managed anything.
     private func put(_ ticket: Ticket) async {
         guard let artist = ticket.artist, let night = ticket.date else { return }
         let gigId = await mintPlannedGig(artist: artist, venue: ticket.venue ?? "", night: night)
-        if let qr = ticket.qr { await attachTicketQr(gigId: gigId, qr: qr) }
+        await attachAdmissions(gigId: gigId, ticket.admissions)
     }
 
     /// The prompt answered: what the parse read, corrected and filled in by the person
@@ -630,13 +634,12 @@ final class AppModel: ObservableObject {
             return
         }
         state.ticketDrafts.removeFirst()
-        let confirmed = Ticket(qr: pending.qr, artist: who,
+        // The Admissions are the parse's, whatever the person corrected (story 16).
+        let confirmed = Ticket(admissions: pending.admissions, artist: who,
                                venue: room.nilIfBlank, date: night)
         Task {
             if let known = knownNight(confirmed, among: knownNights) {
-                if let qr = confirmed.qr {
-                    await attachTicketQr(gigId: known.id, qr: qr)
-                }
+                await attachAdmissions(gigId: known.id, confirmed.admissions)
                 state.notice = "That night is already on your line."
                 return
             }
@@ -1752,12 +1755,13 @@ final class AppModel: ObservableObject {
             setlistId: gig.id,
             // Every field of the existing claim is carried, not just the ones this
             // write is about: `saveAttendance` replaces the record wholesale, so a
-            // field left out here is a field deleted. `ticketQr` joined it in #412.
+            // field left out here is a field deleted. The ticket joined it in #412, and
+            // is `admissions` since #441.
             attendance: StoredAttendance(
                 provenance: cache.attendance()[gig.id]?.provenance ?? "planned",
                 checkedInAt: cache.attendance()[gig.id]?.checkedInAt,
                 venueLat: found.lat, venueLon: found.lon,
-                ticketQr: cache.attendance()[gig.id]?.ticketQr
+                admissions: cache.attendance()[gig.id]?.admissions ?? []
             )
         )
         return found
@@ -1770,7 +1774,7 @@ final class AppModel: ObservableObject {
         state.checkInOffer = nil
         Task {
             let existing = await timelines.load().attendance()[gigId]
-            // The ticket's QR is carried across the check-in rather than dropped by it.
+            // The ticket's Admissions are carried across the check-in rather than dropped by it.
             // It is a fact about the night and not about the claim, and this write
             // replaces the whole record — Android's `updateAttendance` gets the same
             // answer from `copy()`, which is why that side needed no such line (#412).
@@ -1778,7 +1782,7 @@ final class AppModel: ObservableObject {
                 provenance: "checked_in",
                 checkedInAt: Int64(Date().timeIntervalSince1970 * 1000),
                 venueLat: existing?.venueLat, venueLon: existing?.venueLon,
-                ticketQr: existing?.ticketQr
+                admissions: existing?.admissions ?? []
             )
             await timelines.saveAttendance(setlistId: gigId, attendance: attendance)
             // The claim goes into state as well as onto disk: the night has just stopped

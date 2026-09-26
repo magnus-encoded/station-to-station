@@ -1,5 +1,6 @@
 package io.github.magnusencoded.stationtostation
 
+import io.github.magnusencoded.stationtostation.data.Admission
 import io.github.magnusencoded.stationtostation.data.ParsedTicket
 import io.github.magnusencoded.stationtostation.data.TicketBarcode
 import io.github.magnusencoded.stationtostation.data.TicketEvidence
@@ -31,10 +32,12 @@ import java.time.LocalDate
  */
 class TicketParsingTest {
 
-    private fun qr(payload: String = "ticket-payload") = payload.toByteArray()
+    private fun qr(payload: String = "ticket-payload") = listOf(Admission(payload.toByteArray(), "qr"))
 
-    private fun barcode(symbology: String, payload: String) =
-        TicketBarcode(image = ByteArray(0), payload = payload.toByteArray(), symbology = symbology)
+    private fun barcode(symbology: String, payload: String, page: Int? = null) =
+        TicketBarcode(image = ByteArray(0), payload = payload.toByteArray(), symbology = symbology, page = page)
+
+    private fun List<Admission>.payloads() = map { it.payload.toString(Charsets.UTF_8) }
 
     /** One OCR reading, as a scan or a phone below API 35 gives. */
     private fun ocrOnly(lines: List<String>, barcodes: List<TicketBarcode> = emptyList()) =
@@ -71,7 +74,7 @@ class TicketParsingTest {
             TicketEvidence(readings = emptyList(), barcodes = listOf(barcode("qr", "ticket-payload"))),
         )
 
-        assertEquals(qr().toList(), parsed.qrBytes!!.toList())
+        assertEquals(qr(), parsed.admissions)
         assertNull(parsed.artist)
         assertNull(parsed.date)
         assertTrue(!parsed.isComplete)
@@ -82,7 +85,7 @@ class TicketParsingTest {
     fun textOnlyWithNoQrIsIncomplete() {
         val parsed = ocrOnly(listOf("Kaizers Orchestra", "Sentrum Scene", "24-06-2027"))
 
-        assertNull(parsed.qrBytes)
+        assertTrue(parsed.admissions.isEmpty())
         assertEquals("Kaizers Orchestra", parsed.artist)
         assertEquals("24-06-2027", parsed.date)
         assertTrue(!parsed.isComplete)
@@ -128,45 +131,93 @@ class TicketParsingTest {
         assertFalse(disputed.canSkipPrompt)
     }
 
+    // --- Admissions (#441) ---
+
     @Test
-    fun anUnsupportedBarcodeIsCarriedThroughAndChangesNothingElse() {
-        // #441 interim: a Code 128 is reported for the confirm prompt, not stored as a
-        // QR. The text parse is exactly what it would have been without it.
+    fun aCode128IsAnAdmissionAndChangesNothingElse() {
+        // #441: a Code 128 is kept as an Admission in its own symbology, where the
+        // interim #534 only flagged it. The text parse is exactly what it would have
+        // been without it.
         val lines = listOf("Kaizers Orchestra", "Sentrum Scene, Oslo", "24-06-2027")
 
-        val flagged = ocrOnly(lines, barcodes = listOf(barcode("code128", "SYNTHETIC-CODE128-0001")))
+        val withCode = ocrOnly(lines, barcodes = listOf(barcode("code128", "SYNTHETIC-CODE128-0001")))
         val plain = ocrOnly(lines)
 
-        assertEquals("code128", flagged.unsupportedBarcodeFormat)
-        assertNull(flagged.qrBytes)
-        assertEquals(plain.copy(unsupportedBarcodeFormat = "code128"), flagged)
-        assertEquals(plain.isEmpty, flagged.isEmpty)
-        assertEquals(plain.isComplete, flagged.isComplete)
+        assertEquals(listOf("code128"), withCode.admissions.map { it.symbology })
+        assertEquals(plain, withCode.copy(admissions = emptyList()))
     }
 
     @Test
-    fun aNonQrFoundBeforeTheQrIsStillReportedAndTheFirstQrIsKept() {
-        // That ticket may well be the Code 128 with an unrelated QR printed after it —
-        // the prompt saying "bring the PDF" costs nothing there.
+    fun everyAdmissionIsKeptInPageOrderWhateverItsSymbology() {
         val parsed = parseTicketFields(
             TicketEvidence(
                 readings = emptyList(),
                 barcodes = listOf(
-                    barcode("code128", "SYNTHETIC-CODE128-0001"),
-                    barcode("qr", "SYNTHETIC-QR-1"),
-                    barcode("qr", "SYNTHETIC-QR-2"),
+                    barcode("qr", "SYNTHETIC-QR-2", page = 1),
+                    barcode("code128", "SYNTHETIC-CODE128-0001", page = 0),
+                    barcode("qr", "SYNTHETIC-QR-1", page = 0),
                 ),
             ),
         )
 
-        assertEquals("SYNTHETIC-QR-1", parsed.qrBytes?.toString(Charsets.UTF_8))
-        assertEquals("code128", parsed.unsupportedBarcodeFormat)
+        assertEquals(listOf("SYNTHETIC-CODE128-0001", "SYNTHETIC-QR-1", "SYNTHETIC-QR-2"), parsed.admissions.payloads())
+        assertEquals(listOf(0, 0, 1), parsed.admissions.map { it.page })
     }
 
     @Test
-    fun aTicketWhoseOnlyBarcodeIsUnsupportedAlwaysReachesThePrompt() {
-        // No QR means never complete, so the prompt that says "bring the PDF" is
-        // always shown — even when every text field parsed and the night is future.
+    fun oneCodeOnThreePagesIsOneAdmissionAndTheFirstSymbologyWins() {
+        val parsed = parseTicketFields(
+            TicketEvidence(
+                readings = emptyList(),
+                barcodes = listOf(
+                    barcode("qr", "SYNTHETIC-SAME", page = 0),
+                    barcode("aztec", "SYNTHETIC-SAME", page = 1),
+                    barcode("qr", "SYNTHETIC-SAME", page = 2),
+                ),
+            ),
+        )
+
+        assertEquals(listOf(Admission("SYNTHETIC-SAME".toByteArray(), "qr", page = 0)), parsed.admissions)
+    }
+
+    @Test
+    fun retailCodesAreDroppedBesideAnythingElseAndKeptAlone() {
+        val beside = parseTicketFields(
+            TicketEvidence(emptyList(), listOf(barcode("ean13", "4006381333931"), barcode("qr", "SYNTHETIC-QR-1"))),
+        )
+        val alone = parseTicketFields(TicketEvidence(emptyList(), listOf(barcode("upca", "036000291452"))))
+
+        assertEquals(listOf("SYNTHETIC-QR-1"), beside.admissions.payloads())
+        assertEquals(listOf("upca"), alone.admissions.map { it.symbology })
+    }
+
+    @Test
+    fun anAdmissionIsCorroboratedWhenTheTicketPrintsItAndKeptWhenItDoesNot() {
+        val parsed = parseTicketFields(
+            TicketEvidence(
+                readings = listOf(TicketReading(TicketReading.Origin.TEXT_LAYER, listOf("Order", "*SYNTH46G7*"))),
+                barcodes = listOf(barcode("qr", "SYNTH46G7"), barcode("qr", "SYNTH-UNPRINTED")),
+            ),
+        )
+
+        assertEquals(listOf(true, false), parsed.admissions.map { it.corroborated })
+    }
+
+    @Test
+    fun aPayloadThatIsNotUtf8IsNeverCorroborated() {
+        val binary = TicketBarcode(image = ByteArray(0), payload = byteArrayOf(0x00, 0xFF.toByte()), symbology = "qr")
+        val parsed = parseTicketFields(
+            TicketEvidence(listOf(TicketReading(TicketReading.Origin.OCR, listOf("\u0000\uFFFD"))), listOf(binary)),
+        )
+
+        assertEquals(1, parsed.admissions.size)
+        assertFalse(parsed.admissions.single().corroborated)
+    }
+
+    @Test
+    fun aTicketWhoseOnlyAdmissionIsACode128CanBeComplete() {
+        // #441: "first QR" is gone. An Eventim ticket read in full is as complete as a
+        // QR one; that the Room cannot redraw it yet is the Room's to say.
         val parsed = ocrOnly(
             listOf("Kaizers Orchestra", "Sentrum Scene, Oslo", "24-06-2027"),
             barcodes = listOf(barcode("code128", "SYNTHETIC-CODE128-0001")),
@@ -174,21 +225,19 @@ class TicketParsingTest {
 
         val routing = routeTicket(parsed, emptyList(), today = LocalDate.of(2027, 1, 1))
 
-        assertTrue(routing is TicketRouting.NeedsConfirmation)
-        assertEquals("code128", (routing as TicketRouting.NeedsConfirmation).parsed.unsupportedBarcodeFormat)
+        assertTrue(parsed.isComplete)
+        assertTrue(routing is TicketRouting.NewPlannedGig)
+        assertEquals(parsed.admissions, (routing as TicketRouting.NewPlannedGig).admissions)
     }
 
     @Test
-    fun theFlagDoesNotChangeRoutingWhenAQrWasAlsoFound() {
-        val gigs = listOf(known("g1", "24-06-2027", "Kaizers Orchestra"))
-        val base = ParsedTicket(qrBytes = qr(), artist = "Kaizers Orchestra", venue = "Sentrum Scene", date = "24-06-2027")
-        val today = LocalDate.of(2027, 1, 1)
+    fun routingCarriesEveryAdmissionNotTheFirst() {
+        val three = listOf("A", "B", "C").map { Admission("SYNTHETIC-$it".toByteArray(), "qr") }
+        val parsed = ParsedTicket(admissions = three, artist = "Kaizers Orchestra", venue = "Sentrum Scene", date = "24-06-2027")
 
-        for (nights in listOf(gigs, emptyList())) {
-            val plain = routeTicket(base, nights, today)
-            val flagged = routeTicket(base.copy(unsupportedBarcodeFormat = "code128"), nights, today)
-            assertEquals(plain::class, flagged::class)
-        }
+        val routing = routeTicket(parsed, emptyList(), today = LocalDate.of(2027, 1, 1))
+
+        assertEquals(three, (routing as TicketRouting.NewPlannedGig).admissions)
     }
 
     @Test
@@ -317,7 +366,7 @@ class TicketParsingTest {
     fun aCompleteParseMatchingAKnownNightIsAMatchNotADuplicate() {
         val gigs = listOf(known("g1", "24-06-2027", "Kaizers Orchestra"))
         val parsed = ParsedTicket(
-            qrBytes = qr(),
+            admissions = qr(),
             artist = "Kaizers Orchestra",
             venue = "Sentrum Scene",
             date = "24-06-2027",
@@ -332,7 +381,7 @@ class TicketParsingTest {
     @Test
     fun aCompleteUnmatchedFutureParseIsANewPlannedGig() {
         val parsed = ParsedTicket(
-            qrBytes = qr(),
+            admissions = qr(),
             artist = "Kaizers Orchestra",
             venue = "Sentrum Scene",
             date = "24-06-2027",
@@ -351,7 +400,7 @@ class TicketParsingTest {
         // #526: two readings, and the artist came out of OCR alone — the vendor logo
         // case. A ticket built from a link has no readings at all and still mints.
         val single = ParsedTicket(
-            qrBytes = qr(),
+            admissions = qr(),
             artist = "TICKETLINE",
             venue = "Sentrum Scene",
             date = "24-06-2027",
@@ -361,7 +410,7 @@ class TicketParsingTest {
             readingCount = 2,
         )
         val backed = single.copy(artist = "Kaizers Orchestra", artistSupport = TicketSupport.BOTH)
-        val linked = ParsedTicket(qrBytes = qr(), artist = "Kaizers Orchestra", venue = "Sentrum Scene", date = "24-06-2027")
+        val linked = ParsedTicket(admissions = qr(), artist = "Kaizers Orchestra", venue = "Sentrum Scene", date = "24-06-2027")
         val today = LocalDate.of(2027, 1, 1)
 
         assertTrue(routeTicket(single, emptyList(), today) is TicketRouting.NeedsConfirmation)
@@ -374,7 +423,7 @@ class TicketParsingTest {
         // As on iOS: a match adds nothing new to the line, so completeness is enough.
         val gigs = listOf(known("g1", "24-06-2027", "Kaizers Orchestra"))
         val parsed = ParsedTicket(
-            qrBytes = qr(),
+            admissions = qr(),
             artist = "Kaizers Orchestra",
             venue = "Sentrum Scene",
             date = "24-06-2027",
@@ -392,7 +441,7 @@ class TicketParsingTest {
         // Story 13: an old ticket found while cleaning out email must not become a
         // phantom future plan just because every field happened to parse.
         val parsed = ParsedTicket(
-            qrBytes = qr(),
+            admissions = qr(),
             artist = "Kaizers Orchestra",
             venue = "Sentrum Scene",
             date = "24-06-2020",
@@ -409,7 +458,7 @@ class TicketParsingTest {
         // most often shared. Same three days, same answers as iOS's
         // testTheDayBeforeTheDayOfAndTheDayAfter.
         fun dated(date: String) = ParsedTicket(
-            qrBytes = qr(),
+            admissions = qr(),
             artist = "Kaizers Orchestra",
             venue = "Sentrum Scene",
             date = date,
@@ -431,9 +480,9 @@ class TicketParsingTest {
         // extracted, only the QR, only some text fields, or everything short of a
         // full match/no-match — never a silent add, never a silent drop.
         val cases = listOf(
-            ParsedTicket(qrBytes = qr()),
+            ParsedTicket(admissions = qr()),
             ParsedTicket(artist = "Kaizers Orchestra", venue = "Sentrum Scene", date = "24-06-2027"),
-            ParsedTicket(qrBytes = qr(), artist = "Kaizers Orchestra"),
+            ParsedTicket(admissions = qr(), artist = "Kaizers Orchestra"),
             ParsedTicket(),
         )
         for (parsed in cases) {

@@ -6,6 +6,7 @@ import com.google.zxing.Result
 import com.google.zxing.ResultPoint
 import com.google.zxing.common.BitMatrix
 import io.github.magnusencoded.stationtostation.data.PixelRect
+import io.github.magnusencoded.stationtostation.data.StoredAdmission
 import io.github.magnusencoded.stationtostation.data.TicketEvidence
 import io.github.magnusencoded.stationtostation.data.barcodeCrop
 import io.github.magnusencoded.stationtostation.data.decodeTicketBarcode
@@ -70,9 +71,15 @@ class TicketBarcodeTest {
 
     private fun onAPage(symbol: BitMatrix): BitMatrix = onAPage(symbol to (1654 - symbol.width - 120 to 160))
 
-    /** What [parseTicketFields] stores for these results, as the extractor hands them over. */
+    /**
+     * What is stored for these results, as the extractor hands them over: the first QR
+     * Admission [parseTicketFields] yields, through [StoredAdmission]'s base64 and back
+     * — the bytes the Room redraws.
+     */
     private fun stored(vararg results: Result): ByteArray? =
-        parseTicketFields(TicketEvidence(readings = emptyList(), barcodes = results.map { it.toTicketBarcode() })).qrBytes
+        parseTicketFields(TicketEvidence(readings = emptyList(), barcodes = results.map { it.toTicketBarcode() }))
+            .admissions.firstOrNull { it.symbology == "qr" }
+            ?.let(StoredAdmission::of)?.payloadBytes
 
     private fun roundTrip(payload: String): String? {
         val decoded = decode(onAPage(ticketQrMatrix(payload, 240)))
@@ -113,18 +120,19 @@ class TicketBarcodeTest {
     }
 
     @Test
-    fun aCode128IsSeenButFlaggedUnsupportedAndNotStored() {
+    fun aCode128IsSeenAndKeptAsAnAdmissionInItsOwnSymbology() {
         // Eventim's real barcode shape: 24 digits, Code 128. Found with the same
-        // hinted reader, then refused a place in a field that can only redraw a QR.
+        // hinted reader, and kept as what it is (#441) — never as a QR.
         val strip = MultiFormatWriter().encode("000000000000000000000001", BarcodeFormat.CODE_128, 600, 120)
         val decoded = decode(onAPage(strip))
 
         assertEquals(BarcodeFormat.CODE_128, decoded?.barcodeFormat)
         val parsed = parseTicketFields(TicketEvidence(emptyList(), listOf(decoded!!.toTicketBarcode())))
-        assertNull(parsed.qrBytes)
-        assertEquals("code128", parsed.unsupportedBarcodeFormat)
-        // What the confirm prompt says, as it has since #534.
-        assertEquals("CODE_128", zxingFormatName(parsed.unsupportedBarcodeFormat!!))
+        val admission = parsed.admissions.single()
+        assertEquals("code128", admission.symbology)
+        assertEquals("000000000000000000000001", admission.payload.toString(Charsets.UTF_8))
+        // What the confirm prompt and the Room say, as the prompt has since #534.
+        assertEquals("CODE_128", zxingFormatName(admission.symbology))
     }
 
     @Test

@@ -30,7 +30,13 @@
       "value": "24-09-2026",
       "support": "ocr"
     },
-    "barcode": "SYNTHETIC-DAYOF2-QR",
+    "admissions": [
+      {
+        "symbology": "qr",
+        "payload": "SYNTHETIC-DAYOF2-QR",
+        "corroborated": false
+      }
+    ],
     "skipsPrompt": true
   }
 }

@@ -1,0 +1,42 @@
+{
+  "about": "SYNTHETIC (#441, story 13): the ticket prints a code, but not this QR's. The Admission is kept and marked uncorroborated: corroboration is evidence, never a filter, and a near miss is a miss.",
+  "readings": [
+    {
+      "origin": "ocr",
+      "lines": [
+        "Kaizers Orchestra",
+        "Sentrum Scene",
+        "24.06.2027",
+        "Order SYNTHETIC-PRINTED-0001"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "symbology": "qr",
+      "payload": "SYNTHETIC-PRINTED-0002"
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "Kaizers Orchestra",
+      "support": "ocr"
+    },
+    "venue": {
+      "value": "Sentrum Scene",
+      "support": "ocr"
+    },
+    "date": {
+      "value": "24-06-2027",
+      "support": "ocr"
+    },
+    "admissions": [
+      {
+        "symbology": "qr",
+        "payload": "SYNTHETIC-PRINTED-0002",
+        "corroborated": false
+      }
+    ],
+    "skipsPrompt": true
+  }
+}

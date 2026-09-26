@@ -31,7 +31,13 @@
       "value": "25-09-2026",
       "support": "ocr"
     },
-    "barcode": "SYNTHETIC-OCS-QR",
+    "admissions": [
+      {
+        "symbology": "qr",
+        "payload": "SYNTHETIC-OCS-QR",
+        "corroborated": false
+      }
+    ],
     "skipsPrompt": true
   }
 }

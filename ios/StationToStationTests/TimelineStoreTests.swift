@@ -608,13 +608,17 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual(["content://photo1", "content://photo2"], after.media()["63de6d5b"]?.map(\.ref))
     }
 
-    // MARK: - The ticket's QR (#412)
+    // MARK: - The ticket's Admissions (#412, #441)
 
-    /// The QR goes on the claim the night already has, and takes nothing off it. This
-    /// is `attachTicketQr`'s whole contract, and it is Android's `copy()` semantics
-    /// written out by hand — iOS has no `copy`, so the carrying is explicit and
-    /// therefore assertable.
-    func testTheTicketsQrJoinsTheClaimWithoutDisturbingIt() async {
+    private func admission(_ text: String, _ symbology: String = "qr", page: Int = 0) -> StoredAdmission {
+        StoredAdmission(payload: Data(text.utf8).base64EncodedString(), symbology: symbology, page: page)
+    }
+
+    /// The Admissions go on the claim the night already has, and take nothing off it.
+    /// This is `attachAdmissions`'s whole contract, and it is Android's `copy()`
+    /// semantics written out by hand — iOS has no `copy`, so the carrying is explicit
+    /// and therefore assertable.
+    func testTheTicketsAdmissionsJoinTheClaimWithoutDisturbingIt() async {
         let store = TimelineStore(file: tempFile(contents: "{}"))
         let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
         await store.saveAttendance(
@@ -622,83 +626,121 @@ final class TimelineStoreTests: XCTestCase {
             attendance: StoredAttendance(provenance: "checked_in", checkedInAt: 42,
                                          venueLat: 59.9, venueLon: 10.7))
 
-        let settled = await store.attachTicketQr(setlistId: id, qr: Data("TKT-9F31".utf8))
+        let settled = await store.attachAdmissions(setlistId: id, admissions: [admission("TKT-9F31")])
 
         XCTAssertEqual("checked_in", settled.provenance)
         XCTAssertEqual(42, settled.checkedInAt)
         XCTAssertEqual(59.9, settled.venueLat)
-        XCTAssertEqual(Data("TKT-9F31".utf8), settled.ticketQrBytes)
+        XCTAssertEqual([admission("TKT-9F31")], settled.admissions)
         let onDisk = await store.load().gigAttendance[id]
         XCTAssertEqual(settled, onDisk)
     }
 
-    /// A gig with no claim yet still takes the QR: the parse may have yielded nothing
-    /// but a barcode, and there is then no artist, venue or date worth writing at all.
-    func testAQrCanBeAttachedToANightWithNoClaimOnItYet() async {
+    /// A gig with no claim yet still takes the Admissions: the parse may have yielded
+    /// nothing but a barcode, and there is then no artist, venue or date worth writing.
+    func testAdmissionsCanBeAttachedToANightWithNoClaimOnItYet() async {
         let store = TimelineStore(file: tempFile(contents: "{}"))
         let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
+        let binary = StoredAdmission(payload: Data([0x00, 0xFF, 0xFE]).base64EncodedString(), symbology: "qr")
 
-        let settled = await store.attachTicketQr(setlistId: id, qr: Data([0x00, 0xFF, 0xFE]))
+        let settled = await store.attachAdmissions(setlistId: id, admissions: [binary])
 
         XCTAssertEqual("planned", settled.provenance)
-        XCTAssertEqual(Data([0x00, 0xFF, 0xFE]), settled.ticketQrBytes)
+        XCTAssertEqual(Data([0x00, 0xFF, 0xFE]), settled.admissions.first?.payloadBytes)
     }
 
-    /// One night, one QR, replaced. Sharing the same ticket twice is the same ticket.
-    func testASecondQrForOneNightReplacesTheFirst() async {
+    /// A second ticket for the night adds its Admissions (story 18); the same ticket
+    /// shared twice adds nothing (story 19). Before #441 the second QR replaced the first.
+    func testASecondTicketAddsItsAdmissionsAndTheSameOneTwiceAddsNothing() async {
         let store = TimelineStore(file: tempFile(contents: "{}"))
         let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
-        await store.attachTicketQr(setlistId: id, qr: Data("first".utf8))
 
-        await store.attachTicketQr(setlistId: id, qr: Data("second".utf8))
+        await store.attachAdmissions(setlistId: id, admissions: [admission("first")])
+        await store.attachAdmissions(setlistId: id, admissions: [admission("second", "code128", page: 1)])
+        await store.attachAdmissions(setlistId: id, admissions: [admission("first"),
+                                                                 admission("second", "code128", page: 1)])
 
-        let onDisk = await store.load().gigAttendance[id]?.ticketQrBytes
-        XCTAssertEqual(Data("second".utf8), onDisk)
+        let onDisk = await store.load().gigAttendance[id]?.admissions
+        XCTAssertEqual([admission("first"), admission("second", "code128", page: 1)], onDisk)
     }
 
-    /// **The cross-platform shape.** Android's #411 landed the QR as a base64 string
-    /// on `StoredAttendance`, inside `gigAttendance` — not as a top-level key. This
-    /// pins that iOS writes the same field in the same place, which is what stops the
-    /// value from being dropped by an Android save: that side has no unknown-key
-    /// carrying, so a key only iOS knew would vanish the first time Android wrote.
-    /// `testWhatWeWriteCarriesEveryKeyAndroidExpects` is deliberately unchanged by
-    /// this feature for the same reason.
-    func testTheQrIsWrittenWhereAndroidAlreadyReadsIt() async throws {
-        let file = tempFile(contents: "{}")
+    /// **The shared file** (`fixtures/timeline/admissions/`, #441): the format both twins
+    /// read and write, loaded, saved and loaded again, and the written shape checked key
+    /// for key — which is what stops a key only one side knows from vanishing on the
+    /// other's save. Android's `AdmissionStoreTest` asserts the same four things.
+    func testTheSharedTimelineFileLosesNoAdmissionOnASaveFromHere() async throws {
+        let fixture = URL(fileURLWithPath: #filePath)   // …/ios/StationToStationTests/TimelineStoreTests.swift
+            .deletingLastPathComponent()                // …/ios/StationToStationTests
+            .deletingLastPathComponent()                // …/ios
+            .deletingLastPathComponent()                // repo root
+            .appendingPathComponent("fixtures/timeline/admissions/timelines.json")
+        let file = tempFile(contents: try String(contentsOf: fixture, encoding: .utf8))
         let store = TimelineStore(file: file)
-        let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
-        await store.attachTicketQr(setlistId: id, qr: Data("TKT-9F31".utf8))
+        let current = [
+            StoredAdmission(payload: "U1lOVEhFVElDLVRJTUVMSU5FLVFSLTE=", symbology: "qr", page: 0, corroborated: false),
+            StoredAdmission(payload: "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDIx", symbology: "code128", page: 1, corroborated: true),
+        ]
+        let legacy = [StoredAdmission(payload: "U1lOVEhFVElDLUxFR0FDWS1RUg==", symbology: "qr",
+                                      page: 0, corroborated: false)]
+
+        let loaded = await store.load()
+        XCTAssertEqual(current, loaded.gigAttendance["g-admissions"]?.admissions)
+        XCTAssertEqual(legacy, loaded.gigAttendance["g-legacy"]?.admissions)
+        XCTAssertEqual("checked_in", loaded.gigAttendance["g-legacy"]?.provenance)
+        XCTAssertEqual(1782410400000, loaded.gigAttendance["g-legacy"]?.checkedInAt)
+
+        await store.save(shows: ["dizzi90": [show("a")]])
+        let reloaded = await store.load()
+        XCTAssertEqual(current, reloaded.gigAttendance["g-admissions"]?.admissions)
+        XCTAssertEqual(legacy, reloaded.gigAttendance["g-legacy"]?.admissions)
 
         let json = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
-        let attendance = (json?["gigAttendance"] as? [String: Any])?[id] as? [String: Any]
-
-        XCTAssertEqual(Data("TKT-9F31".utf8).base64EncodedString(), attendance?["ticketQr"] as? String)
+        let attendance = try XCTUnwrap(json?["gigAttendance"] as? [String: [String: Any]])
+        XCTAssertEqual(["g-admissions", "g-legacy"], attendance.keys.sorted())
+        for (gig, claim) in attendance {
+            XCTAssertNil(claim["ticketQr"], "\(gig) still writes ticketQr")
+            let written = try XCTUnwrap(claim["admissions"] as? [[String: Any]])
+            for entry in written {
+                XCTAssertEqual(["corroborated", "page", "payload", "symbology"], entry.keys.sorted())
+            }
+        }
         XCTAssertNil(json?["gigTicketQr"], "a top-level key of our own is the thing not to do")
     }
 
-    /// The other direction: a QR Android wrote survives a load and a save from here.
-    /// Before #412 this field was unknown to iOS's `StoredAttendance`, whose decoder
-    /// names its fields one by one — so it was read as nothing and written back as
-    /// nothing, which is the silent loss the twin's key would have suffered.
-    func testAQrAndroidWroteIsNotDroppedByASaveFromHere() async throws {
+    /// Migration as behaviour: an old `ticketQr` reads as exactly one uncorroborated QR
+    /// Admission on page 0; one that is not base64 was never drawable and reads as none.
+    func testAnOldTicketQrReadsAsExactlyOneQrAdmission() async {
         let file = tempFile(contents: """
         {"shows":{},"gigs":{"g1":{"id":"g1","date":"14-09-2026","artist":"Big Thief",\
-        "venue":"Sentrum Scene","setlistId":null,"createdAt":1}},\
-        "gigAttendance":{"g1":{"provenance":"planned","ticketQr":"VEtULTlGMzE="}}}
+        "venue":"Sentrum Scene","setlistId":null,"createdAt":1},\
+        "g2":{"id":"g2","date":"15-09-2026","artist":"Big Thief","venue":"","setlistId":null,"createdAt":2}},\
+        "gigAttendance":{"g1":{"provenance":"planned","ticketQr":"VEtULTlGMzE="},\
+        "g2":{"provenance":"attended","ticketQr":"not base64 at all!"}}}
         """)
-        let store = TimelineStore(file: file)
+        let loaded = await TimelineStore(file: file).load()
 
-        await store.save(shows: ["dizzi90": [show("a")]])
+        XCTAssertEqual([StoredAdmission(payload: "VEtULTlGMzE=", symbology: "qr", page: 0, corroborated: false)],
+                       loaded.gigAttendance["g1"]?.admissions)
+        XCTAssertEqual(Data("TKT-9F31".utf8), loaded.gigAttendance["g1"]?.admissions.first?.payloadBytes)
+        XCTAssertEqual("attended", loaded.gigAttendance["g2"]?.provenance)
+        XCTAssertEqual([], loaded.gigAttendance["g2"]?.admissions)
+    }
 
-        let onDisk = await store.load().gigAttendance["g1"]?.ticketQrBytes
-        XCTAssertEqual(Data("TKT-9F31".utf8), onDisk)
+    /// An Admission missing fields costs those fields, not the night or the list.
+    func testAnAdmissionMissingFieldsKeepsWhatItHas() throws {
+        let claim = try JSONDecoder().decode(StoredAttendance.self, from: Data("""
+        {"admissions":[{"payload":"VEtULTlGMzE="},{"symbology":7}]}
+        """.utf8))
+
+        XCTAssertEqual([StoredAdmission(payload: "VEtULTlGMzE=", symbology: ""),
+                        StoredAdmission(payload: "", symbology: "")], claim.admissions)
     }
 
     /// A stored payload that is not base64 is treated as no payload: there is nothing
     /// to hold up at a door, and a half-decoded barcode is worse than none.
-    func testAQrThatIsNotBase64ReadsAsNoQrAtAll() {
-        XCTAssertNil(StoredAttendance(ticketQr: "not base64 at all!").ticketQrBytes)
-        XCTAssertNil(StoredAttendance().ticketQrBytes)
+    func testAPayloadThatIsNotBase64ReadsAsNoBytesAtAll() {
+        XCTAssertNil(StoredAdmission(payload: "not base64 at all!", symbology: "qr").payloadBytes)
+        XCTAssertTrue(StoredAttendance().admissions.isEmpty)
     }
 
     // MARK: - Deleting a night this app minted (#172)
