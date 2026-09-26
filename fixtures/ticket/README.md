@@ -58,8 +58,8 @@ One file per case:
   the fix. iOS wraps just that field's assertions in `XCTExpectFailure`'s block form. A
   platform without strict xfail asserts that the field is *not* the expected value.
   Every other field of the case is asserted as usual.
-- Read every `*.json` in the folder, fail if there are fewer than the current count,
-  and print how many ran.
+- Read every `*.json` in the folder, fail if there are fewer than 19 (raise the floor
+  with the corpus), and print how many ran.
 - Android's `unsupportedBarcodeFormat` (#534) is outside this corpus. Don't assert it.
 
 ## Lines
@@ -173,7 +173,7 @@ case's `about` says which lines are which.
 | `dumdumboys-eventim-ocr-only` | **Real** ML Kit blocks from Android's `TicketParsingTest`. Personal data and the printed barcode number are made up. `knownFailure: artist`. |
 | `dumdumboys-eventim-text-layer-and-ocr` | **Real** text-layer skeleton of `real-eventim-2` (3 real lines). The purchase-date line, the date, the venue and the address are **reconstructed**. It pins the date rule. `knownFailure: artist`, and the venue is `unchecked`. |
 | `ocs-*` | **Real** Pixel readings of PDFs the probe generated (Ocean Colour Scene, not valid for admission). `ocs-flattened-ocr-only` is the OCR-only twin of every `ocs-*` case. `ocs-artist-image` has `knownFailure` on artist, venue and skipsPrompt (see *Decisions*). |
-| `date-rule-*`, `guard-around-the-date` | **Synthetic**, written by hand to pin one rule each. |
+| `date-rule-*`, `guard-around-the-date`, `barcode-rule-first-qr` | **Synthetic**, written by hand to pin one rule each. |
 
 Replace a reconstructed or redacted reading with a captured one whenever the real PDF
 turns up, and drop `unchecked` and `knownFailure` as the evidence allows. The broader
