@@ -867,14 +867,16 @@ sealed interface TicketRouting {
  * or planned, local or setlist.fm's own. Keyed on date + artist, not venue: a venue
  * printed on a ticket ("The Forum") rarely matches setlist.fm's formatted line ("The
  * Forum, London, England"), so trying to string-match it would reject real matches
- * more often than it would catch a false one. Case-insensitive on the artist name,
- * since a ticket vendor's capitalisation is not a fact worth failing a match over.
+ * more often than it would catch a false one. The artist name is folded through
+ * [nameKey] on both sides, as iOS's `knownNight` does, so `Wilco (US)` and `Wilco`
+ * are one act and a ticket vendor's capitalisation is not a fact worth failing a
+ * match over. A name that folds to nothing matches nothing.
  */
 fun matchKnownNight(parsed: ParsedTicket, knownGigs: List<FmSetlist>): FmSetlist? {
     val date = parsed.date ?: return null
-    val artist = parsed.artist?.trim()?.lowercase(Locale.ROOT) ?: return null
+    val artist = parsed.artist?.let(::nameKey)?.ifEmpty { null } ?: return null
     return knownGigs.firstOrNull { candidate ->
-        candidate.eventDate == date && candidate.artist?.name?.trim()?.lowercase(Locale.ROOT) == artist
+        candidate.eventDate == date && nameKey(candidate.artist?.name.orEmpty()) == artist
     }
 }
 
