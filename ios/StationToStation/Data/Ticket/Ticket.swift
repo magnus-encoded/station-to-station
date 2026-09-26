@@ -53,6 +53,14 @@ struct Ticket: Codable, Equatable, Sendable {
         guard let readingCount, readingCount > 1 else { return true }
         return [artistSupport, venueSupport, dateSupport].allSatisfy { $0 == .both }
     }
+    /// Every **Admission** was redrawn in its own symbology and read back as itself
+    /// (#441, story 29). `routeTicket` asks this beside `isComplete`/`canSkipPrompt`
+    /// before it acts without the person: a ticket the app cannot show at the door is
+    /// shown to them at import instead, while they still hold the PDF. Not part of
+    /// `canSkipPrompt`, which is the shared fixtures' `skipsPrompt` and a property of
+    /// the *read*: what a platform can redraw is not the same on both (CoreImage has no
+    /// Data Matrix), so it is not in the corpus both twins assert.
+    var redrawsEveryAdmission: Bool { admissions.allSatisfy { $0.redrawable == true } }
 }
 
 extension Ticket {
@@ -82,20 +90,32 @@ extension Ticket {
 /// One scannable barcode — the right of entry for one person (#441, `CONTEXT.md`). A
 /// **Ticket** yields one or more. Field for field with Android's `Admission`.
 ///
-/// `payload` is the decoded payload, byte for byte as the evidence carried it. On iOS
-/// 17+ that is Vision's `payloadData`; on 16 Vision only hands back a string, so it is
-/// that string's UTF-8 — a binary payload read on 16 is lossy. `symbology` is
+/// `payload` is the decoded payload, byte for byte as the evidence carried it: Vision's
+/// decoded text as UTF-8, as Android stores zxing's, and `payloadData` only for a code
+/// with no text (iOS 17+) — a binary payload is lossy on 16 and unverified on 17
+/// (`VisionBarcodeLocator`). `symbology` is
 /// `fixtures/ticket/README.md`'s name for the format it was printed in. `page` is the
 /// zero-based page it was first found on. `corroborated` says the ticket's own text
 /// prints the same code — evidence recorded, never a reason to drop one that isn't.
+///
+/// `redrawable` is the check at import (story 29, `checkedForRedraw` in the app): the
+/// Admission redrawn in its own symbology read back as the same payload. Nil until the
+/// app has asked — the Share Extension never does — and nil counts as no. Never
+/// deposited and never stored: it is left out of the coding keys, `StoredAdmission` has
+/// no field for it, and the Room asks again rather than trust a verdict written by an
+/// older build.
 struct Admission: Codable, Equatable, Sendable {
     var payload: Data
     var symbology: String
     var page: Int = 0
     var corroborated: Bool = false
+    var redrawable: Bool? = nil
+
+    private enum CodingKeys: String, CodingKey { case payload, symbology, page, corroborated }
 }
 
-/// `qr`: the one symbology the Room redraws until the symbology-aware redraw (#441).
+/// `qr`: the QR's name in `fixtures/ticket/README.md`, and what an old `ticketQr` and a
+/// `{"qr": …}` deposit always were.
 let qrSymbology = "qr"
 
 /// Where a field of a **Ticket** came from: both readings, or only one of them.
@@ -153,9 +173,8 @@ struct TicketBarcode: Equatable, Sendable {
     var image: Data
     /// The decoded payload. nil when the symbology cannot be decoded.
     var payload: Data?
-    /// `fixtures/ticket/README.md`'s name for the format. Vision is asked for `.qr` only
-    /// today, so "qr" is the only value this platform produces yet; widening it is the
-    /// next slice of #441, and nothing downstream assumes it.
+    /// `fixtures/ticket/README.md`'s name for the format (`ticketSymbology`); nil for
+    /// one that has no name there, which is then not an **Admission**.
     var symbology: String?
     /// The page it was found on, counted from 0 in the source's own page order.
     var page: Int = 0

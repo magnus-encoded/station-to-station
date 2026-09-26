@@ -510,7 +510,11 @@ final class AppModel: ObservableObject {
         Task { for deposit in deposits { await routeShared(deposit.ticket, now: now) } }
     }
 
-    private func routeShared(_ ticket: Ticket, now: Date) async {
+    private func routeShared(_ deposited: Ticket, now: Date) async {
+        // Every Admission redrawn and read back before anything is decided (#441, story
+        // 29): here in the app rather than in the extension, which deposits what it read
+        // and nothing more (ADR-0020). One Vision pass each, off the main actor.
+        let ticket = await Task.detached(priority: .userInitiated) { deposited.checkedForRedraw() }.value
         let parse: TicketParse = ticket.isEmpty ? .nothingUsable : .ticket(ticket)
         switch routeTicket(parse, knownNights: knownNights, now: now) {
         case .match(let gigId):
