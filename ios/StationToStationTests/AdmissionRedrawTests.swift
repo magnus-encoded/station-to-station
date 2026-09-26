@@ -151,4 +151,55 @@ final class AdmissionRedrawTests: XCTestCase {
             XCTAssertEqual(symbology, ticketSymbology(symbology).flatMap(visionSymbology))
         }
     }
+
+    // MARK: - The Room's verdicts (the #441 review)
+
+    /// A stubbed check that answers from a script and counts how often it was asked.
+    private final class Script: @unchecked Sendable {
+        private let lock = NSLock()
+        private var answers: [RedrawCheck]
+        private(set) var asked = 0
+        init(_ answers: [RedrawCheck]) { self.answers = answers }
+        func next() -> RedrawCheck {
+            lock.lock(); defer { lock.unlock() }
+            asked += 1
+            return answers.count > 1 ? answers.removeFirst() : answers[0]
+        }
+    }
+
+    /// Vision failing to answer is not a verdict: the next render asks again, and once
+    /// it answers, the answer is kept.
+    func testAVisionFailureIsAskedAgainAndAnAnswerIsKept() async {
+        let script = Script([.unanswered, .readsBack])
+        let verdicts = AdmissionVerdicts { _, _ in script.next() }
+        let payload = Data("SYNTHETIC-QR".utf8)
+
+        let failed = await verdicts.redraws(symbology: "qr", payload: payload)
+        XCTAssertFalse(failed, "an unanswered check is not redrawable")
+        let answered = await verdicts.redraws(symbology: "qr", payload: payload)
+        XCTAssertTrue(answered)
+        let kept = await verdicts.redraws(symbology: "qr", payload: payload)
+        XCTAssertTrue(kept)
+
+        XCTAssertEqual(2, script.asked, "asked again after the failure, not after the answer")
+    }
+
+    /// A definite no is an answer too, and kept.
+    func testAReadThatComesBackDifferentIsKept() async {
+        let script = Script([.readsDifferently])
+        let verdicts = AdmissionVerdicts { _, _ in script.next() }
+        let payload = Data("SYNTHETIC-QR".utf8)
+
+        let first = await verdicts.redraws(symbology: "qr", payload: payload)
+        let second = await verdicts.redraws(symbology: "qr", payload: payload)
+
+        XCTAssertFalse(first)
+        XCTAssertFalse(second)
+        XCTAssertEqual(1, script.asked)
+    }
+
+    /// What this platform has no generator for is a definite no, not a Vision failure.
+    func testAnUndrawableSymbologyIsADefiniteNo() {
+        XCTAssertEqual(.readsDifferently, redrawCheck(symbology: "datamatrix", payload: Data("SYNTH".utf8)))
+    }
 }
