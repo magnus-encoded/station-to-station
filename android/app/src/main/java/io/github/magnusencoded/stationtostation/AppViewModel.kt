@@ -579,6 +579,44 @@ data class PendingTicket(
     val id: String = UUID.randomUUID().toString(),
 )
 
+/** What the confirm dialog's Save does with a [PendingTicket]: see [PendingTicket.confirmedAs]. */
+sealed interface ConfirmedTicket {
+    /** The confirmed values name a night already known: its Admissions go onto it. */
+    data class Attach(val gigId: String, val admissions: List<Admission>) : ConfirmedTicket
+
+    /** They name no known night: a new planned gig, carrying the Admissions. */
+    data class Mint(
+        val artist: String,
+        val venue: String,
+        val night: LocalDate,
+        val admissions: List<Admission>,
+    ) : ConfirmedTicket
+}
+
+/**
+ * Where this ticket lands once a person has said what it is (#526) — decided on the
+ * confirmed [artist], [venue] and [night], never on [PendingTicket.possibleMatch], as
+ * iOS's `confirmTicket` does. That hint was found for what the parse read; a person who
+ * edited the artist or the date has named some other night.
+ *
+ * Only an artist match attaches ([matchKnownNight]). [knownNightThatDay]'s same-date
+ * possible match is not re-applied here: it is why routing asked, and the prompt shows
+ * it, but a Save whose act is not that night's act is a night of its own. iOS draws the
+ * same line (its `nightThatDay` is routing-only). The Admissions are the parse's,
+ * whatever was edited (#441, story 16).
+ */
+fun PendingTicket.confirmedAs(
+    artist: String,
+    venue: String,
+    night: LocalDate,
+    knownGigs: List<FmSetlist>,
+): ConfirmedTicket {
+    val confirmed = ParsedTicket(artist = artist.trim(), venue = venue.trim(), date = fmDate(night))
+    return matchKnownNight(confirmed, knownGigs)
+        ?.let { ConfirmedTicket.Attach(it.id, parsed.admissions) }
+        ?: ConfirmedTicket.Mint(artist.trim(), venue.trim(), night, parsed.admissions)
+}
+
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
@@ -2035,11 +2073,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             val known = _state.value.setlists + _state.value.plannedGigs
-            val matched = matchKnownNight(ParsedTicket(artist = artist.trim(), venue = venue.trim(), date = fmDate(night)), known)
-            if (matched != null) {
-                attachAdmissions(matched.id, pending.parsed.admissions)
-            } else {
-                addParsedPlannedGig(artist.trim(), venue.trim(), night, pending.parsed.admissions)
+            when (val confirmed = pending.confirmedAs(artist, venue, night, known)) {
+                is ConfirmedTicket.Attach -> attachAdmissions(confirmed.gigId, confirmed.admissions)
+                is ConfirmedTicket.Mint ->
+                    addParsedPlannedGig(confirmed.artist, confirmed.venue, confirmed.night, confirmed.admissions)
             }
             _state.update { it.answeringTicket(id) }
         }
