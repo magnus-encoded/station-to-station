@@ -1,0 +1,11 @@
+{
+  "now": 1804881600000,
+  "lookup": {
+    "lastLookupAt": 1804878000000,
+    "rejectedIds": [
+      "d3000001"
+    ],
+    "pendingHitIds": [],
+    "pendingHits": []
+  }
+}

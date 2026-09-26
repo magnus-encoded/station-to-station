@@ -1,0 +1,12 @@
+{
+  "about": "The only hit is another artist and is dropped: nothing, and only the time of the lookup changes.",
+  "outcome": "nothing",
+  "after": {
+    "lastLookupAt": 1804881600000,
+    "rejectedIds": [
+      "d9999999"
+    ],
+    "pendingHitIds": [],
+    "pendingHits": []
+  }
+}
