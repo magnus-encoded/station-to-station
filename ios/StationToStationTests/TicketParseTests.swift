@@ -207,7 +207,8 @@ final class TicketParseTests: XCTestCase {
     }
 
     /// Even one that matches. What matched was a partial parse, and a partial parse is
-    /// exactly what the person is there to correct.
+    /// exactly what the person is there to correct. The night it matched goes with it as
+    /// the prompt's hint, as Android's `possibleMatch` always has.
     func testAPartialParseThatMatchesIsStillConfirmed() {
         var partial = complete
         partial.venue = nil
@@ -216,7 +217,79 @@ final class TicketParseTests: XCTestCase {
                                 knownNights: [night("g1", "14-09-2026", "Big Thief")],
                                 now: day(2026, 8, 1), calendar: calendar)
 
-        XCTAssertEqual(.confirm(partial), route)
+        XCTAssertEqual(.confirm(partial, possibleMatch: "g1"), route)
+    }
+
+    // MARK: - A known night's date, under another name (the #441 review)
+
+    /// Eventim's `Dumdumboys – XL [romertallførti]`: both readings agree on it, the
+    /// Code 128s read back, and the night was already planned by hand as `Dumdumboys`.
+    /// No artist match, but a night that day: asked about, with that night as the hint.
+    func testACompleteReadForAKnownNightsDateUnderAnotherNameIsAskedAboutNotMinted() {
+        let eventim = Ticket(admissions: [drawnQr], artist: "Dumdumboys – XL [romertallførti]",
+                             venue: "Rockefeller", date: day(2026, 9, 14))
+        XCTAssertEqual(.add(eventim), routeTicket(.ticket(eventim), knownNights: [],
+                                                  now: day(2026, 8, 1), calendar: calendar),
+                       "minted when nothing is known that day")
+
+        let route = routeTicket(.ticket(eventim),
+                                knownNights: [night("g1", "14-09-2026", "Dumdumboys")],
+                                now: day(2026, 8, 1), calendar: calendar)
+
+        XCTAssertEqual(.confirm(eventim, possibleMatch: "g1"), route)
+    }
+
+    /// What `confirmTicket` checks on Save: `knownNight` on the confirmed values, never
+    /// the routing hint and never `nightThatDay`. Saved as read, the tour-name ticket is
+    /// a night of its own; edited to the act, it is that night. The Android twin is
+    /// `ConfirmPendingTicketTest` (#526).
+    func testTheConfirmReCheckAttachesOnlyOnTheAct() {
+        let nights = [night("g1", "14-09-2026", "Dumdumboys"), night("g2", "15-09-2026", "Dumdumboys")]
+        let asRead = Ticket(admissions: [qrAdmission], artist: "Dumdumboys – XL [romertallførti]",
+                            venue: "Rockefeller", date: day(2026, 9, 14))
+
+        XCTAssertNil(knownNight(asRead, among: nights, calendar: calendar))
+        var edited = asRead
+        edited.artist = "Dumdumboys"
+        XCTAssertEqual("g1", knownNight(edited, among: nights, calendar: calendar)?.id)
+        edited.date = day(2026, 9, 15)
+        XCTAssertEqual("g2", knownNight(edited, among: nights, calendar: calendar)?.id,
+                       "an edited date names the other night, whatever routing hinted")
+    }
+
+    func testAKnownNightOnAnotherDateDoesNotStopTheMint() {
+        let route = routeTicket(.ticket(complete),
+                                knownNights: [night("g1", "15-09-2026", "Dumdumboys")],
+                                now: day(2026, 8, 1), calendar: calendar)
+
+        XCTAssertEqual(.add(complete), route)
+    }
+
+    /// A festival day mints many nights on one date. The hint is the one at the room the
+    /// ticket names; failing that, the first known that day. Provisional.
+    func testOfSeveralNightsThatDateTheHintIsTheOneAtTheTicketsVenue() {
+        let nights = [night("g1", "14-09-2026", "Big Thief", venue: "Sentrum Scene"),
+                      night("g2", "14-09-2026", "Dumdumboys", venue: "Rockefeller")]
+        func at(_ venue: String) -> Ticket {
+            Ticket(admissions: [drawnQr], artist: "Dumdumboys – XL", venue: venue, date: day(2026, 9, 14))
+        }
+
+        XCTAssertEqual(.confirm(at("Rockefeller"), possibleMatch: "g2"),
+                       routeTicket(.ticket(at("Rockefeller")), knownNights: nights,
+                                   now: day(2026, 8, 1), calendar: calendar))
+        XCTAssertEqual(.confirm(at("Somewhere Else"), possibleMatch: "g1"),
+                       routeTicket(.ticket(at("Somewhere Else")), knownNights: nights,
+                                   now: day(2026, 8, 1), calendar: calendar))
+    }
+
+    /// Asked about anyway; the hint is the same one a complete read gets.
+    func testAPartialReadOnAKnownNightsDateCarriesTheSameHint() {
+        let partial = Ticket(admissions: [qrAdmission], artist: "Dumdumboys – XL", date: day(2026, 9, 14))
+
+        XCTAssertEqual(.confirm(partial, possibleMatch: "g1"),
+                       routeTicket(.ticket(partial),
+                                   knownNights: [night("g1", "14-09-2026", "Dumdumboys")],
+                                   now: day(2026, 8, 1), calendar: calendar))
     }
 
     /// An old ticket found while clearing out an inbox. Complete, unmatched, and in
@@ -398,18 +471,18 @@ final class TicketParseTests: XCTestCase {
 
     // MARK: - Admissions (#441)
 
-    /// Every Admission, in page order, whatever its symbology — a Code 128 is kept as
-    /// what it is, where #534 only flagged it.
+    /// Every Admission, in page order, whatever its symbology. (A Code 128 beside a 2D
+    /// code is not one: `admission-rule-linear-beside-a-qr` in the fixtures.)
     func testEveryAdmissionIsKeptInPageOrderWhateverItsSymbology() {
         let found = admissions([
             barcode("qr", "SYNTHETIC-QR-2", page: 1),
-            barcode("code128", "SYNTHETIC-CODE128-0001", page: 0),
+            barcode("aztec", "SYNTHETIC-AZTEC-0001", page: 0),
             barcode("qr", "SYNTHETIC-QR-1", page: 0),
         ])
 
-        XCTAssertEqual(["SYNTHETIC-CODE128-0001", "SYNTHETIC-QR-1", "SYNTHETIC-QR-2"],
+        XCTAssertEqual(["SYNTHETIC-AZTEC-0001", "SYNTHETIC-QR-1", "SYNTHETIC-QR-2"],
                        found.map { String(decoding: $0.payload, as: UTF8.self) })
-        XCTAssertEqual(["code128", "qr", "qr"], found.map(\.symbology))
+        XCTAssertEqual(["aztec", "qr", "qr"], found.map(\.symbology))
         XCTAssertEqual([0, 0, 1], found.map(\.page))
     }
 
@@ -493,7 +566,7 @@ final class TicketParseTests: XCTestCase {
         eventim.admissions = [drawnQr, Admission(payload: Data("CODE".utf8), symbology: "datamatrix",
                                                  redrawable: false)]
 
-        XCTAssertEqual(.confirm(eventim),
+        XCTAssertEqual(.confirm(eventim, possibleMatch: "g1"),
                        routeTicket(.ticket(eventim),
                                    knownNights: [night("g1", "14-09-2026", "Big Thief")],
                                    now: day(2026, 8, 1), calendar: calendar))
@@ -508,7 +581,7 @@ final class TicketParseTests: XCTestCase {
         XCTAssertFalse(unchecked.redrawsEveryAdmission)
         XCTAssertEqual(.confirm(unchecked), routeTicket(.ticket(unchecked), knownNights: [],
                                                         now: day(2026, 8, 1), calendar: calendar))
-        XCTAssertEqual(.confirm(unchecked),
+        XCTAssertEqual(.confirm(unchecked, possibleMatch: "g1"),
                        routeTicket(.ticket(unchecked),
                                    knownNights: [night("g1", "14-09-2026", "Big Thief")],
                                    now: day(2026, 8, 1), calendar: calendar))
@@ -610,18 +683,58 @@ final class TicketParseTests: XCTestCase {
 
     // MARK: - The drop box
 
-    /// The extension writes and the app reads-and-deletes; a drained box is empty, so
-    /// the same ticket can never be routed onto the **Line** twice.
-    func testDrainingTheInboxEmptiesIt() throws {
-        try XCTSkipIf(TicketInbox.directory == nil,
-                      "no App Group container — see ADR-0020 and the PR's signing note")
+    /// A box of its own in the temporary directory: the App Group container is missing
+    /// on CI, and these are about the files, not the entitlement.
+    private func scratchBox() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ticket-inbox-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        return dir
+    }
 
-        XCTAssertTrue(TicketInbox.deposit(complete))
-        let first = TicketInbox.drain()
-        let second = TicketInbox.drain()
+    /// What the extension deposits: read, never checked (the verdict is not deposited).
+    private var shared: Ticket {
+        var read = complete
+        read.admissions = [qrAdmission]
+        return read
+    }
 
-        XCTAssertEqual([complete], first.map(\.ticket))
-        XCTAssertTrue(second.isEmpty)
+    /// The extension writes and the app reads, then deletes each deposit once what it
+    /// became is on disk (the #441 review). Read but not yet removed, it is still there
+    /// for a launch that follows a kill mid-routing; removed, it is gone for good.
+    func testADepositStaysInTheBoxUntilItIsRemoved() throws {
+        let box = try scratchBox()
+        XCTAssertTrue(TicketInbox.deposit(shared, in: box))
+
+        let first = TicketInbox.pending(in: box)
+        XCTAssertEqual([shared], first.map(\.ticket))
+        XCTAssertEqual(first, TicketInbox.pending(in: box), "reading does not take it out")
+
+        TicketInbox.remove(first[0].id, in: box)
+        XCTAssertTrue(TicketInbox.pending(in: box).isEmpty)
+    }
+
+    /// One bad file must not wedge every later ticket behind it.
+    func testADepositThatWillNotDecodeIsDeletedWhenRead() throws {
+        let box = try scratchBox()
+        let bad = box.appendingPathComponent("garbage.json")
+        try Data("{ not json".utf8).write(to: bad)
+        XCTAssertTrue(TicketInbox.deposit(shared, in: box))
+
+        XCTAssertEqual([shared], TicketInbox.pending(in: box).map(\.ticket))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bad.path))
+    }
+
+    /// Oldest first, whatever order the directory lists them in.
+    func testDepositsAreReadInTheOrderTheyWereShared() throws {
+        let box = try scratchBox()
+        for (at, artist) in [(3, "C"), (1, "A"), (2, "B")] {
+            let deposit = TicketDeposit(depositedAt: Int64(at), ticket: Ticket(artist: artist))
+            try JSONEncoder().encode(deposit).write(to: box.appendingPathComponent("\(deposit.id).json"))
+        }
+
+        XCTAssertEqual(["A", "B", "C"], TicketInbox.pending(in: box).map(\.ticket.artist))
     }
 
     // A sideloader renames the App Group the way it renames the bundle id, so the

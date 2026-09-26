@@ -1,0 +1,49 @@
+{
+  "about": "SYNTHETIC, written by hand for the 2D rule (#441 review). The rule is the ticket's, not the page's: a Code 128 on page 0 is dropped because a PDF417 was found on page 1. The PDF417 is the one Admission.",
+  "readings": [
+    {
+      "origin": "ocr",
+      "lines": [
+        "Ocean Colour Scene",
+        "25-09-2026",
+        "Auditorio Marina Norte, Valencia",
+        "Synthetic test ticket - not valid for admission",
+        "Visor Fest / setlist.fm ID 1b498dc4"
+      ]
+    }
+  ],
+  "barcodes": [
+    {
+      "symbology": "code128",
+      "payload": "SYNTHETIC-REF-0815",
+      "page": 0
+    },
+    {
+      "symbology": "pdf417",
+      "payload": "SYNTHETIC-DOOR-PDF417",
+      "page": 1
+    }
+  ],
+  "expected": {
+    "artist": {
+      "value": "Ocean Colour Scene",
+      "support": "ocr"
+    },
+    "venue": {
+      "value": "Auditorio Marina Norte, Valencia",
+      "support": "ocr"
+    },
+    "date": {
+      "value": "25-09-2026",
+      "support": "ocr"
+    },
+    "admissions": [
+      {
+        "symbology": "pdf417",
+        "payload": "SYNTHETIC-DOOR-PDF417",
+        "corroborated": false
+      }
+    ],
+    "skipsPrompt": true
+  }
+}

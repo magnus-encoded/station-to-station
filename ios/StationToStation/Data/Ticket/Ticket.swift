@@ -135,6 +135,13 @@ enum TicketSupport: String, Codable, Sendable {
 struct TicketDraft: Identifiable, Equatable {
     let id = UUID()
     let ticket: Ticket
+    /// The night already on the **Line** this may be for, as the prompt says it
+    /// ("Dumdumboys — Rockefeller — 14-09-2026"). A hint and nothing more: the prompt's
+    /// answer is matched again (`confirmTicket`).
+    var possibleMatch: String? = nil
+    /// The inbox deposit this came from, left in the box until the prompt is answered
+    /// (`TicketInbox.remove`). Nil for a draft no deposit stands behind.
+    var depositId: String? = nil
 }
 
 /// What one PDF turned out to be worth.
@@ -280,13 +287,20 @@ func parseTicketFields(_ evidence: TicketEvidence, calendar: Calendar = .current
 /// Unverified — possibly other print, possibly false positives.
 private let retailSymbologies: Set<String> = ["ean13", "ean8", "upca", "upce"]
 
+/// The 2D symbologies. A ticket that carries any of them is a ticket whose door code is
+/// one of them: a linear code beside it is an order or reference number (the #441
+/// review's QR beside an order-number Code 128). Provisional, like the retail rule.
+private let matrixSymbologies: Set<String> = ["qr", "aztec", "pdf417", "datamatrix"]
+
 /// The evidence's barcodes, reconciled into **Admissions** (`fixtures/ticket/README.md`,
 /// "The Admissions"; the Kotlin twin is line for line):
 ///
 /// 1. Only a barcode with a symbology and a non-empty payload can be one.
-/// 2. Retail formats are dropped when anything else was found, and kept only when they
-///    are all there is. Provisional: a ticket that really is an EAN keeps it, and one
-///    beside a QR loses a probable false positive.
+/// 2. Linear codes are dropped when any 2D code was found, on any page: beside a QR, a
+///    Code 128 is the order number. Otherwise retail formats are dropped when anything
+///    else was found, and kept only when they are all there is. Both provisional: a
+///    ticket that really is an EAN keeps it, and one beside a QR loses a probable false
+///    positive.
 /// 3. In page order, and within a page in the order found — sorted on both, because
 ///    `sorted` is not promised to be stable.
 /// 4. One per payload, first kept: the same code on three pages is one **Admission**,
@@ -300,7 +314,9 @@ private func admissions(_ evidence: TicketEvidence) -> [Admission] {
             else { return nil }
             return (order, payload, symbology, barcode.page)
         }
-    let kept = candidates.allSatisfy { retailSymbologies.contains($0.symbology) }
+    let kept = candidates.contains(where: { matrixSymbologies.contains($0.symbology) })
+        ? candidates.filter { matrixSymbologies.contains($0.symbology) }
+        : candidates.allSatisfy { retailSymbologies.contains($0.symbology) }
         ? candidates
         : candidates.filter { !retailSymbologies.contains($0.symbology) }
     let printed = evidence.readings.flatMap(\.lines).map(printedKey)
@@ -316,11 +332,14 @@ private func admissions(_ evidence: TicketEvidence) -> [Admission] {
         }
 }
 
-/// Whitespace and `*` (a Code 39-style printed delimiter, `*TESTQRAA1*`) taken out.
+/// Space, tab, newline, carriage return and `*` (a Code 39-style printed delimiter,
+/// `*TESTQRAA1*`) taken out: exactly those, the same set as the Kotlin twin. Not
+/// `whitespacesAndNewlines`, whose members differ from Kotlin's `isWhitespace` (that one
+/// also takes U+001C–001F, a GS1 payload's GS among them).
+private let printedKeyDrops: Set<Unicode.Scalar> = [" ", "\t", "\n", "\r", "*"]
+
 private func printedKey(_ text: String) -> String {
-    String(String.UnicodeScalarView(text.unicodeScalars.filter {
-        !CharacterSet.whitespacesAndNewlines.contains($0) && $0 != "*"
-    }))
+    String(String.UnicodeScalarView(text.unicodeScalars.filter { !printedKeyDrops.contains($0) }))
 }
 
 /// OCR's own answer, read beside a text layer: first from the lines the text layer

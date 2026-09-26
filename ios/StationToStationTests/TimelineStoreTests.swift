@@ -636,6 +636,50 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual(settled, onDisk)
     }
 
+    /// The check-in offer's geocode (the #441 review): coordinates written after an
+    /// await go onto the record as it is *then*, so a ticket attached while the geocoder
+    /// ran is kept. Before, the record read before the await was saved back whole.
+    func testAnUpdateChangesOnlyItsOwnFieldsOnTheRecordAsItIsNow() async {
+        let store = TimelineStore(file: tempFile(contents: "{}"))
+        let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
+        await store.saveAttendance(setlistId: id, attendance: StoredAttendance(provenance: "planned"))
+        // Attached while the geocoder was out.
+        await store.attachAdmissions(setlistId: id, admissions: [admission("TKT-9F31")])
+
+        let settled = await store.updateAttendance(setlistId: id) {
+            $0.venueLat = 59.9
+            $0.venueLon = 10.7
+        }
+
+        XCTAssertEqual([admission("TKT-9F31")], settled.admissions)
+        XCTAssertEqual("planned", settled.provenance)
+        XCTAssertEqual(59.9, settled.venueLat)
+        let onDisk = await store.load().gigAttendance[id]
+        XCTAssertEqual(settled, onDisk)
+    }
+
+    /// Where there is no record yet, the default one is edited — Android's
+    /// `updateAttendance` falls back the same way.
+    func testAnUpdateOfANightWithNoClaimStartsFromTheDefault() async {
+        let store = TimelineStore(file: tempFile(contents: "{}"))
+        let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
+
+        let settled = await store.updateAttendance(setlistId: id) { $0.venueLat = 1 }
+
+        XCTAssertEqual(StoredAttendance(provenance: "planned", venueLat: 1), settled)
+    }
+
+    /// A festival act whose set has finished is upgraded from planned; the ticket
+    /// attached to it goes with it (the #441 review).
+    func testAClaimRaisedToAttendedKeepsItsAdmissionsAndCoordinates() {
+        let planned = StoredAttendance(venueLat: 59.9, venueLon: 10.7, admissions: [admission("TKT-9F31")])
+
+        let attended = planned.withProvenance("attended")
+
+        XCTAssertEqual(StoredAttendance(provenance: "attended", venueLat: 59.9, venueLon: 10.7,
+                                        admissions: [admission("TKT-9F31")]), attended)
+    }
+
     /// A gig with no claim yet still takes the Admissions: the parse may have yielded
     /// nothing but a barcode, and there is then no artist, venue or date worth writing.
     func testAdmissionsCanBeAttachedToANightWithNoClaimOnItYet() async {
@@ -734,6 +778,28 @@ final class TimelineStoreTests: XCTestCase {
 
         XCTAssertEqual([StoredAdmission(payload: "VEtULTlGMzE=", symbology: ""),
                         StoredAdmission(payload: "", symbology: "")], claim.admissions)
+    }
+
+    /// One element that is not an Admission at all costs that element, not the list
+    /// (the #441 review): before, `try?` over the whole array dropped every Admission.
+    func testAMalformedAdmissionCostsOnlyItself() throws {
+        let claim = try JSONDecoder().decode(StoredAttendance.self, from: Data("""
+        {"provenance":"checked_in","admissions":[{"payload":"VEtULTlGMzE="},"not an object",null,7,\
+        {"payload":"U1lOVEg=","symbology":"qr","page":"two","corroborated":"yes"}]}
+        """.utf8))
+
+        XCTAssertEqual("checked_in", claim.provenance)
+        XCTAssertEqual([StoredAdmission(payload: "VEtULTlGMzE=", symbology: ""),
+                        StoredAdmission(payload: "U1lOVEg=", symbology: "qr")], claim.admissions)
+    }
+
+    /// A list that is not a list reads as none, and the claim survives it.
+    func testAnAdmissionsValueThatIsNotAListReadsAsNone() throws {
+        let claim = try JSONDecoder().decode(StoredAttendance.self, from: Data("""
+        {"provenance":"attended","admissions":"oops"}
+        """.utf8))
+
+        XCTAssertEqual(StoredAttendance(provenance: "attended"), claim)
     }
 
     /// A stored payload that is not base64 is treated as no payload: there is nothing

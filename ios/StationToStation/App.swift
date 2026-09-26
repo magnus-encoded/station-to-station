@@ -162,6 +162,8 @@ private struct BannersModifier: ViewModifier {
     /// push Settings onto — the nudge is an offer, and an offer that cannot be taken
     /// is simply not made.
     var onOpenSettings: (() -> Void)?
+    /// The ticket draft the confirm sheet is showing.
+    @State private var shownTicketDraft: UUID?
 
     func body(content: Content) -> some View {
         content
@@ -216,15 +218,20 @@ private struct BannersModifier: ViewModifier {
             // the banners for the reason the card conflict above is: a Ticket arrives
             // from another process while any screen is up, and the prompt is not the
             // Timeline's to own.
+            //
+            // Every answer names the draft it was given for: a swipe-down dismisses the
+            // one on screen (`shownTicketDraft`), never whichever is first by then, since
+            // dismissing a draft also deletes its inbox deposit.
             .sheet(item: Binding(
                 get: { model.state.ticketDrafts.first },
-                set: { if $0 == nil { model.dismissTicket() } }
+                set: { if $0 == nil, let shown = shownTicketDraft { model.dismissTicket(shown) } }
             )) { draft in
-                ConfirmTicketSheet(ticket: draft.ticket) { artist, venue, date in
-                    model.confirmTicket(artist: artist, venue: venue, date: date)
+                ConfirmTicketSheet(ticket: draft.ticket, possibleMatch: draft.possibleMatch) { artist, venue, date in
+                    model.confirmTicket(draft.id, artist: artist, venue: venue, date: date)
                 } onCancel: {
-                    model.dismissTicket()
+                    model.dismissTicket(draft.id)
                 }
+                .onAppear { shownTicketDraft = draft.id }
                 .environmentObject(model)
                 .tint(amber)
                 .preferredColorScheme(.dark)

@@ -502,31 +502,65 @@ final class AppModel: ObservableObject {
     /// not bring this app forward, so a **Ticket** is almost always deposited while
     /// the app is in the background and has to be noticed on the way back in.
     ///
-    /// Draining is destructive — `TicketInbox.drain` empties the box as it reads it —
-    /// so this must not be called speculatively from two places at once.
+    /// **A deposit leaves the box only once what it became is on disk** (the #441
+    /// review): minted or attached here, or — for one that goes to the prompt — once the
+    /// prompt is answered either way. A kill anywhere before that routes it again on the
+    /// next launch, which is safe: a match attaches nothing twice (`attachAdmissions`
+    /// dedups by payload), and a mint that landed is a known night the second time.
+    /// `depositsInHand` keeps a second drain in the same run (the foreground arriving
+    /// while the first is still in Vision) from routing one twice.
     func drainTicketInbox(now: Date = Date()) {
-        let deposits = TicketInbox.drain()
+        let deposits = TicketInbox.pending().filter { !depositsInHand.contains($0.id) }
         guard !deposits.isEmpty else { return }
-        Task { for deposit in deposits { await routeShared(deposit.ticket, now: now) } }
+        depositsInHand.formUnion(deposits.map(\.id))
+        Task {
+            for deposit in deposits {
+                let waitsOnThePrompt = await routeShared(deposit.ticket, depositId: deposit.id, now: now)
+                if !waitsOnThePrompt { settleDeposit(deposit.id) }
+            }
+        }
     }
 
-    private func routeShared(_ deposited: Ticket, now: Date) async {
+    /// Deposits read from the box and not yet settled: being routed, or on the prompt.
+    private var depositsInHand: Set<String> = []
+
+    /// Out of the box for good: what it became is on disk, or the person dismissed it.
+    private func settleDeposit(_ id: String?) {
+        guard let id else { return }
+        TicketInbox.remove(id)
+        depositsInHand.remove(id)
+    }
+
+    /// Routes one deposit. True when it is left waiting on the prompt, and its deposit
+    /// is then settled by `confirmTicket` or `dismissTicket` instead.
+    private func routeShared(_ deposited: Ticket, depositId: String, now: Date) async -> Bool {
         // Every Admission redrawn and read back before anything is decided (#441, story
         // 29): here in the app rather than in the extension, which deposits what it read
         // and nothing more (ADR-0020). One Vision pass each, off the main actor.
         let ticket = await Task.detached(priority: .userInitiated) { deposited.checkedForRedraw() }.value
         let parse: TicketParse = ticket.isEmpty ? .nothingUsable : .ticket(ticket)
-        switch routeTicket(parse, knownNights: knownNights, now: now) {
+        // Plans from disk, not from state: at a cold launch the drain can run before
+        // `loadPlannedGigs` has put them there, and a ticket for a night planned by hand
+        // would then be minted a second time.
+        let known = state.timelineShows + (await timelines.load()).planned()
+        switch routeTicket(parse, knownNights: known, now: now) {
         case .match(let gigId):
             await attachAdmissions(gigId: gigId, ticket.admissions)
             state.notice = "That night is already on your line."
         case .add(let complete):
             await put(complete)
-        case .confirm(let found):
-            state.ticketDrafts.append(TicketDraft(ticket: found))
+        case .confirm(let found, let possible):
+            let hint = possible.flatMap { id in known.first { $0.id == id } }.map { night in
+                [night.artist?.name ?? "", night.venueLine(), night.eventDate ?? ""]
+                    .filter { !$0.isEmpty }.joined(separator: " — ")
+            }
+            state.ticketDrafts.append(TicketDraft(ticket: found, possibleMatch: hint, depositId: depositId))
+            return true
         case .unreadable:
-            state.ticketDrafts.append(TicketDraft(ticket: Ticket()))
+            state.ticketDrafts.append(TicketDraft(ticket: Ticket(), depositId: depositId))
+            return true
         }
+        return false
     }
 
     /// The nights a **Ticket** is matched against: everything on the **Line**, plans
@@ -628,8 +662,12 @@ final class AppModel: ObservableObject {
     /// was routed was a partial parse that matched nothing; what is being confirmed is
     /// a full one, and it may well name a night that was already there — which is
     /// exactly the duplicate this feature is supposed to be safe from.
-    func confirmTicket(artist: String, venue: String, date: String) {
-        guard let pending = state.ticketDrafts.first?.ticket else { return }
+    ///
+    /// Acts on the draft it was shown for, by id, never on whichever is first by the
+    /// time it runs: its deposit is removed from the inbox once the write has landed.
+    func confirmTicket(_ draftId: UUID, artist: String, venue: String, date: String) {
+        guard let draft = state.ticketDrafts.first(where: { $0.id == draftId }) else { return }
+        let pending = draft.ticket
         let who = artist.trimmingCharacters(in: .whitespacesAndNewlines)
         let room = venue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !who.isEmpty, let night = gigDay(date.trimmingCharacters(in: .whitespaces)) else {
@@ -637,7 +675,7 @@ final class AppModel: ObservableObject {
             state.errorKind = nil
             return
         }
-        state.ticketDrafts.removeFirst()
+        state.ticketDrafts.removeAll { $0.id == draftId }
         // The Admissions are the parse's, whatever the person corrected (story 16).
         let confirmed = Ticket(admissions: pending.admissions, artist: who,
                                venue: room.nilIfBlank, date: night)
@@ -645,16 +683,20 @@ final class AppModel: ObservableObject {
             if let known = knownNight(confirmed, among: knownNights) {
                 await attachAdmissions(gigId: known.id, confirmed.admissions)
                 state.notice = "That night is already on your line."
-                return
+            } else {
+                await put(confirmed)
             }
-            await put(confirmed)
+            settleDeposit(draft.depositId)
         }
     }
 
     /// The prompt dismissed. The **Ticket** is dropped and nothing is written: a PDF
-    /// shared by mistake must cost nothing, and it can always be shared again.
-    func dismissTicket() {
-        if !state.ticketDrafts.isEmpty { state.ticketDrafts.removeFirst() }
+    /// shared by mistake must cost nothing, and it can always be shared again. Its
+    /// deposit goes with it, so it does not come back at the next launch.
+    func dismissTicket(_ draftId: UUID) {
+        guard let draft = state.ticketDrafts.first(where: { $0.id == draftId }) else { return }
+        state.ticketDrafts.removeAll { $0.id == draftId }
+        settleDeposit(draft.depositId)
     }
 
     /// A night I was at that setlist.fm has never heard of, typed in.
@@ -742,7 +784,7 @@ final class AppModel: ObservableObject {
                     // `savePlanned` hands back whatever claim already stood, and a
                     // check-in outranks this one.
                     if played.contains(actKey(act)), claim.provenance == "planned" {
-                        let attended = StoredAttendance(provenance: "attended")
+                        let attended = claim.withProvenance("attended")
                         await timelines.saveAttendance(setlistId: gigId, attendance: attended)
                         attendances[gigId] = attended
                     } else {
@@ -1755,19 +1797,16 @@ final class AppModel: ObservableObject {
         guard let found = await location.geocodeVenue(
             [query, gig.venue?.city?.country?.name].compactMap { $0 }.joined(separator: ", ")
         ) else { return nil }
-        await timelines.saveAttendance(
-            setlistId: gig.id,
-            // Every field of the existing claim is carried, not just the ones this
-            // write is about: `saveAttendance` replaces the record wholesale, so a
-            // field left out here is a field deleted. The ticket joined it in #412, and
-            // is `admissions` since #441.
-            attendance: StoredAttendance(
-                provenance: cache.attendance()[gig.id]?.provenance ?? "planned",
-                checkedInAt: cache.attendance()[gig.id]?.checkedInAt,
-                venueLat: found.lat, venueLon: found.lon,
-                admissions: cache.attendance()[gig.id]?.admissions ?? []
-            )
-        )
+        // Only the coordinates, onto the record as it is after the geocode: `cache` was
+        // read before it, and saving a record built from that would put back its old
+        // Admissions and claim over a ticket attached or a check-in made meanwhile (the
+        // #441 review). Android's `updateAttendance { it.copy(…) }`.
+        let settled = await timelines.updateAttendance(setlistId: gig.id) {
+            $0.venueLat = found.lat
+            $0.venueLon = found.lon
+        }
+        state.attendanceByGig[gig.id] = settled
+        if state.selectedSetlist?.id == gig.id { state.selectedAttendance = settled }
         return found
     }
 
@@ -1777,18 +1816,14 @@ final class AppModel: ObservableObject {
     func checkIn(_ gigId: String) {
         state.checkInOffer = nil
         Task {
-            let existing = await timelines.load().attendance()[gigId]
-            // The ticket's Admissions are carried across the check-in rather than dropped by it.
-            // It is a fact about the night and not about the claim, and this write
-            // replaces the whole record — Android's `updateAttendance` gets the same
-            // answer from `copy()`, which is why that side needed no such line (#412).
-            let attendance = StoredAttendance(
-                provenance: "checked_in",
-                checkedInAt: Int64(Date().timeIntervalSince1970 * 1000),
-                venueLat: existing?.venueLat, venueLon: existing?.venueLon,
-                admissions: existing?.admissions ?? []
-            )
-            await timelines.saveAttendance(setlistId: gigId, attendance: attendance)
+            // Only the claim changes. The ticket's Admissions and the venue's coordinates
+            // are carried across the check-in by editing the record in place, read and
+            // written under one lock — Android's `updateAttendance { it.copy(…) }` (#412).
+            let checkedInAt = Int64(Date().timeIntervalSince1970 * 1000)
+            let attendance = await timelines.updateAttendance(setlistId: gigId) {
+                $0.provenance = "checked_in"
+                $0.checkedInAt = checkedInAt
+            }
             // The claim goes into state as well as onto disk: the night has just stopped
             // being a plan, and the lane it leaves is drawn from this map.
             state.attendanceByGig[gigId] = attendance

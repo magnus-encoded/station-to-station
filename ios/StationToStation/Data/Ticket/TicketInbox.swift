@@ -23,7 +23,7 @@ struct TicketDeposit: Codable, Equatable, Identifiable, Sendable {
 /// extension, so the PDF itself — which carries a name, an order number and sometimes
 /// a card fragment — is never written anywhere. Only the four facts, which readings
 /// backed them, and the **Admissions** cross — never the barcode's crop — and they are
-/// deleted the moment the app has read them.
+/// deleted the moment what the app made of them is on disk.
 enum TicketInbox {
 
     /// Must match the App Group on both targets' entitlements. Changing it strands
@@ -74,8 +74,8 @@ enum TicketInbox {
     /// another process can list the directory mid-write; the rename is what makes an
     /// item appear complete or not at all.
     @discardableResult
-    static func deposit(_ ticket: Ticket) -> Bool {
-        guard let dir = directory else { return false }
+    static func deposit(_ ticket: Ticket, in box: URL? = directory) -> Bool {
+        guard let dir = box else { return false }
         let deposit = TicketDeposit(ticket: ticket)
         guard let data = try? JSONEncoder().encode(deposit) else { return false }
         let partial = dir.appendingPathComponent("\(deposit.id).part")
@@ -92,13 +92,16 @@ enum TicketInbox {
         }
     }
 
-    /// Everything waiting, oldest first, taken out of the box as it is read.
+    /// Everything waiting, oldest first. **Read, not taken**: each stays in the box until
+    /// the app has done something durable with it and calls `remove` (the #441 review).
+    /// Routing runs a Vision pass per Admission, and a ticket taken out before that and
+    /// killed during it was a ticket lost.
     ///
-    /// A file that will not decode is deleted with the rest rather than left behind:
-    /// one bad deposit that is retried forever would wedge every later ticket behind
-    /// it, and there is nothing to recover from a half-parsed drop box.
-    static func drain() -> [TicketDeposit] {
-        guard let dir = directory,
+    /// A file that will not decode is deleted rather than left behind: one bad deposit
+    /// that is retried forever would wedge every later ticket behind it, and there is
+    /// nothing to recover from a half-parsed drop box.
+    static func pending(in box: URL? = directory) -> [TicketDeposit] {
+        guard let dir = box,
               let files = try? FileManager.default.contentsOfDirectory(
                 at: dir, includingPropertiesForKeys: nil)
         else { return [] }
@@ -107,9 +110,17 @@ enum TicketInbox {
             if let data = try? Data(contentsOf: file),
                let deposit = try? JSONDecoder().decode(TicketDeposit.self, from: data) {
                 deposits.append(deposit)
+            } else {
+                try? FileManager.default.removeItem(at: file)
             }
-            try? FileManager.default.removeItem(at: file)
         }
         return deposits.sorted { $0.depositedAt < $1.depositedAt }
+    }
+
+    /// One deposit out of the box, once what it became is on disk: minted, attached, or
+    /// answered at the prompt. Named by id, as `deposit` names the file.
+    static func remove(_ id: String, in box: URL? = directory) {
+        guard let dir = box else { return }
+        try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(id).json"))
     }
 }

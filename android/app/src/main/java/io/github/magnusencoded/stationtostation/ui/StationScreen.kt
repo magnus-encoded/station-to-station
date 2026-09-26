@@ -88,6 +88,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -398,11 +399,15 @@ fun StationTimelineScreen(
                 )
             }
             state.pendingTicket?.let { pending ->
-                TicketConfirmDialog(
-                    pending = pending,
-                    onConfirm = { artist, venue, date -> viewModel.confirmPendingTicket(artist, venue, date) },
-                    onDismiss = { viewModel.dismissPendingTicket() },
-                )
+                // Keyed by the ticket, so the next one in the queue opens with its own
+                // fields rather than the last one's edits.
+                key(pending.id) {
+                    TicketConfirmDialog(
+                        pending = pending,
+                        onConfirm = { artist, venue, date -> viewModel.confirmPendingTicket(pending.id, artist, venue, date) },
+                        onDismiss = { viewModel.dismissPendingTicket(pending.id) },
+                    )
+                }
             }
             when {
                 state.setlistsLoading && state.setlists.isEmpty() ->
@@ -1071,10 +1076,15 @@ private fun TicketAtTheDoor(admissions: List<StoredAdmission>) {
     var index by remember(admissions) { mutableStateOf(0) }
     val page = AdmissionPage.of(index, admissions.size)
     val admission = admissions[page.index]
-    val shown by produceState<AtTheDoor>(AtTheDoor.Checking, admission) {
-        value = withContext(Dispatchers.Default) { doorDrawing(admission) }
+    // Tagged with the Admission it is about: produceState keeps its last value when the
+    // key changes, so an untagged one would put the previous page's drawing under the
+    // new "2 of 3" until the next check ends.
+    val verdict by produceState<DoorVerdict<StoredAdmission, AtTheDoor>?>(null, admission) {
+        val door = withContext(Dispatchers.Default) { doorDrawing(admission) }
             ?.let { AtTheDoor.Shown(it) } ?: AtTheDoor.CannotShow
+        value = DoorVerdict(admission, door)
     }
+    val shown = verdict.forAdmission(admission) ?: AtTheDoor.Checking
     BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
         // The card's own padding and border, inside the width the Room gives it.
         val inner = maxWidth - 30.dp
@@ -1340,7 +1350,8 @@ private fun TicketConfirmDialog(
                 if (pending.parsed.isEmpty) {
                     "Couldn't read anything off that PDF. Fill it in by hand, or discard it."
                 } else if (pending.possibleMatch != null) {
-                    "This looks like a night already on your line — check it before saving."
+                    "This looks like a night already on your line — check it before saving: " +
+                        "it is added to that night only if who's playing and the date match it."
                 } else {
                     "Here's what the ticket seemed to say. Check it before it's added."
                 },

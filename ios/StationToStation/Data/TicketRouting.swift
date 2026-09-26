@@ -15,7 +15,12 @@ enum TicketRoute: Equatable {
     case add(Ticket)
     /// Show the person what was read and let them confirm or fill in the rest. The
     /// normal outcome, not the exception.
-    case confirm(Ticket)
+    ///
+    /// `possibleMatch` is the id of a night already on the **Line** the ticket may be
+    /// for, shown on the prompt as a hint and never acted on: `confirmTicket` matches
+    /// again on what was confirmed. The same hint as Android's
+    /// `NeedsConfirmation.possibleMatch`.
+    case confirm(Ticket, possibleMatch: String? = nil)
     /// The PDF yielded nothing at all. Still shown — an honest blank, not silence.
     case unreadable
 }
@@ -43,6 +48,10 @@ enum TicketRoute: Equatable {
 /// an unchecked one counts as not) sends the ticket to the prompt, which says which
 /// barcode it is and to bring the PDF. Found at import, not at the door.
 ///
+/// **Nor is one for a date a known night is already on** when it matched no act (the
+/// #441 review): `nightThatDay` says why, and that night goes to the prompt as the
+/// possible match.
+///
 /// A match wins over a mint whether the night ahead or behind: sharing the ticket for
 /// a night already logged some other way must be safe to do twice.
 func routeTicket(_ parse: TicketParse,
@@ -51,12 +60,36 @@ func routeTicket(_ parse: TicketParse,
                  calendar: Calendar = .current) -> TicketRoute {
     guard case .ticket(let ticket) = parse else { return .unreadable }
     if let known = knownNight(ticket, among: knownNights, calendar: calendar) {
-        return ticket.isComplete && ticket.redrawsEveryAdmission ? .match(known.id) : .confirm(ticket)
+        return ticket.isComplete && ticket.redrawsEveryAdmission
+            ? .match(known.id) : .confirm(ticket, possibleMatch: known.id)
     }
-    guard ticket.canSkipPrompt, ticket.redrawsEveryAdmission, let date = ticket.date,
+    let sameDay = nightThatDay(ticket, among: knownNights, calendar: calendar)
+    guard sameDay == nil, ticket.canSkipPrompt, ticket.redrawsEveryAdmission, let date = ticket.date,
           date >= calendar.startOfDay(for: now)
-    else { return .confirm(ticket) }
+    else { return .confirm(ticket, possibleMatch: sameDay?.id) }
     return .add(ticket)
+}
+
+/// A night already on the **Line** on the ticket's date, when `knownNight` found none
+/// (the #441 review). `routeTicket` never mints past one: a ticket whose artist line
+/// carries a tour name (`Dumdumboys – XL [romertallførti]`) is complete and agreed by
+/// both readings, and matches no act, yet the person already planned `Dumdumboys` that
+/// night. Asked about, with that night as the prompt's possible match, rather than a
+/// second night minted.
+///
+/// Of several that day (a festival day), the one whose venue folds equal to the
+/// ticket's (`nameKey`), else the first. Provisional, as the rule is: generic, no vendor
+/// or artist named. The Kotlin twin is `knownNightThatDay`.
+func nightThatDay(_ ticket: Ticket,
+                  among nights: [FmSetlist],
+                  calendar: Calendar = .current) -> FmSetlist? {
+    guard let date = ticket.date else { return nil }
+    let day = fmDate(date, calendar: calendar)
+    let thatDay = nights.filter { $0.eventDate == day }
+    let venueKey = ticket.venue.map(nameKey).flatMap { $0.isEmpty ? nil : $0 }
+    return thatDay.first { night in
+        venueKey != nil && nameKey(night.venue?.name ?? "") == venueKey
+    } ?? thatDay.first
 }
 
 /// The night this **Ticket** is about, if the **Line** already holds it.

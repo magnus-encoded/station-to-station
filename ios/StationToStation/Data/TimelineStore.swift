@@ -72,6 +72,15 @@ struct StoredAttendance: Codable, Equatable {
         self.admissions = admissions
     }
 
+    /// This claim at `provenance`, with every other field — the ticket's **Admissions**,
+    /// the venue's coordinates — carried rather than dropped by a fresh record (the #441
+    /// review: a festival act's "played" upgrade lost them). Android's `withProvenance`.
+    func withProvenance(_ provenance: String) -> StoredAttendance {
+        var raised = self
+        raised.provenance = provenance
+        return raised
+    }
+
     private enum CodingKeys: String, CodingKey {
         case provenance, checkedInAt, venueLat, venueLon, admissions
         /// Read by the migration only. Never written.
@@ -84,7 +93,11 @@ struct StoredAttendance: Codable, Equatable {
         checkedInAt = (try? c.decodeIfPresent(Int64.self, forKey: .checkedInAt)) ?? nil
         venueLat = (try? c.decodeIfPresent(Double.self, forKey: .venueLat)) ?? nil
         venueLon = (try? c.decodeIfPresent(Double.self, forKey: .venueLon)) ?? nil
-        admissions = (try? c.decodeIfPresent([StoredAdmission].self, forKey: .admissions)) ?? nil ?? []
+        // Element by element: one malformed entry (not an object, say) costs that entry,
+        // never the list — `try?` over the whole array dropped every Admission (the #441
+        // review). A value that is not an array at all still reads as none.
+        admissions = ((try? c.decodeIfPresent([LenientAdmission].self, forKey: .admissions)) ?? nil)?
+            .compactMap(\.admission) ?? []
         // #441's migration. A value that is not base64 was never drawable and migrates
         // to nothing, as it was read before.
         if let legacy = (try? c.decodeIfPresent(String.self, forKey: .ticketQr)) ?? nil,
@@ -139,6 +152,16 @@ struct StoredAdmission: Codable, Equatable {
     /// will not decode is treated as no payload: there is nothing to hold up at a door,
     /// and a half-decoded barcode is worse than none.
     var payloadBytes: Data? { Data(base64Encoded: payload) }
+}
+
+/// One element of a stored `admissions` list, decoded without failing the list: an
+/// element that is not an **Admission** at all reads as nil and is skipped.
+private struct LenientAdmission: Decodable {
+    let admission: StoredAdmission?
+
+    init(from decoder: Decoder) throws {
+        admission = try? StoredAdmission(from: decoder)
+    }
 }
 
 /// `kept`, then every **Admission** of `added` whose payload `kept` does not already hold
@@ -798,6 +821,28 @@ actor TimelineStore {
             c.gigAttendance[gigId] = attendance
             return c
         }
+    }
+
+    /// Changes only what `edit` changes on the record as it stands *now*, read and
+    /// written under one lock — Android's `updateAttendance(gigId) { it.copy(…) }`, and
+    /// the same default (`StoredAttendance()`) where there is none yet.
+    ///
+    /// For a writer that awaited something first (the check-in offer's geocode): a
+    /// record read before the await and saved after it would put back whatever it held
+    /// then, and drop a ticket attached in between (the #441 review).
+    @discardableResult
+    func updateAttendance(setlistId: String,
+                          _ edit: (inout StoredAttendance) -> Void) -> StoredAttendance {
+        var settled = StoredAttendance()
+        writeMerged { cache in
+            var c = cache
+            let gigId = c.withGig(setlistId)
+            settled = c.gigAttendance[gigId] ?? StoredAttendance()
+            edit(&settled)
+            c.gigAttendance[gigId] = settled
+            return c
+        }
+        return settled
     }
 
     /// Adds a gig I am going to, with the attendance claim that goes with it (#175).

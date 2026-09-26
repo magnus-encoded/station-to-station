@@ -380,4 +380,15 @@ final class GigOffersTests: XCTestCase {
         XCTAssertEqual(0, AdmissionPage(index: -1, count: 2).index)
         XCTAssertEqual(0, AdmissionPage(index: 3, count: 0).index)
     }
+
+    /// Stepping from 1 of 2 to 2 of 2 while the first is still shown: the new page is
+    /// checking, never the previous page's drawing under the new label.
+    func testAVerdictIsOnlyReadBackForTheAdmissionItWasReachedFor() {
+        let first = StoredAdmission(payload: "QQ==", symbology: "qr")
+        let second = StoredAdmission(payload: "Qg==", symbology: "code128", page: 1)
+        let reached = DoorVerdict(admission: first, verdict: "drawing of the first")
+
+        XCTAssertEqual("drawing of the first", reached.forAdmission(first))
+        XCTAssertNil(reached.forAdmission(second))
+    }
 }

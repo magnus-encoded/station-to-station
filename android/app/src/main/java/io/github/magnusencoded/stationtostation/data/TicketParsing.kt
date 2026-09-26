@@ -307,13 +307,22 @@ const val QR_SYMBOLOGY = "qr"
 private val RETAIL_SYMBOLOGIES = setOf("ean13", "ean8", "upca", "upce")
 
 /**
+ * The 2D symbologies. A ticket that carries any of them is a ticket whose door code is
+ * one of them: a linear code beside it is an order or reference number (the #441
+ * review's QR beside an order-number Code 128). Provisional, like the retail rule.
+ */
+private val MATRIX_SYMBOLOGIES = setOf("qr", "aztec", "pdf417", "datamatrix")
+
+/**
  * The evidence's barcodes, reconciled into Admissions (`fixtures/ticket/README.md`,
  * "The Admissions"; the Swift twin is line for line):
  *
  * 1. Only a barcode with a symbology and a non-empty payload can be one.
- * 2. Retail formats ([RETAIL_SYMBOLOGIES]) are dropped when anything else was found,
- *    and kept only when they are all there is. Provisional: a ticket that really is an
- *    EAN keeps it, and one beside a QR loses a probable false positive.
+ * 2. Linear codes are dropped when any 2D code ([MATRIX_SYMBOLOGIES]) was found, on any
+ *    page: beside a QR, a Code 128 is the order number. Otherwise retail formats
+ *    ([RETAIL_SYMBOLOGIES]) are dropped when anything else was found, and kept only when
+ *    they are all there is. Both provisional: a ticket that really is an EAN keeps it,
+ *    and one beside a QR loses a probable false positive.
  * 3. In page order (stable: found order within a page).
  * 4. One per payload, first kept: the same code on three pages is one Admission, and
  *    the same payload in two symbologies keeps the first.
@@ -326,10 +335,10 @@ private fun admissions(evidence: TicketEvidence): List<Admission> {
         val payload = barcode.payload?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
         Triple(payload, symbology, barcode.page ?: 0)
     }
-    val kept = if (candidates.all { it.second in RETAIL_SYMBOLOGIES }) {
-        candidates
-    } else {
-        candidates.filter { it.second !in RETAIL_SYMBOLOGIES }
+    val kept = when {
+        candidates.any { it.second in MATRIX_SYMBOLOGIES } -> candidates.filter { it.second in MATRIX_SYMBOLOGIES }
+        candidates.all { it.second in RETAIL_SYMBOLOGIES } -> candidates
+        else -> candidates.filter { it.second !in RETAIL_SYMBOLOGIES }
     }
     val printed = evidence.readings.flatMap { it.lines }.map(::printedKey)
     return kept
@@ -346,8 +355,15 @@ private fun admissions(evidence: TicketEvidence): List<Admission> {
         }
 }
 
-/** Whitespace and `*` (a Code 39-style printed delimiter, `*TESTQRAA1*`) taken out. */
-private fun printedKey(text: String): String = text.filterNot { it.isWhitespace() || it == '*' }
+/**
+ * Space, tab, newline, carriage return and `*` (a Code 39-style printed delimiter,
+ * `*TESTQRAA1*`) taken out: exactly those, the same set as the Swift twin. Not
+ * [Char.isWhitespace], which also takes U+001C–001F, so a GS1 payload's GS (FNC1) would
+ * vanish here and stay on iOS.
+ */
+private val PRINTED_KEY_DROPS = setOf(' ', '\t', '\n', '\r', '*')
+
+private fun printedKey(text: String): String = text.filterNot { it in PRINTED_KEY_DROPS }
 
 /** The bytes as UTF-8, or null where they are not valid UTF-8 — never a U+FFFD guess. */
 private fun strictUtf8(bytes: ByteArray): String? =
@@ -851,14 +867,16 @@ sealed interface TicketRouting {
  * or planned, local or setlist.fm's own. Keyed on date + artist, not venue: a venue
  * printed on a ticket ("The Forum") rarely matches setlist.fm's formatted line ("The
  * Forum, London, England"), so trying to string-match it would reject real matches
- * more often than it would catch a false one. Case-insensitive on the artist name,
- * since a ticket vendor's capitalisation is not a fact worth failing a match over.
+ * more often than it would catch a false one. The artist name is folded through
+ * [nameKey] on both sides, as iOS's `knownNight` does, so `Wilco (US)` and `Wilco`
+ * are one act and a ticket vendor's capitalisation is not a fact worth failing a
+ * match over. A name that folds to nothing matches nothing.
  */
 fun matchKnownNight(parsed: ParsedTicket, knownGigs: List<FmSetlist>): FmSetlist? {
     val date = parsed.date ?: return null
-    val artist = parsed.artist?.trim()?.lowercase(Locale.ROOT) ?: return null
+    val artist = parsed.artist?.let(::nameKey)?.ifEmpty { null } ?: return null
     return knownGigs.firstOrNull { candidate ->
-        candidate.eventDate == date && candidate.artist?.name?.trim()?.lowercase(Locale.ROOT) == artist
+        candidate.eventDate == date && nameKey(candidate.artist?.name.orEmpty()) == artist
     }
 }
 
@@ -888,6 +906,10 @@ fun matchKnownNight(parsed: ParsedTicket, knownGigs: List<FmSetlist>): FmSetlist
  * Admission that did not read back as itself when redrawn ([checkedForRedraw]; an
  * unchecked one counts as not) sends the ticket to the prompt, which says which barcode
  * it is and to bring the PDF. Found at import, not at the door.
+ *
+ * **Nor is one for a date a known night is already on** when it matched no act (the
+ * #441 review): [knownNightThatDay] says why, and that night goes to the prompt as the
+ * possible match.
  */
 fun routeTicket(
     parsed: ParsedTicket,
@@ -895,12 +917,32 @@ fun routeTicket(
     today: LocalDate = LocalDate.now(),
 ): TicketRouting {
     val match = matchKnownNight(parsed, knownGigs)
+    val sameDay = if (match == null) knownNightThatDay(parsed, knownGigs) else null
     if (parsed.isComplete && parsed.redrawsEveryAdmission) {
         if (match != null) return TicketRouting.AlreadyKnown(match)
         val night = parseFmDate(parsed.date!!)
-        if (parsed.canSkipPrompt && night != null && !night.isBefore(today)) {
+        if (sameDay == null && parsed.canSkipPrompt && night != null && !night.isBefore(today)) {
             return TicketRouting.NewPlannedGig(parsed.artist!!, parsed.venue!!, parsed.date, parsed.admissions)
         }
     }
-    return TicketRouting.NeedsConfirmation(parsed, match)
+    return TicketRouting.NeedsConfirmation(parsed, match ?: sameDay)
+}
+
+/**
+ * A night already known on the ticket's date, when no artist matched it (the #441
+ * review). [routeTicket] never mints past one: a ticket whose artist line carries a tour
+ * name (`Dumdumboys – XL [romertallførti]`) is complete and agreed by both readings, and
+ * matches no act, yet the person already planned `Dumdumboys` that night. Asked about,
+ * with that night as the prompt's possible match, rather than a second night minted.
+ *
+ * Of several that day (a festival day), the one whose venue folds equal to the ticket's
+ * ([nameKey]), else the first. Provisional, as the rule is: generic, no vendor or artist
+ * named. The iOS twin is `nightThatDay`.
+ */
+fun knownNightThatDay(parsed: ParsedTicket, knownGigs: List<FmSetlist>): FmSetlist? {
+    val date = parsed.date ?: return null
+    val thatDay = knownGigs.filter { it.eventDate == date }
+    val venueKey = parsed.venue?.let(::nameKey)?.ifEmpty { null }
+    return thatDay.firstOrNull { venueKey != null && nameKey(it.venue?.name.orEmpty()) == venueKey }
+        ?: thatDay.firstOrNull()
 }
