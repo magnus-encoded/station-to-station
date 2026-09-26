@@ -25,7 +25,7 @@ final class TicketParseTests: XCTestCase {
     private func parse(qr: Data? = nil, _ lines: [String]) -> TicketParse {
         let evidence = TicketEvidence(
             readings: [TicketReading(origin: .ocr, lines: lines)],
-            barcode: qr.map { TicketBarcode(image: Data(), payload: $0, symbology: "qr") })
+            barcodes: qr.map { [TicketBarcode(image: Data(), payload: $0, symbology: "qr")] } ?? [])
         return parseTicketFields(evidence, calendar: calendar)
     }
 
@@ -289,6 +289,20 @@ final class TicketParseTests: XCTestCase {
         XCTAssertEqual(day(2026, 9, 14), found.date)
     }
 
+    /// But a purchase date above the night does not win for printing first: a date on a
+    /// line with a purchase word, or under a purchase label of its own, is passed over.
+    func testAPurchaseDateAboveTheNightIsPassedOver() {
+        XCTAssertEqual(day(2026, 11, 28),
+                       ticket(["Order date: 01.05.2025", "28. nov. 2026 kl. 20.00"]).date)
+        XCTAssertEqual(day(2026, 11, 28),
+                       ticket(["Kjøpsdato:", "01.05.2025", "28.11.2026"]).date)
+    }
+
+    /// Passed over, never thrown away: with no other date it is still the best known.
+    func testAPurchaseDateAloneIsStillRead() {
+        XCTAssertEqual(day(2025, 5, 1), ticket(["Kjøpt 01.05.2025"]).date)
+    }
+
     // MARK: - Artist and venue
 
     /// OCR breaks a label off its value about as often as it keeps them together.
@@ -349,13 +363,46 @@ final class TicketParseTests: XCTestCase {
         XCTAssertEqual("PARKTEATRET SCENE", found.venue)
     }
 
-    /// A vendor's name on a line of its own is never the artist, even as a caps line on
-    /// a scan with no text layer to outvote it (the Pixel's "TICKETLINE" Gig).
-    func testAVendorNameIsNeverGuessed() {
+    /// A caps banner naming the ticket is never the artist, even on a scan with no text
+    /// layer to outvote it (the Pixel's "TICKETLINE" Gig). It is the word, not the vendor:
+    /// no list of vendors is kept.
+    func testACapsBannerNamingTheTicketIsNeverGuessed() {
         let found = ticket(["TICKETLINE", "MORK WATER", "28-09-2026", "Parkteatret, Oslo"])
 
         XCTAssertEqual("MORK WATER", found.artist)
         XCTAssertEqual("Parkteatret, Oslo", found.venue)
+        XCTAssertEqual("SKAMBANKT", ticket(["E-BILLETT", "SKAMBANKT", "PARKTEATRET SCENE"]).artist)
+    }
+
+    /// Only a caps line is a banner. A band that merely has the word in its name, in
+    /// ordinary case, is still a name.
+    func testTheTicketWordInOrdinaryCaseIsStillAName() {
+        XCTAssertEqual("The Ticketmen", ticket(["The Ticketmen", "Sentrum Scene"]).artist)
+    }
+
+    /// The first QR is the one kept, not the first barcode: a ticket shows EAN and UPC
+    /// candidates beside its QR (#441), and a Code 128 is not a QR the Room can redraw.
+    func testTheFirstQrIsKeptWhateverPrintsBeforeIt() {
+        let evidence = TicketEvidence(
+            readings: [TicketReading(origin: .ocr, lines: ["Big Thief at Sentrum Scene"])],
+            barcodes: [
+                TicketBarcode(image: Data(), payload: Data("4006381333931".utf8), symbology: "ean13"),
+                TicketBarcode(image: Data(), payload: qrBytes, symbology: "qr"),
+                TicketBarcode(image: Data(), payload: Data("second".utf8), symbology: "qr"),
+            ])
+        guard case .ticket(let found) = parseTicketFields(evidence, calendar: calendar) else {
+            return XCTFail("read nothing")
+        }
+        XCTAssertEqual(qrBytes, found.qr)
+
+        let code128Only = TicketEvidence(
+            readings: [TicketReading(origin: .ocr, lines: ["Big Thief at Sentrum Scene", "14.09.2026"])],
+            barcodes: [TicketBarcode(image: Data(), payload: Data("0001".utf8), symbology: "code128")])
+        guard case .ticket(let incomplete) = parseTicketFields(code128Only, calendar: calendar) else {
+            return XCTFail("read nothing")
+        }
+        XCTAssertNil(incomplete.qr)
+        XCTAssertFalse(incomplete.isComplete, "a Code 128 alone does not complete a read until #441")
     }
 
     /// A line carrying the date is not a line carrying an artist, whatever else is on

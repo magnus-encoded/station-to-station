@@ -90,7 +90,11 @@ enum TicketParse: Equatable, Sendable {
 struct TicketEvidence: Equatable, Sendable {
     /// One reading per method that produced any text.
     var readings: [TicketReading]
-    var barcode: TicketBarcode?
+    /// Every barcode the source showed, in the order found. A ticket can carry several
+    /// (one Admission each, or a QR beside a Code 128), so the evidence keeps them all;
+    /// which of them count, and how many are stored, is #441's. Today the parser keeps
+    /// the first QR.
+    var barcodes: [TicketBarcode] = []
 }
 
 /// One method's reading of the whole source.
@@ -162,7 +166,7 @@ func parseTicketFields(_ evidence: TicketEvidence, calendar: Calendar = .current
         .filter { !$0.lines.isEmpty }
 
     var ticket = Ticket()
-    if let payload = evidence.barcode?.payload, !payload.isEmpty { ticket.qr = payload }
+    ticket.qr = firstQrPayload(evidence.barcodes)
     ticket.readingCount = readings.count
 
     let text = readings.first { $0.origin == .textLayer }
@@ -204,6 +208,20 @@ func parseTicketFields(_ evidence: TicketEvidence, calendar: Calendar = .current
     }
 
     return ticket.isEmpty ? .nothingUsable : .ticket(ticket)
+}
+
+/// The one barcode a **Ticket** carries until #441: the first QR with a payload.
+///
+/// A QR, because a QR is what the app stores and the Room redraws. A Code 128 kept here
+/// would be redrawn as a QR no door accepts, so a ticket whose only code is one stays
+/// incomplete and reaches the prompt. The first *QR* rather than the first barcode,
+/// because real tickets show EAN and UPC candidates beside the QR that is the Admission
+/// (the Android probe, #441), and one found first must not cost the ticket its QR.
+private func firstQrPayload(_ barcodes: [TicketBarcode]) -> Data? {
+    barcodes.lazy
+        .filter { $0.symbology == "qr" }
+        .compactMap { $0.payload }
+        .first { !$0.isEmpty }
 }
 
 /// OCR's own answer, read beside a text layer: first from the lines the text layer
@@ -279,13 +297,23 @@ private func guess(_ lines: [String], calendar: Calendar) -> Guess {
     var dateLines = Set<Int>()
     var dateIndex: Int?
 
+    // The night is the first date down the page that is not a purchase date; a
+    // purchase date is taken only when it is the only kind there is. See
+    // `isPurchaseDate`.
+    var purchase: (day: Date, index: Int)?
     for (index, line) in lines.enumerated() {
         guard let day = readDate(line, calendar: calendar) else { continue }
         dateLines.insert(index)
-        if found.date == nil {
+        if isPurchaseDate(at: index, in: lines) {
+            if purchase == nil { purchase = (day, index) }
+        } else if found.date == nil {
             found.date = day
             dateIndex = index
         }
+    }
+    if found.date == nil, let purchase {
+        found.date = purchase.day
+        dateIndex = purchase.index
     }
 
     // Lines a rule has used, and label lines whether or not their value read: a
@@ -413,7 +441,7 @@ private func isUsableName(_ text: String) -> Bool {
 /// - **A trailing `:`, `!` or `?`.** A heading a value sits under, or an ad's tagline
 ///   ("DEL EN OPPLEVELSE!") — never the name itself.
 /// - **A `/`.** A seating category or a combined entrance ("STÅPLASS/STANDING").
-/// - **A ticket vendor's own name**, on a line of its own. See `vendorNames`.
+/// - **A caps banner about the ticket itself.** See `isTicketBanner`.
 ///
 /// This used to guard only the caps lines on Android. #526 applies it to every guessed
 /// line, the ones around the date included.
@@ -422,19 +450,28 @@ private func isGuessable(_ line: String) -> Bool {
     if line.unicodeScalars.contains(where: { CharacterSet.decimalDigits.contains($0) }) { return false }
     if line.contains("/") { return false }
     if let last = line.last, ":!?".contains(last) { return false }
-    return !vendorNames.contains(folded(line))
+    return !isTicketBanner(line)
 }
 
-/// Ticket vendors whose name prints on the ticket as a line of its own, folded.
+/// A caps line with the word for a ticket in it — `TICKETLINE`, `TICKETMASTER`,
+/// `BILLETTSERVICE`, `E-TICKET` — is the vendor's masthead or a heading about the
+/// ticket, never the night's artist or venue.
 ///
-/// A logo is a picture, and beside a text layer the cross-check already outvotes it.
-/// A scan has no text layer to do that, so there the name itself is the only tell:
-/// `TICKETLINE` on the Pixel was a scan's worth of evidence, and it became an artist.
-/// A name, not a layout — nothing here assumes where a vendor prints anything.
-private let vendorNames: Set<String> = [
-    "billettservice", "billetto", "eventbrite", "eventim", "livenation", "seetickets",
-    "ticketco", "ticketline", "ticketmaster", "tikkio",
-]
+/// `TICKETLINE` became an artist on the Pixel (#526), and the probe found it in the
+/// text layer as well as in OCR, at the top of both. So neither the cross-check nor its
+/// position on the page tells it from `MORK WATER` two lines below; what does is that it
+/// names the ticket. The words are the ticket's own vocabulary, not a list of vendors,
+/// and only a caps line is asked: a sentence that mentions a ticket is prose, and prose
+/// already ranks below every caps line.
+private func isTicketBanner(_ line: String) -> Bool {
+    guard isShouty(line) else { return false }
+    let key = folded(line)
+    return ticketWords.contains { key.contains($0) }
+}
+
+/// "Ticket" in English, Norwegian and Danish, and Swedish. Matched inside a word, so a
+/// compound (`TICKETLINE`, `BILLETTSERVICE`) counts.
+private let ticketWords = ["ticket", "billett", "biljett"]
 
 /// At least four letters in five uppercase: a vendor's stylised event or venue line,
 /// not the prose above or below it on the page. Only ever asked of a guessable line.
@@ -460,6 +497,32 @@ private func folded(_ text: String) -> String {
 }
 
 // MARK: - The date
+
+/// A date that says when the ticket was bought, not when the night is: one on a line
+/// with a purchase word in it (`Kjøpt 01.05.2025`, `Order date: 01.05.2025`), or the
+/// value under a purchase label that broke onto a line of its own (`Kjøpsdato:`, then
+/// `01.05.2025`).
+///
+/// An order block often prints above the event on a text layer — the Eventim ticket
+/// the Android probe read gave its purchase date first (#526) — so "the first date
+/// down the page" alone is not enough. A purchase date is not thrown away, only
+/// passed over: with nothing else to go on it is still the best-known date, and the
+/// person reviews the read.
+private func isPurchaseDate(at index: Int, in lines: [String]) -> Bool {
+    if mentionsPurchase(lines[index]) { return true }
+    guard let above = lines[safe: index - 1],
+          above.trimmingCharacters(in: .whitespaces).hasSuffix(":") else { return false }
+    return mentionsPurchase(above)
+}
+
+private func mentionsPurchase(_ line: String) -> Bool {
+    let lower = line.lowercased()
+    return purchaseWords.contains { lower.contains($0) }
+}
+
+/// Matched inside a word: `kjøp` covers kjøpt, kjøpsdato and kjøpstidspunkt; `bestil`
+/// bestilt and bestillingsdato; `order` ordered and order date; `ordre` ordredato.
+private let purchaseWords = ["kjøp", "bestil", "ordre", "order", "purchase", "booked", "booking"]
 
 /// The one field a wrong answer is most costly on, so the patterns are explicit and
 /// ordered rather than left to a locale-guessing formatter.
