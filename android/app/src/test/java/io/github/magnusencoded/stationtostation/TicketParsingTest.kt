@@ -302,13 +302,15 @@ class TicketParsingTest {
 
     @Test
     fun aCompleteReadForAKnownNightsDateUnderAnotherNameIsAskedAboutNotMinted() {
-        // Eventim's `Dumdumboys – XL [romertallførti]`: both readings agree on it, the
-        // Code 128s read back, and the night was already planned by hand as `Dumdumboys`.
-        // No artist match, but a night that day: asked about, with that night as the hint.
+        // An artist line that names more than the act, both readings agreeing on it, and
+        // the night already planned by hand as `Dumdumboys`. No artist match, but a night
+        // that day: asked about, with that night as the hint. (Eventim's real line,
+        // `Dumdumboys – XL [romertallførti]`, is always asked about: see
+        // `carriesMoreThanAName`. So this case is plain words, to test the hint alone.)
         val today = LocalDate.of(2027, 1, 1)
         val parsed = ParsedTicket(
             admissions = drawnQr(),
-            artist = "Dumdumboys – XL [romertallførti]",
+            artist = "Dumdumboys XL",
             venue = "Rockefeller",
             date = "24-06-2027",
         )
