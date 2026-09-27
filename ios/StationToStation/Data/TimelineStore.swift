@@ -931,7 +931,7 @@ actor TimelineStore {
     ) {
         writeMerged { cache in
             var c = cache
-            c.shows.merge(shows.filter { !$0.value.isEmpty }) { _, new in new }
+            c.shows = holdLanes(c.shows, shows)
             // The author beats the scrape, wherever the two meet — see `mergedWith`.
             c.festivals = mergedWith(c.festivals, festivals)
             c.festivalIdByShow.merge(festivalIdByShow) { _, new in new }

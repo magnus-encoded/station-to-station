@@ -1095,25 +1095,30 @@ final class AppModel: ObservableObject {
         state.showWithheld = v
     }
 
-    /// Fetches whichever Followed Lanes are stale (missing, empty, or not back
-    /// to my own oldest Gig) and merges them in. Called when the strip opens —
-    /// a cached-and-complete Lane costs nothing here. One friend's failure
-    /// keeps their last good Lane and never blocks the others. Ported term for
-    /// term from Android's `loadFriendTimelines`.
+    /// Fetches whichever Followed Lanes `laneNeedsFetch` says need it (nothing
+    /// held, or not back to my own oldest Gig) and holds what comes back, empty
+    /// or not. Called when the strip opens — a cached-and-complete Lane costs
+    /// nothing here. One friend's failure keeps their last good Lane and never
+    /// blocks the others. Ported term for term from Android's
+    /// `loadFriendTimelines`.
     func loadFriendTimelines() {
         let friends = state.friends
         if friends.isEmpty { return }
         let myOldest = state.timelineShows.compactMap { $0.localDate() }.min()
-        let stale = friends.filter { laneIsStale(state.showsByFriend[$0.setlistfm], oldestOfMine: myOldest) }
+        let stale = friends.filter {
+            laneNeedsFetch($0, held: state.showsByFriend[$0.setlistfm], myOldest: myOldest)
+        }
         if stale.isEmpty { return }
         state.lanesLoading = true
         Task {
+            // A failed fetch is left out entirely, so the friend keeps their last good
+            // Lane; an empty answer is kept, so it is not asked for again (#405).
             var loaded: [String: [FmSetlist]] = [:]
             for friend in stale {
                 let shows = try? await setlistFm.attendedShows(friend.setlistfm, backTo: myOldest).shows
-                if let shows, !shows.isEmpty { loaded[friend.setlistfm] = shows }
+                if let shows { loaded[friend.setlistfm] = shows }
             }
-            state.showsByFriend.merge(loaded) { _, new in new }
+            state.showsByFriend = holdLanes(state.showsByFriend, loaded)
             state.lanesLoading = false
             await timelines.save(shows: loaded)
         }

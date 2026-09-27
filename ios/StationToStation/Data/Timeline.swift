@@ -664,22 +664,3 @@ func crossingX(_ row: WovenRow, _ lanes: [Friend], _ laneWidth: CGFloat) -> CGFl
     let open = min(max(laneWidth / stripWidth(lanes.count), 0), 1)
     return SpineX + (laneXf(offset, step) - SpineX) * open
 }
-
-// MARK: - Lane staleness
-
-/// Does a friend's fetched shows reach back at least as far as my own oldest
-/// Gig? `nil` (I have no Gigs of my own yet) always reaches back — there is
-/// nothing to fall short of. Ported term for term from Android's `reachesBack`.
-func laneReachesBack(_ shows: [FmSetlist], to oldestOfMine: Date?) -> Bool {
-    guard let oldestOfMine else { return true }
-    guard let theirOldest = shows.compactMap({ $0.localDate() }).min() else { return false }
-    return theirOldest <= oldestOfMine
-}
-
-/// A Lane is worth refetching when it is missing, empty, or truncated short of
-/// my own oldest Gig — cached-and-complete is the common case this exists to
-/// skip.
-func laneIsStale(_ shows: [FmSetlist]?, oldestOfMine: Date?) -> Bool {
-    guard let shows, !shows.isEmpty else { return true }
-    return !laneReachesBack(shows, to: oldestOfMine)
-}

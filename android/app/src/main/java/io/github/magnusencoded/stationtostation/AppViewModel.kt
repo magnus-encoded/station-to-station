@@ -36,6 +36,8 @@ import io.github.magnusencoded.stationtostation.data.programmeFestivalId
 import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.bandsOf
 import io.github.magnusencoded.stationtostation.data.fmDate
+import io.github.magnusencoded.stationtostation.data.holdLanes
+import io.github.magnusencoded.stationtostation.data.laneNeedsFetch
 import io.github.magnusencoded.stationtostation.data.isLocal
 import io.github.magnusencoded.stationtostation.data.localGigSetlist
 import io.github.magnusencoded.stationtostation.data.moveMedia
@@ -1679,42 +1681,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * Whether a cached lane already goes back as far as my own line does.
-     *
-     * ponytail: a friend whose whole history is newer than my first gig looks short
-     * every time, so zooming out costs them one page fetch each — the fetch stops on
-     * the first page because it has their whole list. Store their reported total if
-     * that one call ever matters.
-     */
-    private fun reachesBack(shows: List<FmSetlist>, oldestOfMine: LocalDate?): Boolean {
-        if (oldestOfMine == null) return true
-        val theirOldest = shows.mapNotNull { it.localDate() }.minOrNull() ?: return false
-        return theirOldest <= oldestOfMine
-    }
-
     /** Loads every known friend's attended shows for the woven (zoomed-out) view. */
     fun loadFriendTimelines() {
         val friends = _state.value.friends
         if (friends.isEmpty()) return
         val myOldest = _state.value.setlists.mapNotNull { it.localDate() }.minOrNull()
-        // Reload a lane only if it is missing or stops short of my own first gig.
         // Cached-and-complete is the common case, and refetching every lane on every
         // zoom-out is the call volume the store exists to remove — but a lane cut off
-        // at 60 shows is not complete, however cached it is.
+        // at 60 shows is not complete, however cached it is. See [laneNeedsFetch].
         val stale = friends.filter { friend ->
-            val have = _state.value.showsByFriend[friend.setlistfm]
-            have.isNullOrEmpty() || !reachesBack(have, myOldest)
+            laneNeedsFetch(friend, _state.value.showsByFriend[friend.setlistfm], myOldest)
         }
         if (stale.isEmpty()) return
         _state.update { it.copy(timelinesLoading = true) }
         viewModelScope.launch {
-            val loaded = stale.associate { friend ->
-                friend.setlistfm to runCatching { attendedBackTo(friend.setlistfm, myOldest) }
-                    .getOrDefault(emptyList())
-            }.filterValues { it.isNotEmpty() }
-            _state.update { it.copy(showsByFriend = it.showsByFriend + loaded, timelinesLoading = false) }
-            // Merge, so a friend whose fetch just failed keeps their last good lane.
+            // A failed fetch is left out entirely, so the friend keeps their last good
+            // lane; an empty answer is kept, so it is not asked for again (#405).
+            val loaded = stale.mapNotNull { friend ->
+                runCatching { attendedBackTo(friend.setlistfm, myOldest) }.getOrNull()
+                    ?.let { friend.setlistfm to it }
+            }.toMap()
+            _state.update {
+                it.copy(showsByFriend = holdLanes(it.showsByFriend, loaded), timelinesLoading = false)
+            }
             timelines.save(shows = loaded)
         }
     }
