@@ -195,6 +195,7 @@ data class ParsedTicket(
         get() {
             if (!isComplete) return false
             val count = readingCount
+            if (artist?.let(::carriesMoreThanAName) == true) return false
             if (count == null || count <= 1) return true
             return listOf(artistSupport, venueSupport, dateSupport).all { it == TicketSupport.BOTH }
         }
@@ -262,7 +263,11 @@ fun parseTicketFields(evidence: TicketEvidence): ParsedTicket {
             textSaw = { value -> text.lines.any { folded(it).contains(folded(value)) } },
             ocrIsBetter = { a, b -> letterCount(b) > letterCount(a) },
         )
-        artist = names(t.artist, o.artist)
+        // A text layer with no artist is not overruled by a line only OCR has: that
+        // line is a picture, a logo as often as a name (#526, `ocs-artist-image`).
+        // The person types the artist instead.
+        val oArtist = o.artist?.takeIf { t.artist != null || text.lines.any { line -> folded(line).contains(folded(it)) } }
+        artist = names(t.artist, oArtist)
         venue = names(t.venue, o.venue)
         date = crossCheck(
             t.date, o.date,
@@ -520,6 +525,14 @@ private fun guess(lines: List<String>): Guess {
             if (found.venue == null) found.venue = lines[below]
             return found
         }
+        // The date heads the page: the venue is under it, and the artist, if the
+        // ticket prints one, is not a line this reading has. Guessing one from the
+        // lines further down gives a disclaimer or the venue a second time (#526,
+        // `ocs-artist-image`, where the artist is drawn as a picture).
+        if (above == null && below != null) {
+            if (found.venue == null) found.venue = lines[below]
+            return found
+        }
     }
     val ordered = (shouty + pool.filter { it !in shouty }).iterator()
     if (found.artist == null) found.artist = if (ordered.hasNext()) lines[ordered.next()] else null
@@ -528,6 +541,17 @@ private fun guess(lines: List<String>): Guess {
 }
 
 // --- Artist and venue ---
+
+/**
+ * An artist line with a bracket or a spaced dash in it most likely carries a tour or
+ * show name as well: `Dumdumboys – XL [romertallførti]` (#526). Nothing generic says
+ * where the band's name ends, so the whole line is the artist, and the person is
+ * asked to cut it down. A band whose real name has one costs a prompt, not a wrong Gig.
+ */
+fun carriesMoreThanAName(artist: String): Boolean =
+    artist.any { it in "[](){}" } || NAME_AND_MORE.containsMatchIn(artist)
+
+private val NAME_AND_MORE = Regex("\\s[-–—]\\s")
 
 private val ARTIST_LABELS = listOf("artist", "artists", "act", "performer", "performing", "headliner")
 private val VENUE_LABELS = listOf("venue", "location", "place", "where", "hall")

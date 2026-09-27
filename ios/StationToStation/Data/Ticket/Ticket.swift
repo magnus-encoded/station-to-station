@@ -50,6 +50,7 @@ struct Ticket: Codable, Equatable, Sendable {
     /// standard it can never meet would make every scanned ticket a prompt forever.
     var canSkipPrompt: Bool {
         guard isComplete else { return false }
+        if let artist, carriesMoreThanAName(artist) { return false }
         guard let readingCount, readingCount > 1 else { return true }
         return [artistSupport, venueSupport, dateSupport].allSatisfy { $0 == .both }
     }
@@ -267,7 +268,13 @@ func parseTicketFields(_ evidence: TicketEvidence, calendar: Calendar = .current
                        textSaw: { value in text.lines.contains { folded($0).contains(folded(value)) } },
                        ocrIsBetter: { letterCount($1) > letterCount($0) })
         }
-        (ticket.artist, ticket.artistSupport) = split(names(t.artist, o.artist))
+        // A text layer with no artist is not overruled by a line only OCR has: that
+        // line is a picture, a logo as often as a name (#526, `ocs-artist-image`).
+        // The person types the artist instead.
+        let oArtist = o.artist.flatMap { value in
+            t.artist != nil || text.lines.contains { folded($0).contains(folded(value)) } ? value : nil
+        }
+        (ticket.artist, ticket.artistSupport) = split(names(t.artist, oArtist))
         (ticket.venue, ticket.venueSupport) = split(names(t.venue, o.venue))
         (ticket.date, ticket.dateSupport) = split(crossCheck(
             t.date, o.date,
@@ -487,6 +494,15 @@ private func guess(_ lines: [String], calendar: Calendar) -> Guess {
         if found.venue == nil { found.venue = lines[below] }
         return found
     }
+    // The date heads the page: the venue is under it, and the artist, if the ticket
+    // prints one, is not a line this reading has. Guessing one from the lines further
+    // down gives a disclaimer or the venue a second time (#526, `ocs-artist-image`,
+    // where the artist is drawn as a picture).
+    if shouty.isEmpty, let dateIndex, !pool.contains(where: { $0 < dateIndex }),
+       let below = pool.first(where: { $0 > dateIndex }) {
+        if found.venue == nil { found.venue = lines[below] }
+        return found
+    }
     var ordered = (shouty + pool.filter { !shouty.contains($0) }).makeIterator()
     if found.artist == nil { found.artist = ordered.next().map { lines[$0] } }
     if found.venue == nil { found.venue = ordered.next().map { lines[$0] } }
@@ -563,6 +579,15 @@ private func isUsableName(_ text: String) -> Bool {
 ///
 /// This used to guard only the caps lines on Android. #526 applies it to every guessed
 /// line, the ones around the date included.
+/// An artist line with a bracket or a spaced dash in it most likely carries a tour or
+/// show name as well: `Dumdumboys – XL [romertallførti]` (#526). Nothing generic says
+/// where the band's name ends, so the whole line is the artist, and the person is
+/// asked to cut it down. A band whose real name has one costs a prompt, not a wrong Gig.
+func carriesMoreThanAName(_ artist: String) -> Bool {
+    artist.contains { "[](){}".contains($0) }
+        || artist.range(of: #"\s[-–—]\s"#, options: .regularExpression) != nil
+}
+
 private func isGuessable(_ line: String) -> Bool {
     guard isUsableName(line) else { return false }
     if line.unicodeScalars.contains(where: { CharacterSet.decimalDigits.contains($0) }) { return false }
