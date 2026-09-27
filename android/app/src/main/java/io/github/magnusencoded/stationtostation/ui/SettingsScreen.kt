@@ -53,9 +53,10 @@ import kotlinx.coroutines.launch
 
 private val SpotifyGreen = Color(0xFF1DB954)
 
+// Renamed for the #221 prototype: SettingsGraphPrototype.kt owns SettingsScreen now.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(
+internal fun SettingsScreenToday(
     viewModel: AppViewModel,
     onBack: () -> Unit,
     onOpenBleProbe: () -> Unit = {},
