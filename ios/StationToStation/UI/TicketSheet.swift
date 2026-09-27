@@ -96,9 +96,9 @@ struct ConfirmTicketSheet: View {
                     Section {
                         ForEach(fm.candidates, id: \.setlist.id) { candidate in
                             choice(candidate.setlist.id,
-                                   setlistFmQuestion(yourVenue: ticket.venue, fromTicket: true,
-                                                     candidate: candidate)
-                                       ?? StoredSetlistFmHit(candidate).line())
+                                   StoredSetlistFmHit(candidate).line(),
+                                   question: setlistFmQuestion(yourVenue: ticket.venue, fromTicket: true,
+                                                               candidate: candidate))
                         }
                         choice(nil, "None of these")
                     } header: {
@@ -133,17 +133,8 @@ struct ConfirmTicketSheet: View {
     }
 
     /// One row of the setlist.fm list: a single choice, `id` nil being "None of these".
-    private func choice(_ id: String?, _ text: String) -> some View {
-        Button {
-            chosen = id
-        } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Image(systemName: chosen == id ? "largecircle.fill.circle" : "circle")
-                    .foregroundStyle(chosen == id ? Color.accentColor : slate)
-                Text(text).font(.footnote).foregroundStyle(.primary)
-            }
-        }
-        .accessibilityAddTraits(chosen == id ? .isSelected : [])
+    private func choice(_ id: String?, _ line: String, question: String? = nil) -> some View {
+        SetlistFmChoiceRow(line: line, question: question, selected: chosen == id) { chosen = id }
     }
 
     private var footer: String {
@@ -166,5 +157,31 @@ struct ConfirmTicketSheet: View {
         case let n: lines.append("Its \(n) barcodes are kept whatever you put here.")
         }
         return lines.joined(separator: " ")
+    }
+}
+
+/// One row of a setlist.fm list (#531): a radio mark, the hit's line (who, where, when —
+/// always shown, so rows never read alike), and the `setlistFmQuestion` under it where
+/// the room is in doubt.
+struct SetlistFmChoiceRow: View {
+    let line: String
+    let question: String?
+    let selected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
+                    .foregroundStyle(selected ? Color.accentColor : slate)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(line).font(.footnote).foregroundStyle(.primary)
+                    if let question {
+                        Text(question).font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
