@@ -141,8 +141,14 @@ struct MediaWindow: View {
             }
         }
         .onLongPressGesture { if stamped { onStamp(index, notStamped) } }
+        // One element, so the label and value belong to the row and not to each of its
+        // three texts; the hold named as an action, since VoiceOver cannot hold (#164).
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(song.name)
         .accessibilityValue(stamped ? "at \(formatOffset(at))" : "not stamped")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(stamped ? "Jumps to it" : "Stamps it here")
+        .accessibilityAction(ifNamed: stamped ? "Clear the stamp" : nil) { onStamp(index, notStamped) }
     }
 
     private func seek(_ player: AVPlayer, to ms: Int64) async {

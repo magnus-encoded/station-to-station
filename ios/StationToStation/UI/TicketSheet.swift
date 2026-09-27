@@ -174,6 +174,8 @@ struct SetlistFmChoiceRow: View {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Image(systemName: selected ? "largecircle.fill.circle" : "circle")
                     .foregroundStyle(selected ? Color.accentColor : slate)
+                    // The mark is the Selected trait below; read aloud it is only "circle".
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(line).font(.footnote).foregroundStyle(.primary)
                     if let question {

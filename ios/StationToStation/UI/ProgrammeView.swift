@@ -130,6 +130,7 @@ struct ProgrammeView: View {
                 Button { showPicker = true } label: {
                     Image(systemName: "magnifyingglass").foregroundStyle(ink)
                 }
+                .accessibilityLabel("Choose a festival")
             }
         }
         .toolbarBackground(ground, for: .navigationBar)
@@ -174,6 +175,7 @@ struct ProgrammeView: View {
                     .background(loading ? faint : amber)
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                     .onTapGesture { if !loading { showPicker = true } }
+                    .accessibilityAddTraits(.isButton)
             }
             if let error {
                 Text(error).font(.system(size: 13)).foregroundStyle(slate)
@@ -276,6 +278,9 @@ struct ProgrammeView: View {
                                 .stroke(selected ? amber : chipEdge, lineWidth: 1)
                         )
                         .onTapGesture { day = d }
+                        // Which day is showing is a fill colour alone; the twin of
+                        // Android's selected Tab (#164).
+                        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
                 }
             }
         }
@@ -323,6 +328,12 @@ struct ProgrammeView: View {
         .background(raised)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .contentShape(Rectangle())
+        // One stop per act, with the state its icon and colour carry said in words —
+        // Android's `stateDescription` "going"/"not going", plus what committing would
+        // change, which the icon also shows (#164).
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(actState(picked: isPicked, applied: isApplied))
+        .accessibilityAddTraits(isPicked ? [.isButton, .isSelected] : .isButton)
         .onTapGesture {
             if isPicked {
                 picked.remove(key)
@@ -334,6 +345,15 @@ struct ProgrammeView: View {
                 }
                 picked.insert(key)
             }
+        }
+    }
+
+    private func actState(picked: Bool, applied: Bool) -> String {
+        switch (picked, applied) {
+        case (true, true): return "going"
+        case (true, false): return "going, not committed yet"
+        case (false, true): return "not going, committing takes it off"
+        case (false, false): return "not going"
         }
     }
 

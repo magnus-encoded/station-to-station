@@ -72,6 +72,7 @@ struct FilingSheet: View {
                         Text("setlist.fm \u{2197}")
                     }
                     .tint(amber)
+                    .accessibilityLabel("Open setlist.fm")
                 }
             }
         }

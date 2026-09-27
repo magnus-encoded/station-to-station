@@ -161,6 +161,12 @@ struct ExchangeView: View {
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(lineLit, lineWidth: 1))
         .contentShape(Rectangle())
         .onTapGesture { tap(peer) }
+        // One stop: who, and that tapping adds them — not an initial, a name, then
+        // "Add single right-pointing angle quotation mark" (#164).
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(peer.name + (peer.setlistfm.map { ", @\($0)" } ?? ""))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Adds them as a Contact")
         .padding(.bottom, 8)
     }
 
@@ -286,6 +292,8 @@ private struct Radar: View {
             .frame(width: 56, height: 56)
         }
         .frame(width: 120, height: 120)
+        // A pulse, not a control; the words beside it say what it means.
+        .accessibilityHidden(true)
         .onAppear {
             withAnimation(.linear(duration: 1.8).repeatForever(autoreverses: false)) { pulse = 1 }
         }

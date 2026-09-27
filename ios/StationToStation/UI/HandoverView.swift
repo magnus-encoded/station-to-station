@@ -90,6 +90,7 @@ struct HandoverView: View {
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: choice.ticked ? "checkmark.square.fill" : "square")
                             .foregroundStyle(choice.ticked ? amber : muted)
+                            .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(choice.title).foregroundStyle(ink)
                             Text(choice.detail).font(.caption).foregroundStyle(muted)
@@ -100,6 +101,9 @@ struct HandoverView: View {
                     .background(raised, in: RoundedRectangle(cornerRadius: 12))
                 }
                 .buttonStyle(.plain)
+                // A checkbox in all but name: its state in words, as Android's
+                // `Role.Checkbox` row says it (#164).
+                .accessibilityValue(choice.ticked ? "ticked" : "not ticked")
             }
 
             Button {

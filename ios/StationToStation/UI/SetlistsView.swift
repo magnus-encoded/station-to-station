@@ -18,6 +18,8 @@ struct SetlistsView: View {
                             .onTapGesture {
                                 if songCount > 0 { model.selectSetlist(setlist); nav.push(.confirm) }
                             }
+                            .accessibilityElement(children: .combine)
+                            .accessibilityAddTraits(songCount > 0 ? .isButton : [])
                     }
                     if s.setlistsLoading {
                         ProgressView().frame(maxWidth: .infinity).padding()
