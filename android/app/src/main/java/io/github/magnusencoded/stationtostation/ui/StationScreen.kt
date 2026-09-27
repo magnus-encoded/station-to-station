@@ -409,10 +409,14 @@ fun StationTimelineScreen(
                 key(pending.id) {
                     TicketConfirmDialog(
                         pending = pending,
+                        suggestions = state.artistSuggestions,
+                        onArtistTyped = { viewModel.suggestArtists(it) },
+                        onArtistPicked = { viewModel.clearArtistSuggestions() },
                         onConfirm = { artist, venue, date, chosen ->
+                            viewModel.clearArtistSuggestions()
                             viewModel.confirmPendingTicket(pending.id, artist, venue, date, chosen)
                         },
-                        onDismiss = { viewModel.dismissPendingTicket(pending.id) },
+                        onDismiss = { viewModel.clearArtistSuggestions(); viewModel.dismissPendingTicket(pending.id) },
                     )
                 }
             }
@@ -1276,23 +1280,7 @@ private fun AddPlannedGigDialog(
                 )
                 Spacer(Modifier.height(14.dp))
                 StationField(artist, { artist = it; onArtistTyped(it) }, "who's playing")
-                // Suggestions sit directly under the field they belong to and nowhere
-                // else. Capped at four rows: this is a prompt above a keyboard, and a
-                // list that scrolls is a search result page pretending to be a hint.
-                suggestions.take(4).forEach { hit ->
-                    Text(
-                        buildString {
-                            append(hit.name)
-                            if (hit.disambiguation.isNotBlank()) append("  · ${hit.disambiguation}")
-                        },
-                        color = Slate,
-                        fontSize = 12.sp,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { artist = hit.name; onArtistPicked() }
-                            .padding(vertical = 6.dp),
-                    )
-                }
+                ArtistSuggestions(suggestions) { artist = it; onArtistPicked() }
                 Spacer(Modifier.height(8.dp))
                 StationField(venue, { venue = it }, "venue (optional)")
                 Spacer(Modifier.height(8.dp))
@@ -1337,6 +1325,9 @@ private fun AddPlannedGigDialog(
 @Composable
 private fun TicketConfirmDialog(
     pending: PendingTicket,
+    suggestions: List<MbArtist>,
+    onArtistTyped: (String) -> Unit,
+    onArtistPicked: () -> Unit,
     onConfirm: (artist: String, venue: String, date: String, chosenSetlistId: String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -1381,7 +1372,10 @@ private fun TicketConfirmDialog(
                 )
             }
             Spacer(Modifier.height(14.dp))
-            StationField(artist, { artist = it }, "who's playing")
+            StationField(artist, { artist = it; onArtistTyped(it) }, "who's playing")
+            // Suggestions matter more here than anywhere else: the name in this field
+            // came off an OCR pass, so a near miss is the expected case, not a typo.
+            ArtistSuggestions(suggestions) { artist = it; onArtistPicked() }
             Spacer(Modifier.height(8.dp))
             StationField(venue, { venue = it }, "venue (optional)")
             Spacer(Modifier.height(8.dp))
@@ -1413,6 +1407,29 @@ private fun TicketConfirmDialog(
                 ) { Text("Save", color = if (ready) Amber else Faint) }
             }
         }
+    }
+}
+
+/**
+ * MusicBrainz's artists for what is in a "who's playing" field, directly under it and
+ * nowhere else. Capped at four rows: this is a prompt above a keyboard, and a list that
+ * scrolls is a search result page pretending to be a hint.
+ */
+@Composable
+private fun ArtistSuggestions(suggestions: List<MbArtist>, onPick: (String) -> Unit) {
+    suggestions.take(4).forEach { hit ->
+        Text(
+            buildString {
+                append(hit.name)
+                if (hit.disambiguation.isNotBlank()) append("  · ${hit.disambiguation}")
+            },
+            color = Slate,
+            fontSize = 12.sp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onPick(hit.name) }
+                .padding(vertical = 6.dp),
+        )
     }
 }
 
