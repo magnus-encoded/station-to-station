@@ -2,17 +2,44 @@ package io.github.magnusencoded.stationtostation.ui
 
 // PROTOTYPE for #221, throwaway. It lives on branch prototype/221-settings-graph and
 // never merges. Question: what should Settings look like once it is the service flow
-// graph? Five renderings of the same facts on the existing "settings" route, switched
+// graph? Six renderings of the same facts on the existing "settings" route, switched
 // from a floating bar that only exists in debug builds:
 //   0 Today        the current screen, untouched, for comparison
 //   1 Graph        the diagram in the issue: sources → My timeline → sinks
 //   2 Unlocks      capability first: what you can do, and which source lights it
 //   3 Switchboard  one column, IN → timeline → OUT, each node opens in place with its controls
 //   4 Graph →      the graph read left to right, inputs boxed by kind
+//   5 Field        the same, with logos, on a field you pan and pinch
 // The second chip on the bar fakes a state (fresh install, Spotify cap, spent quota)
 // so the unlit states can be judged without logging anything out.
 
 import android.Manifest
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.ConfirmationNumber
+import androidx.compose.material.icons.outlined.LocationOn
+import androidx.compose.material.icons.outlined.People
+import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material.icons.outlined.Sensors
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
+import io.github.magnusencoded.stationtostation.R
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -92,7 +119,7 @@ private val Faint = Color(0xFF5A5368)
 private val LineCol = Color(0xFF2E2740)
 private val Amber = Color(0xFFE7B24C)
 
-private val VariantNames = listOf("Today", "Graph", "Unlocks", "Switchboard", "Graph →")
+private val VariantNames = listOf("Today", "Graph", "Unlocks", "Switchboard", "Graph →", "Field")
 
 private enum class Scenario(val label: String) {
     REAL("Real state"),
@@ -124,7 +151,8 @@ fun SettingsScreen(
             1 -> GraphVariant(nodes, state, viewModel, onBack)
             2 -> UnlocksVariant(nodes, state, viewModel, onBack)
             3 -> SwitchboardVariant(nodes, state, viewModel, onBack)
-            else -> GraphAcrossVariant(nodes, state, viewModel, onBack)
+            4 -> GraphAcrossVariant(nodes, state, viewModel, onBack)
+            else -> FieldVariant(nodes, state, viewModel, onBack)
         }
         PrototypeSwitcher(
             label = "$variant · ${VariantNames[variant]}",
@@ -865,5 +893,183 @@ private fun PrototypeSwitcher(
             Box(Modifier.width(1.dp).height(20.dp).background(Color.LightGray))
             TextButton(onClick = onScenario) { Text(scenario, color = Color.DarkGray, fontSize = 12.sp) }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// Variant 5: a field you move around in. Logos instead of words, left to right, the
+// inputs in regions by kind, and Spotify and Calendar as alcoves on the right. Drag to
+// pan, pinch to zoom; it opens fitted to the width. Status lives in the sheet a tap
+// opens, not on the field. Brand logos are never dimmed (both brands' guidelines
+// forbid it): an unlit source says so with its ring and its label only.
+
+private const val FieldW = 624f
+private const val FieldH = 916f
+private const val TileDp = 56f
+private const val RegionHeader = 30f
+private const val RowDp = 92f
+
+private class FieldRegion(val title: String, val x: Float, val y: Float, val ids: List<String>) {
+    val w = 160f
+    val h = RegionHeader + ids.size * RowDp + 8f
+    fun center(i: Int) = Offset(x + w / 2, y + RegionHeader + i * RowDp + 8f + TileDp / 2)
+}
+
+private val FieldRegions = listOf(
+    FieldRegion("Databases", 24f, 24f, listOf("setlistfm", "musicbrainz", "clashfinder")),
+    FieldRegion("This phone", 24f, 352f, listOf("gallery", "tickets", "location")),
+    FieldRegion("Other phones", 24f, 680f, listOf("contacts", "gossip")),
+    FieldRegion("Services", 440f, 324f, listOf("spotify")),
+    FieldRegion("This phone", 440f, 474f, listOf("calendar")),
+)
+
+// The timeline box, in field dp.
+private const val HubX = 300f
+private const val HubY = 308f
+private const val HubW = 72f
+private const val HubH = 300f
+
+@Composable
+private fun FieldVariant(nodes: List<ServiceNode>, state: UiState, viewModel: AppViewModel, onBack: () -> Unit) {
+    var open by remember { mutableStateOf<ServiceNode?>(null) }
+    val byId = nodes.associateBy { it.id }
+    val timelineLit = nodes.any { it.role == Role.SOURCE && it.lit }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(Ground)
+            .statusBarsPadding(),
+    ) {
+        Row(Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("‹", color = Ink, fontSize = 28.sp, modifier = Modifier.clickable(onClick = onBack).padding(end = 16.dp))
+            Text("Settings", color = Ink, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.weight(1f))
+            Text("drag · pinch", color = Faint, fontSize = 11.sp)
+        }
+        BoxWithConstraints(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .clipToBounds(),
+        ) {
+            val density = LocalDensity.current
+            val availW = with(density) { maxWidth.toPx() }
+            val fieldW = with(density) { FieldW.dp.toPx() }
+            val fit = (availW / fieldW).coerceAtMost(1f)
+            var scale by remember(fit) { mutableFloatStateOf(fit) }
+            var offset by remember(fit) { mutableStateOf(Offset((availW - fieldW * fit) / 2f, 0f)) }
+
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(fit) {
+                        detectTransformGestures { centroid, pan, zoom, _ ->
+                            val next = (scale * zoom).coerceIn(0.35f, 2.5f)
+                            offset = centroid - (centroid - offset) * (next / scale) + pan
+                            scale = next
+                        }
+                    },
+            ) {
+                Box(
+                    Modifier
+                        .wrapContentSize(Alignment.TopStart, unbounded = true)
+                        .size(FieldW.dp, FieldH.dp)
+                        .graphicsLayer {
+                            transformOrigin = TransformOrigin(0f, 0f)
+                            scaleX = scale
+                            scaleY = scale
+                            translationX = offset.x
+                            translationY = offset.y
+                        },
+                ) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        val px = { v: Float -> v.dp.toPx() }
+                        FieldRegions.forEach { r ->
+                            drawRoundRect(
+                                Raised, topLeft = Offset(px(r.x), px(r.y)), size = Size(px(r.w), px(r.h)),
+                                cornerRadius = CornerRadius(px(14f)),
+                            )
+                            drawRoundRect(
+                                LineCol, topLeft = Offset(px(r.x), px(r.y)), size = Size(px(r.w), px(r.h)),
+                                cornerRadius = CornerRadius(px(14f)), style = Stroke(1.dp.toPx()),
+                            )
+                        }
+                        val join = Offset(px(HubX - 20f), px(HubY + HubH / 2))
+                        val split = Offset(px(HubX + HubW + 20f), px(HubY + HubH / 2))
+                        edge(join, split, timelineLit, across = true)
+                        FieldRegions.forEach { r ->
+                            r.ids.forEachIndexed { i, id ->
+                                val node = byId[id] ?: return@forEachIndexed
+                                val c = r.center(i)
+                                if (node.role == Role.SOURCE) {
+                                    edge(Offset(px(c.x + TileDp / 2), px(c.y)), join, node.lit, across = true)
+                                } else {
+                                    edge(split, Offset(px(c.x - TileDp / 2), px(c.y)), node.lit && timelineLit, across = true)
+                                }
+                            }
+                        }
+                    }
+                    FieldRegions.forEach { r ->
+                        Text(
+                            r.title.uppercase(), color = Faint, fontSize = 10.sp, letterSpacing = 1.2.sp,
+                            modifier = Modifier.offset(r.x.dp + 12.dp, r.y.dp + 9.dp),
+                        )
+                        r.ids.forEachIndexed { i, id ->
+                            val node = byId[id] ?: return@forEachIndexed
+                            val c = r.center(i)
+                            FieldTile(node, Modifier.offset((c.x - 60f).dp, (c.y - TileDp / 2).dp)) { open = node }
+                        }
+                    }
+                    TimelineBox(
+                        state, timelineLit, remember { GraphGeometry() },
+                        Modifier.offset(HubX.dp, HubY.dp).size(HubW.dp, HubH.dp), stacked = true,
+                    )
+                }
+            }
+        }
+    }
+
+    open?.let { NodeSheet(it, state, viewModel) { open = null } }
+}
+
+@Composable
+private fun FieldTile(node: ServiceNode, modifier: Modifier, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(14.dp)
+    Column(modifier.width(120.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier
+                .size(TileDp.dp)
+                .background(Raised2, shape)
+                .border(if (node.lit) 2.dp else 1.dp, if (node.lit) Amber else Faint, shape)
+                .padding(3.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            NodeLogo(node)
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(node.name, color = if (node.lit) Ink else Muted, fontSize = 11.sp, maxLines = 1)
+    }
+}
+
+@Composable
+private fun NodeLogo(node: ServiceNode) {
+    val tint = if (node.lit) Ink else Muted
+    when (node.id) {
+        // App icons that are their own tile: they fill it.
+        "setlistfm" -> Image(painterResource(R.drawable.proto221_setlistfm), "setlist.fm", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        "clashfinder" -> Image(painterResource(R.drawable.proto221_clashfinder), "clashfinder", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        // Marks that need clear space around them: Spotify asks for half the icon's height.
+        "spotify" -> Image(painterResource(R.drawable.proto221_spotify), "Spotify", Modifier.size(25.dp))
+        "musicbrainz" -> Image(painterResource(R.drawable.proto221_musicbrainz), "MusicBrainz", Modifier.height(28.dp))
+        "gallery" -> Icon(Icons.Outlined.PhotoLibrary, "Photos", tint = tint, modifier = Modifier.size(26.dp))
+        "tickets" -> Icon(Icons.Outlined.ConfirmationNumber, "Ticket PDFs", tint = tint, modifier = Modifier.size(26.dp))
+        "location" -> Icon(Icons.Outlined.LocationOn, "Location", tint = tint, modifier = Modifier.size(26.dp))
+        "contacts" -> Icon(Icons.Outlined.People, "Contacts", tint = tint, modifier = Modifier.size(26.dp))
+        "gossip" -> Icon(Icons.Outlined.Sensors, "Gossip", tint = tint, modifier = Modifier.size(26.dp))
+        "calendar" -> Icon(Icons.Outlined.CalendarMonth, "Calendar", tint = tint, modifier = Modifier.size(26.dp))
+        else -> Text(node.name.take(1), color = tint)
     }
 }
