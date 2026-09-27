@@ -3,7 +3,6 @@ package io.github.magnusencoded.stationtostation.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -183,7 +184,9 @@ private fun WhatGoes(onOffer: (Set<String>) -> Unit) {
                 .clip(RoundedCornerShape(12.dp))
                 .background(Raised)
                 .border(1.dp, LineLit, RoundedCornerShape(12.dp))
-                .clickable {
+                // Toggleable rather than clickable: the Checkbox takes no click of its
+                // own, so this row is what tells TalkBack it is ticked (#164).
+                .toggleable(value = ticked, role = Role.Checkbox) {
                     allow = if (ticked) allow - row.categories else allow + row.categories
                 }
                 .padding(12.dp),

@@ -56,6 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -382,7 +383,7 @@ private fun Radar(active: Boolean) {
         Box(
             Modifier.size(56.dp).clip(CircleShape).background(AmberSoft).border(1.5.dp, Amber, CircleShape),
             contentAlignment = Alignment.Center,
-        ) { Text("◦", color = Amber, fontSize = 20.sp) }
+        ) { Text("◦", color = Amber, fontSize = 20.sp, modifier = Modifier.clearAndSetSemantics {}) }
     }
 }
 

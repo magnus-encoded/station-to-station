@@ -32,6 +32,8 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
@@ -125,6 +127,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.role
@@ -256,7 +259,7 @@ fun SplashScreen(viewModel: AppViewModel, onProceed: () -> Unit) {
 
     Box(Modifier.fillMaxSize().background(Ground).padding(32.dp), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("◦", color = Amber, fontSize = 20.sp)
+            Text("◦", color = Amber, fontSize = 20.sp, modifier = Modifier.clearAndSetSemantics {})
             Spacer(Modifier.height(10.dp))
             Text("Station to Station", fontFamily = Serif, fontSize = 30.sp, color = Ink)
             Spacer(Modifier.height(12.dp))
@@ -350,7 +353,7 @@ fun StationTimelineScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Ground, titleContentColor = Muted),
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("◦ ", color = Amber, fontSize = 13.sp)
+                        Text("◦ ", color = Amber, fontSize = 13.sp, modifier = Modifier.clearAndSetSemantics {})
                         Text("Station to Station", fontFamily = Serif, fontSize = 16.sp, color = Muted)
                     }
                 },
@@ -571,6 +574,36 @@ fun StationTimelineScreen(
                         }
                     }
 
+                    val timelineActions = listOf(
+                        CustomAccessibilityAction("Connect with someone nearby") {
+                            onOpenNearby(); true
+                        },
+                        CustomAccessibilityAction(
+                            if (state.contactLight) "Turn the contact light off"
+                            else "Turn the contact light on, to see your line as a contact sees it"
+                        ) { viewModel.toggleContactLight(); true },
+                        CustomAccessibilityAction(
+                            if (zoomedOut) "Close the other timelines"
+                            else "Open the other timelines beside yours"
+                        ) { viewModel.setZoomedOut(!zoomedOut); true },
+                        // The three doors live in the curtain, and a pull
+                        // depth is not a thing TalkBack can express — so
+                        // without these the only way into planning would
+                        // be a gesture the reader intercepts. Each label
+                        // matches the door's own text and calls openDoor,
+                        // the same function the gesture's release calls,
+                        // so the two paths cannot drift apart again (#164).
+                        CustomAccessibilityAction("Add a gig you're going to") {
+                            openDoor(PlanningDoor.Gig); true
+                        },
+                        CustomAccessibilityAction("Open the festival programme") {
+                            openDoor(PlanningDoor.Programme); true
+                        },
+                        CustomAccessibilityAction("Import your setlist.fm history") {
+                            openDoor(PlanningDoor.Import); true
+                        },
+                    )
+
                     Column(Modifier.fillMaxSize()) {
                         Text(
                             buildString {
@@ -579,7 +612,12 @@ fun StationTimelineScreen(
                             },
                             color = Faint,
                             fontSize = 12.sp,
-                            modifier = Modifier.padding(start = 20.dp, top = 2.dp, bottom = 14.dp),
+                            modifier = Modifier
+                                .padding(start = 20.dp, top = 2.dp, bottom = 14.dp)
+                                // The first stop on the line for a screen reader, and so
+                                // where its moves live: TalkBack lands on a line of text,
+                                // not on the list under it (#164).
+                                .semantics { customActions = timelineActions },
                         )
                         // Whose line is whose, only while more than one is showing.
                         // Scrolls sideways: the key is the one thing that grows without
@@ -758,37 +796,9 @@ fun StationTimelineScreen(
                                 // Labels are verbs and say which way the toggle goes,
                                 // because the actions menu reads them out of context with
                                 // nothing on screen to disambiguate them.
-                                .semantics {
-                                    customActions = listOf(
-                                        CustomAccessibilityAction("Connect with someone nearby") {
-                                            onOpenNearby(); true
-                                        },
-                                        CustomAccessibilityAction(
-                                            if (state.contactLight) "Turn the contact light off"
-                                            else "Turn the contact light on, to see your line as a contact sees it"
-                                        ) { viewModel.toggleContactLight(); true },
-                                        CustomAccessibilityAction(
-                                            if (zoomedOut) "Close the other timelines"
-                                            else "Open the other timelines beside yours"
-                                        ) { viewModel.setZoomedOut(!zoomedOut); true },
-                                        // The three doors live in the curtain, and a pull
-                                        // depth is not a thing TalkBack can express — so
-                                        // without these the only way into planning would
-                                        // be a gesture the reader intercepts. Each label
-                                        // matches the door's own text and calls openDoor,
-                                        // the same function the gesture's release calls,
-                                        // so the two paths cannot drift apart again (#164).
-                                        CustomAccessibilityAction("Add a gig you're going to") {
-                                            openDoor(PlanningDoor.Gig); true
-                                        },
-                                        CustomAccessibilityAction("Open the festival programme") {
-                                            openDoor(PlanningDoor.Programme); true
-                                        },
-                                        CustomAccessibilityAction("Import your setlist.fm history") {
-                                            openDoor(PlanningDoor.Import); true
-                                        },
-                                    )
-                                },
+                                // Also on the header line above, where a reader's focus
+                                // can land — a list is not itself a stop for TalkBack.
+                                .semantics { customActions = timelineActions },
                         ) {
                             // The top of the line. Nothing sits here now but the lookup
                             // notice: "↑ THE FUTURE" captioned a direction the layout
@@ -1156,7 +1166,7 @@ private fun TicketAtTheDoor(admissions: List<StoredAdmission>) {
                 "‹ previous",
                 color = if (page.hasPrevious) Amber else Faint,
                 fontSize = 13.sp,
-                modifier = Modifier
+                modifier = Modifier.spokenAs("Previous")
                     .clickable(enabled = page.hasPrevious) { index = page.previous().index }
                     .padding(vertical = 6.dp),
             )
@@ -1165,7 +1175,7 @@ private fun TicketAtTheDoor(admissions: List<StoredAdmission>) {
                 "next ›",
                 color = if (page.hasNext) Amber else Faint,
                 fontSize = 13.sp,
-                modifier = Modifier
+                modifier = Modifier.spokenAs("Next")
                     .clickable(enabled = page.hasNext) { index = page.next().index }
                     .padding(vertical = 6.dp),
             )
@@ -1485,12 +1495,16 @@ private fun SetlistFmChoices(
     onSelect: (String?) -> Unit,
     picked: Boolean = true,
 ) {
-    Column {
+    // A real radio group to TalkBack (#164): the RadioButton below takes no click of its
+    // own, so without `selectable` on the row nothing said which one was chosen.
+    Column(Modifier.selectableGroup()) {
         (rows + SetlistFmChoice(null, "None of these")).forEach { row ->
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .clickable { onSelect(row.id) }
+                    .selectable(selected = picked && selected == row.id, role = Role.RadioButton) {
+                        onSelect(row.id)
+                    }
                     .padding(vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -2652,6 +2666,8 @@ private fun GigMediaBands(
     onOpen: (Uri) -> Unit,
     onRemove: (StoredMedia) -> Unit,
     onMove: (String, Band, Int) -> Unit,
+    /** Leaves arrange mode — what a tap anywhere else in the Room does. */
+    onDoneArranging: () -> Unit = {},
 ) {
     // Two splits of the same night, and the difference between them is the whole of
     // #50's wiring. [all] is every item and answers *who is in the commons* — a
@@ -2782,9 +2798,14 @@ private fun GigMediaBands(
                 onOpen = onOpen,
                 onRemove = onRemove,
                 onArrange = onArrange,
+                onDoneArranging = onDoneArranging,
                 onDragStart = { startDrag(Band.SHARED, it) },
                 onDragAt = moveDrag,
                 onDrop = endDrag,
+                // The drag's two outcomes, for a reader that cannot drag. Only where
+                // the vault is drawn: under the contact light it is not there to land in.
+                moveAcrossLabel = if (editable && !contactLight) "Move to the vault" else null,
+                onMoveAcross = { onMove(it.id, Band.VAULT, 0) },
             )
             // Under the contact light the room holds what a Contact can see, and they
             // cannot see the vault at all — so it is absent rather than drawn empty,
@@ -2808,9 +2829,12 @@ private fun GigMediaBands(
                     onOpen = onOpen,
                     onRemove = onRemove,
                     onArrange = onArrange,
+                    onDoneArranging = onDoneArranging,
                     onDragStart = { startDrag(Band.VAULT, it) },
                     onDragAt = moveDrag,
                     onDrop = endDrag,
+                    moveAcrossLabel = if (editable) "Share it" else null,
+                    onMoveAcross = { onMove(it.id, Band.SHARED, 0) },
                 )
             }
         }
@@ -2827,6 +2851,7 @@ private fun GigMediaBands(
                 },
                 onOver = { over = it },
                 onRelease = { band -> over = null; band?.let(onAdd) },
+                onAdd = onAdd,
             )
             Spacer(Modifier.width(4.dp))
         }
@@ -2851,6 +2876,7 @@ private fun AttachHandle(
     travel: (restingCentreY: Float) -> ClosedFloatingPointRange<Float>,
     onOver: (Band?) -> Unit,
     onRelease: (Band?) -> Unit,
+    onAdd: (Band) -> Unit,
 ) {
     val commit = with(LocalDensity.current) { 14.dp.toPx() }
     var offsetY by remember { mutableStateOf(0f) }
@@ -2896,6 +2922,17 @@ private fun AttachHandle(
                         offsetY = 0f
                         chosen = null
                     },
+                )
+            }
+            // The drag is the only way in, and TalkBack sends a drag to the reader — so
+            // the handle names itself and offers both ends of its travel as actions, with
+            // the same sentences the bands light up with (#164). Cleared rather than
+            // merged so the arrow glyph is not read out as "up down arrow".
+            .clearAndSetSemantics {
+                contentDescription = "Add a picture or video"
+                customActions = listOf(
+                    CustomAccessibilityAction("Share a picture or video") { onAdd(Band.SHARED); true },
+                    CustomAccessibilityAction("Add a picture or video just for you") { onAdd(Band.VAULT); true },
                 )
             },
         contentAlignment = Alignment.Center,
@@ -2959,9 +2996,16 @@ private fun MediaBand(
     onOpen: (Uri) -> Unit,
     onRemove: (StoredMedia) -> Unit,
     onArrange: () -> Unit,
+    onDoneArranging: () -> Unit,
     onDragStart: (Offset) -> Unit,
     onDragAt: (Offset) -> Unit,
     onDrop: () -> Unit,
+    /**
+     * The drag across to the other band, as an action a screen reader can reach (#164).
+     * Null where the drag itself is not on offer.
+     */
+    moveAcrossLabel: String? = null,
+    onMoveAcross: (StoredMedia) -> Unit = {},
 ) {
     // The band's own colour, and the only thing the offer overlay recolours with.
     // **Amber is the vault's**, in both states: it means private here and nothing
@@ -3064,6 +3108,9 @@ private fun MediaBand(
                         onOpen = onOpen,
                         onRemove = onRemove,
                         onArrange = onArrange,
+                        onDoneArranging = onDoneArranging,
+                        moveAcrossLabel = moveAcrossLabel,
+                        onMoveAcross = { onMoveAcross(item) },
                     )
                     Spacer(Modifier.width(ItemGap))
                     placed++
@@ -3077,6 +3124,7 @@ private fun MediaBand(
                         onOpen = onOpen,
                         onRemove = onRemove,
                         onArrange = onArrange,
+                        onDoneArranging = onDoneArranging,
                     )
                     Spacer(Modifier.width(ItemGap))
                 }
@@ -3324,7 +3372,12 @@ private fun BandNotes(
                         // act as dragging a photograph across, minus the index —
                         // one note per band means there is no position to choose.
                         .combinedClickable(
+                            onClickLabel = if (expanded) "Show less" else "Show all",
                             onClick = { expanded = !expanded },
+                            // Named for the reader's actions menu, where a bare "long
+                            // press" says nothing about which way the note goes (#164).
+                            onLongClickLabel = if (!editable) null
+                            else if (band == Band.SHARED) "Move to the vault" else "Share it",
                             onLongClick = { if (editable) onLift(mine.id) },
                         ),
                 )
@@ -3436,6 +3489,9 @@ private fun MediaTile(
     onOpen: (Uri) -> Unit,
     onRemove: (StoredMedia) -> Unit,
     onArrange: () -> Unit,
+    onDoneArranging: () -> Unit = {},
+    moveAcrossLabel: String? = null,
+    onMoveAcross: () -> Unit = {},
 ) {
     val uri = remember(item.ref) { Uri.parse(item.ref) }
 
@@ -3450,9 +3506,24 @@ private fun MediaTile(
             .then(
                 if (!arranging) {
                     Modifier.combinedClickable(
+                        onClickLabel = "Open",
                         onClick = { onOpen(uri) },
+                        onLongClickLabel = "Arrange",
                         onLongClick = onArrange,
                     )
+                } else {
+                    Modifier
+                },
+            )
+            // Moving between bands is a drag in arrange mode, which a screen reader
+            // cannot make; the same move is offered on the tile itself (#164).
+            .then(
+                if (moveAcrossLabel != null) {
+                    Modifier.semantics {
+                        customActions = listOf(
+                            CustomAccessibilityAction(moveAcrossLabel) { onMoveAcross(); true },
+                        )
+                    }
                 } else {
                     Modifier
                 },
@@ -3467,7 +3538,14 @@ private fun MediaTile(
                     // The visible chip stays 20dp, but the tap target itself is
                     // padded out to the 48dp minimum so it's actually reachable.
                     .minimumInteractiveComponentSize()
-                    .clickable { onRemove(item) },
+                    .clickable { onRemove(item) }
+                    // Arrange mode is left by tapping anywhere else, which TalkBack never
+                    // sends. The x is where a reader's focus is while arranging (#164).
+                    .semantics {
+                        customActions = listOf(
+                            CustomAccessibilityAction("Done arranging") { onDoneArranging(); true },
+                        )
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 Box(
@@ -3897,7 +3975,7 @@ fun StationEventScreen(
                         "‹ copy the set and open setlist.fm",
                         color = Amber,
                         fontSize = 13.sp,
-                        modifier = Modifier.clickable(onClick = onPublish).padding(vertical = 6.dp),
+                        modifier = Modifier.spokenAs("Copy the set and open setlist.fm").clickable(onClick = onPublish).padding(vertical = 6.dp),
                     )
                     // A set I said was complete is a set, so it converts. Offered here
                     // rather than only in the branch below, which a checked-in night
@@ -3983,7 +4061,7 @@ fun StationEventScreen(
                                 "‹ swipe to open this show on setlist.fm",
                                 color = Slate,
                                 fontSize = 13.sp,
-                                modifier = Modifier
+                                modifier = Modifier.spokenAs("Open this show on setlist.fm")
                                     .clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
                                     .padding(vertical = 6.dp),
                             )
@@ -4018,14 +4096,14 @@ fun StationEventScreen(
                                     "‹ swipe to invite a friend",
                                     color = Slate,
                                     fontSize = 13.sp,
-                                    modifier = Modifier.clickable(onClick = onInvite).padding(vertical = 6.dp),
+                                    modifier = Modifier.spokenAs("Invite a friend").clickable(onClick = onInvite).padding(vertical = 6.dp),
                                 )
                             } else {
                                 Text(
                                     "‹ swipe to add to calendar",
                                     color = Slate,
                                     fontSize = 13.sp,
-                                    modifier = Modifier.clickable(onClick = onAddToCalendar).padding(vertical = 6.dp),
+                                    modifier = Modifier.spokenAs("Add to calendar").clickable(onClick = onAddToCalendar).padding(vertical = 6.dp),
                                 )
                             }
                         }
@@ -4050,7 +4128,7 @@ fun StationEventScreen(
                         "‹ swipe to open this setlist on setlist.fm",
                         color = Amber,
                         fontSize = 13.sp,
-                        modifier = Modifier
+                        modifier = Modifier.spokenAs("Open this setlist on setlist.fm")
                             .clickable {
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(setlist.url)))
                             }
@@ -4084,6 +4162,7 @@ fun StationEventScreen(
                                                 Intent(Intent.ACTION_VIEW, Uri.parse(playlist.url)),
                                             )
                                         },
+                                        onLongClickLabel = "Forget this playlist link",
                                         onLongClick = { viewModel.removePlaylist(setlist.id, playlist.url) },
                                     )
                                     .padding(vertical = 6.dp, horizontal = 20.dp),
@@ -4106,14 +4185,14 @@ fun StationEventScreen(
                             "‹ swipe to make another",
                             color = Faint,
                             fontSize = 12.sp,
-                            modifier = Modifier.clickable(onClick = convert).padding(vertical = 4.dp),
+                            modifier = Modifier.spokenAs("Make another playlist").clickable(onClick = convert).padding(vertical = 4.dp),
                         )
                     } else {
                         Text(
                             "‹ swipe to open as a Spotify playlist",
                             color = Amber,
                             fontSize = 13.sp,
-                            modifier = Modifier.clickable(onClick = convert).padding(vertical = 6.dp),
+                            modifier = Modifier.spokenAs("Open as a Spotify playlist").clickable(onClick = convert).padding(vertical = 6.dp),
                         )
                     }
                 }
@@ -4418,6 +4497,7 @@ fun StationEventScreen(
                                 // "someone else" rather than inventing a name.
                                 senderName = { key -> state.friends.firstOrNull { it.setlistfm == key }?.name },
                                 onArrange = { arranging = true },
+                                onDoneArranging = { arranging = false },
                                 onAdd = { band ->
                                     attachTo = band
                                     photoPicker.launch(
@@ -4756,7 +4836,12 @@ private fun StampRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = onTap, onLongClick = { if (stamped) onLongPress() })
+            .combinedClickable(
+                onClickLabel = if (stamped) "Jump to it" else "Stamp it here",
+                onClick = onTap,
+                onLongClickLabel = if (stamped) "Clear the stamp" else null,
+                onLongClick = { if (stamped) onLongPress() },
+            )
             .padding(horizontal = 20.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -4771,6 +4856,8 @@ private fun StampRow(
             if (stamped) formatOffset(offsetMs) else "–",
             color = if (stamped) Amber else Faint,
             fontSize = 13.sp,
+            // An en dash is read out as "en dash"; say what it means (#164).
+            modifier = if (stamped) Modifier else Modifier.spokenAs("not stamped"),
         )
     }
 }
@@ -4864,6 +4951,14 @@ private fun SongRow(
         if (onRemoveLog != null) RemoveLogEntry(onRemoveLog)
     }
 }
+
+/**
+ * What a screen reader says for a hint whose printed words are for a thumb (#164).
+ *
+ * The "‹ swipe to …" crumbs name the gesture and are tappable too; TalkBack takes the
+ * swipe for itself, so it hears the action and not the gesture — and not the ‹, either.
+ */
+private fun Modifier.spokenAs(label: String): Modifier = semantics { contentDescription = label }
 
 /**
  * The × that takes one entry out of my **Log**.

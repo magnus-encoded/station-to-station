@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -160,10 +161,10 @@ fun LogEditor(
                     Modifier
                         .fillMaxWidth()
                         .heightIn(min = ActRowHeight)
-                        .clickable { onAdd(song) },
+                        .clickable(onClickLabel = "Add to your log") { onAdd(song) },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("+", color = Slate, fontSize = 18.sp)
+                    Text("+", color = Slate, fontSize = 18.sp, modifier = Modifier.clearAndSetSemantics {})
                     Spacer(Modifier.width(12.dp))
                     Text(song, color = Muted, fontSize = 15.sp)
                 }
