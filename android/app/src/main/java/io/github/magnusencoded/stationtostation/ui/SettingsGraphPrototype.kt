@@ -61,6 +61,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -317,20 +318,46 @@ private fun Modifier.graphEdges(
 ) = onGloballyPositioned { geo.origin = it.boundsInRoot().topLeft }
     .drawBehind {
         val hub = geo.local("timeline") ?: return@drawBehind
-        val gap = 18.dp.toPx()
-        val join = if (across) Offset(hub.left - gap, hub.center.y) else Offset(hub.center.x, hub.top - gap)
-        val split = if (across) Offset(hub.right + gap, hub.center.y) else Offset(hub.center.x, hub.bottom + gap)
-        nodes.forEach { node ->
-            val r = geo.local(node.id) ?: return@forEach
-            if (node.role == Role.SOURCE) {
-                edge(if (across) r.centerRight else r.bottomCenter, join, node.lit, across)
-            } else {
-                edge(split, if (across) r.centerLeft else r.topCenter, node.lit && timelineLit, across)
-            }
-        }
+        val (join, split) = joinAndSplit(hub, across)
         // The trunk: straight, and under the timeline box.
         edge(join, split, timelineLit, across)
+        if (!across) branches(geo, nodes, timelineLit, join, split, across = false)
     }
+    // Across, the category boxes would hide where each branch leaves its node, so the
+    // branches go on top. They never cross a node or the timeline box on that layout.
+    .drawWithContent {
+        drawContent()
+        val hub = geo.local("timeline") ?: return@drawWithContent
+        val (join, split) = joinAndSplit(hub, across)
+        if (across) branches(geo, nodes, timelineLit, join, split, across = true)
+    }
+
+private fun DrawScope.joinAndSplit(hub: Rect, across: Boolean): Pair<Offset, Offset> {
+    val gap = 18.dp.toPx()
+    return if (across) {
+        Offset(hub.left - gap, hub.center.y) to Offset(hub.right + gap, hub.center.y)
+    } else {
+        Offset(hub.center.x, hub.top - gap) to Offset(hub.center.x, hub.bottom + gap)
+    }
+}
+
+private fun DrawScope.branches(
+    geo: GraphGeometry,
+    nodes: List<ServiceNode>,
+    timelineLit: Boolean,
+    join: Offset,
+    split: Offset,
+    across: Boolean,
+) {
+    nodes.forEach { node ->
+        val r = geo.local(node.id) ?: return@forEach
+        if (node.role == Role.SOURCE) {
+            edge(if (across) r.centerRight else r.bottomCenter, join, node.lit, across)
+        } else {
+            edge(split, if (across) r.centerLeft else r.topCenter, node.lit && timelineLit, across)
+        }
+    }
+}
 
 private val TimelineLitFill = Color(0xFF2A2215)
 
@@ -484,8 +511,8 @@ private fun GraphAcrossVariant(nodes: List<ServiceNode>, state: UiState, viewMod
                 Label("IN")
                 Groups(Role.SOURCE, SourceGroups)
             }
-            Spacer(Modifier.width(30.dp))
-            TimelineBox(state, timelineLit, geo, Modifier.width(66.dp).height(170.dp), stacked = true)
+            Spacer(Modifier.width(46.dp))
+            TimelineBox(state, timelineLit, geo, Modifier.width(62.dp).height(170.dp), stacked = true)
             Spacer(Modifier.width(30.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Label("OUT")
