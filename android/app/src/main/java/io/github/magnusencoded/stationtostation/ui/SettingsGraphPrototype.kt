@@ -9,7 +9,7 @@ package io.github.magnusencoded.stationtostation.ui
 //   2 Unlocks      capability first: what you can do, and which source lights it
 //   3 Switchboard  one column, IN → timeline → OUT, each node opens in place with its controls
 //   4 Graph →      the graph read left to right, inputs boxed by kind
-//   5 Field        the same, with logos, on a field you pan and pinch
+//   5 Field        logos in horizontal strips by kind, on a field you pan and pinch
 // The second chip on the bar fakes a state (fresh install, Spotify cap, spent quota)
 // so the unlit states can be judged without logging anything out.
 
@@ -899,36 +899,75 @@ private fun PrototypeSwitcher(
 
 // ---------------------------------------------------------------------------------
 // Variant 5: a field you move around in. Logos instead of words, left to right, the
-// inputs in regions by kind, and Spotify and Calendar as alcoves on the right. Drag to
-// pan, pinch to zoom; it opens fitted to the width. Status lives in the sheet a tap
-// opens, not on the field. Brand logos are never dimmed (both brands' guidelines
-// forbid it): an unlit source says so with its ring and its label only.
+// inputs in one horizontal strip per kind, and Spotify and Calendar as alcoves on the
+// right. Drag to pan, pinch to zoom, double-tap to fit. Status lives in the sheet a
+// tap opens, not on the field. Brand logos are never dimmed (both brands' guidelines
+// forbid it): an unlit source says so with its ring, its label and its line.
+//
+// Inside a strip, each tile's line drops into a lane of its own under the tiles and
+// runs out of the strip's right end. The leftmost tile takes the lowest lane, so no
+// line ever crosses another or a tile.
 
-private const val FieldW = 624f
-private const val FieldH = 916f
 private const val TileDp = 56f
-private const val RegionHeader = 30f
-private const val RowDp = 92f
+private const val ColDp = 92f
+private const val StripPad = 8f
+private const val StripHeader = 30f
+private const val LaneGap = 6f
 
 private class FieldRegion(val title: String, val x: Float, val y: Float, val ids: List<String>) {
-    val w = 160f
-    val h = RegionHeader + ids.size * RowDp + 8f
-    fun center(i: Int) = Offset(x + w / 2, y + RegionHeader + i * RowDp + 8f + TileDp / 2)
+    val w = StripPad * 2 + ids.size * ColDp
+    val h = 112f + ids.size * LaneGap + 6f
+    fun center(i: Int) = Offset(x + StripPad + i * ColDp + ColDp / 2, y + StripHeader + TileDp / 2)
+    fun laneY(i: Int) = y + h - 10f - i * LaneGap
 }
 
 private val FieldRegions = listOf(
     FieldRegion("Databases", 24f, 24f, listOf("setlistfm", "musicbrainz", "clashfinder")),
-    FieldRegion("This phone", 24f, 352f, listOf("gallery", "tickets", "location")),
-    FieldRegion("Other phones", 24f, 680f, listOf("contacts", "gossip")),
-    FieldRegion("Services", 440f, 324f, listOf("spotify")),
-    FieldRegion("This phone", 440f, 474f, listOf("calendar")),
+    FieldRegion("This phone", 24f, 188f, listOf("gallery", "tickets", "location")),
+    FieldRegion("Other phones", 24f, 352f, listOf("contacts", "gossip")),
+    FieldRegion("Services", 548f, 100f, listOf("spotify")),
+    FieldRegion("This phone", 548f, 262f, listOf("calendar")),
 )
 
+private const val FieldW = 680f
+private const val FieldH = 510f
+
 // The timeline box, in field dp.
-private const val HubX = 300f
-private const val HubY = 308f
+private const val HubX = 400f
+private const val HubY = 150f
 private const val HubW = 72f
-private const val HubH = 300f
+private const val HubH = 210f
+
+/** A line along [points] with its corners rounded, then a curve on to [end]. */
+private fun DrawScope.lane(points: List<Offset>, end: Offset, lit: Boolean) {
+    val r = 8.dp.toPx()
+    val path = Path().apply {
+        moveTo(points[0].x, points[0].y)
+        for (i in 1 until points.size - 1) {
+            val prev = points[i - 1]
+            val at = points[i]
+            val next = points[i + 1]
+            val inDir = (at - prev) / (at - prev).getDistance()
+            val outDir = (next - at) / (next - at).getDistance()
+            val a = at - inDir * r
+            val b = at + outDir * r
+            lineTo(a.x, a.y)
+            quadraticBezierTo(at.x, at.y, b.x, b.y)
+        }
+        val last = points.last()
+        lineTo(last.x, last.y)
+        val midX = (last.x + end.x) / 2
+        cubicTo(midX, last.y, midX, end.y, end.x, end.y)
+    }
+    drawPath(
+        path,
+        color = if (lit) Amber else Faint,
+        style = Stroke(
+            width = if (lit) 2.dp.toPx() else 1.dp.toPx(),
+            pathEffect = if (lit) null else PathEffect.dashPathEffect(floatArrayOf(12f, 10f)),
+        ),
+    )
+}
 
 @Composable
 private fun FieldVariant(nodes: List<ServiceNode>, state: UiState, viewModel: AppViewModel, onBack: () -> Unit) {
@@ -996,6 +1035,7 @@ private fun FieldVariant(nodes: List<ServiceNode>, state: UiState, viewModel: Ap
                 ) {
                     Canvas(Modifier.fillMaxSize()) {
                         val px = { v: Float -> v.dp.toPx() }
+                        val at = { o: Offset -> Offset(px(o.x), px(o.y)) }
                         FieldRegions.forEach { r ->
                             drawRoundRect(
                                 Raised, topLeft = Offset(px(r.x), px(r.y)), size = Size(px(r.w), px(r.h)),
@@ -1006,17 +1046,27 @@ private fun FieldVariant(nodes: List<ServiceNode>, state: UiState, viewModel: Ap
                                 cornerRadius = CornerRadius(px(14f)), style = Stroke(1.dp.toPx()),
                             )
                         }
-                        val join = Offset(px(HubX - 20f), px(HubY + HubH / 2))
-                        val split = Offset(px(HubX + HubW + 20f), px(HubY + HubH / 2))
+                        val join = Offset(px(HubX - 22f), px(HubY + HubH / 2))
+                        val split = Offset(px(HubX + HubW + 22f), px(HubY + HubH / 2))
                         edge(join, split, timelineLit, across = true)
                         FieldRegions.forEach { r ->
                             r.ids.forEachIndexed { i, id ->
                                 val node = byId[id] ?: return@forEachIndexed
                                 val c = r.center(i)
                                 if (node.role == Role.SOURCE) {
-                                    edge(Offset(px(c.x + TileDp / 2), px(c.y)), join, node.lit, across = true)
+                                    val dropX = c.x + TileDp / 2 + 10f
+                                    val laneY = r.laneY(i)
+                                    lane(
+                                        listOf(
+                                            at(Offset(c.x + TileDp / 2, c.y)),
+                                            at(Offset(dropX, c.y)),
+                                            at(Offset(dropX, laneY)),
+                                            at(Offset(r.x + r.w, laneY)),
+                                        ),
+                                        join, node.lit,
+                                    )
                                 } else {
-                                    edge(split, Offset(px(c.x - TileDp / 2), px(c.y)), node.lit && timelineLit, across = true)
+                                    edge(split, at(Offset(c.x - TileDp / 2, c.y)), node.lit && timelineLit, across = true)
                                 }
                             }
                         }
@@ -1029,7 +1079,7 @@ private fun FieldVariant(nodes: List<ServiceNode>, state: UiState, viewModel: Ap
                         r.ids.forEachIndexed { i, id ->
                             val node = byId[id] ?: return@forEachIndexed
                             val c = r.center(i)
-                            FieldTile(node, Modifier.offset((c.x - 60f).dp, (c.y - TileDp / 2).dp)) { open = node }
+                            FieldTile(node, Modifier.offset((c.x - ColDp / 2).dp, (c.y - TileDp / 2).dp)) { open = node }
                         }
                     }
                     TimelineBox(
@@ -1047,14 +1097,16 @@ private fun FieldVariant(nodes: List<ServiceNode>, state: UiState, viewModel: Ap
 @Composable
 private fun FieldTile(node: ServiceNode, modifier: Modifier, onClick: () -> Unit) {
     val shape = RoundedCornerShape(14.dp)
-    Column(modifier.width(120.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(modifier.width(ColDp.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             Modifier
                 .size(TileDp.dp)
-                .background(Raised2, shape)
                 .border(if (node.lit) 2.dp else 1.dp, if (node.lit) Amber else Faint, shape)
                 .padding(3.dp)
                 .clip(RoundedCornerShape(11.dp))
+                // Pure black inside the ring: the one background Spotify allows its green on,
+                // and the most contrast for every other mark.
+                .background(Color.Black)
                 .clickable(onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
