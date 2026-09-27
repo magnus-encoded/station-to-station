@@ -79,11 +79,15 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -567,6 +571,21 @@ private fun VideoFrameDialog(
                         }
                         .pointerInput(uri, duration) {
                             detectTapGestures { offset -> scrubTo(offset.y) }
+                        }
+                        // A slider to TalkBack, which cannot drag a thumb: the reader's
+                        // own adjust gesture steps through the clip a twentieth at a
+                        // time, and says where it is (#164).
+                        .semantics {
+                            contentDescription = "Where in the clip"
+                            stateDescription = "%d:%02d".format(frameMs / 60_000, (frameMs / 1000) % 60)
+                            progressBarRangeInfo = ProgressBarRangeInfo(
+                                frameMs.toFloat(),
+                                0f..duration.toFloat().coerceAtLeast(1f),
+                            )
+                            setProgress { target ->
+                                if (duration > 0L) onFrameChange(target.toLong().coerceIn(0L, duration))
+                                duration > 0L
+                            }
                         },
                     contentAlignment = Alignment.TopCenter,
                 ) {

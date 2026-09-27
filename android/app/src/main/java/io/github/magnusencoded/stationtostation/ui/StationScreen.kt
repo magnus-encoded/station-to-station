@@ -99,6 +99,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
+import androidx.compose.ui.semantics.heading
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -3402,7 +3403,13 @@ private fun BandNotes(
             Text(note.text, color = Slate, fontSize = 13.sp)
             if (note.verdict != null) {
                 Spacer(Modifier.height(2.dp))
-                Text(verdictGlyph(note.verdict), color = Slate, fontSize = 13.sp)
+                Text(
+                    verdictGlyph(note.verdict),
+                    color = Slate,
+                    fontSize = 13.sp,
+                    // Not "thumbs up sign" (#164).
+                    modifier = Modifier.spokenAs(verdictWords(note.verdict)),
+                )
             }
         }
     }
@@ -3445,6 +3452,14 @@ internal fun verdictGlyph(verdict: String?): String = when (verdict) {
     StoredMedia.Verdict.DOWN -> "👎"
     StoredMedia.Verdict.UP -> "👍"
     StoredMedia.Verdict.DOUBLE_UP -> "👍👍"
+    else -> ""
+}
+
+/** A verdict someone else gave, in words — the glyph means nothing read aloud. */
+private fun verdictWords(verdict: String?): String = when (verdict) {
+    StoredMedia.Verdict.DOWN -> "rated down"
+    StoredMedia.Verdict.UP -> "rated up"
+    StoredMedia.Verdict.DOUBLE_UP -> "rated up twice"
     else -> ""
 }
 
@@ -4888,6 +4903,9 @@ private fun SongRow(
             .fillMaxWidth()
             .height(IntrinsicSize.Min)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            // One stop per song, and the amber ring said in words: it is the only thing
+            // that tells a song my Log also holds from one it does not (#164).
+            .semantics(mergeDescendants = true) { if (mine) stateDescription = "in your log" }
             .padding(end = 20.dp),
         verticalAlignment = Alignment.Top,
     ) {
@@ -4974,7 +4992,7 @@ private fun RemoveLogEntry(onRemove: () -> Unit) {
         fontSize = 20.sp,
         modifier = Modifier
             .clickable(onClick = onRemove)
-            .semantics { contentDescription = "Remove" }
+            .semantics { contentDescription = "Remove from your log" }
             .padding(horizontal = 10.dp),
     )
 }
@@ -5001,7 +5019,8 @@ private fun LoggedRow(
         Modifier
             .fillMaxWidth()
             .height(IntrinsicSize.Min)
-            .then(if (onCorrect != null) Modifier.clickable(onClick = onCorrect) else Modifier)
+            .then(if (onCorrect != null) Modifier.clickable(onClickLabel = "Correct the title", onClick = onCorrect) else Modifier)
+            .semantics(mergeDescendants = true) { stateDescription = "in your log" }
             .padding(end = 20.dp),
         verticalAlignment = Alignment.Top,
     ) {
@@ -5057,7 +5076,9 @@ private fun EncoreLabel() {
         fontSize = 11.sp,
         fontWeight = FontWeight.SemiBold,
         letterSpacing = 2.sp,
-        modifier = Modifier.padding(start = 50.dp, top = 4.dp, bottom = 14.dp),
+        modifier = Modifier
+            .padding(start = 50.dp, top = 4.dp, bottom = 14.dp)
+            .semantics { contentDescription = "Encore"; heading() },
     )
 }
 
