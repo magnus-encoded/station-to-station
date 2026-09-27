@@ -11,7 +11,30 @@ on:
   workflow_dispatch:
 
 jobs:
+  # One commit on a branch with an open PR fires this workflow twice: once for the
+  # push, once for the pull_request. When both runs build the same tree, the later
+  # one skips its build if the other is still running or already went green. The
+  # PR run builds the merge with main, so a branch behind main still builds twice.
+  pre_job:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      should_skip: ${{ steps.skip_check.outputs.should_skip }}
+    steps:
+      - id: skip_check
+        # Pinned by SHA: this is third-party code handed a token. v5.3.2.
+        uses: fkirc/skip-duplicate-actions@b974a9395958c231af965b70070979a577efa578
+        with:
+          concurrent_skipping: same_content_newer
+          skip_after_successful_duplicate: 'true'
+          do_not_skip: '["workflow_dispatch"]'
+
   build:
+    needs: pre_job
+    # Never skipped on main, matching ios.yml: a skipped run is green with no
+    # artifacts, and main's newest green run should always carry an APK.
+    if: needs.pre_job.outputs.should_skip != 'true' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
     steps:
