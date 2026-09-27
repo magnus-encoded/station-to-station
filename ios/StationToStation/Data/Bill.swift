@@ -130,3 +130,43 @@ func spineNights(attended: [FmSetlist], planned: [FmSetlist],
     return (attended + mine)
         .sorted { ($0.localDate() ?? .distantPast) > ($1.localDate() ?? .distantPast) }
 }
+
+/// Whether a **Contact**'s **Lane** needs a setlist.fm fetch when the strip opens (#405).
+///
+/// `held` is what I already hold for them: nil when nothing is, and an empty list when
+/// setlist.fm answered and they have no **Nights** there. The two are different facts.
+/// Reading them as one was the re-fetch loop: an empty answer was never held, so the
+/// Lane looked missing on every zoom-out and was asked for again, forever, against the
+/// one bundled key every tester shares. Once asked, an empty Lane is an answer.
+///
+/// - no username: false. There is no address to fetch from, and whatever is held is all
+///   there is.
+/// - nothing held: true.
+/// - stops short of me: true. A Lane whose oldest Night is newer than my own oldest
+///   (`myOldest`) may be a truncated page, not a whole history. An empty Lane stops
+///   short of nothing.
+/// - otherwise: false.
+///
+/// ponytail: a Contact whose whole history is newer than my first Gig looks short every
+/// time, so zooming out costs them one page fetch each — the fetch stops on the first
+/// page because it has their whole list. Store their reported total if that one call
+/// ever matters. Term for term with Android's `laneNeedsFetch`.
+func laneNeedsFetch(_ contact: Friend, held: [FmSetlist]?, myOldest: Date?) -> Bool {
+    if contact.setlistfm.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
+    guard let held else { return true }
+    guard !held.isEmpty, let myOldest else { return false }
+    guard let theirOldest = held.compactMap({ $0.localDate() }).min() else { return true }
+    return theirOldest > myOldest
+}
+
+/// What I hold after `fetched` Lanes land on top of `held`: each fetched Lane replaces
+/// what was there, and an empty one is held too, so `laneNeedsFetch` reads it as an
+/// answer on the next pass. The one exception is an empty answer over a Lane that had
+/// Nights — that keeps the last good copy rather than trusting a blank page over it.
+///
+/// Shared by the in-memory Lanes and `TimelineStore.save`, so what is drawn and what is
+/// stored are one rule. A failed fetch is not an empty one: callers leave it out of
+/// `fetched` altogether. Term for term with Android's `holdLanes`.
+func holdLanes(_ held: [String: [FmSetlist]], _ fetched: [String: [FmSetlist]]) -> [String: [FmSetlist]] {
+    held.merging(fetched.filter { !$0.value.isEmpty || (held[$0.key] ?? []).isEmpty }) { _, new in new }
+}
