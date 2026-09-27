@@ -76,6 +76,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -161,6 +163,9 @@ import io.github.magnusencoded.stationtostation.data.FutureRow
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.isLocal
+import io.github.magnusencoded.stationtostation.data.StoredSetlistFmHit
+import io.github.magnusencoded.stationtostation.data.setlistfm.line
+import io.github.magnusencoded.stationtostation.data.setlistfm.setlistFmQuestion
 import io.github.magnusencoded.stationtostation.data.rankTitles
 import io.github.magnusencoded.stationtostation.data.weaveSetlist
 import io.github.magnusencoded.stationtostation.data.setlistEditEntry
@@ -404,7 +409,9 @@ fun StationTimelineScreen(
                 key(pending.id) {
                     TicketConfirmDialog(
                         pending = pending,
-                        onConfirm = { artist, venue, date -> viewModel.confirmPendingTicket(pending.id, artist, venue, date) },
+                        onConfirm = { artist, venue, date, chosen ->
+                            viewModel.confirmPendingTicket(pending.id, artist, venue, date, chosen)
+                        },
                         onDismiss = { viewModel.dismissPendingTicket(pending.id) },
                     )
                 }
@@ -1330,18 +1337,25 @@ private fun AddPlannedGigDialog(
 @Composable
 private fun TicketConfirmDialog(
     pending: PendingTicket,
-    onConfirm: (artist: String, venue: String, date: String) -> Unit,
+    onConfirm: (artist: String, venue: String, date: String, chosenSetlistId: String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var artist by remember { mutableStateOf(pending.parsed.artist.orEmpty()) }
     var venue by remember { mutableStateOf(pending.parsed.venue.orEmpty()) }
     var date by remember { mutableStateOf(pending.parsed.date.orEmpty()) }
+    // The setlist.fm hit ticked, null for "None of these" (#531). Hidden, and so
+    // answering nothing, once the artist or the date is edited away from the lookup.
+    var chosen by remember { mutableStateOf(pending.setlistFm?.preselectedId) }
+    val offered = pending.setlistFm?.takeIf { it.offeredFor(artist, date) }
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
                 .clip(RoundedCornerShape(16.dp))
                 .background(Raised)
+                // Up to three candidates and "None of these" under the fields can
+                // outgrow a small screen with the keyboard up.
+                .verticalScroll(rememberScrollState())
                 .padding(20.dp),
         ) {
             Text("From the shared ticket", fontFamily = Serif, fontSize = 19.sp, color = Ink)
@@ -1372,15 +1386,124 @@ private fun TicketConfirmDialog(
             StationField(venue, { venue = it }, "venue (optional)")
             Spacer(Modifier.height(8.dp))
             StationField(date, { date = it }, "date (dd-MM-yyyy)", imeDone = true)
+            offered?.let { fm ->
+                Spacer(Modifier.height(12.dp))
+                Text(POSSIBLE_MATCH_TITLE, color = Slate, fontSize = 12.sp)
+                Spacer(Modifier.height(4.dp))
+                SetlistFmChoices(
+                    rows = fm.candidates.map { c ->
+                        c.setlist.id to (
+                            setlistFmQuestion(pending.parsed.venue, fromTicket = true, candidate = c)
+                                ?: StoredSetlistFmHit.of(c).line()
+                            )
+                    },
+                    selected = chosen,
+                    onSelect = { chosen = it },
+                )
+            }
             ConfirmAdmissions(pending.parsed)
             Spacer(Modifier.height(4.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text("Discard", color = Faint) }
                 val ready = artist.isNotBlank() && date.isNotBlank()
                 TextButton(
-                    onClick = { onConfirm(artist, venue, date) },
+                    onClick = { onConfirm(artist, venue, date, if (offered != null) chosen else null) },
                     enabled = ready,
                 ) { Text("Save", color = if (ready) Amber else Faint) }
+            }
+        }
+    }
+}
+
+/** The heading of every setlist.fm "is it this one?" list, and the Gig screen's chip (#531). */
+private const val POSSIBLE_MATCH_TITLE = "Possible match on setlist.fm"
+
+/**
+ * setlist.fm hits as a single choice, [rows] being each hit's id and what its row says,
+ * with "None of these" always last (#531). [selected] null is "None of these".
+ */
+@Composable
+private fun SetlistFmChoices(
+    rows: List<Pair<String, String>>,
+    selected: String?,
+    onSelect: (String?) -> Unit,
+) {
+    Column {
+        (rows + (null to "None of these")).forEach { (id, text) ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelect(id) }
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RadioButton(
+                    selected = selected == id,
+                    onClick = null,
+                    colors = RadioButtonDefaults.colors(selectedColor = Amber, unselectedColor = Faint),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(text, color = Ink, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+/**
+ * The Gig screen's "Possible match on setlist.fm" chip, opened (#531): each hit a lookup
+ * was not sure of, asked as [setlistFmQuestion] where the room is in doubt. A row is
+ * "yes, this one"; "None of these" rejects them all; "Not now" leaves the question
+ * waiting. [hits] is the stored snapshot, fetched afresh where that was lost.
+ */
+@Composable
+private fun PossibleMatchDialog(
+    gigId: String,
+    yourVenue: String?,
+    fromTicket: Boolean,
+    pendingIds: List<String>,
+    hits: suspend () -> List<StoredSetlistFmHit>,
+    onPick: (String) -> Unit,
+    onNone: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val loaded by produceState<List<StoredSetlistFmHit>?>(null, gigId, pendingIds) { value = hits() }
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(Raised)
+                .padding(20.dp),
+        ) {
+            Text(POSSIBLE_MATCH_TITLE, fontFamily = Serif, fontSize = 19.sp, color = Ink)
+            Spacer(Modifier.height(12.dp))
+            val shown = loaded
+            if (shown == null) {
+                CircularProgressIndicator(color = Amber, modifier = Modifier.align(Alignment.CenterHorizontally))
+            } else {
+                shown.forEach { hit ->
+                    Text(
+                        setlistFmQuestion(yourVenue, fromTicket, hit) ?: hit.line(),
+                        color = Ink,
+                        fontSize = 13.sp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onPick(hit.id) }
+                            .padding(vertical = 10.dp),
+                    )
+                }
+                Text(
+                    "None of these",
+                    color = Muted,
+                    fontSize = 13.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onNone)
+                        .padding(vertical = 10.dp),
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("Not now", color = Faint) }
             }
         }
     }
@@ -3586,10 +3709,16 @@ fun StationEventScreen(
     // chip — never the same request on a night three weeks away, a night being stood
     // at, and a night from 1992. The dispatch itself (`curtainAction`) is pure and
     // tested; only the plumbing it names lives here.
+    //
+    // A local Gig is asked of setlist.fm first, whatever the curtain says (#531): the
+    // pull is how a person says "is it there yet?". The curtain's own action then runs
+    // as it always has, less the setlist refresh the lookup already was.
     val onPullToRefresh: () -> Unit = {
+        val local = setlist?.isLocal() == true
+        if (local) viewModel.refreshSelectedSetlist()
         when (curtainAction(offers.curtain)) {
             CurtainAction.FETCH_CATALOGUE -> catalogueArtist?.let(viewModel::fetchCatalogue)
-            CurtainAction.FETCH_SETLIST -> viewModel.refreshSelectedSetlist()
+            CurtainAction.FETCH_SETLIST -> if (!local) viewModel.refreshSelectedSetlist()
             CurtainAction.NONE -> {}
         }
     }
@@ -3633,6 +3762,7 @@ fun StationEventScreen(
     }
     var adopting by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
+    var askingMatch by remember { mutableStateOf(false) }
 
     val plannedTimeState = if (planned) setlist?.localDate()?.let { gigTimeState(LocalDateTime.now(), it) } else null
     val planAhead = planned &&
@@ -3946,6 +4076,19 @@ fun StationEventScreen(
                 onDismiss = { adopting = false },
             )
         }
+        val lookup = state.attendanceByGig[setlist.id]?.setlistFmLookup
+        if (askingMatch && setlist.isLocal() && lookup?.possibleMatchPending == true) {
+            PossibleMatchDialog(
+                gigId = setlist.id,
+                yourVenue = setlist.venue?.name,
+                fromTicket = state.attendanceByGig[setlist.id]?.admissions.orEmpty().isNotEmpty(),
+                pendingIds = lookup.pendingHitIds,
+                hits = { viewModel.setlistFmChipHits(setlist.id) },
+                onPick = { hitId -> viewModel.acceptSetlistFmMatch(setlist.id, hitId); askingMatch = false },
+                onNone = { viewModel.rejectSetlistFmMatches(setlist.id); askingMatch = false },
+                onDismiss = { askingMatch = false },
+            )
+        }
         if (deleting) {
             DeleteNightDialog(
                 photos = viewModel.photosLostByDeleting(setlist.id),
@@ -4133,6 +4276,19 @@ fun StationEventScreen(
                                 // the labelled action below is the door.
                                 EventTag("local", color = Faint)
                             }
+                        }
+                        // A lookup found something but was not sure (#531): the question
+                        // waits here, on the night, until it is answered. Dismissing the
+                        // dialog leaves it waiting; the automatic checks pause meanwhile.
+                        if (setlist.isLocal() &&
+                            state.attendanceByGig[setlist.id]?.setlistFmLookup?.possibleMatchPending == true
+                        ) {
+                            Spacer(Modifier.height(8.dp))
+                            EventTag(
+                                POSSIBLE_MATCH_TITLE,
+                                color = Amber,
+                                onClick = { askingMatch = true },
+                            )
                         }
                         // Nothing can be pinned to a night nobody has been to yet — the
                         // slot comes back once the gig is checked into or no longer planned.

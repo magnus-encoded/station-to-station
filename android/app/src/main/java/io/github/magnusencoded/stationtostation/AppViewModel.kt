@@ -126,6 +126,23 @@ import io.github.magnusencoded.stationtostation.data.musicbrainz.MusicBrainzClie
 import io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmClient
 import io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmRateLimited
 import io.github.magnusencoded.stationtostation.data.setlistfm.parseSetlistId
+import io.github.magnusencoded.stationtostation.data.setlistfm.LOOKUP_FRICTION_MESSAGE
+import io.github.magnusencoded.stationtostation.data.setlistfm.LookupGig
+import io.github.magnusencoded.stationtostation.data.setlistfm.LookupPlan
+import io.github.magnusencoded.stationtostation.data.setlistfm.LookupOutcome
+import io.github.magnusencoded.stationtostation.data.setlistfm.ManualLookup
+import io.github.magnusencoded.stationtostation.data.setlistfm.TicketImport
+import io.github.magnusencoded.stationtostation.data.setlistfm.TicketSetlistFm
+import io.github.magnusencoded.stationtostation.data.setlistfm.TicketSetlistFmAnswer
+import io.github.magnusencoded.stationtostation.data.setlistfm.asStoredHit
+import io.github.magnusencoded.stationtostation.data.setlistfm.chipHits
+import io.github.magnusencoded.stationtostation.data.setlistfm.manualSetlistFmLookup
+import io.github.magnusencoded.stationtostation.data.setlistfm.setlistFmLookupOutcome
+import io.github.magnusencoded.stationtostation.data.setlistfm.setlistFmLookupPlan
+import io.github.magnusencoded.stationtostation.data.setlistfm.ticketImport
+import io.github.magnusencoded.stationtostation.data.SetlistFmMatch
+import io.github.magnusencoded.stationtostation.data.StoredSetlistFmHit
+import io.github.magnusencoded.stationtostation.data.matchSetlistFm
 import io.github.magnusencoded.stationtostation.data.spotify.SpotifyClient
 import io.github.magnusencoded.stationtostation.data.spotify.SpotifyTrack
 import io.github.magnusencoded.stationtostation.data.spotify.rankCandidates
@@ -135,6 +152,7 @@ import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -143,10 +161,13 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.NonCancellable
 import java.net.Socket
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.ZoneId
 
 /** A song with no place yet in the night's recording. 0L is a real time — the first song. */
 const val NOT_STAMPED = -1L
@@ -577,6 +598,11 @@ data class PendingTicket(
     val possibleMatch: FmSetlist?,
     /** Its own identity, so the dialog's answer names the ticket it was given for. */
     val id: String = UUID.randomUUID().toString(),
+    /**
+     * What the import's setlist.fm lookup offered (#531), drawn above "None of these";
+     * null where no lookup was made (no artist or date on the ticket).
+     */
+    val setlistFm: TicketSetlistFm? = null,
 )
 
 /** What the confirm dialog's Save does with a [PendingTicket]: see [PendingTicket.confirmedAs]. */
@@ -622,6 +648,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
         /** setlist.fm's page size for attended lists — used to resume a cached spine. */
         private const val SETLISTS_PER_PAGE = 20
+
+        /** How long a shared ticket's import waits on setlist.fm before reading it as no match (#531). */
+        private const val TICKET_LOOKUP_TIMEOUT_MS = 5_000L
+
+        /** The automatic checks' longest sleep: a night coming due is noticed within this (#531). */
+        private const val LOOKUP_CHECK_CAP_MS = 5 * 60_000L
     }
 
     val settings = SettingsRepository(application)
@@ -1780,9 +1812,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun refreshSelectedSetlist() {
         val open = _state.value.selectedSetlist ?: return
         // A local Gig's id is this app's, not setlist.fm's — asking them for it is a
-        // guaranteed 404 dressed up as an error the user can do nothing about. The
-        // way a local night gets a real record is adoption, not refresh.
-        if (open.isLocal()) return
+        // guaranteed 404. A pull on one asks setlist.fm whether the night is there yet
+        // instead (#531), by artist and day, the way the automatic checks do.
+        if (open.isLocal()) {
+            refreshLocalGig(open.id)
+            return
+        }
         if (_state.value.setlistsLoading) return
         _state.update { it.copy(setlistsLoading = true) }
         viewModelScope.launch {
@@ -1828,6 +1863,176 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * A pull on local Gig [gigId] (#531): one lookup now, whatever the schedule says,
+     * unless the last one went out under a minute ago — then nothing is sent or
+     * stamped, and the notice says the checks carry on.
+     */
+    private fun refreshLocalGig(gigId: String) {
+        if (_state.value.setlistsLoading) return
+        val last = _state.value.attendanceByGig[gigId]?.setlistFmLookup?.lastLookupAt
+        val now = Instant.now()
+        if (manualSetlistFmLookup(last?.let(Instant::ofEpochMilli), now) == ManualLookup.FRICTION) {
+            _state.update { it.copy(notice = LOOKUP_FRICTION_MESSAGE) }
+            return
+        }
+        _state.update { it.copy(setlistsLoading = true) }
+        viewModelScope.launch {
+            try {
+                lookUpLocalGig(gigId, manual = true)
+            } finally {
+                _state.update { it.copy(setlistsLoading = false) }
+            }
+        }
+    }
+
+    /**
+     * One setlist.fm lookup for local Gig [gigId] (#531): `search/setlists` by its artist
+     * and day, no venue, held to the night by [setlistFmLookupOutcome]. A sure hit is
+     * adopted with the "Adopted" notice; a doubtful one becomes the "Possible match"
+     * chip; nothing only stamps. [manual] is a pull, which says so when setlist.fm
+     * refuses or fails; the automatic checks say nothing.
+     *
+     * False when setlist.fm refused for its quota, which stops a batch of checks.
+     */
+    private suspend fun lookUpLocalGig(gigId: String, manual: Boolean): Boolean {
+        val gig = timelines.load().gigs[gigId] ?: return true
+        if (gig.setlistId != null || gig.artist.isBlank() || parseFmDate(gig.date) == null) return true
+        val at = System.currentTimeMillis()
+        val hits = try {
+            setlistFm.searchSetlists(gig.artist, gig.date).setlist
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // The request went out (or was refused on the quota): stamped either way,
+            // so the schedule does not ask again at once.
+            withContext(NonCancellable) { timelines.editSetlistFmLookup(gigId) { it.lookedUp(at) } }
+                ?.let { settled -> _state.update { it.copy(attendanceByGig = it.attendanceByGig + (gigId to settled)) } }
+            android.util.Log.w("StationToStation", "setlist.fm lookup failed for gig $gigId: ${e.message}")
+            if (e is SetlistFmRateLimited) {
+                if (manual) fail(e)
+                return false
+            }
+            if (manual) {
+                _state.update { it.copy(notice = "setlist.fm didn't have that one just now — showing what's saved.") }
+            }
+            return true
+        }
+        // From here the store is written and the night may move to its new id: all of
+        // it, or none of it, whatever stops the checks meanwhile.
+        withContext<Unit>(NonCancellable) {
+            val ticket = ParsedTicket(artist = gig.artist, venue = gig.venue, date = gig.date)
+            var outcome: LookupOutcome? = null
+            val settled = timelines.editSetlistFmLookup(gigId) { had ->
+                val next = setlistFmLookupOutcome(ticket, hits, lineArtists(), had, at)
+                outcome = next
+                // A sure hit settles any question a chip was still asking.
+                if (next is LookupOutcome.Adopt) next.next.asking(emptyList()) else next.next
+            } ?: return@withContext
+            _state.update { it.copy(attendanceByGig = it.attendanceByGig + (gigId to settled)) }
+            val adopt = outcome as? LookupOutcome.Adopt ?: return@withContext
+            adoptSetlist(gigId, adopt.hit.id, fresh = adopt.hit, notice = true)
+        }
+        return true
+    }
+
+    private var lookupChecks: Job? = null
+
+    /**
+     * The automatic setlist.fm checks (#531), while the app is in the foreground: at
+     * launch, on coming back, and on a timer. Each pass plans every local Gig with
+     * [setlistFmLookupPlan], looks up the ones due one at a time, and sleeps until the
+     * next is due, five minutes at most. Nothing at all without a setlist.fm key.
+     * Called from the root composable's start; [stopLookupChecks] on its stop.
+     */
+    fun startLookupChecks() {
+        if (lookupChecks?.isActive == true) return
+        lookupChecks = viewModelScope.launch {
+            while (true) {
+                val due = lookupPlan()
+                for (gigId in due?.dueNow.orEmpty()) {
+                    if (!lookUpLocalGig(gigId, manual = false)) break
+                }
+                val next = lookupPlan()
+                val now = System.currentTimeMillis()
+                val sleep = when {
+                    next == null -> LOOKUP_CHECK_CAP_MS
+                    next.dueNow.isNotEmpty() -> LOOKUP_CHECK_CAP_MS
+                    else -> next.nextWakeAt?.toEpochMilli()?.minus(now)
+                        ?.coerceIn(1_000L, LOOKUP_CHECK_CAP_MS) ?: LOOKUP_CHECK_CAP_MS
+                }
+                delay(sleep)
+            }
+        }
+    }
+
+    /** The app left the foreground: no lookups until [startLookupChecks] again. */
+    fun stopLookupChecks() {
+        lookupChecks?.cancel()
+        lookupChecks = null
+    }
+
+    /**
+     * What the automatic checks do next, from the store: every local Gig with a claim on
+     * it (planned or attended) and an artist to search by. Null without a setlist.fm key.
+     */
+    private suspend fun lookupPlan(): LookupPlan? {
+        val key = settings.setlistFmKey() ?: return null
+        val cache = timelines.load()
+        val ends = gossipParticipationEnds(timelines, gossip.stoppedAt())
+        val gigs = cache.gigs.values
+            .filter { it.setlistId == null && it.artist.isNotBlank() && parseFmDate(it.date) != null }
+            .mapNotNull { gig ->
+                val attendance = cache.gigAttendance[gig.id] ?: return@mapNotNull null
+                LookupGig(
+                    id = gig.id,
+                    date = gig.date,
+                    local = true,
+                    lookup = attendance.setlistFmLookup,
+                    participationUntil = ends[gig.id]?.takeIf { it > 0L }?.let(Instant::ofEpochMilli),
+                )
+            }
+        return setlistFmLookupPlan(
+            gigs = gigs,
+            now = Instant.now(),
+            zone = ZoneId.systemDefault(),
+            sharedKey = key.shared,
+            sharedQuotaSpentAt = settings.sharedQuotaSpentAtValue(),
+        )
+    }
+
+    /**
+     * The hits local Gig [gigId]'s "Possible match on setlist.fm" chip asks about, best
+     * first: the stored snapshot, or — where that was lost but ids are still pending —
+     * each fetched from setlist.fm afresh. Empty when nothing is pending.
+     */
+    suspend fun setlistFmChipHits(gigId: String): List<StoredSetlistFmHit> {
+        val lookup = _state.value.attendanceByGig[gigId]?.setlistFmLookup ?: return emptyList()
+        if (!lookup.possibleMatchPending) return emptyList()
+        return lookup.chipHits().ifEmpty {
+            lookup.pendingHitIds.mapNotNull { id -> runCatching { setlistFm.setlist(id) }.getOrNull()?.asStoredHit() }
+        }
+    }
+
+    /** The chip's "Yes": the question is settled and local Gig [gigId] takes hit [setlistId]. */
+    fun acceptSetlistFmMatch(gigId: String, setlistId: String) {
+        viewModelScope.launch {
+            val settled = timelines.editSetlistFmLookup(gigId) { it.asking(emptyList()) }
+            if (settled != null) _state.update { it.copy(attendanceByGig = it.attendanceByGig + (gigId to settled)) }
+            if (!adoptSetlist(gigId, setlistId, fresh = null, notice = true)) {
+                _state.update { it.copy(errorKind = null, error = "That night already has a setlist.fm id.") }
+            }
+        }
+    }
+
+    /** The chip's "None of these": every hit it asked about is not this night, and the checks resume. */
+    fun rejectSetlistFmMatches(gigId: String) {
+        viewModelScope.launch {
+            val settled = timelines.editSetlistFmLookup(gigId) { it.rejectingPending() } ?: return@launch
+            _state.update { it.copy(attendanceByGig = it.attendanceByGig + (gigId to settled)) }
         }
     }
 
@@ -1917,22 +2122,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(planningLoading = true) }
         viewModelScope.launch {
             try {
-                val gig = setlistFm.setlist(id)
-                // Saved before the state update, not after, because the claim the lane
-                // filters on comes back from the save. The old order left this path
-                // with the same hole as the typed-in one.
-                val attendance = timelines.savePlanned(gig)
-                _state.update {
-                    it.copy(
-                        plannedGigs = sortedPlanned(it.plannedGigs.filterNot { g -> g.id == gig.id } + gig),
-                        attendanceByGig = it.attendanceByGig + (gig.id to attendance),
-                        planningLoading = false,
-                    )
-                }
+                planFmGig(setlistFm.setlist(id))
+                _state.update { it.copy(planningLoading = false) }
             } catch (e: Exception) {
                 _state.update { it.copy(planningLoading = false) }
                 fail(e)
             }
+        }
+    }
+
+    /**
+     * A setlist.fm night onto the plan, as setlist.fm has it: [addPlannedGig]'s write,
+     * shared with a ticket whose lookup found its night (#531).
+     */
+    private suspend fun planFmGig(hit: FmSetlist) {
+        // Saved before the state update, not after, because the claim the lane
+        // filters on comes back from the save. The old order left this path
+        // with the same hole as the typed-in one.
+        val attendance = timelines.savePlanned(hit)
+        _state.update {
+            it.copy(
+                plannedGigs = sortedPlanned(it.plannedGigs.filterNot { g -> g.id == hit.id } + hit),
+                attendanceByGig = it.attendanceByGig + (hit.id to attendance),
+            )
         }
     }
 
@@ -2039,15 +2251,88 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun routeParsedTicket(read: ParsedTicket) {
         val parsed = withContext(Dispatchers.Default) { read.checkedForRedraw() }
         val known = _state.value.setlists + _state.value.plannedGigs
-        when (val routing = routeTicket(parsed, known)) {
-            is TicketRouting.AlreadyKnown -> attachAdmissions(routing.gig.id, parsed.admissions)
-            is TicketRouting.NewPlannedGig -> {
-                val night = parseFmDate(routing.date) ?: return
-                addParsedPlannedGig(routing.artist, routing.venue, night, routing.admissions)
-            }
-            is TicketRouting.NeedsConfirmation ->
-                _state.update { it.queuingTicket(PendingTicket(routing.parsed, routing.possibleMatch)) }
+        val routing = routeTicket(parsed, known)
+        // setlist.fm is asked before anything is written or asked (#531): by artist and
+        // day, never venue. A night already known needs no search here; a local one is
+        // looked up once its Admissions are on it.
+        val artist = parsed.artist?.trim()?.ifEmpty { null }
+        val date = parsed.date?.takeIf { parseFmDate(it) != null }
+        val search = if (routing !is TicketRouting.AlreadyKnown && artist != null && date != null) {
+            ticketSearch(parsed, artist, date)
+        } else {
+            null
         }
+        val knownIds = known.filterNot { it.isLocal() }.map { it.id }.toSet()
+        when (val landing = ticketImport(routing, search?.match, knownIds)) {
+            is TicketImport.Attach -> attachAdmissions(landing.gigId, parsed.admissions)
+            is TicketImport.AttachThenLookUp -> {
+                attachAdmissions(landing.gigId, parsed.admissions)
+                lookUpLocalGig(landing.gigId, manual = false)
+            }
+            is TicketImport.MintFromSetlistFm -> {
+                planFmGig(landing.hit)
+                attachAdmissions(landing.hit.id, parsed.admissions)
+            }
+            TicketImport.MintLocal -> {
+                val new = routing as? TicketRouting.NewPlannedGig ?: return
+                val night = parseFmDate(new.date) ?: return
+                val gigId = addParsedPlannedGig(new.artist, new.venue, night, new.admissions)
+                if (search != null) stampLookup(gigId, TicketSetlistFmAnswer(null, emptyList(), search.at))
+            }
+            is TicketImport.Prompt -> {
+                val (ticket, possibleMatch) = when (routing) {
+                    is TicketRouting.NeedsConfirmation -> routing.parsed to routing.possibleMatch
+                    else -> parsed to null
+                }
+                val offered = search?.let {
+                    TicketSetlistFm(landing.candidates, landing.preselectedId, artist.orEmpty(), date.orEmpty(), it.at)
+                }
+                _state.update { it.queuingTicket(PendingTicket(ticket, possibleMatch, setlistFm = offered)) }
+            }
+        }
+    }
+
+    /** One import lookup: what it came to (null where it failed) and when it went out. */
+    private class TicketSearch(val match: SetlistFmMatch?, val at: Long)
+
+    /**
+     * setlist.fm's `search/setlists` for a shared ticket's [artist] and [date], held to
+     * [parsed] by the matcher. The person is waiting on the import, so it gets a few
+     * seconds and no more; a failure, a refusal or a timeout reads as no match (#531).
+     */
+    private suspend fun ticketSearch(parsed: ParsedTicket, artist: String, date: String): TicketSearch {
+        val at = System.currentTimeMillis()
+        // Raced rather than wrapped: the client's blocking call does not hear a
+        // timeout, so the import stops waiting on it instead.
+        val request = viewModelScope.async { setlistFm.searchSetlists(artist, date).setlist }
+        val hits = try {
+            withTimeoutOrNull(TICKET_LOOKUP_TIMEOUT_MS) { request.await() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("StationToStation", "ticket lookup failed: ${e.message}")
+            null
+        } finally {
+            if (!request.isCompleted) request.cancel()
+        }
+        val match = hits?.let { matchSetlistFm(parsed.copy(artist = artist, date = date), it, lineArtists()) }
+        return TicketSearch(match, at)
+    }
+
+    /** The artists already on my **Line**, for the matcher's artist check: one per MusicBrainz id. */
+    private fun lineArtists(): List<FmArtist> =
+        (_state.value.setlists + _state.value.plannedGigs)
+            .mapNotNull { it.artist }
+            .filter { it.mbid.isNotBlank() }
+            .distinctBy { it.mbid }
+
+    /** [answer] onto local Gig [gigId]'s stored lookup; nothing for a setlist.fm night or an empty answer. */
+    private suspend fun stampLookup(gigId: String, answer: TicketSetlistFmAnswer) {
+        if (!answer.recordsAnything) return
+        val gig = timelines.load().gigs[gigId] ?: return
+        if (gig.setlistId != null) return
+        val settled = timelines.editSetlistFmLookup(gigId) { answer.applyTo(it) } ?: return
+        _state.update { it.copy(attendanceByGig = it.attendanceByGig + (gigId to settled)) }
     }
 
     /**
@@ -2064,19 +2349,50 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * it is some other night, and a partial parse that matched nothing may, once
      * filled in, name a night that was already there.
      */
-    fun confirmPendingTicket(id: String, artist: String, venue: String, date: String) {
+    fun confirmPendingTicket(
+        id: String,
+        artist: String,
+        venue: String,
+        date: String,
+        chosenSetlistId: String? = null,
+    ) {
         val pending = _state.value.pendingTickets.firstOrNull { it.id == id } ?: return
         val night = parseFmDate(date)
         if (artist.isBlank() || night == null) {
             _state.update { it.copy(errorKind = null, error = "A night needs who is playing and a date as dd-MM-yyyy.") }
             return
         }
+        // What the setlist.fm list above "None of these" comes to (#531). An edited
+        // artist or date hid the list, so it neither chooses nor rejects anything.
+        val answer = pending.setlistFm?.answer(artist, date, chosenSetlistId) ?: TicketSetlistFmAnswer.UNASKED
         viewModelScope.launch {
             val known = _state.value.setlists + _state.value.plannedGigs
-            when (val confirmed = pending.confirmedAs(artist, venue, night, known)) {
-                is ConfirmedTicket.Attach -> attachAdmissions(confirmed.gigId, confirmed.admissions)
-                is ConfirmedTicket.Mint ->
-                    addParsedPlannedGig(confirmed.artist, confirmed.venue, confirmed.night, confirmed.admissions)
+            val confirmed = pending.confirmedAs(artist, venue, night, known)
+            val hit = answer.chosen
+            if (hit != null) {
+                val onLine = known.firstOrNull { it.id == hit.id }
+                val localNight = (confirmed as? ConfirmedTicket.Attach)?.gigId
+                    ?.let { gigId -> known.firstOrNull { it.id == gigId && it.isLocal() } }
+                when {
+                    onLine != null -> attachAdmissions(hit.id, pending.parsed.admissions)
+                    // The night is already here as a local Gig: it takes the hit's id.
+                    localNight != null -> {
+                        attachAdmissions(localNight.id, pending.parsed.admissions)
+                        adoptSetlist(localNight.id, hit.id, fresh = hit, notice = true)
+                    }
+                    else -> {
+                        planFmGig(hit)
+                        attachAdmissions(hit.id, pending.parsed.admissions)
+                    }
+                }
+            } else {
+                val gigId = when (confirmed) {
+                    is ConfirmedTicket.Attach -> confirmed.gigId.also { attachAdmissions(it, confirmed.admissions) }
+                    is ConfirmedTicket.Mint ->
+                        addParsedPlannedGig(confirmed.artist, confirmed.venue, confirmed.night, confirmed.admissions)
+                }
+                // "None of these": every hit offered is not this night, and the lookup counts.
+                stampLookup(gigId, answer)
             }
             _state.update { it.answeringTicket(id) }
         }
@@ -2086,7 +2402,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun dismissPendingTicket(id: String) = _state.update { it.answeringTicket(id) }
 
     /** [addPlannedGigByHand]'s write, shared by both ticket paths above. */
-    private suspend fun addParsedPlannedGig(artist: String, venue: String, night: LocalDate, admissions: List<Admission>) {
+    private suspend fun addParsedPlannedGig(
+        artist: String,
+        venue: String,
+        night: LocalDate,
+        admissions: List<Admission>,
+    ): String {
         val gigId = timelines.createLocalGig(fmDate(night), artist, venue)
         val gig = localGigSetlist(gigId, artist, night, venue, city = "")
         val attendance = timelines.savePlanned(gig)
@@ -2097,6 +2418,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         attachAdmissions(gig.id, admissions)
+        return gigId
     }
 
     /**
@@ -2553,44 +2875,57 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         viewModelScope.launch {
-            val before = timelines.load()
-            val original = before.gigs[gigId]
-            val now = System.currentTimeMillis()
-            val until = if (original?.setlistId == null)
-                gossipParticipationEnds(timelines, gossip.stoppedAt())[gigId] ?: 0L else 0L
-            if (!timelines.adoptSetlistId(gigId, setlistId)) {
+            if (!adoptSetlist(gigId, setlistId, fresh = null, notice = true)) {
                 _state.update { it.copy(errorKind = null, error = "That night already has a setlist.fm id.") }
-                return@launch
-            }
-            // Before anything else can read the night under its new id: a Log edit landing
-            // between the store's move and this one saved an empty Log over the real one.
-            _state.update { it.adopting(gigId, setlistId) }
-            gossip.rememberAdoption(gigId, setlistId)
-            if (now < until && original != null) {
-                val scope = gossip.authorScope(original.id)
-                val identity = GigIdentity(scope)
-                val update = GossipEnvelope(
-                    gigId = setlistId, formerIds = listOf(gigId), scope = scope,
-                    author = identity.publicKey(), createdAt = now, expiresAt = until,
-                    kind = "update", attribution = identity.attribution(),
-                ).signed(identity::sign)
-                if (update != null) gossip.updatePublic(now) { it.receive(update, "", now, local = true) }
-            }
-            // A night adopted after participation ended sends nothing, but its old witnessed
-            // claim still decorates the same local record under the newly displayed ID.
-            _state.update { it.copy(notice = "Adopted — this night is on setlist.fm now.") }
-            // The real record replaces the stub: it has the url, the songs whoever
-            // typed them in logged, and an id friends' lines can meet at.
-            runCatching { setlistFm.setlist(setlistId) }.getOrNull()?.let { fresh ->
-                timelines.savePlanned(fresh)
-                _state.update {
-                    it.copy(
-                        plannedGigs = sortedPlanned(it.plannedGigs.filterNot { g -> g.id == setlistId } + fresh),
-                        selectedSetlist = if (it.selectedSetlist?.id == setlistId) fresh else it.selectedSetlist,
-                    )
-                }
             }
         }
+    }
+
+    /**
+     * Local **Gig** [gigId] takes setlist.fm's [setlistId]: [adoptSetlistLink]'s pasted
+     * link, a search hit the person picked, or one the automatic checks were sure of
+     * (#531). [fresh] is the record already in hand from a search, which saves asking
+     * setlist.fm for it again; null fetches it. [notice] shows "Adopted". False where
+     * the night already had an id, or is gone, and nothing was changed.
+     */
+    private suspend fun adoptSetlist(gigId: String, setlistId: String, fresh: FmSetlist?, notice: Boolean): Boolean {
+        val before = timelines.load()
+        val original = before.gigs[gigId]
+        val now = System.currentTimeMillis()
+        val until = if (original?.setlistId == null)
+            gossipParticipationEnds(timelines, gossip.stoppedAt())[gigId] ?: 0L else 0L
+        if (!timelines.adoptSetlistId(gigId, setlistId)) return false
+        // Before anything else can read the night under its new id: a Log edit landing
+        // between the store's move and this one saved an empty Log over the real one.
+        _state.update { it.adopting(gigId, setlistId) }
+        gossip.rememberAdoption(gigId, setlistId)
+        if (now < until && original != null) {
+            val scope = gossip.authorScope(original.id)
+            val identity = GigIdentity(scope)
+            val update = GossipEnvelope(
+                gigId = setlistId, formerIds = listOf(gigId), scope = scope,
+                author = identity.publicKey(), createdAt = now, expiresAt = until,
+                kind = "update", attribution = identity.attribution(),
+            ).signed(identity::sign)
+            if (update != null) gossip.updatePublic(now) { it.receive(update, "", now, local = true) }
+        }
+        // A night adopted after participation ended sends nothing, but its old witnessed
+        // claim still decorates the same local record under the newly displayed ID.
+        if (notice) _state.update { it.copy(notice = "Adopted — this night is on setlist.fm now.") }
+        // The real record replaces the stub: it has the url, the songs whoever
+        // typed them in logged, and an id friends' lines can meet at.
+        val record = fresh?.takeIf { it.id == setlistId }
+            ?: runCatching { setlistFm.setlist(setlistId) }.getOrNull()
+        record?.let { real ->
+            timelines.savePlanned(real)
+            _state.update {
+                it.copy(
+                    plannedGigs = sortedPlanned(it.plannedGigs.filterNot { g -> g.id == setlistId } + real),
+                    selectedSetlist = if (it.selectedSetlist?.id == setlistId) real else it.selectedSetlist,
+                )
+            }
+        }
+        return true
     }
 
     /** Forgets a gig I'm not going to after all. */

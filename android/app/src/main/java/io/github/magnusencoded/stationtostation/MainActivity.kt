@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -214,6 +215,12 @@ fun AppTheme(content: @Composable () -> Unit) {
 @Composable
 fun AppNavigation(viewModel: AppViewModel) {
     val navController = rememberNavController()
+    // setlist.fm's automatic checks for local Gigs run while the app is in the
+    // foreground and only then (#531): at launch, on coming back, and on their timer.
+    LifecycleStartEffect(Unit) {
+        viewModel.startLookupChecks()
+        onStopOrDispose { viewModel.stopLookupChecks() }
+    }
     // A handover can begin from outside any screen: the QR is read by the phone's camera
     // app, which opens the deep link, which starts the receiving side. Whatever was on
     // screen, that is the thing to be looking at.
