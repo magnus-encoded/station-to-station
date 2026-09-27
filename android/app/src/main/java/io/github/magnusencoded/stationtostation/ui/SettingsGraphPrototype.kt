@@ -2,12 +2,13 @@ package io.github.magnusencoded.stationtostation.ui
 
 // PROTOTYPE for #221, throwaway. It lives on branch prototype/221-settings-graph and
 // never merges. Question: what should Settings look like once it is the service flow
-// graph? Four renderings of the same facts on the existing "settings" route, switched
+// graph? Five renderings of the same facts on the existing "settings" route, switched
 // from a floating bar that only exists in debug builds:
 //   0 Today        the current screen, untouched, for comparison
 //   1 Graph        the diagram in the issue: sources → My timeline → sinks
 //   2 Unlocks      capability first: what you can do, and which source lights it
 //   3 Switchboard  one column, IN → timeline → OUT, each node opens in place with its controls
+//   4 Graph →      the graph read left to right, inputs boxed by kind
 // The second chip on the bar fakes a state (fresh install, Spotify cap, spent quota)
 // so the unlit states can be judged without logging anything out.
 
@@ -61,9 +62,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -87,9 +90,8 @@ private val Muted = Color(0xFF8B8299)
 private val Faint = Color(0xFF5A5368)
 private val LineCol = Color(0xFF2E2740)
 private val Amber = Color(0xFFE7B24C)
-private val AmberSoft = Color(0x29E7B24C)
 
-private val VariantNames = listOf("Today", "Graph", "Unlocks", "Switchboard")
+private val VariantNames = listOf("Today", "Graph", "Unlocks", "Switchboard", "Graph →")
 
 private enum class Scenario(val label: String) {
     REAL("Real state"),
@@ -120,7 +122,8 @@ fun SettingsScreen(
             0 -> SettingsScreenToday(viewModel, onBack, onOpenBleProbe, onOpenHandover)
             1 -> GraphVariant(nodes, state, viewModel, onBack)
             2 -> UnlocksVariant(nodes, state, viewModel, onBack)
-            else -> SwitchboardVariant(nodes, state, viewModel, onBack)
+            3 -> SwitchboardVariant(nodes, state, viewModel, onBack)
+            else -> GraphAcrossVariant(nodes, state, viewModel, onBack)
         }
         PrototypeSwitcher(
             label = "$variant · ${VariantNames[variant]}",
@@ -144,6 +147,8 @@ private data class ServiceNode(
     val id: String,
     val name: String,
     val role: Role,
+    /** The box it sits in on the left-to-right graph. */
+    val group: String,
     val lit: Boolean,
     /** One line: why it is lit or not, right now. */
     val status: String,
@@ -166,13 +171,17 @@ private fun serviceNodes(state: UiState, context: Context, scenario: Scenario): 
     val friends = if (fresh) 0 else state.friends.size
     val gallery = !fresh && granted(context, Manifest.permission.READ_MEDIA_IMAGES)
     val calendar = !fresh && granted(context, Manifest.permission.WRITE_CALENDAR)
+    val location = !fresh && (
+        granted(context, Manifest.permission.ACCESS_FINE_LOCATION) ||
+            granted(context, Manifest.permission.ACCESS_COARSE_LOCATION)
+        )
     val spotifyIn = state.spotifyConnected && !fresh && scenario != Scenario.SPOTIFY_CAP
     val scope = state.grantedScope.orEmpty()
     val playlists = spotifyIn && "playlist-modify" in scope
 
     return listOf(
         ServiceNode(
-            id = "setlistfm", name = "setlist.fm", role = Role.SOURCE,
+            id = "setlistfm", name = "setlist.fm", role = Role.SOURCE, group = "Databases",
             lit = setlistFmReady,
             status = when {
                 quotaSpent -> "The shared key is spent for today"
@@ -184,34 +193,47 @@ private fun serviceNodes(state: UiState, context: Context, scenario: Scenario): 
             nextStep = if (quotaSpent || !state.setlistFmReady) "Paste a free key of your own" else null,
         ),
         ServiceNode(
-            id = "musicbrainz", name = "MusicBrainz", role = Role.SOURCE,
+            id = "musicbrainz", name = "MusicBrainz", role = Role.SOURCE, group = "Databases",
             lit = true,
             status = "No account needed",
             unlocks = listOf("Song titles when a setlist is empty", "Artist names as you type"),
         ),
         ServiceNode(
-            id = "clashfinder", name = "clashfinder", role = Role.SOURCE,
+            id = "clashfinder", name = "clashfinder", role = Role.SOURCE, group = "Databases",
             lit = clashfinder,
             status = if (clashfinder) "Signed in as ${state.clashfinderUser}" else "Needs a free account",
             unlocks = listOf("Festival timetables: stages, set times, clashes"),
             nextStep = if (clashfinder) null else "Register, then paste your private key",
         ),
         ServiceNode(
-            id = "contacts", name = "Contacts", role = Role.SOURCE,
+            id = "contacts", name = "Contacts", role = Role.SOURCE, group = "Other phones",
             lit = friends > 0,
             status = if (friends > 0) "$friends known timeline${if (friends == 1) "" else "s"}" else "Nobody yet",
             unlocks = listOf("Their lines beside yours", "Their photos from nights you shared"),
             nextStep = if (friends > 0) null else "Swipe left from your timeline to swap cards",
         ),
         ServiceNode(
-            id = "gallery", name = "Photos", role = Role.SOURCE,
+            id = "gallery", name = "Photos", role = Role.SOURCE, group = "This phone",
             lit = gallery,
             status = if (gallery) "Allowed" else "Not allowed yet",
             unlocks = listOf("Photos from the night on the gig", "A cover for the playlist"),
             nextStep = if (gallery) null else "Allow photo access",
         ),
         ServiceNode(
-            id = "gossip", name = "Gossip", role = Role.SOURCE,
+            id = "tickets", name = "Ticket PDFs", role = Role.SOURCE, group = "This phone",
+            lit = true,
+            status = "Share a ticket from your mail or files",
+            unlocks = listOf("A gig added from its ticket", "The ticket's code, on the day"),
+        ),
+        ServiceNode(
+            id = "location", name = "Location", role = Role.SOURCE, group = "This phone",
+            lit = location,
+            status = if (location) "Allowed" else "Not allowed yet",
+            unlocks = listOf("An offer to check in when you're at tonight's gig"),
+            nextStep = if (location) null else "Allow location access",
+        ),
+        ServiceNode(
+            id = "gossip", name = "Gossip", role = Role.SOURCE, group = "Other phones",
             lit = false,
             status = "Lights only while you're checked in at a gig",
             unlocks = listOf("Log lines from phones nearby"),
@@ -219,7 +241,7 @@ private fun serviceNodes(state: UiState, context: Context, scenario: Scenario): 
             experimental = true,
         ),
         ServiceNode(
-            id = "spotify", name = "Spotify", role = Role.SINK,
+            id = "spotify", name = "Spotify", role = Role.SINK, group = "Services",
             lit = playlists,
             status = when {
                 scenario == Scenario.SPOTIFY_CAP -> "Login refused: the shared app admits five people"
@@ -237,7 +259,7 @@ private fun serviceNodes(state: UiState, context: Context, scenario: Scenario): 
             },
         ),
         ServiceNode(
-            id = "calendar", name = "Calendar", role = Role.SINK,
+            id = "calendar", name = "Calendar", role = Role.SINK, group = "This phone",
             lit = calendar,
             status = if (calendar) "Allowed" else "Not allowed yet",
             unlocks = listOf("An upcoming gig in your calendar"),
@@ -252,98 +274,89 @@ private fun nightsLabel(state: UiState): String {
 }
 
 // ---------------------------------------------------------------------------------
-// Variant 1: the graph, as drawn in the issue. Sources on top, the timeline in the
-// middle, sinks below. An edge is lit only when both of its ends are. Tapping a node
-// opens a sheet with what it unlocks and its real controls.
+// Both graphs draw their edges behind the nodes. Every node reports its bounds in root
+// coordinates, and the container subtracts its own root position at draw time, so the
+// two are always read in the same frame. Edges run into one join point before the
+// timeline, a straight trunk runs under it, and they split again after it.
 
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
-@Composable
-private fun GraphVariant(nodes: List<ServiceNode>, state: UiState, viewModel: AppViewModel, onBack: () -> Unit) {
-    val centers = remember { mutableStateMapOf<String, Offset>() }
-    var origin by remember { mutableStateOf(Offset.Zero) }
-    var open by remember { mutableStateOf<ServiceNode?>(null) }
-    val timelineLit = nodes.any { it.role == Role.SOURCE && it.lit }
+private class GraphGeometry {
+    val rects = mutableStateMapOf<String, Rect>()
+    var origin by mutableStateOf(Offset.Zero)
+    fun local(id: String): Rect? = rects[id]?.translate(-origin)
+}
 
-    PrototypeFrame("Settings", onBack) {
-        Text(
-            "What feeds your timeline, and where it goes.",
-            color = Muted, fontSize = 13.sp,
-        )
-        Spacer(Modifier.height(20.dp))
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .onGloballyPositioned { origin = it.boundsInRoot().topLeft }
-                .drawBehind {
-                    val hub = centers["timeline"] ?: return@drawBehind
-                    nodes.forEach { node ->
-                        val c = centers[node.id] ?: return@forEach
-                        val lit = node.lit && timelineLit
-                        val (from, to) = if (node.role == Role.SOURCE) c to hub else hub to c
-                        val path = Path().apply {
-                            moveTo(from.x, from.y)
-                            val midY = (from.y + to.y) / 2
-                            cubicTo(from.x, midY, to.x, midY, to.x, to.y)
-                        }
-                        drawPath(
-                            path,
-                            color = if (lit) Amber else Faint,
-                            style = Stroke(
-                                width = if (lit) 2.dp.toPx() else 1.dp.toPx(),
-                                pathEffect = if (lit) null else PathEffect.dashPathEffect(floatArrayOf(12f, 10f)),
-                            ),
-                        )
-                    }
-                },
-        ) {
-            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                Label("IN")
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    nodes.filter { it.role == Role.SOURCE }.forEach { node ->
-                        GraphNode(node, centers, origin) { open = node }
-                    }
-                }
-                Spacer(Modifier.height(64.dp))
-                Box(
-                    Modifier
-                        .onGloballyPositioned {
-                            centers["timeline"] = it.boundsInRoot().center - origin
-                        }
-                        .background(if (timelineLit) AmberSoft else Raised, RoundedCornerShape(14.dp))
-                        .border(2.dp, if (timelineLit) Amber else Faint, RoundedCornerShape(14.dp))
-                        .padding(horizontal = 22.dp, vertical = 14.dp),
-                ) {
-                    Text(nightsLabel(state), color = Ink, fontWeight = FontWeight.SemiBold)
-                }
-                Spacer(Modifier.height(64.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    nodes.filter { it.role == Role.SINK }.forEach { node ->
-                        GraphNode(node, centers, origin) { open = node }
-                    }
-                }
-                Label("OUT")
+private fun Modifier.reportBounds(geo: GraphGeometry, id: String) =
+    onGloballyPositioned { geo.rects[id] = it.boundsInRoot() }
+
+private fun DrawScope.edge(from: Offset, to: Offset, lit: Boolean, across: Boolean) {
+    val path = Path().apply {
+        moveTo(from.x, from.y)
+        if (across) {
+            val midX = (from.x + to.x) / 2
+            cubicTo(midX, from.y, midX, to.y, to.x, to.y)
+        } else {
+            val midY = (from.y + to.y) / 2
+            cubicTo(from.x, midY, to.x, midY, to.x, to.y)
+        }
+    }
+    drawPath(
+        path,
+        color = if (lit) Amber else Faint,
+        style = Stroke(
+            width = if (lit) 2.dp.toPx() else 1.dp.toPx(),
+            pathEffect = if (lit) null else PathEffect.dashPathEffect(floatArrayOf(12f, 10f)),
+        ),
+    )
+}
+
+private fun Modifier.graphEdges(
+    geo: GraphGeometry,
+    nodes: List<ServiceNode>,
+    timelineLit: Boolean,
+    across: Boolean,
+) = onGloballyPositioned { geo.origin = it.boundsInRoot().topLeft }
+    .drawBehind {
+        val hub = geo.local("timeline") ?: return@drawBehind
+        val gap = 18.dp.toPx()
+        val join = if (across) Offset(hub.left - gap, hub.center.y) else Offset(hub.center.x, hub.top - gap)
+        val split = if (across) Offset(hub.right + gap, hub.center.y) else Offset(hub.center.x, hub.bottom + gap)
+        nodes.forEach { node ->
+            val r = geo.local(node.id) ?: return@forEach
+            if (node.role == Role.SOURCE) {
+                edge(if (across) r.centerRight else r.bottomCenter, join, node.lit, across)
+            } else {
+                edge(split, if (across) r.centerLeft else r.topCenter, node.lit && timelineLit, across)
             }
         }
-        Spacer(Modifier.height(24.dp))
-        Text("Dashed is not lit. Tap anything to see what it gives you.", color = Faint, fontSize = 12.sp)
+        // The trunk: straight, and under the timeline box.
+        edge(join, split, timelineLit, across)
     }
 
-    open?.let { node ->
-        ModalBottomSheet(onDismissRequest = { open = null }, containerColor = Raised) {
-            Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp)) {
-                NodeHeader(node)
-                Spacer(Modifier.height(12.dp))
-                UnlockList(node)
-                Spacer(Modifier.height(16.dp))
-                NodeControls(node, state, viewModel)
+private val TimelineLitFill = Color(0xFF2A2215)
+
+@Composable
+private fun TimelineBox(state: UiState, lit: Boolean, geo: GraphGeometry, modifier: Modifier = Modifier, stacked: Boolean = false) {
+    Box(
+        modifier
+            .reportBounds(geo, "timeline")
+            .background(if (lit) TimelineLitFill else Raised, RoundedCornerShape(14.dp))
+            .border(2.dp, if (lit) Amber else Faint, RoundedCornerShape(14.dp))
+            .padding(horizontal = if (stacked) 8.dp else 22.dp, vertical = 14.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (stacked) {
+            val n = state.showsByFriend[state.mySetlistFmUser]?.size
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("My", color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text("time-\nline", color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 16.sp)
+                if (n != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Text("$n", color = Amber, fontSize = 13.sp)
+                    Text("nights", color = Muted, fontSize = 11.sp)
+                }
             }
+        } else {
+            Text(nightsLabel(state), color = Ink, fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -351,20 +364,156 @@ private fun GraphVariant(nodes: List<ServiceNode>, state: UiState, viewModel: Ap
 @Composable
 private fun GraphNode(
     node: ServiceNode,
-    centers: MutableMap<String, Offset>,
-    origin: Offset,
+    geo: GraphGeometry,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
     onClick: () -> Unit,
 ) {
-    Column(
-        Modifier
-            .onGloballyPositioned { centers[node.id] = it.boundsInRoot().center - origin }
+    Box(
+        modifier
+            .reportBounds(geo, node.id)
             .background(if (node.lit) Raised2 else Ground, RoundedCornerShape(50))
             .border(if (node.lit) 1.5.dp else 1.dp, if (node.lit) Amber else Faint, RoundedCornerShape(50))
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        Text(node.name, color = if (node.lit) Ink else Muted, fontSize = 14.sp)
+        Text(
+            node.name, color = if (node.lit) Ink else Muted, fontSize = if (compact) 13.sp else 14.sp,
+            maxLines = 1,
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NodeSheet(node: ServiceNode, state: UiState, viewModel: AppViewModel, onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Raised) {
+        Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp)) {
+            NodeHeader(node)
+            Spacer(Modifier.height(12.dp))
+            UnlockList(node)
+            Spacer(Modifier.height(16.dp))
+            NodeControls(node, state, viewModel)
+        }
+    }
+}
+
+// Variant 1: the graph, as drawn in the issue. Sources on top, the timeline in the
+// middle, sinks below. Tapping a node opens a sheet with what it unlocks and its
+// real controls.
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun GraphVariant(nodes: List<ServiceNode>, state: UiState, viewModel: AppViewModel, onBack: () -> Unit) {
+    val geo = remember { GraphGeometry() }
+    var open by remember { mutableStateOf<ServiceNode?>(null) }
+    val timelineLit = nodes.any { it.role == Role.SOURCE && it.lit }
+
+    PrototypeFrame("Settings", onBack) {
+        Text("What feeds your timeline, and where it goes.", color = Muted, fontSize = 13.sp)
+        Spacer(Modifier.height(20.dp))
+        Column(
+            Modifier.fillMaxWidth().graphEdges(geo, nodes, timelineLit, across = false),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Label("IN")
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                nodes.filter { it.role == Role.SOURCE }.forEach { node ->
+                    GraphNode(node, geo) { open = node }
+                }
+            }
+            Spacer(Modifier.height(72.dp))
+            TimelineBox(state, timelineLit, geo)
+            Spacer(Modifier.height(72.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                nodes.filter { it.role == Role.SINK }.forEach { node ->
+                    GraphNode(node, geo) { open = node }
+                }
+            }
+            Label("OUT")
+        }
+        Spacer(Modifier.height(24.dp))
+        Text("Dashed is not lit. Tap anything to see what it gives you.", color = Faint, fontSize = 12.sp)
+    }
+
+    open?.let { NodeSheet(it, state, viewModel) { open = null } }
+}
+
+// Variant 4: the same graph read left to right, with the inputs boxed by kind. The
+// box is only a background: the edges still start at each node.
+
+private val SourceGroups = listOf("Databases", "This phone", "Other phones")
+private val SinkGroups = listOf("Services", "This phone")
+
+@Composable
+private fun GraphAcrossVariant(nodes: List<ServiceNode>, state: UiState, viewModel: AppViewModel, onBack: () -> Unit) {
+    val geo = remember { GraphGeometry() }
+    var open by remember { mutableStateOf<ServiceNode?>(null) }
+    val timelineLit = nodes.any { it.role == Role.SOURCE && it.lit }
+
+    @Composable
+    fun Groups(role: Role, order: List<String>) {
+        order.forEach { group ->
+            val members = nodes.filter { it.role == role && it.group == group }
+            if (members.isNotEmpty()) {
+                GroupBox(group) {
+                    members.forEach { node ->
+                        GraphNode(node, geo, Modifier.fillMaxWidth(), compact = true) { open = node }
+                    }
+                }
+            }
+        }
+    }
+
+    PrototypeFrame("Settings", onBack) {
+        Text("What feeds your timeline, and where it goes.", color = Muted, fontSize = 13.sp)
+        Spacer(Modifier.height(20.dp))
+        Row(
+            Modifier.fillMaxWidth().graphEdges(geo, nodes, timelineLit, across = true),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1.4f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Label("IN")
+                Groups(Role.SOURCE, SourceGroups)
+            }
+            Spacer(Modifier.width(30.dp))
+            TimelineBox(state, timelineLit, geo, Modifier.width(66.dp).height(170.dp), stacked = true)
+            Spacer(Modifier.width(30.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Label("OUT")
+                Groups(Role.SINK, SinkGroups)
+            }
+        }
+        Spacer(Modifier.height(24.dp))
+        Text("Dashed is not lit. Tap anything to see what it gives you.", color = Faint, fontSize = 12.sp)
+    }
+
+    open?.let { NodeSheet(it, state, viewModel) { open = null } }
+}
+
+@Composable
+private fun GroupBox(title: String, content: @Composable () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(Raised, RoundedCornerShape(12.dp))
+            .border(1.dp, LineCol, RoundedCornerShape(12.dp))
+            .padding(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            title.uppercase(), color = Faint, fontSize = 10.sp, letterSpacing = 1.2.sp,
+            modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+        )
+        content()
     }
 }
 
@@ -579,7 +728,7 @@ private fun NodeControls(node: ServiceNode, state: UiState, viewModel: AppViewMo
                 AmberButton("Save") { viewModel.saveSettings(state.setlistFmApiKey, clientId) }
             }
         }
-        "gallery", "calendar" ->
+        "gallery", "calendar", "location" ->
             if (!node.lit) AmberButton("Open app permissions") { appSettings() }
         "contacts" -> {
             state.friends.forEach { friend ->
@@ -590,6 +739,10 @@ private fun NodeControls(node: ServiceNode, state: UiState, viewModel: AppViewMo
             }
             if (state.friends.isEmpty()) Text(node.nextStep.orEmpty(), color = Muted, fontSize = 13.sp)
         }
+        "tickets" -> Text(
+            "Share a ticket PDF to Station to Station from your mail or files app.",
+            color = Muted, fontSize = 13.sp,
+        )
         "gossip" -> Text(
             "Check in to share small public observations with nearby phones. Delivery is best effort.",
             color = Muted, fontSize = 13.sp,
