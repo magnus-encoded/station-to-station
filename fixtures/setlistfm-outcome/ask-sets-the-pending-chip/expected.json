@@ -1,0 +1,34 @@
+{
+  "about": "Never looked up. The hit in the ticket's room is a day out and another room in the same city is on the day: nothing is sure, so both go on the chip, best first, with their venue levels.",
+  "outcome": "ask",
+  "ask": [
+    "d4000001",
+    "d4000002"
+  ],
+  "after": {
+    "lastLookupAt": 1804881600000,
+    "rejectedIds": [],
+    "pendingHitIds": [
+      "d4000001",
+      "d4000002"
+    ],
+    "pendingHits": [
+      {
+        "id": "d4000001",
+        "artist": "Ferrous Owls",
+        "venue": "Kjøkkenhagen Scene",
+        "city": "Tromsø",
+        "date": "13-03-2027",
+        "venueLevel": "strong"
+      },
+      {
+        "id": "d4000002",
+        "artist": "Ferrous Owls",
+        "venue": "Driftshallen",
+        "city": "Tromsø",
+        "date": "12-03-2027",
+        "venueLevel": "weak"
+      }
+    ]
+  }
+}

@@ -50,6 +50,7 @@ struct StationToStationApp: App {
 
     var body: some Scene {
         WindowGroup {
+            Group {
             // The first-run door (#358), and nothing else is reachable behind it.
             // A splash pushed *onto* the stack could be dismissed by a back
             // gesture into a timeline nobody had asked to see yet.
@@ -143,13 +144,27 @@ struct StationToStationApp: App {
                 }
             }
             }
+            }
+            // setlist.fm's automatic checks for local Gigs run while the app is in the
+            // foreground and only then (#531): at launch, on coming back, and on their
+            // timer. This is the launch that went straight to active, which `onChange`
+            // below never sees; a background relaunch (the gossip radio's) starts nothing.
+            .onAppear { if scenePhase == .active { model.startLookupChecks() } }
         }
         // A **Ticket** is deposited while this app is in the background — the share
         // sheet never brings it forward — so the inbox is read on the way back in
         // (#412). The cold-launch case is covered from `AppModel.init`, because a
         // launch that goes straight to active may never register as a *change*.
         .onChange(of: scenePhase) { phase in
-            if phase == .active { model.drainTicketInbox() }
+            switch phase {
+            case .active:
+                model.drainTicketInbox()
+                model.startLookupChecks()
+            case .inactive, .background:
+                model.stopLookupChecks()
+            @unknown default:
+                break
+            }
         }
     }
 }
@@ -226,8 +241,10 @@ private struct BannersModifier: ViewModifier {
                 get: { model.state.ticketDrafts.first },
                 set: { if $0 == nil, let shown = shownTicketDraft { model.dismissTicket(shown) } }
             )) { draft in
-                ConfirmTicketSheet(ticket: draft.ticket, possibleMatch: draft.possibleMatch) { artist, venue, date in
-                    model.confirmTicket(draft.id, artist: artist, venue: venue, date: date)
+                ConfirmTicketSheet(ticket: draft.ticket, possibleMatch: draft.possibleMatch,
+                                   setlistFm: draft.setlistFm) { artist, venue, date, chosen in
+                    model.confirmTicket(draft.id, artist: artist, venue: venue, date: date,
+                                        chosenSetlistId: chosen)
                 } onCancel: {
                     model.dismissTicket(draft.id)
                 }

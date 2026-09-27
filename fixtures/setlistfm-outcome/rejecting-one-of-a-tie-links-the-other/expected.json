@@ -1,0 +1,13 @@
+{
+  "about": "Two hits Strong on every field would be a tie and a question. One of them was rejected, so the other stands alone and is adopted without asking.",
+  "outcome": "adopt",
+  "adopt": "d2000002",
+  "after": {
+    "lastLookupAt": 1804881600000,
+    "rejectedIds": [
+      "d2000001"
+    ],
+    "pendingHitIds": [],
+    "pendingHits": []
+  }
+}

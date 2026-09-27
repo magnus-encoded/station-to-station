@@ -1,0 +1,145 @@
+{
+  "about": "hit is a stored pendingHits element. expect null means the row shows artist — venueLine — date instead.",
+  "cases": [
+    {
+      "name": "weak venue, from a ticket",
+      "yourVenue": "Kjøkkenhagen Scene",
+      "fromTicket": true,
+      "hit": {
+        "id": "q1000001",
+        "artist": "Ferrous Owls",
+        "venue": "Driftshallen",
+        "city": "Tromsø",
+        "date": "12-03-2027",
+        "venueLevel": "weak"
+      },
+      "expect": "Your ticket says Kjøkkenhagen Scene. setlist.fm lists it at Driftshallen. Same gig?"
+    },
+    {
+      "name": "noMatch venue, from a ticket",
+      "yourVenue": "Kjøkkenhagen Scene",
+      "fromTicket": true,
+      "hit": {
+        "id": "q1000001",
+        "artist": "Ferrous Owls",
+        "venue": "Kaikanten",
+        "city": "Tromsø",
+        "date": "12-03-2027",
+        "venueLevel": "noMatch"
+      },
+      "expect": "Your ticket says Kjøkkenhagen Scene. setlist.fm lists it at Kaikanten. Same gig?"
+    },
+    {
+      "name": "weak venue, typed rather than from a ticket",
+      "yourVenue": "Kjøkkenhagen Scene",
+      "fromTicket": false,
+      "hit": {
+        "id": "q1000001",
+        "artist": "Ferrous Owls",
+        "venue": "Driftshallen",
+        "city": "Tromsø",
+        "date": "12-03-2027",
+        "venueLevel": "weak"
+      },
+      "expect": "You have it at Kjøkkenhagen Scene. setlist.fm lists it at Driftshallen. Same gig?"
+    },
+    {
+      "name": "surrounding spaces are not part of a name",
+      "yourVenue": "  Kjøkkenhagen Scene ",
+      "fromTicket": false,
+      "hit": {
+        "id": "q1000001",
+        "artist": "Ferrous Owls",
+        "venue": " Driftshallen",
+        "city": "Tromsø",
+        "date": "12-03-2027",
+        "venueLevel": "weak"
+      },
+      "expect": "You have it at Kjøkkenhagen Scene. setlist.fm lists it at Driftshallen. Same gig?"
+    },
+    {
+      "name": "strong venue: no question",
+      "yourVenue": "Kjøkkenhagen Scene",
+      "fromTicket": true,
+      "hit": {
+        "id": "q1000001",
+        "artist": "Ferrous Owls",
+        "venue": "Kjøkkenhagen Scene",
+        "city": "Tromsø",
+        "date": "12-03-2027",
+        "venueLevel": "strong"
+      },
+      "expect": null
+    },
+    {
+      "name": "no venue on the ticket: no question",
+      "yourVenue": "Kjøkkenhagen Scene",
+      "fromTicket": true,
+      "hit": {
+        "id": "q1000001",
+        "artist": "Ferrous Owls",
+        "venue": "Driftshallen",
+        "city": "Tromsø",
+        "date": "12-03-2027",
+        "venueLevel": null
+      },
+      "expect": null
+    },
+    {
+      "name": "your venue missing: no question",
+      "yourVenue": null,
+      "fromTicket": true,
+      "hit": {
+        "id": "q1000001",
+        "artist": "Ferrous Owls",
+        "venue": "Driftshallen",
+        "city": "Tromsø",
+        "date": "12-03-2027",
+        "venueLevel": "weak"
+      },
+      "expect": null
+    },
+    {
+      "name": "your venue blank: no question",
+      "yourVenue": "   ",
+      "fromTicket": false,
+      "hit": {
+        "id": "q1000001",
+        "artist": "Ferrous Owls",
+        "venue": "Driftshallen",
+        "city": "Tromsø",
+        "date": "12-03-2027",
+        "venueLevel": "weak"
+      },
+      "expect": null
+    },
+    {
+      "name": "setlist.fm's venue blank: no question",
+      "yourVenue": "Kjøkkenhagen Scene",
+      "fromTicket": true,
+      "hit": {
+        "id": "q1000001",
+        "artist": "Ferrous Owls",
+        "venue": "",
+        "city": "Tromsø",
+        "date": "12-03-2027",
+        "venueLevel": "noMatch"
+      },
+      "expect": null
+    },
+    {
+      "name": "an unknown level: no question",
+      "yourVenue": "Kjøkkenhagen Scene",
+      "fromTicket": true,
+      "hit": {
+        "id": "q1000001",
+        "artist": "Ferrous Owls",
+        "venue": "Driftshallen",
+        "city": "Tromsø",
+        "date": "12-03-2027",
+        "venueLevel": "maybe"
+      },
+      "expect": null
+    }
+  ]
+}

@@ -200,23 +200,32 @@ private extension StoredAdmission {
 ///   again, for this Gig only.
 /// - `pendingHitIds`: the hits a "Possible match on setlist.fm" chip is asking about.
 ///   Non-empty is the chip, and lookups pause until it is answered.
+/// - `pendingHits`: what the chip shows for them, kept so it can be drawn without a
+///   fetch. A snapshot only: `pendingHitIds` is the authority, and a hit listed here
+///   whose id is not there is not asked about.
 struct StoredSetlistFmLookup: Codable, Equatable {
     var lastLookupAt: Int64?
     var rejectedIds: [String] = []
     var pendingHitIds: [String] = []
+    var pendingHits: [StoredSetlistFmHit] = []
 
-    init(lastLookupAt: Int64? = nil, rejectedIds: [String] = [], pendingHitIds: [String] = []) {
+    init(lastLookupAt: Int64? = nil, rejectedIds: [String] = [], pendingHitIds: [String] = [],
+         pendingHits: [StoredSetlistFmHit] = []) {
         self.lastLookupAt = lastLookupAt
         self.rejectedIds = rejectedIds
         self.pendingHitIds = pendingHitIds
+        self.pendingHits = pendingHits
     }
 
-    // Field by field, like `StoredAttendance`: an absent key costs that field only.
+    // Field by field, like `StoredAttendance`: an absent key costs that field only, and
+    // `pendingHits` element by element, like `admissions`, so one malformed hit costs itself.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         lastLookupAt = (try? c.decodeIfPresent(Int64.self, forKey: .lastLookupAt)) ?? nil
         rejectedIds = (try? c.decodeIfPresent([String].self, forKey: .rejectedIds)) ?? nil ?? []
         pendingHitIds = (try? c.decodeIfPresent([String].self, forKey: .pendingHitIds)) ?? nil ?? []
+        pendingHits = ((try? c.decodeIfPresent([LenientSetlistFmHit].self, forKey: .pendingHits)) ?? nil)?
+            .compactMap(\.hit) ?? []
     }
 
     var possibleMatchPending: Bool { !pendingHitIds.isEmpty }
@@ -227,16 +236,89 @@ struct StoredSetlistFmLookup: Codable, Equatable {
         return next
     }
 
+    /// The chip asks about `hits`, in their order. What was rejected stays rejected.
+    func asking(_ hits: [StoredSetlistFmHit]) -> StoredSetlistFmLookup {
+        var next = self
+        next.pendingHitIds = hits.map(\.id)
+        next.pendingHits = hits
+        return next
+    }
+
     /// "None of these": every hit the chip offered is remembered as not this night.
     func rejectingPending() -> StoredSetlistFmLookup {
         var next = self
         for id in pendingHitIds where !next.rejectedIds.contains(id) { next.rejectedIds.append(id) }
         next.pendingHitIds = []
+        next.pendingHits = []
         return next
     }
 
     /// `hitIds` less the ones already rejected here, in their order.
     func unrejected(_ hitIds: [String]) -> [String] { hitIds.filter { !rejectedIds.contains($0) } }
+}
+
+/// One setlist.fm hit a "Possible match" chip is asking about (#531), as the chip draws
+/// it: `artist — venue, city — date`, and the question `setlistFmQuestion` asks when the
+/// room is in doubt. Field for field with Android's `StoredSetlistFmHit`.
+///
+/// `date` is setlist.fm's `dd-MM-yyyy`. `venueLevel` is the matcher's venue level spelt as
+/// `fixtures/setlistfm-match/` spells it (`strong`, `weak`, `noMatch`), nil where the
+/// ticket named no venue. Decoded field by field, each defaulted.
+struct StoredSetlistFmHit: Codable, Equatable {
+    var id: String = ""
+    var artist: String = ""
+    var venue: String = ""
+    var city: String = ""
+    var date: String = ""
+    var venueLevel: String?
+
+    init(id: String = "", artist: String = "", venue: String = "", city: String = "",
+         date: String = "", venueLevel: String? = nil) {
+        self.id = id
+        self.artist = artist
+        self.venue = venue
+        self.city = city
+        self.date = date
+        self.venueLevel = venueLevel
+    }
+
+    init(_ candidate: SetlistFmCandidate) {
+        let hit = candidate.setlist
+        self.init(id: hit.id, artist: hit.artist?.name ?? "", venue: hit.venue?.name ?? "",
+                  city: hit.venue?.city?.name ?? "", date: hit.eventDate ?? "",
+                  venueLevel: candidate.venue?.storedName)
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decodeIfPresent(String.self, forKey: .id)) ?? nil ?? ""
+        artist = (try? c.decodeIfPresent(String.self, forKey: .artist)) ?? nil ?? ""
+        venue = (try? c.decodeIfPresent(String.self, forKey: .venue)) ?? nil ?? ""
+        city = (try? c.decodeIfPresent(String.self, forKey: .city)) ?? nil ?? ""
+        date = (try? c.decodeIfPresent(String.self, forKey: .date)) ?? nil ?? ""
+        venueLevel = (try? c.decodeIfPresent(String.self, forKey: .venueLevel)) ?? nil
+    }
+}
+
+/// One element of a stored `pendingHits` list, decoded without failing the list: an
+/// element that is not a hit at all reads as nil and is skipped. `LenientAdmission`'s twin.
+private struct LenientSetlistFmHit: Decodable {
+    let hit: StoredSetlistFmHit?
+
+    init(from decoder: Decoder) throws {
+        hit = try? StoredSetlistFmHit(from: decoder)
+    }
+}
+
+extension MatchLevel {
+    /// The level as the fixtures and the stored JSON spell it. Android's `storedName`.
+    var storedName: String {
+        switch self {
+        case .strong: return "strong"
+        case .weak: return "weak"
+        case .noMatch: return "noMatch"
+        }
+    }
 }
 
 /// One night, as *this app* knows it — the identity everything else hangs off
@@ -898,6 +980,29 @@ actor TimelineStore {
             settled = c.gigAttendance[gigId] ?? StoredAttendance()
             edit(&settled)
             c.gigAttendance[gigId] = settled
+            return c
+        }
+        return settled
+    }
+
+    /// Changes one night's setlist.fm lookup state (#531) as it stands *now*, in one actor
+    /// call: `edit` gets the stored state, or an empty one for a night never looked up,
+    /// and what it returns is kept. Android's `editSetlistFmLookup`.
+    ///
+    /// **Never mints a claim.** A night with no attendance record is left alone and this
+    /// returns nil: a lookup is not evidence of going, and a record minted here would put
+    /// a night on the plan nobody planned. Otherwise returns the settled record, for
+    /// `attendanceByGig`, `savePlanned`'s reason.
+    @discardableResult
+    func editSetlistFmLookup(gigId: String,
+                             _ edit: (StoredSetlistFmLookup) -> StoredSetlistFmLookup) -> StoredAttendance? {
+        var settled: StoredAttendance?
+        writeMerged { cache in
+            var c = cache
+            guard let id = c.gigIdOrNil(gigId), var record = c.gigAttendance[id] else { return c }
+            record.setlistFmLookup = edit(record.setlistFmLookup ?? StoredSetlistFmLookup())
+            c.gigAttendance[id] = record
+            settled = record
             return c
         }
         return settled

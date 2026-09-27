@@ -13,12 +13,14 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonTransformingSerializer
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import java.io.File
 import java.nio.file.Files
@@ -163,7 +165,7 @@ private fun StoredAdmission.payloadKey(): Any = payloadBytes?.toList() ?: payloa
 object LegacyTicketQr : JsonTransformingSerializer<StoredAttendance>(StoredAttendance.serializer()) {
     override fun transformDeserialize(element: JsonElement): JsonElement {
         val obj = element as? JsonObject ?: return element
-        val rest = lenientAdmissions(JsonObject(obj - "ticketQr"))
+        val rest = lenientSetlistFmLookup(lenientAdmissions(JsonObject(obj - "ticketQr")))
         val legacy = obj["ticketQr"] ?: return rest
         val base64 = (legacy as? JsonPrimitive)?.takeIf { it.isString }?.content
         if (base64 == null || base64.decodeAdmissionBase64() == null) return rest
@@ -204,6 +206,54 @@ object LegacyTicketQr : JsonTransformingSerializer<StoredAttendance>(StoredAtten
         }
         return JsonObject(attendance + ("admissions" to JsonArray(kept)))
     }
+
+    /**
+     * `setlistFmLookup` made safe to decode (#531), [lenientAdmissions]' rule: a value that
+     * is not an object is dropped and reads as never looked up, a field of the wrong type
+     * is dropped for its default to fill, and each of `pendingHits` is kept or dropped on
+     * its own, so one malformed hit costs itself and never the night's record. The id
+     * lists are all or nothing, as iOS's `try?` over `[String]` reads them.
+     */
+    private fun lenientSetlistFmLookup(attendance: JsonObject): JsonObject {
+        val lookup = attendance["setlistFmLookup"] ?: return attendance
+        if (lookup is JsonNull) return attendance
+        val fields = lookup as? JsonObject ?: return JsonObject(attendance - "setlistFmLookup")
+        val kept = fields.mapNotNull { (key, value) ->
+            val safe: JsonElement? = when (key) {
+                "lastLookupAt" -> value.takeIf { it is JsonNull || it.isNumber() }
+                "rejectedIds", "pendingHitIds" ->
+                    (value as? JsonArray)?.takeIf { ids -> ids.all { it.isText() } }
+                "pendingHits" -> JsonArray((value as? JsonArray).orEmpty().mapNotNull { lenientHit(it) })
+                else -> null
+            }
+            safe?.let { key to it }
+        }.toMap()
+        return JsonObject(attendance + ("setlistFmLookup" to JsonObject(kept)))
+    }
+
+    /** One of `pendingHits`, or null where it is not an object at all. */
+    private fun lenientHit(item: JsonElement): JsonElement? {
+        val fields = item as? JsonObject ?: return null
+        return JsonObject(
+            fields.filter { (key, value) ->
+                when (key) {
+                    "id", "artist", "venue", "city", "date" -> value.isText()
+                    "venueLevel" -> value is JsonNull || value.isText()
+                    else -> false
+                }
+            },
+        )
+    }
+
+    private fun JsonElement.isText(): Boolean {
+        val primitive = this as? JsonPrimitive ?: return false
+        return primitive !is JsonNull && primitive.isString
+    }
+
+    private fun JsonElement.isNumber(): Boolean {
+        val primitive = this as? JsonPrimitive ?: return false
+        return primitive !is JsonNull && !primitive.isString && primitive.longOrNull != null
+    }
 }
 
 /**
@@ -217,23 +267,74 @@ object LegacyTicketQr : JsonTransformingSerializer<StoredAttendance>(StoredAtten
  *   again, for this Gig only.
  * - [pendingHitIds]: the hits a "Possible match on setlist.fm" chip is asking about.
  *   Non-empty is the chip, and lookups pause until it is answered.
+ * - [pendingHits]: what the chip shows for them, kept so it can be drawn without a
+ *   fetch. A snapshot only: [pendingHitIds] is the authority, and a hit listed here
+ *   whose id is not there is not asked about.
  */
 @Serializable
 data class StoredSetlistFmLookup(
     val lastLookupAt: Long? = null,
     val rejectedIds: List<String> = emptyList(),
     val pendingHitIds: List<String> = emptyList(),
+    val pendingHits: List<StoredSetlistFmHit> = emptyList(),
 ) {
     val possibleMatchPending: Boolean get() = pendingHitIds.isNotEmpty()
 
     fun lookedUp(atMillis: Long): StoredSetlistFmLookup = copy(lastLookupAt = atMillis)
 
+    /** The chip asks about [hits], in their order. What was rejected stays rejected. */
+    fun asking(hits: List<StoredSetlistFmHit>): StoredSetlistFmLookup =
+        copy(pendingHitIds = hits.map { it.id }, pendingHits = hits)
+
     /** "None of these": every hit the chip offered is remembered as not this night. */
-    fun rejectingPending(): StoredSetlistFmLookup =
-        copy(rejectedIds = (rejectedIds + pendingHitIds).distinct(), pendingHitIds = emptyList())
+    fun rejectingPending(): StoredSetlistFmLookup = copy(
+        rejectedIds = (rejectedIds + pendingHitIds).distinct(),
+        pendingHitIds = emptyList(),
+        pendingHits = emptyList(),
+    )
 
     /** [hitIds] less the ones already rejected here, in their order. */
     fun unrejected(hitIds: List<String>): List<String> = hitIds.filterNot { it in rejectedIds }
+}
+
+/**
+ * One setlist.fm hit a "Possible match" chip is asking about (#531), as the chip draws it:
+ * `artist — venue, city — date`, and the question `setlistFmQuestion` asks when the room
+ * is in doubt. Field for field with iOS's `StoredSetlistFmHit`.
+ *
+ * [date] is setlist.fm's `dd-MM-yyyy`. [venueLevel] is the matcher's venue level spelt as
+ * `fixtures/setlistfm-match/` spells it (`strong`, `weak`, `noMatch`), null where the
+ * ticket named no venue. Every field defaulted, as everything in this file is.
+ */
+@Serializable
+data class StoredSetlistFmHit(
+    val id: String = "",
+    val artist: String = "",
+    val venue: String = "",
+    val city: String = "",
+    val date: String = "",
+    val venueLevel: String? = null,
+) {
+    companion object {
+        fun of(candidate: SetlistFmCandidate): StoredSetlistFmHit {
+            val hit = candidate.setlist
+            return StoredSetlistFmHit(
+                id = hit.id,
+                artist = hit.artist?.name.orEmpty(),
+                venue = hit.venue?.name.orEmpty(),
+                city = hit.venue?.city?.name.orEmpty(),
+                date = hit.eventDate.orEmpty(),
+                venueLevel = candidate.venue?.storedName,
+            )
+        }
+    }
+}
+
+/** A [MatchLevel] as the fixtures and the stored JSON spell it. */
+val MatchLevel.storedName: String get() = when (this) {
+    MatchLevel.Strong -> "strong"
+    MatchLevel.Weak -> "weak"
+    MatchLevel.NoMatch -> "noMatch"
 }
 
 /**
@@ -809,12 +910,40 @@ internal fun unionLog(kept: StoredLog, dropped: StoredLog): StoredLog =
  * planned the night, only one of them holding the ticket, must not lose the ticket to
  * whichever record happened to win.
  *
+ * **Nor is the setlist.fm lookup state** (#531): see [unionSetlistFmLookup].
+ *
  * An unrecognised provenance ranks lowest rather than throwing — the field is a
  * plain string precisely so a newer app's value costs this one gig, not the cache.
  */
 internal fun unionAttendance(kept: StoredAttendance, dropped: StoredAttendance): StoredAttendance {
     val (winner, other) = if (evidence(dropped.provenance) > evidence(kept.provenance)) dropped to kept else kept to dropped
-    return winner.copy(admissions = mergedAdmissions(winner.admissions, other.admissions))
+    return winner.copy(
+        admissions = mergedAdmissions(winner.admissions, other.admissions),
+        setlistFmLookup = unionSetlistFmLookup(winner.setlistFmLookup, other.setlistFmLookup),
+    )
+}
+
+/**
+ * Two records of one night's lookups, as one (#531). A "not this night" said on either
+ * side holds on both, so the rejections are the union; the later lookup is the last
+ * one, so the schedule does not look again sooner than either side would have. The
+ * chip is [winner]'s, else [other]'s, less anything either side has since rejected.
+ * The Swift twin is `unionSetlistFmLookup`.
+ */
+internal fun unionSetlistFmLookup(
+    winner: StoredSetlistFmLookup?,
+    other: StoredSetlistFmLookup?,
+): StoredSetlistFmLookup? {
+    if (winner == null || other == null) return winner ?: other
+    val rejected = (winner.rejectedIds + other.rejectedIds).distinct()
+    val asking = if (winner.possibleMatchPending) winner else other
+    val pending = asking.pendingHitIds.filterNot { it in rejected }
+    return StoredSetlistFmLookup(
+        lastLookupAt = listOfNotNull(winner.lastLookupAt, other.lastLookupAt).maxOrNull(),
+        rejectedIds = rejected,
+        pendingHitIds = pending,
+        pendingHits = asking.pendingHits.filter { it.id in pending },
+    )
 }
 
 private fun evidence(provenance: String): Int = when (provenance) {
@@ -1056,6 +1185,34 @@ class TimelineStore(
             val had = c.gigAttendance[id] ?: StoredAttendance()
             settled = had.copy(admissions = mergedAdmissions(had.admissions, admissions))
             c.copy(gigAttendance = c.gigAttendance + (id to settled))
+        }
+        return settled
+    }
+
+    /**
+     * Changes one night's setlist.fm lookup state (#531) as it stands *now*, read and
+     * written under one lock: [edit] gets the stored state, or an empty one for a night
+     * never looked up, and what it returns is kept.
+     *
+     * **Never mints a claim.** A night with no attendance record is left alone and this
+     * returns null: a lookup is not evidence of going, and a record minted here would
+     * put a night on the plan nobody planned. Otherwise returns the settled record, for
+     * `attendanceByGig`, [savePlanned]'s reason.
+     *
+     * Not `updateAttendance`, which reads from the view model's state and writes the
+     * whole record back: a ticket attached between the two would be lost.
+     */
+    suspend fun editSetlistFmLookup(
+        gigId: String,
+        edit: (StoredSetlistFmLookup) -> StoredSetlistFmLookup,
+    ): StoredAttendance? {
+        var settled: StoredAttendance? = null
+        writeMerged { cache ->
+            val id = cache.gigIdOrNull(gigId) ?: return@writeMerged cache
+            val had = cache.gigAttendance[id] ?: return@writeMerged cache
+            val next = had.copy(setlistFmLookup = edit(had.setlistFmLookup ?: StoredSetlistFmLookup()))
+            settled = next
+            cache.copy(gigAttendance = cache.gigAttendance + (id to next))
         }
         return settled
     }
