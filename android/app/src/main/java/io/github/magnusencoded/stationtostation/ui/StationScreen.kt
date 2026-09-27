@@ -1129,7 +1129,14 @@ private fun TicketAtTheDoor(admissions: List<StoredAdmission>) {
                     description = "Your ticket's barcode${page.label?.let { ", $it" }.orEmpty()}. Hold it up to be scanned.",
                 )
             }
-            is AtTheDoor.Original -> OriginalAtTheDoor(door.file, admission.page, page.label, border = LineLit, caption = Muted)
+            is AtTheDoor.Original -> OriginalAtTheDoor(door.file, admission.page, page.label, border = LineLit, caption = Muted) {
+                Text(
+                    cannotShowLine(admission.symbology, page),
+                    color = Muted,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(vertical = 6.dp),
+                )
+            }
             AtTheDoor.CannotShow -> Text(
                 cannotShowLine(admission.symbology, page),
                 color = Muted,

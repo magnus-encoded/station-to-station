@@ -1,6 +1,7 @@
 package io.github.magnusencoded.stationtostation
 
 import io.github.magnusencoded.stationtostation.data.StoredAdmission
+import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.TicketOriginals
 import io.github.magnusencoded.stationtostation.data.TimelineStore
 import io.github.magnusencoded.stationtostation.data.mergedAdmissions
@@ -65,6 +66,14 @@ class TicketOriginalsTest {
         assertEquals(again, mergedAdmissions(stored, again))
         assertEquals(again, mergedAdmissions(again, stored))
         assertEquals(again, mergedAdmissions(again, listOf(StoredAdmission("U1lOVEg=", "maxicode", original = "other.pdf"))))
+    }
+
+    @Test
+    fun `a record from another phone arrives with no original names`() {
+        val theirs = StoredAttendance(admissions = listOf(StoredAdmission("U1lOVEg=", "maxicode", original = "theirs.pdf")))
+
+        assertEquals(listOf<String?>(null), theirs.withoutOriginals().admissions.map { it.original })
+        assertEquals("U1lOVEg=", theirs.withoutOriginals().admissions.single().payload)
     }
 
     @Test

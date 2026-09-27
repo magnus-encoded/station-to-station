@@ -603,6 +603,14 @@ final class TimelineStoreTests: XCTestCase {
                                                                        original: "other.pdf")]))
     }
 
+    /// A kept original's name from another phone names a file this phone has not got.
+    func testARecordFromAnotherPhoneArrivesWithNoOriginalNames() {
+        var theirs = StoredAttendance()
+        theirs.admissions = [StoredAdmission(payload: "U1lOVEg=", symbology: "maxicode", original: "theirs.pdf")]
+
+        XCTAssertEqual([nil], theirs.withoutOriginals().admissions.map(\.original))
+    }
+
     func testAnAdmissionsOriginalRoundTrips() throws {
         let kept = StoredAdmission(payload: "U1lOVEg=", symbology: "maxicode", page: 1, original: "kept.pdf")
 

@@ -82,12 +82,21 @@ internal fun renderOriginal(file: File, page: Int, widthPx: Int = ORIGINAL_WIDTH
  * already says, or null for one.
  */
 @Composable
-internal fun OriginalAtTheDoor(file: File, page: Int, label: String?, border: Color, caption: Color) {
-    val bitmap by produceState<Bitmap?>(null, file, page) {
-        value = withContext(Dispatchers.IO) { renderOriginal(file, page) }
+internal fun OriginalAtTheDoor(
+    file: File,
+    page: Int,
+    label: String?,
+    border: Color,
+    caption: Color,
+    unrendered: @Composable () -> Unit,
+) {
+    // Null while drawing; a failed draw (a damaged, cut-off or locked PDF) says so.
+    val bitmap by produceState<Result<Bitmap?>?>(null, file, page) {
+        value = Result.success(withContext(Dispatchers.IO) { renderOriginal(file, page) })
     }
     var full by remember(file, page) { mutableStateOf(false) }
-    val shown = bitmap ?: return
+    val drawn = bitmap ?: return
+    val shown = drawn.getOrNull() ?: return unrendered()
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             Modifier

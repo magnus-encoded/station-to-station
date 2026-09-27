@@ -124,6 +124,17 @@ struct StoredAttendance: Codable, Equatable {
     }
 }
 
+extension StoredAttendance {
+    /// This record with no kept-original names (#568): what a handover from another phone
+    /// arrives as, since the file each names is on that phone. Only this phone's own
+    /// import sets one. Field for field with Android's `withoutOriginals`.
+    func withoutOriginals() -> StoredAttendance {
+        var out = self
+        for i in out.admissions.indices { out.admissions[i].original = nil }
+        return out
+    }
+}
+
 /// One **Admission** as stored (#441): field for field with Android's `StoredAdmission`.
 ///
 /// `payload` is base64 of the decoded payload's bytes — JSON has no binary, and a string

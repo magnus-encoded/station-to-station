@@ -27,8 +27,11 @@ struct OriginalAtTheDoor: View {
     let url: URL
     let page: Int
     let label: String?
+    /// What is said where the page cannot be drawn: a damaged, cut-off or locked PDF.
+    let unrendered: String
 
     @State private var image: UIImage?
+    @State private var failed = false
     @State private var full = false
 
     var body: some View {
@@ -49,11 +52,17 @@ struct OriginalAtTheDoor: View {
                 Text("Your original ticket. Tap to show it full screen.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
+            } else if failed {
+                Text(unrendered)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .task(id: url) {
             let url = url, page = page
             image = await Task.detached(priority: .userInitiated) { renderOriginal(url, page: page, width: 1200) }.value
+            failed = image == nil
         }
         .fullScreenCover(isPresented: $full) {
             if let image { OriginalFullScreen(image: image, label: label) }

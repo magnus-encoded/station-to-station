@@ -399,7 +399,8 @@ private fun TimelineCache.absorbing(
     )
     if (!facts) return merged
     return merged.copy(
-        gigAttendance = join(theirs.gigAttendance, gigAttendance, ::unionAttendance),
+        // A kept original's name is a file on their phone, never on this one (#568).
+        gigAttendance = join(theirs.gigAttendance.mapValues { it.value.withoutOriginals() }, gigAttendance, ::unionAttendance),
         gigLogs = join(theirs.gigLogs, gigLogs, ::unionLog),
         gigPlaylists = join(theirs.gigPlaylists, gigPlaylists, ::unionPlaylists),
         // One current value per night, and mine is the one I am standing in front of.

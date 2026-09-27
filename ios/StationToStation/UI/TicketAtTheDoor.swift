@@ -101,7 +101,8 @@ struct TicketAtTheDoor: View {
                     case .drawn(let drawing):
                         card(drawing, page: page)
                     case .original(let url):
-                        OriginalAtTheDoor(url: url, page: admission.page, label: page.label)
+                        OriginalAtTheDoor(url: url, page: admission.page, label: page.label,
+                                          unrendered: cannotShowLine(symbology: admission.symbology, page: page))
                     case .cannotShow:
                         Text(cannotShowLine(symbology: admission.symbology, page: page))
                             .font(.system(size: 12))

@@ -284,7 +284,9 @@ private func absorbing(mine: TimelineCache, theirs: TimelineCache,
     merged.gigMedia = join(media, mine.gigMedia, unionMedia)
     if !facts { return merged }
 
-    merged.gigAttendance = join(theirs.gigAttendance, mine.gigAttendance, unionAttendance)
+    // A kept original's name is a file on their phone, never on this one (#568).
+    merged.gigAttendance = join(theirs.gigAttendance.mapValues { $0.withoutOriginals() },
+                                mine.gigAttendance, unionAttendance)
     merged.gigLogs = join(theirs.gigLogs, mine.gigLogs, unionLog)
     merged.gigPlaylists = join(theirs.gigPlaylists, mine.gigPlaylists, unionPlaylists)
     // One current value per night, and mine is the one I am standing in front of.

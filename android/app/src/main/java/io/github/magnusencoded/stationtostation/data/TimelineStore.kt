@@ -96,6 +96,14 @@ data class StoredAttendance(
      */
     fun withProvenance(provenance: String): StoredAttendance = copy(provenance = provenance)
 
+    /**
+     * This record with no kept-original names (#568): what a handover from another phone
+     * arrives as, since the file each names is on that phone. Only this phone's own
+     * import sets one. The Swift twin is `StoredAttendance.withoutOriginals`.
+     */
+    fun withoutOriginals(): StoredAttendance =
+        if (admissions.none { it.original != null }) this else copy(admissions = admissions.map { it.copy(original = null) })
+
     /** Evidence strength, weakest first. Room for `attested` later; not built yet. */
     object Provenance {
         const val PLANNED = "planned"
