@@ -130,20 +130,6 @@ enum TicketSupport: String, Codable, Sendable {
     }
 }
 
-/// A **Ticket** waiting on the prompt. Identity of its own because several can queue
-/// up, and `.sheet(item:)` has to be able to tell one blank one from the next.
-struct TicketDraft: Identifiable, Equatable {
-    let id = UUID()
-    let ticket: Ticket
-    /// The night already on the **Line** this may be for, as the prompt says it
-    /// ("Dumdumboys — Rockefeller — 14-09-2026"). A hint and nothing more: the prompt's
-    /// answer is matched again (`confirmTicket`).
-    var possibleMatch: String? = nil
-    /// The inbox deposit this came from, left in the box until the prompt is answered
-    /// (`TicketInbox.remove`). Nil for a draft no deposit stands behind.
-    var depositId: String? = nil
-}
-
 /// What one PDF turned out to be worth.
 ///
 /// `nothingUsable` is a real answer and not an error: a scanned image with no text

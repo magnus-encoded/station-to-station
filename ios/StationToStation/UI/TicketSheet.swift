@@ -18,7 +18,12 @@ struct ConfirmTicketSheet: View {
     let ticket: Ticket
     /// `TicketDraft.possibleMatch`: said on the form, never acted on.
     let possibleMatch: String?
-    let onAdd: (String, String, String) -> Void
+    /// What the import's setlist.fm lookup offered (#531), drawn above "None of these"
+    /// while the artist and date are still the ones it looked up.
+    let setlistFm: TicketSetlistFm?
+    /// Artist, venue, date, and the setlist.fm hit ticked — nil for "None of these", or
+    /// where no list was showing.
+    let onAdd: (String, String, String, String?) -> Void
     let onCancel: () -> Void
 
     @EnvironmentObject var model: AppModel
@@ -28,18 +33,30 @@ struct ConfirmTicketSheet: View {
     /// The last spelling picked from the list, so writing it into the field is not
     /// mistaken for typing it — the same guard `AddPlannedGigSheet` needs.
     @State private var picked = ""
+    /// The setlist.fm hit ticked, nil for "None of these" (#531). Hidden, and so
+    /// answering nothing, once the artist or the date is edited away from the lookup.
+    @State private var chosen: String?
 
     init(ticket: Ticket,
          possibleMatch: String? = nil,
-         onAdd: @escaping (String, String, String) -> Void,
+         setlistFm: TicketSetlistFm? = nil,
+         onAdd: @escaping (String, String, String, String?) -> Void,
          onCancel: @escaping () -> Void) {
         self.ticket = ticket
         self.possibleMatch = possibleMatch
+        self.setlistFm = setlistFm
         self.onAdd = onAdd
+        _chosen = State(initialValue: setlistFm?.preselectedId)
         self.onCancel = onCancel
         _artist = State(initialValue: ticket.artist ?? "")
         _venue = State(initialValue: ticket.venue ?? "")
         _date = State(initialValue: ticket.date.map { fmDate($0) } ?? "")
+    }
+
+    /// The lookup's list, while the fields still name the night it was found for.
+    private var offered: TicketSetlistFm? {
+        guard let setlistFm, setlistFm.offeredFor(artist: artist, date: date) else { return nil }
+        return setlistFm
     }
 
     private var ready: Bool {
@@ -75,6 +92,19 @@ struct ConfirmTicketSheet: View {
                 } footer: {
                     Text(footer)
                 }
+                if let fm = offered {
+                    Section {
+                        ForEach(fm.candidates, id: \.setlist.id) { candidate in
+                            choice(candidate.setlist.id,
+                                   setlistFmQuestion(yourVenue: ticket.venue, fromTicket: true,
+                                                     candidate: candidate)
+                                       ?? StoredSetlistFmHit(candidate).line())
+                        }
+                        choice(nil, "None of these")
+                    } header: {
+                        Text(possibleMatchTitle)
+                    }
+                }
                 if !ticket.admissions.isEmpty {
                     Section {
                         ConfirmAdmissions(admissions: ticket.admissions)
@@ -94,12 +124,26 @@ struct ConfirmTicketSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") {
                         model.clearArtistSuggestions()
-                        onAdd(artist, venue, date)
+                        onAdd(artist, venue, date, offered != nil ? chosen : nil)
                     }
                     .disabled(!ready)
                 }
             }
         }
+    }
+
+    /// One row of the setlist.fm list: a single choice, `id` nil being "None of these".
+    private func choice(_ id: String?, _ text: String) -> some View {
+        Button {
+            chosen = id
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: chosen == id ? "largecircle.fill.circle" : "circle")
+                    .foregroundStyle(chosen == id ? Color.accentColor : slate)
+                Text(text).font(.footnote).foregroundStyle(.primary)
+            }
+        }
+        .accessibilityAddTraits(chosen == id ? .isSelected : [])
     }
 
     private var footer: String {

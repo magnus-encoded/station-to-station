@@ -165,6 +165,8 @@ struct GigView: View {
     @State private var filing = false
     @State private var adopting = false
     @State private var deleting = false
+    /// Whether the "Possible match on setlist.fm" list is open (#531).
+    @State private var askingMatch = false
     @State private var adoptLink = ""
 
     /// What this delete actually costs, said plainly. The count is of keepsakes whose
@@ -394,6 +396,27 @@ struct GigView: View {
         // Asked always, where Android asks only when it holds the only copy of a
         // photograph. The Log goes either way, and a written record of what I heard is
         // not a pointer into anything that could give it back.
+        // The chip opened (#531): each hit a lookup was not sure of. A row adopts it;
+        // "None of these" rejects them all; "Not now" leaves the question waiting.
+        .sheet(isPresented: $askingMatch) {
+            if let show = model.state.selectedSetlist, show.isLocal {
+                PossibleMatchSheet(
+                    gigId: show.id,
+                    yourVenue: show.venue?.name,
+                    fromTicket: !(model.state.attendanceByGig[show.id]?.admissions.isEmpty ?? true),
+                    onPick: { hitId in
+                        model.acceptSetlistFmMatch(gigId: show.id, setlistId: hitId)
+                        askingMatch = false
+                    },
+                    onNone: {
+                        model.rejectSetlistFmMatches(gigId: show.id)
+                        askingMatch = false
+                    },
+                    onDismiss: { askingMatch = false }
+                )
+                .environmentObject(model)
+            }
+        }
         .alert("Delete this night?", isPresented: $deleting) {
             Button("Delete", role: .destructive) {
                 if let show = model.state.selectedSetlist {
@@ -485,6 +508,21 @@ struct GigView: View {
             Text(show.artist?.name ?? "Unknown artist")
                 .font(.system(size: 26, design: .serif)).foregroundStyle(ink)
             Text(show.venueLine()).font(.system(size: 14)).foregroundStyle(muted)
+            // A lookup found something but was not sure (#531): the question waits here,
+            // on the night, until it is answered. Dismissing the list leaves it waiting;
+            // the automatic checks pause meanwhile.
+            if show.isLocal,
+               model.state.attendanceByGig[show.id]?.setlistFmLookup?.possibleMatchPending == true {
+                Button { askingMatch = true } label: {
+                    Text(possibleMatchTitle)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(amber)
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .overlay(Capsule().stroke(amber, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 8)
+            }
             // The same swap that was already here, with the ticket now on the near
             // side of it (#414). Checking in is what retires the barcode — you are
             // inside — so the checked-in line replaces the QR rather than sitting
@@ -696,4 +734,57 @@ private extension GigView {
 private func publishedTitle(_ row: EventRow) -> String? {
     if case .song(_, let name, _) = row { return name }
     return nil
+}
+
+/// The Gig screen's "Possible match on setlist.fm" chip, opened (#531): each hit a lookup
+/// was not sure of, asked as `setlistFmQuestion` where the room is in doubt. A row is
+/// "yes, this one"; "None of these" rejects them all; "Not now" leaves the question
+/// waiting. The hits are the stored snapshot, fetched afresh where that was lost.
+private struct PossibleMatchSheet: View {
+    let gigId: String
+    let yourVenue: String?
+    let fromTicket: Bool
+    let onPick: (String) -> Void
+    let onNone: () -> Void
+    let onDismiss: () -> Void
+
+    @EnvironmentObject var model: AppModel
+    @State private var hits: [StoredSetlistFmHit]?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if let hits {
+                    ForEach(hits, id: \.id) { hit in
+                        Button { onPick(hit.id) } label: {
+                            Text(setlistFmQuestion(yourVenue: yourVenue, fromTicket: fromTicket, hit: hit)
+                                 ?? hit.line())
+                                .font(.system(size: 14)).foregroundStyle(ink)
+                        }
+                    }
+                    Button { onNone() } label: {
+                        Text("None of these").font(.system(size: 14)).foregroundStyle(muted)
+                    }
+                } else {
+                    HStack {
+                        Spacer()
+                        ProgressView().tint(amber)
+                        Spacer()
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(raised)
+            .navigationTitle(possibleMatchTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Not now") { onDismiss() }.tint(faint)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .preferredColorScheme(.dark)
+        .task(id: gigId) { hits = await model.setlistFmChipHits(gigId: gigId) }
+    }
 }

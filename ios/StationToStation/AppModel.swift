@@ -543,21 +543,54 @@ final class AppModel: ObservableObject {
         // `loadPlannedGigs` has put them there, and a ticket for a night planned by hand
         // would then be minted a second time.
         let known = state.timelineShows + (await timelines.load()).planned()
-        switch routeTicket(parse, knownNights: known, now: now) {
-        case .match(let gigId):
+        let route = routeTicket(parse, knownNights: known, now: now)
+        // setlist.fm is asked before anything is written or asked (#531): by artist and
+        // day, never venue. A night already known needs no search here; a local one is
+        // looked up once its Admissions are on it.
+        let artist = ticket.artist?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
+        let date = ticket.date.map { fmDate($0) }
+        let alreadyKnown: Bool = { if case .match = route { return true } else { return false } }()
+        var search: TicketSearch?
+        if !alreadyKnown, let artist, let date {
+            search = await ticketSearch(ticket, artist: artist, date: date)
+        }
+        let knownIds = Set(known.filter { !$0.isLocal }.map(\.id))
+        let localIds = Set(known.filter { $0.isLocal }.map(\.id))
+        switch ticketImport(route, match: search?.match, knownIds: knownIds, localIds: localIds) {
+        case .attach(let gigId):
             await attachAdmissions(gigId: gigId, ticket.admissions)
             state.notice = "That night is already on your line."
-        case .add(let complete):
-            await put(complete)
-        case .confirm(let found, let possible):
-            let hint = possible.flatMap { id in known.first { $0.id == id } }.map { night in
-                [night.artist?.name ?? "", night.venueLine(), night.eventDate ?? ""]
-                    .filter { !$0.isEmpty }.joined(separator: " — ")
+        case .attachThenLookUp(let gigId):
+            await attachAdmissions(gigId: gigId, ticket.admissions)
+            state.notice = "That night is already on your line."
+            await lookUpLocalGig(gigId, manual: false)
+        case .mintFromSetlistFm(let hit):
+            await planFmGig(hit)
+            await attachAdmissions(gigId: hit.id, ticket.admissions)
+        case .mintLocal:
+            guard case .add(let complete) = route else { return false }
+            if let gigId = await put(complete), let search {
+                await stampLookup(gigId: gigId,
+                                  TicketSetlistFmAnswer(chosen: nil, rejectedIds: [], lookedUpAt: search.at))
             }
-            state.ticketDrafts.append(TicketDraft(ticket: found, possibleMatch: hint, depositId: depositId))
-            return true
-        case .unreadable:
-            state.ticketDrafts.append(TicketDraft(ticket: Ticket(), depositId: depositId))
+        case .prompt(let candidates, let preselectedId):
+            let offered = search.map {
+                TicketSetlistFm(candidates: candidates, preselectedId: preselectedId,
+                                artist: artist ?? "", date: date ?? "", lookedUpAt: $0.at)
+            }
+            switch route {
+            case .confirm(let found, let possible):
+                let hint = possible.flatMap { id in known.first { $0.id == id } }.map { night in
+                    [night.artist?.name ?? "", night.venueLine(), night.eventDate ?? ""]
+                        .filter { !$0.isEmpty }.joined(separator: " — ")
+                }
+                state.ticketDrafts.append(TicketDraft(ticket: found, possibleMatch: hint,
+                                                      depositId: depositId, setlistFm: offered))
+            case .add(let found):
+                state.ticketDrafts.append(TicketDraft(ticket: found, depositId: depositId, setlistFm: offered))
+            case .match, .unreadable:
+                state.ticketDrafts.append(TicketDraft(ticket: Ticket(), depositId: depositId, setlistFm: offered))
+            }
             return true
         }
         return false
@@ -649,10 +682,13 @@ final class AppModel: ObservableObject {
 
     /// What was confirmed — by the parse being complete, or by a person — put on the
     /// **Line**. The Admissions ride along whether or not the text parse managed anything.
-    private func put(_ ticket: Ticket) async {
-        guard let artist = ticket.artist, let night = ticket.date else { return }
+    /// The new night's id, nil where the ticket lacked an artist or a date.
+    @discardableResult
+    private func put(_ ticket: Ticket) async -> String? {
+        guard let artist = ticket.artist, let night = ticket.date else { return nil }
         let gigId = await mintPlannedGig(artist: artist, venue: ticket.venue ?? "", night: night)
         await attachAdmissions(gigId: gigId, ticket.admissions)
+        return gigId
     }
 
     /// The prompt answered: what the parse read, corrected and filled in by the person
@@ -665,7 +701,12 @@ final class AppModel: ObservableObject {
     ///
     /// Acts on the draft it was shown for, by id, never on whichever is first by the
     /// time it runs: its deposit is removed from the inbox once the write has landed.
-    func confirmTicket(_ draftId: UUID, artist: String, venue: String, date: String) {
+    ///
+    /// `chosenSetlistId` is the setlist.fm hit ticked above "None of these" (#531), nil
+    /// for "None of these" or where no list was shown. An edited artist or date hid the
+    /// list, so it then neither chooses nor rejects anything (`TicketSetlistFm.answer`).
+    func confirmTicket(_ draftId: UUID, artist: String, venue: String, date: String,
+                       chosenSetlistId: String? = nil) {
         guard let draft = state.ticketDrafts.first(where: { $0.id == draftId }) else { return }
         let pending = draft.ticket
         let who = artist.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -679,12 +720,34 @@ final class AppModel: ObservableObject {
         // The Admissions are the parse's, whatever the person corrected (story 16).
         let confirmed = Ticket(admissions: pending.admissions, artist: who,
                                venue: room.nilIfBlank, date: night)
+        let answer = draft.setlistFm?.answer(artist: artist, date: date, chosenId: chosenSetlistId)
+            ?? .unasked
         Task {
-            if let known = knownNight(confirmed, among: knownNights) {
-                await attachAdmissions(gigId: known.id, confirmed.admissions)
-                state.notice = "That night is already on your line."
+            let known = knownNights
+            let landing = knownNight(confirmed, among: known)
+            if let hit = answer.chosen {
+                if known.contains(where: { $0.id == hit.id }) {
+                    await attachAdmissions(gigId: hit.id, confirmed.admissions)
+                    state.notice = "That night is already on your line."
+                } else if let local = landing, local.isLocal {
+                    // The night is already here as a local Gig: it takes the hit's id.
+                    await attachAdmissions(gigId: local.id, confirmed.admissions)
+                    await adoptSetlist(gigId: local.id, setlistId: hit.id, fresh: hit, notice: true)
+                } else {
+                    await planFmGig(hit)
+                    await attachAdmissions(gigId: hit.id, confirmed.admissions)
+                }
             } else {
-                await put(confirmed)
+                let gigId: String?
+                if let landing {
+                    await attachAdmissions(gigId: landing.id, confirmed.admissions)
+                    state.notice = "That night is already on your line."
+                    gigId = landing.id
+                } else {
+                    gigId = await put(confirmed)
+                }
+                // "None of these": every hit offered is not this night, and the lookup counts.
+                if let gigId { await stampLookup(gigId: gigId, answer) }
             }
             settleDeposit(draft.depositId)
         }
@@ -842,31 +905,47 @@ final class AppModel: ObservableObject {
             return
         }
         Task {
-            // Read before the adoption, because afterwards the night answers to the new id and
-            // the deadline that decides whether the radio is still running would be keyed by it.
-            // A night that already had an id is not an adoption, and authors nothing.
-            let before = await timelines.load()
-            let until = before.gigs[gigId]?.setlistId == nil
-                ? gossipParticipationEnds(cache: before, stoppedAt: GossipTransport.shared.stoppedAt)[gigId] ?? 0
-                : 0
-            guard await timelines.adoptSetlistId(gigId: gigId, setlistId: setlistId) else {
+            if !(await adoptSetlist(gigId: gigId, setlistId: setlistId, fresh: nil, notice: true)) {
                 state.error = "That night already has a setlist.fm id."
                 state.errorKind = nil
-                return
             }
-            await GossipChannel.shared.adoptedGigId(gigId: setlistId, formerGigId: gigId,
-                                                   localGigId: gigId, until: until)
-            // Whether or not anything was authored, the night now answers to a second id
-            // and the mark has to follow it.
-            await refreshWitnessed(state.publicGossip)
-            state.notice = "Adopted — this night is on setlist.fm now."
-            // The real record replaces the stub: it has the url, the songs whoever typed
-            // them in logged, and an id friends' lines can meet at.
-            guard let fresh = try? await setlistFm.setlist(setlistId) else { return }
-            state.attendanceByGig[fresh.id] = await timelines.savePlanned(fresh)
-            state.plannedGigs = sortedPlanned(state.plannedGigs.filter { $0.id != gigId } + [fresh])
-            if state.selectedSetlist?.id == gigId { state.selectedSetlist = fresh }
         }
+    }
+
+    /// Local **Gig** `gigId` takes setlist.fm's `setlistId`: `adoptSetlistLink`'s pasted
+    /// link, a search hit the person picked, or one the automatic checks were sure of
+    /// (#531). `fresh` is the record already in hand from a search, which saves asking
+    /// setlist.fm for it again; nil fetches it. `notice` shows "Adopted". False where the
+    /// night already had an id, or is gone, and nothing was changed.
+    @discardableResult
+    private func adoptSetlist(gigId: String, setlistId: String, fresh: FmSetlist?, notice: Bool) async -> Bool {
+        // Read before the adoption, because afterwards the night answers to the new id and
+        // the deadline that decides whether the radio is still running would be keyed by it.
+        // A night that already had an id is not an adoption, and authors nothing.
+        let before = await timelines.load()
+        let until = before.gigs[gigId]?.setlistId == nil
+            ? gossipParticipationEnds(cache: before, stoppedAt: GossipTransport.shared.stoppedAt)[gigId] ?? 0
+            : 0
+        guard await timelines.adoptSetlistId(gigId: gigId, setlistId: setlistId) else { return false }
+        await GossipChannel.shared.adoptedGigId(gigId: setlistId, formerGigId: gigId,
+                                               localGigId: gigId, until: until)
+        // Whether or not anything was authored, the night now answers to a second id
+        // and the mark has to follow it.
+        await refreshWitnessed(state.publicGossip)
+        if notice { state.notice = "Adopted — this night is on setlist.fm now." }
+        // The real record replaces the stub: it has the url, the songs whoever typed
+        // them in logged, and an id friends' lines can meet at.
+        let record: FmSetlist?
+        if let fresh, fresh.id == setlistId {
+            record = fresh
+        } else {
+            record = try? await setlistFm.setlist(setlistId)
+        }
+        guard let real = record else { return true }
+        state.attendanceByGig[real.id] = await timelines.savePlanned(real)
+        state.plannedGigs = sortedPlanned(state.plannedGigs.filter { $0.id != gigId && $0.id != real.id } + [real])
+        if state.selectedSetlist?.id == gigId { state.selectedSetlist = real }
+        return true
     }
 
     func addPlannedGig(_ linkOrId: String) {
@@ -880,14 +959,20 @@ final class AppModel: ObservableObject {
         Task {
             do {
                 let gig = try await setlistFm.setlist(id)
-                state.attendanceByGig[gig.id] = await timelines.savePlanned(gig)
-                state.plannedGigs = sortedPlanned(state.plannedGigs.filter { $0.id != gig.id } + [gig])
+                await planFmGig(gig)
                 state.planningLoading = false
             } catch {
                 state.planningLoading = false
                 fail(error)
             }
         }
+    }
+
+    /// A setlist.fm night onto the plan, as setlist.fm has it: `addPlannedGig`'s write,
+    /// shared with a ticket whose lookup found its night (#531).
+    private func planFmGig(_ hit: FmSetlist) async {
+        state.attendanceByGig[hit.id] = await timelines.savePlanned(hit)
+        state.plannedGigs = sortedPlanned(state.plannedGigs.filter { $0.id != hit.id } + [hit])
     }
 
     /// Forgets a gig I'm not going to after all.
@@ -2104,10 +2189,16 @@ final class AppModel: ObservableObject {
     /// plumbing it names lives here.
     ///
     /// A failed pull changes nothing and shows nothing. Being offline costs nothing.
+    ///
+    /// A local **Gig** is asked of setlist.fm first, whatever the curtain says (#531): the
+    /// pull is how a person says "is it there yet?". The curtain's own action then runs
+    /// as it always has, less the setlist refresh the lookup already was.
     func pullCurtain(_ curtain: Curtain) async {
+        let local = state.selectedSetlist?.isLocal == true
+        if local { await refreshSelectedSetlist() }
         switch curtainAction(curtain) {
         case .fetchCatalogue: await fetchCatalogue(state.selectedSetlist?.artist?.mbid)
-        case .fetchSetlist: await refreshSelectedSetlist()
+        case .fetchSetlist: if !local { await refreshSelectedSetlist() }
         // No "did this event move" endpoint exists, so `checkEvent` asks for
         // nothing rather than for a fetch pretending to be one.
         case .nothing: break
@@ -2118,11 +2209,15 @@ final class AppModel: ObservableObject {
     /// filled a record that was linked and empty.
     ///
     /// A local **Gig**'s id is this app's and not setlist.fm's, so asking for it is a
-    /// guaranteed 404 dressed up as an error nobody can act on. The way a local night
-    /// gets a real record is adoption, not refresh.
+    /// guaranteed 404. A pull on one asks setlist.fm whether the night is there yet
+    /// instead (#531), by artist and day, the way the automatic checks do.
     private func refreshSelectedSetlist() async {
-        guard let open = state.selectedSetlist, open.url != nil,
-              let fresh = try? await setlistFm.setlist(open.id),
+        guard let open = state.selectedSetlist else { return }
+        if open.isLocal {
+            await refreshLocalGig(open.id)
+            return
+        }
+        guard let fresh = try? await setlistFm.setlist(open.id),
               state.selectedSetlist?.id == fresh.id
         else { return }
         state.selectedSetlist = fresh
@@ -2134,6 +2229,225 @@ final class AppModel: ObservableObject {
         if state.plannedGigs.contains(where: { $0.id == fresh.id }) {
             state.plannedGigs = state.plannedGigs.map { $0.id == fresh.id ? fresh : $0 }
             await timelines.savePlanned(fresh)
+        }
+    }
+
+    // --- setlist.fm lookups for local Gigs (#531) ---
+
+    /// How long a shared ticket's import waits on setlist.fm before reading it as no match.
+    private static let ticketLookupTimeout: UInt64 = 5_000_000_000
+    /// The automatic checks' longest sleep: a night coming due is noticed within this.
+    private static let lookupCheckCap: TimeInterval = 5 * 60
+
+    private var nowMillis: Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
+
+    /// One import lookup: what it came to (nil where it failed) and when it went out.
+    private struct TicketSearch {
+        let match: SetlistFmMatch?
+        let at: Int64
+    }
+
+    /// setlist.fm's `search/setlists` for a shared ticket's `artist` and `date`, held to
+    /// `ticket` by the matcher. The person is waiting on the import, so it gets a few
+    /// seconds and no more; a failure, a refusal or a timeout reads as no match.
+    ///
+    /// Raced rather than awaited: the client's retries sleep through a cancellation, so
+    /// the import stops waiting on the request instead, and the timer then cancels it.
+    private func ticketSearch(_ ticket: Ticket, artist: String, date: String) async -> TicketSearch {
+        let at = nowMillis
+        let client = setlistFm
+        let timeout = Self.ticketLookupTimeout
+        let hits: [FmSetlist]? = await withCheckedContinuation { continuation in
+            let once = ResumeOnce(continuation)
+            let request = Task {
+                let found = try? await client.searchSetlists(artistName: artist, date: date).setlist
+                once.resume(found)
+            }
+            once.timer = Task {
+                try? await Task.sleep(nanoseconds: timeout)
+                guard !Task.isCancelled else { return }
+                once.resume(nil)
+                request.cancel()
+            }
+        }
+        var asked = ticket
+        asked.artist = artist
+        let match = hits.map { matchSetlistFm(asked, hits: $0, lineArtists: lineArtists()) }
+        return TicketSearch(match: match, at: at)
+    }
+
+    /// The artists already on my **Line**, for the matcher's artist check: one per
+    /// MusicBrainz id.
+    private func lineArtists() -> [FmArtist] {
+        var seen = Set<String>()
+        return knownNights.compactMap(\.artist)
+            .filter { !$0.mbid.trimmingCharacters(in: .whitespaces).isEmpty && seen.insert($0.mbid).inserted }
+    }
+
+    /// A lookup's settled record into state, for the chip and the open night.
+    private func storeAttendance(_ gigId: String, _ settled: StoredAttendance) {
+        state.attendanceByGig[gigId] = settled
+        if state.selectedSetlist?.id == gigId { state.selectedAttendance = settled }
+    }
+
+    /// `answer` onto local Gig `gigId`'s stored lookup; nothing for a setlist.fm night or
+    /// an empty answer.
+    private func stampLookup(gigId: String, _ answer: TicketSetlistFmAnswer) async {
+        guard answer.recordsAnything,
+              let gig = await timelines.load().gigs[gigId], gig.setlistId == nil,
+              let settled = await timelines.editSetlistFmLookup(gigId: gigId, { answer.applyTo($0) })
+        else { return }
+        storeAttendance(gigId, settled)
+    }
+
+    /// A pull on local Gig `gigId`: one lookup now, whatever the schedule says, unless
+    /// the last one went out under a minute ago — then nothing is sent or stamped, and
+    /// the notice says the checks carry on.
+    private func refreshLocalGig(_ gigId: String) async {
+        let last = state.attendanceByGig[gigId]?.setlistFmLookup?.lastLookupAt
+            .map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
+        if manualSetlistFmLookup(lastLookupAt: last, now: Date()) == .friction {
+            state.notice = lookupFrictionMessage
+            return
+        }
+        await lookUpLocalGig(gigId, manual: true)
+    }
+
+    /// One setlist.fm lookup for local Gig `gigId`: `search/setlists` by its artist and
+    /// day, no venue, held to the night by `setlistFmLookupOutcome`. A sure hit is adopted
+    /// with the "Adopted" notice; a doubtful one becomes the "Possible match" chip;
+    /// nothing only stamps. `manual` is a pull, which says so when setlist.fm refuses or
+    /// fails; the automatic checks say nothing.
+    ///
+    /// False when setlist.fm refused for its quota, which stops a batch of checks.
+    @discardableResult
+    private func lookUpLocalGig(_ gigId: String, manual: Bool) async -> Bool {
+        guard let gig = await timelines.load().gigs[gigId] else { return true }
+        if gig.setlistId != nil || gig.artist.trimmingCharacters(in: .whitespaces).isEmpty
+            || parseFmDate(gig.date) == nil { return true }
+        let at = nowMillis
+        let hits: [FmSetlist]
+        do {
+            hits = try await setlistFm.searchSetlists(artistName: gig.artist, date: gig.date).setlist
+        } catch {
+            // The checks were stopped under it: nothing was learned, so nothing is stamped.
+            if Task.isCancelled || error is CancellationError { return true }
+            // The request went out (or was refused on the quota): stamped either way, so
+            // the schedule does not ask again at once.
+            if let settled = await timelines.editSetlistFmLookup(gigId: gigId, { $0.lookedUp(at: at) }) {
+                storeAttendance(gigId, settled)
+            }
+            if error is SetlistFmRateLimited {
+                if manual { fail(error) }
+                return false
+            }
+            if manual { state.notice = "setlist.fm didn't have that one just now — showing what's saved." }
+            return true
+        }
+        let ticket = Ticket(artist: gig.artist, venue: gig.venue.nilIfBlank, date: gigDay(gig.date))
+        let artists = lineArtists()
+        var outcome: LookupOutcome?
+        let settled = await timelines.editSetlistFmLookup(gigId: gigId) { had in
+            let next = setlistFmLookupOutcome(ticket, hits: hits, lineArtists: artists,
+                                              lookup: had, nowMillis: at)
+            outcome = next
+            // A sure hit settles any question a chip was still asking.
+            if case .adopt = next { return next.next.asking([]) }
+            return next.next
+        }
+        guard let settled else { return true }
+        storeAttendance(gigId, settled)
+        if case .adopt(let hit, _)? = outcome {
+            await adoptSetlist(gigId: gigId, setlistId: hit.id, fresh: hit, notice: true)
+        }
+        return true
+    }
+
+    private var lookupChecks: Task<Void, Never>?
+
+    /// The automatic setlist.fm checks, while the app is in the foreground: at launch, on
+    /// coming back, and on a timer. Each pass plans every local Gig with
+    /// `setlistFmLookupPlan`, looks up the ones due one at a time, and sleeps until the
+    /// next is due, five minutes at most. Nothing at all without a setlist.fm key. Called
+    /// from `init` and on `.active`; `stopLookupChecks` on leaving the foreground.
+    func startLookupChecks() {
+        guard lookupChecks == nil else { return }
+        lookupChecks = Task {
+            while !Task.isCancelled {
+                for gigId in (await lookupPlan())?.dueNow ?? [] {
+                    if Task.isCancelled { return }
+                    if !(await lookUpLocalGig(gigId, manual: false)) { break }
+                }
+                let next = await lookupPlan()
+                var pause = Self.lookupCheckCap
+                if let next, next.dueNow.isEmpty, let wake = next.nextWakeAt {
+                    pause = min(max(wake.timeIntervalSinceNow, 1), Self.lookupCheckCap)
+                }
+                try? await Task.sleep(nanoseconds: UInt64(pause * 1_000_000_000))
+            }
+        }
+    }
+
+    /// The app left the foreground: no lookups until `startLookupChecks` again.
+    func stopLookupChecks() {
+        lookupChecks?.cancel()
+        lookupChecks = nil
+    }
+
+    /// What the automatic checks do next, from the store: every local Gig with a claim on
+    /// it (planned or attended) and an artist to search by. Nil without a setlist.fm key.
+    private func lookupPlan() async -> LookupPlan? {
+        guard let key = settings.setlistFmKey else { return nil }
+        let cache = await timelines.load()
+        let ends = gossipParticipationEnds(cache: cache, stoppedAt: GossipTransport.shared.stoppedAt)
+        let gigs: [LookupGig] = cache.gigs.values.compactMap { (gig: StoredGig) -> LookupGig? in
+            guard gig.setlistId == nil, !gig.artist.trimmingCharacters(in: .whitespaces).isEmpty,
+                  parseFmDate(gig.date) != nil,
+                  let attendance = cache.gigAttendance[gig.id]
+            else { return nil }
+            let until = ends[gig.id].flatMap { $0 > 0 ? Date(timeIntervalSince1970: TimeInterval($0) / 1000) : nil }
+            return LookupGig(id: gig.id, date: gig.date, local: true,
+                             lookup: attendance.setlistFmLookup, participationUntil: until)
+        }
+        return setlistFmLookupPlan(gigs, now: Date(), sharedKey: key.shared,
+                                   sharedQuotaSpentAt: settings.setlistFmSharedQuotaSpentAt)
+    }
+
+    /// The hits local Gig `gigId`'s "Possible match on setlist.fm" chip asks about, best
+    /// first: the stored snapshot, or — where that was lost but ids are still pending —
+    /// each fetched from setlist.fm afresh. Empty when nothing is pending.
+    func setlistFmChipHits(gigId: String) async -> [StoredSetlistFmHit] {
+        guard let lookup = state.attendanceByGig[gigId]?.setlistFmLookup,
+              lookup.possibleMatchPending else { return [] }
+        let stored = lookup.chipHits()
+        if !stored.isEmpty { return stored }
+        var fetched: [StoredSetlistFmHit] = []
+        for id in lookup.pendingHitIds {
+            if let hit = try? await setlistFm.setlist(id) { fetched.append(hit.asStoredHit()) }
+        }
+        return fetched
+    }
+
+    /// The chip's "Yes": the question is settled and local Gig `gigId` takes hit `setlistId`.
+    func acceptSetlistFmMatch(gigId: String, setlistId: String) {
+        Task {
+            if let settled = await timelines.editSetlistFmLookup(gigId: gigId, { $0.asking([]) }) {
+                storeAttendance(gigId, settled)
+            }
+            if !(await adoptSetlist(gigId: gigId, setlistId: setlistId, fresh: nil, notice: true)) {
+                state.error = "That night already has a setlist.fm id."
+                state.errorKind = nil
+            }
+        }
+    }
+
+    /// The chip's "None of these": every hit it asked about is not this night, and the
+    /// checks resume.
+    func rejectSetlistFmMatches(gigId: String) {
+        Task {
+            guard let settled = await timelines.editSetlistFmLookup(gigId: gigId, { $0.rejectingPending() })
+            else { return }
+            storeAttendance(gigId, settled)
         }
     }
 
@@ -2389,5 +2703,31 @@ final class AppModel: ObservableObject {
         state.playlistsBySetlist[setlistId] =
             (state.playlistsBySetlist[setlistId] ?? []).filter { $0.url != url }
         Task { await timelines.removePlaylist(setlistId: setlistId, url: url) }
+    }
+}
+
+/// A continuation resumed by whichever of two tasks gets there first, the other ignored:
+/// `AppModel.ticketSearch`'s request against its timer. The winner cancels the timer.
+private final class ResumeOnce<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<T, Never>?
+    private var _timer: Task<Void, Never>?
+
+    init(_ continuation: CheckedContinuation<T, Never>) { self.continuation = continuation }
+
+    var timer: Task<Void, Never>? {
+        get { lock.lock(); defer { lock.unlock() }; return _timer }
+        set { lock.lock(); _timer = newValue; lock.unlock() }
+    }
+
+    func resume(_ value: T) {
+        lock.lock()
+        let waiting = continuation
+        continuation = nil
+        let timer = _timer
+        lock.unlock()
+        guard let waiting else { return }
+        timer?.cancel()
+        waiting.resume(returning: value)
     }
 }

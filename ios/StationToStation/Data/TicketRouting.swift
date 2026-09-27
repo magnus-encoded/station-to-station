@@ -5,6 +5,25 @@ import Foundation
 // extension has neither and must not learn them. The extension extracts and parses;
 // the app is the only thing that decides what a **Ticket** becomes.
 
+/// A **Ticket** waiting on the prompt. Identity of its own because several can queue
+/// up, and `.sheet(item:)` has to be able to tell one blank one from the next. Lives
+/// here rather than beside `Ticket` since it carries setlist.fm hits (#531), which the
+/// Share Extension does not compile.
+struct TicketDraft: Identifiable, Equatable {
+    let id = UUID()
+    let ticket: Ticket
+    /// The night already on the **Line** this may be for, as the prompt says it
+    /// ("Dumdumboys — Rockefeller — 14-09-2026"). A hint and nothing more: the prompt's
+    /// answer is matched again (`confirmTicket`).
+    var possibleMatch: String? = nil
+    /// The inbox deposit this came from, left in the box until the prompt is answered
+    /// (`TicketInbox.remove`). Nil for a draft no deposit stands behind.
+    var depositId: String? = nil
+    /// What the import's setlist.fm lookup offered (#531), nil when none ran. The
+    /// prompt lists its candidates above "None of these" while the search stands.
+    var setlistFm: TicketSetlistFm? = nil
+}
+
 /// What the app should do with a **Ticket** the extension left in the inbox.
 enum TicketRoute: Equatable {
     /// The night is already on the **Line**. Nothing is minted; the **Admissions** are
