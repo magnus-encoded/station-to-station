@@ -22,6 +22,10 @@ import io.github.magnusencoded.stationtostation.data.clashfinder.ClashfinderClie
 import io.github.magnusencoded.stationtostation.data.clashfinder.clashfinderUrl
 import io.github.magnusencoded.stationtostation.data.SettingsRepository
 import io.github.magnusencoded.stationtostation.data.StoredAdmission
+import io.github.magnusencoded.stationtostation.data.TicketOriginals
+import io.github.magnusencoded.stationtostation.data.keepingOriginal
+import io.github.magnusencoded.stationtostation.data.needsOriginal
+import io.github.magnusencoded.stationtostation.data.originals
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredFestival
 import io.github.magnusencoded.stationtostation.data.ProgrammeDiff
@@ -658,6 +662,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     val settings = SettingsRepository(application)
     private val timelines = TimelineStore(application)
+    private val ticketOriginals = TicketOriginals.of(application)
     private val setlistFm = SetlistFmClient(
         keySource = { settings.setlistFmKey() },
         sharedQuotaSpentAt = { settings.sharedQuotaSpentAtValue() },
@@ -2205,7 +2210,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun handleSharedTicketPdf(uri: Uri) {
         viewModelScope.launch {
             val parsed = parseTicket(uri, PdfTicketExtractor.onDevice(getApplication()))
-            routeParsedTicket(parsed)
+            routeParsedTicket(parsed) {
+                getApplication<Application>().contentResolver.openInputStream(uri)
+                    ?.use { ticketOriginals.keep(it, "pdf") }
+            }
         }
     }
 
@@ -2247,9 +2255,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * 29), whichever path it came in by: [routeTicket] adds nothing without asking whose
      * barcode the app could not show, and the prompt says which one. One zxing decode
      * each, off the main thread.
+     *
+     * Where one does not redraw, [keepOriginal] copies the shared file in (#568) and
+     * every such Admission names it: the Room shows that file in its place, so the
+     * ticket needs no prompt for it. Null for a path with no file (a link).
      */
-    private suspend fun routeParsedTicket(read: ParsedTicket) {
-        val parsed = withContext(Dispatchers.Default) { read.checkedForRedraw() }
+    private suspend fun routeParsedTicket(read: ParsedTicket, keepOriginal: (() -> String?)? = null) {
+        val parsed = withContext(Dispatchers.IO) {
+            val checked = read.checkedForRedraw()
+            if (keepOriginal != null && checked.needsOriginal) {
+                checked.keepingOriginal(runCatching { keepOriginal() }.getOrNull())
+            } else {
+                checked
+            }
+        }
         val known = _state.value.setlists + _state.value.plannedGigs
         val routing = routeTicket(parsed, known)
         // setlist.fm is asked before anything is written or asked (#531): by artist and
@@ -2398,8 +2417,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** The confirm dialog's Discard — the guess is dropped, nothing is written. */
-    fun dismissPendingTicket(id: String) = _state.update { it.answeringTicket(id) }
+    /** The confirm dialog's Discard — the guess is dropped, nothing is written, and no file is kept for it (#568). */
+    fun dismissPendingTicket(id: String) {
+        _state.value.pendingTickets.firstOrNull { it.id == id }?.parsed?.originals?.forEach(ticketOriginals::forget)
+        _state.update { it.answeringTicket(id) }
+    }
 
     /** [addPlannedGigByHand]'s write, shared by both ticket paths above. */
     private suspend fun addParsedPlannedGig(
@@ -2428,6 +2450,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun attachAdmissions(gigId: String, admissions: List<Admission>) {
         if (admissions.isEmpty()) return
         val attendance = timelines.attachAdmissions(gigId, admissions.map(StoredAdmission::of))
+        // The same ticket shared twice keeps its first file; the second copy is named by nothing.
+        val named = attendance.admissions.mapNotNull { it.original }.toSet()
+        admissions.mapNotNull { it.original }.filterNot { it in named }.toSet().forEach(ticketOriginals::forget)
         _state.update { it.copy(attendanceByGig = it.attendanceByGig + (gigId to attendance)) }
     }
 

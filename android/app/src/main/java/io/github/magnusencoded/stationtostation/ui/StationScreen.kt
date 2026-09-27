@@ -192,6 +192,7 @@ import io.github.magnusencoded.stationtostation.data.visibleToContacts
 import io.github.magnusencoded.stationtostation.data.withheldFromContacts
 import io.github.magnusencoded.stationtostation.data.gigInviteUri
 import io.github.magnusencoded.stationtostation.data.StoredAdmission
+import io.github.magnusencoded.stationtostation.data.TicketOriginals
 import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
 import io.github.magnusencoded.stationtostation.data.musicbrainz.MbArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
@@ -1058,6 +1059,8 @@ private fun AdmissionBarcode(
 private sealed interface AtTheDoor {
     data object Checking : AtTheDoor
     class Shown(val drawing: AdmissionDrawing) : AtTheDoor
+    /** No redraw, but the ticket file was kept for it (#568): that page is shown instead. */
+    class Original(val file: java.io.File) : AtTheDoor
     data object CannotShow : AtTheDoor
 }
 
@@ -1065,6 +1068,11 @@ private sealed interface AtTheDoor {
 private fun cannotShowLine(symbology: String, page: AdmissionPage? = null): String =
     "${page?.label?.let { "Barcode $it" } ?: "This ticket's barcode"} (${zxingFormatName(symbology)}) " +
         "can't be shown by the app. Bring the original PDF to the door."
+
+/** The prompt's line for an Admission that will be shown from its kept original (#568). */
+private fun keptOriginalLine(symbology: String, page: AdmissionPage? = null): String =
+    "${page?.label?.let { "Barcode $it" } ?: "This ticket's barcode"} (${zxingFormatName(symbology)}) " +
+        "can't be redrawn, so the app keeps this ticket and shows it at the door as it was sent."
 
 /**
  * The ticket at the door (#441): every **Admission** in its own symbology, one at a
@@ -1075,8 +1083,10 @@ private fun cannotShowLine(symbology: String, page: AdmissionPage? = null): Stri
  * What is drawn is [doorDrawing]'s: the Admission redrawn and read back as itself, the
  * same check the import ran, asked again here because nothing stored carries a verdict
  * and an Admission migrated from an old `ticketQr` was never checked at all. One that
- * does not read back keeps its page and says so, in the prompt's words — never a
- * guess, and never its payload drawn as some other symbology.
+ * does not read back is shown from the ticket file kept for it at import (#568,
+ * [OriginalAtTheDoor]); with no file (a ticket imported before #568, a link, a
+ * handover) it keeps its page and says so, in the prompt's words — never a guess, and
+ * never its payload drawn as some other symbology.
  *
  * The card's look is unchanged from the QR it replaces; its redesign, brightness and a
  * full-screen view are #525's.
@@ -1090,9 +1100,13 @@ private fun TicketAtTheDoor(admissions: List<StoredAdmission>) {
     // Tagged with the Admission it is about: produceState keeps its last value when the
     // key changes, so an untagged one would put the previous page's drawing under the
     // new "2 of 3" until the next check ends.
+    val originals = TicketOriginals.of(LocalContext.current)
     val verdict by produceState<DoorVerdict<StoredAdmission, AtTheDoor>?>(null, admission) {
-        val door = withContext(Dispatchers.Default) { doorDrawing(admission) }
-            ?.let { AtTheDoor.Shown(it) } ?: AtTheDoor.CannotShow
+        val door = withContext(Dispatchers.Default) {
+            doorDrawing(admission)?.let { AtTheDoor.Shown(it) }
+                ?: originals.file(admission.original)?.let { AtTheDoor.Original(it) }
+                ?: AtTheDoor.CannotShow
+        }
         value = DoorVerdict(admission, door)
     }
     val shown = verdict.forAdmission(admission) ?: AtTheDoor.Checking
@@ -1113,6 +1127,14 @@ private fun TicketAtTheDoor(admissions: List<StoredAdmission>) {
                     matrixMax = 200.dp,
                     linearHeight = 110.dp,
                     description = "Your ticket's barcode${page.label?.let { ", $it" }.orEmpty()}. Hold it up to be scanned.",
+                )
+            }
+            is AtTheDoor.Original -> OriginalAtTheDoor(door.file, admission.page, page.label, border = LineLit, caption = Muted) {
+                Text(
+                    cannotShowLine(admission.symbology, page),
+                    color = Muted,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(vertical = 6.dp),
                 )
             }
             AtTheDoor.CannotShow -> Text(
@@ -1212,7 +1234,11 @@ private fun ConfirmAdmissions(parsed: ParsedTicket) {
         if (a.redrawable == true && drawn.any { it.first == i }) return@forEachIndexed
         Spacer(Modifier.height(6.dp))
         Text(
-            cannotShowLine(a.symbology, AdmissionPage(i, admissions.size)),
+            if (a.original != null) {
+                keptOriginalLine(a.symbology, AdmissionPage(i, admissions.size))
+            } else {
+                cannotShowLine(a.symbology, AdmissionPage(i, admissions.size))
+            },
             color = Muted,
             fontSize = 11.sp,
         )

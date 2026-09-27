@@ -574,6 +574,50 @@ final class TicketParseTests: XCTestCase {
                                    now: day(2026, 8, 1), calendar: calendar))
     }
 
+    // #568: a failed redraw with its original kept needs no one.
+
+    func testACompleteTicketWhoseOriginalIsKeptGoesStraightOntoThePlan() {
+        var eventim = complete
+        eventim.admissions = [Admission(payload: Data("000000000000000000000001".utf8),
+                                        symbology: "code128", redrawable: false)]
+        let kept = eventim.keepingOriginal("kept.pdf")
+
+        XCTAssertTrue(kept.showsEveryAdmission)
+        XCTAssertEqual(.add(kept), routeTicket(.ticket(kept), knownNights: [],
+                                               now: day(2026, 8, 1), calendar: calendar))
+    }
+
+    func testAMatchWhoseOriginalIsKeptAttachesWithoutAsking() {
+        var eventim = complete
+        eventim.admissions = [drawnQr, Admission(payload: Data("CODE".utf8), symbology: "datamatrix",
+                                                 redrawable: false)]
+        let kept = eventim.keepingOriginal("kept.pdf")
+
+        XCTAssertEqual([nil, "kept.pdf"], kept.admissions.map(\.original))
+        XCTAssertEqual(.match("g1"), routeTicket(.ticket(kept),
+                                                 knownNights: [night("g1", "14-09-2026", "Big Thief")],
+                                                 now: day(2026, 8, 1), calendar: calendar))
+    }
+
+    func testAKeptOriginalLeavesAPastNightAsked() {
+        var eventim = complete
+        eventim.admissions = [Admission(payload: Data("CODE".utf8), symbology: "datamatrix", redrawable: false)]
+        let kept = eventim.keepingOriginal("kept.pdf")
+
+        XCTAssertEqual(.confirm(kept), routeTicket(.ticket(kept), knownNights: [],
+                                                   now: day(2027, 8, 1), calendar: calendar))
+    }
+
+    func testTheKeptOriginalIsNeverDeposited() throws {
+        var eventim = complete
+        eventim.admissions = [Admission(payload: Data("CODE".utf8), symbology: "datamatrix", redrawable: false)]
+        let kept = eventim.keepingOriginal("kept.pdf")
+        XCTAssertEqual("kept.pdf", kept.admissions.first?.original)
+        let json = String(decoding: try JSONEncoder().encode(kept), as: UTF8.self)
+
+        XCTAssertFalse(json.contains("kept.pdf"))
+    }
+
     /// Nothing checked is nothing known: a ticket straight off the parse never skips
     /// the prompt, whichever path it would take.
     func testAnUncheckedAdmissionCountsAsNotRedrawable() {
@@ -715,6 +759,35 @@ final class TicketParseTests: XCTestCase {
 
         TicketInbox.remove(first[0].id, in: box)
         XCTAssertTrue(TicketInbox.pending(in: box).isEmpty)
+    }
+
+    /// The shared file crosses beside its deposit (#568) and leaves with it.
+    func testADepositsFileCrossesAndLeavesWithIt() throws {
+        let box = try scratchBox()
+        XCTAssertTrue(TicketInbox.deposit(shared, original: Data("%PDF-synthetic".utf8), in: box))
+
+        let deposit = try XCTUnwrap(TicketInbox.pending(in: box).first)
+        let file = try XCTUnwrap(TicketInbox.originalURL(deposit, in: box))
+        XCTAssertEqual(Data("%PDF-synthetic".utf8), try Data(contentsOf: file))
+
+        TicketInbox.remove(deposit.id, in: box)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    /// Kept in the app's own store, found again by name, and forgotten on request (#568).
+    func testAKeptOriginalIsCopiedWholeAndForgotten() throws {
+        let box = try scratchBox()
+        XCTAssertTrue(TicketInbox.deposit(shared, original: Data("%PDF-synthetic".utf8), in: box))
+        let deposit = try XCTUnwrap(TicketInbox.pending(in: box).first)
+        let originals = TicketOriginals(directory: try scratchBox())
+
+        let name = try XCTUnwrap(originals.keep(try XCTUnwrap(TicketInbox.originalURL(deposit, in: box))))
+        TicketInbox.remove(deposit.id, in: box)
+
+        XCTAssertEqual(Data("%PDF-synthetic".utf8), try Data(contentsOf: try XCTUnwrap(originals.file(name))))
+        XCTAssertNil(originals.file("../\(name)"))
+        originals.forget(name)
+        XCTAssertNil(originals.file(name))
     }
 
     /// One bad file must not wedge every later ticket behind it.

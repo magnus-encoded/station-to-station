@@ -62,10 +62,10 @@ enum TicketRoute: Equatable {
 /// plant a phantom plan above today (#408, story 13), and the cost of asking is one
 /// tap. `now` is a parameter so that rule is testable rather than clock-dependent.
 ///
-/// **Nor is one whose barcode the app cannot show** (#441, story 29), on either path. An
-/// **Admission** that did not read back as itself when redrawn (`checkedForRedraw`, and
-/// an unchecked one counts as not) sends the ticket to the prompt, which says which
-/// barcode it is and to bring the PDF. Found at import, not at the door.
+/// **Nor is one whose barcode the app cannot show** (#441, story 29). An **Admission**
+/// that did not read back as itself when redrawn (`checkedForRedraw`, and an unchecked
+/// one counts as not) sends the ticket to the prompt — unless the original file was
+/// kept for it (#568, `Ticket.showsEveryAdmission`), which the Room shows instead.
 ///
 /// **Nor is one for a date a known night is already on** when it matched no act (the
 /// #441 review): `nightThatDay` says why, and that night goes to the prompt as the
@@ -79,11 +79,11 @@ func routeTicket(_ parse: TicketParse,
                  calendar: Calendar = .current) -> TicketRoute {
     guard case .ticket(let ticket) = parse else { return .unreadable }
     if let known = knownNight(ticket, among: knownNights, calendar: calendar) {
-        return ticket.isComplete && ticket.redrawsEveryAdmission
+        return ticket.isComplete && ticket.showsEveryAdmission
             ? .match(known.id) : .confirm(ticket, possibleMatch: known.id)
     }
     let sameDay = nightThatDay(ticket, among: knownNights, calendar: calendar)
-    guard sameDay == nil, ticket.canSkipPrompt, ticket.redrawsEveryAdmission, let date = ticket.date,
+    guard sameDay == nil, ticket.canSkipPrompt, ticket.showsEveryAdmission, let date = ticket.date,
           date >= calendar.startOfDay(for: now)
     else { return .confirm(ticket, possibleMatch: sameDay?.id) }
     return .add(ticket)

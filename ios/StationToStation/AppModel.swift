@@ -515,7 +515,8 @@ final class AppModel: ObservableObject {
         depositsInHand.formUnion(deposits.map(\.id))
         Task {
             for deposit in deposits {
-                let waitsOnThePrompt = await routeShared(deposit.ticket, depositId: deposit.id, now: now)
+                let waitsOnThePrompt = await routeShared(deposit.ticket, depositId: deposit.id,
+                                                         original: TicketInbox.originalURL(deposit), now: now)
                 if !waitsOnThePrompt { settleDeposit(deposit.id) }
             }
         }
@@ -533,11 +534,20 @@ final class AppModel: ObservableObject {
 
     /// Routes one deposit. True when it is left waiting on the prompt, and its deposit
     /// is then settled by `confirmTicket` or `dismissTicket` instead.
-    private func routeShared(_ deposited: Ticket, depositId: String, now: Date) async -> Bool {
+    ///
+    /// Where an **Admission** does not redraw, the deposit's `original` file is copied
+    /// into the app's own store (#568) and every such **Admission** names it: the Room
+    /// shows that file in its place, so the ticket needs no prompt for it.
+    private func routeShared(_ deposited: Ticket, depositId: String, original: URL?,
+                             now: Date) async -> Bool {
         // Every Admission redrawn and read back before anything is decided (#441, story
         // 29): here in the app rather than in the extension, which deposits what it read
         // and nothing more (ADR-0020). One Vision pass each, off the main actor.
-        let ticket = await Task.detached(priority: .userInitiated) { deposited.checkedForRedraw() }.value
+        let ticket = await Task.detached(priority: .userInitiated) { () -> Ticket in
+            let checked = deposited.checkedForRedraw()
+            guard checked.needsOriginal, let original else { return checked }
+            return checked.keepingOriginal(TicketOriginals.shared.keep(original))
+        }.value
         let parse: TicketParse = ticket.isEmpty ? .nothingUsable : .ticket(ticket)
         // Plans from disk, not from state: at a cold launch the drain can run before
         // `loadPlannedGigs` has put them there, and a ticket for a night planned by hand
@@ -676,6 +686,11 @@ final class AppModel: ObservableObject {
         guard !admissions.isEmpty else { return }
         let settled = await timelines.attachAdmissions(setlistId: gigId,
                                                        admissions: admissions.map { StoredAdmission($0) })
+        // The same ticket shared twice keeps its first file; the second copy is named by nothing.
+        let named = Set(settled.admissions.compactMap(\.original))
+        for name in Set(admissions.compactMap(\.original)).subtracting(named) {
+            TicketOriginals.shared.forget(name)
+        }
         state.attendanceByGig[gigId] = settled
         if state.selectedSetlist?.id == gigId { state.selectedAttendance = settled }
     }
@@ -759,6 +774,8 @@ final class AppModel: ObservableObject {
     func dismissTicket(_ draftId: UUID) {
         guard let draft = state.ticketDrafts.first(where: { $0.id == draftId }) else { return }
         state.ticketDrafts.removeAll { $0.id == draftId }
+        // Nothing is written, so no file is kept for it (#568).
+        draft.ticket.originals.forEach { TicketOriginals.shared.forget($0) }
         settleDeposit(draft.depositId)
     }
 

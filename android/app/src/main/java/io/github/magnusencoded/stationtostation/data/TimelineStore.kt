@@ -8,6 +8,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -96,6 +98,14 @@ data class StoredAttendance(
      */
     fun withProvenance(provenance: String): StoredAttendance = copy(provenance = provenance)
 
+    /**
+     * This record with no kept-original names (#568): what a handover from another phone
+     * arrives as, since the file each names is on that phone. Only this phone's own
+     * import sets one. The Swift twin is `StoredAttendance.withoutOriginals`.
+     */
+    fun withoutOriginals(): StoredAttendance =
+        if (admissions.none { it.original != null }) this else copy(admissions = admissions.map { it.copy(original = null) })
+
     /** Evidence strength, weakest first. Room for `attested` later; not built yet. */
     object Provenance {
         const val PLANNED = "planned"
@@ -119,6 +129,16 @@ data class StoredAdmission(
     val symbology: String = "",
     val page: Int = 0,
     val corroborated: Boolean = false,
+    /**
+     * The kept ticket file shown at the door in this Admission's place (#568,
+     * [TicketOriginals]): set only where it did not redraw at import. A name, not a
+     * path, and local to the phone that imported it — a handover carries the name and
+     * not the file, and the Room says so as it did before #568.
+     */
+    // Left out when null, as iOS leaves it: a record that never kept a file is written as before.
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val original: String? = null,
 ) {
     /** The payload's bytes, or null where what is stored is not base64. */
     val payloadBytes: ByteArray? get() = payload.decodeAdmissionBase64()
@@ -129,6 +149,7 @@ data class StoredAdmission(
             symbology = admission.symbology,
             page = admission.page,
             corroborated = admission.corroborated,
+            original = admission.original,
         )
     }
 }
@@ -143,7 +164,14 @@ fun mergedAdmissions(kept: List<StoredAdmission>, added: List<StoredAdmission>):
     val out = kept.toMutableList()
     val seen = kept.map { it.payloadKey() }.toMutableSet()
     for (a in added) {
-        if (seen.add(a.payloadKey())) out += a
+        if (seen.add(a.payloadKey())) {
+            out += a
+        } else if (a.original != null) {
+            // The same ticket again, now with its file kept (#568): one stored before
+            // it, or by a phone that had no file, takes it rather than stay unshowable.
+            val i = out.indexOfFirst { it.payloadKey() == a.payloadKey() && it.original == null }
+            if (i >= 0) out[i] = out[i].copy(original = a.original)
+        }
     }
     return out
 }
@@ -196,7 +224,7 @@ object LegacyTicketQr : JsonTransformingSerializer<StoredAttendance>(StoredAtten
                 fields.filter { (key, value) ->
                     val primitive = value as? JsonPrimitive
                     when (key) {
-                        "payload", "symbology" -> primitive != null && primitive.isString
+                        "payload", "symbology", "original" -> primitive != null && primitive.isString
                         "page" -> primitive != null && !primitive.isString && primitive.intOrNull != null
                         "corroborated" -> primitive != null && !primitive.isString && primitive.booleanOrNull != null
                         else -> false

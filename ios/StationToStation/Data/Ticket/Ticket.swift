@@ -62,6 +62,30 @@ struct Ticket: Codable, Equatable, Sendable {
     /// the *read*: what a platform can redraw is not the same on both (CoreImage has no
     /// Data Matrix), so it is not in the corpus both twins assert.
     var redrawsEveryAdmission: Bool { admissions.allSatisfy { $0.redrawable == true } }
+
+    /// Every **Admission** can be shown at the door (#568): redrawn and read back, or
+    /// kept as the original file it came in. What `routeTicket` asks — a failed redraw
+    /// with the file kept no longer needs the person.
+    var showsEveryAdmission: Bool { admissions.allSatisfy { $0.redrawable == true || $0.original != nil } }
+
+    /// Whether any **Admission** needs its original kept: one that did not redraw.
+    var needsOriginal: Bool { admissions.contains { $0.redrawable != true } }
+
+    /// Every original this ticket's **Admissions** name, once each.
+    var originals: Set<String> { Set(admissions.compactMap(\.original)) }
+
+    /// This ticket with `original` set on every **Admission** that did not redraw
+    /// (#568) — those, and only those, are shown from the file at the door.
+    func keepingOriginal(_ original: String?) -> Ticket {
+        guard let original else { return self }
+        var out = self
+        out.admissions = admissions.map { a in
+            var a = a
+            if a.redrawable != true { a.original = original }
+            return a
+        }
+        return out
+    }
 }
 
 extension Ticket {
@@ -105,12 +129,17 @@ extension Ticket {
 /// deposited and never stored: it is left out of the coding keys, `StoredAdmission` has
 /// no field for it, and the Room asks again rather than trust a verdict written by an
 /// older build.
+///
+/// `original` names the ticket file kept for it (#568, `TicketOriginals`): set by the
+/// app at import on an **Admission** that did not redraw, and shown at the door in its
+/// place. Never deposited, for `redrawable`'s reason: the extension cannot know.
 struct Admission: Codable, Equatable, Sendable {
     var payload: Data
     var symbology: String
     var page: Int = 0
     var corroborated: Bool = false
     var redrawable: Bool? = nil
+    var original: String? = nil
 
     private enum CodingKeys: String, CodingKey { case payload, symbology, page, corroborated }
 }

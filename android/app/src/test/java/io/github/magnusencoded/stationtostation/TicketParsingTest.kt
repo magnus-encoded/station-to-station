@@ -8,7 +8,9 @@ import io.github.magnusencoded.stationtostation.data.TicketReading
 import io.github.magnusencoded.stationtostation.data.TicketRouting
 import io.github.magnusencoded.stationtostation.data.TicketSupport
 import io.github.magnusencoded.stationtostation.data.checkedForRedraw
+import io.github.magnusencoded.stationtostation.data.keepingOriginal
 import io.github.magnusencoded.stationtostation.data.matchKnownNight
+import io.github.magnusencoded.stationtostation.data.needsOriginal
 import io.github.magnusencoded.stationtostation.data.parseTicketFields
 import io.github.magnusencoded.stationtostation.data.routeTicket
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
@@ -268,6 +270,57 @@ class TicketParsingTest {
 
         assertTrue(routing is TicketRouting.NeedsConfirmation)
         assertEquals("g1", (routing as TicketRouting.NeedsConfirmation).possibleMatch?.id)
+    }
+
+    // --- #568: a failed redraw with its original kept needs no one ---
+
+    @Test
+    fun aCompleteTicketWhoseOriginalIsKeptGoesStraightOntoThePlan() {
+        val eventim = ParsedTicket(
+            admissions = listOf(Admission("123456789012345678901234".toByteArray(), "code128", redrawable = false)),
+            artist = "Kaizers Orchestra",
+            venue = "Sentrum Scene",
+            date = "24-06-2027",
+        ).keepingOriginal("kept.pdf")
+
+        assertFalse(eventim.redrawsEveryAdmission)
+        assertTrue(eventim.showsEveryAdmission)
+        assertTrue(routeTicket(eventim, emptyList(), LocalDate.of(2027, 1, 1)) is TicketRouting.NewPlannedGig)
+    }
+
+    @Test
+    fun aMatchWhoseOriginalIsKeptAttachesWithoutAsking() {
+        val gigs = listOf(known("g1", "24-06-2027", "Kaizers Orchestra"))
+        val parsed = ParsedTicket(
+            admissions = drawnQr() + Admission("SYNTH".toByteArray(), "maxicode", redrawable = false),
+            artist = "Kaizers Orchestra",
+            venue = "Sentrum Scene",
+            date = "24-06-2027",
+        ).keepingOriginal("kept.pdf")
+
+        assertEquals(listOf(null, "kept.pdf"), parsed.admissions.map { it.original })
+        assertEquals("g1", (routeTicket(parsed, gigs, LocalDate.of(2027, 1, 1)) as TicketRouting.AlreadyKnown).gig.id)
+    }
+
+    @Test
+    fun aKeptOriginalLeavesEveryOtherReasonToAsk() {
+        val partial = ParsedTicket(
+            admissions = listOf(Admission("SYNTH".toByteArray(), "maxicode", redrawable = false)),
+            artist = "Kaizers Orchestra",
+            date = "24-06-2027",
+        ).keepingOriginal("kept.pdf")
+        val past = partial.copy(venue = "Sentrum Scene", date = "24-06-2020")
+
+        assertTrue(routeTicket(partial, emptyList(), LocalDate.of(2027, 1, 1)) is TicketRouting.NeedsConfirmation)
+        assertTrue(routeTicket(past, emptyList(), LocalDate.of(2027, 1, 1)) is TicketRouting.NeedsConfirmation)
+    }
+
+    @Test
+    fun aTicketThatRedrawsKeepsNoOriginal() {
+        val drawn = ParsedTicket(admissions = drawnQr(), artist = "Kaizers Orchestra")
+
+        assertFalse(drawn.needsOriginal)
+        assertEquals(listOf<String?>(null), drawn.keepingOriginal("kept.pdf").admissions.map { it.original })
     }
 
     @Test
