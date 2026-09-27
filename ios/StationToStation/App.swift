@@ -249,6 +249,9 @@ private struct BannersModifier: ViewModifier {
                     model.dismissTicket(draft.id)
                 }
                 .onAppear { shownTicketDraft = draft.id }
+                // Only Cancel drops the ticket. A stray swipe-down would throw away a
+                // parsed ticket, its barcodes and its inbox deposit.
+                .interactiveDismissDisabled()
                 .environmentObject(model)
                 .tint(amber)
                 .preferredColorScheme(.dark)

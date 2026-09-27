@@ -1339,7 +1339,12 @@ private fun TicketConfirmDialog(
     var chosen by remember { mutableStateOf(pending.setlistFm?.preselectedId) }
     val offered = pending.setlistFm?.takeIf { it.offeredFor(artist, date) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    // Only Discard drops the ticket. A stray tap outside or a back press would throw
+    // away a parsed ticket and its barcodes, which is worse than a prompt that stays.
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+    ) {
         Column(
             Modifier
                 .clip(RoundedCornerShape(16.dp))
