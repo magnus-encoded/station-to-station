@@ -1392,18 +1392,11 @@ private fun TicketConfirmDialog(
                 Spacer(Modifier.height(4.dp))
                 SetlistFmChoices(
                     rows = fm.candidates.map { c ->
-<<<<<<< HEAD
                         SetlistFmChoice(
                             c.setlist.id,
                             StoredSetlistFmHit.of(c).line(),
                             setlistFmQuestion(pending.parsed.venue, fromTicket = true, candidate = c),
                         )
-=======
-                        c.setlist.id to (
-                            setlistFmQuestion(pending.parsed.venue, fromTicket = true, candidate = c)
-                                ?: StoredSetlistFmHit.of(c).line()
-                            )
->>>>>>> origin/claude/ecstatic-brown-crrztn
                     },
                     selected = chosen,
                     onSelect = { chosen = it },
@@ -1427,7 +1420,6 @@ private fun TicketConfirmDialog(
 private const val POSSIBLE_MATCH_TITLE = "Possible match on setlist.fm"
 
 /**
-<<<<<<< HEAD
  * One row of a setlist.fm list: the hit's [id] (null for "None of these"), its [line]
  * (who, where, when — always shown, so rows never read alike), and the
  * [setlistFmQuestion] under it where the room is in doubt.
@@ -1451,44 +1443,19 @@ private fun SetlistFmChoices(
                 Modifier
                     .fillMaxWidth()
                     .clickable { onSelect(row.id) }
-=======
- * setlist.fm hits as a single choice, [rows] being each hit's id and what its row says,
- * with "None of these" always last (#531). [selected] null is "None of these".
- */
-@Composable
-private fun SetlistFmChoices(
-    rows: List<Pair<String, String>>,
-    selected: String?,
-    onSelect: (String?) -> Unit,
-) {
-    Column {
-        (rows + (null to "None of these")).forEach { (id, text) ->
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable { onSelect(id) }
->>>>>>> origin/claude/ecstatic-brown-crrztn
                     .padding(vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 RadioButton(
-<<<<<<< HEAD
                     selected = picked && selected == row.id,
-=======
-                    selected = selected == id,
->>>>>>> origin/claude/ecstatic-brown-crrztn
                     onClick = null,
                     colors = RadioButtonDefaults.colors(selectedColor = Amber, unselectedColor = Faint),
                 )
                 Spacer(Modifier.width(8.dp))
-<<<<<<< HEAD
                 Column {
                     Text(row.line, color = Ink, fontSize = 13.sp)
                     row.question?.let { Text(it, color = Muted, fontSize = 11.sp) }
                 }
-=======
-                Text(text, color = Ink, fontSize = 13.sp)
->>>>>>> origin/claude/ecstatic-brown-crrztn
             }
         }
     }
@@ -1496,16 +1463,10 @@ private fun SetlistFmChoices(
 
 /**
  * The Gig screen's "Possible match on setlist.fm" chip, opened (#531): each hit a lookup
-<<<<<<< HEAD
  * was not sure of, as a single choice, with [setlistFmQuestion] under a hit where the
  * room is in doubt. Confirm on a hit is "yes, this one"; on "None of these" it rejects
  * them all; "Not now" leaves the question waiting. [hits] is the stored snapshot,
  * fetched afresh where that was lost.
-=======
- * was not sure of, asked as [setlistFmQuestion] where the room is in doubt. A row is
- * "yes, this one"; "None of these" rejects them all; "Not now" leaves the question
- * waiting. [hits] is the stored snapshot, fetched afresh where that was lost.
->>>>>>> origin/claude/ecstatic-brown-crrztn
  */
 @Composable
 private fun PossibleMatchDialog(
@@ -1519,12 +1480,9 @@ private fun PossibleMatchDialog(
     onDismiss: () -> Unit,
 ) {
     val loaded by produceState<List<StoredSetlistFmHit>?>(null, gigId, pendingIds) { value = hits() }
-<<<<<<< HEAD
     // Nothing ticked until the person picks: Confirm stays off, so no tap adopts by accident.
     var chosen by remember(gigId) { mutableStateOf<String?>(null) }
     var picked by remember(gigId) { mutableStateOf(false) }
-=======
->>>>>>> origin/claude/ecstatic-brown-crrztn
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
@@ -1538,7 +1496,6 @@ private fun PossibleMatchDialog(
             if (shown == null) {
                 CircularProgressIndicator(color = Amber, modifier = Modifier.align(Alignment.CenterHorizontally))
             } else {
-<<<<<<< HEAD
                 SetlistFmChoices(
                     rows = shown.map { hit ->
                         SetlistFmChoice(hit.id, hit.line(), setlistFmQuestion(yourVenue, fromTicket, hit))
@@ -1546,39 +1503,15 @@ private fun PossibleMatchDialog(
                     selected = chosen,
                     onSelect = { chosen = it; picked = true },
                     picked = picked,
-=======
-                shown.forEach { hit ->
-                    Text(
-                        setlistFmQuestion(yourVenue, fromTicket, hit) ?: hit.line(),
-                        color = Ink,
-                        fontSize = 13.sp,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onPick(hit.id) }
-                            .padding(vertical = 10.dp),
-                    )
-                }
-                Text(
-                    "None of these",
-                    color = Muted,
-                    fontSize = 13.sp,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(onClick = onNone)
-                        .padding(vertical = 10.dp),
->>>>>>> origin/claude/ecstatic-brown-crrztn
                 )
             }
             Spacer(Modifier.height(4.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text("Not now", color = Faint) }
-<<<<<<< HEAD
                 TextButton(
                     onClick = { chosen?.let(onPick) ?: onNone() },
                     enabled = picked,
                 ) { Text("Confirm", color = if (picked) Amber else Faint) }
-=======
->>>>>>> origin/claude/ecstatic-brown-crrztn
             }
         }
     }

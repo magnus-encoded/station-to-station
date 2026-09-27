@@ -737,16 +737,10 @@ private func publishedTitle(_ row: EventRow) -> String? {
 }
 
 /// The Gig screen's "Possible match on setlist.fm" chip, opened (#531): each hit a lookup
-<<<<<<< HEAD
 /// was not sure of, as a single choice, with `setlistFmQuestion` under a hit where the
 /// room is in doubt. Confirm on a hit is "yes, this one"; on "None of these" it rejects
 /// them all; "Not now" leaves the question waiting. The hits are the stored snapshot,
 /// fetched afresh where that was lost.
-=======
-/// was not sure of, asked as `setlistFmQuestion` where the room is in doubt. A row is
-/// "yes, this one"; "None of these" rejects them all; "Not now" leaves the question
-/// waiting. The hits are the stored snapshot, fetched afresh where that was lost.
->>>>>>> origin/claude/ecstatic-brown-crrztn
 private struct PossibleMatchSheet: View {
     let gigId: String
     let yourVenue: String?
@@ -757,19 +751,15 @@ private struct PossibleMatchSheet: View {
 
     @EnvironmentObject var model: AppModel
     @State private var hits: [StoredSetlistFmHit]?
-<<<<<<< HEAD
     /// Nothing ticked until the person picks: Confirm stays off, so no tap adopts by accident.
     @State private var chosen: String?
     @State private var picked = false
-=======
->>>>>>> origin/claude/ecstatic-brown-crrztn
 
     var body: some View {
         NavigationStack {
             List {
                 if let hits {
                     ForEach(hits, id: \.id) { hit in
-<<<<<<< HEAD
                         SetlistFmChoiceRow(
                             line: hit.line(),
                             question: setlistFmQuestion(yourVenue: yourVenue, fromTicket: fromTicket, hit: hit),
@@ -778,17 +768,6 @@ private struct PossibleMatchSheet: View {
                     }
                     SetlistFmChoiceRow(line: "None of these", question: nil,
                                        selected: picked && chosen == nil) { chosen = nil; picked = true }
-=======
-                        Button { onPick(hit.id) } label: {
-                            Text(setlistFmQuestion(yourVenue: yourVenue, fromTicket: fromTicket, hit: hit)
-                                 ?? hit.line())
-                                .font(.system(size: 14)).foregroundStyle(ink)
-                        }
-                    }
-                    Button { onNone() } label: {
-                        Text("None of these").font(.system(size: 14)).foregroundStyle(muted)
-                    }
->>>>>>> origin/claude/ecstatic-brown-crrztn
                 } else {
                     HStack {
                         Spacer()
@@ -805,15 +784,12 @@ private struct PossibleMatchSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Not now") { onDismiss() }.tint(faint)
                 }
-<<<<<<< HEAD
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Confirm") {
                         if let chosen { onPick(chosen) } else { onNone() }
                     }
                     .disabled(!picked)
                 }
-=======
->>>>>>> origin/claude/ecstatic-brown-crrztn
             }
         }
         .presentationDetents([.medium, .large])
