@@ -16,6 +16,7 @@ package io.github.magnusencoded.stationtostation.ui
 import android.Manifest
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.offset
@@ -945,7 +946,7 @@ private fun FieldVariant(nodes: List<ServiceNode>, state: UiState, viewModel: Ap
             Text("‹", color = Ink, fontSize = 28.sp, modifier = Modifier.clickable(onClick = onBack).padding(end = 16.dp))
             Text("Settings", color = Ink, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.weight(1f))
-            Text("drag · pinch", color = Faint, fontSize = 11.sp)
+            Text("drag · pinch · double-tap to fit", color = Faint, fontSize = 11.sp)
         }
         BoxWithConstraints(
             Modifier
@@ -955,14 +956,24 @@ private fun FieldVariant(nodes: List<ServiceNode>, state: UiState, viewModel: Ap
         ) {
             val density = LocalDensity.current
             val availW = with(density) { maxWidth.toPx() }
+            val availH = with(density) { maxHeight.toPx() }
             val fieldW = with(density) { FieldW.dp.toPx() }
-            val fit = (availW / fieldW).coerceAtMost(1f)
+            val fieldH = with(density) { FieldH.dp.toPx() }
+            // The whole field, centred, whichever way the phone is held.
+            val fit = minOf(availW / fieldW, availH / fieldH, 1f)
+            val fitOffset = Offset((availW - fieldW * fit) / 2f, (availH - fieldH * fit) / 2f)
             var scale by remember(fit) { mutableFloatStateOf(fit) }
-            var offset by remember(fit) { mutableStateOf(Offset((availW - fieldW * fit) / 2f, 0f)) }
+            var offset by remember(fit) { mutableStateOf(fitOffset) }
 
             Box(
                 Modifier
                     .fillMaxSize()
+                    .pointerInput(fit) {
+                        detectTapGestures(onDoubleTap = {
+                            scale = fit
+                            offset = fitOffset
+                        })
+                    }
                     .pointerInput(fit) {
                         detectTransformGestures { centroid, pan, zoom, _ ->
                             val next = (scale * zoom).coerceIn(0.35f, 2.5f)
