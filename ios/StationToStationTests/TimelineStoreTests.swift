@@ -592,6 +592,23 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual(2, cache.media()["a1"]?.count)
     }
 
+    /// The same ticket again, now with its file kept (#568), gives the stored Admission that file.
+    func testTheSameTicketAgainWithItsFileGivesTheStoredAdmissionThatFile() {
+        let stored = [StoredAdmission(payload: "U1lOVEg=", symbology: "maxicode")]
+        let again = [StoredAdmission(payload: "U1lOVEg=", symbology: "maxicode", original: "kept.pdf")]
+
+        XCTAssertEqual(again, mergedAdmissions(stored, again))
+        XCTAssertEqual(again, mergedAdmissions(again, stored))
+        XCTAssertEqual(again, mergedAdmissions(again, [StoredAdmission(payload: "U1lOVEg=", symbology: "maxicode",
+                                                                       original: "other.pdf")]))
+    }
+
+    func testAnAdmissionsOriginalRoundTrips() throws {
+        let kept = StoredAdmission(payload: "U1lOVEg=", symbology: "maxicode", page: 1, original: "kept.pdf")
+
+        XCTAssertEqual(kept, try JSONDecoder().decode(StoredAdmission.self, from: JSONEncoder().encode(kept)))
+    }
+
     func testTwoRecordsOfOneNightMergeAndTheOlderIdWins() async {
         let s = store()
         let older = await s.createLocalGig(date: "25-06-2026", artist: "The Warning", venue: "Vaterland")

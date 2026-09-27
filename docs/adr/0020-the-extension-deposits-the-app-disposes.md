@@ -47,6 +47,15 @@ whole of the concurrency story, and it is small on purpose.
 that process's memory for as long as the share sheet is up. What crosses is four optional facts and
 the QR payload, under complete file protection, deleted the moment it has been read.
 
+**Amended by #568: the PDF now crosses too, and is kept only where it is needed.** Whether an
+**Admission** can be redrawn is decided in the app, and where it cannot, the original file is the
+only thing that gets the person through the door. So the extension writes the PDF beside its
+deposit, under the same complete file protection, and it leaves the box with the deposit. The app
+copies it into its own Application Support only when an **Admission** failed the redraw check, and
+drops it when the prompt is dismissed or nothing came to name it. A ticket that redraws keeps no
+file. The one-writer, one-reader rule is unchanged: the extension still only writes, the app still
+only reads and deletes.
+
 **A missing container degrades; it does not crash.** `TicketInbox.directory` is optional at every
 call site. The extension says it could not reach the app; the app simply finds an empty box.
 

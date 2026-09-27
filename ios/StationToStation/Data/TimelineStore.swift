@@ -135,17 +135,24 @@ struct StoredAdmission: Codable, Equatable {
     var symbology: String = ""
     var page: Int = 0
     var corroborated: Bool = false
+    /// The kept ticket file shown at the door in this **Admission**'s place (#568,
+    /// `TicketOriginals`): set only where it did not redraw at import. A name, not a
+    /// path, and local to the phone that imported it — a handover carries the name and
+    /// not the file, and the Room says so as it did before #568.
+    var original: String? = nil
 
-    init(payload: String, symbology: String, page: Int = 0, corroborated: Bool = false) {
+    init(payload: String, symbology: String, page: Int = 0, corroborated: Bool = false,
+         original: String? = nil) {
         self.payload = payload
         self.symbology = symbology
         self.page = page
         self.corroborated = corroborated
+        self.original = original
     }
 
     init(_ admission: Admission) {
         self.init(payload: admission.payload.base64EncodedString(), symbology: admission.symbology,
-                  page: admission.page, corroborated: admission.corroborated)
+                  page: admission.page, corroborated: admission.corroborated, original: admission.original)
     }
 
     init(from decoder: Decoder) throws {
@@ -154,6 +161,7 @@ struct StoredAdmission: Codable, Equatable {
         symbology = (try? c.decodeIfPresent(String.self, forKey: .symbology)) ?? nil ?? ""
         page = (try? c.decodeIfPresent(Int.self, forKey: .page)) ?? nil ?? 0
         corroborated = (try? c.decodeIfPresent(Bool.self, forKey: .corroborated)) ?? nil ?? false
+        original = (try? c.decodeIfPresent(String.self, forKey: .original)) ?? nil
     }
 
     /// The payload's bytes, or nil where what is stored is not base64. A payload that
@@ -179,8 +187,15 @@ private struct LenientAdmission: Decodable {
 func mergedAdmissions(_ kept: [StoredAdmission], _ added: [StoredAdmission]) -> [StoredAdmission] {
     var out = kept
     var seen = Set(kept.map(\.payloadKey))
-    for admission in added where seen.insert(admission.payloadKey).inserted {
-        out.append(admission)
+    for admission in added {
+        if seen.insert(admission.payloadKey).inserted {
+            out.append(admission)
+        } else if let original = admission.original,
+                  let i = out.firstIndex(where: { $0.payloadKey == admission.payloadKey && $0.original == nil }) {
+            // The same ticket again, now with its file kept (#568): one stored before
+            // it, or by a phone that had no file, takes it rather than stay unshowable.
+            out[i].original = original
+        }
     }
     return out
 }

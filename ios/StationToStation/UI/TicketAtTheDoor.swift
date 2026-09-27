@@ -50,6 +50,13 @@ func cannotShowLine(symbology: String, page: AdmissionPage? = nil) -> String {
         + "Bring the original PDF to the door."
 }
 
+/// The prompt's line for an Admission that will be shown from its kept original (#568).
+func keptOriginalLine(symbology: String, page: AdmissionPage? = nil) -> String {
+    let which = page?.label.map { "Barcode \($0)" } ?? "This ticket's barcode"
+    return "\(which) (\(symbology.uppercased())) can't be redrawn, so the app keeps this "
+        + "ticket and shows it at the door as it was sent."
+}
+
 /// The ticket at the door (#441): every **Admission** in its own symbology, one at a
 /// time, with "1 of 3" and a way to step between them when there are several (story 5;
 /// `AdmissionPage` holds the rules). White is not a theme choice and does not follow the
@@ -58,14 +65,18 @@ func cannotShowLine(symbology: String, page: AdmissionPage? = nil) -> String {
 /// What is drawn is what `AdmissionVerdicts` says reads back as itself — the same check
 /// the import ran, asked again here because nothing stored carries a verdict and an
 /// Admission migrated from an old `ticketQr` was never checked at all. One that does not
-/// read back keeps its page and says so, in the prompt's words: never a guess, and never
-/// its payload drawn as some other symbology.
+/// read back is shown from the ticket file kept for it at import (#568,
+/// `OriginalAtTheDoor`); with no file (a ticket imported before #568, a handover) it
+/// keeps its page and says so, in the prompt's words: never a guess, and never its
+/// payload drawn as some other symbology.
 struct TicketAtTheDoor: View {
     let admissions: [StoredAdmission]
 
     private enum Shown: Equatable {
         case checking
         case drawn(AdmissionDrawing)
+        /// No redraw, but the ticket file was kept for it (#568): that page is shown instead.
+        case original(URL)
         case cannotShow
     }
 
@@ -89,6 +100,8 @@ struct TicketAtTheDoor: View {
                     switch shown {
                     case .drawn(let drawing):
                         card(drawing, page: page)
+                    case .original(let url):
+                        OriginalAtTheDoor(url: url, page: admission.page, label: page.label)
                     case .cannotShow:
                         Text(cannotShowLine(symbology: admission.symbology, page: page))
                             .font(.system(size: 12))
@@ -116,15 +129,16 @@ struct TicketAtTheDoor: View {
             .onPreferenceChange(DoorWidthKey.self) { width = $0 }
             .onChange(of: admissions) { _ in index = 0 }
             .task(id: admission) {
+                let kept = TicketOriginals.shared.file(admission.original).map(Shown.original) ?? .cannotShow
                 guard let bytes = admission.payloadBytes else {
-                    verdict = DoorVerdict(admission: admission, verdict: .cannotShow)
+                    verdict = DoorVerdict(admission: admission, verdict: kept)
                     return
                 }
                 let ok = await AdmissionVerdicts.shared.redraws(symbology: admission.symbology, payload: bytes)
                 // Stepped away while Vision ran: this answer is for a page no longer shown.
                 guard !Task.isCancelled else { return }
                 let drawing = ok ? admissionDrawing(admission) : nil
-                verdict = DoorVerdict(admission: admission, verdict: drawing.map(Shown.drawn) ?? .cannotShow)
+                verdict = DoorVerdict(admission: admission, verdict: drawing.map(Shown.drawn) ?? kept)
             }
         }
     }
@@ -183,8 +197,10 @@ struct ConfirmAdmissions: View {
                 }
             }
             ForEach(admissions.indices.filter { i in !drawn.contains { $0.id == i } }, id: \.self) { i in
-                Text(cannotShowLine(symbology: admissions[i].symbology,
-                                    page: AdmissionPage(index: i, count: admissions.count)))
+                let page = AdmissionPage(index: i, count: admissions.count)
+                Text(admissions[i].original != nil
+                     ? keptOriginalLine(symbology: admissions[i].symbology, page: page)
+                     : cannotShowLine(symbology: admissions[i].symbology, page: page))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
