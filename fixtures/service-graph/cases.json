@@ -1,0 +1,606 @@
+{
+  "about": "The Settings Field's fold (#563): serviceGraph in ServiceGraph.kt and ServiceGraph.swift, word for word. known is ServicesAsKnown; any field left out is its fresh-install default (false, empty, 0, null, photos \"none\"). expect.lit, where given, is the exact set of lit node ids. expect.nodes checks only the nodes it names; nextStep null means none.",
+  "cases": [
+    {
+      "name": "fresh install",
+      "known": {},
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": false,
+          "calendar": false
+        },
+        "lit": [
+          "musicbrainz",
+          "tickets"
+        ],
+        "nodes": {
+          "setlistfm": {
+            "lit": false,
+            "status": "Needs an API key",
+            "nextStep": "Paste a free key of your own"
+          },
+          "musicbrainz": {
+            "lit": true,
+            "status": "No account needed",
+            "nextStep": null
+          },
+          "clashfinder": {
+            "lit": false,
+            "status": "Needs a free account",
+            "nextStep": "Register, then paste your private key"
+          },
+          "photos": {
+            "lit": false,
+            "status": "Not allowed yet",
+            "nextStep": "Allow photo access"
+          },
+          "tickets": {
+            "lit": true,
+            "status": "Share a ticket from your mail or files",
+            "nextStep": null
+          },
+          "location": {
+            "lit": false,
+            "status": "Not allowed yet",
+            "nextStep": "Allow location access"
+          },
+          "contacts": {
+            "lit": false,
+            "status": "Nobody yet",
+            "nextStep": "Swipe left from your timeline to swap cards"
+          },
+          "gossip": {
+            "lit": false,
+            "status": "Lights only while you're checked in at a gig",
+            "nextStep": "Check in at tonight's gig"
+          },
+          "spotify": {
+            "lit": false,
+            "status": "Not logged in. The shared app admits five people",
+            "nextStep": "Log in with Spotify"
+          },
+          "calendar": {
+            "lit": false,
+            "status": "Not allowed yet",
+            "nextStep": "Allow calendar access"
+          }
+        }
+      }
+    },
+    {
+      "name": "setlist.fm on the shared key",
+      "known": {
+        "setlistFmKeyAvailable": true
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": false,
+          "calendar": false
+        },
+        "lit": [
+          "setlistfm",
+          "musicbrainz",
+          "tickets"
+        ],
+        "nodes": {
+          "setlistfm": {
+            "lit": true,
+            "status": "Shared key, bundled with the app",
+            "nextStep": null
+          }
+        }
+      }
+    },
+    {
+      "name": "setlist.fm on your own key",
+      "known": {
+        "setlistFmKeyAvailable": true,
+        "setlistFmOwnKey": true
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": false,
+          "calendar": false
+        },
+        "nodes": {
+          "setlistfm": {
+            "lit": true,
+            "status": "Your own key",
+            "nextStep": null
+          }
+        }
+      }
+    },
+    {
+      "name": "setlist.fm shared quota spent",
+      "known": {
+        "setlistFmKeyAvailable": true,
+        "setlistFmSharedQuotaSpent": true
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": false,
+          "calendar": false
+        },
+        "lit": [
+          "musicbrainz",
+          "tickets"
+        ],
+        "nodes": {
+          "setlistfm": {
+            "lit": false,
+            "status": "The shared key is spent for today",
+            "nextStep": "Paste a free key of your own"
+          }
+        }
+      }
+    },
+    {
+      "name": "own key while the shared quota flag is still set",
+      "known": {
+        "setlistFmKeyAvailable": true,
+        "setlistFmOwnKey": true,
+        "setlistFmSharedQuotaSpent": true
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": false,
+          "calendar": false
+        },
+        "nodes": {
+          "setlistfm": {
+            "lit": true,
+            "status": "Your own key",
+            "nextStep": null
+          }
+        }
+      }
+    },
+    {
+      "name": "clashfinder username only",
+      "known": {
+        "clashfinderUser": "ferrous"
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": false,
+          "calendar": false
+        },
+        "nodes": {
+          "clashfinder": {
+            "lit": false,
+            "status": "Needs your private key as well",
+            "nextStep": "Register, then paste your private key"
+          }
+        }
+      }
+    },
+    {
+      "name": "clashfinder private key only",
+      "known": {
+        "clashfinderKey": true
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": false,
+          "calendar": false
+        },
+        "nodes": {
+          "clashfinder": {
+            "lit": false,
+            "status": "Needs your username as well",
+            "nextStep": "Register, then paste your private key"
+          }
+        }
+      }
+    },
+    {
+      "name": "clashfinder blank username counts as none",
+      "known": {
+        "clashfinderUser": "   ",
+        "clashfinderKey": true
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": false,
+          "calendar": false
+        },
+        "nodes": {
+          "clashfinder": {
+            "lit": false,
+            "status": "Needs your username as well",
+            "nextStep": "Register, then paste your private key"
+          }
+        }
+      }
+    },
+    {
+      "name": "clashfinder username and private key",
+      "known": {
+        "clashfinderUser": "ferrous",
+        "clashfinderKey": true
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": false,
+          "calendar": false
+        },
+        "lit": [
+          "musicbrainz",
+          "clashfinder",
+          "tickets"
+        ],
+        "nodes": {
+          "clashfinder": {
+            "lit": true,
+            "status": "Signed in as ferrous",
+            "nextStep": null
+          }
+        }
+      }
+    },
+    {
+      "name": "Spotify not connected, scope left over",
+      "known": {
+        "spotifyScope": "playlist-modify-private ugc-image-upload"
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": false,
+          "calendar": false
+        },
+        "nodes": {
+          "spotify": {
+            "lit": false,
+            "status": "Not logged in. The shared app admits five people",
+            "nextStep": "Log in with Spotify"
+          }
+        }
+      }
+    },
+    {
+      "name": "Spotify connected, scope unknown",
+      "known": {
+        "spotifyConnected": true
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": false,
+          "calendar": false
+        },
+        "nodes": {
+          "spotify": {
+            "lit": false,
+            "status": "Logged in, but playlist permission is missing",
+            "nextStep": "Log out and in again"
+          }
+        }
+      }
+    },
+    {
+      "name": "Spotify connected without playlist-modify",
+      "known": {
+        "spotifyConnected": true,
+        "spotifyScope": "user-read-private ugc-image-upload"
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": false,
+          "calendar": false
+        },
+        "nodes": {
+          "spotify": {
+            "lit": false,
+            "status": "Logged in, but playlist permission is missing",
+            "nextStep": "Log out and in again"
+          }
+        }
+      }
+    },
+    {
+      "name": "Spotify connected without ugc-image-upload",
+      "known": {
+        "spotifyConnected": true,
+        "spotifyScope": "playlist-modify-public playlist-modify-private"
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": true,
+          "calendar": false
+        },
+        "nodes": {
+          "spotify": {
+            "lit": true,
+            "status": "Playlists yes, photo covers need a fresh login",
+            "nextStep": null
+          }
+        }
+      }
+    },
+    {
+      "name": "Spotify fully connected",
+      "known": {
+        "spotifyConnected": true,
+        "spotifyScope": "playlist-modify-public playlist-modify-private ugc-image-upload"
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": true,
+          "calendar": false
+        },
+        "lit": [
+          "musicbrainz",
+          "tickets",
+          "spotify"
+        ],
+        "nodes": {
+          "spotify": {
+            "lit": true,
+            "status": "Logged in",
+            "nextStep": null
+          }
+        }
+      }
+    },
+    {
+      "name": "photos partial",
+      "known": {
+        "photos": "partial"
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": false,
+          "calendar": false
+        },
+        "nodes": {
+          "photos": {
+            "lit": true,
+            "status": "Allowed for the photos you picked",
+            "nextStep": null
+          }
+        }
+      }
+    },
+    {
+      "name": "photos full",
+      "known": {
+        "photos": "full"
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": false,
+          "calendar": false
+        },
+        "lit": [
+          "musicbrainz",
+          "photos",
+          "tickets"
+        ],
+        "nodes": {
+          "photos": {
+            "lit": true,
+            "status": "Allowed",
+            "nextStep": null
+          }
+        }
+      }
+    },
+    {
+      "name": "photos none",
+      "known": {
+        "photos": "none"
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": false,
+          "calendar": false
+        },
+        "nodes": {
+          "photos": {
+            "lit": false,
+            "status": "Not allowed yet",
+            "nextStep": "Allow photo access"
+          }
+        }
+      }
+    },
+    {
+      "name": "gossip active",
+      "known": {
+        "gigActive": true
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": false,
+          "calendar": false
+        },
+        "lit": [
+          "musicbrainz",
+          "tickets",
+          "gossip"
+        ],
+        "nodes": {
+          "gossip": {
+            "lit": true,
+            "status": "Checked in, and gossip is active",
+            "nextStep": null
+          }
+        }
+      }
+    },
+    {
+      "name": "gossip inactive",
+      "known": {
+        "gigActive": false
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": false,
+          "calendar": false
+        },
+        "nodes": {
+          "gossip": {
+            "lit": false,
+            "status": "Lights only while you're checked in at a gig",
+            "nextStep": "Check in at tonight's gig"
+          }
+        }
+      }
+    },
+    {
+      "name": "one known timeline",
+      "known": {
+        "knownTimelines": 1
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": false,
+          "calendar": false
+        },
+        "nodes": {
+          "contacts": {
+            "lit": true,
+            "status": "1 known timeline",
+            "nextStep": null
+          }
+        }
+      }
+    },
+    {
+      "name": "three known timelines",
+      "known": {
+        "knownTimelines": 3
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": false,
+          "calendar": false
+        },
+        "lit": [
+          "musicbrainz",
+          "tickets",
+          "contacts"
+        ],
+        "nodes": {
+          "contacts": {
+            "lit": true,
+            "status": "3 known timelines",
+            "nextStep": null
+          }
+        }
+      }
+    },
+    {
+      "name": "location allowed",
+      "known": {
+        "location": true
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": false,
+          "calendar": false
+        },
+        "nodes": {
+          "location": {
+            "lit": true,
+            "status": "Allowed",
+            "nextStep": null
+          }
+        }
+      }
+    },
+    {
+      "name": "calendar allowed",
+      "known": {
+        "calendar": true
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": false,
+          "calendar": true
+        },
+        "lit": [
+          "musicbrainz",
+          "tickets",
+          "calendar"
+        ],
+        "nodes": {
+          "calendar": {
+            "lit": true,
+            "status": "Allowed",
+            "nextStep": null
+          }
+        }
+      }
+    },
+    {
+      "name": "everything lit",
+      "known": {
+        "setlistFmKeyAvailable": true,
+        "clashfinderUser": "ferrous",
+        "clashfinderKey": true,
+        "spotifyConnected": true,
+        "spotifyScope": "playlist-modify-private ugc-image-upload",
+        "knownTimelines": 2,
+        "photos": "full",
+        "calendar": true,
+        "location": true,
+        "gigActive": true
+      },
+      "expect": {
+        "timelineLit": true,
+        "alcoveLines": {
+          "spotify": true,
+          "calendar": true
+        },
+        "lit": [
+          "setlistfm",
+          "musicbrainz",
+          "clashfinder",
+          "photos",
+          "tickets",
+          "location",
+          "contacts",
+          "gossip",
+          "spotify",
+          "calendar"
+        ],
+        "nodes": {
+          "contacts": {
+            "lit": true,
+            "status": "2 known timelines",
+            "nextStep": null
+          },
+          "spotify": {
+            "lit": true,
+            "status": "Logged in",
+            "nextStep": null
+          }
+        }
+      }
+    }
+  ]
+}

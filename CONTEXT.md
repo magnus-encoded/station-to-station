@@ -144,6 +144,8 @@ Read-only throughout — nothing here edits, and turning back to portrait is how
 | **Amber** | Mine. My **Line**, my **Nodes**, at every **Resolution**. Brightness carries one extra meaning only: brighter = most recent. | highlight, accent (amber is not "the accent colour" any more — it means *mine*) |
 | **Lane colour** | One per friend, cool tones, assigned by lane index. | their accent |
 | **Meeting green** | A **Crossing** and the **Joined** stretch that follows it. A meeting belongs to neither person, so it is never amber and never a lane colour. | shared amber, highlight |
+| **Lit** | A service that can do its job right now, drawn amber on the Settings **Field**: a lit input is part of what feeds *my* **Line**, which is why it is amber. | enabled, connected, active, on |
+| **Field** | Settings, drawn as the picture of what feeds **My timeline** and where it goes: the inputs on the left, **My timeline** in the middle, the **Alcoves** it feeds on the right — **Outer** to **Inner**, left to right, like everywhere else. Tapping a service opens what it unlocks and how to light it. | settings page, preferences, dashboard, graph |
 
 ## People and exchange
 

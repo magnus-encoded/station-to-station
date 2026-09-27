@@ -350,7 +350,6 @@ fun AppNavigation(viewModel: AppViewModel) {
             SettingsScreen(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
-                onOpenBleProbe = { navController.navigate("bleprobe") },
                 onOpenHandover = { navController.navigate("handover") },
             )
         }
