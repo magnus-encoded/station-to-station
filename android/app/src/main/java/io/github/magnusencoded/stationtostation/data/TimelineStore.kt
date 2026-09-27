@@ -8,6 +8,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -133,6 +135,9 @@ data class StoredAdmission(
      * path, and local to the phone that imported it — a handover carries the name and
      * not the file, and the Room says so as it did before #568.
      */
+    // Left out when null, as iOS leaves it: a record that never kept a file is written as before.
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
     val original: String? = null,
 ) {
     /** The payload's bytes, or null where what is stored is not base64. */
@@ -219,7 +224,7 @@ object LegacyTicketQr : JsonTransformingSerializer<StoredAttendance>(StoredAtten
                 fields.filter { (key, value) ->
                     val primitive = value as? JsonPrimitive
                     when (key) {
-                        "payload", "symbology" -> primitive != null && primitive.isString
+                        "payload", "symbology", "original" -> primitive != null && primitive.isString
                         "page" -> primitive != null && !primitive.isString && primitive.intOrNull != null
                         "corroborated" -> primitive != null && !primitive.isString && primitive.booleanOrNull != null
                         else -> false
