@@ -38,7 +38,12 @@ func runContactSession(
     /// Called with the verified Contact's key and the **Nights** of theirs I did not hold,
     /// as soon as the manifests are swapped — complete as they stand, like a **Note**, so a
     /// transfer that never finishes does not cost the Lane. Not called when there are none.
-    landNights: (String, [FmSetlist]) async -> Void = { _, _ in }
+    landNights: (String, [FmSetlist]) async -> Void = { _, _ in },
+    /// My own **Spine**: the Nights an offer could be about (#405). See `contactOffers`.
+    myNights: [FmSetlist] = [],
+    /// Called once the bytes are in with what they sent for Nights I have not joined:
+    /// **offered, never filed** (#405). Not called when there are none.
+    landOffers: ([String: MediaOffer]) async -> Void = { _ in }
 ) async throws -> [String: [StoredMedia]]? {
     guard let contactKey = try await mutualContactAuth(wire, isServer: isServer,
                                                        peerCertificate: peerCertificate,
@@ -90,6 +95,8 @@ func runContactSession(
         try? await sendRequested(wire, ids: theirRequest, mediaSource: mediaSource)
     }
 
+    let offers = contactOffers(mine: mine, offer: theirManifest, resolved: resolved, myNights: myNights)
+    if !offers.isEmpty { await landOffers(offers) }
     return contactLanding(mine: mine, offer: theirManifest, resolved: resolved)
 }
 

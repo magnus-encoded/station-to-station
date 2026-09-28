@@ -109,6 +109,37 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual(["a", "b"], Set(loaded.shows["key:0123456789abcdef"]?.map(\.id) ?? []))
     }
 
+    /// #405: a Contact's offer is held apart from the Night until answered, and accepting it
+    /// on a Night nothing hung off yet mints that Night's **Gig** to file it on.
+    func testAnOfferIsHeldUntilAcceptedThenFiledOnMyNight() async {
+        let s = store()
+        let item = StoredMedia(id: "m-received", kind: StoredMedia.Kind.photo, ref: "file:///received", from: "k-mia")
+        await s.holdMediaOffers(["their-night": MediaOffer(date: "25-06-2026", media: [item])])
+        var loaded = await s.load()
+        XCTAssertTrue(loaded.media().isEmpty)
+        XCTAssertEqual(["m-received"], loaded.mediaOffers["their-night"]?.media.map(\.id))
+
+        await s.acceptMediaOffer("their-night", key: "sl-a")
+
+        loaded = await s.load()
+        XCTAssertEqual(["m-received"], loaded.media()["sl-a"]?.map(\.id))
+        XCTAssertTrue(loaded.mediaOffers.isEmpty)
+        XCTAssertEqual(loaded.gigForSetlist("sl-a")?.id, loaded.nightJoins["their-night"])
+    }
+
+    func testADeclinedOfferLeavesMyNightsAsTheyWere() async {
+        let s = store()
+        let item = StoredMedia(id: "m-received", kind: StoredMedia.Kind.photo, ref: "file:///received")
+        await s.holdMediaOffers(["their-night": MediaOffer(date: "25-06-2026", media: [item])])
+        await s.declineMediaOffer("their-night")
+
+        let loaded = await s.load()
+        XCTAssertTrue(loaded.media().isEmpty)
+        XCTAssertTrue(loaded.gigs.isEmpty)
+        XCTAssertTrue(loaded.nightJoins.isEmpty)
+        XCTAssertEqual(["m-received"], loaded.mediaOffers["their-night"]?.declined)
+    }
+
     /// Asked and answered are different facts: an evening with no festival behind it
     /// must be remembered as asked, or every launch re-asks the whole timeline.
     func testFestivalsAskedAccumulatesAcrossSaves() async {
@@ -382,11 +413,14 @@ final class TimelineStoreTests: XCTestCase {
             // blind, so it writes the key itself instead of only echoing one it found.
             // Android reads an absent or empty map the same way. `bills` left the list
             // in #391 with `StoredBill`/`StoredAct` themselves: neither twin writes it
-            // any more.
+            // any more. `mediaOffers` and `nightJoins` joined it in #405: a Contact's media
+            // for a Night I have not joined waits apart from `gigMedia`, and accepting it
+            // records the join. Android declares both with defaults, so an absent key is
+            // an empty map there too.
             ["attendanceByGig", "attendedTotals", "calendarEventByGig",
              "festivalIdByShow", "festivalNames", "festivals", "festivalsAsked",
              "gigAttendance", "gigCalendarEvent", "gigLogs", "gigMedia", "gigPhotos", "gigPlanned",
-             "gigPlaylists", "gigSongOffsets", "gigs", "hiddenLines", "photosBySetlist", "plannedShows", "playlistsMade", "publicGossip",
+             "gigPlaylists", "gigSongOffsets", "gigs", "hiddenLines", "mediaOffers", "nightJoins", "photosBySetlist", "plannedShows", "playlistsMade", "publicGossip",
              "shows", "songOffsetsBySetlist"],
             json?.keys.sorted()
         )

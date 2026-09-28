@@ -44,6 +44,10 @@ final class ContactExchange {
     private let lanesByKey: () async -> [String: [FmSetlist]]
     /// A verified Contact's **Nights** that I did not hold yet, by their key (#405).
     private let onNights: (String, [FmSetlist]) async -> Void
+    /// My own **Spine**, which decides which Nights an offer could be about (#405).
+    private let myNights: () async -> [FmSetlist]
+    /// Media for Nights I have not joined: offered, never filed (#405).
+    private let onOffers: ([String: MediaOffer]) async -> Void
 
     init(contactKeys: @escaping () async -> [String],
          manifest: @escaping () async -> HandoverManifest,
@@ -51,7 +55,9 @@ final class ContactExchange {
          gallery: @escaping () async -> [GalleryItem],
          onLanded: @escaping ([String: [StoredMedia]]) async -> Void,
          lanesByKey: @escaping () async -> [String: [FmSetlist]] = { [:] },
-         onNights: @escaping (String, [FmSetlist]) async -> Void = { _, _ in }) {
+         onNights: @escaping (String, [FmSetlist]) async -> Void = { _, _ in },
+         myNights: @escaping () async -> [FmSetlist] = { [] },
+         onOffers: @escaping ([String: MediaOffer]) async -> Void = { _ in }) {
         self.contactKeys = contactKeys
         self.manifest = manifest
         self.mine = mine
@@ -59,6 +65,8 @@ final class ContactExchange {
         self.onLanded = onLanded
         self.lanesByKey = lanesByKey
         self.onNights = onNights
+        self.myNights = myNights
+        self.onOffers = onOffers
     }
 
     private let peers = ContactPeers()
@@ -186,7 +194,7 @@ final class ContactExchange {
 
     private func run(_ connection: NWConnection, isServer: Bool) {
         guard let ownCertificate = tls?.certificate else { connection.cancel(); return }
-        let session = Task.detached(priority: .utility) { [warmup, contactKeys, mine, onLanded, lanesByKey, onNights] in
+        let session = Task.detached(priority: .utility) { [warmup, contactKeys, mine, onLanded, lanesByKey, onNights, myNights, onOffers] in
             defer { connection.cancel() }
             guard let peerCertificate = await ready(connection) else { return }
             let candidates = await contactKeys()
@@ -195,6 +203,7 @@ final class ContactExchange {
             let (manifest, gallery) = warmed
             let cache = await mine()
             let lanes = await lanesByKey()
+            let spine = await myNights()
 
             var refById: [String: String] = [:]
             for item in cache.gigMedia.values.flatMap({ $0 }) { refById[item.id] = item.ref }
@@ -224,6 +233,16 @@ final class ContactExchange {
                 landNights: { key, nights in
                     if Task.isCancelled { return }
                     await onNights(key, nights)
+                },
+                myNights: spine,
+                // Held, not filed. Their tiers are cut now, for the landing's reason below:
+                // accepting later must not land a blank cell.
+                landOffers: { offers in
+                    if Task.isCancelled { return }
+                    for item in offers.values.flatMap(\.media) where !item.ref.isEmpty {
+                        await PhotoLibrary.writeReconcileTiers(mediaId: item.id, ref: item.ref)
+                    }
+                    await onOffers(offers)
                 }
             )
             guard let landing, !landing.isEmpty else { return }

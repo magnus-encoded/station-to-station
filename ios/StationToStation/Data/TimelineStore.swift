@@ -803,6 +803,13 @@ struct TimelineCache: Codable {
     var gigLogs: [String: StoredLog] = [:]
     /// Public Gig facts; transport state and durable application facts share one Codable slot.
     var publicGossip: PublicGossipState = PublicGossipState()
+    /// Media a **Contact** sent for a Night of theirs I have not joined, by *their* Night
+    /// id (#405). Held apart from `gigMedia` on purpose: another person's belief that we
+    /// shared a Night must never write onto my record. See `MediaOffer`.
+    var mediaOffers: [String: MediaOffer] = [:]
+    /// Their Night id → my own **Gig** id, for every Night I joined by accepting an offer
+    /// for it (#405). Mine alone: never sent, never synchronised. See `joinedNights`.
+    var nightJoins: [String: String] = [:]
 
     init() {}
 
@@ -834,6 +841,8 @@ struct TimelineCache: Codable {
         gigMedia = map(.gigMedia, [StoredMedia].self)
         gigLogs = map(.gigLogs, StoredLog.self)
         publicGossip = try c.decodeIfPresent(PublicGossipState.self, forKey: .publicGossip) ?? PublicGossipState()
+        mediaOffers = map(.mediaOffers, MediaOffer.self)
+        nightJoins = map(.nightJoins, String.self)
     }
 
     /// The id this gig is known by *outside* the store: its setlist.fm id where it
@@ -1193,6 +1202,28 @@ actor TimelineStore {
             }
             return c
         }
+    }
+
+    /// A Contact reconcile's `contactOffers`, kept until I answer them (#405).
+    func holdMediaOffers(_ arrived: [String: MediaOffer]) {
+        if arrived.isEmpty { return }
+        writeMerged { $0.holdingOffers(arrived) }
+    }
+
+    /// Yes to the offer for their Night `night`, on my Night `key` — a setlist.fm id or a
+    /// gig id, whatever the screens use, minting the **Gig** if nothing hung off it yet.
+    func acceptMediaOffer(_ night: String, key: String) {
+        writeMerged { cache in
+            guard cache.mediaOffers[night] != nil else { return cache }
+            var c = cache
+            let gigId = c.withGig(key)
+            return c.acceptingOffer(night, gigId: gigId)
+        }
+    }
+
+    /// No to the offer for their Night `night`. See `decliningOffer`.
+    func declineMediaOffer(_ night: String) {
+        writeMerged { $0.decliningOffer(night) }
     }
 
     /// A **Contact**'s **Nights** from a **Reconcile**, folded into the **Lane** held under

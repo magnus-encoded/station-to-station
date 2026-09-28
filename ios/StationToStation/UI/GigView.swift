@@ -173,6 +173,8 @@ struct GigView: View {
     @State private var deleting = false
     /// Whether the "Possible match on setlist.fm" list is open (#531).
     @State private var askingMatch = false
+    /// Which **Contact**'s offer is being answered, by their Night id (#405).
+    @State private var answeringOffer: String?
     @State private var adoptLink = ""
 
     /// What this delete actually costs, said plainly. The count is of keepsakes whose
@@ -423,6 +425,31 @@ struct GigView: View {
                 .environmentObject(model)
             }
         }
+        // An offer opened (#405): yes files it here and joins the two Nights, no leaves this
+        // Night exactly as it was, "Not now" leaves the question waiting.
+        .alert(
+            answeringMediaOffer.map { mediaOfferLine($0.offer, sender: mediaOfferSender($0.offer)) } ?? "",
+            isPresented: Binding(get: { answeringMediaOffer != nil }, set: { if !$0 { answeringOffer = nil } }),
+            presenting: answeringMediaOffer
+        ) { waiting in
+            Button("Accept") {
+                if let show = model.state.selectedSetlist {
+                    model.acceptMediaOffer(waiting.night, key: show.id)
+                }
+                answeringOffer = nil
+            }
+            .accessibilityLabel("Accept \(mediaOfferSender(waiting.offer))'s offer onto this night")
+            Button("Decline") {
+                model.declineMediaOffer(waiting.night)
+                answeringOffer = nil
+            }
+            .accessibilityLabel("Decline \(mediaOfferSender(waiting.offer))'s offer")
+            Button("Not now", role: .cancel) { answeringOffer = nil }
+        } message: { waiting in
+            let theirs = [waiting.offer.artist, waiting.offer.venue].filter { !$0.isEmpty }.joined(separator: " at ")
+            Text((theirs.isEmpty ? "" : "From their night: \(theirs). ")
+                 + "Accept puts them on this night, as the same night. Decline leaves it as it is.")
+        }
         .alert("Delete this night?", isPresented: $deleting) {
             Button("Delete", role: .destructive) {
                 if let show = model.state.selectedSetlist {
@@ -503,6 +530,18 @@ struct GigView: View {
         )
     }
 
+    /// The offer being answered, while it is still waiting.
+    private var answeringMediaOffer: WaitingOffer? {
+        guard let night = answeringOffer, let offer = model.state.mediaOffers[night], !offer.media.isEmpty
+        else { return nil }
+        return WaitingOffer(night: night, offer: offer)
+    }
+
+    /// Whose offer this is: the Contact's name, or "A Contact" when their key is not on my list.
+    private func mediaOfferSender(_ offer: MediaOffer) -> String {
+        offer.media.lazy.compactMap(\.from).first.flatMap { model.state.friends.nameOf($0) } ?? "A Contact"
+    }
+
     private func header(_ show: FmSetlist, _ room: Room?) -> some View {
         // Manual check-in (#174) is the only one there is when location was refused
         // or the venue couldn't be geocoded — the **Room**'s own offer, the same
@@ -529,6 +568,23 @@ struct GigView: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.top, 8)
+            }
+            // A **Contact** sent media for a Night of theirs on this date that I have not
+            // joined (#405). Offered, never filed: it waits here, on the Night it might be,
+            // until I say yes or no.
+            ForEach(offersWaiting(model.state.mediaOffers, on: show.eventDate)) { waiting in
+                let line = mediaOfferLine(waiting.offer, sender: mediaOfferSender(waiting.offer))
+                Button { answeringOffer = waiting.night } label: {
+                    Text(line)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(muted)
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .overlay(Capsule().stroke(muted, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 8)
+                .accessibilityLabel(line)
+                .accessibilityHint("Opens accept or decline.")
             }
             // The same swap that was already here, with the ticket now on the near
             // side of it (#414). Checking in is what retires the barcode — you are
@@ -815,4 +871,22 @@ private struct PossibleMatchSheet: View {
         .preferredColorScheme(.dark)
         .task(id: gigId) { hits = await model.setlistFmChipHits(gigId: gigId) }
     }
+}
+
+/// "Mia offered 3 photos", counted the way a person would say it. Android's `offerLine`.
+func mediaOfferLine(_ offer: MediaOffer, sender: String) -> String {
+    let n = offer.media.count
+    let kinds = Set(offer.media.map(\.kind))
+    let only = kinds.count == 1 ? kinds.first : nil
+    let what: String
+    if only == StoredMedia.Kind.photo {
+        what = n == 1 ? "a photo" : "\(n) photos"
+    } else if only == StoredMedia.Kind.video {
+        what = n == 1 ? "a video" : "\(n) videos"
+    } else if only == StoredMedia.Kind.note {
+        what = n == 1 ? "a note" : "\(n) notes"
+    } else {
+        what = "\(n) things"
+    }
+    return "\(sender) offered \(what)"
 }
