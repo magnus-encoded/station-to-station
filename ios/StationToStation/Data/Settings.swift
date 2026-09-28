@@ -26,6 +26,7 @@ final class Settings {
         static let mySetlistFmUser = "my_setlistfm_user"
         static let myCardName = "my_card_name"
         static let onboarded = "onboarded"
+        static let tourState = "tour_state"
         static let friends = "friends"
     }
 
@@ -113,11 +114,22 @@ final class Settings {
         store.set(privateKey.trimmingCharacters(in: .whitespacesAndNewlines), forKey: Key.clashfinderPrivateKey)
     }
 
-    /// Whether the first-run door has been passed. False on a fresh install and
-    /// nowhere else — `UserDefaults` answers false for a key it has never seen, which
-    /// is exactly the answer wanted.
+    /// Whether the Tour has been offered. It is deliberately not "Tour finished": an
+    /// offline first launch remains false, while Skip and an unfinished Tour are true.
     var onboarded: Bool { store.bool(forKey: Key.onboarded) }
     func setOnboarded() { store.set(true, forKey: Key.onboarded) }
+
+    var tourState: TourState {
+        guard let data = store.data(forKey: Key.tourState),
+              let state = try? JSONDecoder().decode(TourState.self, from: data)
+        else { return .unstarted }
+        return state
+    }
+
+    func saveTourState(_ state: TourState) {
+        guard let data = try? JSONEncoder().encode(state) else { return }
+        store.set(data, forKey: Key.tourState)
+    }
 
     var mySetlistFmUser: String? { store.string(forKey: Key.mySetlistFmUser)?.nilIfBlank }
     func saveMySetlistFmUser(_ v: String) {

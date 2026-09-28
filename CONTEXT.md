@@ -250,6 +250,16 @@ nobody — so the durable key it used to need never has to cross at all.
 
 ## Relationships
 
+## Tour
+
+| Term | Definition | Aliases to avoid |
+| ---- | ---------- | ---------------- |
+| **Tour** | The resumable first-run sequence that teaches the real app through events and commands. | onboarding flow |
+| **Demo world** | Throwaway, tagged records created by one Tour run and purged together on Skip or completion. | sample data |
+| **Virtual friend** | The fixed local character who accompanies the Tour; no real peer traffic is involved. | bot |
+| **Context hint** | A one-off prompt shown when a feature becomes relevant, suppressed while the Tour runs. | tooltip |
+| **Demo clock** | The Tour's injected time, advanced by its script without changing device time. | fake date |
+
 - A **Line** belongs to exactly one person and occupies one **Spine** or **Lane**.
 - A **Gig** sits on every **Line** whose owner **Attended** it.
 - A **Gig** attended by two people produces exactly one **Crossing**, on the owner's **Spine**.
