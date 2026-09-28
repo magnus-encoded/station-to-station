@@ -154,8 +154,6 @@ final class CardWireTests: XCTestCase {
     func testAnUnparseableWrittenPayloadYieldsNothing() {
         XCTAssertNil(parseProbeCard("half a card"))
         XCTAssertNil(parseProbeCard(""))
-        // …and a card with no username is not a blank friend, it is no friend.
-        XCTAssertNil(friendFromCard(ProbeCard(name: "Magnus", publicKey: "AAAA")))
     }
 
     /// A card longer than one ATT PDU arrives as a rising-offset series of write
@@ -175,8 +173,7 @@ final class CardWireTests: XCTestCase {
         XCTAssertEqual(card, parseProbeCard(String(decoding: accumulated, as: UTF8.self)))
     }
 
-    func testFriendFromCardNeedsASetlistFmUsername() {
-        XCTAssertNil(friendFromCard(ProbeCard(name: "Magnus", publicKey: "AAAA")))
+    func testFriendFromCardCarriesTheUsernameItHas() {
         let friend = friendFromCard(card)
         XCTAssertEqual("dizzi90", friend?.setlistfm)
         XCTAssertEqual("Magnus Vikan", friend?.name)
@@ -211,5 +208,62 @@ final class CardWireTests: XCTestCase {
         let friend = Friend(setlistfm: "ozzy", name: "Ozzy", publicKey: "a-key")
 
         XCTAssertEqual("a-key", decodeFriends(encodeFriends([friend])).first?.publicKey)
+    }
+
+    // --- A Card needs no setlist.fm account (#405) ---
+
+    /// Android's `CardWireTest` real key, character for character, so the pinned digest
+    /// below is one fact asserted on both twins.
+    private let realKey = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAESJ5HBSXgpBvTHldadDFDHID2DHFp5nzo"
+        + "W/bIS4g6jqE9CexG0gBprY6tuJMyl4+vpW0LWI4J4QmJybaY2nkiUg=="
+
+    func testACardWithAKeyAndNoUsernameRoundTripsAndMakesAContact() {
+        let accountless = ProbeCard(name: "Magnus", publicKey: realKey)
+        let parsed = parseProbeCard(accountless.encode())
+        XCTAssertEqual(accountless, parsed)
+        let contact = friendFromCard(parsed!)
+        XCTAssertEqual("", contact?.setlistfm)
+        XCTAssertEqual("Magnus", contact?.name)
+        XCTAssertEqual(realKey, contact?.publicKey)
+    }
+
+    /// Filed under its key, and never where a username could land. Pinned digit for digit
+    /// in Android's CardWireTest too: both twins, and both of my own devices after a
+    /// Handover, must file this Lane under the same name.
+    func testAnAccountlessContactsLaneIsKeyedByItsKeyFingerprint() {
+        let contact = friendFromCard(ProbeCard(name: "Magnus", publicKey: realKey))!
+        XCTAssertEqual("52da85770864f909", keyFingerprint(realKey))
+        XCTAssertEqual("key:52da85770864f909", contact.laneKey)
+        XCTAssertFalse(isPlausibleSetlistFmUser(contact.laneKey))
+    }
+
+    func testAContactWithAUsernameKeepsTheLaneItAlwaysHad() {
+        XCTAssertEqual("dizzi90", friendFromCard(card)?.laneKey)
+    }
+
+    func testACardWithNeitherUsernameNorNameIsNoContact() {
+        XCTAssertNil(friendFromCard(ProbeCard(name: " ", publicKey: realKey)))
+    }
+
+    /// The key is what makes a Contact, so a card without one makes nobody.
+    func testACardWithABlankKeyIsNoContact() {
+        XCTAssertNil(friendFromCard(ProbeCard(name: "Magnus", publicKey: "  ", setlistfm: "dizzi90")))
+    }
+
+    /// Checked, not demoted: an implausible username is a hostile card, refused whole.
+    func testACardWithAnImplausibleUsernameIsStillRefused() {
+        XCTAssertNil(friendFromCard(ProbeCard(name: "x", publicKey: realKey, setlistfm: "a/../b")))
+    }
+
+    func testMyCardExistsWithoutAUsernameOnceIHaveAName() {
+        XCTAssertEqual(ProbeCard(name: "Magnus", publicKey: "AAAA"),
+                       probeCardFor(setlistfm: "  ", name: " Magnus ", publicKey: "AAAA"))
+        XCTAssertNil(probeCardFor(setlistfm: "", name: "", publicKey: "AAAA"))
+        XCTAssertNil(probeCardFor(setlistfm: "dizzi90", name: "", publicKey: " "))
+    }
+
+    func testMyCardWithAUsernameIsTheCardItAlwaysWas() {
+        XCTAssertEqual(ProbeCard(name: "dizzi90", publicKey: "AAAA", setlistfm: "dizzi90"),
+                       probeCardFor(setlistfm: "dizzi90", name: "Magnus", publicKey: "AAAA"))
     }
 }

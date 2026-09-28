@@ -6,6 +6,7 @@ import io.github.magnusencoded.stationtostation.data.HandoverManifest
 import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.TimelineCache
 import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -44,6 +45,10 @@ class ContactExchange(
     private val mine: suspend () -> TimelineCache,
     private val gallery: suspend () -> List<GalleryItem>,
     private val onLanded: suspend (Map<String, List<StoredMedia>>) -> Unit,
+    /** The **Lane** held for each Contact, by their key (#405). Re-read per session. */
+    private val lanesByKey: suspend () -> Map<String, List<FmSetlist>> = { emptyMap() },
+    /** A verified Contact's **Nights** that I did not hold yet, by their key (#405). */
+    private val onNights: suspend (contactKey: String, nights: List<FmSetlist>) -> Unit = { _, _ -> },
 ) {
     private val peers = ContactPeers(context)
     private var server: SSLServerSocket? = null
@@ -128,6 +133,7 @@ class ContactExchange(
             val ownCert = socket.session.localCertificates?.firstOrNull()
             if (candidates.isEmpty() || ownCert == null) return@runCatching
             val cache = mine()
+            val lanes = lanesByKey()
             val refById = cache.gigMedia.values.flatten().associate { it.id to it.ref }
             val landing = runContactSession(
                 socket = socket,
@@ -147,6 +153,10 @@ class ContactExchange(
                 // write, and safe to race the landing below because [writeMerged] is
                 // serialized and [unionMedia] is keyed by id.
                 landNotes = { notes -> scope.launch { onLanded(notes) } },
+                heldLane = { key -> lanes[key].orEmpty() },
+                // Launched for the notes' reason: text, complete the moment the manifest
+                // is, and not to be held up behind a photograph.
+                landNights = { key, nights -> scope.launch { onNights(key, nights) } },
             )
             if (!landing.isNullOrEmpty()) onLanded(landing)
         }

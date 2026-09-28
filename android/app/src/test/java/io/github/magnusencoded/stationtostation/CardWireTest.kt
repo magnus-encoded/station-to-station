@@ -6,12 +6,15 @@ import io.github.magnusencoded.stationtostation.ble.ProbeCard
 import io.github.magnusencoded.stationtostation.ble.SCAN_RESPONSE_NAME_BUDGET
 import io.github.magnusencoded.stationtostation.ble.fitsAnEndpointName
 import io.github.magnusencoded.stationtostation.ble.parseProbeCard
+import io.github.magnusencoded.stationtostation.ble.probeCardFor
 import io.github.magnusencoded.stationtostation.ble.sliceForOffset
 import io.github.magnusencoded.stationtostation.ble.truncateToBytes
 import io.github.magnusencoded.stationtostation.ble.writeAtOffset
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.exchange.friendFromCard
 import io.github.magnusencoded.stationtostation.data.isPlausibleSetlistFmUser
+import io.github.magnusencoded.stationtostation.data.keyFingerprint
+import io.github.magnusencoded.stationtostation.data.laneKey
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -210,8 +213,58 @@ class CardWireTest {
     @Test fun anUnparseableWrittenPayloadYieldsNothing() {
         assertNull(parseProbeCard("half a card"))
         assertNull(parseProbeCard(""))
-        // …and a card with no username is not a blank friend, it is no friend.
-        assertNull(friendFromCard(ProbeCard(name = "Magnus", publicKey = "AAAA")))
+    }
+
+    // --- A Card needs no setlist.fm account (#405) ---
+
+    private val accountless = ProbeCard(name = "Magnus", publicKey = card.publicKey)
+
+    @Test fun aCardWithAKeyAndNoUsernameRoundTripsAndMakesAContact() {
+        val parsed = parseProbeCard(accountless.encode())
+        assertEquals(accountless, parsed)
+        val contact = friendFromCard(parsed!!)!!
+        assertEquals("", contact.setlistfm)
+        assertEquals("Magnus", contact.name)
+        assertEquals(card.publicKey, contact.publicKey)
+    }
+
+    /** Filed under its key, and never where a username could land (see [laneKey]). */
+    @Test fun anAccountlessContactsLaneIsKeyedByItsKeyFingerprint() {
+        val contact = friendFromCard(accountless)!!
+        // Pinned, digit for digit, in iOS's CardWireTests too: both twins, and both of
+        // my own devices after a Handover, must file this Lane under the same name.
+        assertEquals("52da85770864f909", keyFingerprint(card.publicKey))
+        assertEquals("key:52da85770864f909", contact.laneKey)
+        assertFalse(isPlausibleSetlistFmUser(contact.laneKey))
+    }
+
+    @Test fun aContactWithAUsernameKeepsTheLaneItAlwaysHad() {
+        assertEquals("dizzi90", friendFromCard(card)!!.laneKey)
+    }
+
+    @Test fun aCardWithNeitherUsernameNorNameIsNoContact() {
+        assertNull(friendFromCard(ProbeCard(name = " ", publicKey = card.publicKey)))
+    }
+
+    /** Checked, not demoted: an implausible username is a hostile card, refused whole. */
+    @Test fun aCardWithAnImplausibleUsernameIsStillRefused() {
+        assertNull(friendFromCard(ProbeCard(name = "x", publicKey = card.publicKey, setlistfm = "a/../b")))
+    }
+
+    @Test fun myCardExistsWithoutAUsernameOnceIHaveAName() {
+        assertEquals(
+            ProbeCard(name = "Magnus", publicKey = "AAAA"),
+            probeCardFor(setlistfm = "  ", name = " Magnus ", publicKey = "AAAA"),
+        )
+        assertNull(probeCardFor(setlistfm = "", name = "", publicKey = "AAAA"))
+        assertNull(probeCardFor(setlistfm = "dizzi90", name = "", publicKey = " "))
+    }
+
+    @Test fun myCardWithAUsernameIsTheCardItAlwaysWas() {
+        assertEquals(
+            ProbeCard(name = "dizzi90", publicKey = "AAAA", setlistfm = "dizzi90"),
+            probeCardFor(setlistfm = "dizzi90", name = "Magnus", publicKey = "AAAA"),
+        )
     }
 
     /**

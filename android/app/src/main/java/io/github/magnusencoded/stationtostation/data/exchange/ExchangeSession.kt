@@ -78,21 +78,28 @@ internal fun mergePeers(nearby: List<Friend>, ble: List<PeerHit>): List<Exchange
     return fromNearby + fromBle
 }
 
+/**
+ * A **Card** that arrived over the radio, as the **Contact** it makes — the one door a
+ * Friend with no setlist.fm username comes through (#405).
+ *
+ * **The key is what makes a Contact, so the key is what is required.** A username is an
+ * attribute: a card without one is a person with no account, whose **Nights** arrive on
+ * the **Reconcile** instead of being fetched. This is the radio, in person — a link cannot
+ * carry a key, so [io.github.magnusencoded.stationtostation.data.friendFromQuery] still
+ * refuses a link without a username, and that door is not widened by this one.
+ */
 internal fun friendFromCard(card: ProbeCard): Friend? {
-    // The meeting only records people this app can draw a line for, which today means a
-    // setlist.fm username — the same invariant the Nearby/QR card has always held. A card
-    // without one is a contact with no timeline; storing that is the relationship layer's
-    // job (#28/#29), not the meeting's.
-    // Checked, not merely non-blank: a card is written by any radio in range, and the
-    // username goes into a setlist.fm path carrying our API key. See #187, and
-    // [isPlausibleSetlistFmUser] for what the rule is and what it deliberately costs.
-    val user = card.setlistfm?.trim()?.takeIf { isPlausibleSetlistFmUser(it) } ?: return null
-    return Friend(
-        setlistfm = user,
-        name = card.name.ifBlank { user },
-        spotifyId = card.spotifyId,
-        publicKey = card.publicKey.trim().ifBlank { null },
-    )
+    val key = card.publicKey.trim().ifBlank { return null }
+    // A username the card *does* carry is still checked, not merely non-blank: a card is
+    // written by any radio in range, and the username goes into a setlist.fm path carrying
+    // our API key. See #187, and [isPlausibleSetlistFmUser] for what the rule is and what
+    // it deliberately costs. One that fails is a hostile or broken card, refused whole
+    // rather than quietly demoted to an account-less one.
+    val user = card.setlistfm?.trim().orEmpty()
+    if (user.isNotEmpty() && !isPlausibleSetlistFmUser(user)) return null
+    // A row that cannot be labelled is not a Contact anyone can read.
+    val name = card.name.trim().ifBlank { user }.ifBlank { return null }
+    return Friend(setlistfm = user, name = name, spotifyId = card.spotifyId, publicKey = key)
 }
 
 /**
@@ -159,11 +166,11 @@ class ExchangeSession(private val context: Context, scope: CoroutineScope) {
         // whole flow already listens for, so a missing grant surfaces once, not per radio.
         nearby.start(me, myCard)
         if (nearby.hasPermissions()) {
-            // The advertising half is the half that needs a card. With no setlist.fm
-            // username there is nothing to hand over — but scanning needs nothing of
-            // mine, so the screen still finds the room and can still take a card.
-            // `readCard` has always tolerated a null card of its own ("one-way
-            // exchange", #87); this lets that path actually be reached.
+            // The advertising half is the half that needs a card. A card needs a key and
+            // a name, not a setlist.fm account (#405); with neither name nor username there
+            // is nothing to hand over — but scanning needs nothing of mine, so the screen
+            // still finds the room and can still take a card. `readCard` has always
+            // tolerated a null card of its own ("one-way exchange", #87).
             myCard?.let { card ->
                 peripheral = BleCardPeripheral(context, card).also {
                     it.onCardWritten = { written ->
@@ -209,7 +216,7 @@ class ExchangeSession(private val context: Context, scope: CoroutineScope) {
     @SuppressLint("MissingPermission")
     fun connect(peer: ExchangePeer, onCard: (Friend?) -> Unit) {
         // Nearby's swap is mutual by construction — `exchangeCards` needs a card of mine
-        // to request the connection with — so with no username that route can only
+        // to request the connection with — so with no card of mine that route can only
         // return null. BLE reads one-way, so it is the route that still works; take it
         // rather than the one that would fail and fall through to QR.
         if (myCard != null) {

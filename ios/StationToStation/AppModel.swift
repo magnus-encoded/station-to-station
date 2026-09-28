@@ -69,6 +69,8 @@ struct UiState {
     var createdRefusedCount = 0
     // Friends (peer-to-peer, on-device)
     var mySetlistFmUser = ""
+    /// The name on my **Card** when there is no username to name it (#405).
+    var myCardName = ""
     var friends: [Friend] = []
     /// The **Lines** tapped out of the legend, by setlist.fm username, each with the
     /// moment it was turned off (#396). Still a reading aid and nothing about the
@@ -304,6 +306,7 @@ final class AppModel: ObservableObject {
         state.grantedScope = settings.grantedScope
         state.onboarded = settings.onboarded
         state.mySetlistFmUser = settings.mySetlistFmUser ?? ""
+        state.myCardName = settings.myCardName ?? ""
         state.friends = settings.friends
         state.clashfinderUser = settings.clashfinderUser ?? ""
         state.clashfinderPrivateKey = settings.clashfinderPrivateKey ?? ""
@@ -1071,9 +1074,9 @@ final class AppModel: ObservableObject {
     /// bring it back. Nothing is sent and nothing says anything about the
     /// relationship — but the toggle and its moment are persisted (#396), which is
     /// what lets the legend's recency order survive a launch.
-    func toggleLineHidden(_ setlistfm: String) {
-        if state.hiddenAt[setlistfm] != nil { state.hiddenAt[setlistfm] = nil }
-        else { state.hiddenAt[setlistfm] = Int64(Date().timeIntervalSince1970 * 1000) }
+    func toggleLineHidden(_ lane: String) {
+        if state.hiddenAt[lane] != nil { state.hiddenAt[lane] = nil }
+        else { state.hiddenAt[lane] = Int64(Date().timeIntervalSince1970 * 1000) }
         Task { await timelines.saveHiddenLines(state.hiddenAt) }
     }
 
@@ -1106,7 +1109,7 @@ final class AppModel: ObservableObject {
         if friends.isEmpty { return }
         let myOldest = state.timelineShows.compactMap { $0.localDate() }.min()
         let stale = friends.filter {
-            laneNeedsFetch($0, held: state.showsByFriend[$0.setlistfm], myOldest: myOldest)
+            laneNeedsFetch($0, held: state.showsByFriend[$0.laneKey], myOldest: myOldest)
         }
         if stale.isEmpty { return }
         state.lanesLoading = true
@@ -1275,8 +1278,10 @@ final class AppModel: ObservableObject {
                       spotifyId: user?.id).shareURL
     }
 
-    /// The same card as a BLE payload: adds the public key #28 makes the identity.
-    /// Nil until I've set my username — a blank card is nothing to hand over.
+    /// My card for the radio: the public key #28 makes the identity, and a username only
+    /// if I have one (#405). Without one it is named by `myCardName`; see `probeCardFor`.
+    /// Nil with neither — a card nobody can label is nothing to hand over. Only the radio
+    /// carries this: a link cannot carry a key, so the QR stays username-only.
     ///
     /// The key was 32 random bytes per launch until #265, a stand-in that read as an
     /// identity and was not one: a Contact who stored it could never match this device
@@ -1290,10 +1295,29 @@ final class AppModel: ObservableObject {
     /// that can never be matched again. A pairing that visibly does not happen is
     /// recoverable; one that appears to work and did not is not.
     func myProbeCard() -> ProbeCard? {
-        guard let me = state.mySetlistFmUser.trimmingCharacters(in: .whitespaces).nilIfBlank,
-              let key = ContactIdentity.publicKeyBase64()
-        else { return nil }
-        return ProbeCard(name: me, publicKey: key, setlistfm: me)
+        guard let key = ContactIdentity.publicKeyBase64() else { return nil }
+        return probeCardFor(setlistfm: state.mySetlistFmUser, name: state.myCardName, publicKey: key)
+    }
+
+    /// The name on a card with no username (#405).
+    func saveMyCardName(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        settings.saveMyCardName(trimmed)
+        state.myCardName = trimmed
+    }
+
+    /// A **Contact**'s **Nights**, off a **Reconcile** (#405): held under their Lane, on
+    /// disk and on screen, so the Lane draws now and after a relaunch without asking
+    /// anyone. `contactKey` is the key that verified; a Contact removed mid-session lands
+    /// nothing. Android's `landContactNights`.
+    func landContactNights(_ contactKey: String, _ nights: [FmSetlist]) async {
+        let key = contactKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let friend = state.friends.first(where: {
+            $0.publicKey?.trimmingCharacters(in: .whitespacesAndNewlines) == key
+        }) else { return }
+        let lane = friend.laneKey
+        await timelines.mergeContactNights(lane, nights)
+        state.showsByFriend[lane] = landNights(state.showsByFriend[lane], nights)
     }
 
     // MARK: - Reconcile over the same WiFi (#265)
@@ -1321,9 +1345,10 @@ final class AppModel: ObservableObject {
     /// the root, so there is no way to gain a first Contact and still be on this screen.
     private lazy var contactExchange = ContactExchange(
         contactKeys: { [settings] in settings.friends.compactMap { $0.publicKey?.nilIfBlank } },
-        manifest: { [timelines] in
+        manifest: { [timelines, settings] in
             guard let me = ContactIdentity.publicKeyBase64() else { return HandoverManifest() }
-            return await hashedContactManifest(await timelines.load(), me: me)
+            return await hashedContactManifest(await timelines.load(), me: me,
+                                               setlistfm: settings.mySetlistFmUser ?? "")
         },
         mine: { [timelines] in await timelines.load() },
         gallery: { [timelines] in
@@ -1331,7 +1356,18 @@ final class AppModel: ObservableObject {
                 .compactMap { photoWindow(gigDate: $0.date) }
             return await PhotoLibrary.galleryItems(dates: windows)
         },
-        onLanded: { [timelines] landing in await timelines.mergeContactMedia(landing) }
+        onLanded: { [timelines] landing in await timelines.mergeContactMedia(landing) },
+        lanesByKey: { [timelines, settings] in
+            let shows = await timelines.load().shows
+            var out: [String: [FmSetlist]] = [:]
+            for friend in settings.friends {
+                if let key = friend.publicKey?.nilIfBlank, let lane = shows[friend.laneKey] {
+                    out[key] = lane
+                }
+            }
+            return out
+        },
+        onNights: { [weak self] key, nights in await self?.landContactNights(key, nights) }
     )
 
     func startContactExchange() {
@@ -1532,16 +1568,9 @@ final class AppModel: ObservableObject {
     func dismissFriendOverwrite() { state.friendConflict = nil }
 
     private func writeFriend(_ friend: Friend) {
-        // De-dupe on setlist.fm username; a re-share updates the display name.
-        let existing = state.friends.first { $0.setlistfm.lowercased() == friend.setlistfm.lowercased() }
-        var incoming = friend
-        // A key already held is never dropped by a later, thinner way of meeting the same
-        // person. Only a BLE card carries one — a share link, a username typed in, a
-        // playlist collaborator, all arrive without — and replacing the record wholesale
-        // would silently unmake the Contact for #265, permanently: there is no second
-        // moment to collect the key (`CardWire`), only a second exchange.
-        if incoming.publicKey?.nilIfBlank == nil { incoming.publicKey = existing?.publicKey }
-        let next = state.friends.filter { $0.setlistfm.lowercased() != friend.setlistfm.lowercased() } + [incoming]
+        // De-duped on the key, then the username (#405), and never dropping a key or a
+        // username a thinner card is silent about. See `withFriend`.
+        let next = withFriend(state.friends, friend)
         settings.saveFriends(next)
         state.friends = next
         gossipContactsChanged()
@@ -1593,7 +1622,8 @@ final class AppModel: ObservableObject {
     }
 
     func removeFriend(_ friend: Friend) {
-        let next = state.friends.filter { $0.setlistfm != friend.setlistfm }
+        // By Lane, not by username: two Contacts without an account share a blank one.
+        let next = state.friends.filter { $0.laneKey != friend.laneKey }
         settings.saveFriends(next)
         state.friends = next
         gossipContactsChanged()
@@ -1604,9 +1634,23 @@ final class AppModel: ObservableObject {
     /// normal confirm → create-playlist path.
     func openSharedConcerts(_ friend: Friend) {
         let me = state.mySetlistFmUser.trimmingCharacters(in: .whitespaces)
-        if me.isEmpty {
-            state.error = "Set your setlist.fm username first (Friends screen)."
-            state.errorKind = nil
+        // Either of us without an account: the intersection is of what this phone already
+        // holds — my Spine and their Lane — rather than of two setlist.fm lists (#405).
+        if me.isEmpty || friend.setlistfm.nilIfBlank == nil {
+            let theirs = Set((state.showsByFriend[friend.laneKey] ?? []).map(\.id))
+            state.sharedWith = friend
+            state.source = .user
+            state.setlistsTitle = "You & \(friend.name)"
+            state.setlists = []
+            state.setlistsPage = 1
+            state.setlistsTotal = 0
+            state.setlistsLoading = true
+            Task {
+                let shared = await timelines.load().mySpine(me).filter { theirs.contains($0.id) }
+                state.setlists = shared
+                state.setlistsTotal = shared.count
+                state.setlistsLoading = false
+            }
             return
         }
         state.sharedWith = friend

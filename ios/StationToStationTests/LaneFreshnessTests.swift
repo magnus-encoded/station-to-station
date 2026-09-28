@@ -30,8 +30,11 @@ final class LaneFreshnessTests: XCTestCase {
         let cases: [Case]
     }
 
+    /// A Night as setlist.fm serves it, page and all. A hand-logged one has no url.
     private func night(_ date: String, id: String? = nil) -> FmSetlist {
-        FmSetlist(id: id ?? "n-\(date)", eventDate: date, artist: FmArtist(name: "The Warning"))
+        let id = id ?? "n-\(date)"
+        return FmSetlist(id: id, eventDate: date, artist: FmArtist(name: "The Warning"),
+                         url: "https://www.setlist.fm/setlist/the-warning/\(id).html")
     }
 
     func testEveryCaseSaysWhatTheFixtureSays() throws {
@@ -87,5 +90,28 @@ final class LaneFreshnessTests: XCTestCase {
         XCTAssertEqual(held[ozzy.setlistfm]?.map(\.id), ["n-20-06-2019"])
         XCTAssertEqual(held["magnus"]?.map(\.id), ["n-01-01-2026"])
         XCTAssertFalse(laneNeedsFetch(ozzy, held: held[ozzy.setlistfm], myOldest: myOldest))
+    }
+
+    /// A Night they logged by hand reached me on the Reconcile (#405). setlist.fm has
+    /// never heard of it, so a fetched Lane — however complete — says nothing about it.
+    func testAFetchedLaneKeepsTheHandLoggedNightsOnlyTheReconcileCarried() {
+        var handLogged = night("14-08-2026", id: "local-1")
+        handLogged.url = nil
+        let had = [ozzy.setlistfm: [handLogged, night("10-01-2020")]]
+
+        let held = holdLanes(had, [ozzy.setlistfm: [night("20-06-2019")]])
+
+        XCTAssertEqual(["local-1", "n-20-06-2019"], held[ozzy.setlistfm]?.map(\.id))
+    }
+
+    /// A Contact with no account is never fetched: what the Reconcile brought is all.
+    func testAnAccountlessContactsLaneIsHeldUnderItsKeyAndNeverFetched() {
+        let dio = Friend(setlistfm: "", name: "Dio", publicKey: "k-dio")
+        var logged = night("01-01-2026", id: "local-2")
+        logged.url = nil
+        let held = [dio.laneKey: landNights(nil, [logged])]
+
+        XCTAssertFalse(laneNeedsFetch(dio, held: held[dio.laneKey], myOldest: myOldest))
+        XCTAssertEqual(["local-2"], held[dio.laneKey]?.map(\.id))
     }
 }

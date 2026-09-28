@@ -10,6 +10,7 @@ import io.github.magnusencoded.stationtostation.data.exchange.receiveRequested
 import io.github.magnusencoded.stationtostation.data.exchange.runContactSession
 import io.github.magnusencoded.stationtostation.data.exchange.writeEndOfItems
 import io.github.magnusencoded.stationtostation.data.exchange.writeItem
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -171,6 +172,59 @@ class ContactSessionTest {
         assertEquals(setOf("wanted"), landed.keys)
         assertEquals("wanted photo", File(tmp, "wanted.bin").readText())
         assertFalse(File(tmp, "unasked.bin").exists())
+    }
+
+    /**
+     * #405: the Nights ride the manifest, and land under the key that verified — the one
+     * thing a Contact with no setlist.fm username is known by. Nights already held are
+     * not landed twice.
+     */
+    @Test
+    fun `a contact's nights land under the key that verified, minus what I held`() {
+        val (server, client) = handshake()
+        val (serverPrivate, serverPublic) = contactIdentity()
+        val (clientPrivate, clientPublic) = contactIdentity()
+        val serverCert = server.session.localCertificates[0]
+        val clientCert = client.session.localCertificates[0]
+        val held = FmSetlist(id = "sl-held", eventDate = "13-08-2026")
+        val handLogged = FmSetlist(id = "local-1", eventDate = "14-08-2026")
+
+        val serverThread = Thread {
+            runContactSession(
+                socket = server,
+                isServer = true,
+                ownCert = serverCert,
+                privateKey = serverPrivate,
+                candidates = listOf(clientPublic),
+                myManifest = HandoverManifest(nights = listOf(held, handLogged)),
+                mine = TimelineCache(),
+                gallery = emptyList(),
+                mediaSource = { null },
+                receivedFile = { _, _ -> File.createTempFile("unused", ".bin") },
+            )
+        }
+        serverThread.start()
+
+        val landed = mutableListOf<Pair<String, List<String>>>()
+        runContactSession(
+            socket = client,
+            isServer = false,
+            ownCert = clientCert,
+            privateKey = clientPrivate,
+            candidates = listOf(serverPublic),
+            myManifest = HandoverManifest(),
+            mine = TimelineCache(),
+            gallery = emptyList(),
+            mediaSource = { null },
+            receivedFile = { _, _ -> File.createTempFile("unused", ".bin") },
+            heldLane = { key -> if (key == serverPublic) listOf(held) else emptyList() },
+            landNights = { key, nights -> landed += key to nights.map { it.id } },
+        )
+        serverThread.join(5000)
+        server.close()
+        client.close()
+
+        assertEquals(listOf(serverPublic to listOf("local-1")), landed)
     }
 
     @Test

@@ -436,7 +436,7 @@ func weaveTimelines(
     var showsAt: [Int: [FmSetlist]] = [:]
 
     for friend in friends {
-        let shows = theirs[friend.setlistfm] ?? []
+        let shows = theirs[friend.laneKey] ?? []
         if shows.isEmpty { continue }
         for node in groupIntoFestivals(shows, festivals) {
             let host: Int
@@ -447,7 +447,7 @@ func weaveTimelines(
                 host = hostNodes.count - 1
             }
             var here = friendsAt[host] ?? []
-            if !here.contains(where: { $0.setlistfm == friend.setlistfm }) { here.append(friend) }
+            if !here.contains(where: { $0.laneKey == friend.laneKey }) { here.append(friend) }
             friendsAt[host] = here
             // Deduped by show id: two friends at the same gig contribute it once,
             // or every count taken off this node double-counts as soon as there
@@ -482,7 +482,7 @@ func weaveTimelines(
         let myIds = Set(mine.map(\.id))
         let inner = row.node.runningOrder(also: row.showsHereByFriends).map { show -> WovenRow in
             let alsoHere = row.others.filter { f in
-                (theirs[f.setlistfm] ?? []).contains { $0.id == show.id }
+                (theirs[f.laneKey] ?? []).contains { $0.id == show.id }
             }
             return WovenRow(
                 node: .concert(show),
@@ -545,7 +545,7 @@ func laneXf(_ offset: Int, _ step: CGFloat) -> CGFloat { SpineX + step * CGFloat
 func linesAt(_ row: WovenRow, _ lanes: [Friend]) -> [Int] {
     var out: [Int] = []
     if row.mine { out.append(Spine) }
-    for (i, f) in lanes.enumerated() where row.others.contains(where: { $0.setlistfm == f.setlistfm }) {
+    for (i, f) in lanes.enumerated() where row.others.contains(where: { $0.laneKey == f.laneKey }) {
         out.append(i)
     }
     return out
@@ -585,7 +585,7 @@ func visibleLanes(_ lanes: [Friend], _ hidden: Set<String>) -> [Friend] {
 /// read stops meaning a person. Kept here rather than in the canvas so "hiding does not
 /// recolour anyone" is assertable with no canvas and no device.
 func laneColours(_ lanes: [Friend], _ hidden: Set<String>) -> [Int] {
-    lanes.indices.filter { !hidden.contains(lanes[$0].setlistfm) }
+    lanes.indices.filter { !hidden.contains(lanes[$0].laneKey) }
 }
 
 /// One order for the whole lane legend: most recently toggled off first, and any
@@ -599,7 +599,7 @@ func legendOrder(_ lanes: [Friend], hiddenAt: [String: Int64]) -> [Friend] {
     // The lane's own index breaks ties: Swift's sort is not stable, and a legend whose
     // active chips reshuffle between renders is its own bug.
     lanes.enumerated().sorted { a, b in
-        switch (hiddenAt[a.element.setlistfm], hiddenAt[b.element.setlistfm]) {
+        switch (hiddenAt[a.element.laneKey], hiddenAt[b.element.laneKey]) {
         case (nil, nil): return a.offset < b.offset
         case (nil, _): return true
         case (_, nil): return false
@@ -619,7 +619,7 @@ func legendSplit(
     _ lanes: [Friend], hiddenAt: [String: Int64], headSize: Int
 ) -> (head: [Friend], rest: [Friend]) {
     let ordered = legendOrder(lanes, hiddenAt: hiddenAt)
-    let activeCount = lanes.filter { hiddenAt[$0.setlistfm] == nil }.count
+    let activeCount = lanes.filter { hiddenAt[$0.laneKey] == nil }.count
     let count = max(headSize, activeCount)
     return (Array(ordered.prefix(count)), Array(ordered.dropFirst(count)))
 }
@@ -646,7 +646,7 @@ func lineDrawnOffset(_ row: WovenRow?, _ line: Int, _ lanes: [Friend]) -> Int {
 /// Lane — 0 is a real Lane and would draw a stranger's Line next to mine (Kotlin's
 /// indexOfFirst returns -1 here, which is why it reads as `?? Spine`).
 func hostLane(_ row: WovenRow?, _ friend: Friend, _ lanes: [Friend]) -> Int {
-    let own = lanes.firstIndex { $0.setlistfm == friend.setlistfm } ?? Spine
+    let own = lanes.firstIndex { $0.laneKey == friend.laneKey } ?? Spine
     return lineDrawnOffset(row, own, lanes)
 }
 

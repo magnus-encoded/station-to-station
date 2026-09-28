@@ -36,6 +36,13 @@ struct ExchangeView: View {
     @State private var qrPrimaryDue = false
     @State private var showCode = false
     @State private var cardURL: URL?
+    /// The name being typed for a card with no username behind it (#405).
+    @State private var nameDraft = ""
+
+    /// No username and no name: nothing to hand over, so the name is asked for up front.
+    private var needsCardName: Bool {
+        model.state.mySetlistFmUser.nilIfBlank == nil && model.state.myCardName.nilIfBlank == nil
+    }
 
     private var qrPrimary: Bool {
         qrPrimaryDue && session.peers.isEmpty && connectingWith == nil
@@ -119,8 +126,16 @@ struct ExchangeView: View {
     /// The ambient "looking around you" state and the live list.
     private var looking: some View {
         VStack(spacing: 0) {
-            note("Stand next to someone with the app open. When they appear, add them "
-                + "and your timelines weave together.")
+            if needsCardName {
+                // A card needs a name, never an account (#405): the radio carries a key and
+                // a name, and the Nights follow on the Reconcile.
+                note("Stand next to someone with the app open. Put your name on your card "
+                    + "and you can add each other — no account needed. Your nights go with it.")
+                cardNameField
+            } else {
+                note("Stand next to someone with the app open. When they appear, add them "
+                    + "and your timelines weave together.")
+            }
             Radar()
                 .padding(.vertical, 24)
             if session.peers.isEmpty {
@@ -235,14 +250,43 @@ struct ExchangeView: View {
                 Task { @MainActor in addScanned(scanned) }
             }
         } else {
+            // Only the code is username-shaped: a link cannot carry a key, and a link with
+            // no username names nobody (#405). Being found over the radio needs neither —
+            // just a name on the card.
             VStack(spacing: 10) {
-                Text("Set your setlist.fm username to make your card.")
+                Text(model.state.myCardName.nilIfBlank.map {
+                    "You are on your card as \($0). Anyone next to you with this screen open can add you."
+                } ?? "Put your name on your card and people standing next to you can add you.")
                     .font(.system(size: 13)).foregroundStyle(muted)
-                Button("Add your username") { nav.push(.friends) }
-                    .buttonStyle(.bordered).tint(amber)
+                cardNameField
+                Text("A code of your own is for setlist.fm users.")
+                    .font(.system(size: 12)).foregroundStyle(faint)
+                Button("I have a setlist.fm username") { nav.push(.friends) }
+                    .font(.system(size: 14)).tint(amber)
             }
             .padding(.vertical, 10)
         }
+    }
+
+    /// The name on a card with no username (#405). Saving it starts the radio, which a
+    /// card nobody could label had kept quiet.
+    private var cardNameField: some View {
+        HStack(spacing: 8) {
+            TextField("Your name", text: $nameDraft)
+                .textFieldStyle(.roundedBorder)
+                .onAppear { if nameDraft.isEmpty { nameDraft = model.state.myCardName } }
+            Button("Save") { saveCardName() }
+                .tint(amber)
+                .disabled(nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                    == model.state.myCardName)
+        }
+        .padding(.top, 10)
+    }
+
+    @MainActor
+    private func saveCardName() {
+        model.saveMyCardName(nameDraft)
+        if let card = model.myProbeCard() { session.restart(card: card) }
     }
 
     private func note(_ text: String) -> some View {

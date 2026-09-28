@@ -136,7 +136,12 @@ fun categoriesFor(contact: Boolean): Set<String> = if (contact) {
  * **Contact**'s photographs are mingled into someone's nights with no attribution, which
  * were whose is unrecoverable.
  */
-fun contactManifest(cache: TimelineCache, me: String): HandoverManifest {
+fun contactManifest(
+    cache: TimelineCache,
+    me: String,
+    /** My setlist.fm username, blank for none — which of [TimelineCache.shows] is mine. */
+    setlistfm: String = "",
+): HandoverManifest {
     // In the source's own **Gig** ids throughout, which is what the plan reads: the
     // manifest describes this device's timeline, and translating ids is the receiver's
     // job, not the sender's.
@@ -179,6 +184,11 @@ fun contactManifest(cache: TimelineCache, me: String): HandoverManifest {
                 )
             }
         },
+        // My Spine, whole (#405): the Nights I imported and the ones I logged by hand, on
+        // the same terms. The songs stay behind — a Lane is drawn from a date, an act and a
+        // room, and a setlist is a catalogue lookup away for anyone who wants it, so
+        // there is no reason to make every Reconcile carry my whole history's sets.
+        nights = cache.mySpine(setlistfm).map { it.copy(sets = null) },
     )
 }
 

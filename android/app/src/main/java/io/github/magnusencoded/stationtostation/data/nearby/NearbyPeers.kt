@@ -139,10 +139,10 @@ class NearbyPeers(private val context: Context) {
      * Starts advertising [me] and collecting whoever answers. Safe to call again
      * while running — a re-entered screen should not restart the radio.
      *
-     * **[me] and [myCard] are null for someone with no setlist.fm username**, and then
-     * only discovery runs: with no public history to point at there is nothing to
-     * advertise, but seeing who is in the room needs no card of your own. Looking is
-     * not the half that requires an account.
+     * **[me] is null for someone with no setlist.fm username**, and then only discovery
+     * runs: an endpoint name is a keyless link, and a link with no username names nobody.
+     * [myCard] still carries their key (#405), so a tap they make still hands it over on
+     * the connection, and BLE advertises it for them — being found needs no account.
      */
     fun start(me: Friend?, myCard: ProbeCard?) {
         if (running) return

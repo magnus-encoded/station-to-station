@@ -2,6 +2,8 @@ package io.github.magnusencoded.stationtostation
 
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.holdLanes
+import io.github.magnusencoded.stationtostation.data.landNights
+import io.github.magnusencoded.stationtostation.data.laneKey
 import io.github.magnusencoded.stationtostation.data.laneNeedsFetch
 import io.github.magnusencoded.stationtostation.data.parseFmDate
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
@@ -44,8 +46,11 @@ class LaneFreshnessTest {
     @Serializable
     private data class Cases(val cases: List<Case>)
 
-    private fun night(date: String, id: String = "n-$date") =
-        FmSetlist(id = id, eventDate = date, artist = FmArtist(name = "The Warning"))
+    /** A Night as setlist.fm serves it, page and all. A hand-logged one has no url. */
+    private fun night(date: String, id: String = "n-$date") = FmSetlist(
+        id = id, eventDate = date, artist = FmArtist(name = "The Warning"),
+        url = "https://www.setlist.fm/setlist/the-warning/$id.html",
+    )
 
     @Test
     fun `every case says what the fixture says`() {
@@ -86,6 +91,33 @@ class LaneFreshnessTest {
         val had = mapOf(ozzy.setlistfm to listOf(night("20-06-2019")))
         val held = holdLanes(had, mapOf(ozzy.setlistfm to emptyList()))
         assertEquals(listOf("n-20-06-2019"), held[ozzy.setlistfm]?.map { it.id })
+    }
+
+    /**
+     * A Night they logged by hand reached me on the Reconcile (#405). setlist.fm has
+     * never heard of it, so a fetched Lane — however complete — says nothing about it.
+     */
+    @Test
+    fun `a fetched lane keeps the hand-logged nights only the reconcile carried`() {
+        val handLogged = night("14-08-2026", id = "local-1").copy(url = null)
+        val imported = night("10-01-2020").copy(url = "https://www.setlist.fm/x")
+        val had = mapOf(ozzy.setlistfm to listOf(handLogged, imported))
+        val fetched = night("20-06-2019").copy(url = "https://www.setlist.fm/y")
+
+        val held = holdLanes(had, mapOf(ozzy.setlistfm to listOf(fetched)))
+
+        assertEquals(listOf("local-1", "n-20-06-2019"), held[ozzy.setlistfm]?.map { it.id })
+    }
+
+    /** A Contact with no account is never fetched: what the Reconcile brought is all. */
+    @Test
+    fun `an account-less contact's lane is held under its key and never fetched`() {
+        val dio = Friend(setlistfm = "", name = "Dio", publicKey = "k-dio")
+        val lane = landNights(null, listOf(night("01-01-2026", id = "local-2").copy(url = null)))
+        val held = mapOf(dio.laneKey to lane)
+
+        assertFalse(laneNeedsFetch(dio, held[dio.laneKey], myOldest))
+        assertEquals(listOf("local-2"), held[dio.laneKey]?.map { it.id })
     }
 
     @Test

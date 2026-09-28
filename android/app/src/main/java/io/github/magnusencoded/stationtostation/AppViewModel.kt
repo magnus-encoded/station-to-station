@@ -11,6 +11,11 @@ import io.github.magnusencoded.stationtostation.data.Band
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.FriendArrival
 import io.github.magnusencoded.stationtostation.data.friendArrival
+import io.github.magnusencoded.stationtostation.data.laneKey
+import io.github.magnusencoded.stationtostation.data.landNights
+import io.github.magnusencoded.stationtostation.data.mySpine
+import io.github.magnusencoded.stationtostation.data.withFriend
+import io.github.magnusencoded.stationtostation.ble.probeCardFor
 import io.github.magnusencoded.stationtostation.data.DeviceLocation
 import io.github.magnusencoded.stationtostation.data.DeviceTimelinePlumbing
 import io.github.magnusencoded.stationtostation.data.Festivals
@@ -320,6 +325,8 @@ data class UiState(
     val playlistsBySetlist: Map<String, List<StoredPlaylist>> = emptyMap(),
     // Friends (peer-to-peer, on-device)
     val mySetlistFmUser: String = "",
+    /** The name on my **Card** when there is no username to name it (#405). */
+    val myCardName: String = "",
     val friends: List<Friend> = emptyList(),
     val sharedWith: Friend? = null,
     // A friend's collection timeline, opened from the Connect screen.
@@ -721,11 +728,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         contactKeys = { settings.friends.first().mapNotNull { it.publicKey } },
         manifest = {
             val cache = timelines.load()
-            hashedManifest(contactManifest(cache, contactIdentityPublicKeyBase64()), cache)
+            val me = settings.mySetlistFmUser.first().orEmpty()
+            hashedManifest(contactManifest(cache, contactIdentityPublicKeyBase64(), me), cache)
         },
         mine = { timelines.load() },
         gallery = { galleryForMatching(timelines.load()) },
         onLanded = { landing -> timelines.mergeContactMedia(landing) },
+        lanesByKey = {
+            val shows = timelines.load().shows
+            settings.friends.first().mapNotNull { f ->
+                f.publicKey?.let { key -> shows[f.laneKey]?.let { key to it } }
+            }.toMap()
+        },
+        onNights = { key, nights -> landContactNights(key, nights) },
     )
 
     /**
@@ -773,6 +788,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     clashfinderReady = settings.clashfinderAuth() != null,
                     grantedScope = settings.grantedScope(),
                     mySetlistFmUser = settings.mySetlistFmUser.first() ?: "",
+                    myCardName = settings.myCardName.first() ?: "",
                     friends = settings.friends.first(),
                     onboarded = settings.onboarded.first(),
                 )
@@ -1370,19 +1386,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun dismissFriendOverwrite() = _state.update { it.copy(friendConflict = null) }
 
     private suspend fun writeFriend(friend: Friend) {
-        val current = _state.value.friends
-        // De-dupe on setlist.fm username — the identity the list has always used.
-        val held = current.firstOrNull { it.setlistfm.equals(friend.setlistfm, ignoreCase = true) }
-        // A key already held is never dropped by a later, thinner way of meeting the same
-        // person (#188). Only the radio carries a key — a link, a QR scan, a typed
-        // username and a playlist collaborator all arrive without one — so writing the
-        // card wholesale would silently unmake the **Contact**, permanently: the key is
-        // collected in one moment and there is no second chance to collect it, only a
-        // second **Exchange**. iOS has always done this; Android dropped it on a
-        // confirmed overwrite from a keyless card.
-        val incoming =
-            if (friend.publicKey.isNullOrBlank()) friend.copy(publicKey = held?.publicKey) else friend
-        val next = current.filterNot { it.setlistfm.equals(friend.setlistfm, ignoreCase = true) } + incoming
+        // De-duped on the key, then the username (#405), and never dropping a key or a
+        // username a thinner card is silent about. See [withFriend].
+        val next = withFriend(_state.value.friends, friend)
         settings.saveFriends(next)
         _state.update { it.copy(friends = next) }
     }
@@ -1403,9 +1409,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun removeFriend(friend: Friend) {
         viewModelScope.launch {
-            val next = _state.value.friends.filterNot { it.setlistfm == friend.setlistfm }
+            // By Lane, not by username: two Contacts without an account share a blank one.
+            val next = _state.value.friends.filterNot { it.laneKey == friend.laneKey }
             settings.saveFriends(next)
             _state.update { it.copy(friends = next) }
+        }
+    }
+
+    /**
+     * A **Contact**'s **Nights**, off a **Reconcile** (#405): held under their Lane, on disk
+     * and on screen, so the Lane draws now and after a relaunch without asking anyone.
+     * [contactKey] is the key that verified; a Contact removed mid-session lands nothing.
+     */
+    private suspend fun landContactNights(contactKey: String, nights: List<FmSetlist>) {
+        val friend = _state.value.friends.firstOrNull { it.publicKey?.trim() == contactKey.trim() } ?: return
+        val key = friend.laneKey
+        timelines.mergeContactNights(key, nights)
+        _state.update {
+            it.copy(showsByFriend = it.showsByFriend + (key to landNights(it.showsByFriend[key], nights)))
         }
     }
 
@@ -1413,6 +1434,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Loads a friend's whole attended-concert timeline for the Connect screen. */
     fun viewFriendTimeline(friend: Friend) {
+        // Nobody to ask about a Contact with no account: what the Reconcile brought is the
+        // whole of their Line, and it is already here (#405).
+        if (friend.setlistfm.isBlank()) {
+            _state.update {
+                it.copy(
+                    viewingFriend = friend,
+                    viewedFriendShows = it.showsByFriend[friend.laneKey].orEmpty(),
+                    viewedFriendLoading = false,
+                )
+            }
+            return
+        }
         _state.update {
             it.copy(viewingFriend = friend, viewedFriendShows = emptyList(), viewedFriendLoading = true)
         }
@@ -1479,8 +1512,27 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun openSharedConcerts(friend: Friend) {
         val me = _state.value.mySetlistFmUser.trim()
-        if (me.isEmpty()) {
-            _state.update { it.copy(errorKind = null, error = "Set your setlist.fm username first (Friends screen).") }
+        // Either of us without an account: the intersection is of what this phone already
+        // holds — my Spine and their Lane — rather than of two setlist.fm lists (#405).
+        if (friend.setlistfm.isBlank() || me.isEmpty()) {
+            val theirs = _state.value.showsByFriend[friend.laneKey].orEmpty().mapTo(HashSet()) { it.id }
+            _state.update {
+                it.copy(
+                    sharedWith = friend,
+                    source = SetlistSource.USER,
+                    setlistsTitle = "You & ${friend.name}",
+                    setlists = emptyList(),
+                    setlistsPage = 1,
+                    setlistsTotal = 0,
+                    setlistsLoading = true,
+                )
+            }
+            viewModelScope.launch {
+                val shared = timelines.load().mySpine(me).filter { it.id in theirs }
+                _state.update {
+                    it.copy(setlists = shared, setlistsTotal = shared.size, setlistsLoading = false)
+                }
+            }
             return
         }
         _state.update {
@@ -1525,10 +1577,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         .ifBlank { null }
         ?.let { Friend(setlistfm = it, name = it) }
 
-    /** The same card as a BLE payload: adds the public key #28 makes the identity. */
-    private fun myProbeCard(): ProbeCard? = _state.value.mySetlistFmUser.trim()
-        .ifBlank { null }
-        ?.let { ProbeCard(name = it, publicKey = contactIdentityPublicKeyBase64(), setlistfm = it) }
+    /**
+     * My card for the radio: the public key #28 makes the identity, and a username only if
+     * I have one (#405). Without one it is named by [UiState.myCardName]; see
+     * [probeCardFor]. Only the radio carries this — a link cannot carry a key, so the QR
+     * and share link stay username-only.
+     */
+    private fun myProbeCard(): ProbeCard? = probeCardFor(
+        setlistfm = _state.value.mySetlistFmUser,
+        name = _state.value.myCardName,
+        publicKey = contactIdentityPublicKeyBase64(),
+    )
+
+    /** The name on a card with no username (#405). Restarts a running Exchange to hand it over. */
+    fun saveMyCardName(name: String) {
+        val trimmed = name.trim()
+        viewModelScope.launch {
+            settings.saveMyCardName(trimmed)
+            _state.update { it.copy(myCardName = trimmed) }
+            if (_state.value.discovering || _state.value.exchangePeers.isNotEmpty()) {
+                exchange.restart(myCard(), myProbeCard())
+            }
+        }
+    }
 
     /**
      * Opens the Exchange: start every radio in parallel and collect whoever turns up.
@@ -1639,11 +1710,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * it. Persisted with the toggle-off moment (#396), which the legend's recency
      * order sorts by.
      */
-    fun toggleLineHidden(setlistfm: String) {
-        val hiddenAt = if (setlistfm in _state.value.hiddenAt) {
-            _state.value.hiddenAt - setlistfm
+    fun toggleLineHidden(lane: String) {
+        val hiddenAt = if (lane in _state.value.hiddenAt) {
+            _state.value.hiddenAt - lane
         } else {
-            _state.value.hiddenAt + (setlistfm to System.currentTimeMillis())
+            _state.value.hiddenAt + (lane to System.currentTimeMillis())
         }
         _state.update { it.copy(hiddenAt = hiddenAt) }
         viewModelScope.launch { timelines.saveHiddenLines(hiddenAt) }
@@ -1690,7 +1761,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         // zoom-out is the call volume the store exists to remove — but a lane cut off
         // at 60 shows is not complete, however cached it is. See [laneNeedsFetch].
         val stale = friends.filter { friend ->
-            laneNeedsFetch(friend, _state.value.showsByFriend[friend.setlistfm], myOldest)
+            laneNeedsFetch(friend, _state.value.showsByFriend[friend.laneKey], myOldest)
         }
         if (stale.isEmpty()) return
         _state.update { it.copy(timelinesLoading = true) }

@@ -207,8 +207,9 @@ func hashedDeviceManifest(_ cache: TimelineCache, allow: Set<String>,
     await hashing(deviceManifest(cache, allow: allow, identities: identities), cache)
 }
 
-func hashedContactManifest(_ cache: TimelineCache, me: String) async -> HandoverManifest {
-    await hashing(contactManifest(cache, me: me), cache)
+func hashedContactManifest(_ cache: TimelineCache, me: String,
+                           setlistfm: String = "") async -> HandoverManifest {
+    await hashing(contactManifest(cache, me: me, setlistfm: setlistfm), cache)
 }
 
 private func hashing(_ offered: HandoverManifest, _ cache: TimelineCache) async -> HandoverManifest {

@@ -79,6 +79,18 @@ class TimelineStoreTest {
         assertEquals(emptyList<String>(), store.load().shows["Ozzy"]?.map { it.id })
     }
 
+    /**
+     * #405: a Contact's Nights off a Reconcile are held in the same `shows` map a fetched
+     * Lane is, under their Lane key — no new stored field — and survive a relaunch.
+     */
+    @Test
+    fun `a contact's reconciled nights are held under their lane and added to`() = runBlocking {
+        val store = store()
+        store.mergeContactNights("key:0123456789abcdef", listOf(show("a")))
+        store.mergeContactNights("key:0123456789abcdef", listOf(show("a"), show("b")))
+        assertEquals(setOf("a", "b"), store.load().shows["key:0123456789abcdef"]?.map { it.id }?.toSet())
+    }
+
     @Test
     fun `festival names accumulate across saves`() = runBlocking {
         val store = store()

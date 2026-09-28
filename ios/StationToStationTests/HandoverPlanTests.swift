@@ -57,6 +57,21 @@ final class HandoverPlanTests: XCTestCase {
 
     // MARK: - The union
 
+    /// #405, user story 33: a Contact with no setlist.fm account holds their Lane under
+    /// `key:` and a fingerprint, which both of my devices derive from the same card — so a
+    /// Handover unions it like any username's Lane. Android's `HandoverTest`, twin.
+    func testAnAccountlessContactsLaneSurvivesTheHandoverBesideTheOthers() {
+        var mine = TimelineCache()
+        mine.shows = ["ozzy": [FmSetlist(id: "s1", eventDate: "12-06-2026")]]
+        var theirs = TimelineCache()
+        theirs.shows = ["key:0123456789abcdef": [FmSetlist(id: "local-1", eventDate: "14-08-2026")]]
+
+        let plan = handoverPlan(mine: mine, offer: HandoverManifest(timeline: theirs), allow: all, verified: true)
+
+        XCTAssertEqual(Set(plan.merged.shows.keys), ["ozzy", "key:0123456789abcdef"])
+        XCTAssertEqual(plan.merged.shows["key:0123456789abcdef"]?.map(\.id), ["local-1"])
+    }
+
     /// Neither device is a superset: the old phone has the history, the new one may hold
     /// the only copy of last night. Picking a winner by volume is a silent discard.
     func testBothSidesSurviveAUnion() {

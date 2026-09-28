@@ -1,5 +1,7 @@
 package io.github.magnusencoded.stationtostation.data
 
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
+
 /**
  * The other pairwise sync (#257): two **Contacts**, same WiFi, whatever's sitting in the
  * shared band that the far end is still missing. Not [handoverPlan] — that is a union of
@@ -25,6 +27,13 @@ data class ContactReconcilePlan(
     val noBytes: List<String> = emptyList(),
     /** Media ids to ask for. */
     val request: List<String> = emptyList(),
+    /**
+     * The **Nights** they offered that their **Lane** on this phone does not hold yet
+     * (#405) — hand-logged and imported alike, because where a Night came from stops
+     * mattering once it is theirs. Complete as they stand, like a **Note**: nothing is
+     * fetched for them. See [landNights] for where they go.
+     */
+    val nights: List<FmSetlist> = emptyList(),
 )
 
 /**
@@ -64,8 +73,15 @@ fun contactReconcilePlan(
     offer: HandoverManifest,
     verified: Boolean,
     gallery: List<GalleryItem> = emptyList(),
+    /** The Lane I already hold for this Contact — whatever [laneKey] files it under. */
+    heldLane: List<FmSetlist> = emptyList(),
 ): ContactReconcilePlan {
     if (!verified) return ContactReconcilePlan()
+
+    // Held by id, the one thing that says two records are one Night. A Night without an
+    // id is no Night, and one offered twice is taken once.
+    val heldNights = heldLane.mapTo(HashSet()) { it.id }
+    val nights = offer.nights.filter { it.id.isNotBlank() && heldNights.add(it.id) }
 
     val mineIds = mine.gigMedia.values.flatten().mapTo(HashSet()) { it.id }
     // Empty hashes excluded, which is not tidiness: a **Note** has no bytes and hashes to
@@ -86,7 +102,7 @@ fun contactReconcilePlan(
     }
 
     return ContactReconcilePlan(held = held, fromGallery = fromGallery,
-                                noBytes = noBytes, request = request)
+                                noBytes = noBytes, request = request, nights = nights)
 }
 
 /**

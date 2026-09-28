@@ -201,5 +201,5 @@ private func widthOf(_ people: Int) -> CGFloat { LineStrokeWidth + PerPerson * C
 
 /// Whose Line this is, for a log a person reads.
 func lineLabel(_ line: Int, _ lanes: [Friend]) -> String {
-    line == Spine ? "spine" : "lane\(line)(\(lanes.indices.contains(line) ? lanes[line].setlistfm : "?"))"
+    line == Spine ? "spine" : "lane\(line)(\(lanes.indices.contains(line) ? lanes[line].laneKey : "?"))"
 }

@@ -40,6 +40,21 @@ class FriendLinkTest {
     }
 
     /**
+     * #405 lets a **Card** go without a username — over the radio, in person, where it
+     * carries a key. A link carries no key, so a link with no username is still nobody:
+     * the door a link comes through is not widened by the one the radio opened.
+     */
+    @Test fun aLinkWithNeitherKeyNorUsernameIsStillNobody() {
+        assertNull(friendFromQuery(null, "Magnus", "dizziness"))
+        assertNull(friendFromQuery("", "Magnus", null))
+    }
+
+    /** An account-less Contact's Lane is filed under `key:…`, and no link can name it. */
+    @Test fun aLinkCannotAddressAnAccountlessContactsLane() {
+        assertNull(friendFromQuery("key:52da85770864f909", "Magnus", null))
+    }
+
+    /**
      * #271: a link cannot make a **Contact**. Holding a key is what makes one, and a
      * **Contact** is not addable remotely — so the parser takes no key at all and the
      * **Card** it hands back has none. The refusal is narrow: the rest of the link

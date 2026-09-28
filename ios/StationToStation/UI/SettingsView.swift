@@ -703,7 +703,7 @@ private struct ServiceControls: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(friend.name).foregroundColor(ink)
-                            Text("@\(friend.setlistfm) · \(s.showsByFriend[friend.setlistfm]?.count ?? 0) shows")
+                            Text((friend.setlistfm.nilIfBlank.map { "@\($0) · " } ?? "") + "\(s.showsByFriend[friend.laneKey]?.count ?? 0) shows")
                                 .font(.system(size: 12))
                                 .foregroundColor(muted)
                         }

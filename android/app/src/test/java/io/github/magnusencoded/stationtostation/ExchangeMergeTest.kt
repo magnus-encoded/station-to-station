@@ -54,8 +54,9 @@ class ExchangeMergeTest {
         assertEquals("base64-key", friendFromCard(card)?.publicKey)
     }
 
-    @Test fun friendFromCardDropsABlankKey() {
+    /** The key is what makes a Contact (#405), so a card without one makes nobody. */
+    @Test fun friendFromCardRefusesABlankKey() {
         val card = ProbeCard(name = "Magnus", publicKey = "  ", setlistfm = "dizzi90")
-        assertNull(friendFromCard(card)?.publicKey)
+        assertNull(friendFromCard(card))
     }
 }

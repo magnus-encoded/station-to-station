@@ -2,6 +2,7 @@ package io.github.magnusencoded.stationtostation.ui.flyover
 
 import io.github.magnusencoded.stationtostation.data.Festivals
 import io.github.magnusencoded.stationtostation.data.Friend
+import io.github.magnusencoded.stationtostation.data.laneKey
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.StoredMedia
@@ -119,7 +120,7 @@ internal data class FlyoverGig(
      *  for a festival day and setlist.fm's API knows none at all. The second rung. */
     val startsAt: LocalDateTime? = null,
     /**
-     * The **Contacts** whose timeline holds this **Gig**, by `setlistfm` key: who was
+     * The **Contacts** whose timeline holds this **Gig**, by `laneKey`: who was
      * here, whatever they gave. The woven timelines already know this — see
      * [io.github.magnusencoded.stationtostation.ui.weaveTimelines] — and it is the
      * evidence a floor line now stands on.
@@ -218,7 +219,7 @@ internal fun flyoverPeople(gigs: List<FlyoverGig>, friends: List<Friend>): List<
     var unknown = 0
     return cast.map { key ->
         val gave = gaveAt[key].orEmpty().toSet()
-        val at = friends.indexOfFirst { it.setlistfm == key }
+        val at = friends.indexOfFirst { it.laneKey == key }
         if (at >= 0) FlyoverPerson(key, friends[at].name, at, gave)
         else FlyoverPerson(key, "", friends.size + unknown++, gave)
     }.sortedBy { it.colourIndex }

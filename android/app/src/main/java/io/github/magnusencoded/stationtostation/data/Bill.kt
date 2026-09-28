@@ -181,7 +181,42 @@ fun holdLanes(
     held: Map<String, List<FmSetlist>>,
     fetched: Map<String, List<FmSetlist>>,
 ): Map<String, List<FmSetlist>> =
-    held + fetched.filter { (user, shows) -> shows.isNotEmpty() || held[user].isNullOrEmpty() }
+    held + fetched
+        .filter { (user, shows) -> shows.isNotEmpty() || held[user].isNullOrEmpty() }
+        .mapValues { (user, shows) ->
+            // A hand-logged Night of theirs reached me on the **Reconcile** (#405), and
+            // setlist.fm has never heard of it — so its answer, however complete, is not
+            // an answer about that Night. It stays.
+            val ids = shows.mapTo(HashSet()) { it.id }
+            val onlyReconciled = held[user].orEmpty().filter { it.isLocal() && it.id !in ids }
+            if (onlyReconciled.isEmpty()) shows
+            else (shows + onlyReconciled).sortedByDescending { it.localDate() }
+        }
+
+/**
+ * My own **Nights**, as a cache holds them: the **Spine** [spineNights] draws, read
+ * straight from the store. [me] is my setlist.fm username, blank when I have none — then
+ * the Spine is my evidenced nights alone, which is the whole of it for someone who logs
+ * by hand.
+ */
+fun TimelineCache.mySpine(me: String): List<FmSetlist> =
+    spineNights(if (me.isBlank()) emptyList() else shows[me].orEmpty(), planned(), attendance())
+
+/**
+ * A **Contact**'s **Lane** once the **Nights** they offered on a **Reconcile** land on
+ * what I [held] (#405). [received] is the plan's `nights` — already only what I did not
+ * hold — so this adds and never removes: the same Night twice is one Night, and a Lane
+ * setlist.fm filled in is not emptied by a Contact whose own copy of it is shorter.
+ *
+ * Newest first, as every Lane is.
+ */
+fun landNights(held: List<FmSetlist>?, received: List<FmSetlist>): List<FmSetlist> {
+    val had = held.orEmpty()
+    val ids = had.mapTo(HashSet()) { it.id }
+    val fresh = received.filter { it.id.isNotBlank() && ids.add(it.id) }
+    if (fresh.isEmpty()) return had
+    return (had + fresh).sortedByDescending { it.localDate() }
+}
 
 /** dd-MM-yyyy, the one date shape this app and setlist.fm both speak. */
 private val FM_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("dd-MM-yyyy", Locale.ENGLISH)

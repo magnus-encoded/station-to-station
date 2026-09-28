@@ -1195,6 +1195,19 @@ actor TimelineStore {
         }
     }
 
+    /// A **Contact**'s **Nights** from a **Reconcile**, folded into the **Lane** held under
+    /// `laneKey` (#405) — `shows`, the same map a fetched Lane is held in, so a Contact with
+    /// no account draws offline the way a fetched one does. Adds, never removes: see
+    /// `landNights`. The twin of Android's `mergeContactNights`.
+    func mergeContactNights(_ laneKey: String, _ nights: [FmSetlist]) {
+        if laneKey.nilIfBlank == nil || nights.isEmpty { return }
+        writeMerged { cache in
+            var c = cache
+            c.shows[laneKey] = landNights(c.shows[laneKey], nights)
+            return c
+        }
+    }
+
     /// The union a device handover decided, written under this actor's own lock (#142).
     ///
     /// Takes the *plan function*, not a plan: a handover can run for minutes, and a union

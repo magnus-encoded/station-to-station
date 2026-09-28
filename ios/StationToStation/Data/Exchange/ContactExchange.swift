@@ -40,17 +40,25 @@ final class ContactExchange {
     private let mine: () async -> TimelineCache
     private let gallery: () async -> [GalleryItem]
     private let onLanded: ([String: [StoredMedia]]) async -> Void
+    /// The **Lane** held for each Contact, by their key (#405). Re-read per session.
+    private let lanesByKey: () async -> [String: [FmSetlist]]
+    /// A verified Contact's **Nights** that I did not hold yet, by their key (#405).
+    private let onNights: (String, [FmSetlist]) async -> Void
 
     init(contactKeys: @escaping () async -> [String],
          manifest: @escaping () async -> HandoverManifest,
          mine: @escaping () async -> TimelineCache,
          gallery: @escaping () async -> [GalleryItem],
-         onLanded: @escaping ([String: [StoredMedia]]) async -> Void) {
+         onLanded: @escaping ([String: [StoredMedia]]) async -> Void,
+         lanesByKey: @escaping () async -> [String: [FmSetlist]] = { [:] },
+         onNights: @escaping (String, [FmSetlist]) async -> Void = { _, _ in }) {
         self.contactKeys = contactKeys
         self.manifest = manifest
         self.mine = mine
         self.gallery = gallery
         self.onLanded = onLanded
+        self.lanesByKey = lanesByKey
+        self.onNights = onNights
     }
 
     private let peers = ContactPeers()
@@ -178,7 +186,7 @@ final class ContactExchange {
 
     private func run(_ connection: NWConnection, isServer: Bool) {
         guard let ownCertificate = tls?.certificate else { connection.cancel(); return }
-        let session = Task.detached(priority: .utility) { [warmup, contactKeys, mine, onLanded] in
+        let session = Task.detached(priority: .utility) { [warmup, contactKeys, mine, onLanded, lanesByKey, onNights] in
             defer { connection.cancel() }
             guard let peerCertificate = await ready(connection) else { return }
             let candidates = await contactKeys()
@@ -186,6 +194,7 @@ final class ContactExchange {
             guard let warmed = await warmup?.value else { return }
             let (manifest, gallery) = warmed
             let cache = await mine()
+            let lanes = await lanesByKey()
 
             var refById: [String: String] = [:]
             for item in cache.gigMedia.values.flatMap({ $0 }) { refById[item.id] = item.ref }
@@ -208,6 +217,13 @@ final class ContactExchange {
                 landNotes: { notes in
                     if Task.isCancelled { return }
                     await onLanded(notes)
+                },
+                heldLane: { key in lanes[key] ?? [] },
+                // Landed for the notes' reason: text, complete the moment the manifest is,
+                // and not to be held up behind a photograph.
+                landNights: { key, nights in
+                    if Task.isCancelled { return }
+                    await onNights(key, nights)
                 }
             )
             guard let landing, !landing.isEmpty else { return }

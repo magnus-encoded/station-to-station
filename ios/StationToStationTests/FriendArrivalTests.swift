@@ -189,4 +189,71 @@ final class FriendArrivalTests: XCTestCase {
         XCTAssertEqual("k-ozzy", model.state.friends.first?.publicKey)
         clearFriends(model)
     }
+
+    // --- The key is the identity; the username is an attribute (#405) ---
+
+    private let dio = Friend(setlistfm: "", name: "Dio", publicKey: "k-dio")
+
+    func testAContactWithNoAccountArrivingIntoEmptySpaceIsWrittenSilently() {
+        XCTAssertEqual(FriendArrival.new(dio), friendArrival(dio, known: known))
+    }
+
+    func testTheSameAccountlessCardAgainIsNeitherAWriteNorAQuestion() {
+        XCTAssertEqual(FriendArrival.unchanged, friendArrival(dio, known: known + [dio]))
+    }
+
+    func testAnAccountlessCardThatChangesWhatIHoldStillAsks() {
+        let card = Friend(setlistfm: "", name: "Ronnie James Dio", publicKey: "k-dio")
+
+        XCTAssertEqual(FriendArrival.conflict(existing: dio, incoming: card),
+                       friendArrival(card, known: known + [dio]))
+    }
+
+    /// Two people without an account are two people: a blank username matches nobody.
+    func testTwoContactsWithoutAnAccountAreNotOneContact() {
+        let other = Friend(setlistfm: "", name: "Dio", publicKey: "k-someone-else")
+
+        XCTAssertEqual(FriendArrival.new(other), friendArrival(other, known: known + [dio]))
+    }
+
+    func testAHeldKeyIsMatchedWhateverUsernameTheCardCarries() {
+        let keyed = [Friend(setlistfm: "ozzy", name: "Ozzy", publicKey: "k-ozzy")]
+        let renamed = Friend(setlistfm: "ozzy2026", name: "Ozzy", publicKey: "k-ozzy")
+
+        XCTAssertEqual(FriendArrival.conflict(existing: keyed[0], incoming: renamed),
+                       friendArrival(renamed, known: keyed))
+    }
+
+    /// Silent about the username is not asking to be unfollowed on setlist.fm.
+    func testACardWithNoUsernameDoesNotProposeClearingOneIHold() {
+        let keyed = [Friend(setlistfm: "ozzy", name: "Ozzy", publicKey: "k-ozzy")]
+        let card = Friend(setlistfm: "", name: "Ozzy", publicKey: "k-ozzy")
+
+        XCTAssertEqual(FriendArrival.unchanged, friendArrival(card, known: keyed))
+    }
+
+    /// It changes where their Lane comes from, so it is a change and it asks.
+    func testAFirstUsernameForAContactHeldWithoutOneAsks() {
+        let card = Friend(setlistfm: "dio", name: "Dio", publicKey: "k-dio")
+
+        XCTAssertEqual(FriendArrival.conflict(existing: dio, incoming: card),
+                       friendArrival(card, known: known + [dio]))
+        XCTAssertTrue(FriendConflict(existing: dio, incoming: card).usernameChanged)
+    }
+
+    /// The model end to end: an account-less Contact arrives, is held under its key, and
+    /// a second one does not replace it.
+    @MainActor
+    func testTheModelHoldsTwoAccountlessContactsApart() {
+        let model = emptyModel()
+        model.addFriend(dio)
+        model.addFriend(Friend(setlistfm: "", name: "Dio", publicKey: "k-someone-else"))
+
+        XCTAssertNil(model.state.friendConflict)
+        XCTAssertEqual(2, model.state.friends.count)
+        XCTAssertEqual(2, Set(model.state.friends.map(\.laneKey)).count)
+        model.removeFriend(dio)
+        XCTAssertEqual(["k-someone-else"], model.state.friends.compactMap(\.publicKey))
+        clearFriends(model)
+    }
 }

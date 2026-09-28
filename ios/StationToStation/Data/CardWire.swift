@@ -208,19 +208,46 @@ struct PeerHit: Equatable {
     let discoveryMs: Int
 }
 
-/// A read card becomes a friend only when it carries a setlist.fm username — the
-/// same invariant the QR card has always held. A card without one is a contact
-/// with no timeline; storing that is the relationship layer's job (#28/#29).
+/// A **Card** that arrived over the radio, as the **Contact** it makes — the one door a
+/// Friend with no setlist.fm username comes through (#405).
+///
+/// **The key is what makes a Contact, so the key is what is required.** A username is an
+/// attribute: a card without one is a person with no account, whose **Nights** arrive on
+/// the **Reconcile** instead of being fetched. This is the radio, in person — a link
+/// cannot carry a key, so `friendFromURL` still refuses a link without a username, and
+/// that door is not widened by this one. Android's `friendFromCard`, term for term.
 func friendFromCard(_ card: ProbeCard) -> Friend? {
-    // Checked, not merely non-blank: a card is written by any radio in range, and the
-    // username goes into a setlist.fm path carrying our API key. See #187, and
-    // `isPlausibleSetlistFmUser` for the rule and what it deliberately costs.
-    guard let user = card.setlistfm?.nilIfBlank?.trimmingCharacters(in: .whitespaces).nilIfBlank,
-          isPlausibleSetlistFmUser(user)
+    // Kept, not dropped: the only thing a later LAN reconcile has to check a discovered
+    // peer against (#265), and the card is the one time this Contact hands it over.
+    guard let key = card.publicKey.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
     else { return nil }
-    // The key is kept, not dropped: it is the only thing a later LAN reconcile has
-    // to check a discovered peer against (#265), and there is no second moment to
-    // collect it — the card is the one time this Contact hands it over.
-    return Friend(setlistfm: user, name: card.name.nilIfBlank ?? user,
-                  spotifyId: card.spotifyId, publicKey: card.publicKey.nilIfBlank)
+    // A username the card *does* carry is still checked, not merely non-blank: a card is
+    // written by any radio in range, and the username goes into a setlist.fm path carrying
+    // our API key. See #187, and `isPlausibleSetlistFmUser`. One that fails is a hostile or
+    // broken card, refused whole rather than quietly demoted to an account-less one.
+    let user = card.setlistfm?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if !user.isEmpty, !isPlausibleSetlistFmUser(user) { return nil }
+    // A row that cannot be labelled is not a Contact anyone can read.
+    guard let name = card.name.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
+            ?? user.nilIfBlank
+    else { return nil }
+    return Friend(setlistfm: user, name: name, spotifyId: card.spotifyId, publicKey: key)
+}
+
+/// My own **Card** for the radio, or nil when there is nothing to hand over (#405).
+///
+/// **The key is the card; the username is an attribute.** With a setlist.fm username the
+/// card is what it always was — named by the username, carrying it. Without one it is
+/// still a card: `name` (what I asked to be called on the other phone) and the key. It
+/// used to be nil without a username, which is what made a person with no account
+/// undiscoverable. No username and no name is still no card: a row that cannot be
+/// labelled is not shown. Android's `probeCardFor`, term for term.
+func probeCardFor(setlistfm: String, name: String, publicKey: String) -> ProbeCard? {
+    let ws = CharacterSet.whitespacesAndNewlines
+    guard let key = publicKey.trimmingCharacters(in: ws).nilIfBlank else { return nil }
+    if let user = setlistfm.trimmingCharacters(in: ws).nilIfBlank {
+        return ProbeCard(name: user, publicKey: key, setlistfm: user)
+    }
+    guard let called = name.trimmingCharacters(in: ws).nilIfBlank else { return nil }
+    return ProbeCard(name: called, publicKey: key)
 }
