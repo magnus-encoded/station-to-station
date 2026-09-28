@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -43,6 +44,8 @@ import io.github.magnusencoded.stationtostation.ui.SettingsScreen
 import io.github.magnusencoded.stationtostation.ui.SplashScreen
 import io.github.magnusencoded.stationtostation.ui.StationEventScreen
 import io.github.magnusencoded.stationtostation.ui.StationTimelineScreen
+import io.github.magnusencoded.stationtostation.ui.TourCoachMark
+import io.github.magnusencoded.stationtostation.data.TourEvent
 import io.github.magnusencoded.stationtostation.ui.flyover.GigFlyoverScreen
 import kotlinx.coroutines.flow.map
 
@@ -278,17 +281,21 @@ fun AppNavigation(viewModel: AppViewModel) {
             )
         }
         composable("timeline") {
-            StationTimelineScreen(
-                viewModel = viewModel,
-                onOpenEvent = { navController.navigate("event") },
-                onOpenImport = { navController.navigate("import") },
-                // Both the people icon and the swipe-left gesture now lead to the one
-                // Exchange — there is a single way to meet someone.
-                onOpenConnect = { navController.navigate("exchange") },
-                onOpenNearby = { navController.navigate("exchange") },
-                onOpenSettings = { navController.navigate("settings") },
-                onOpenProgramme = { navController.navigate("programme") },
-            )
+            val state by viewModel.state.collectAsStateWithLifecycle()
+            Box {
+                StationTimelineScreen(
+                    viewModel = viewModel,
+                    onOpenEvent = { navController.navigate("event") },
+                    onOpenImport = { navController.navigate("import") },
+                    // Both the people icon and the swipe-left gesture now lead to the one
+                    // Exchange — there is a single way to meet someone.
+                    onOpenConnect = { navController.navigate("exchange") },
+                    onOpenNearby = { navController.navigate("exchange") },
+                    onOpenSettings = { navController.navigate("settings") },
+                    onOpenProgramme = { navController.navigate("programme") },
+                )
+                TourCoachMark(state.tour.step, viewModel::dispatchTour)
+            }
         }
         composable("exchange") {
             ExchangeScreen(
@@ -379,6 +386,11 @@ fun AppNavigation(viewModel: AppViewModel) {
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
                 onOpenHandover = { navController.navigate("handover") },
+                onOpenTour = {
+                    val event = if (viewModel.state.value.tour.finished) TourEvent.ReplayRequested else TourEvent.Resumed
+                    viewModel.dispatchTour(event)
+                    navController.popBackStack("timeline", inclusive = false)
+                },
             )
         }
         composable("handover") {

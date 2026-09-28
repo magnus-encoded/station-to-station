@@ -396,6 +396,8 @@ data class StoredGig(
     val setlistId: String? = null,
     /** Epoch millis. 0 means "came in with the migration". */
     val createdAt: Long = 0L,
+    /** True only for records created inside the disposable Tour Demo world. */
+    val demo: Boolean = false,
 )
 
 /**
@@ -1425,6 +1427,9 @@ class TimelineStore(
         return deleted
     }
 
+    /** Removes the disposable Demo world while preserving real records and playlists. */
+    suspend fun purgeDemoWorld() = writeMerged { it.withoutDemoWorld() }
+
     /**
      * Two records found to be the same night become one — the case where a night
      * added by hand is later also imported.
@@ -1485,6 +1490,24 @@ class TimelineStore(
                 Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
             }
         }
+}
+
+internal fun TimelineCache.withoutDemoWorld(): TimelineCache {
+    val demoIds = gigs.values.filter { it.demo }.mapTo(mutableSetOf()) { it.id }
+    if (demoIds.isEmpty()) return this
+    val demoSetlistIds = demoIds.mapNotNullTo(mutableSetOf()) { gigs[it]?.setlistId }
+    return copy(
+        shows = shows.mapValues { (_, lane) -> lane.filterNot { it.id in demoSetlistIds } },
+        gigs = gigs - demoIds,
+        gigPlanned = gigPlanned - demoIds,
+        gigAttendance = gigAttendance - demoIds,
+        gigCalendarEvent = gigCalendarEvent - demoIds,
+        gigMedia = gigMedia - demoIds,
+        gigLogs = gigLogs - demoIds,
+        gigSongOffsets = gigSongOffsets - demoIds,
+        // The exported Spotify playlist is the keepsake, so its record survives too.
+        gigPlaylists = gigPlaylists,
+    )
 }
 
 /**

@@ -4,6 +4,8 @@ import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -67,6 +69,10 @@ import io.github.magnusencoded.stationtostation.data.QR_SYMBOLOGY
 import io.github.magnusencoded.stationtostation.data.TimelineLogic
 import io.github.magnusencoded.stationtostation.data.TimelineCache
 import io.github.magnusencoded.stationtostation.data.TimelineStore
+import io.github.magnusencoded.stationtostation.data.TourCommand
+import io.github.magnusencoded.stationtostation.data.TourEvent
+import io.github.magnusencoded.stationtostation.data.TourState
+import io.github.magnusencoded.stationtostation.data.runTour
 import io.github.magnusencoded.stationtostation.data.friendFromUri
 import io.github.magnusencoded.stationtostation.data.gigIdFromInvite
 import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
@@ -536,8 +542,9 @@ data class UiState(
     val setlistFmSharedQuotaSpent: Boolean = false,
     // Transient non-error notice (e.g. "Added a friend from that playlist")
     val notice: String? = null,
-    // True once the splash has been passed (Spotify login or skip).
+    // True once the first-run Tour has been offered.
     val onboarded: Boolean = false,
+    val tour: TourState = TourState(),
     /**
      * True once launch has read what the first screen needs: the settings (so
      * [onboarded] is known) and the saved timeline, Festivals and all. The system
@@ -820,7 +827,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     myCardName = settings.myCardName.first() ?: "",
                     friends = settings.friends.first(),
                     onboarded = settings.onboarded.first(),
+                    tour = settings.tourState.first(),
                 )
+            }
+            val restoredTour = _state.value.tour
+            when {
+                restoredTour.step != null && !restoredTour.finished -> dispatchTour(TourEvent.Resumed)
+                !_state.value.onboarded -> dispatchTour(TourEvent.Started(application.isOnline()))
             }
             restoreTimelines()
             // After the timeline is back, because the only reason the radio runs is a Gig
@@ -992,6 +1005,27 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(onboarded = true) }
         viewModelScope.launch { settings.setOnboarded() }
     }
+
+    fun dispatchTour(event: TourEvent) {
+        val transition = runTour(_state.value.tour, event)
+        if (transition.state == _state.value.tour && transition.commands.isEmpty()) return
+        _state.update { it.copy(tour = transition.state) }
+        viewModelScope.launch {
+            settings.saveTourState(transition.state)
+            if (!_state.value.onboarded && transition.state.step != null) {
+                settings.setOnboarded()
+                _state.update { it.copy(onboarded = true) }
+            }
+            for (command in transition.commands) {
+                when (command) {
+                    TourCommand.PurgeDemoWorld -> timelines.purgeDemoWorld()
+                    else -> Unit // Later Tour slices own their platform side effects.
+                }
+            }
+        }
+    }
+
+    fun offerTourWhenOnline() = dispatchTour(TourEvent.Started(getApplication<Application>().isOnline()))
 
     fun consumeError() = _state.update { it.copy(error = null, errorKind = null) }
     fun consumeNotice() = _state.update { it.copy(notice = null) }
@@ -3862,4 +3896,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             "The cover could not be uploaded. ${e.message}"
         }
     }
+}
+
+private fun Context.isOnline(): Boolean {
+    val manager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    val network = manager.activeNetwork ?: return false
+    val capabilities = manager.getNetworkCapabilities(network) ?: return false
+    return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+        capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
 }
