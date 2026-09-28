@@ -262,6 +262,10 @@ struct StationView: View {
                 .font(.system(size: 16, design: .serif))
                 .foregroundStyle(muted)
         }
+        // One header, not "white bullet" and then a name (#164).
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Station to Station")
+        .accessibilityAddTraits(.isHeader)
     }
 
     private var menu: some View {
@@ -269,8 +273,11 @@ struct StationView: View {
             // Distinguishes an empty strip from one still arriving.
             if showingLanes && model.state.lanesLoading { ProgressView().tint(faint) }
             // The converter is not gone — it lives behind search, as on Android.
+            // Symbols only, so each says what it opens rather than what it draws (#164).
             Button { nav.push(.search) } label: { Image(systemName: "magnifyingglass") }
+                .accessibilityLabel("Search")
             Button { nav.push(.friends) } label: { Image(systemName: "person.2") }
+                .accessibilityLabel("Friends")
             Button { nav.push(.programme) } label: { Image(systemName: "clock") }
                 .accessibilityLabel("Festival programme")
             Button { model.refreshTimeline() } label: {
@@ -278,7 +285,9 @@ struct StationView: View {
                 else { Image(systemName: "arrow.clockwise") }
             }
             .disabled(model.state.timelineLoading)
+            .accessibilityLabel("Refresh your timeline")
             Button { nav.push(.settings) } label: { Image(systemName: "gearshape") }
+                .accessibilityLabel("Settings")
         }
         .tint(faint)
     }
@@ -408,6 +417,8 @@ struct StationView: View {
             Text("\u{2191}  THE FUTURE")
                 .font(.system(size: 11, weight: .semibold)).kerning(1.5)
                 .foregroundStyle(slate)
+                .accessibilityLabel("The future")
+                .accessibilityAddTraits(.isHeader)
             HStack {
                 Text("the shows ahead")
                     .font(.system(size: 12)).foregroundStyle(faint)
@@ -514,6 +525,7 @@ struct StationView: View {
                 // history yet still has a ticket for something.
                 Button("\u{2191}  or add a gig you're going to") { addingPlanned = true }
                     .font(.system(size: 13)).foregroundStyle(slate).padding(.top, 4)
+                    .accessibilityLabel("Or add a gig you're going to")
                 // Both doors above end at setlist.fm. This one does not, and it is the
                 // only affordance here a person without an account can act on (#347).
                 Button("or type in a night you were at") { addingLocal = true }
@@ -577,6 +589,8 @@ struct StationRow: View {
             // 14pt, inner 10pt) and zig-zags down the screen.
             ZStack(alignment: .topLeading) { node }
                 .frame(width: SpineWidth + laneWidth, alignment: .leading)
+                // The ring's number repeats the count the words below already say.
+                .accessibilityHidden(true)
 
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -587,6 +601,10 @@ struct StationRow: View {
         .background(alignment: .topLeading) { lines }
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
+        // One stop per night, read as its words — the date, who, where, what is kept
+        // — and said to be something that opens (#164).
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
 
     /// The Lines running through this row, drawn behind it so they span its whole
@@ -731,6 +749,9 @@ private struct PlannedGigRow: View {
                 .font(.system(size: 12)).foregroundStyle(slate).padding(.top, 2)
         }
         .padding(.vertical, 8)
+        // Every place this row is drawn, a tap opens the Gig (#164).
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
 }
 

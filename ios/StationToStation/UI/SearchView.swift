@@ -42,8 +42,11 @@ struct SearchView: View {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 // The Timeline is home now; this returns to it.
                 Button { nav.popToRoot() } label: { Image(systemName: "calendar") }
+                    .accessibilityLabel("Your timeline")
                 Button { nav.push(.friends) } label: { Image(systemName: "person.2") }
+                    .accessibilityLabel("Friends")
                 Button { nav.push(.settings) } label: { Image(systemName: "gearshape") }
+                    .accessibilityLabel("Settings")
             }
         }
     }
@@ -63,6 +66,7 @@ private struct ArtistTab: View {
                     .autocorrectionDisabled()
                     .onSubmit { model.searchArtists() }
                 Button { model.searchArtists() } label: { Image(systemName: "magnifyingglass") }
+                    .accessibilityLabel("Search")
             }
             if s.searchLoading {
                 ProgressView().frame(maxWidth: .infinity).padding()
@@ -76,6 +80,8 @@ private struct ArtistTab: View {
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { model.openArtist(artist); nav.push(.setlists) }
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isButton)
             }
             .listStyle(.plain)
         }
@@ -105,6 +111,7 @@ private struct UserTab: View {
                 Button {
                     model.openUserAttended(); nav.push(.setlists)
                 } label: { Image(systemName: "magnifyingglass") }
+                .accessibilityLabel("Load")
             }
             Link("Forgot your username? Sign in on setlist.fm (Google login supported)",
                  destination: URL(string: "https://www.setlist.fm/signin")!)

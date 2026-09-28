@@ -125,6 +125,12 @@ private struct GossipPresenceRow: View {
         .contentShape(Rectangle())
         .onTapGesture { if bullet != nil { onSelect() } }
         .accessibilityElement(children: .combine)
+        // "✓" is read as "check mark"; the words already say it (#164).
+        .accessibilityLabel(label.replacingOccurrences(of: "\u{2713} ", with: ""))
+        // The bullet's colour is its whole state, so say it — and say it is a control
+        // only where a tap does something.
+        .accessibilityValue(bullet.map { $0 == .on ? "gossip on" : "gossip off" } ?? "")
+        .accessibilityAddTraits(bullet == nil ? [] : .isButton)
         .accessibilityHint(bullet == nil ? "" : "Stand at this gig — gossip speaks for it")
     }
 }
@@ -556,6 +562,7 @@ struct GigView: View {
                     Text("I'm here — check in").font(.system(size: 13)).foregroundStyle(amber)
                         .padding(.top, 6)
                         .onTapGesture { model.checkIn(show.id) }
+                        .accessibilityAddTraits(.isButton)
                 }
             }
         }
@@ -596,12 +603,20 @@ struct GigView: View {
                         .contentShape(Rectangle())
                         .padding(.vertical, 6)
                     }
+                    // The words without the "↗", which VoiceOver reads as an arrow (#164).
+                    .accessibilityLabel(made.count == 1
+                                        ? "Open the playlist"
+                                        : "Open \(playlist.name.nilIfBlank ?? "the playlist")")
                     .contextMenu {
                         Button(role: .destructive) {
                             model.removePlaylist(show.id, url: playlist.url)
                         } label: {
                             Label("Drop this link", systemImage: "trash")
                         }
+                    }
+                    // Named in the actions rotor too, beside the menu it sits in.
+                    .accessibilityAction(named: "Drop this link") {
+                        model.removePlaylist(show.id, url: playlist.url)
                     }
                 }
             }
@@ -654,6 +669,8 @@ struct GigView: View {
             Text("\(name) · gossip, experimental").font(.system(size: 11)).foregroundStyle(muted)
             Spacer()
             Button("Block") { model.blockGossip(fact.author) }.font(.system(size: 11))
+                // Every row's Block reads alike without whose it is (#164).
+                .accessibilityLabel("Block \(name)")
         }.padding(.horizontal, 24)
     }
 

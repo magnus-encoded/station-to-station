@@ -51,6 +51,12 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
@@ -260,6 +266,16 @@ internal fun Flyover(
     var zoomed by remember(night) { mutableStateOf<FlyoverPhoto?>(null) }
     var fps by remember { mutableIntStateOf(0) }
 
+    // The song the walk is standing at, for a screen reader (#164). Derived, so it
+    // changes once per marker and not once per frame of travel.
+    val here by remember(night) {
+        derivedStateOf {
+            night.markers.minByOrNull { abs(net(it.z, travel.value.toDouble()) - FocalPlane) }?.label
+        }
+    }
+    val mineLit = night.photos.firstOrNull { it.id == litMine }
+    val theirsLit = night.photos.firstOrNull { it.id == litTheirs }
+
     // Inertia, and the clamp that makes the two ends of the walk real. Runs for as long
     // as the screen is up; a frame on which nothing moved invalidates nothing and so
     // costs a coroutine resume and no drawing at all.
@@ -337,6 +353,36 @@ internal fun Flyover(
                     val mine = at.x < size.width / 2f
                     val id = if (mine) litMine else litTheirs
                     zoomed = night.photos.firstOrNull { it.id == id }
+                }
+            }
+            // The walk is a drag and a tap on a flank, and TalkBack takes both for
+            // itself. The same moves as actions: a step is one song's depth, and the
+            // photographs offered are the ones the thumb would take right now (#164).
+            .semantics {
+                contentDescription = "The night, walked"
+                here?.let { stateDescription = it }
+                customActions = buildList {
+                    add(
+                        CustomAccessibilityAction("Walk on") {
+                            travel.velocity = 0f
+                            travel.value += SongGap.toFloat()
+                            true
+                        },
+                    )
+                    add(
+                        CustomAccessibilityAction("Walk back") {
+                            travel.velocity = 0f
+                            travel.value -= SongGap.toFloat()
+                            true
+                        },
+                    )
+                    mineLit?.let { photo ->
+                        add(CustomAccessibilityAction("Open your photo") { zoomed = photo; true })
+                    }
+                    theirsLit?.let { photo ->
+                        val who = photo.person?.name?.ifBlank { null } ?: "someone else"
+                        add(CustomAccessibilityAction("Open $who's photo") { zoomed = photo; true })
+                    }
                 }
             },
     ) {
@@ -883,7 +929,12 @@ private fun Zoomed(
         Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .pointerInput(photo.id) { detectTapGestures { onDismiss() } },
+            .pointerInput(photo.id) { detectTapGestures { onDismiss() } }
+            // A tap anywhere closes it; the reader needs that tap named (#164).
+            .semantics {
+                contentDescription = if (photo.isVideo) "Video from the night" else "Photo from the night"
+                onClick(label = "Close") { onDismiss(); true }
+            },
     ) {
         if (photo.isVideo) {
             AndroidView(

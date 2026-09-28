@@ -40,6 +40,8 @@ struct ConfirmView: View {
                         Spacer()
                         Toggle("", isOn: Binding(
                             get: { s.playlistPublic }, set: model.setPlaylistPublic)).labelsHidden()
+                            // Its words are a sibling, so the switch alone said nothing (#164).
+                            .accessibilityLabel("Public playlist")
                     }
                     .padding(.horizontal)
 
@@ -200,6 +202,20 @@ private struct CoverFrameSheet: View {
                         })
                     }
                     .frame(width: 32, height: scrubHeight)
+                    // An adjustable to VoiceOver, which cannot drag the thumb: swipe up and
+                    // down to step a twentieth of the clip at a time (#164).
+                    .accessibilityElement()
+                    .accessibilityLabel("Where in the clip")
+                    .accessibilityValue(formatDuration(frameMs))
+                    .accessibilityAdjustableAction { direction in
+                        guard duration > 0 else { return }
+                        let step = max(duration / 20, 1)
+                        switch direction {
+                        case .increment: onFrameChange(min(frameMs + step, duration))
+                        case .decrement: onFrameChange(max(frameMs - step, 0))
+                        @unknown default: break
+                        }
+                    }
                 }
                 .padding(.horizontal)
                 Spacer()
@@ -267,6 +283,10 @@ private struct SongMatchRow: View {
                 }
                 .disabled(match.selected == nil)
                 .buttonStyle(.plain)
+                // Which song, and whether it goes in — the square's fill is all it said (#164).
+                .accessibilityLabel(match.song.name)
+                .accessibilityValue(match.selected == nil ? "no match"
+                                    : match.included ? "included" : "not included")
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(label).lineLimit(1)
@@ -275,11 +295,14 @@ private struct SongMatchRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
                 .onTapGesture(perform: onToggleExpand)
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isButton)
 
                 Button(action: onToggleExpand) {
                     Image(systemName: expanded ? "chevron.up" : "chevron.down")
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(expanded ? "Collapse" : "Expand")
             }
             if expanded {
                 CandidatePicker(match: match, onChoose: onChooseCandidate, onResearch: onResearch)
@@ -330,6 +353,7 @@ private struct CandidatePicker: View {
                     Image(systemName: "checkmark")
                         .foregroundStyle(.tint).frame(width: 18)
                         .opacity(track.uri == match.selected?.uri ? 1 : 0)
+                        .accessibilityHidden(true)
                     VStack(alignment: .leading) {
                         Text(track.name).font(.subheadline).lineLimit(1)
                         Text(track.artistNames() + (track.album?.name.map { " · \($0)" } ?? ""))
@@ -340,12 +364,16 @@ private struct CandidatePicker: View {
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { onChoose(track) }
+                // One stop per candidate; the checkmark's opacity becomes Selected (#164).
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(track.uri == match.selected?.uri ? [.isButton, .isSelected] : .isButton)
             }
             HStack {
                 TextField("Search Spotify", text: $query)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { onResearch(query) }
                 Button { onResearch(query) } label: { Image(systemName: "magnifyingglass") }
+                    .accessibilityLabel("Search")
             }
         }
         .padding(.top, 4)
@@ -382,6 +410,8 @@ private struct CoverPicker: View {
                     VStack {
                         Image(systemName: "square.grid.2x2").font(.system(size: 32)).foregroundStyle(.secondary)
                     }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Spotify's album-art collage")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color(.secondarySystemBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -445,6 +475,8 @@ private struct CoverCandidateTile: View {
         .aspectRatio(1, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .clipped()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Photo from the show")
         .task { image = await PhotoLibrary.preview(assetId: assetId, edgePx: 512) }
     }
 }

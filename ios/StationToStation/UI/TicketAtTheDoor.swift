@@ -119,9 +119,11 @@ struct TicketAtTheDoor: View {
                 if let label = page.label {
                     HStack(spacing: 18) {
                         Button("‹ previous") { index = page.previous().index }
+                            .accessibilityLabel("Previous barcode")
                             .disabled(!page.hasPrevious)
                         Text(label).foregroundStyle(.primary)
                         Button("next ›") { index = page.next().index }
+                            .accessibilityLabel("Next barcode")
                             .disabled(!page.hasNext)
                     }
                     .font(.system(size: 13))

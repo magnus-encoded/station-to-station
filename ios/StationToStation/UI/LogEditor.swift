@@ -80,6 +80,8 @@ struct LogEditor: View {
                     .font(.system(size: 13)).foregroundStyle(amber)
                     .padding(.vertical, 6)
                     .onTapGesture { model.addToLog(typed.trimmed); typed = "" }
+                    .accessibilityLabel("Add \(typed.trimmed) to your log")
+                    .accessibilityAddTraits(.isButton)
             }
         }
     }
@@ -89,6 +91,8 @@ struct LogEditor: View {
             .font(.system(size: 13)).foregroundStyle(slate)
             .padding(.vertical, 8)
             .onTapGesture { model.addToLog("") }
+            .accessibilityLabel("They played one I can't name")
+            .accessibilityAddTraits(.isButton)
     }
 
     /// Whether this log claims to be the whole set. Open is the default and the
@@ -111,6 +115,12 @@ struct LogEditor: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { model.setLogClosed(!log.closed) }
+        // A painted square is not a checkbox to VoiceOver: one element, its state said
+        // in words, the twin of Android's `Role.Checkbox` (#164). iOS 16 has no toggle
+        // trait, so the value carries it.
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(log.closed ? "ticked" : "not ticked")
+        .accessibilityAddTraits(.isButton)
     }
 }
 
@@ -180,6 +190,8 @@ private struct CorrectionPanel: View {
                 Text("\u{2192} call it \"\(typed.trimmed)\"")
                     .font(.system(size: 13)).foregroundStyle(amber)
                     .onTapGesture { onPick(typed.trimmed) }
+                    .accessibilityLabel("Call it \(typed.trimmed)")
+                    .accessibilityAddTraits(.isButton)
             }
             if candidates.isEmpty {
                 Text(looking
@@ -194,6 +206,7 @@ private struct CorrectionPanel: View {
                         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                         .contentShape(Rectangle())
                         .onTapGesture { onPick(title) }
+                        .accessibilityAddTraits(.isButton)
                 }
             }
             // A wrong correction is never a one-way door.
@@ -201,6 +214,8 @@ private struct CorrectionPanel: View {
                 Text("\u{21A9} put \"\(written)\" back as the entry")
                     .font(.system(size: 12)).foregroundStyle(slate)
                     .onTapGesture(perform: onRestore)
+                    .accessibilityLabel("Put \(written) back as the entry")
+                    .accessibilityAddTraits(.isButton)
             }
         }
         .padding(.leading, 28).padding(.bottom, 10)

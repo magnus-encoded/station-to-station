@@ -90,6 +90,8 @@ private struct OriginalFullScreen: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { dismiss() }
+        // The tap-anywhere close, as VoiceOver's own two-finger scrub (#164).
+        .accessibilityAction(.escape) { dismiss() }
         .onAppear {
             brightness = UIScreen.main.brightness
             UIScreen.main.brightness = 1

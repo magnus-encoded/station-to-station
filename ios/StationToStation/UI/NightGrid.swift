@@ -262,6 +262,15 @@ struct NightGrid: View {
                 draggingId = media.id
                 return NSItemProvider(object: media.id as NSString)
             }
+            // The drag between bands and the context menu's Remove, as actions VoiceOver
+            // can find (#164): a drag is something a reader cannot make. Under the same
+            // guard the drag has, so neither door opens where the other is shut.
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction(ifNamed: editable && media.from == nil
+                ? (band == .shared ? "Move to the vault" : "Share it") : nil) {
+                model.moveMedia(media.id, to: band == .shared ? .vault : .shared)
+            }
+            .accessibilityAction(ifNamed: editable ? "Remove" : nil) { model.removeMedia(media) }
     }
 
     private func drop(_ providers: [NSItemProvider], into band: Band) -> Bool {
@@ -321,6 +330,9 @@ struct NightGrid: View {
                     }
                 }
                 .padding(.horizontal, 20)
+                // Blanks on purpose: one sentence for the lot, not a stop per blank.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(withheld.count) kept back, not shown")
             }
         }
     }
@@ -382,7 +394,9 @@ private struct MediaTile: View {
         )
         // The border is the whole of the mark, so a reader gets the same fact as a
         // sentence rather than not at all.
-        .accessibilityLabel(mine ? "Your photo" : "A photo from a Contact")
+        .accessibilityLabel(isVideo
+            ? (mine ? "Your video" : "A video from a Contact")
+            : (mine ? "Your photo" : "A photo from a Contact"))
         .task {
             // Off the main actor: a grid of thirty decodes should not stutter the
             // scroll it is being scrolled in.
@@ -403,6 +417,9 @@ private struct SuggestionTile: View {
         .frame(width: 64, height: 64)
         .clipped()
         .overlay(RoundedRectangle(cornerRadius: 2).stroke(faint.opacity(0.4), lineWidth: 1))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Suggested photo from this night")
+        .accessibilityHint("Adds it to the shared band")
         .task { image = await PhotoLibrary.preview(assetId: assetId, edgePx: 192) }
     }
 }

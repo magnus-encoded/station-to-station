@@ -74,6 +74,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -905,7 +906,8 @@ private fun CommitBar(label: String, sub: String, onClick: () -> Unit) {
                 )
             }
         }
-        Text("→", color = Ground, fontSize = 16.sp, fontFamily = FontFamily.Monospace)
+        // Decoration: the row already says what it does, and "right arrow" adds nothing.
+        Text("→", color = Ground, fontSize = 16.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.clearAndSetSemantics {})
     }
 }
 

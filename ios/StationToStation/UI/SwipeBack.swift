@@ -30,4 +30,16 @@ extension View {
                 }
         )
     }
+
+    /// A gesture's twin for VoiceOver, which takes swipes, drags and holds for itself —
+    /// named in the actions rotor where the gesture is on offer, and absent where it is
+    /// not, so the rotor never lists a move that would do nothing (#164).
+    @ViewBuilder
+    func accessibilityAction(ifNamed name: String?, _ act: @escaping () -> Void) -> some View {
+        if let name {
+            accessibilityAction(named: name, act)
+        } else {
+            self
+        }
+    }
 }

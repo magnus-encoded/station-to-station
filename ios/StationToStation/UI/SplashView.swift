@@ -22,7 +22,7 @@ struct SplashView: View {
         ZStack {
             ground.ignoresSafeArea()
             VStack(spacing: 0) {
-                Text("◦").font(.system(size: 20)).foregroundStyle(amber)
+                Text("◦").font(.system(size: 20)).foregroundStyle(amber).accessibilityHidden(true)
                 Spacer().frame(height: 10)
                 Text("Station to Station")
                     .font(.system(size: 30, design: .serif)).foregroundStyle(ink)

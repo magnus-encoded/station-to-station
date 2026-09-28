@@ -25,6 +25,7 @@ struct FriendsView: View {
                         Image(systemName: "square.and.arrow.up")
                     }
                     .disabled(cardURL == nil)
+                    .accessibilityLabel("Share your card")
                 }
             } header: {
                 Text("Your setlist.fm username")
@@ -65,11 +66,17 @@ struct FriendsView: View {
                         }
                         .contentShape(Rectangle())
                         .onTapGesture { model.openSharedConcerts(friend); nav.push(.setlists) }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityHint("Concerts you were both at")
                         .swipeActions {
                             Button(role: .destructive) { model.removeFriend(friend) } label: {
                                 Label("Remove", systemImage: "trash")
                             }
                         }
+                        // The swipe's button, named for whom it removes — the twin of
+                        // Android's "Remove <name>" (#164).
+                        .accessibilityAction(named: "Remove \(friend.name)") { model.removeFriend(friend) }
                     }
                 }
             }

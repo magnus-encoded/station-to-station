@@ -178,6 +178,7 @@ private struct BandNote: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 6)
                     .onTapGesture { draft = mine?.text ?? ""; editing = true }
+                    .accessibilityAddTraits(.isButton)
             }
 
             if editing {
@@ -196,9 +197,13 @@ private struct BandNote: View {
                     Text(note.text).font(.system(size: 13)).foregroundStyle(slate)
                     if let verdict = note.verdict {
                         Text(verdictGlyph(verdict)).font(.system(size: 13)).foregroundStyle(slate)
+                            // Not "thumbs up sign" (#164).
+                            .accessibilityLabel(verdictWords(verdict))
                     }
                 }
                 .padding(.top, 4)
+                // Whose, what, and how they rated it: one stop per note.
+                .accessibilityElement(children: .combine)
             }
         }
         // One frame for the whole band, thickening while it is being written in —
@@ -231,8 +236,10 @@ private struct BandNote: View {
             HStack(spacing: 16) {
                 Text("done").font(.system(size: 12)).foregroundStyle(accent)
                     .onTapGesture { onWrite(draft); editing = false }
+                    .accessibilityAddTraits(.isButton)
                 Text("discard").font(.system(size: 12)).foregroundStyle(faint)
                     .onTapGesture { draft = mine?.text ?? ""; editing = false }
+                    .accessibilityAddTraits(.isButton)
             }
         }
     }
@@ -252,9 +259,22 @@ private struct BandNote: View {
                 // act as dragging a photograph across, minus the index — one
                 // note per band means there is no position to choose.
                 .onLongPressGesture { if editable { onLift(mine.id) } }
+                // The hold, named — VoiceOver has no way to say "hold" to a Text (#164).
+                .accessibilityAction(ifNamed: editable ? (band == .shared ? "Move to the vault" : "Share it") : nil) {
+                    onLift(mine.id)
+                }
             // Editing is the line above now, so this row is the verdict alone.
             if editable { VerdictThumbs(current: mine.verdict, onVerdict: onVerdict) }
         }
+    }
+}
+
+/// A verdict in words, for a reader the glyph means nothing to (#164).
+private func verdictWords(_ v: String) -> String {
+    switch v {
+    case StoredMedia.Verdict.down: return "rated down"
+    case StoredMedia.Verdict.up: return "rated up"
+    default: return "rated up twice"
     }
 }
 
