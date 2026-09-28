@@ -166,6 +166,8 @@ import io.github.magnusencoded.stationtostation.data.atUser
 import io.github.magnusencoded.stationtostation.data.handle
 import io.github.magnusencoded.stationtostation.data.laneKey
 import io.github.magnusencoded.stationtostation.data.nameOf
+import io.github.magnusencoded.stationtostation.data.MediaOffer
+import io.github.magnusencoded.stationtostation.data.waitingOn
 import io.github.magnusencoded.stationtostation.data.FriendArrival
 import io.github.magnusencoded.stationtostation.data.FutureRow
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
@@ -1580,6 +1582,68 @@ private fun PossibleMatchDialog(
                     onClick = { chosen?.let(onPick) ?: onNone() },
                     enabled = picked,
                 ) { Text("Confirm", color = if (picked) Amber else Faint) }
+            }
+        }
+    }
+}
+
+/** Whose offer this is: the Contact's name, or "A Contact" when their key is not on my list. */
+private fun offerSender(offer: MediaOffer, friends: List<Friend>): String =
+    offer.media.firstNotNullOfOrNull { it.from }?.let { friends.nameOf(it) } ?: "A Contact"
+
+/** "Mia offered 3 photos", counted the way a person would say it. */
+private fun offerLine(offer: MediaOffer, sender: String): String {
+    val n = offer.media.size
+    val kinds = offer.media.map { it.kind }.toSet()
+    val what = when (kinds.singleOrNull()) {
+        StoredMedia.Kind.PHOTO -> if (n == 1) "a photo" else "$n photos"
+        StoredMedia.Kind.VIDEO -> if (n == 1) "a video" else "$n videos"
+        StoredMedia.Kind.NOTE -> if (n == 1) "a note" else "$n notes"
+        else -> "$n things"
+    }
+    return "$sender offered $what"
+}
+
+/**
+ * A **Contact**'s offer, answered (#405). Their media is for a Night of theirs on this
+ * date; saying yes files it here and joins the two, saying no leaves this Night exactly as
+ * it was. "Not now" leaves the question waiting.
+ */
+@Composable
+private fun MediaOfferDialog(
+    offer: MediaOffer,
+    sender: String,
+    onAccept: () -> Unit,
+    onDecline: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(Raised)
+                .padding(20.dp),
+        ) {
+            Text(offerLine(offer, sender), fontFamily = Serif, fontSize = 19.sp, color = Ink, modifier = Modifier.asHeading())
+            Spacer(Modifier.height(6.dp))
+            val theirs = listOf(offer.artist, offer.venue).filter { it.isNotBlank() }.joinToString(" at ")
+            Text(
+                (if (theirs.isNotBlank()) "From their night: $theirs. " else "") +
+                    "Accept puts them on this night, as the same night. Decline leaves it as it is.",
+                color = Muted,
+                fontSize = 13.sp,
+            )
+            Spacer(Modifier.height(4.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("Not now", color = Faint) }
+                TextButton(
+                    onClick = onDecline,
+                    modifier = Modifier.semantics { contentDescription = "Decline $sender's offer" },
+                ) { Text("Decline", color = Slate) }
+                TextButton(
+                    onClick = onAccept,
+                    modifier = Modifier.semantics { contentDescription = "Accept $sender's offer onto this night" },
+                ) { Text("Accept", color = Amber) }
             }
         }
     }
@@ -3929,6 +3993,8 @@ fun StationEventScreen(
     var adopting by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
     var askingMatch by remember { mutableStateOf(false) }
+    // Which **Contact**'s offer is being answered, by their Night id (#405).
+    var answeringOffer by remember { mutableStateOf<String?>(null) }
 
     val plannedTimeState = if (planned) setlist?.localDate()?.let { gigTimeState(LocalDateTime.now(), it) } else null
     val planAhead = planned &&
@@ -4256,6 +4322,17 @@ fun StationEventScreen(
                 onDismiss = { askingMatch = false },
             )
         }
+        val answering = answeringOffer?.let { night -> state.mediaOffers[night]?.let { night to it } }
+        if (answering != null && answering.second.media.isNotEmpty()) {
+            val (night, offer) = answering
+            MediaOfferDialog(
+                offer = offer,
+                sender = offerSender(offer, state.friends),
+                onAccept = { viewModel.acceptMediaOffer(night, setlist.id); answeringOffer = null },
+                onDecline = { viewModel.declineMediaOffer(night); answeringOffer = null },
+                onDismiss = { answeringOffer = null },
+            )
+        }
         if (deleting) {
             DeleteNightDialog(
                 photos = viewModel.photosLostByDeleting(setlist.id),
@@ -4456,6 +4533,21 @@ fun StationEventScreen(
                                 color = Amber,
                                 onClick = { askingMatch = true },
                             )
+                        }
+                        // A **Contact** sent media for a Night of theirs on this date that
+                        // I have not joined (#405). Offered, never filed: it waits here, on
+                        // the Night it might be, until I say yes or no.
+                        if (!planned) {
+                            state.mediaOffers.waitingOn(setlist.eventDate).forEach { (night, offer) ->
+                                val line = offerLine(offer, offerSender(offer, state.friends))
+                                Spacer(Modifier.height(8.dp))
+                                EventTag(
+                                    line,
+                                    color = Slate,
+                                    onClick = { answeringOffer = night },
+                                    label = "$line. Opens accept or decline.",
+                                )
+                            }
                         }
                         // Nothing can be pinned to a night nobody has been to yet — the
                         // slot comes back once the gig is checked into or no longer planned.

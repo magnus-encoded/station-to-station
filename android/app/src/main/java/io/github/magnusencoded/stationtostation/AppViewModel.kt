@@ -13,6 +13,7 @@ import io.github.magnusencoded.stationtostation.data.FriendArrival
 import io.github.magnusencoded.stationtostation.data.friendArrival
 import io.github.magnusencoded.stationtostation.data.laneKey
 import io.github.magnusencoded.stationtostation.data.landNights
+import io.github.magnusencoded.stationtostation.data.MediaOffer
 import io.github.magnusencoded.stationtostation.data.mySpine
 import io.github.magnusencoded.stationtostation.data.withFriend
 import io.github.magnusencoded.stationtostation.ble.probeCardFor
@@ -309,6 +310,11 @@ data class UiState(
      * A video's song stamps ride on its own record.
      */
     val mediaBySetlist: Map<String, List<StoredMedia>> = emptyMap(),
+    /**
+     * Media **Contacts** sent for Nights of theirs I have not joined, by their Night id
+     * (#405): offered, never filed, and shown on my Night of the same date until I answer.
+     */
+    val mediaOffers: Map<String, MediaOffer> = emptyMap(),
     // Gig-photo suggestions: the same same-night gallery search as the playlist
     // cover picker, offered as one-tap adds instead of a single chosen cover.
     val gigPhotoSuggestions: List<CoverCandidate> = emptyList(),
@@ -741,6 +747,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }.toMap()
         },
         onNights = { key, nights -> landContactNights(key, nights) },
+        myNights = { timelines.load().mySpine(settings.mySetlistFmUser.first().orEmpty()) },
+        onOffers = { offers ->
+            timelines.holdMediaOffers(offers)
+            val held = timelines.load().mediaOffers
+            _state.update { it.copy(mediaOffers = held) }
+        },
     )
 
     /**
@@ -899,6 +911,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 attendanceByGig = it.attendanceByGig + cached.attendance(),
                 calendarEventByGig = it.calendarEventByGig + cached.calendarEvents(),
                 hiddenAt = cached.hiddenLines,
+                mediaOffers = cached.mediaOffers,
             )
         }
         // The Spine itself — which source it comes from, and the retry of unresolved
@@ -1427,6 +1440,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         timelines.mergeContactNights(key, nights)
         _state.update {
             it.copy(showsByFriend = it.showsByFriend + (key to landNights(it.showsByFriend[key], nights)))
+        }
+    }
+
+    /**
+     * Yes to a **Contact**'s offer (#405): their media is filed on my Night [key] and their
+     * Night [night] is joined, so what they send for it later lands there directly.
+     */
+    fun acceptMediaOffer(night: String, key: String) {
+        viewModelScope.launch {
+            timelines.acceptMediaOffer(night, key)
+            val cache = timelines.load()
+            _state.update {
+                it.copy(mediaOffers = cache.mediaOffers, mediaBySetlist = it.mediaBySetlist + cache.media())
+            }
+        }
+    }
+
+    /** No to a **Contact**'s offer (#405): my Night is left exactly as it was. */
+    fun declineMediaOffer(night: String) {
+        viewModelScope.launch {
+            timelines.declineMediaOffer(night)
+            val held = timelines.load().mediaOffers
+            _state.update { it.copy(mediaOffers = held) }
         }
     }
 
