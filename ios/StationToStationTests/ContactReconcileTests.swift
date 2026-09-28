@@ -559,4 +559,29 @@ final class ContactReconcileTests: XCTestCase {
         XCTAssertEqual(["their-a": "sfm-1"], mine.spineJoins())
         XCTAssertEqual(["their-b": Set(["sfm-1"])], mine.spineDismissals())
     }
+
+    // MARK: - Undo (#580)
+
+    func testUndoSameNightRemovesOnlyThatJoin() {
+        let mine = TimelineCache().joiningNight("their-b", gigId: "my-local")
+        let undone = mine.joiningNight("their-local", gigId: "my-local")
+            .unjoiningNight("their-local", gigId: "my-local")
+        XCTAssertEqual(mine.nightJoins, undone.nightJoins)
+        XCTAssertEqual(["their-b": "my-local"], undone.nightJoins)
+    }
+
+    func testUndoLeavesANewerJoinToAnotherNightAlone() {
+        let mine = TimelineCache().joiningNight("their-local", gigId: "my-other")
+        XCTAssertEqual(mine.nightJoins, mine.unjoiningNight("their-local", gigId: "my-local").nightJoins)
+    }
+
+    func testUndoNotTheSameRestoresThatPairAndKeepsOthersApart() {
+        let once = TimelineCache().dismissingMaybe("their-local", gigId: "my-local")
+        XCTAssertTrue(once.undismissingMaybe("their-local", gigId: "my-local").nightDismissals.isEmpty)
+        let two = once.dismissingMaybe("their-local", gigId: "my-other")
+        XCTAssertEqual(["their-local": ["my-other"]],
+                       two.undismissingMaybe("their-local", gigId: "my-local").nightDismissals)
+        XCTAssertEqual(two.nightDismissals, two.undismissingMaybe("their-local", gigId: "nobody").nightDismissals)
+    }
+
 }

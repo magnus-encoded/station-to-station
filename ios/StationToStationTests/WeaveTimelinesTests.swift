@@ -398,4 +398,122 @@ final class WeaveTimelinesTests: XCTestCase {
         XCTAssertEqual("m1", asked.first?.mine.id)
         XCTAssertEqual("n1", asked.first?.theirs.id)
     }
+
+    // MARK: - Answering a maybe from the Spine (#580), twinned with Android.
+
+    private func ids(_ rows: [WovenRow]) -> [String] { rows.compactMap { $0.shows.first?.id } }
+
+    func testAMaybePairBecomesNeighboursPastAnotherNightThatDate() {
+        let m1 = show("m1", "21-11-2025", "Blå")
+        let n1 = local("n1", "21-11-2025", "Brenneriveien 9")
+        let rows = weaveTimelines(mine: [m1], friends: [ozzy, lemmy], theirs: [
+            "Ozzy": [show("b1", "21-11-2025", "Rockefeller")], "Lemmy": [n1],
+        ])
+        XCTAssertEqual(["m1", "n1", "b1"], ids(rows))
+        XCTAssertEqual([MaybeNight(friend: lemmy, mine: m1, theirs: n1)], rows[1].maybeAbove)
+        XCTAssertTrue(rows[0].maybeAbove.isEmpty && rows[2].maybeAbove.isEmpty)
+        XCTAssertEqual([lemmy], rows[0].maybe)
+        XCTAssertTrue(rows[0].maybeInWords.isEmpty)
+    }
+
+    func testSeveralMaybesStackBelowMyNightInLaneOrder() {
+        let tom = Friend(setlistfm: "Tom", name: "Tom")
+        let m1 = show("m1", "21-11-2025", "Blå")
+        let n1 = local("n1", "21-11-2025", "Brenneriveien 9")
+        let t1 = local("t1", "21-11-2025", "Rockefeller")
+        let rows = weaveTimelines(
+            mine: [show("m0", "22-11-2025", "Sentrum"), m1, show("m2", "20-11-2025", "Parkteatret")],
+            friends: [tom, ozzy, lemmy], theirs: [
+                "Tom": [t1], "Ozzy": [show("b1", "21-11-2025", "Victoria")], "Lemmy": [n1],
+            ])
+        XCTAssertEqual(["m0", "m1", "t1", "n1", "b1", "m2"], ids(rows))
+        XCTAssertEqual([MaybeNight(friend: tom, mine: m1, theirs: t1)], rows[2].maybeAbove)
+        XCTAssertEqual([MaybeNight(friend: lemmy, mine: m1, theirs: n1)], rows[3].maybeAbove)
+        XCTAssertEqual([tom, lemmy], rows[1].maybe)
+        XCTAssertTrue(rows[1].maybeInWords.isEmpty)
+    }
+
+    func testTheirNightSitsBelowTheFirstNightOfMineThatAsks() {
+        let m1 = local("m1", "21-11-2025", "Blå")
+        let m2 = local("m2", "21-11-2025", "Rockefeller")
+        let n1 = local("n1", "21-11-2025", "Brenneriveien 9")
+        let rows = weaveTimelines(mine: [m1, m2], friends: [lemmy], theirs: ["Lemmy": [n1]])
+        XCTAssertEqual(["m1", "n1", "m2"], ids(rows))
+        XCTAssertEqual([MaybeNight(friend: lemmy, mine: m1, theirs: n1)], rows[1].maybeAbove)
+        XCTAssertTrue(rows[0].maybeInWords.isEmpty)
+        XCTAssertEqual([lemmy], rows[2].maybeInWords)
+    }
+
+    func testSameNightDrawsMyNodeJoinedAndUndoAsksAgain() {
+        let m1 = show("m1", "21-11-2025", "Blå")
+        let n1 = local("n1", "21-11-2025", "Brenneriveien 9")
+        let cache = TimelineCache()
+        func weave(_ c: TimelineCache) -> [WovenRow] {
+            weaveTimelines(mine: [m1], friends: [lemmy], theirs: ["Lemmy": [n1]],
+                           joins: c.nightJoins, apart: c.nightDismissals.mapValues { Set($0) })
+        }
+        let before = weave(cache)
+        let joined = weave(cache.joiningNight("n1", gigId: "m1"))
+        XCTAssertEqual(1, joined.count)
+        XCTAssertEqual([lemmy], joined[0].joinedWith)
+        XCTAssertEqual(1, joined[0].sharedCount)
+        XCTAssertTrue(joined.allSatisfy { $0.maybeAbove.isEmpty && $0.maybe.isEmpty })
+        let apart = weave(cache.dismissingMaybe("n1", gigId: "m1"))
+        XCTAssertEqual(2, apart.count)
+        XCTAssertTrue(apart.allSatisfy { $0.maybeAbove.isEmpty && $0.maybe.isEmpty })
+        for undone in [cache.joiningNight("n1", gigId: "m1").unjoiningNight("n1", gigId: "m1"),
+                       cache.dismissingMaybe("n1", gigId: "m1").undismissingMaybe("n1", gigId: "m1")] {
+            let restored = weave(undone)
+            XCTAssertEqual(ids(before), ids(restored))
+            XCTAssertEqual(before.map(\.maybeAbove), restored.map(\.maybeAbove))
+            XCTAssertEqual(before.map(\.maybe), restored.map(\.maybe))
+        }
+        XCTAssertEqual([MaybeNight(friend: lemmy, mine: m1, theirs: n1)], before[1].maybeAbove)
+    }
+
+    func testAMultiDayFestivalIsNotDraggedAcrossDatesToPlaceAMaybe() {
+        let rows = weaveTimelines(
+            mine: [show("m1", "21-11-2025", "Blå")], festivals: festival("f1", "f2"),
+            friends: [lemmy], theirs: ["Lemmy": [local("f1", "21-11-2025", "Festival"),
+                                                 local("f2", "23-11-2025", "Festival")]])
+        XCTAssertEqual([parseFmDate("23-11-2025"), parseFmDate("21-11-2025")], rows.map(\.date))
+        XCTAssertTrue(rows.allSatisfy { $0.maybeAbove.isEmpty })
+        XCTAssertEqual([lemmy], rows.first { $0.mine }?.maybeInWords)
+    }
+
+    func testComparisonHighlightsDifferingFieldsAndReadsThemRowByRow() {
+        var mine = show("m1", "21-11-2025", "Blå")
+        mine.artist = FmArtist(name: "Isak Benjamin")
+        mine.venue = FmVenue(name: "Blå", city: FmCity(name: "Oslo"))
+        var theirs = local("n1", "21-11-2025", "Brenneriveien 9")
+        theirs.artist = FmArtist(name: "isak benjamin ")
+        theirs.venue = FmVenue(name: "Brenneriveien 9", city: FmCity(name: "Oslo"))
+        let maybe = MaybeNight(friend: Friend(setlistfm: "", name: "Mia"), mine: mine, theirs: theirs)
+        let fields = compareMaybe(maybe)
+        XCTAssertEqual(["Artist", "Date", "Venue", "City", "From"], fields.map(\.label))
+        XCTAssertEqual(["Venue"], fields.filter(\.differs).map(\.label))
+        XCTAssertEqual("21 Nov 2025", fields[1].yours)
+        XCTAssertEqual("setlist.fm", fields[4].yours)
+        XCTAssertEqual("typed by hand", fields[4].theirs)
+        XCTAssertEqual("Venue: yours Blå, Mia's Brenneriveien 9, differs", maybeFieldSpoken(maybe, fields[2]))
+        XCTAssertEqual("City: yours Oslo, Mia's Oslo", maybeFieldSpoken(maybe, fields[3]))
+        XCTAssertEqual("Same night as Mia's?", maybePill(maybe))
+        XCTAssertEqual("Maybe the same night: yours above, Mia's below. Compare them.", maybeMergeLabel(maybe))
+        XCTAssertEqual("Joined with Mia's night", maybeAnswered(maybe, same: true))
+        XCTAssertEqual("Kept apart from Mia's night", maybeAnswered(maybe, same: false))
+    }
+
+    func testComparisonNamesWhichRecordIsKeptIncludingDeferredAdoption() {
+        let mia = Friend(setlistfm: "", name: "Mia")
+        let fm = show("m1", "21-11-2025", "Blå")
+        let hand = local("h1", "21-11-2025", "Blå")
+        XCTAssertEqual("Same night keeps your setlist.fm entry. Mia's joins it.",
+                       sameNightLine(MaybeNight(friend: mia, mine: fm, theirs: hand)))
+        XCTAssertEqual("Same night keeps your entry. Mia's setlist.fm entry joins it.",
+                       sameNightLine(MaybeNight(friend: mia, mine: hand, theirs: fm)))
+        XCTAssertEqual("Same night keeps your entry. Mia's joins it.",
+                       sameNightLine(MaybeNight(friend: mia, mine: hand,
+                                                theirs: local("n1", "21-11-2025", "Blå"))))
+    }
+
 }

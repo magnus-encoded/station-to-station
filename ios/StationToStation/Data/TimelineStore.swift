@@ -1251,6 +1251,23 @@ actor TimelineStore {
         }
     }
 
+    /// Undo of `joinNight` (#580): the *maybe* comes back. Mints nothing — the Gig the
+    /// join made stays, holding nothing, as a Gig minted by any other write does.
+    func unjoinNight(_ night: String, key: String) {
+        writeMerged { cache in
+            guard let gigId = cache.gigIdOrNil(key) else { return cache }
+            return cache.unjoiningNight(night, gigId: gigId)
+        }
+    }
+
+    /// Undo of `dismissMaybe` (#580): the *maybe* comes back.
+    func undismissMaybe(_ night: String, key: String) {
+        writeMerged { cache in
+            guard let gigId = cache.gigIdOrNil(key) else { return cache }
+            return cache.undismissingMaybe(night, gigId: gigId)
+        }
+    }
+
     /// A **Contact**'s **Nights** from a **Reconcile**, folded into the **Lane** held under
     /// `laneKey` (#405) — `shows`, the same map a fetched Lane is held in, so a Contact with
     /// no account draws offline the way a fetched one does. Adds, never removes: see

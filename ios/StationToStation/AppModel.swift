@@ -275,6 +275,8 @@ struct HandoverUi {
 final class AppModel: ObservableObject {
 
     @Published var state = UiState()
+    /// Ephemeral, never persisted or sent. Shared by the Spine and Room comparison.
+    @Published var maybeUndo: MaybeAnswer?
 
     let settings = Settings()
     private lazy var setlistFm = SetlistFmClient(
@@ -1376,17 +1378,32 @@ final class AppModel: ObservableObject {
     /// "Same Night" to a *maybe* (#405): their Night `night` is joined to my Night `key`.
     /// Mine alone — nothing is sent — and from here the Spine draws it **Joined** and what
     /// they send for it lands directly.
-    func joinNight(_ night: String, key: String) {
-        Task {
-            await timelines.joinNight(night, key: key)
-            state.nightJoins = await timelines.load().spineJoins()
-        }
+    func joinNight(_ night: String, key: String) async {
+        await timelines.joinNight(night, key: key)
+        state.nightJoins = await timelines.load().spineJoins()
     }
 
     /// "Not the same" to a *maybe* (#405): the marker goes, and stays gone. Mine alone.
-    func dismissMaybe(_ night: String, key: String) {
-        Task {
-            await timelines.dismissMaybe(night, key: key)
+    func dismissMaybe(_ night: String, key: String) async {
+        await timelines.dismissMaybe(night, key: key)
+        state.nightsApart = await timelines.load().spineDismissals()
+    }
+
+    /// Offer Undo only once the write and the visible state have both settled.
+    func answerMaybe(_ maybe: MaybeNight, same: Bool) async {
+        if same { await joinNight(maybe.theirs.id, key: maybe.mine.id) }
+        else { await dismissMaybe(maybe.theirs.id, key: maybe.mine.id) }
+        maybeUndo = MaybeAnswer(maybe: maybe, same: same)
+    }
+
+    func undoMaybe(_ answer: MaybeAnswer) async {
+        guard maybeUndo?.id == answer.id else { return }
+        maybeUndo = nil
+        if answer.same {
+            await timelines.unjoinNight(answer.maybe.theirs.id, key: answer.maybe.mine.id)
+            state.nightJoins = await timelines.load().spineJoins()
+        } else {
+            await timelines.undismissMaybe(answer.maybe.theirs.id, key: answer.maybe.mine.id)
             state.nightsApart = await timelines.load().spineDismissals()
         }
     }

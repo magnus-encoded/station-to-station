@@ -341,6 +341,24 @@ extension TimelineCache {
         return c
     }
 
+    /// Undo only this answer; a newer join to another Gig must survive (#580).
+    func unjoiningNight(_ night: String, gigId: String) -> TimelineCache {
+        guard nightJoins[night] == gigId else { return self }
+        var c = self
+        c.nightJoins.removeValue(forKey: night)
+        return c
+    }
+
+    /// Undo this pair, leaving every other pair apart (#580).
+    func undismissingMaybe(_ night: String, gigId: String) -> TimelineCache {
+        guard let had = nightDismissals[night], had.contains(gigId) else { return self }
+        var c = self
+        let left = had.filter { $0 != gigId }
+        if left.isEmpty { c.nightDismissals.removeValue(forKey: night) }
+        else { c.nightDismissals[night] = left }
+        return c
+    }
+
     /// `nightJoins` under the ids the **Spine** uses: their Night id → my Night id.
     func spineJoins() -> [String: String] {
         var out: [String: String] = [:]

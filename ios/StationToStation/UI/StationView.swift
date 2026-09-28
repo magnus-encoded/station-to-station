@@ -105,6 +105,7 @@ struct StationView: View {
     /// Whether the legend's `+ N more` has been opened. View-local: it is where the
     /// reader left the disclosure, not a fact to remember across a launch (#396).
     @State private var legendExpanded = false
+    @State private var askingMaybe: MaybeNight?
 
     /// Everyone followed, in lane order — the list colours are counted against.
     private var allLanes: [Friend] { model.state.friends }
@@ -161,6 +162,7 @@ struct StationView: View {
                 timeline
             }
         }
+        .modifier(MaybeNightAlert(asking: $askingMaybe))
         .toolbar {
             // Explicit placement: iOS 16 puts an unplaced item somewhere else.
             ToolbarItem(placement: .principal) { wordmark }
@@ -309,6 +311,11 @@ struct StationView: View {
                 header
                 future
                 ForEach(Array(rows.enumerated()), id: \.element.key) { i, row in
+                    if i > 0 && !row.maybeAbove.isEmpty {
+                        MaybeMergeRow(above: rows[i - 1], below: row, lanes: lanes,
+                                      colours: laneColourIndexes, laneWidth: laneWidth,
+                                      unlit: model.state.contactLight) { askingMaybe = $0 }
+                    }
                     StationRow(
                         row: row,
                         next: rows.indices.contains(i + 1) ? rows[i + 1] : nil,
@@ -710,8 +717,12 @@ struct StationRow: View {
     /// Android's `MaybeLine`.
     @ViewBuilder
     private var maybeLine: some View {
-        if !unlit && !row.maybe.isEmpty {
-            let who = row.maybe.map(\.name).joined(separator: " and ")
+        if !unlit && !row.joinedWith.isEmpty {
+            Text("With " + row.joinedWith.map { $0.name.nilIfBlank ?? "a Contact" }.joined(separator: " and "))
+                .font(.system(size: 12)).foregroundStyle(crossed)
+        }
+        if !unlit && !row.maybeInWords.isEmpty {
+            let who = row.maybeInWords.map(\.name).joined(separator: " and ")
             Text("maybe with \(who)")
                 .font(.system(size: 12))
                 .foregroundStyle(crossed.opacity(0.85))
@@ -789,6 +800,80 @@ private struct PlannedGigRow: View {
     }
 }
 
+/// A separate reading-order stop between the paired Nights (#580). The edge's
+/// Lines have already bent in the row above, so continue at their destination x.
+/// Under the Contact light keep the height and rails, hiding the question only.
+private struct MaybeMergeRow: View {
+    let above: WovenRow
+    let below: WovenRow
+    let lanes: [Friend]
+    let colours: [Int]
+    let laneWidth: CGFloat
+    let unlit: Bool
+    let compare: (MaybeNight) -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Color.clear.frame(width: SpineWidth + laneWidth)
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(below.maybeAbove) { maybe in
+                    Button { compare(maybe) } label: {
+                        Text(maybePill(maybe) + " · Compare")
+                            .font(.callout)
+                            .foregroundStyle(ink)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .frame(minHeight: 44)
+                            .background(raised, in: Capsule())
+                            .overlay(Capsule().stroke(muted, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(maybeMergeLabel(maybe))
+                }
+            }
+            .padding(.vertical, 8)
+            .padding(.trailing, 18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .opacity(unlit ? 0 : 1)
+            .allowsHitTesting(!unlit)
+            .accessibilityHidden(unlit)
+        }
+        .frame(minHeight: 60)
+        .background(alignment: .leading) {
+            Canvas { ctx, size in
+                let drawn = rowGeometry(above, below, lanes, laneWidth, size.height, colours)
+                for d in drawn {
+                    var rail = Path()
+                    rail.move(to: CGPoint(x: d.toX, y: 0))
+                    rail.addLine(to: CGPoint(x: d.toX, y: size.height))
+                    ctx.stroke(rail, with: .color(linePaint(d.colourAhead)), lineWidth: d.widthAhead)
+                }
+                if !unlit {
+                    let to = drawn.first { $0.line == nodeHost(below, lanes) }?.toX ?? SpineLineX
+                    var link = Path()
+                    link.move(to: CGPoint(x: SpineLineX, y: 0))
+                    link.addCurve(to: CGPoint(x: to, y: size.height),
+                                  control1: CGPoint(x: SpineLineX, y: size.height * 0.5),
+                                  control2: CGPoint(x: to, y: size.height * 0.5))
+                    ctx.stroke(link, with: .color(ink.opacity(0.7)),
+                               style: StrokeStyle(lineWidth: 1.5, dash: [3, 4]))
+                }
+            }
+            .frame(width: SpineWidth + laneWidth)
+            .accessibilityHidden(true)
+        }
+    }
+}
+
+private func linePaint(_ role: LineColour) -> Color {
+    switch role {
+    case .meeting: return crossed
+    case .mine(let present): return amber.opacity(present ? 0.85 : 0.4)
+    case .rail(let colourIndex): return laneColor(colourIndex)
+    case .absent: return lineCol
+    }
+}
+
 // --- The woven Lines, drawn as one Canvas per row (SwiftUI's spine mechanics) ---
 
 /// One Canvas behind the row draws every Line where it runs through this row: mine
@@ -862,14 +947,7 @@ private struct PeopleRails: View {
 
     /// The Canvas is the only thing that knows what a role looks like — which is what
     /// lets the colour rules be asserted in a unit test with nothing rendered.
-    private func color(_ role: LineColour) -> Color {
-        switch role {
-        case .meeting: return crossed
-        case .mine(let present): return amber.opacity(present ? 0.85 : 0.4)
-        case .rail(let colourIndex): return laneColor(colourIndex)
-        case .absent: return lineCol
-        }
-    }
+    private func color(_ role: LineColour) -> Color { linePaint(role) }
 }
 
 // --- Dates ---

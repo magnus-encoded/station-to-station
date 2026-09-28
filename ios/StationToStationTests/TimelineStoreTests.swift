@@ -948,4 +948,27 @@ final class TimelineStoreTests: XCTestCase {
         let after = await store.load()
         XCTAssertNotNil(after.gigs[id])
     }
+
+    /// Twin of Android's reload regression: Undo changes answers, never keepsakes.
+    func testUndoAnswersSurviveReloadAndPreserveUnrelatedPairsAndMedia() async throws {
+        let file = tempFile()
+        let s = store(file)
+        await s.saveMedia(setlistId: "my-fm-night", media: [photo("keepsake")])
+        await s.joinNight("their-night", key: "my-fm-night")
+        await s.joinNight("other-night", key: "other-fm-night")
+        await s.unjoinNight("their-night", key: "my-fm-night")
+        var held = await store(file).load()
+        XCTAssertNil(held.nightJoins["their-night"])
+        XCTAssertNotNil(held.nightJoins["other-night"])
+        XCTAssertEqual(["keepsake"], held.media()["my-fm-night"]?.map(\.ref))
+
+        await s.dismissMaybe("their-night", key: "my-fm-night")
+        await s.dismissMaybe("their-night", key: "other-fm-night")
+        await s.undismissMaybe("their-night", key: "my-fm-night")
+        held = await store(file).load()
+        let other = try XCTUnwrap(held.gigForSetlist("other-fm-night"))
+        XCTAssertEqual([other.id], held.nightDismissals["their-night"])
+        XCTAssertEqual(["keepsake"], held.media()["my-fm-night"]?.map(\.ref))
+    }
+
 }
