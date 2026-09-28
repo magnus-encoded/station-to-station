@@ -12,6 +12,8 @@ import io.github.magnusencoded.stationtostation.data.isLocal
 import io.github.magnusencoded.stationtostation.data.localGigSetlist
 import io.github.magnusencoded.stationtostation.data.parseFmDate
 import io.github.magnusencoded.stationtostation.data.plannedLane
+import io.github.magnusencoded.stationtostation.data.spineDismissals
+import io.github.magnusencoded.stationtostation.data.spineJoins
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmCity
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
@@ -123,6 +125,19 @@ class TimelineStoreTest {
         assertTrue(loaded.gigs.isEmpty())
         assertTrue(loaded.nightJoins.isEmpty())
         assertEquals(listOf("m-received"), loaded.mediaOffers["their-night"]?.declined)
+    }
+
+    /** #405: both answers to a *maybe* are kept, and read back under the Spine's ids. */
+    @Test
+    fun `a maybe answered either way survives a relaunch`() = runBlocking {
+        val store = store()
+        store.joinNight("their-a", "sl-a")
+        store.dismissMaybe("their-b", "sl-b")
+
+        val loaded = store.load()
+        assertEquals(mapOf("their-a" to "sl-a"), loaded.spineJoins())
+        assertEquals(mapOf("their-b" to setOf("sl-b")), loaded.spineDismissals())
+        assertEquals("sl-a", loaded.gigs.getValue(loaded.nightJoins.getValue("their-a")).setlistId)
     }
 
     @Test

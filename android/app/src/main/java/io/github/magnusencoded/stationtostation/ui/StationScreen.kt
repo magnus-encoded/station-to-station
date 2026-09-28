@@ -689,6 +689,7 @@ fun StationTimelineScreen(
                         val rows = remember(
                             state.setlists, state.plannedGigs, state.attendanceByGig,
                             state.festivals, lanes, state.showsByFriend, zoomedOut, expanded,
+                            state.nightJoins, state.nightsApart,
                         ) {
                             weaveTimelines(
                                 // Through `spineNights`, not `setlists` alone: a local gig
@@ -704,6 +705,10 @@ fun StationTimelineScreen(
                                 friends = if (zoomedOut) lanes else emptyList(),
                                 theirs = if (zoomedOut) state.showsByFriend else emptyMap(),
                                 expanded = expanded,
+                                // What I said about a Contact's Night nothing else links
+                                // to mine (#405): joined draws Joined, apart draws nothing.
+                                joins = state.nightJoins,
+                                apart = state.nightsApart,
                             )
                         }
                         LaunchedEffect(rows, lanes) { logWovenRows(rows, lanes, colours) }
@@ -912,6 +917,10 @@ fun StationTimelineScreen(
                                             litPhotos = visibleToContacts(nightMedia)
                                                 .map { Uri.parse(it.ref) }.toSet(),
                                             loadPhotoPreview = viewModel::photoPreview,
+                                            // Off under the light, like the green: a
+                                            // generic contact view has no "we" to ask about.
+                                            maybeWith = if (state.contactLight) emptyList()
+                                            else row.maybe.map { it.name },
                                             onClick = {
                                                 viewModel.openShow(node.setlist)
                                                 onOpenEvent()
@@ -938,6 +947,8 @@ fun StationTimelineScreen(
                                         else railColor(colours.getOrElse(nodeHost(row, lanes)) { 0 }),
                                         unlit = state.contactLight,
                                         rails = rails,
+                                        maybeWith = if (state.contactLight) emptyList()
+                                        else row.maybe.map { it.name },
                                         onClick = {
                                             viewModel.toggleFestival(row.key)
                                         },
@@ -1649,6 +1660,73 @@ private fun MediaOfferDialog(
     }
 }
 
+/** "Maybe with Mia" — the *maybe*'s tag on a Night of mine (#405). */
+private fun maybeTagLine(maybe: MaybeNight): String =
+    "Maybe with ${maybe.friend.name.ifBlank { "a Contact" }}"
+
+/** What their Night says it was: "Mia logged Kvelertak at Rockefeller". */
+private fun maybeTheirNight(maybe: MaybeNight): String {
+    val who = maybe.friend.name.ifBlank { "A Contact" }
+    val what = listOfNotNull(
+        maybe.theirs.artist?.name?.takeIf { it.isNotBlank() },
+        maybe.theirs.venue?.name?.takeIf { it.isNotBlank() },
+    ).joinToString(" at ")
+    return if (what.isBlank()) "$who logged a night on this date" else "$who logged $what"
+}
+
+/**
+ * The *maybe*, asked (#405): the one question, of the one person who cares. "Same night"
+ * joins their Night to this one and "Not the same" stops the marking; both are mine alone
+ * and nothing is sent. "Not now" leaves it a maybe, which costs nothing. [sharing] is when
+ * going to share media is what asked it (story 22), so the reason is said out loud.
+ */
+@Composable
+private fun MaybeNightDialog(
+    maybe: MaybeNight,
+    sharing: Boolean,
+    onSame: () -> Unit,
+    onApart: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val who = maybe.friend.name.ifBlank { "this Contact" }
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(Raised)
+                .padding(20.dp),
+        ) {
+            Text(
+                "Were you both at this night?",
+                fontFamily = Serif,
+                fontSize = 19.sp,
+                color = Ink,
+                modifier = Modifier.asHeading(),
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "${maybeTheirNight(maybe)} on this date. " +
+                    (if (sharing) "You're sharing from this night, so it's worth knowing. " else "") +
+                    "Only you see the answer.",
+                color = Muted,
+                fontSize = 13.sp,
+            )
+            Spacer(Modifier.height(4.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("Not now", color = Faint) }
+                TextButton(
+                    onClick = onApart,
+                    modifier = Modifier.semantics { contentDescription = "Not the same night as $who's" },
+                ) { Text("Not the same", color = Slate) }
+                TextButton(
+                    onClick = onSame,
+                    modifier = Modifier.semantics { contentDescription = "Same night as $who's" },
+                ) { Text("Same night", color = Crossed) }
+            }
+        }
+    }
+}
+
 /**
  * A night you were at, typed in — the door onto the zero-account floor (#225).
  *
@@ -2097,6 +2175,12 @@ internal fun TimelineItem(
      */
     litPhotos: Set<Uri> = emptySet(),
     loadPhotoPreview: suspend (Uri) -> MediaThumb = { MediaThumb(null) },
+    /**
+     * The **Contacts** who may have shared this Night (#405): out the same date under a
+     * Night nothing links to mine. A question, so it is said in words and never drawn as
+     * a **Crossing** — the node stays mine until I answer in the **Room**.
+     */
+    maybeWith: List<String> = emptyList(),
 ) {
     val songCount = setlist.performed().size
     val zoomedOut = laneWidth > 0.dp
@@ -2170,6 +2254,7 @@ internal fun TimelineItem(
             )
             Spacer(Modifier.height(2.dp))
             Text(setlist.venueLine(), color = Muted, fontSize = 13.sp)
+            if (maybeWith.isNotEmpty()) MaybeLine(maybeWith)
             // The Reliver's own keepsakes of the night — under the artist, over the
             // song count. Big enough to actually read as a photo; the facts still win
             // by being text, and the full-size gallery on the gig screen is bigger still.
@@ -2208,6 +2293,25 @@ internal fun TimelineItem(
             )
         }
     }
+}
+
+/**
+ * The *maybe* on a row of the Spine (#405): "maybe with Mia". In the meeting's green,
+ * because it is a meeting that might have been, but as words beside my node rather than
+ * a line that bends to it — a line is a claim, and this is a question.
+ */
+@Composable
+internal fun MaybeLine(names: List<String>) {
+    val who = names.joinToString(" and ")
+    Spacer(Modifier.height(3.dp))
+    Text(
+        "maybe with $who",
+        color = Crossed.copy(alpha = 0.85f),
+        fontSize = 12.sp,
+        modifier = Modifier.semantics {
+            contentDescription = "Maybe a night shared with $who. Open it to say whether it was."
+        },
+    )
 }
 
 @Composable
@@ -3995,6 +4099,35 @@ fun StationEventScreen(
     var askingMatch by remember { mutableStateOf(false) }
     // Which **Contact**'s offer is being answered, by their Night id (#405).
     var answeringOffer by remember { mutableStateOf<String?>(null) }
+    // The *maybes* on this Night (#405): a Contact out the same date under a Night
+    // nothing links to mine. The same rule the Spine's weave draws them by, asked of
+    // this one Night, so the Room and the Line cannot disagree about which are open.
+    val maybes = remember(
+        setlist?.id, planned, state.setlists, state.plannedGigs, state.attendanceByGig,
+        state.friends, state.showsByFriend, state.festivals, state.nightJoins, state.nightsApart,
+    ) {
+        val here = setlist
+        if (here == null || planned) emptyList()
+        else maybeNights(
+            mine = spineNights(state.setlists, state.plannedGigs, state.attendanceByGig),
+            friends = state.friends,
+            theirs = state.showsByFriend,
+            festivals = state.festivals,
+            joins = state.nightJoins,
+            apart = state.nightsApart,
+        ).filter { it.mine.id == here.id }
+    }
+    // Which maybe is being asked, and — when the question came from going to share
+    // media (story 22) — the band to carry on into once it is answered.
+    var askingMaybe by remember { mutableStateOf<MaybeNight?>(null) }
+    var shareAfterMaybe by remember { mutableStateOf<Band?>(null) }
+    // A drag up out of the vault is sharing too, so it asks the same one question —
+    // after the move, which has already happened by the time the finger lifts.
+    fun moveAndAsk(key: String, id: String, band: Band, index: Int) {
+        val wasKept = state.mediaBySetlist[key].orEmpty().any { it.id == id && it.personal }
+        viewModel.moveGigMedia(key, id, band, index)
+        if (band == Band.SHARED && wasKept) maybes.firstOrNull()?.let { askingMaybe = it }
+    }
 
     val plannedTimeState = if (planned) setlist?.localDate()?.let { gigTimeState(LocalDateTime.now(), it) } else null
     val planAhead = planned &&
@@ -4333,6 +4466,26 @@ fun StationEventScreen(
                 onDismiss = { answeringOffer = null },
             )
         }
+        askingMaybe?.let { maybe ->
+            // Whichever way it is answered — or not — a share that asked it carries on:
+            // the question rides along with the act, it never stands in its way.
+            val done = {
+                askingMaybe = null
+                shareAfterMaybe?.let { band ->
+                    shareAfterMaybe = null
+                    attachTo = band
+                    photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                }
+                Unit
+            }
+            MaybeNightDialog(
+                maybe = maybe,
+                sharing = shareAfterMaybe != null,
+                onSame = { viewModel.joinNight(maybe.theirs.id, setlist.id); done() },
+                onApart = { viewModel.dismissMaybe(maybe.theirs.id, setlist.id); done() },
+                onDismiss = done,
+            )
+        }
         if (deleting) {
             DeleteNightDialog(
                 photos = viewModel.photosLostByDeleting(setlist.id),
@@ -4549,6 +4702,19 @@ fun StationEventScreen(
                                 )
                             }
                         }
+                        // A **Contact** was out this date under a Night nothing links to
+                        // this one (#405): a *maybe*. It waits here costing nothing, and is
+                        // asked outright only when I go to share media from this Night.
+                        maybes.forEach { maybe ->
+                            val line = maybeTagLine(maybe)
+                            Spacer(Modifier.height(8.dp))
+                            EventTag(
+                                line,
+                                color = Crossed,
+                                onClick = { askingMaybe = maybe },
+                                label = "$line. ${maybeTheirNight(maybe)}. Opens same night or not.",
+                            )
+                        }
                         // Nothing can be pinned to a night nobody has been to yet — the
                         // slot comes back once the gig is checked into or no longer planned.
                         if (showsMediaBlock(planned, checkedIn)) {
@@ -4623,10 +4789,19 @@ fun StationEventScreen(
                                 onArrange = { arranging = true },
                                 onDoneArranging = { arranging = false },
                                 onAdd = { band ->
-                                    attachTo = band
-                                    photoPicker.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
-                                    )
+                                    // Going to share from a *maybe* Night asks the one
+                                    // question, once, now (#405 story 22) — and then
+                                    // carries on into the picker whatever the answer.
+                                    val ask = maybes.firstOrNull()
+                                    if (band == Band.SHARED && ask != null) {
+                                        shareAfterMaybe = band
+                                        askingMaybe = ask
+                                    } else {
+                                        attachTo = band
+                                        photoPicker.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
+                                        )
+                                    }
                                 },
                                 // Opens in the in-app viewer below rather than handing the uri to
                                 // whatever app the phone picks: an external app can fail to read
@@ -4634,7 +4809,7 @@ fun StationEventScreen(
                                 // leave the user staring at a viewer with nothing in it.
                                 onOpen = { uri -> viewerUri = uri },
                                 onRemove = { item -> viewModel.removeGigPhoto(setlist.id, Uri.parse(item.ref)) },
-                                onMove = { id, band, index -> viewModel.moveGigMedia(setlist.id, id, band, index) },
+                                onMove = { id, band, index -> moveAndAsk(setlist.id, id, band, index) },
                             )
                             Spacer(Modifier.height(8.dp))
                             GigPhotoSuggestions(
@@ -4813,7 +4988,7 @@ fun StationEventScreen(
                         editable = editable,
                         onWrite = { band, text -> viewModel.setGigNote(setlist.id, band, text) },
                         onVerdict = { id, v -> viewModel.setGigVerdict(setlist.id, id, v) },
-                        onMove = { id, band, index -> viewModel.moveGigMedia(setlist.id, id, band, index) },
+                        onMove = { id, band, index -> moveAndAsk(setlist.id, id, band, index) },
                     )
                 }
                 item { Spacer(Modifier.height(96.dp)) }

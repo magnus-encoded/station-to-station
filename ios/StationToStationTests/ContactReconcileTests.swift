@@ -517,4 +517,46 @@ final class ContactReconcileTests: XCTestCase {
 
         XCTAssertEqual(["m1"], offers["their-local"]?.media.map(\.id))
     }
+
+    // MARK: The maybe, answered (#405): mine alone, and the seam #578 left for it.
+
+    func testSameNightJoinsItSoWhatTheySendLandsDirectlyAndNothingIsOffered() {
+        let mine = cache(gigs: ["my-local": myGig])
+        let resolved = ["m1": "file:///received/m1"]
+
+        let joined = mine.joiningNight("their-local", gigId: "my-local")
+
+        XCTAssertEqual("my-local", joinedNights(joined)["their-local"])
+        XCTAssertEqual(["their-local": "my-local"], joined.spineJoins())
+        XCTAssertEqual(["m1"], contactLanding(mine: joined, offer: theirOffer([photo("m1")]),
+                                              resolved: resolved)["my-local"]?.map(\.id))
+        XCTAssertTrue(contactOffers(mine: joined, offer: theirOffer([photo("m1")]),
+                                    resolved: resolved, myNights: [myNight]).isEmpty)
+        // Saying so moved nothing on my timeline by itself.
+        XCTAssertEqual(mine.gigMedia.keys.sorted(), joined.gigMedia.keys.sorted())
+        XCTAssertEqual(mine.gigs, joined.gigs)
+    }
+
+    func testNotTheSameIsRememberedPerPairOnceAndJoinsNothing() {
+        let mine = cache(gigs: ["my-local": myGig])
+
+        let apart = mine.dismissingMaybe("their-local", gigId: "my-local")
+            .dismissingMaybe("their-local", gigId: "my-local")
+
+        XCTAssertEqual(["their-local": ["my-local"]], apart.nightDismissals)
+        XCTAssertEqual(["their-local": Set(["my-local"])], apart.spineDismissals())
+        XCTAssertTrue(joinedNights(apart).isEmpty)
+        XCTAssertTrue(apart.gigMedia.isEmpty)
+    }
+
+    /// The Spine knows a Night by its setlist.fm id once it has one; the answer follows it.
+    func testAnAnswerIsReadBackUnderTheIdTheSpineUses() {
+        let adopted = StoredGig(id: "my-local", date: "14-08-2026", setlistId: "sfm-1")
+        let mine = cache(gigs: ["my-local": adopted])
+            .joiningNight("their-a", gigId: "my-local")
+            .dismissingMaybe("their-b", gigId: "my-local")
+
+        XCTAssertEqual(["their-a": "sfm-1"], mine.spineJoins())
+        XCTAssertEqual(["their-b": Set(["sfm-1"])], mine.spineDismissals())
+    }
 }

@@ -860,6 +860,12 @@ data class TimelineCache(
      * for it (#405). Mine alone: never sent, never synchronised. See [joinedNights].
      */
     val nightJoins: Map<String, String> = emptyMap(),
+    /**
+     * Their Night id → my own **Gig** ids I said it is *not* (#405): a *maybe* answered
+     * "not the same". A local dismissal — stop marking this — and not a claim about the
+     * world, so it is never sent and never synchronised. See [maybeNights].
+     */
+    val nightDismissals: Map<String, List<String>> = emptyMap(),
 ) {
     /**
      * The id this gig is known by *outside* the store: its setlist.fm id where it
@@ -1121,6 +1127,22 @@ class TimelineStore(
 
     /** No to the offer for their Night [night]. See [decliningOffer]. */
     suspend fun declineMediaOffer(night: String): Unit = writeMerged { c -> c.decliningOffer(night) }
+
+    /**
+     * "Same Night" to a *maybe* (#405): their Night [night] is joined to my Night [key] —
+     * a setlist.fm id or a gig id, whatever the screens use — minting the **Gig** if
+     * nothing hung off it yet. Mine alone. See [joiningNight].
+     */
+    suspend fun joinNight(night: String, key: String): Unit = writeMerged { c ->
+        val (withGig, gigId) = c.withGig(key)
+        withGig.joiningNight(night, gigId)
+    }
+
+    /** "Not the same" to a *maybe* (#405). Mine alone. See [dismissingMaybe]. */
+    suspend fun dismissMaybe(night: String, key: String): Unit = writeMerged { c ->
+        val (withGig, gigId) = c.withGig(key)
+        withGig.dismissingMaybe(night, gigId)
+    }
 
     /**
      * A **Contact**'s **Nights** from a **Reconcile**, folded into the **Lane** held under

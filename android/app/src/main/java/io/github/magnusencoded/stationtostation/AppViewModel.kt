@@ -13,6 +13,8 @@ import io.github.magnusencoded.stationtostation.data.FriendArrival
 import io.github.magnusencoded.stationtostation.data.friendArrival
 import io.github.magnusencoded.stationtostation.data.laneKey
 import io.github.magnusencoded.stationtostation.data.landNights
+import io.github.magnusencoded.stationtostation.data.spineDismissals
+import io.github.magnusencoded.stationtostation.data.spineJoins
 import io.github.magnusencoded.stationtostation.data.MediaOffer
 import io.github.magnusencoded.stationtostation.data.mySpine
 import io.github.magnusencoded.stationtostation.data.withFriend
@@ -315,6 +317,13 @@ data class UiState(
      * (#405): offered, never filed, and shown on my Night of the same date until I answer.
      */
     val mediaOffers: Map<String, MediaOffer> = emptyMap(),
+    /**
+     * What I said about a **Contact**'s Night that nothing else links to mine (#405),
+     * under the ids the **Spine** uses: their Night id → my Night id it is ([nightJoins]),
+     * and → the Nights of mine it is not ([nightsApart]). Mine alone; the weave reads both.
+     */
+    val nightJoins: Map<String, String> = emptyMap(),
+    val nightsApart: Map<String, Set<String>> = emptyMap(),
     // Gig-photo suggestions: the same same-night gallery search as the playlist
     // cover picker, offered as one-tap adds instead of a single chosen cover.
     val gigPhotoSuggestions: List<CoverCandidate> = emptyList(),
@@ -912,6 +921,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 calendarEventByGig = it.calendarEventByGig + cached.calendarEvents(),
                 hiddenAt = cached.hiddenLines,
                 mediaOffers = cached.mediaOffers,
+                nightJoins = cached.spineJoins(),
+                nightsApart = cached.spineDismissals(),
             )
         }
         // The Spine itself — which source it comes from, and the retry of unresolved
@@ -1452,7 +1463,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             timelines.acceptMediaOffer(night, key)
             val cache = timelines.load()
             _state.update {
-                it.copy(mediaOffers = cache.mediaOffers, mediaBySetlist = it.mediaBySetlist + cache.media())
+                it.copy(
+                    mediaOffers = cache.mediaOffers,
+                    mediaBySetlist = it.mediaBySetlist + cache.media(),
+                    // Accepting joined the Night, so the Spine draws it Joined now.
+                    nightJoins = cache.spineJoins(),
+                )
             }
         }
     }
@@ -1463,6 +1479,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             timelines.declineMediaOffer(night)
             val held = timelines.load().mediaOffers
             _state.update { it.copy(mediaOffers = held) }
+        }
+    }
+
+    /**
+     * "Same Night" to a *maybe* (#405): their Night [night] is joined to my Night [key].
+     * Mine alone — nothing is sent — and from here the Spine draws it **Joined** and what
+     * they send for it lands directly.
+     */
+    fun joinNight(night: String, key: String) {
+        viewModelScope.launch {
+            timelines.joinNight(night, key)
+            val cache = timelines.load()
+            _state.update { it.copy(nightJoins = cache.spineJoins()) }
+        }
+    }
+
+    /** "Not the same" to a *maybe* (#405): the marker goes, and stays gone. Mine alone. */
+    fun dismissMaybe(night: String, key: String) {
+        viewModelScope.launch {
+            timelines.dismissMaybe(night, key)
+            val cache = timelines.load()
+            _state.update { it.copy(nightsApart = cache.spineDismissals()) }
         }
     }
 

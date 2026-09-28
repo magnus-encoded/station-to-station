@@ -12,6 +12,10 @@ import io.github.magnusencoded.stationtostation.data.contactOffers
 import io.github.magnusencoded.stationtostation.data.decliningOffer
 import io.github.magnusencoded.stationtostation.data.holdingOffers
 import io.github.magnusencoded.stationtostation.data.joinedNights
+import io.github.magnusencoded.stationtostation.data.joiningNight
+import io.github.magnusencoded.stationtostation.data.dismissingMaybe
+import io.github.magnusencoded.stationtostation.data.spineDismissals
+import io.github.magnusencoded.stationtostation.data.spineJoins
 import io.github.magnusencoded.stationtostation.data.waitingOn
 import io.github.magnusencoded.stationtostation.data.contactManifest
 import io.github.magnusencoded.stationtostation.data.contactReconcilePlan
@@ -479,5 +483,47 @@ class ContactReconcileTest {
         val offers = contactOffers(mine, offer, resolved, listOf(myNight))
 
         assertEquals(listOf("m1"), offers.getValue("their-local").media.map { it.id })
+    }
+
+    // --- The maybe, answered (#405): mine alone, and the seam #578 left for it. ---
+
+    @Test
+    fun `same night joins it, so what they send lands directly and nothing is offered`() {
+        val mine = TimelineCache(gigs = mapOf("my-local" to myGig))
+        val resolved = mapOf("m1" to "content://received/m1")
+
+        val joined = mine.joiningNight("their-local", "my-local")
+
+        assertEquals("my-local", joinedNights(joined)["their-local"])
+        assertEquals(mapOf("their-local" to "my-local"), joined.spineJoins())
+        assertEquals(listOf("m1"), contactLanding(joined, theirOffer(photo("m1")), resolved).getValue("my-local").map { it.id })
+        assertTrue(contactOffers(joined, theirOffer(photo("m1")), resolved, listOf(myNight)).isEmpty())
+        // Saying so moved nothing on my timeline by itself.
+        assertEquals(mine.gigMedia, joined.gigMedia)
+        assertEquals(mine.gigs, joined.gigs)
+    }
+
+    @Test
+    fun `not the same is remembered per pair, once, and joins nothing`() {
+        val mine = TimelineCache(gigs = mapOf("my-local" to myGig))
+
+        val apart = mine.dismissingMaybe("their-local", "my-local").dismissingMaybe("their-local", "my-local")
+
+        assertEquals(mapOf("their-local" to listOf("my-local")), apart.nightDismissals)
+        assertEquals(mapOf("their-local" to setOf("my-local")), apart.spineDismissals())
+        assertTrue(joinedNights(apart).isEmpty())
+        assertEquals(mine.gigMedia, apart.gigMedia)
+    }
+
+    /** The Spine knows a Night by its setlist.fm id once it has one; the answer follows it. */
+    @Test
+    fun `an answer is read back under the id the spine uses`() {
+        val adopted = StoredGig(id = "my-local", setlistId = "sfm-1", date = "14-08-2026")
+        val mine = TimelineCache(gigs = mapOf("my-local" to adopted))
+            .joiningNight("their-a", "my-local")
+            .dismissingMaybe("their-b", "my-local")
+
+        assertEquals(mapOf("their-a" to "sfm-1"), mine.spineJoins())
+        assertEquals(mapOf("their-b" to setOf("sfm-1")), mine.spineDismissals())
     }
 }

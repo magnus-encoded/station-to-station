@@ -24,7 +24,12 @@ One directory per case:
     both platforms. Rows inside an open Festival carry `depth` 1, so their keys read
     `c-<setlist id>-1`.
 
-  All three are ignored by the store's own parser, so each file still loads as a plain
+  `nightJoins` and `nightDismissals` are real store keys, not extras (#405): what I said
+  about a **Contact**'s Night nothing else links to mine — "same night" (their Night id →
+  my Gig id) and "not the same" (their Night id → my Gig ids). Optional; absent means I
+  have said nothing.
+
+  All three extras are ignored by the store's own parser, so each file still loads as a plain
   `TimelineCache` — the test asserts exactly that.
 
   A **Festival** is an identity, never a shape (#166): `festivals` holds the identities
@@ -49,6 +54,9 @@ One directory per case:
   - `hosts` — which line each friend is drawn on here: `spine` when they came to meet me,
     `laneN` otherwise. **Lane 1 is nearest the spine**; the Kotlin lane indices are 0-based,
     so `lane1` is index 0.
+  - `maybe` — the friends who may have shared this row's Night (#405): out the same date
+    under a different id, at least one side hand-logged, nothing linking the two. A
+    question, never a **Crossing**. Optional; absent means nobody.
 
 Adding a case needs no code change — the suites iterate this directory. Keep them small
 and hand-readable; a 169-show dump proves nothing a handful of nights doesn't.

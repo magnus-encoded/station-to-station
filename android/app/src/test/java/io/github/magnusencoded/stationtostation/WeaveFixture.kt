@@ -3,6 +3,9 @@ package io.github.magnusencoded.stationtostation
 import io.github.magnusencoded.stationtostation.data.Festivals
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.StoredFestival
+import io.github.magnusencoded.stationtostation.data.TimelineCache
+import io.github.magnusencoded.stationtostation.data.spineDismissals
+import io.github.magnusencoded.stationtostation.data.spineJoins
 import io.github.magnusencoded.stationtostation.ui.WovenRow
 import io.github.magnusencoded.stationtostation.ui.visibleLanes
 import io.github.magnusencoded.stationtostation.ui.weaveTimelines
@@ -45,13 +48,17 @@ internal object WeaveFixture {
      * timeline with those people tapped out of the legend actually holds.
      */
     fun load(case: String, hide: Set<String> = emptySet()): Pair<List<WovenRow>, List<Friend>> {
-        val doc = json.decodeFromString<Doc>(File(dir(), "$case/timelines.json").readText())
+        val text = File(dir(), "$case/timelines.json").readText()
+        val doc = json.decodeFromString<Doc>(text)
+        val cache = json.decodeFromString<TimelineCache>(text)
         val friends = visibleLanes(doc.friends, hide)
         val rows = weaveTimelines(
             mine = doc.shows[doc.me].orEmpty(),
             festivals = Festivals(doc.festivals, doc.festivalIdByShow),
             friends = friends,
             theirs = doc.shows - doc.me,
+            joins = cache.spineJoins(),
+            apart = cache.spineDismissals(),
         )
         return rows to friends
     }

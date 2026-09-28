@@ -51,6 +51,8 @@ struct NightNotes: View {
     /// Empty when the record knows nothing.
     let preamble: String
     let senderName: (String) -> String?
+    /// The *maybe* publishing a draft asked (#405 story 22).
+    @State private var askingMaybe: MaybeNight?
 
     /// What a Contact would actually be shown, routed through the one rule
     /// (#180) — the same gate NightGrid's `visibleShared` uses — before it is
@@ -113,11 +115,16 @@ struct NightNotes: View {
                     // Publishing a draft. The upward move earns the green
                     // promise for free, because `hintForMoving` never asked
                     // what kind of item it was holding.
-                    onLift: { id in model.moveMedia(id, to: .shared) }
+                    onLift: { id in
+                        model.moveMedia(id, to: .shared)
+                        // Publishing from a *maybe* Night asks the one question (#405).
+                        if let ask = model.maybesOnSelected().first { askingMaybe = ask }
+                    }
                 )
             }
         }
         .padding(.horizontal, 24)
+        .modifier(MaybeNightAlert(asking: $askingMaybe, sharing: true))
     }
 }
 

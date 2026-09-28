@@ -46,6 +46,8 @@ final class WeaveFixtureTests: XCTestCase {
         var together: Int?
         var theirs: Int?
         var hosts: [String: String]?
+        /// Who may have shared this row's Night (#405): a *maybe*, never a Crossing.
+        var maybe: [String]?
     }
 
     private struct Expected: Decodable { var rows: [ExpectedRow] }
@@ -91,7 +93,11 @@ final class WeaveFixtureTests: XCTestCase {
                 festivals: cache.festivalIdentities(),
                 friends: lanes,
                 theirs: cache.shows.filter { $0.key != input.me },
-                expanded: Set(input.expanded ?? [])
+                expanded: Set(input.expanded ?? []),
+                // What I said about a Contact's Night (#405), from the store's own
+                // `nightJoins` and `nightDismissals`, exactly as the app reads them.
+                joins: cache.spineJoins(),
+                apart: cache.spineDismissals()
             )
 
             XCTAssertEqual(expected.rows.count, rows.count, "\(name): row count")
@@ -103,6 +109,7 @@ final class WeaveFixtureTests: XCTestCase {
                 XCTAssertEqual(want.with ?? [], got.others.map(\.setlistfm), "\(name) \(want.key): with")
                 XCTAssertEqual(want.together ?? 0, got.sharedCount, "\(name) \(want.key): together")
                 XCTAssertEqual(want.theirs ?? 0, got.showsHereByFriends.count, "\(name) \(want.key): theirs")
+                XCTAssertEqual(want.maybe ?? [], got.maybe.map(\.setlistfm), "\(name) \(want.key): maybe")
                 if let date = want.date {
                     XCTAssertEqual(date, got.date.map { isoDay.string(from: $0) }, "\(name) \(want.key): date")
                 }

@@ -6,7 +6,9 @@ import io.github.magnusencoded.stationtostation.data.StoredFestival
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmVenue
+import io.github.magnusencoded.stationtostation.ui.MaybeNight
 import io.github.magnusencoded.stationtostation.ui.TimelineNode
+import io.github.magnusencoded.stationtostation.ui.maybeNights
 import io.github.magnusencoded.stationtostation.ui.weaveTimelines
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -394,5 +396,126 @@ class WeaveTimelinesTest {
 
         assertEquals(1, row.sharedCount)
         assertEquals(1, row.theirsCount)
+    }
+
+    // --- The maybe-shared marker (#405). Twinned in WeaveTimelinesTests.swift. ---
+
+    /** A Night typed by hand: no setlist.fm id behind it. */
+    private fun local(id: String, date: String, venue: String) = show(id, date, venue).copy(url = null)
+
+    @Test
+    fun `the same date and the same id is joined, not a maybe`() {
+        val night = local("x1", "21-11-2025", "Blå")
+        val rows = weaveTimelines(listOf(night), Festivals(), listOf(lemmy), mapOf("Lemmy" to listOf(night)))
+        assertEquals(1, rows.size)
+        assertEquals(1, rows[0].sharedCount)
+        assertTrue(rows[0].maybe.isEmpty())
+    }
+
+    @Test
+    fun `the same date under different ids is a maybe, and never a crossing`() {
+        val rows = weaveTimelines(
+            mine = listOf(local("m1", "21-11-2025", "Blå")),
+            festivals = Festivals(),
+            friends = listOf(lemmy),
+            theirs = mapOf("Lemmy" to listOf(local("n1", "21-11-2025", "Blå"))),
+        )
+        // Two rows: the same room on the same date does not fold two hand-logged Nights,
+        // because folding them would be the app answering its own question.
+        assertEquals(2, rows.size)
+        val mine = rows.single { it.mine }
+        assertEquals(listOf(lemmy), mine.maybe)
+        assertTrue(mine.others.isEmpty())
+        assertEquals(0, mine.sharedCount)
+        assertTrue(rows.single { !it.mine }.maybe.isEmpty())
+    }
+
+    @Test
+    fun `different dates are neither`() {
+        val rows = weaveTimelines(
+            mine = listOf(local("m1", "21-11-2025", "Blå")),
+            festivals = Festivals(),
+            friends = listOf(lemmy),
+            theirs = mapOf("Lemmy" to listOf(local("n1", "22-11-2025", "Blå"))),
+        )
+        assertTrue(rows.all { it.maybe.isEmpty() && it.sharedCount == 0 })
+    }
+
+    @Test
+    fun `a maybe I said is not the same does not come back`() {
+        val rows = weaveTimelines(
+            mine = listOf(local("m1", "21-11-2025", "Blå")),
+            festivals = Festivals(),
+            friends = listOf(lemmy),
+            theirs = mapOf("Lemmy" to listOf(local("n1", "21-11-2025", "Blå"))),
+            apart = mapOf("n1" to setOf("m1")),
+        )
+        assertEquals(2, rows.size)
+        assertTrue(rows.all { it.maybe.isEmpty() })
+    }
+
+    @Test
+    fun `a maybe I joined is drawn joined`() {
+        val rows = weaveTimelines(
+            mine = listOf(local("m1", "21-11-2025", "Blå")),
+            festivals = Festivals(),
+            friends = listOf(lemmy),
+            theirs = mapOf("Lemmy" to listOf(local("n1", "21-11-2025", "Somewhere else"))),
+            joins = mapOf("n1" to "m1"),
+        )
+        // Folded onto my node even across two room names, because I said so.
+        assertEquals(1, rows.size)
+        assertEquals(listOf(lemmy), rows[0].others)
+        assertEquals(1, rows[0].sharedCount)
+        assertEquals(0, rows[0].theirsCount)
+        assertTrue(rows[0].maybe.isEmpty())
+    }
+
+    /** Story 24: a Festival day against a single Act is a difference of granularity. */
+    @Test
+    fun `their Festival day against my single Act is not asserted to be the same record`() {
+        val rows = weaveTimelines(
+            mine = listOf(show("g1", "25-06-2026", "Ekebergsletta")),
+            festivals = festival("f1"),
+            friends = listOf(lemmy),
+            theirs = mapOf("Lemmy" to listOf(local("f1", "25-06-2026", "Ekebergsletta"))),
+        )
+        val mine = rows.single { it.mine }
+        assertEquals(0, mine.sharedCount)
+        assertTrue(mine.others.isEmpty())
+        assertEquals(listOf(lemmy), mine.maybe)
+    }
+
+    /** Two catalogued records are a fact, not a question: two rooms, two Nights. */
+    @Test
+    fun `two setlist fm ids on one date are never a maybe`() {
+        val rows = weaveTimelines(
+            mine = listOf(show("a1", "21-11-2025", "Blå")),
+            festivals = Festivals(),
+            friends = listOf(lemmy),
+            theirs = mapOf("Lemmy" to listOf(show("b1", "21-11-2025", "Rockefeller"))),
+        )
+        assertTrue(rows.all { it.maybe.isEmpty() })
+    }
+
+    /** A Night of mine we already cross is no question, whatever else they logged that date. */
+    @Test
+    fun `a night already crossed asks nothing more`() {
+        val night = local("x1", "21-11-2025", "Blå")
+        val rows = weaveTimelines(
+            mine = listOf(night),
+            festivals = Festivals(),
+            friends = listOf(lemmy),
+            theirs = mapOf("Lemmy" to listOf(night, local("n2", "21-11-2025", "Rockefeller"))),
+        )
+        assertTrue(rows.all { it.maybe.isEmpty() })
+    }
+
+    @Test
+    fun `maybeNights names the pair it is asking about`() {
+        val m1 = local("m1", "21-11-2025", "Blå")
+        val n1 = local("n1", "21-11-2025", "Blå")
+        val asked = maybeNights(listOf(m1), listOf(lemmy, ozzy), mapOf("Lemmy" to listOf(n1)))
+        assertEquals(listOf(MaybeNight(lemmy, m1, n1)), asked)
     }
 }

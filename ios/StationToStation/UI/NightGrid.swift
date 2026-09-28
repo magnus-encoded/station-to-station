@@ -32,6 +32,10 @@ private let slate = Color(red: 0x6F / 255, green: 0x80 / 255, blue: 0x9D / 255)
 struct NightGrid: View {
     @EnvironmentObject var model: AppModel
     @State private var pickingBand: Band?
+    /// The *maybe* going to share from this Night asked (#405 story 22), and whether the
+    /// picker should open once it is answered.
+    @State private var askingMaybe: MaybeNight?
+    @State private var pickAfterMaybe = false
     /// The keepsake the **Window** is open on, if any.
     @State private var opened: StoredMedia?
 
@@ -135,6 +139,14 @@ struct NightGrid: View {
         .sheet(item: $pickingBand) { band in
             MediaPicker { model.attachMedia(assetIds: $0, to: band) }.ignoresSafeArea()
         }
+        .modifier(MaybeNightAlert(asking: $askingMaybe, sharing: true) {
+            // Whichever way it was answered — or not — a share that asked it carries on:
+            // the question rides along with the act, it never stands in its way. After
+            // the alert has gone, so the picker is not presented over it.
+            guard pickAfterMaybe else { return }
+            pickAfterMaybe = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { pickingBand = .shared }
+        })
         .fullScreenCover(item: $opened) { media in
             // The setlist rides along only under the night's own recording (#27).
             let songs = media.id == recording?.id
@@ -181,7 +193,7 @@ struct NightGrid: View {
                     // in it said the opposite of what tapping it does. Same rule
                     // Android's two-way handle keeps by refusing to reach for amber
                     // on an upward drag.
-                    Button { pickingBand = band } label: {
+                    Button { add(to: band) } label: {
                         Label(band == .vault ? "Add to the vault" : "Add to shared",
                               systemImage: "plus")
                             .font(.system(size: 12))
@@ -269,7 +281,7 @@ struct NightGrid: View {
             .accessibilityAddTraits(.isButton)
             .accessibilityAction(ifNamed: editable && media.from == nil
                 ? (band == .shared ? "Move to the vault" : "Share it") : nil) {
-                model.moveMedia(media.id, to: band == .shared ? .vault : .shared)
+                move(media.id, to: band == .shared ? .vault : .shared)
             }
             .accessibilityAction(ifNamed: editable ? "Remove" : nil) { model.removeMedia(media) }
     }
@@ -282,11 +294,31 @@ struct NightGrid: View {
         _ = provider.loadObject(ofClass: NSString.self) { value, _ in
             guard let id = value as? String else { return }
             DispatchQueue.main.async {
-                model.moveMedia(id, to: band)
+                move(id, to: band)
                 draggingId = nil
             }
         }
         return true
+    }
+
+    /// Going to share from a *maybe* Night asks the one question, once, now (#405 story
+    /// 22) — and then carries on into the picker whatever the answer. Android's `onAdd`.
+    private func add(to band: Band) {
+        if band == .shared, let ask = model.maybesOnSelected().first {
+            pickAfterMaybe = true
+            askingMaybe = ask
+        } else {
+            pickingBand = band
+        }
+    }
+
+    /// A move up out of the vault is sharing too, so it asks the same question — after
+    /// the move, which has already happened by the time the finger lifts. Android's
+    /// `moveAndAsk`.
+    private func move(_ id: String, to band: Band) {
+        let wasKept = model.state.gigMedia.contains { $0.id == id && $0.personal }
+        model.moveMedia(id, to: band)
+        if band == .shared, wasKept, let ask = model.maybesOnSelected().first { askingMaybe = ask }
     }
 
     private func say(for hint: ReleaseHint, band: Band) -> String? {
@@ -349,7 +381,11 @@ struct NightGrid: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(model.state.gigMediaSuggestions, id: \.self) { assetId in
-                        Button { model.attachMedia(assetIds: [assetId], to: .shared) } label: {
+                        Button {
+                            model.attachMedia(assetIds: [assetId], to: .shared)
+                            // Straight into the shared band is sharing, so it asks too (#405).
+                            if let ask = model.maybesOnSelected().first { askingMaybe = ask }
+                        } label: {
                             SuggestionTile(assetId: assetId)
                         }
                         .buttonStyle(.plain)
