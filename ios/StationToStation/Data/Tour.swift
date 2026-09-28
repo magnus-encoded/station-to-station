@@ -50,9 +50,28 @@ struct TourState: Codable, Equatable {
     var ticketImportStarted = false
     var demoLocation: String?
     var returnedFromPhotos = false
+    var demoBandName: String?
+    var demoBandMbid: String?
+    var demoGigID: String?
 
     static let unstarted = TourState()
     var isRunning: Bool { step != nil && !finished }
+}
+
+/// The Tour's planned night uses the same `FmSetlist` face as every other local Gig.
+/// Keeping construction pure makes the demo tag and purge boundary testable without
+/// a device or a timeline store.
+func tourDemoGig(worldID: UUID, artist: MbArtist, date: Date,
+                 calendar: Calendar = .current) -> FmSetlist {
+    var gig = localGigSetlist(
+        gigId: "tour-\(worldID.uuidString)",
+        artist: artist.name,
+        date: fmDate(date, calendar: calendar),
+        venue: "",
+        city: ""
+    )
+    gig.artist?.mbid = artist.mbid
+    return gig
 }
 
 struct TourTransition: Equatable {
@@ -98,6 +117,9 @@ func runTour(_ old: TourState, _ event: TourEvent) -> TourTransition {
     }
     guard awaits(step, event, returnedFromPhotos: state.returnedFromPhotos) else {
         return .unchanged(old)
+    }
+    if case .bandPicked(let picked) = event {
+        state.demoBandName = picked
     }
     if case .contactExchanged(let location) = event { state.demoLocation = location }
     if step == .spotify, event == .spotifyDeclined { state.pendingSpotifyRetry = true }
@@ -184,4 +206,9 @@ struct DemoRecord: Codable, Equatable, Identifiable {
 
 func purgeDemoWorld(_ records: [DemoRecord], worldID: UUID) -> [DemoRecord] {
     records.filter { $0.demoTag?.worldID != worldID }
+}
+
+func purgeDemoGigs(_ gigs: [FmSetlist], records: [DemoRecord], worldID: UUID) -> [FmSetlist] {
+    let demoIDs = Set(records.filter { $0.demoTag?.worldID == worldID }.map(\.id))
+    return gigs.filter { !demoIDs.contains($0.id) }
 }
