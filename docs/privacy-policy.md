@@ -1,6 +1,6 @@
 # Privacy Policy — Station to Station
 
-Last updated: 26 September 2026 (first published 12 August 2026; see [What has changed](#what-has-changed))
+Last updated: 28 September 2026 (first published 12 August 2026; see [What has changed](#what-has-changed))
 
 Station to Station is a personal record of concerts you have attended. This policy
 describes what the app does with your data.
@@ -14,7 +14,8 @@ no analytics, no crash reporting, no advertising, and no tracking of any kind.
 Data leaves your device in five circumstances:
 
 - when the app looks something up from a music or festival service,
-- when you send your contact card to someone standing next to you,
+- when you send your contact card to someone standing next to you, and when your phone
+  later syncs with theirs on the same WiFi,
 - when you choose to publish a playlist to Spotify,
 - when you check in at a gig, and your phone passes small facts about that night to
   other phones nearby ([Gossip](#gossip-at-a-gig)), and
@@ -28,7 +29,8 @@ you stop it.
 
 - Your concert history, notes and verdicts
 - References to photos you have attached to a night
-- Your contacts — people whose cards you have exchanged with — and what they have shared with you
+- Your contacts — people whose cards you have exchanged with — the nights they have been
+  at, and what they have shared with you
 - Your setlist.fm username, and a setlist.fm API key if you enter your own
 - Your clashfinder username and private key, if you enter them
 - Your Spotify login token, if you have connected Spotify
@@ -54,11 +56,14 @@ governs what it does with the requests it receives.
 | Service | What is sent | When |
 |---|---|---|
 | [setlist.fm](https://www.setlist.fm/help/privacy) | A username or artist name you are looking up | When you import or search for concerts |
+| [setlist.fm](https://www.setlist.fm/help/privacy) | The artist and date of a ticket you share, or of a gig you added by hand | When you share the ticket or refresh the gig, and on its own while the app is open, for a while around the night, until setlist.fm lists it |
 | [MusicBrainz](https://metabrainz.org/privacy) | An artist name or identifier | When enriching an artist's details |
 | [Spotify](https://www.spotify.com/legal/privacy-policy/) | Your Spotify login, playlist contents, and a cover photo if you choose one | When you connect Spotify or create a playlist |
 | [clashfinder](https://clashfinder.com) | Your clashfinder username, a key derived from your private key (never the key itself), and the festival you are looking up | When you look up a festival's timetable |
 
-Your concert record itself is never sent to any of them. The same goes for your tickets.
+Your concert record as a whole is never sent to any of them. To find a ticket or a gig you
+added by hand on setlist.fm, only its artist and date are sent; the ticket itself and its
+barcodes never are.
 
 ## Location
 
@@ -93,7 +98,8 @@ playlist is. That only happens when you pick a cover.
 You can share a ticket PDF with the app. It reads the ticket on your phone, including its
 barcodes, and keeps them so it can show them at the door. The reading happens entirely on
 your device; the ticket is not uploaded anywhere, not sent to your contacts, and not part
-of Gossip.
+of Gossip. Its artist and date are looked up on setlist.fm to find the night there (see
+[Services the app contacts](#services-the-app-contacts)).
 
 ## Exchanging with other people
 
@@ -101,9 +107,20 @@ When you exchange cards with someone nearby, the app sends your display name, yo
 public key, and your setlist.fm and Spotify usernames if you have set them, directly to
 their device over Bluetooth. There is no server in between.
 
-After that, you may share parts of your record — nights, photos, notes — with contacts
-you have exchanged with. You choose what is shared. Material a contact shares with you
-this way is not passed to your other contacts.
+After that, when you and a contact both open the Exchange screen on the same WiFi, your
+two phones sync directly, with no server in between. Each sends the other:
+
+- **the nights you have been at** — the date, act and venue of each, whether imported
+  from setlist.fm or added by hand. Not what was played, your log, your notes, your
+  tickets, or gigs you are planning to go to. This is how a contact without a setlist.fm
+  account still has a line beside yours.
+- **the photos, clips and notes you have shared.** You choose these one by one; anything
+  you keep in a night's private vault is never sent.
+
+Photos and notes a contact sends for a night you have not confirmed you were both at are
+offered to you, and are kept only if you accept. Whether you answer that one of their
+nights was the same as yours stays on your phone. Nothing a contact sends you this way is
+passed to your other contacts.
 
 ## Gossip at a gig
 
@@ -171,6 +188,17 @@ revoke the app at [spotify.com/account/apps](https://www.spotify.com/account/app
 
 Version numbers are the app's; the dates are when each version was released.
 
+**28 September 2026** — what 1.11.0 changes:
+
+- **1.11.0, 28 September 2026: your nights reach your contacts, and tickets are looked
+  up.** Syncing with a contact on the same WiFi now sends them the list of nights you have
+  been at (date, act and venue; not what was played), so a contact without a setlist.fm
+  account still has a line; before, only the photos, clips and notes you shared were
+  sent. The artist and date of a ticket you share, or of a gig you added by hand, are sent
+  to setlist.fm to find that night there, including automatically while the app is open.
+  Photos and notes a contact sends for a night you have not confirmed you share are
+  offered to you rather than added to your record.
+
 **26 September 2026** — this policy caught up with the app. Nothing new was built for it;
 it now describes what the versions below already did:
 
@@ -193,6 +221,10 @@ it now describes what the versions below already did:
 This policy will be updated as the app changes. The date at the top reflects the most
 recent revision, the list above says what changed and when, and the full history is
 public in the app's repository.
+
+What each version of the app changed, privacy-related or not, is in the
+[changelog](https://github.com/magnus-encoded/station-to-station/blob/main/CHANGELOG.md).
+The list above is the part of it that affects your data.
 
 ## Contact
 
