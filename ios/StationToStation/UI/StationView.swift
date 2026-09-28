@@ -423,7 +423,11 @@ struct StationView: View {
                 Text("the shows ahead")
                     .font(.system(size: 12)).foregroundStyle(faint)
                 Spacer()
-                if model.state.planningLoading { ProgressView().tint(faint) }
+                if model.state.planningLoading {
+                    ProgressView().tint(faint)
+                        .accessibilityLabel("Looking it up on setlist.fm")
+                        .spokenOnAppear("Looking it up on setlist.fm")
+                }
                 Button { addingPlanned = true } label: {
                     Image(systemName: "plus.circle").foregroundStyle(slate)
                 }
@@ -513,6 +517,7 @@ struct StationView: View {
             if loading {
                 ProgressView().tint(amber)
                 Text("Pulling your attended shows\u{2026}").foregroundStyle(muted)
+                    .spokenOnAppear("Pulling your attended shows from setlist.fm")
             } else {
                 Text("Nothing on your Line yet.")
                     .font(.system(size: 18, design: .serif)).foregroundStyle(ink)

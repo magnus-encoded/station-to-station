@@ -169,6 +169,7 @@ struct NightGrid: View {
                     .font(.system(size: 10, weight: .semibold)).kerning(1.5)
                     .foregroundStyle(targeted && hint != .none ? crossed : faint)
                     .accessibilityLabel(bandMeaning(title, band, isCrossed))
+                    .accessibilityAddTraits(.isHeader)
                 if targeted, let say = say(for: hint, band: band) {
                     Text(say).font(.system(size: 10)).foregroundStyle(crossed)
                 }
@@ -299,6 +300,7 @@ struct NightGrid: View {
     private var contactLightBanner: some View {
         Text("AS YOUR CONTACTS SEE IT")
             .font(.system(size: 10, weight: .semibold)).kerning(1.5).foregroundStyle(amber)
+            .accessibilityAddTraits(.isHeader)
             .padding(.horizontal, 24)
     }
 

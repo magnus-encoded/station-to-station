@@ -29,6 +29,7 @@ struct LogEditor: View {
         VStack(alignment: .leading, spacing: 0) {
             Text("THE LOG")
                 .font(.system(size: 10, weight: .semibold)).kerning(1.5).foregroundStyle(faint)
+                .accessibilityAddTraits(.isHeader)
             Spacer().frame(height: 6)
             Text(log.songs.isEmpty ? "What did they play?" : "Your log of this night")
                 .font(.system(size: 16, design: .serif)).foregroundStyle(ink)

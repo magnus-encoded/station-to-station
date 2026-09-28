@@ -179,6 +179,7 @@ struct ProgrammeView: View {
             }
             if let error {
                 Text(error).font(.system(size: 13)).foregroundStyle(slate)
+                    .spokenOnAppear(error)
             }
             if blocked {
                 blockedActions

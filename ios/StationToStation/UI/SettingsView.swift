@@ -550,6 +550,7 @@ private struct ServiceSheet: View {
                         Text(node.name)
                             .font(.system(size: 18, weight: .semibold))
                             .foregroundColor(ink)
+                            .accessibilityAddTraits(.isHeader)
                         if node.experimental {
                             Text("Experimental")
                                 .font(.system(size: 11))
@@ -560,6 +561,7 @@ private struct ServiceSheet: View {
                         .font(.system(size: 13))
                         .foregroundColor(node.lit ? amber : faint)
                         .padding(.bottom, 12)
+                        .spokenOnChange(node.status)
                     ForEach(node.unlocks, id: \.self) { unlock in
                         Text((node.lit ? "✓ " : "· ") + unlock)
                             .font(.system(size: 14))

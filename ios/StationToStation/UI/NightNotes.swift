@@ -164,6 +164,7 @@ private struct BandNote: View {
             Text(band == .shared ? "SHARED" : "IN THE VAULT")
                 .font(.system(size: 10, weight: .semibold)).kerning(1.5).foregroundStyle(faint)
                 .accessibilityLabel(bandMeaning(band, crossed))
+                .accessibilityAddTraits(.isHeader)
 
             // Always first, whether it opens the field or reopens it over what is
             // already there. Everything written lands underneath — you come here to

@@ -444,10 +444,13 @@ private struct CoverPicker: View {
                     ProgressView()
                     Text("Looking through your gallery…").font(.caption).foregroundStyle(.secondary)
                 }
+                .spokenOnAppear("Looking through your gallery")
             } else if s.coverSearched {
                 Text("No photos from that night in your gallery — "
                      + "Spotify will build the cover from the album art.")
                     .font(.caption).foregroundStyle(.secondary)
+                    .spokenOnAppear("No photos from that night in your gallery. "
+                        + "Spotify will build the cover from the album art.")
             }
         }
         .padding(.horizontal)
