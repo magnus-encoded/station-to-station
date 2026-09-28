@@ -45,8 +45,6 @@ class FriendsLogicTest {
         assertEquals(emptyList<Friend>(), decodeFriends("garbage-not-json"))
     }
 
-    // --- A Contact needs no setlist.fm account (#405) ---
-
     private val dio = Friend(setlistfm = "", name = "Dio", publicKey = "k-dio")
 
     /** User story 34: everything held before this is found where it was left. */

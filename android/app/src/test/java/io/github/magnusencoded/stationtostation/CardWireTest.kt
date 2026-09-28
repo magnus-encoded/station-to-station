@@ -215,8 +215,6 @@ class CardWireTest {
         assertNull(parseProbeCard(""))
     }
 
-    // --- A Card needs no setlist.fm account (#405) ---
-
     private val accountless = ProbeCard(name = "Magnus", publicKey = card.publicKey)
 
     @Test fun aCardWithAKeyAndNoUsernameRoundTripsAndMakesAContact() {

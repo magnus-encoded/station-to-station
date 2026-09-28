@@ -81,8 +81,6 @@ fun LogEditor(
     val remaining = candidates.filterNot { c -> chosen.any { it.equals(c, ignoreCase = true) } }
     Column(Modifier.padding(horizontal = 20.dp)) {
         Text(
-            // The heading names what this surface is *for*, and it stopped being the
-            // log itself when the entries moved onto the spine above it (#268).
             if (chosen.isEmpty()) "What did they play?" else "Anything else they played?",
             fontFamily = Serif,
             fontSize = 16.sp,

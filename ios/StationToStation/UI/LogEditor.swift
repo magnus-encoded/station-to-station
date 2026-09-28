@@ -37,8 +37,6 @@ struct LogEditor: View {
                 .font(.system(size: 11)).foregroundStyle(faint)
             Spacer().frame(height: 10)
 
-            // The entries themselves are on the spine above, woven into the set
-            // (#268) — what is left here is the way in.
             addField
             gapButton
             Spacer().frame(height: 14)

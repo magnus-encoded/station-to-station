@@ -412,8 +412,6 @@ class WeaveTimelinesTest {
         assertEquals(1, row.theirsCount)
     }
 
-    // --- The maybe-shared marker (#405). Twinned in WeaveTimelinesTests.swift. ---
-
     /** A Night typed by hand: no setlist.fm id behind it. */
     private fun local(id: String, date: String, venue: String) = show(id, date, venue).copy(url = null)
 
@@ -632,8 +630,6 @@ class WeaveTimelinesTest {
         assertTrue(rows.all { it.maybeAbove.isEmpty() })
         assertEquals(listOf(lemmy), rows.single { it.mine }.maybeInWords)
     }
-
-    // --- The comparison (#580) ---
 
     @Test
     fun `the comparison lights the fields that differ and never the source`() {

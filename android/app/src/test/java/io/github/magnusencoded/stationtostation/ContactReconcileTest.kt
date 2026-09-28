@@ -523,8 +523,6 @@ class ContactReconcileTest {
         assertEquals(mapOf("their-b" to setOf("sfm-1")), mine.spineDismissals())
     }
 
-    // --- Undo (#580): an answer taken back is the maybe asked again. ---
-
     @Test
     fun `undoing same night takes the join away and nothing else`() {
         val mine = TimelineCache(gigs = mapOf("my-local" to myGig))

@@ -617,8 +617,6 @@ class FlyoverNightTest {
         assertEquals(listOf("n1", "n2"), night.notes.map { it.id })
     }
 
-    // --- Assembling a Collection's run (#313 slice 2: the run billboard) ---
-
     private fun setlist(id: String, artist: String, date: LocalDate) = FmSetlist(
         id = id,
         artist = FmArtist(name = artist),
@@ -729,8 +727,6 @@ class FlyoverNightTest {
         )
         assertEquals(listOf("shared"), lit.first().media.map { it.id })
     }
-
-    // --- The portrait face: every Gig's media, combined (#313 story 5) ---
 
     /** The whole claim: a three-day festival's media reads as one weekend, in one list. */
     @Test

@@ -439,8 +439,6 @@ class LaneGeometryTest {
         assertEquals(LineColour.Absent, kvelertak.at(1).colour) // Ozzy, past a night he missed
     }
 
-    // --- The legend's recency order (#396) ---
-
     private val motorhead = Friend(setlistfm = "Motorhead", name = "Motorhead")
 
     /**

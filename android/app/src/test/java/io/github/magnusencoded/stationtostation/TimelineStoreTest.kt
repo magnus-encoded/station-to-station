@@ -451,8 +451,6 @@ class TimelineStoreTest {
         assertEquals(StoredAttendance.Provenance.ATTENDED, attendance["a"]?.provenance)
     }
 
-    // --- #107: a Gig gets an identity the app owns ---------------------------
-
     @Test
     fun `adopting a setlist id preserves every association on that night`() = runBlocking {
         // The test #107 exists for. A night carrying everything a night can carry

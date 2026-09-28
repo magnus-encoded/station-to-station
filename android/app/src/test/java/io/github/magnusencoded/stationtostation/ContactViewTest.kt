@@ -272,8 +272,6 @@ class ContactViewTest {
         assertEquals(setOf("a"), offered)
     }
 
-    // ---- text obeys the same tier line as everything else (#50) --------------
-
     private fun myNote(id: String, text: String, personal: Boolean, verdict: String? = null) =
         StoredMedia(
             id = id,

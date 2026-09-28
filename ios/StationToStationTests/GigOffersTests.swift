@@ -186,8 +186,6 @@ final class GigOffersTests: XCTestCase {
         XCTAssertEqual(.setlistFm, offers(night(threeDaysAgo, checkedIn, mostlyGaps)).alcove)
     }
 
-    // --- The ticket (#414) ----------------------------------------------------
-
     func testANightWithNoTicketHoldsNothingUp() {
         XCTAssertFalse(offers(night(today, planned)).room.showTicket)
     }

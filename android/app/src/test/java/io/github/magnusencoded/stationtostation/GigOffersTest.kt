@@ -317,8 +317,6 @@ class GigOffersTest {
         assertEquals(CurtainAction.NONE, curtainAction(Curtain.CHECK_EVENT))
     }
 
-    // --- Stepping between Admissions (#441, story 5) ---
-
     @Test
     fun threeAdmissionsAreStepped1Of3To3Of3AndStopAtEachEnd() {
         val first = AdmissionPage.of(0, 3)

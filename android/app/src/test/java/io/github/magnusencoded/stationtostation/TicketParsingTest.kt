@@ -239,8 +239,6 @@ class TicketParsingTest {
         assertEquals(drawn.admissions, (routing as TicketRouting.NewPlannedGig).admissions)
     }
 
-    // --- #441, story 29: redrawn and read back at import, or asked about ---
-
     @Test
     fun aCompleteTicketWhoseBarcodeCannotBeRedrawnIsAskedAbout() {
         // Closes #542's open question 1: a complete Eventim read whose Code 128 did not
@@ -271,8 +269,6 @@ class TicketParsingTest {
         assertTrue(routing is TicketRouting.NeedsConfirmation)
         assertEquals("g1", (routing as TicketRouting.NeedsConfirmation).possibleMatch?.id)
     }
-
-    // --- #568: a failed redraw with its original kept needs no one ---
 
     @Test
     fun aCompleteTicketWhoseOriginalIsKeptGoesStraightOntoThePlan() {

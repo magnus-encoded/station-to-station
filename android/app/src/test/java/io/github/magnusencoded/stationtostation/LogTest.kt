@@ -140,8 +140,6 @@ class LogTest {
         assertTrue(corrected.closed)
     }
 
-    // --- Entry timestamps (#409) ---------------------------------------------------
-
     /** [adding] stamps the new entry with the moment it was typed, and nothing else. */
     @Test
     fun `adding stamps the new entry with the given time`() {

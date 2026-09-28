@@ -40,7 +40,6 @@ struct ConfirmView: View {
                         Spacer()
                         Toggle("", isOn: Binding(
                             get: { s.playlistPublic }, set: model.setPlaylistPublic)).labelsHidden()
-                            // Its words are a sibling, so the switch alone said nothing (#164).
                             .accessibilityLabel("Public playlist")
                     }
                     .padding(.horizontal)
