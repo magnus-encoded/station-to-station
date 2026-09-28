@@ -50,7 +50,7 @@ def main() -> int:
     p.add_argument("--rollout", type=float, metavar="FRACTION",
                    help="staged roll-out fraction, e.g. 0.1 — production only")
     p.add_argument("--name", help="release name (default: Play's auto-generated one)")
-    # "What's new" on the listing, in en-US. The text comes from CHANGELOG.md via
+    # "What's new" on the listing, in en-GB, the listing's default language. The text comes from CHANGELOG.md via
     # tools/changelog.py; this script only carries it. Omitted, the release has
     # no notes at all — tracks().update below replaces the old ones rather than
     # keeping them.
@@ -156,7 +156,7 @@ def main() -> int:
     if args.name:
         release["name"] = args.name
     if notes:
-        release["releaseNotes"] = [{"language": "en-US", "text": notes}]
+        release["releaseNotes"] = [{"language": "en-GB", "text": notes}]
 
     # tracks().update replaces the track's release list rather than appending to
     # it. That is what we want — a track serves one build — but it also means an
