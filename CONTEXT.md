@@ -228,6 +228,7 @@ nobody — so the durable key it used to need never has to cross at all.
 | **Band** | One of the two runs a **Gig**'s media is drawn in: shared above, vault below. **Position is the bit** — which band an item sits in *is* whether it is **Personal**. Never a badge, and never a colour: **Amber** means mine in both bands. | row (fine), tier, section |
 | **Personal** | In the vault **Band**: attached, but never sent, held back from everyone. One of two named destinations rather than an exception — a photograph is in the commons or it is just for you, and both are said out loud. Excluding a *named person* is deliberately not representable — that is the share sheet's job. | private (fine), hidden, secret |
 | **My media** / **Received media** | Whose camera it came from. Always distinguishable — a crowd-sourced entry where you cannot tell what you shot is a worse record, not a richer one. Same instinct as **Amber**. | our photos, the gallery |
+| **Offered media** | What a **Contact** sent for a Night of theirs I have not joined, held apart from my **Gig** until I answer it: accept files it on my Night and joins the two, so what they send for it later lands directly; decline leaves my timeline exactly as it was and is not asked again. **A Contact's belief never edits my record** — media lands straight on a Night only when I hold it under the same catalogue id, or have joined it. Shown on my Night of the same date, never as a queue. | pending, inbox, request, suggestion |
 | **Audience** | Who **Received media** reaches: **Contacts** who **Attended** the same **Gig**. Derived from data already held, never a list anyone maintains. Check-in is not the gate — it is one kind of evidence for **Attended**. | recipients, share list, circle, group |
 | **Reconcile** | The pairwise sync between two **Contacts**: intersect the gigs we both **Attended**, exchange what the other is missing. It also carries each side's **Nights**, hand-logged and imported alike, which become the other's held **Lane** — so a **Contact** with no setlist.fm account still has one, drawn offline. Idempotent, unordered, and **without a time bound** — which is why a **Contact** made years later enriches an old **Gig** with no backfill path to build. | push, sync (fine), publish |
 | **Pointer** | A link into the owner's own cloud (BYOS). What actually crosses the radio; the bytes ride the recipient's internet later. Cross-platform, this is the whole payload. | url (fine), reference |
@@ -260,6 +261,8 @@ nobody — so the durable key it used to need never has to cross at all.
   **Band**, its position is its **Personal** bit, and a **Contact**'s shared **Note**
   arrives as **Received media**. A **Verdict** rides the **Note**; a **Preamble** is drawn
   over it and is not part of it.
+- **Received media** lands on a Night I have joined; for any other Night it is **Offered media**,
+  and only my accepting it joins the Night.
 - **Reconcile** runs between **Contacts**, over **Attended** in common — not over what was
   attached recently, and not over who was checked in at the time.
 
