@@ -155,6 +155,9 @@ struct HandoverView: View {
     private func progress(_ p: HandoverProgress) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(phaseWords(p)).foregroundStyle(ink)
+                // Spoken once per phase, not once per item: "Item 3 of 200" read aloud
+                // two hundred times would drown the screen.
+                .spokenOnChange(phaseSpoken(p))
             if p.phase == .transfer && p.bytesTotal > 0 {
                 // A total that a video's unknown size left short is a floor, not a promise:
                 // clamped so the bar never overshoots and the words never read "8 MB of 4 MB".
@@ -168,6 +171,13 @@ struct HandoverView: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(raised, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// What VoiceOver says as the handover moves on: the phase, with the item count
+    /// for the transfer as a whole rather than the item it is on.
+    private func phaseSpoken(_ p: HandoverProgress) -> String {
+        guard p.phase == .transfer, p.itemsTotal > 0 else { return phaseWords(p) }
+        return "Moving \(p.itemsTotal) item\(p.itemsTotal == 1 ? "" : "s")"
     }
 
     private func phaseWords(_ p: HandoverProgress) -> String {
@@ -189,6 +199,7 @@ struct HandoverView: View {
         VStack(alignment: .leading, spacing: 14) {
             if let error = handover.error {
                 Text(error).foregroundStyle(amber)
+                    .spokenOnAppear(error)
             }
             if let receipt = handover.receipt {
                 VStack(alignment: .leading, spacing: 6) {
@@ -218,6 +229,10 @@ struct HandoverView: View {
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(raised, in: RoundedRectangle(cornerRadius: 12))
+                // The receipt replaces the progress where focus was; say how it ended.
+                .spokenOnAppear(handover.error != nil ? ""
+                    : (receipt.trouble.isEmpty ? "Done. " : "Stopped part way. ")
+                        + "\(receipt.landed) item\(receipt.landed == 1 ? "" : "s") arrived.")
             }
             Button("Done") { nav.pop() }
                 .buttonStyle(.borderedProminent)

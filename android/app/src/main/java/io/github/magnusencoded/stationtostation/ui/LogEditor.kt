@@ -41,7 +41,7 @@ private val Ink    = Color(0xFFEDE9F2)
 private val Muted  = Color(0xFF8B8299)
 private val Faint  = Color(0xFF5A5368)
 private val Amber  = Color(0xFFE7B24C)
-private val Slate  = Color(0xFF6D7E9B)
+private val Slate  = Color(0xFF6F809D)
 private val Serif  = androidx.compose.ui.text.font.FontFamily.Serif
 
 /** Big targets: one hand, sunlight, standing up. Everything here is thumb-sized. */
@@ -131,7 +131,8 @@ fun LogEditor(
                     fontSize = 13.sp,
                     modifier = Modifier
                         .clickable(enabled = !searching) { onDisambiguate(typed.trim()) }
-                        .padding(vertical = 10.dp),
+                        .padding(vertical = 10.dp)
+                        .then(if (searching) Modifier.spokenOnChange() else Modifier),
                 )
             }
         }
@@ -278,7 +279,7 @@ internal fun CorrectEntry(
                 else "Nothing known for this artist — type the title above.",
                 color = Faint,
                 fontSize = 11.sp,
-                modifier = Modifier.padding(top = 8.dp),
+                modifier = Modifier.padding(top = 8.dp).spokenOnChange(),
             )
         } else {
             Spacer(Modifier.height(6.dp))
@@ -315,7 +316,7 @@ fun AdoptSetlistDialog(onAdopt: (String) -> Unit, onDismiss: () -> Unit) {
         Column(
             Modifier.clip(RoundedCornerShape(16.dp)).background(Raised).padding(20.dp),
         ) {
-            Text("It's on setlist.fm now", fontFamily = Serif, fontSize = 19.sp, color = Ink)
+            Text("It's on setlist.fm now", fontFamily = Serif, fontSize = 19.sp, color = Ink, modifier = Modifier.asHeading())
             Spacer(Modifier.height(6.dp))
             Text(
                 "Paste the link. This night takes their id and stops being a stub — " +

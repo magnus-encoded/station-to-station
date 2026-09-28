@@ -82,7 +82,7 @@ private val Muted = Color(0xFF8B8299)
 private val Faint = Color(0xFF5A5368)
 private val Amber = Color(0xFFE7B24C)
 private val AmberSoft = Color(0x29E7B24C)
-private val Slate = Color(0xFF6D7E9B) // the other person's line, a cooler light
+private val Slate = Color(0xFF6F809D) // the other person's line, a cooler light
 private val Serif = FontFamily.Serif
 
 /**
@@ -124,7 +124,7 @@ internal suspend fun PointerInputScope.detectPinch(
  */
 private val RailColors = listOf(
     Slate,
-    Color(0xFF8A6DA0),
+    Color(0xFF8F73A4),
     Color(0xFF5F8E8A),
     Color(0xFFA07E6D),
     Color(0xFF7B8FC4),

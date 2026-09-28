@@ -75,7 +75,7 @@ fun SearchScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Station to Station") },
+                title = { Text("Station to Station", modifier = Modifier.asHeading()) },
                 actions = {
                     IconButton(onClick = onOpenFriends) {
                         Icon(Icons.Default.Person, contentDescription = "Friends")

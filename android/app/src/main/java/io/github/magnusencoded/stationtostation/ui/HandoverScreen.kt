@@ -45,6 +45,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -100,7 +102,7 @@ fun HandoverScreen(viewModel: AppViewModel, onDone: () -> Unit) {
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Ground, titleContentColor = Ink),
-                title = { Text("Move to a new phone", fontFamily = Serif, fontSize = 18.sp, color = Ink) },
+                title = { Text("Move to a new phone", fontFamily = Serif, fontSize = 18.sp, color = Ink, modifier = Modifier.asHeading()) },
                 navigationIcon = {
                     IconButton(onClick = onDone) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Faint)
@@ -267,7 +269,21 @@ private fun Progress(handover: HandoverUi, verb: String) {
     }
     CircularProgressIndicator(color = Amber)
     Spacer(Modifier.height(18.dp))
-    Text(phase, color = Ink, fontFamily = Serif, fontSize = 18.sp)
+    Text(
+        phase,
+        color = Ink,
+        fontFamily = Serif,
+        fontSize = 18.sp,
+        // Spoken once per phase, not once per item: "Sending 3 of 200" read aloud two
+        // hundred times would drown the screen. The count stays on the bar below.
+        modifier = Modifier
+            .semantics {
+                if (p.phase == HandoverPhase.TRANSFER && p.itemsTotal > 0) {
+                    contentDescription = "$verb ${p.itemsTotal} ${if (p.itemsTotal == 1) "item" else "items"}"
+                }
+            }
+            .spokenOnChange(),
+    )
     Spacer(Modifier.height(10.dp))
     if (p.bytesTotal > 0) {
         LinearProgressIndicator(
@@ -298,9 +314,10 @@ private fun Outcome(handover: HandoverUi, onDone: () -> Unit) {
         color = Ink,
         fontFamily = Serif,
         fontSize = 22.sp,
+        modifier = Modifier.asHeading().spokenOnChange(),
     )
     Spacer(Modifier.height(14.dp))
-    handover.error?.let { Text(it, color = Muted, fontSize = 13.sp) }
+    handover.error?.let { Text(it, color = Muted, fontSize = 13.sp, modifier = Modifier.spokenOnChange()) }
     receipt?.let { Receipt(it) }
     Spacer(Modifier.height(24.dp))
     TextButton(onClick = onDone) { Text("Done", color = Amber) }

@@ -245,6 +245,7 @@ private fun ConfirmScreenContent(
                         fontFamily = Serif,
                         fontSize = 24.sp,
                         color = Ink,
+                        modifier = Modifier.asHeading(),
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
@@ -497,12 +498,13 @@ private fun CoverPicker(
             loading -> Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(16.dp))
                 Spacer(Modifier.size(8.dp))
-                Text("Looking through your gallery…", style = MaterialTheme.typography.bodySmall)
+                Text("Looking through your gallery…", style = MaterialTheme.typography.bodySmall, modifier = Modifier.spokenOnChange())
             }
             searched -> Text(
                 "No photos from ${showDate ?: "that night"} in your gallery — " +
                     "Spotify will build the cover from the album art.",
                 style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.spokenOnChange(),
             )
         }
     }

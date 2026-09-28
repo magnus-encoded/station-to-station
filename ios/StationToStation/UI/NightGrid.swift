@@ -27,7 +27,7 @@ private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
 private let crossed = Color(red: 0x6E / 255, green: 0xC2 / 255, blue: 0x8E / 255)
 /// Not mine. The same value Android's `Slate` carries, and it is only ever the
 /// absence of amber — it asserts nothing about the item beyond whose camera it was.
-private let slate = Color(red: 0x6D / 255, green: 0x7E / 255, blue: 0x9B / 255)
+private let slate = Color(red: 0x6F / 255, green: 0x80 / 255, blue: 0x9D / 255)
 
 struct NightGrid: View {
     @EnvironmentObject var model: AppModel
@@ -169,6 +169,7 @@ struct NightGrid: View {
                     .font(.system(size: 10, weight: .semibold)).kerning(1.5)
                     .foregroundStyle(targeted && hint != .none ? crossed : faint)
                     .accessibilityLabel(bandMeaning(title, band, isCrossed))
+                    .accessibilityAddTraits(.isHeader)
                 if targeted, let say = say(for: hint, band: band) {
                     Text(say).font(.system(size: 10)).foregroundStyle(crossed)
                 }
@@ -299,6 +300,7 @@ struct NightGrid: View {
     private var contactLightBanner: some View {
         Text("AS YOUR CONTACTS SEE IT")
             .font(.system(size: 10, weight: .semibold)).kerning(1.5).foregroundStyle(amber)
+            .accessibilityAddTraits(.isHeader)
             .padding(.horizontal, 24)
     }
 

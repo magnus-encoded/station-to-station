@@ -126,7 +126,7 @@ private val Ink = Color(0xFFEDE9F2)
 private val Muted = Color(0xFF8B8299)
 private val Faint = Color(0xFF5A5368)
 private val Amber = Color(0xFFE7B24C)
-private val Slate = Color(0xFF6D7E9B)
+private val Slate = Color(0xFF6F809D)
 private val Serif = FontFamily.Serif
 
 /**
@@ -327,6 +327,7 @@ fun ProgrammeScreen(
                         if (picking || programme.name.isBlank()) "Programme" else programme.name,
                         fontFamily = Serif,
                         color = Ink,
+                        modifier = Modifier.asHeading(),
                     )
                 },
                 navigationIcon = {
@@ -425,7 +426,7 @@ private fun ErrorNote(
 ) {
     if (error == null) return
     Column(modifier) {
-        Text(error, color = Slate, fontSize = 13.sp)
+        Text(error, color = Slate, fontSize = 13.sp, modifier = Modifier.spokenOnChange())
         if (blocked) ByHand(onImport, onOpenInBrowser)
     }
 }
@@ -826,7 +827,7 @@ private fun Line(
                     color = Faint,
                     fontSize = 10.sp,
                     letterSpacing = 1.5.sp,
-                    modifier = Modifier.rail().padding(start = RailInset, top = 14.dp, bottom = 6.dp),
+                    modifier = Modifier.rail().padding(start = RailInset, top = 14.dp, bottom = 6.dp).asHeading(),
                 )
             }
         }
@@ -921,7 +922,14 @@ private fun billNightOf(now: LocalDateTime): LocalDate =
 
 @Composable
 private fun Label(text: String, color: Color) {
-    Text(text, color = color, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp)
+    Text(
+        text,
+        color = color,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 1.5.sp,
+        modifier = Modifier.asHeading(),
+    )
 }
 
 @Composable

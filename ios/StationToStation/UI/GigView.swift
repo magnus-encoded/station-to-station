@@ -513,6 +513,7 @@ struct GigView: View {
                 .font(.system(size: 11, weight: .semibold)).kerning(1).foregroundStyle(faint)
             Text(show.artist?.name ?? "Unknown artist")
                 .font(.system(size: 26, design: .serif)).foregroundStyle(ink)
+                .accessibilityAddTraits(.isHeader)
             Text(show.venueLine()).font(.system(size: 14)).foregroundStyle(muted)
             // A lookup found something but was not sure (#531): the question waits here,
             // on the night, until it is answered. Dismissing the list leaves it waiting;
@@ -789,6 +790,7 @@ private struct PossibleMatchSheet: View {
                     HStack {
                         Spacer()
                         ProgressView().tint(amber)
+                            .accessibilityLabel("Looking on setlist.fm")
                         Spacer()
                     }
                 }

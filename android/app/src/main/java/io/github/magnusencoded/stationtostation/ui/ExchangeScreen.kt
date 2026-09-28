@@ -57,6 +57,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -82,7 +84,7 @@ private val Muted = Color(0xFF8B8299)
 private val Faint = Color(0xFF5A5368)
 private val Amber = Color(0xFFE7B24C)
 private val AmberSoft = Color(0x29E7B24C)
-private val Slate = Color(0xFF6D7E9B)
+private val Slate = Color(0xFF6F809D)
 private val Serif = FontFamily.Serif
 
 /**
@@ -140,7 +142,7 @@ fun ExchangeScreen(
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Ground, titleContentColor = Ink),
-                title = { Text("Connect a timeline", fontFamily = Serif, fontSize = 18.sp, color = Ink) },
+                title = { Text("Connect a timeline", fontFamily = Serif, fontSize = 18.sp, color = Ink, modifier = Modifier.asHeading()) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Faint)
@@ -199,7 +201,7 @@ fun ExchangeScreen(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                         letterSpacing = 1.5.sp,
-                        modifier = Modifier.align(Alignment.Start).padding(bottom = 8.dp),
+                        modifier = Modifier.align(Alignment.Start).padding(bottom = 8.dp).asHeading(),
                     )
                     QrExchange(cardUri = cardUri, username = state.mySetlistFmUser, onSetUsername = onSetUsername)
                 }
@@ -213,7 +215,7 @@ fun ExchangeScreen(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                         letterSpacing = 1.5.sp,
-                        modifier = Modifier.align(Alignment.Start).padding(bottom = 8.dp),
+                        modifier = Modifier.align(Alignment.Start).padding(bottom = 8.dp).asHeading(),
                     )
                     state.friends.forEach { friend ->
                         FriendRow(friend, onClick = { onViewFriend(friend) })
@@ -270,6 +272,7 @@ private fun GossipRelayLine(friends: List<Friend>) {
             fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
             letterSpacing = 1.5.sp,
+            modifier = Modifier.asHeading(),
         )
         Spacer(Modifier.height(6.dp))
         Text(
@@ -344,7 +347,14 @@ private fun LookingForPeople(
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
             letterSpacing = 1.5.sp,
-            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 8.dp)
+                .semantics {
+                    contentDescription = if (peers.size == 1) "Nearby, 1 person" else "Nearby, ${peers.size} people"
+                }
+                .asHeading()
+                .spokenOnChange(),
         )
         peers.forEach { peer -> PeerRow(peer, onConnect = { onConnect(peer) }) }
     }
@@ -356,7 +366,7 @@ private fun ConnectingBeat(name: String) {
     Spacer(Modifier.height(60.dp))
     CircularProgressIndicator(color = Amber)
     Spacer(Modifier.height(20.dp))
-    Text("Connecting with $name", color = Ink, fontFamily = Serif, fontSize = 18.sp)
+    Text("Connecting with $name", color = Ink, fontFamily = Serif, fontSize = 18.sp, modifier = Modifier.spokenOnChange())
     Spacer(Modifier.height(60.dp))
 }
 
@@ -517,7 +527,7 @@ fun FriendTimelineScreen(
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Ground, titleContentColor = Ink),
-                title = { Text(friend?.name ?: "Their timeline", fontFamily = Serif, fontSize = 18.sp, color = Ink) },
+                title = { Text(friend?.name ?: "Their timeline", fontFamily = Serif, fontSize = 18.sp, color = Ink, modifier = Modifier.asHeading()) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Faint)

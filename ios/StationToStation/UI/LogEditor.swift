@@ -16,7 +16,7 @@ private let ink = Color(red: 0xED / 255, green: 0xE9 / 255, blue: 0xF2 / 255)
 private let muted = Color(red: 0x8B / 255, green: 0x82 / 255, blue: 0x99 / 255)
 private let faint = Color(red: 0x5A / 255, green: 0x53 / 255, blue: 0x68 / 255)
 private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
-private let slate = Color(red: 0x6B / 255, green: 0x7A / 255, blue: 0x8F / 255)
+private let slate = Color(red: 0x6F / 255, green: 0x80 / 255, blue: 0x9D / 255)
 
 struct LogEditor: View {
     @EnvironmentObject var model: AppModel
@@ -29,6 +29,7 @@ struct LogEditor: View {
         VStack(alignment: .leading, spacing: 0) {
             Text("THE LOG")
                 .font(.system(size: 10, weight: .semibold)).kerning(1.5).foregroundStyle(faint)
+                .accessibilityAddTraits(.isHeader)
             Spacer().frame(height: 6)
             Text(log.songs.isEmpty ? "What did they play?" : "Your log of this night")
                 .font(.system(size: 16, design: .serif)).foregroundStyle(ink)

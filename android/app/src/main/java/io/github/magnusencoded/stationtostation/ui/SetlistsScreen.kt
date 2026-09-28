@@ -44,7 +44,7 @@ fun SetlistsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(state.setlistsTitle) },
+                title = { Text(state.setlistsTitle, modifier = Modifier.asHeading()) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")

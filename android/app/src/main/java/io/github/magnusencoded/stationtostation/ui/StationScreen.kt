@@ -238,11 +238,11 @@ private val AmberSoft = Color(0x29E7B24C)
 private val Unlit = Color(0xFF7C7788)
 private val UnlitField = Color(0xFF1E1B26)
 private val SpotifyGreen = Color(0xFF1DB954)
-private val Slate = Color(0xFF6D7E9B) // the future / a connected-source, a cooler light
+private val Slate = Color(0xFF6F809D) // the future / a connected-source, a cooler light
 private val Danger = Color(0xFFE08A8A)
 
 /** The wash behind an armed band, in the accent that band is answering with (#268). */
-private val SlateSoft = Color(0x296D7E9B)
+private val SlateSoft = Color(0x296F809D)
 private val CrossedSoft = Color(0x296FBF9C)
 
 private val Serif = FontFamily.Serif
@@ -355,7 +355,7 @@ fun StationTimelineScreen(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("◦ ", color = Amber, fontSize = 13.sp, modifier = Modifier.clearAndSetSemantics {})
-                        Text("Station to Station", fontFamily = Serif, fontSize = 16.sp, color = Muted)
+                        Text("Station to Station", fontFamily = Serif, fontSize = 16.sp, color = Muted, modifier = Modifier.asHeading())
                     }
                 },
                 actions = {
@@ -979,6 +979,7 @@ fun StationTimelineScreen(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                         letterSpacing = 1.5.sp,
+                        modifier = Modifier.asHeading(),
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
@@ -1028,7 +1029,7 @@ private fun FuturePrompt(loading: Boolean) {
         "Looking it up on setlist.fm…",
         color = Faint,
         fontSize = 12.sp,
-        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 2.dp, bottom = 14.dp),
+        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 2.dp, bottom = 14.dp).spokenOnChange(),
     )
 }
 
@@ -1297,7 +1298,7 @@ private fun AddPlannedGigDialog(
                 .background(Raised)
                 .padding(20.dp),
         ) {
-            Text("A gig you're going to", fontFamily = Serif, fontSize = 19.sp, color = Ink)
+            Text("A gig you're going to", fontFamily = Serif, fontSize = 19.sp, color = Ink, modifier = Modifier.asHeading())
             Spacer(Modifier.height(6.dp))
             if (pasting) {
                 Text(
@@ -1391,7 +1392,7 @@ private fun TicketConfirmDialog(
                 .verticalScroll(rememberScrollState())
                 .padding(20.dp),
         ) {
-            Text("From the shared ticket", fontFamily = Serif, fontSize = 19.sp, color = Ink)
+            Text("From the shared ticket", fontFamily = Serif, fontSize = 19.sp, color = Ink, modifier = Modifier.asHeading())
             Spacer(Modifier.height(6.dp))
             Text(
                 if (pending.parsed.isEmpty) {
@@ -1553,7 +1554,7 @@ private fun PossibleMatchDialog(
                 .background(Raised)
                 .padding(20.dp),
         ) {
-            Text(POSSIBLE_MATCH_TITLE, fontFamily = Serif, fontSize = 19.sp, color = Ink)
+            Text(POSSIBLE_MATCH_TITLE, fontFamily = Serif, fontSize = 19.sp, color = Ink, modifier = Modifier.asHeading())
             Spacer(Modifier.height(12.dp))
             val shown = loaded
             if (shown == null) {
@@ -1607,7 +1608,7 @@ private fun AddLocalGigDialog(
                 .background(Raised)
                 .padding(20.dp),
         ) {
-            Text("A night you were at", fontFamily = Serif, fontSize = 19.sp, color = Ink)
+            Text("A night you were at", fontFamily = Serif, fontSize = 19.sp, color = Ink, modifier = Modifier.asHeading())
             Spacer(Modifier.height(6.dp))
             Text(
                 "No account needed. This night lives on this phone, and what was " +
@@ -1652,7 +1653,7 @@ private fun CheckInDialog(gig: FmSetlist, onCheckIn: () -> Unit, onDismiss: () -
                 .background(Raised)
                 .padding(20.dp),
         ) {
-            Text("Are you here?", fontFamily = Serif, fontSize = 19.sp, color = Ink)
+            Text("Are you here?", fontFamily = Serif, fontSize = 19.sp, color = Ink, modifier = Modifier.asHeading())
             Spacer(Modifier.height(6.dp))
             Text(
                 "${gig.artist?.name ?: "This show"} at ${gig.venue?.name ?: "the venue"}, tonight.",
@@ -1699,7 +1700,7 @@ private fun FriendOverwriteDialog(
                 .background(Raised)
                 .padding(20.dp),
         ) {
-            Text("Change this contact?", fontFamily = Serif, fontSize = 19.sp, color = Ink)
+            Text("Change this contact?", fontFamily = Serif, fontSize = 19.sp, color = Ink, modifier = Modifier.asHeading())
             Spacer(Modifier.height(6.dp))
             // A changed key is a changed phone, and that is how the question is asked:
             // someone who bought a handset recognises it immediately, and someone who did
@@ -1756,7 +1757,7 @@ private fun DeleteNightDialog(photos: Int, onDelete: () -> Unit, onDismiss: () -
                 .background(Raised)
                 .padding(20.dp),
         ) {
-            Text("Delete this night?", fontFamily = Serif, fontSize = 19.sp, color = Ink)
+            Text("Delete this night?", fontFamily = Serif, fontSize = 19.sp, color = Ink, modifier = Modifier.asHeading())
             Spacer(Modifier.height(6.dp))
             Text(
                 if (photos == 1) "Its photograph is only stored here. Deleting the night deletes it."
@@ -1864,7 +1865,7 @@ fun ImportScreen(
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Ground, titleContentColor = Ink),
-                title = { Text("Add your shows", fontFamily = Serif, fontSize = 18.sp, color = Ink) },
+                title = { Text("Add your shows", fontFamily = Serif, fontSize = 18.sp, color = Ink, modifier = Modifier.asHeading()) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Faint)
@@ -1900,7 +1901,7 @@ fun ImportScreen(
             StationField(username, { username = it }, "setlist.fm username", imeDone = true)
             state.error?.let {
                 Spacer(Modifier.height(12.dp))
-                Text(it, color = Danger, fontSize = 12.sp)
+                Text(it, color = Danger, fontSize = 12.sp, modifier = Modifier.spokenOnChange())
                 // The one error with something to do about it: the bundled key is shared
                 // by every tester and today's requests are gone, and a free key of their
                 // own is a short trip to Settings away (#457).
@@ -1927,7 +1928,13 @@ fun ImportScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 if (state.setlistsLoading) {
-                    CircularProgressIndicator(color = Color(0xFF241A06), modifier = Modifier.size(18.dp))
+                    CircularProgressIndicator(
+                        color = Color(0xFF241A06),
+                        modifier = Modifier
+                            .size(18.dp)
+                            .semantics { contentDescription = "Importing from setlist.fm" }
+                            .spokenOnChange(),
+                    )
                 } else {
                     Text("Import from setlist.fm", fontWeight = FontWeight.SemiBold)
                 }
@@ -2591,7 +2598,7 @@ internal fun CollectionMediaScreen(viewModel: AppViewModel, node: TimelineNode.S
             color = Ink,
             fontFamily = Serif,
             fontSize = 24.sp,
-            modifier = Modifier.padding(horizontal = 20.dp),
+            modifier = Modifier.padding(horizontal = 20.dp).asHeading(),
         )
         if (billboard.where.isNotBlank()) {
             Spacer(Modifier.height(4.dp))
@@ -3605,12 +3612,12 @@ private fun GigPhotoSuggestions(
         !permissionGranted -> TextButton(onClick = onRequestPermission, contentPadding = PaddingValues(vertical = 2.dp)) {
             Text("Suggest photos from that night", color = Muted, fontSize = 12.sp)
         }
-        loading -> Text("Looking through your gallery…", color = Faint, fontSize = 12.sp)
+        loading -> Text("Looking through your gallery…", color = Faint, fontSize = 12.sp, modifier = Modifier.spokenOnChange())
         offered.isEmpty() -> if (searched) {
-            Text("No more photos from that night in your gallery.", color = Faint, fontSize = 12.sp)
+            Text("No more photos from that night in your gallery.", color = Faint, fontSize = 12.sp, modifier = Modifier.spokenOnChange())
         }
         else -> Column {
-            Text("From that night — tap to add", color = Faint, fontSize = 11.sp)
+            Text("From that night — tap to add", color = Faint, fontSize = 11.sp, modifier = Modifier.spokenOnChange())
             Spacer(Modifier.height(4.dp))
             Row(Modifier.horizontalScroll(rememberScrollState())) {
                 offered.forEach { candidate ->
@@ -4330,7 +4337,7 @@ fun StationEventScreen(
             ) {
                 item {
                     Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 14.dp)) {
-                        Text(setlist.artist?.name ?: "Unknown artist", fontFamily = Serif, fontSize = 27.sp, color = Ink)
+                        Text(setlist.artist?.name ?: "Unknown artist", fontFamily = Serif, fontSize = 27.sp, color = Ink, modifier = Modifier.asHeading())
                         Spacer(Modifier.height(5.dp))
                         Text(
                             listOfNotNull(setlist.venueLine(), setlist.readableDate()).joinToString(" · "),

@@ -15,7 +15,7 @@ private let muted = Color(red: 0x8B / 255, green: 0x82 / 255, blue: 0x99 / 255)
 private let faint = Color(red: 0x5A / 255, green: 0x53 / 255, blue: 0x68 / 255)
 private let lineLit = Color(red: 0x4A / 255, green: 0x3F / 255, blue: 0x63 / 255)
 private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
-private let slate = Color(red: 0x6D / 255, green: 0x7E / 255, blue: 0x9B / 255)
+private let slate = Color(red: 0x6F / 255, green: 0x80 / 255, blue: 0x9D / 255)
 
 // The QR affordance is revealed on a timer, not immediately: showing it too early
 // reads as "the radio gave up" when it hasn't. A quiet "use a code" once a couple
@@ -30,6 +30,8 @@ struct ExchangeView: View {
     @StateObject private var session = ExchangeSession()
 
     @State private var connectingWith: String?
+    /// How many peers VoiceOver has last been told about, so only arrivals are spoken.
+    @State private var heardPeers = 0
     @State private var qrOffered = false
     @State private var qrPrimaryDue = false
     @State private var showCode = false
@@ -71,6 +73,10 @@ struct ExchangeView: View {
             .padding(.horizontal, 24)
         }
         .background(ground.ignoresSafeArea())
+        .onChange(of: session.peers.count) { n in
+            if n > heardPeers { announce(nearbyWords(n)) }
+            heardPeers = n
+        }
         .navigationTitle("Connect a timeline")
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -105,6 +111,11 @@ struct ExchangeView: View {
         }
     }
 
+    /// "Nearby, 1 person" / "Nearby, 3 people": the NEARBY label as it is read out.
+    private func nearbyWords(_ n: Int) -> String {
+        n == 1 ? "Nearby, 1 person" : "Nearby, \(n) people"
+    }
+
     /// The ambient "looking around you" state and the live list.
     private var looking: some View {
         VStack(spacing: 0) {
@@ -121,6 +132,8 @@ struct ExchangeView: View {
                     .foregroundStyle(faint)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.bottom, 8)
+                    .accessibilityLabel(nearbyWords(session.peers.count))
+                    .accessibilityAddTraits(.isHeader)
                 ForEach(session.peers) { peer in
                     peerRow(peer)
                 }
@@ -173,6 +186,7 @@ struct ExchangeView: View {
     @MainActor
     private func tap(_ peer: ExchangePeer) {
         connectingWith = peer.name
+        announce("Connecting with \(peer.name)")
         session.connect(peer) { friend in
             Task { @MainActor in
                 connectingWith = nil
@@ -181,6 +195,7 @@ struct ExchangeView: View {
                     // the tap does not land on a dead end.
                     qrOffered = true
                     showCode = true
+                    announce("Could not connect with \(peer.name). Your code is showing instead.")
                     return
                 }
                 land(friend)
@@ -206,6 +221,7 @@ struct ExchangeView: View {
     private func land(_ friend: Friend) {
         model.addFriend(friend)
         guard model.state.friendConflict == nil else { return }
+        announce("\(friend.name)'s line joins yours")
         model.setZoomedOut(true)
         nav.popToRoot()
     }

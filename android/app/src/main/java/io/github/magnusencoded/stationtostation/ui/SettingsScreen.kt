@@ -233,7 +233,7 @@ private fun SettingsField(
         containerColor = Ground,
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text("Settings", modifier = Modifier.asHeading()) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -485,7 +485,7 @@ private fun StripTiles(strip: FieldStrip, graph: ServiceGraph, layout: FieldLayo
         color = Faint,
         fontSize = 10.sp,
         letterSpacing = 1.2.sp,
-        modifier = Modifier.offset((strip.rect.left + 12).dp, (strip.rect.top + 9).dp),
+        modifier = Modifier.offset((strip.rect.left + 12).dp, (strip.rect.top + 9).dp).asHeading(),
     )
     strip.ids.forEach { id ->
         val node = graph.node(id) ?: return@forEach
@@ -615,13 +615,13 @@ private fun ServiceSheet(
                 .padding(bottom = 32.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(node.name, color = Ink, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                Text(node.name, color = Ink, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.asHeading())
                 if (node.experimental) {
                     Spacer(Modifier.width(8.dp))
                     Text("Experimental", color = Muted, fontSize = 11.sp)
                 }
             }
-            Text(node.status, color = if (node.lit) Amber else Faint, fontSize = 13.sp)
+            Text(node.status, color = if (node.lit) Amber else Faint, fontSize = 13.sp, modifier = Modifier.spokenOnChange())
             Spacer(Modifier.height(12.dp))
             node.unlocks.forEach {
                 Text((if (node.lit) "✓ " else "· ") + it, color = if (node.lit) Ink else Muted, fontSize = 14.sp)
