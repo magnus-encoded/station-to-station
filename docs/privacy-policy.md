@@ -1,6 +1,6 @@
 # Privacy Policy — Station to Station
 
-Last updated: 26 September 2026 (first published 12 August 2026; see [What has changed](#what-has-changed))
+Last updated: 28 September 2026 (first published 12 August 2026; see [What has changed](#what-has-changed))
 
 Station to Station is a personal record of concerts you have attended. This policy
 describes what the app does with your data.
@@ -193,6 +193,10 @@ it now describes what the versions below already did:
 This policy will be updated as the app changes. The date at the top reflects the most
 recent revision, the list above says what changed and when, and the full history is
 public in the app's repository.
+
+What each version of the app changed, privacy-related or not, is in the
+[changelog](https://github.com/magnus-encoded/station-to-station/blob/main/CHANGELOG.md).
+The list above is the part of it that affects your data.
 
 ## Contact
 
