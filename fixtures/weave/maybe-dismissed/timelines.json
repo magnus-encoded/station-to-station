@@ -1,0 +1,37 @@
+{
+  "me": "dizzi90",
+  "friends": [{ "setlistfm": "Mia", "name": "Mia" }],
+  "shows": {
+    "dizzi90": [
+      {
+        "id": "m1",
+        "eventDate": "21-11-2025",
+        "artist": { "name": "Sløtface" },
+        "venue": { "name": "Blå" }
+      },
+      {
+        "id": "m2",
+        "eventDate": "12-06-2025",
+        "artist": { "name": "Kvelertak" },
+        "venue": { "name": "Rockefeller" }
+      }
+    ],
+    "Mia": [
+      {
+        "id": "n1",
+        "eventDate": "21-11-2025",
+        "artist": { "name": "Sløtface" },
+        "venue": { "name": "Blå" }
+      },
+      {
+        "id": "n2",
+        "eventDate": "13-06-2025",
+        "artist": { "name": "Kvelertak" },
+        "venue": { "name": "Rockefeller" }
+      }
+    ]
+  },
+  "festivals": {},
+  "festivalIdByShow": {},
+  "nightDismissals": { "n1": ["m1"] }
+}

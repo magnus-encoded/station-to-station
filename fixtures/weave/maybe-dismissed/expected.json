@@ -1,0 +1,26 @@
+{
+  "rows": [
+    {
+      "key": "c-m1-0", "date": "2025-11-21", "node": "gig", "title": "Sløtface",
+      "ownership": "mine",
+      "hosts": { "Mia": "lane1" }
+    },
+    {
+      "key": "c-n1-0", "date": "2025-11-21", "node": "gig", "title": "Sløtface",
+      "ownership": "theirs",
+      "with": ["Mia"], "theirs": 1,
+      "hosts": { "Mia": "lane1" }
+    },
+    {
+      "key": "c-n2-0", "date": "2025-06-13", "node": "gig", "title": "Kvelertak",
+      "ownership": "theirs",
+      "with": ["Mia"], "theirs": 1,
+      "hosts": { "Mia": "lane1" }
+    },
+    {
+      "key": "c-m2-0", "date": "2025-06-12", "node": "gig", "title": "Kvelertak",
+      "ownership": "mine",
+      "hosts": { "Mia": "lane1" }
+    }
+  ]
+}

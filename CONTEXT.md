@@ -28,6 +28,7 @@ night boundary, and a **Collection** is the one place both conventions are on sc
 | **Node** | A point on a **Line** marking something that happened: a **Gig**, or a **Section** or **Festival** standing for many. | dot, marker, stop, station |
 | **Crossing** | The single **Node** for a night two people were both at. There is exactly one — never one node each joined by a rung, which reads as two concerts. | merge point, shared node (acceptable informally), intersection |
 | **Joined** | The state of two **Lines** after a **Crossing**: they are one line, in the meeting's colour, and stay joined through a run of shared nights until one of them wasn't there. | merged (fine), braided, woven |
+| **Maybe** | A Night of mine a **Contact** was also out on — the same date, a different id, at least one of the two hand-logged, and nothing linking them. A question, never a **Crossing**: said in words on my row ("maybe with Mia") in **Meeting green**, while their Night stays on their **Lane**. "Same night" **Joins** it (their Night id → my **Gig**, `nightJoins`); "not the same" stops the marking for that pair for good (`nightDismissals`). Both answers are mine alone — never sent, never synchronised. Asked outright only when I go to share media from that Night. Two setlist.fm ids are never a maybe; a **Festival** day against a single **Gig** is one, never asserted to be the same record. | possible match (that is setlist.fm's #531 question), suggestion, pending, duplicate |
 | **Parting** | Where a **Joined** run ends because only one of them was at the next thing. The visitor draws its own way back to its **Lane**; my **Line** does not move. | split, diverge, unmerge |
 | **Hidden** | A **Line** tapped out of the legend at **Timelines resolution**: it is not drawn, it takes no **Lane**, and it is in no **Crossing** and no count. Tapping the name again brings it back, and the name stays in the legend struck through either way — a name you cannot see is a name you cannot restore. A reading aid and *nothing about the person*: not stored, not sent, and their **Gig resolution**, their media and **Reconcile** are untouched. **Lane colour** does not follow the re-pack. | filtered, muted, removed, unfollowed, blocked |
 
@@ -263,6 +264,8 @@ nobody — so the durable key it used to need never has to cross at all.
   over it and is not part of it.
 - **Received media** lands on a Night I have joined; for any other Night it is **Offered media**,
   and only my accepting it joins the Night.
+- A **Maybe** is joined by my "same night" or by my accepting an offer for it, and from then on
+  it is drawn **Joined** like any shared Night. Nobody else's answer moves it.
 - **Reconcile** runs between **Contacts**, over **Attended** in common — not over what was
   attached recently, and not over who was checked in at the time.
 
