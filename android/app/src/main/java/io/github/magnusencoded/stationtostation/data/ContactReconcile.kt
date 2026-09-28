@@ -285,6 +285,43 @@ fun TimelineCache.decliningOffer(night: String): TimelineCache {
     )
 }
 
+// ---- The maybe, answered (#405) -------------------------------------------------------
+//
+// Both answers are mine alone: never on the wire, never synchronised, never merged by a
+// Handover. Two Contacts may hold different answers about one Night, and that is a
+// supported outcome, not an inconsistency.
+
+/**
+ * "Same Night": their Night [night] is joined to my **Gig** [gigId] — the write
+ * [joinedNights] already reads, so media they send for it lands directly from now on, and
+ * the weave draws it **Joined**.
+ */
+fun TimelineCache.joiningNight(night: String, gigId: String): TimelineCache {
+    if (night.isBlank() || gigId.isBlank()) return this
+    return copy(nightJoins = nightJoins + (night to gigId))
+}
+
+/**
+ * "Not the same": stop marking this pair. Kept per pair, so a Night of theirs I said is not
+ * this Night of mine can still be asked about against another Night of mine that date.
+ */
+fun TimelineCache.dismissingMaybe(night: String, gigId: String): TimelineCache {
+    if (night.isBlank() || gigId.isBlank()) return this
+    val had = nightDismissals[night].orEmpty()
+    if (gigId in had) return this
+    return copy(nightDismissals = nightDismissals + (night to had + gigId))
+}
+
+/** [TimelineCache.nightJoins] under the ids the **Spine** uses: their Night id → my Night id. */
+fun TimelineCache.spineJoins(): Map<String, String> =
+    nightJoins.filter { (night, gigId) -> night.isNotBlank() && gigId.isNotBlank() }
+        .mapValues { keyOf(it.value) }
+
+/** [TimelineCache.nightDismissals] under the ids the **Spine** uses. */
+fun TimelineCache.spineDismissals(): Map<String, Set<String>> =
+    nightDismissals.filterKeys { it.isNotBlank() }
+        .mapValues { (_, gigIds) -> gigIds.filter { it.isNotBlank() }.mapTo(LinkedHashSet()) { keyOf(it) } }
+
 /** The offers waiting on a Night of mine dated [date] (dd-MM-yyyy), their Night id first. */
 fun Map<String, MediaOffer>.waitingOn(date: String?): List<Pair<String, MediaOffer>> =
     if (date.isNullOrBlank()) emptyList()

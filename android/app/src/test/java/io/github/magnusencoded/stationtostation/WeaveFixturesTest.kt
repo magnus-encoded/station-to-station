@@ -5,6 +5,8 @@ import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.StoredFestival
 import io.github.magnusencoded.stationtostation.data.TimelineCache
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
+import io.github.magnusencoded.stationtostation.data.spineDismissals
+import io.github.magnusencoded.stationtostation.data.spineJoins
 import io.github.magnusencoded.stationtostation.ui.Spine
 import io.github.magnusencoded.stationtostation.ui.TimelineNode
 import io.github.magnusencoded.stationtostation.ui.WovenRow
@@ -65,6 +67,8 @@ class WeaveFixturesTest {
         val theirs: Int = 0,
         /** Which line each friend is drawn on here: `spine`, or `laneN` counting from 1. */
         val hosts: Map<String, String> = emptyMap(),
+        /** Who may have shared this row's Night (#405): a *maybe*, never a Crossing. */
+        val maybe: List<String> = emptyList(),
     )
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -100,6 +104,7 @@ class WeaveFixturesTest {
             val lane = hostLane(r, f, lanes)
             f.setlistfm to if (lane == Spine) "spine" else "lane${lane + 1}"
         },
+        maybe = r.maybe.map { it.setlistfm },
     )
 
     @Test
@@ -114,7 +119,9 @@ class WeaveFixturesTest {
             val text = File(case, "timelines.json").readText()
             // The fixture is a real store document: `me` and `friends` are extra keys
             // the store ignores, not a format of their own.
-            json.decodeFromString<TimelineCache>(text)
+            // What I said about a Contact's Night (#405) is read from the store's own
+            // keys, `nightJoins` and `nightDismissals`, exactly as the app reads them.
+            val cache = json.decodeFromString<TimelineCache>(text)
 
             val fixture = json.decodeFromString<Fixture>(text)
             val expected = json.decodeFromString<Expected>(File(case, "expected.json").readText())
@@ -124,6 +131,8 @@ class WeaveFixturesTest {
                 friends = fixture.friends,
                 theirs = fixture.shows - fixture.me,
                 expanded = fixture.expanded,
+                joins = cache.spineJoins(),
+                apart = cache.spineDismissals(),
             )
             assertEquals(case.name, expected.rows, rows.map { row(it, fixture.friends) })
         }
