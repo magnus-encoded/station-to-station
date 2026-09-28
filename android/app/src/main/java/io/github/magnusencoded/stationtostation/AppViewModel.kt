@@ -1017,8 +1017,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun isSharedQuota(e: Throwable): Boolean =
         e is SetlistFmRateLimited && e.sharedKey
 
-    // --- Settings ---
-
     fun saveSettings(apiKey: String, clientId: String) {
         viewModelScope.launch { saveSettingsNow(apiKey, clientId) }
     }
@@ -1416,7 +1414,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** The confirmed overwrite, and the only thing the prompt can do besides nothing. */
     fun confirmFriendOverwrite() {
         val pending = _state.value.friendConflict ?: return
         _state.update { it.copy(friendConflict = null) }
@@ -1482,7 +1479,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     mediaOffers = cache.mediaOffers,
                     mediaBySetlist = it.mediaBySetlist + cache.media(),
-                    // Accepting joined the Night, so the Spine draws it Joined now.
                     nightJoins = cache.spineJoins(),
                 )
             }
@@ -1544,8 +1540,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(nightsApart = cache.spineDismissals()) }
         }
     }
-
-    /** Opens a festival node — its individual concerts, in the same timeline UI. */
 
     /** Loads a friend's whole attended-concert timeline for the Connect screen. */
     fun viewFriendTimeline(friend: Friend) {
@@ -1893,8 +1887,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             timelines.save(shows = loaded)
         }
     }
-
-    // --- Search ---
 
     fun setArtistQuery(q: String) = _state.update { it.copy(artistQuery = q) }
     fun setUserQuery(q: String) = _state.update { it.copy(userQuery = q) }
@@ -3134,8 +3126,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { timelines.removePlanned(gigId) }
     }
 
-    // --- Check in ---
-
     /**
      * True if any gig I know about could be checked into right now on the calendar
      * alone. Cheap and pure — it is what decides whether asking for the location
@@ -3475,8 +3465,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // --- Cover art ---
-
     /**
      * Offers the gig's own keepsakes first — already chosen for this night, so
      * they need no permission and no re-asking — then the gallery's same-night
@@ -3715,7 +3703,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return MediaThumb(bitmap, record?.kind?.let { it == StoredMedia.Kind.VIDEO } ?: photos.isVideo(uri))
     }
 
-    /** The record for a keepsake, found by the reference the screens hold. */
     private fun mediaFor(uri: Uri): StoredMedia? =
         _state.value.mediaBySetlist.values.firstNotNullOfOrNull { media ->
             media.firstOrNull { it.ref == uri.toString() }

@@ -64,7 +64,6 @@ struct TicketSetlistFmAnswer: Equatable {
     let rejectedIds: [String]
     let lookedUpAt: Int64?
 
-    /// The prompt showed no candidates for what was saved: nothing chosen, nothing rejected.
     static let unasked = TicketSetlistFmAnswer(chosen: nil, rejectedIds: [], lookedUpAt: nil)
 
     /// Whether a local Gig's stored lookup has anything to learn from this answer.

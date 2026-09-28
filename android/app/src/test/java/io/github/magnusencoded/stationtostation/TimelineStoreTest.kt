@@ -65,8 +65,6 @@ class TimelineStoreTest {
     fun `a failed fetch does not wipe the last good lane`() = runBlocking {
         val store = store()
         store.save(shows = mapOf("Ozzy" to listOf(show("a"))))
-        // A failed fetch never reaches the store now; this is the belt to that brace,
-        // an empty answer over a lane that had Nights.
         store.save(shows = mapOf("Ozzy" to emptyList()))
         assertEquals(listOf("a"), store.load().shows["Ozzy"]?.map { it.id })
     }
@@ -590,7 +588,6 @@ class TimelineStoreTest {
             older,
             StoredAttendance(provenance = StoredAttendance.Provenance.CHECKED_IN, checkedInAt = 42L),
         )
-        // The same night, found again by an import that didn't know it was already here.
         store.saveMedia("63de6d5b", listOf(photo("content://photo2")))
         val newer = store.load().gigForSetlist("63de6d5b")!!.id
 
@@ -632,7 +629,6 @@ class TimelineStoreTest {
             listOf("content://photo1", "content://rec.mp4"),
             cached.media()["a1"]?.map { it.ref },
         )
-        // The night's one video takes the stamps that used to belong to the night.
         assertEquals(listOf(0L, 214_000L), cached.media()["a1"]?.last()?.songOffsets)
         assertEquals(42L, cached.attendance()["a1"]?.checkedInAt)
         assertEquals("content://cal/7", cached.calendarEvents()["a1"])
@@ -1188,8 +1184,6 @@ class TimelineStoreTest {
         assertEquals(1, after.gigs.size)
         assertEquals(gigId, after.gigForSetlist("637062c7")?.id)
     }
-
-    // ---- notes (#50) ---------------------------------------------------------
 
     private fun note(id: String, text: String, personal: Boolean, verdict: String? = null) =
         StoredMedia(

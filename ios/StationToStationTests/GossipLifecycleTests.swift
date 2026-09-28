@@ -81,14 +81,12 @@ final class GossipLifecycleTests: XCTestCase {
         let admitted = await ledger.receivePublicFacts([theirs], from: "supplier", now: duringGrace)
         XCTAssertEqual(admitted.count, 1)
 
-        // Nothing about this device's own night moved: same Log, same completion, same deadline.
         let after = await store.load()
         XCTAssertEqual(after.gigLogs[gigId], mine)
         XCTAssertEqual(gossipActiveUntil(cache: after), deadline)
         XCTAssertNotNil(gossipParticipationUntilInForce(cache: after, at: deadline.addingTimeInterval(-1)))
         XCTAssertNil(gossipParticipationUntilInForce(cache: after, at: deadline))
 
-        // And it is visible where the set is read, beside the line this phone wrote itself.
         let state = await ledger.publicSnapshot(now: duringGrace)
         let rows = weaveGossip(base: mine.songs.map { Optional($0) },
             facts: state.project(gigIds: [gigId]))
@@ -236,7 +234,6 @@ final class GossipLifecycleTests: XCTestCase {
         XCTAssertEqual(gossipStoppedGigs(eligible: lapsed.filter { $0.value > after },
                                          running: gossipParticipationEnds(cache: cache, stoppedAt: after)),
                        [second])
-        // And once the night itself is over there is nothing to be standing at.
         XCTAssertNil(active(selected: first, now: Int64(night.end.timeIntervalSince1970 * 1000) + 1))
     }
 

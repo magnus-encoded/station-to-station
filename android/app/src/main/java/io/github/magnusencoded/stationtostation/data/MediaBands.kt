@@ -28,13 +28,11 @@ enum class Band { SHARED, VAULT }
 
 /** What letting go right now would do to the shared band's **Crossing**. */
 enum class ReleaseHint {
-    /** Nothing changes, or the change is invisible. The usual answer. */
     NONE,
 
     /** One more contributor arrives and the night becomes one I shared. */
     GAINED,
 
-    /** The last of mine leaves and the night stops being one I shared. */
     LOST,
 }
 

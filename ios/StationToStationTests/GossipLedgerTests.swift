@@ -156,8 +156,6 @@ final class GossipLedgerTests: XCTestCase {
         XCTAssertEqual(afterContactRemoval.facts.count, 2)
     }
 
-    // --- Budgets ---
-
     func testWhatAContactHasSpentSurvivesARelaunch() async {
         guard case .admit(let spent) = gossipAdmit(GossipPeerBudget(), offered: 7, now: now) else {
             return XCTFail("the first handover should be admitted")

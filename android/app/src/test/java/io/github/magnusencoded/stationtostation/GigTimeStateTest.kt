@@ -119,7 +119,6 @@ class GigTimeStateTest {
         assertEquals(true, isPlanned(StoredAttendance.Provenance.PLANNED))
         assertEquals(false, isPlanned(StoredAttendance.Provenance.ATTENDED))
         assertEquals(false, isPlanned(StoredAttendance.Provenance.CHECKED_IN))
-        // An imported night nobody ever claimed anything about isn't a plan either.
         assertEquals(false, isPlanned(null))
     }
 

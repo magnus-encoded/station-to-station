@@ -246,8 +246,6 @@ class SetlistFmLookupFlowTest {
         }
     }
 
-    // --- The stored state -----------------------------------------------------
-
     private val chip = listOf(
         StoredSetlistFmHit("t1000002", "Ferrous Owls", "Driftshallen", "Tromsø", "12-03-2027", "weak"),
         StoredSetlistFmHit("t1000003", "Ferrous Owls", "Kaikanten", "Tromsø", "13-03-2027", "noMatch"),
@@ -371,8 +369,6 @@ class SetlistFmLookupFlowTest {
         assertEquals(winner, unionSetlistFmLookup(winner, null))
         assertNull(unionSetlistFmLookup(null, null))
     }
-
-    // --- editSetlistFmLookup --------------------------------------------------
 
     @Test
     fun `editing the lookup of a night nobody claimed mints nothing`() = runBlocking {

@@ -13,7 +13,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 
-/** A local night, and what crosses the app switch into setlist.fm's own form. */
 class FilingTest {
 
     // --- The Gig a local night becomes -------------------------------------------
@@ -115,8 +114,6 @@ class FilingTest {
         assertEquals("2 songs, in order · 1 unnamed", songs.shown)
         assertEquals("A\n@Unknown[]", songs.value)
     }
-
-    // --- Where the Historian is sent -----------------------------------------------
 
     @Test
     fun `a night setlist-fm already has goes to its own page, never a built edit url`() {

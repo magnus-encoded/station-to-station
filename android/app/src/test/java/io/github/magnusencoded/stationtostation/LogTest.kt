@@ -90,7 +90,6 @@ class LogTest {
         assertEquals("All held together by toothpicks and gum", log.rememberedAt(0))
     }
 
-    /** A wrong correction is never a one-way door. */
     @Test
     fun `restoring puts the remembered line back as the entry`() {
         val log = StoredLog(songs = listOf("Hollowmoor", "a line I misheard"))

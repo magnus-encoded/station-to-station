@@ -699,7 +699,6 @@ final class TicketParseTests: XCTestCase {
         XCTAssertEqual(.confirm(guessed), route)
     }
 
-    /// Both readings agreed on every field: nothing left to ask.
     func testACompleteParseBothReadingsBackedIsAdded() {
         var agreed = complete
         agreed.readingCount = 2

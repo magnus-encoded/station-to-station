@@ -60,7 +60,6 @@ struct DrawnLine: Equatable {
 enum LineColour: Equatable {
     /// More than one Line on this stretch: they *are* one Line and must read as one.
     case meeting
-    /// My own Spine. Dimmer on a night I was not at.
     case mine(present: Bool)
     /// A friend's Lane, by Lane index.
     /// A friend's **Lane**, by *colour* index — their position in the unfiltered lane
@@ -199,7 +198,6 @@ private func roleOf(_ people: Int, _ present: Bool, _ line: Int,
 /// Weight says how many walk this stretch together.
 private func widthOf(_ people: Int) -> CGFloat { LineStrokeWidth + PerPerson * CGFloat(people - 1) }
 
-/// Whose Line this is, for a log a person reads.
 func lineLabel(_ line: Int, _ lanes: [Friend]) -> String {
     line == Spine ? "spine" : "lane\(line)(\(lanes.indices.contains(line) ? lanes[line].laneKey : "?"))"
 }

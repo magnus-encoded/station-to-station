@@ -275,7 +275,6 @@ fun flyoverNotes(media: List<StoredMedia>, people: List<FlyoverPerson>): List<Fl
     val byKey = people.associateBy { it.key }
     val notes = media.filter { it.kind == StoredMedia.Kind.NOTE && it.text.isNotBlank() }
     val mine = notes.filter { it.from == null }
-        // Shared before vault: the one that reaches anybody leads.
         .sortedBy { it.personal }
     val theirs = notes.filter { it.from != null }
         .sortedBy { byKey[it.from]?.colourIndex ?: Int.MAX_VALUE }

@@ -59,7 +59,6 @@ data class GigAsKnown(
  * than a bookkeeping tap.
  */
 enum class Alcove {
-    /** Nothing opposite the door. The room is what you came for. */
     NONE,
 
     /** Put it in the calendar. */
@@ -193,7 +192,6 @@ fun gigOffers(gig: GigAsKnown, now: LocalDateTime): GigOffers {
         // A set I said was complete that nobody has posted. Includes a linked record
         // holding no songs, which is the same unfinished thing wearing an id.
         closed -> Alcove.SETLIST_FM
-        // Started, nothing logged, nothing recorded: the room is what you came for.
         else -> Alcove.NONE
     }
 

@@ -90,8 +90,6 @@ class MusicBrainzTest {
         assertEquals(3, ranked.size)
     }
 
-    // --- Ranking candidates against what was written, in isolation ---------------
-
     /** The case that motivated this, with the real numbers behind it. */
     @Test
     fun `the contained title ranks first by a wide margin`() {

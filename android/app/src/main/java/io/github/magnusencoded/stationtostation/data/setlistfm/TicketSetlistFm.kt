@@ -76,7 +76,6 @@ data class TicketSetlistFmAnswer(
     }
 
     companion object {
-        /** The prompt showed no candidates for what was saved: nothing chosen, nothing rejected. */
         val UNASKED = TicketSetlistFmAnswer(null, emptyList(), null)
     }
 }

@@ -46,7 +46,6 @@ internal data class DrawnLine(
      * before turning.
      */
     val bendLen: Dp,
-    /** Was this line at this row. */
     val present: Boolean,
     /** How many **Lines** lie on this one where it runs through the row, and the weight that implies. */
     val people: Int,
@@ -72,7 +71,6 @@ internal sealed interface LineColour {
     /** More than one **Line** on this stretch: they *are* one line and must read as one. */
     data object Meeting : LineColour
 
-    /** My own **Spine**. Dimmer on a night I wasn't at. */
     data class Mine(val present: Boolean) : LineColour
 
     /**
@@ -229,6 +227,5 @@ private fun roleOf(people: Int, present: Boolean, line: Int, colourIndex: Int): 
 /** Weight says how many walk this stretch together. */
 private fun widthOf(people: Int): Dp = LineWidth + PerPerson * (people - 1)
 
-/** Whose line this is, for a log a person reads. */
 internal fun lineLabel(line: Int, lanes: List<Friend>): String =
     if (line == Spine) "spine" else "lane$line(${lanes.getOrNull(line)?.laneKey ?: "?"})"

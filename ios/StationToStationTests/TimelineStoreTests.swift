@@ -409,7 +409,6 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual("Best encore I have stood through.", note?.text)
         XCTAssertEqual("double_up", note?.verdict)
         XCTAssertEqual(true, note?.personal)
-        // And the save that carried all of it still did its own job.
         XCTAssertEqual(["b1"], loaded.shows["dizzi90"]?.map(\.id))
     }
 
@@ -484,7 +483,6 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual("Ekebergsletta", gig.venue)
         // Everything still resolves, under the id the screens use.
         XCTAssertEqual(["content://photo1", "content://rec.mp4"], cache.media()["a1"]?.map(\.ref))
-        // The night's one video takes the stamps that used to belong to the night.
         XCTAssertEqual([0, 214_000], cache.media()["a1"]?.last?.songOffsets)
         XCTAssertEqual(42, cache.attendance()["a1"]?.checkedInAt)
         XCTAssertEqual("content://cal/7", cache.calendarEvents()["a1"])
@@ -689,7 +687,6 @@ final class TimelineStoreTests: XCTestCase {
         let s = store()
         let older = await s.createLocalGig(date: "25-06-2026", artist: "The Warning", venue: "Vaterland")
         await s.saveMedia(setlistId: older, media: [photo("content://photo1")])
-        // The same night, found again by an import that didn't know it was here.
         await s.saveMedia(setlistId: "63de6d5b", media: [photo("content://photo2")])
         let newer = await s.load().gigForSetlist("63de6d5b")!.id
 

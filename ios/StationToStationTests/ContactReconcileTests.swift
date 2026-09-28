@@ -314,7 +314,6 @@ final class ContactReconcileTests: XCTestCase {
     private let handLogged = localGigSetlist(gigId: "local-1", artist: "Nick Cave",
                                              date: "14-08-2026", venue: "Tøyenparken", city: "Oslo")
 
-    /// What a Contact's phone offers: its Spine, whichever way each Night got there.
     private func theirCache() -> TimelineCache {
         var c = TimelineCache()
         c.shows = ["theirs": [imported]]
@@ -370,7 +369,6 @@ final class ContactReconcileTests: XCTestCase {
         XCTAssertTrue(contactReconcilePlan(mine: TimelineCache(), offer: offer, verified: true).nights.isEmpty)
     }
 
-    /// Their Nights draw from a date, an act and a room; the songs stay behind.
     func testTheOfferCarriesNoSongs() {
         var withSongs = imported
         withSongs.sets = FmSets(set: [FmSet(song: [FmSong(name: "Jesus, Etc.")])])
@@ -459,7 +457,6 @@ final class ContactReconcileTests: XCTestCase {
         XCTAssertEqual(["their-local"], offersWaiting(held.mediaOffers, on: "14-08-2026").map(\.night))
     }
 
-    /// Their manifest carries everything they share, not only what we might have in common.
     func testMediaForANightOnADateIWasNotOutIsNeitherFiledNorOffered() {
         let offer = theirOffer([photo("m1")])
         let resolved = ["m1": "file:///received/m1"]
@@ -501,7 +498,6 @@ final class ContactReconcileTests: XCTestCase {
         XCTAssertEqual("their-key", accepted.gigMedia["my-local"]?.last?.from)
         XCTAssertEqual("my-local", joinedNights(accepted)["their-local"])
         XCTAssertTrue(accepted.mediaOffers.isEmpty)
-        // Joined now, so what they send for it later lands directly, like any shared Night.
         let later = theirOffer([photo("m1"), photo("m2")])
         XCTAssertEqual(["m1", "m2"],
                        contactLanding(mine: accepted, offer: later, resolved: resolved)["my-local"]?.map(\.id))
@@ -532,7 +528,6 @@ final class ContactReconcileTests: XCTestCase {
                                               resolved: resolved)["my-local"]?.map(\.id))
         XCTAssertTrue(contactOffers(mine: joined, offer: theirOffer([photo("m1")]),
                                     resolved: resolved, myNights: [myNight]).isEmpty)
-        // Saying so moved nothing on my timeline by itself.
         XCTAssertEqual(mine.gigMedia.keys.sorted(), joined.gigMedia.keys.sorted())
         XCTAssertEqual(mine.gigs, joined.gigs)
     }

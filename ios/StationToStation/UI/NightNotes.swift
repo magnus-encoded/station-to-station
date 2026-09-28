@@ -197,9 +197,6 @@ private struct BandNote: View {
 
             ForEach(received, id: \.id) { note in
                 VStack(alignment: .leading, spacing: 2) {
-                    // A name where the key resolves to one, and never an
-                    // invented name: the same degradation the green promise
-                    // makes.
                     Text(senderName(note.from ?? "") ?? "Someone else")
                         .font(.system(size: 11)).foregroundStyle(slate)
                     Text(note.text).font(.system(size: 13)).foregroundStyle(slate)

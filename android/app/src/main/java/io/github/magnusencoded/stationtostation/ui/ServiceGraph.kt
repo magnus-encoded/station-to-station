@@ -19,7 +19,6 @@ package io.github.magnusencoded.stationtostation.ui
 data class ServicesAsKnown(
     /** A setlist.fm key is there to use, bundled or your own. `UiState.setlistFmReady`. */
     val setlistFmKeyAvailable: Boolean = false,
-    /** The user pasted a key of their own. */
     val setlistFmOwnKey: Boolean = false,
     /**
      * The bundled key's shared daily quota ran out. Only means anything while the user
@@ -64,7 +63,6 @@ data class ServiceNode(
     val lit: Boolean,
     /** One line on where it stands, said the same way whether it is lit or not. */
     val status: String,
-    /** What it gives you, each phrased as something you can have. */
     val unlocks: List<String>,
     /** The single step that would light it. Null when it is lit, or nothing would. */
     val nextStep: String? = null,

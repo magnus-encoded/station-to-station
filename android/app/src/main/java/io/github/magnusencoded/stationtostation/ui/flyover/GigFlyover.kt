@@ -420,9 +420,6 @@ internal fun Flyover(
                 density = density,
             )
         }
-        // Whose the lit photograph is, said once, unscaled — the outline carries the
-        // colour and this carries the name, and neither has to be read off a caption
-        // rushing past at an angle.
         LitName(night, litMine, litTheirs)
 
         if (BuildConfig.DEBUG) {
@@ -977,8 +974,6 @@ private val Amber = Color(0xFFE7B24C)
 
 /** Where the horizon sits: a little above the middle, so the floor has room to read. */
 private const val VanishY = 0.46f
-
-/** Degrees each photograph turns toward the walker. */
 
 /** A photograph's longest edge, in flyover units. */
 private const val PhotoLongEdge = 148.0

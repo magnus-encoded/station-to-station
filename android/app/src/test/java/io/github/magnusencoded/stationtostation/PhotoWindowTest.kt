@@ -36,8 +36,6 @@ class PhotoWindowTest {
 
     private val window = photoWindow(gigDate, utc)
 
-    // --- The window ---
-
     @Test
     fun `the window is the gig's day plus the small hours after it`() {
         assertEquals(dayStart, window.first)

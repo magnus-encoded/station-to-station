@@ -122,8 +122,6 @@ class FestivalGroupingTest {
         assertTrue("editorial" !in section.label)
     }
 
-    // --- The identity ---------------------------------------------------------------
-
     @Test
     fun `the same two acts with an identity are one Festival, named from it`() {
         val shows = listOf(

@@ -53,7 +53,6 @@ final class PhotoWindowTests: XCTestCase {
     }
 
     func testANightWithNoDateHasNoWindowAtAll() {
-        // Different from an empty one: nothing can be said about that night.
         XCTAssertNil(photoWindow(gigDate: "", calendar: utc))
         XCTAssertNil(photoWindow(gigDate: "2026-08-04", calendar: utc))
     }

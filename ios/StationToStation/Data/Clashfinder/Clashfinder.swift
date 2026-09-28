@@ -60,7 +60,6 @@ func clashfinderPublicKey(user: String, privateKey: String) -> String {
 struct ClashfinderFestival: Codable, Equatable, Identifiable {
     /// The identifier a document is fetched by — `oyafestivalen2026`.
     var id: String = ""
-    /// What a person reads: "Øyafestivalen 2026".
     var name: String = ""
     /// ISO yyyy-MM-dd. The index gives it as a UTC-midnight epoch second.
     var start: String = ""

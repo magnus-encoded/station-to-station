@@ -199,7 +199,6 @@ class NearbyPeers(private val context: Context) {
         _peers.update { emptyList() }
     }
 
-    /** Stop and start again — the "nothing is appearing, try harder" gesture. */
     fun restart(me: Friend?, myCard: ProbeCard?) {
         stop()
         start(me, myCard)

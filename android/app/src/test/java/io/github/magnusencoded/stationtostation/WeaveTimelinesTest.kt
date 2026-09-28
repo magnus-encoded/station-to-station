@@ -362,7 +362,6 @@ class WeaveTimelinesTest {
             assertTrue("every night is mine", it.mine)
             assertEquals(listOf("dizzi90"), it.others.map { o -> o.setlistfm })
         }
-        // And nothing of theirs sits beside mine as a second node.
         assertEquals(mine.size, rows.count { it.mine })
     }
 
@@ -557,7 +556,6 @@ class WeaveTimelinesTest {
         assertEquals(listOf("m1", "n1", "b1"), ids(rows))
         assertEquals(listOf(MaybeNight(lemmy, m1, n1)), rows[1].maybeAbove)
         assertTrue(rows[0].maybeAbove.isEmpty() && rows[2].maybeAbove.isEmpty())
-        // Asked by the merge row, so not said again in words on my row.
         assertEquals(listOf(lemmy), rows[0].maybe)
         assertTrue(rows[0].maybeInWords.isEmpty())
     }

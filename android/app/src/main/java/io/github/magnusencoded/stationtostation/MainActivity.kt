@@ -295,7 +295,6 @@ fun AppNavigation(viewModel: AppViewModel) {
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
                 onConnected = {
-                    // Back to the one timeline there is; it opens with their line showing.
                     navController.popBackStack("timeline", inclusive = false)
                 },
                 onViewFriend = { friend ->

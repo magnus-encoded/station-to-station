@@ -259,7 +259,6 @@ private val SpotifyGreen = Color(0xFF1DB954)
 private val Slate = Color(0xFF6F809D) // the future / a connected-source, a cooler light
 private val Danger = Color(0xFFE08A8A)
 
-/** The wash behind an armed band, in the accent that band is answering with (#268). */
 private val SlateSoft = Color(0x296F809D)
 private val CrossedSoft = Color(0x296FBF9C)
 
@@ -3647,8 +3646,6 @@ private fun GigNotes(
             editable = editable,
             onWrite = { onWrite(Band.SHARED, it) },
             onVerdict = { v -> noteBands.shared.firstOrNull()?.let { onVerdict(it.id, v) } },
-            // Withdrawing: the same move a photograph makes, through the same
-            // function. One note per band, so there is no index.
             onLift = { id -> onMove(id, Band.VAULT, 0) },
         )
         // Absent under the contact light for the reason the vault strip is: a Contact
@@ -3661,7 +3658,6 @@ private fun GigNotes(
                 // Nothing arrives here. A **Contact**'s note is something they put in
                 // the commons; there is no path by which one lands in my vault.
                 received = emptyList(),
-                // Never — the vault outlines amber whatever it holds.
                 crossed = false,
                 preamble = if (noteBands.shared.isEmpty()) preamble else "",
                 senderName = senderName,
@@ -4112,8 +4108,6 @@ fun StationEventScreen(
     // this screen instead of leaving the button sitting there.
     val checkedIn = setlist != null &&
         state.attendanceByGig[setlist.id]?.provenance == StoredAttendance.Provenance.CHECKED_IN
-    // What this night already became. Every one of them: each url may be in
-    // somebody's hands, so none of them stops being reachable from here.
     val made = setlist?.let { state.playlistsBySetlist[it.id] }.orEmpty()
     val heldMedia = setlist?.let { state.mediaBySetlist[it.id] }.orEmpty()
     // Under the contact light the room holds what a Contact can see, through the one
@@ -4743,8 +4737,6 @@ fun StationEventScreen(
             )
         }
         askingMaybe?.let { maybe ->
-            // Whichever way it is answered — or not — a share that asked it carries on:
-            // the question rides along with the act, it never stands in its way.
             val done = {
                 askingMaybe = null
                 shareAfterMaybe?.let { band ->

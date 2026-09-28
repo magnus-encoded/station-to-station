@@ -390,7 +390,6 @@ fun weaveTimelines(
     val pairsAt = pairs.groupBy { it.mine.id }
     fun maybeOn(shows: List<FmSetlist>): List<Friend> =
         shows.flatMap { s -> pairsAt[s.id].orEmpty().map { it.friend } }.distinctBy { it.laneKey }
-    // Whose Night I joined to one of these, by the same joins the fold reads.
     fun joinedOn(shows: List<FmSetlist>, others: List<Friend>): List<Friend> {
         val ids = shows.mapTo(HashSet()) { it.id }
         return others.filter { f -> theirs[f.laneKey].orEmpty().any { joins[it.id] in ids } }
@@ -680,7 +679,6 @@ fun maybeNights(
             }
             if (open.isEmpty()) continue
             for (m in myThatDay) {
-                // Nor is a Night of mine they already cross.
                 val crossed = m.id in laneIds ||
                     lane.any { joins[it.id] == m.id } ||
                     theirThatDay.any { sameRecord(m, it, festivals) }
@@ -809,7 +807,6 @@ fun FestivalItem(
     sharedCount: Int = 0,
     theirCount: Int = 0,
     theirColor: Color = Slate,
-    /** Under the contact light (#145): the amber comes off, and the meeting green with it. */
     unlit: Boolean = false,
     rails: @Composable () -> Unit = {},
     /**

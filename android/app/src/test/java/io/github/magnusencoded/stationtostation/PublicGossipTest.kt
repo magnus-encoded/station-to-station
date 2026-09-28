@@ -352,7 +352,6 @@ class PublicGossipTest {
         // credit the ranker reads under that same key was never written.
         assertTrue(state.offer(neighbourRelay, 2001).isEmpty())
         assertNull(state.useful[neighbourRelay])
-        // Addressed as the meeting will prove it, both halves work.
         val addressed = requireNotNull(receiptFor(carried, neighbourRelay, true, me, 2000, sign))
         val correct = PublicGossipState()
         assertTrue(correct.receive(addressed, "", 2000, local = true))
@@ -377,7 +376,6 @@ class PublicGossipTest {
         // Both Facts name the same record, so there was only ever one thing to say.
         assertEquals(1, receipts.size)
         receipts.forEach { assertTrue(state.receive(it, "", 2000, local = true)) }
-        // The receipt is actually held, actually offered, and actually credited the neighbour.
         assertEquals(receipts, state.held.values.filter { it.envelope.kind == "receipt" }.map { it.envelope })
         assertEquals(receipts, state.offer("neighbour", 2001))
         assertEquals(2000 + PUBLIC_RECEIPT_MS, state.useful["neighbour"]!!)
@@ -479,7 +477,6 @@ class PublicGossipTest {
         assertTrue(state.facts.containsKey(witness.id))
         assertFalse(state.held.containsKey(request.id))
         assertTrue(state.held.containsKey(witness.id))
-        // This device witnessed someone else. Its own night is not witnessed by that.
         assertEquals(emptySet<String>(), state.witnessedGigIds())
         val remote = PublicGossipState()
         assertTrue(remote.receive(witness, "blind-relay", 1800))
