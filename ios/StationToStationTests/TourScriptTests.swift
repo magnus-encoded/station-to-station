@@ -1,4 +1,5 @@
 import XCTest
+@testable import StationToStation
 
 final class TourScriptTests: XCTestCase {
     private let progress: [[TourEvent]] = [
