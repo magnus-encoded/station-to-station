@@ -425,31 +425,6 @@ struct GigView: View {
                 .environmentObject(model)
             }
         }
-        // An offer opened (#405): yes files it here and joins the two Nights, no leaves this
-        // Night exactly as it was, "Not now" leaves the question waiting.
-        .alert(
-            answeringMediaOffer.map { mediaOfferLine($0.offer, sender: mediaOfferSender($0.offer)) } ?? "",
-            isPresented: Binding(get: { answeringMediaOffer != nil }, set: { if !$0 { answeringOffer = nil } }),
-            presenting: answeringMediaOffer
-        ) { waiting in
-            Button("Accept") {
-                if let show = model.state.selectedSetlist {
-                    model.acceptMediaOffer(waiting.night, key: show.id)
-                }
-                answeringOffer = nil
-            }
-            .accessibilityLabel("Accept \(mediaOfferSender(waiting.offer))'s offer onto this night")
-            Button("Decline") {
-                model.declineMediaOffer(waiting.night)
-                answeringOffer = nil
-            }
-            .accessibilityLabel("Decline \(mediaOfferSender(waiting.offer))'s offer")
-            Button("Not now", role: .cancel) { answeringOffer = nil }
-        } message: { waiting in
-            let theirs = [waiting.offer.artist, waiting.offer.venue].filter { !$0.isEmpty }.joined(separator: " at ")
-            Text((theirs.isEmpty ? "" : "From their night: \(theirs). ")
-                 + "Accept puts them on this night, as the same night. Decline leaves it as it is.")
-        }
         .alert("Delete this night?", isPresented: $deleting) {
             Button("Delete", role: .destructive) {
                 if let show = model.state.selectedSetlist {
@@ -530,16 +505,9 @@ struct GigView: View {
         )
     }
 
-    /// The offer being answered, while it is still waiting.
-    private var answeringMediaOffer: WaitingOffer? {
-        guard let night = answeringOffer, let offer = model.state.mediaOffers[night], !offer.media.isEmpty
-        else { return nil }
-        return WaitingOffer(night: night, offer: offer)
-    }
-
     /// Whose offer this is: the Contact's name, or "A Contact" when their key is not on my list.
     private func mediaOfferSender(_ offer: MediaOffer) -> String {
-        offer.media.lazy.compactMap(\.from).first.flatMap { model.state.friends.nameOf($0) } ?? "A Contact"
+        mediaOfferSenderName(offer, friends: model.state.friends)
     }
 
     private func header(_ show: FmSetlist, _ room: Room?) -> some View {
@@ -625,6 +593,7 @@ struct GigView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 24).padding(.bottom, 16)
+        .modifier(MediaOfferAlert(answering: $answeringOffer, show: show))
     }
 
     /// Calendar, maps and "I'm not going" (#175) — only for a gig I actually hold a
@@ -871,6 +840,57 @@ private struct PossibleMatchSheet: View {
         .preferredColorScheme(.dark)
         .task(id: gigId) { hits = await model.setlistFmChipHits(gigId: gigId) }
     }
+}
+
+/// A **Contact**'s offer, opened (#405): yes files it on this Night and joins the two
+/// Nights, no leaves this Night exactly as it was, "Not now" leaves the question waiting.
+/// Its own modifier so the Night's body stays within what the type checker will take.
+private struct MediaOfferAlert: ViewModifier {
+    @EnvironmentObject var model: AppModel
+    @Binding var answering: String?
+    let show: FmSetlist
+
+    private var waiting: WaitingOffer? {
+        guard let night = answering, let offer = model.state.mediaOffers[night], !offer.media.isEmpty
+        else { return nil }
+        return WaitingOffer(night: night, offer: offer)
+    }
+
+    private func sender(_ offer: MediaOffer) -> String {
+        mediaOfferSenderName(offer, friends: model.state.friends)
+    }
+
+    private func message(_ offer: MediaOffer) -> String {
+        let theirs = [offer.artist, offer.venue].filter { !$0.isEmpty }.joined(separator: " at ")
+        let from = theirs.isEmpty ? "" : "From their night: \(theirs). "
+        return from + "Accept puts them on this night, as the same night. Decline leaves it as it is."
+    }
+
+    func body(content: Content) -> some View {
+        let current = waiting
+        let title = current.map { mediaOfferLine($0.offer, sender: sender($0.offer)) } ?? ""
+        let shown = Binding<Bool>(get: { current != nil }, set: { if !$0 { answering = nil } })
+        return content.alert(title, isPresented: shown, presenting: current) { offer in
+            Button("Accept") {
+                model.acceptMediaOffer(offer.night, key: show.id)
+                answering = nil
+            }
+            .accessibilityLabel("Accept \(sender(offer.offer))'s offer onto this night")
+            Button("Decline") {
+                model.declineMediaOffer(offer.night)
+                answering = nil
+            }
+            .accessibilityLabel("Decline \(sender(offer.offer))'s offer")
+            Button("Not now", role: .cancel) { answering = nil }
+        } message: { offer in
+            Text(message(offer.offer))
+        }
+    }
+}
+
+/// Whose offer this is: the Contact's name, or "A Contact" when their key is not on my list.
+func mediaOfferSenderName(_ offer: MediaOffer, friends: [Friend]) -> String {
+    offer.media.lazy.compactMap(\.from).first.flatMap { friends.nameOf($0) } ?? "A Contact"
 }
 
 /// "Mia offered 3 photos", counted the way a person would say it. Android's `offerLine`.
