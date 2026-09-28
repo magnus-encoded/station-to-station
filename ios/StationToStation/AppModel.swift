@@ -43,6 +43,10 @@ struct UiState {
     /// Whether the first-run door has been passed (#358). The splash is shown while
     /// this is false, and a launch after it never sees one again.
     var onboarded = false
+    /// True once launch has put the saved timeline on screen, Festivals and all.
+    /// Until then the launch look stays over the Timeline, so a reopened app never
+    /// shows an empty timeline or a "0 shows" count on the way to its own.
+    var launched = false
     // Search
     var artistQuery = ""
     var userQuery = ""
@@ -340,6 +344,13 @@ final class AppModel: ObservableObject {
         // scene-phase *change*, so a ticket shared just before opening the app would
         // otherwise sit in the box until the next background round trip.
         drainTicketInbox()
+
+        // A backstop for the launch look, not its timing: if reading the phone's own
+        // storage ever hangs, the app still opens.
+        Task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            state.launched = true
+        }
     }
 
     func consumeError() {
@@ -361,12 +372,18 @@ final class AppModel: ObservableObject {
     func loadTimeline() {
         let me = state.mySetlistFmUser.trimmingCharacters(in: .whitespaces)
         Task {
+            // The plans first, so the launch look lifts on the whole timeline rather
+            // than on the Spine with the future edge still to arrive.
+            await refreshPlannedGigs()
+            // Launch is done at the first Spine, not after the Festival retry: that
+            // one asks setlist.fm, and the launch look never waits on the network.
             await logic.loadSpine(me: me) { spine in
                 state.timelineShows = spine.mine
                 state.festivals = spine.festivals
+                state.launched = true
             }
+            state.launched = true
         }
-        loadPlannedGigs()
     }
 
     /// Furthest-future first — the same descending order the attended rows below
@@ -378,24 +395,26 @@ final class AppModel: ObservableObject {
     /// The future edge, from disk (#175). Called alongside the Spine at launch, and
     /// again by every write below so the timeline never shows stale plans.
     func loadPlannedGigs() {
-        Task {
-            let cache = await timelines.load()
-            state.plannedGigs = sortedPlanned(cache.planned())
-            // The Contact list is read at launch, but the nights are not there until here,
-            // and the gossip channel wants both (#417).
-            gossipContactsChanged()
-            state.attendanceByGig = cache.attendance()
-            state.calendarEventByGig = cache.calendarEvents()
-            // The Timeline draws keepsakes on its rows, so this has to be here before
-            // any night is opened — and this already reads the cache at launch and
-            // after every write.
-            state.mediaBySetlist = cache.media()
-            state.mediaOffers = cache.mediaOffers
-            state.nightJoins = cache.spineJoins()
-            state.nightsApart = cache.spineDismissals()
-            state.playlistsBySetlist = cache.playlists()
-            state.hiddenAt = cache.hiddenLines
-        }
+        Task { await refreshPlannedGigs() }
+    }
+
+    private func refreshPlannedGigs() async {
+        let cache = await timelines.load()
+        state.plannedGigs = sortedPlanned(cache.planned())
+        // The Contact list is read at launch, but the nights are not there until here,
+        // and the gossip channel wants both (#417).
+        gossipContactsChanged()
+        state.attendanceByGig = cache.attendance()
+        state.calendarEventByGig = cache.calendarEvents()
+        // The Timeline draws keepsakes on its rows, so this has to be here before
+        // any night is opened — and this already reads the cache at launch and
+        // after every write.
+        state.mediaBySetlist = cache.media()
+        state.mediaOffers = cache.mediaOffers
+        state.nightJoins = cache.spineJoins()
+        state.nightsApart = cache.spineDismissals()
+        state.playlistsBySetlist = cache.playlists()
+        state.hiddenAt = cache.hiddenLines
     }
 
     /// How many pictures a delete would destroy — the ones this app holds the last

@@ -61,7 +61,10 @@ targets:
       path: StationToStation/Info.plist
       properties:
         CFBundleDisplayName: Station to Station
-        UILaunchScreen: {}
+        # Ground, the same near-black the timeline is drawn on, so a cold start is
+        # one colour from the launch screen through to the first rows.
+        UILaunchScreen:
+          UIColorName: LaunchGround
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         # Bluetooth is now two things, and the difference matters enough to say here

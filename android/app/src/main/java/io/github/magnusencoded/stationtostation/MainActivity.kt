@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
@@ -50,6 +51,14 @@ class MainActivity : ComponentActivity() {
     private val viewModel: AppViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // The mark on Ground stays up until the first screen has what it needs, so the
+        // launch goes straight from the icon to the settled timeline (or to onboarding)
+        // with nothing half-loaded in between. The cap is only a backstop: if reading
+        // the phone's own storage ever hangs, the app still opens.
+        val splashFrom = System.currentTimeMillis()
+        installSplashScreen().setKeepOnScreenCondition {
+            !viewModel.state.value.launched && System.currentTimeMillis() - splashFrom < SPLASH_CAP_MS
+        }
         super.onCreate(savedInstanceState)
         handleAuthIntent(intent)
         handleTicketIntent(intent)
@@ -59,6 +68,10 @@ class MainActivity : ComponentActivity() {
                 AppNavigation(viewModel)
             }
         }
+    }
+
+    private companion object {
+        const val SPLASH_CAP_MS = 3_000L
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -221,6 +234,14 @@ fun AppNavigation(viewModel: AppViewModel) {
         viewModel.startLookupChecks()
         onStopOrDispose { viewModel.stopLookupChecks() }
     }
+    // Nothing is drawn until launch has read the settings and the saved timeline (the
+    // system splash covers it), and then the first screen is the right one outright:
+    // onboarding only for someone who hasn't passed it, never as a flash on the way to
+    // the timeline. Ahead of the handover effect too, which needs the NavHost's graph.
+    val launch by remember(viewModel) { viewModel.state.map { it.launched to it.onboarded } }
+        .collectAsStateWithLifecycle(viewModel.state.value.let { it.launched to it.onboarded })
+    if (!launch.first) return
+    val startDestination = remember { if (launch.second) "timeline" else "splash" }
     // A handover can begin from outside any screen: the QR is read by the phone's camera
     // app, which opens the deep link, which starts the receiving side. Whatever was on
     // screen, that is the thing to be looking at.
@@ -240,7 +261,7 @@ fun AppNavigation(viewModel: AppViewModel) {
     // reads as the app changing rather than as one place leading to another.
     NavHost(
         navController = navController,
-        startDestination = "splash",
+        startDestination = startDestination,
         enterTransition = { slideInHorizontally(tween(280)) { it } + fadeIn(tween(200)) },
         exitTransition = { slideOutHorizontally(tween(280)) { -it / 5 } + fadeOut(tween(200)) },
         popEnterTransition = { slideInHorizontally(tween(280)) { -it / 5 } + fadeIn(tween(200)) },
