@@ -50,8 +50,9 @@ def main() -> int:
     p.add_argument("--rollout", type=float, metavar="FRACTION",
                    help="staged roll-out fraction, e.g. 0.1 — production only")
     p.add_argument("--name", help="release name (default: Play's auto-generated one)")
-    # "What's new" on the listing, in en-GB, the listing's default language. The text comes from CHANGELOG.md via
-    # tools/changelog.py; this script only carries it. Omitted, the release has
+    # "What's new" on the listing, in en-GB, the listing's default language. The
+    # text comes from CHANGELOG.md via tools/changelog.py; this script only
+    # carries it. Omitted, the release has
     # no notes at all — tracks().update below replaces the old ones rather than
     # keeping them.
     p.add_argument("--notes-file", metavar="PATH",
