@@ -2,6 +2,12 @@
 
 **Status:** accepted as **served, and the first persona who pulls the other way** (2026-08-15)
 
+## Summary
+
+- **Wants:** to use the app without making a third party custodian of his record — able to leave, nothing collected he did not choose.
+- **A story serves them when:** it works with no account, his own key, no server, on his own device, or lets him export, encrypt or refuse.
+- **Never:** a mandatory account, or a dependency with no exit.
+
 ## Context
 
 `docs/personas.md` has carried a standing admission since 2026-08-11: *"No persona is protective, and

@@ -2,6 +2,12 @@
 
 **Status:** accepted as **not a user** (2026-08-11). A stakeholder the design protects.
 
+## Summary
+
+- **Wants:** not to be captured, exposed or tracked while working a festival they cannot step away from. Not a user; protected.
+- **A story serves them when:** it limits what reaches others about people in the frame who never installed the app.
+- **Never:** repeated, identifiable capture of people at work.
+
 ## Context
 
 Found by a persona pass over the media sharing specs, and the gap was stark: **15 of 15 user stories

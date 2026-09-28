@@ -2,6 +2,12 @@
 
 **Status:** accepted as **deferred** (2026-08-11). Not being designed further.
 
+## Summary
+
+- **Wants:** reach — being known for taste.
+- **A story serves them when:** real attendance or check-ins become cred that others can see. Deferred: such a story needs a reason.
+- **Never:** followers, feeds, discovery, or follower-count-shaped signals.
+
 ## Context
 
 Wants reach. The obvious way to serve reach is the one this project will not take: followers, feeds,

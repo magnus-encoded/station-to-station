@@ -42,15 +42,6 @@ or comes from the setlist.fm and Spotify APIs.
 
 What changed in each release, for the people using it: [`CHANGELOG.md`](CHANGELOG.md).
 
-## Reading the code
-
-- [`CONTEXT.md`](CONTEXT.md) — the glossary. **Read this first.** The timeline's
-  vocabulary is precise (Line, Spine, Lane, Crossing, Followed line vs. Contact), and the
-  words carry design decisions.
-- [`docs/adr/`](docs/adr/) — architectural decisions.
-- [`docs/personas.md`](docs/personas.md) — who this is for.
-- [`fixtures/weave/`](fixtures/weave/README.md) — the corpus both platforms assert against.
-
 ## The CLI
 
 This repo started as `setlist-fm-cli`, a Python tool that turned a setlist.fm page into a
