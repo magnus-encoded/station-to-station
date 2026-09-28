@@ -2,6 +2,8 @@ package io.github.magnusencoded.stationtostation
 
 import android.graphics.Bitmap
 import io.github.magnusencoded.stationtostation.data.BarcodeLocator
+import io.github.magnusencoded.stationtostation.data.MAX_PAGE_EDGE_PX
+import io.github.magnusencoded.stationtostation.data.MAX_PAGE_PIXELS
 import io.github.magnusencoded.stationtostation.data.PdfPage
 import io.github.magnusencoded.stationtostation.data.PdfPages
 import io.github.magnusencoded.stationtostation.data.PdfTextReader
@@ -10,6 +12,7 @@ import io.github.magnusencoded.stationtostation.data.TextLayerReader
 import io.github.magnusencoded.stationtostation.data.TicketBarcode
 import io.github.magnusencoded.stationtostation.data.TicketEvidence
 import io.github.magnusencoded.stationtostation.data.TicketReading
+import io.github.magnusencoded.stationtostation.data.boundedPageSize
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -164,5 +167,42 @@ class PdfTicketExtractorTest {
 
         assertEquals(listOf("Your ticket\r", "Static Halo", "24-09-2026"), lines)
         assertEquals(emptyList<String>(), TextLayerReader.lines(FakePage(null)).filter { it.isNotBlank() })
+    }
+
+    // --- The page size a shared PDF may ask for (#165) ---
+
+    private val extractionScale = 200f / 72f
+
+    @Test
+    fun aRealTicketPageIsDrawnAtTheSizeItAlwaysWas() {
+        // A4 at 200 dpi: what the extractor drew before the bound, pixel for pixel.
+        assertEquals(1652 to 2338, boundedPageSize(595, 842, extractionScale))
+        // A3, the largest a ticket plausibly is, still fits whole.
+        assertEquals(2338 to 3308, boundedPageSize(842, 1191, extractionScale))
+    }
+
+    @Test
+    fun aPosterSizedPageIsShrunkInsideBothBounds() {
+        // The PDF format's largest page: 14,400 points a side asked for 40,000 pixels.
+        val (width, height) = boundedPageSize(14_400, 14_400, extractionScale)
+
+        assertTrue(width <= MAX_PAGE_EDGE_PX && height <= MAX_PAGE_EDGE_PX)
+        assertTrue(width.toLong() * height <= MAX_PAGE_PIXELS)
+        assertEquals("the aspect is kept", width, height)
+    }
+
+    @Test
+    fun aSliverOfAPageCannotAskForAnEndlessBitmapAtTheDoor() {
+        // The door draws at a fixed width, so a page one point wide scaled up to it.
+        val (width, height) = boundedPageSize(1, 14_400, 1600f)
+
+        assertTrue("height $height", height in (MAX_PAGE_EDGE_PX - 2)..MAX_PAGE_EDGE_PX)
+        assertEquals(1, width)
+    }
+
+    @Test
+    fun aPageWithNoSizeIsStillOnePixel() {
+        assertEquals(1 to 1, boundedPageSize(0, -5, 1f))
+        assertEquals(1 to 1, boundedPageSize(1, 1, Float.NaN))
     }
 }

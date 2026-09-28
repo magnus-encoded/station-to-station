@@ -151,3 +151,31 @@ func barcodeCrop(bounds: CGRect, imageWidth: Int, imageHeight: Int,
     let image = CGRect(x: 0, y: 0, width: imageWidth, height: imageHeight)
     return bounds.insetBy(dx: -margin, dy: -margin).intersection(image).integral
 }
+
+/// The longest side a PDF page is ever rasterized to (#165).
+let maxPageEdge: CGFloat = 4096
+
+/// The largest area one rasterized PDF page may have (#165): an A3 page at 200 dpi fits.
+let maxPageArea: CGFloat = 10_000_000
+
+/// The size to draw a page of `bounds` at, `scale` to the point, shrunk with its aspect
+/// kept so that neither side passes `maxEdge` and the area stays within `maxArea` (#165).
+///
+/// A page's size is whatever the PDF's MediaBox says, and a shared PDF is untrusted input.
+/// `PdfKitPage` meant to cap a poster-sized page and did not — its scale was floored at 1,
+/// so a 14,400-point page was drawn at 14,400 points a side, far past a Share Extension's
+/// memory budget — and the door's fixed width let a page one point wide ask for an image
+/// millions of points tall. A real ticket is inside both bounds and is drawn at exactly
+/// the size it was before. Never less than one a side. The Kotlin twin is
+/// `boundedPageSize` in `PdfTicketExtractor.kt`.
+func boundedPageSize(_ bounds: CGSize, scale: CGFloat,
+                     maxEdge: CGFloat = maxPageEdge, maxArea: CGFloat = maxPageArea) -> CGSize {
+    let scale = scale.isFinite && scale > 0 ? scale : 1
+    let width = max(bounds.width, 1) * scale
+    let height = max(bounds.height, 1) * scale
+    var shrink = min(1, maxEdge / width, maxEdge / height)
+    let area = width * height * shrink * shrink
+    if area > maxArea { shrink *= (maxArea / area).squareRoot() }
+    return CGSize(width: min(max(width * shrink, 1), maxEdge),
+                  height: min(max(height * shrink, 1), maxEdge))
+}

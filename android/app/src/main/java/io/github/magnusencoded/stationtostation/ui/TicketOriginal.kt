@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
+import io.github.magnusencoded.stationtostation.data.boundedPageSize
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -61,8 +62,10 @@ internal fun renderOriginal(file: File, page: Int, widthPx: Int = ORIGINAL_WIDTH
             PdfRenderer(fd).use { pdf ->
                 if (pdf.pageCount == 0) return null
                 pdf.openPage(page.coerceIn(0, pdf.pageCount - 1)).use { p ->
-                    val height = (widthPx.toLong() * p.height / p.width.coerceAtLeast(1)).toInt().coerceAtLeast(1)
-                    Bitmap.createBitmap(widthPx, height, Bitmap.Config.ARGB_8888).also {
+                    // Bounded (#165): a page one point wide would otherwise ask for a
+                    // bitmap millions of pixels tall at this fixed width.
+                    val (width, height) = boundedPageSize(p.width, p.height, widthPx.toFloat() / p.width.coerceAtLeast(1))
+                    Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
                         it.eraseColor(AndroidColor.WHITE)
                         p.render(it, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                     }
