@@ -339,8 +339,11 @@ fun StationTimelineScreen(
     var comparing by remember { mutableStateOf<MaybeNight?>(null) }
     val answers = remember { SnackbarHostState() }
     val answerScope = rememberCoroutineScope()
-    fun answer(maybe: MaybeNight, same: Boolean) {
+    fun answer(maybe: MaybeNight, same: Boolean, adopt: Boolean = false) {
         comparing = null
+        // Taking their setlist.fm entry can't be undone, so it offers no Undo; the
+        // adoption says "Adopted" itself.
+        if (adopt) { viewModel.adoptMaybe(maybe); return }
         val night = maybe.theirs.id
         val key = maybe.mine.id
         val write = if (same) viewModel.joinNight(night, key) else viewModel.dismissMaybe(night, key)
@@ -362,7 +365,7 @@ fun StationTimelineScreen(
             maybe = maybe,
             theirColour = laneColourOf(maybe.friend, state.friends),
             sharing = false,
-            onSame = { answer(maybe, same = true) },
+            onSame = { adopt -> answer(maybe, same = true, adopt = adopt) },
             onApart = { answer(maybe, same = false) },
             onDismiss = { comparing = null },
         )
@@ -2813,12 +2816,15 @@ private fun MaybeCompareSheet(
     maybe: MaybeNight,
     theirColour: Color,
     sharing: Boolean,
-    onSame: () -> Unit,
+    onSame: (adopt: Boolean) -> Unit,
     onApart: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val whose = maybeWhose(maybe)
+    // "Same night" on a Night of mine typed by hand, against theirs from setlist.fm,
+    // asks one more thing: take their entry? Asked, because taking it can't be undone.
+    var adopting by remember(maybe) { mutableStateOf(false) }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -2837,60 +2843,83 @@ private fun MaybeCompareSheet(
                 .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text(
-                "Were you both at this night?",
-                fontFamily = Serif,
-                fontSize = 22.sp,
-                color = Ink,
-                modifier = Modifier.asHeading(),
-            )
-            Column {
-                // The column heads are said in every row below, so a reader moving row
-                // by row never has to remember which side is whose.
-                Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).clearAndSetSemantics {}) {
-                    Spacer(Modifier.width(64.dp))
-                    Text("Yours", color = Amber, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f).padding(end = 8.dp))
-                    Text(whose, color = theirColour, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            if (adopting) {
+                Text(
+                    maybeAdoptQuestion(maybe),
+                    fontFamily = Serif,
+                    fontSize = 22.sp,
+                    color = Ink,
+                    modifier = Modifier.asHeading(),
+                )
+                Text(maybeAdoptLine(maybe), color = Muted, fontSize = 14.sp, lineHeight = 20.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { onSame(true) },
+                        colors = ButtonDefaults.buttonColors(containerColor = Amber, contentColor = Ground),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    ) { Text("Take it", fontWeight = FontWeight.SemiBold, fontSize = 15.sp) }
+                    OutlinedButton(
+                        onClick = { onSame(false) },
+                        border = BorderStroke(1.dp, LineLit),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    ) { Text("Keep mine", color = Ink, fontSize = 15.sp) }
                 }
-                compareMaybe(maybe).forEach { field ->
-                    val value = if (field.differs) Amber else Ink
-                    Box(Modifier.fillMaxWidth().height(1.dp).background(LineCol))
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .background(if (field.differs) AmberSoft else Color.Transparent)
-                            .clearAndSetSemantics { contentDescription = maybeFieldSpoken(maybe, field) }
-                            .padding(vertical = 10.dp, horizontal = if (field.differs) 6.dp else 0.dp),
-                    ) {
-                        Text(field.label, color = Muted, fontSize = 14.sp, modifier = Modifier.width(if (field.differs) 58.dp else 64.dp))
-                        Text(field.yours, color = value, fontSize = 14.sp, modifier = Modifier.weight(1f).padding(end = 8.dp))
-                        Text(field.theirs, color = value, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            } else {
+                Text(
+                    "Were you both at this night?",
+                    fontFamily = Serif,
+                    fontSize = 22.sp,
+                    color = Ink,
+                    modifier = Modifier.asHeading(),
+                )
+                Column {
+                    // The column heads are said in every row below, so a reader moving row
+                    // by row never has to remember which side is whose.
+                    Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).clearAndSetSemantics {}) {
+                        Spacer(Modifier.width(64.dp))
+                        Text("Yours", color = Amber, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f).padding(end = 8.dp))
+                        Text(whose, color = theirColour, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    }
+                    compareMaybe(maybe).forEach { field ->
+                        val value = if (field.differs) Amber else Ink
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(LineCol))
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .background(if (field.differs) AmberSoft else Color.Transparent)
+                                .clearAndSetSemantics { contentDescription = maybeFieldSpoken(maybe, field) }
+                                .padding(vertical = 10.dp, horizontal = if (field.differs) 6.dp else 0.dp),
+                        ) {
+                            Text(field.label, color = Muted, fontSize = 14.sp, modifier = Modifier.width(if (field.differs) 58.dp else 64.dp))
+                            Text(field.yours, color = value, fontSize = 14.sp, modifier = Modifier.weight(1f).padding(end = 8.dp))
+                            Text(field.theirs, color = value, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                        }
                     }
                 }
-            }
-            Text(
-                sameNightLine(maybe) +
-                    if (sharing) " You're sharing from this night, so it's worth knowing first." else "",
-                color = Muted,
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
-            )
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = onSame,
-                    colors = ButtonDefaults.buttonColors(containerColor = Amber, contentColor = Ground),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                ) { Text("Same night", fontWeight = FontWeight.SemiBold, fontSize = 15.sp) }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = onApart,
-                        border = BorderStroke(1.dp, LineLit),
-                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                    ) { Text("Not the same", color = Ink, fontSize = 15.sp) }
-                    TextButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                    ) { Text("Not now", color = Muted, fontSize = 15.sp) }
+                Text(
+                    sameNightLine(maybe) +
+                        if (sharing) " You're sharing from this night, so it's worth knowing first." else "",
+                    color = Muted,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { if (maybeAdoptable(maybe)) adopting = true else onSame(false) },
+                        colors = ButtonDefaults.buttonColors(containerColor = Amber, contentColor = Ground),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    ) { Text("Same night", fontWeight = FontWeight.SemiBold, fontSize = 15.sp) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = onApart,
+                            border = BorderStroke(1.dp, LineLit),
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                        ) { Text("Not the same", color = Ink, fontSize = 15.sp) }
+                        TextButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                        ) { Text("Not now", color = Muted, fontSize = 15.sp) }
+                    }
                 }
             }
         }
@@ -4394,7 +4423,8 @@ fun StationEventScreen(
     val onInvite: () -> Unit = { setlist?.let { context.startActivity(gigInviteChooser(it)) } }
 
     val maybeAnswers = remember { SnackbarHostState() }
-    fun recordAnswer(maybe: MaybeNight, same: Boolean) {
+    fun recordAnswer(maybe: MaybeNight, same: Boolean, adopt: Boolean = false) {
+        if (adopt) { viewModel.adoptMaybe(maybe); return }
         val write = if (same) viewModel.joinNight(maybe.theirs.id, maybe.mine.id)
             else viewModel.dismissMaybe(maybe.theirs.id, maybe.mine.id)
         scope.launch {
@@ -4730,7 +4760,7 @@ fun StationEventScreen(
                 maybe = maybe,
                 theirColour = laneColourOf(maybe.friend, state.friends),
                 sharing = shareAfterMaybe != null,
-                onSame = { recordAnswer(maybe, true); done() },
+                onSame = { adopt -> recordAnswer(maybe, true, adopt); done() },
                 onApart = { recordAnswer(maybe, false); done() },
                 onDismiss = done,
             )

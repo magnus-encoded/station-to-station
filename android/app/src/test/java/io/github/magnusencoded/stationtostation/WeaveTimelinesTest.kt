@@ -16,6 +16,8 @@ import io.github.magnusencoded.stationtostation.ui.MaybeNight
 import io.github.magnusencoded.stationtostation.ui.TimelineNode
 import io.github.magnusencoded.stationtostation.ui.WovenRow
 import io.github.magnusencoded.stationtostation.ui.compareMaybe
+import io.github.magnusencoded.stationtostation.ui.maybeAdoptQuestion
+import io.github.magnusencoded.stationtostation.ui.maybeAdoptable
 import io.github.magnusencoded.stationtostation.ui.maybeAnswered
 import io.github.magnusencoded.stationtostation.ui.maybeFieldSpoken
 import io.github.magnusencoded.stationtostation.ui.maybeMergeLabel
@@ -670,12 +672,24 @@ class WeaveTimelinesTest {
             sameNightLine(MaybeNight(mia, fm, hand.copy(id = "n1"))),
         )
         assertEquals(
-            "Same night keeps your entry. Mia's setlist.fm entry joins it.",
+            "Mia's is on setlist.fm. After Same night you can take it as yours.",
             sameNightLine(MaybeNight(mia, hand, fm.copy(id = "n1"))),
         )
         assertEquals(
             "Same night keeps your entry. Mia's joins it.",
             sameNightLine(MaybeNight(mia, hand, hand.copy(id = "n1"))),
         )
+    }
+
+    /** Only a Night of mine typed by hand, against theirs from setlist.fm, is asked to adopt. */
+    @Test
+    fun `only mine by hand against theirs from setlist fm asks to take theirs`() {
+        val mia = Friend(setlistfm = "", name = "Mia")
+        val fm = show("m1", "21-11-2025", "Blå")
+        val hand = local("h1", "21-11-2025", "Blå")
+        assertTrue(maybeAdoptable(MaybeNight(mia, hand, fm.copy(id = "n1"))))
+        assertFalse(maybeAdoptable(MaybeNight(mia, fm, hand.copy(id = "n1"))))
+        assertFalse(maybeAdoptable(MaybeNight(mia, hand, hand.copy(id = "n1"))))
+        assertEquals("Take Mia's setlist.fm entry?", maybeAdoptQuestion(MaybeNight(mia, hand, fm)))
     }
 }

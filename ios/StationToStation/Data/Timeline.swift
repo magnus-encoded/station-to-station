@@ -445,18 +445,32 @@ private func maybeTheir(_ maybe: MaybeNight, _ fallback: String) -> String {
 /// "Mia's" — or "Theirs" for a Contact with no name. The comparison's column head.
 func maybeWhose(_ maybe: MaybeNight) -> String { maybeTheir(maybe, "Theirs") }
 
-/// The one line under the comparison (#580): what "Same night" keeps. Mine, always, in
-/// this build: their Night joins it, and whichever side came from setlist.fm is named.
-/// Taking their record over mine is deferred: `adoptSetlist` can merge Gigs and updates
-/// gossip identity, neither of which removing `nightJoins` can undo. Keep this answer
-/// local and reversible until adoption has its own inverse. Android's `sameNightLine`.
+/// The one line under the comparison (#580): what "Same night" keeps. Mine, and their
+/// Night joins it — except mine typed by hand against theirs from setlist.fm, where
+/// "Same night" goes on to ask whether to take theirs (`maybeAdoptable`). Android's
+/// `sameNightLine`.
 func sameNightLine(_ maybe: MaybeNight) -> String {
     let whose = maybeWhose(maybe)
     if !maybe.mine.isLocal { return "Same night keeps your setlist.fm entry. \(whose) joins it." }
-    if !maybe.theirs.isLocal {
-        return "Same night keeps your entry. \(maybeTheir(maybe, "Their")) setlist.fm entry joins it."
+    if maybeAdoptable(maybe) {
+        return "\(whose) is on setlist.fm. After Same night you can take it as yours."
     }
     return "Same night keeps your entry. \(whose) joins it."
+}
+
+/// Mine typed by hand, theirs from setlist.fm (#580): "Same night" then offers to take
+/// their setlist.fm entry — an adoption, which merges the two for good. Asked, never
+/// assumed, because the adoption is the one answer that cannot be undone. Android's
+/// `maybeAdoptable`.
+func maybeAdoptable(_ maybe: MaybeNight) -> Bool { maybe.mine.isLocal && !maybe.theirs.isLocal }
+
+/// The adoption question's heading (#580): "Take Mia's setlist.fm entry?"
+func maybeAdoptQuestion(_ maybe: MaybeNight) -> String { "Take \(maybeTheir(maybe, "their")) setlist.fm entry?" }
+
+/// What taking it does, and what keeping yours does instead (#580).
+func maybeAdoptLine(_ maybe: MaybeNight) -> String {
+    "Your Night becomes \(maybeTheir(maybe, "their")) setlist.fm entry, setlist and all. "
+        + "This can't be undone. Keep mine joins the two Nights, and that can be undone."
 }
 
 /// The merge row's pill (#580): "Same night as Mia's?", then "Compare".

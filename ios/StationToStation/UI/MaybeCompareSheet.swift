@@ -24,8 +24,35 @@ struct MaybeCompareSheet: View {
     var sharing: Bool = false
     let close: () -> Void
     @State private var answering = false
+    /// "Same night" on mine typed by hand against theirs from setlist.fm asks one more
+    /// thing: take their entry? Asked, because taking it can't be undone.
+    @State private var adopting = false
 
     var body: some View {
+        if adopting { adoptStep } else { compareStep }
+    }
+
+    private var adoptStep: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text(maybeAdoptQuestion(maybe))
+                .font(.title2.bold())
+                .accessibilityAddTraits(.isHeader)
+            Text(maybeAdoptLine(maybe)).font(.callout)
+            Spacer(minLength: 0)
+            VStack(spacing: 12) {
+                Button("Take it") { answer(same: true, adopt: true) }
+                    .buttonStyle(.borderedProminent)
+                Button("Keep mine") { answer(same: true) }
+                    .buttonStyle(.bordered)
+            }
+            .frame(maxWidth: .infinity)
+            .disabled(answering)
+        }
+        .padding(24)
+        .interactiveDismissDisabled(answering)
+    }
+
+    private var compareStep: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Text("Were you both at this night?")
@@ -65,7 +92,9 @@ struct MaybeCompareSheet: View {
         }
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 12) {
-                Button("Same night") { answer(same: true) }
+                Button("Same night") {
+                    if maybeAdoptable(maybe) { adopting = true } else { answer(same: true) }
+                }
                     .buttonStyle(.borderedProminent)
                 Button("Not the same") { answer(same: false) }
                     .buttonStyle(.bordered)
@@ -79,11 +108,11 @@ struct MaybeCompareSheet: View {
         .interactiveDismissDisabled(answering)
     }
 
-    private func answer(same: Bool) {
+    private func answer(same: Bool, adopt: Bool = false) {
         guard !answering else { return }
         answering = true
         Task { @MainActor in
-            await model.answerMaybe(maybe, same: same)
+            if adopt { await model.adoptMaybe(maybe) } else { await model.answerMaybe(maybe, same: same) }
             close()
         }
     }

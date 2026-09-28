@@ -1396,6 +1396,16 @@ final class AppModel: ObservableObject {
         maybeUndo = MaybeAnswer(maybe: maybe, same: same)
     }
 
+    /// "Same night", then "Take it" (#580): my typed-by-hand Night adopts their setlist.fm
+    /// entry, so both Nights answer to one id and meet without a join. No Undo: the
+    /// adoption says "Adopted" itself. Where it can't happen it falls back to a join.
+    func adoptMaybe(_ maybe: MaybeNight) async {
+        maybeUndo = nil
+        if !(await adoptSetlist(gigId: maybe.mine.id, setlistId: maybe.theirs.id, fresh: nil, notice: true)) {
+            await answerMaybe(maybe, same: true)
+        }
+    }
+
     func undoMaybe(_ answer: MaybeAnswer) async {
         guard maybeUndo?.id == answer.id else { return }
         maybeUndo = nil

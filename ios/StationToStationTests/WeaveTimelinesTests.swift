@@ -503,17 +503,27 @@ final class WeaveTimelinesTests: XCTestCase {
         XCTAssertEqual("Kept apart from Mia's night", maybeAnswered(maybe, same: false))
     }
 
-    func testComparisonNamesWhichRecordIsKeptIncludingDeferredAdoption() {
+    func testComparisonNamesWhichRecordIsKept() {
         let mia = Friend(setlistfm: "", name: "Mia")
         let fm = show("m1", "21-11-2025", "Blå")
         let hand = local("h1", "21-11-2025", "Blå")
         XCTAssertEqual("Same night keeps your setlist.fm entry. Mia's joins it.",
                        sameNightLine(MaybeNight(friend: mia, mine: fm, theirs: hand)))
-        XCTAssertEqual("Same night keeps your entry. Mia's setlist.fm entry joins it.",
+        XCTAssertEqual("Mia's is on setlist.fm. After Same night you can take it as yours.",
                        sameNightLine(MaybeNight(friend: mia, mine: hand, theirs: fm)))
         XCTAssertEqual("Same night keeps your entry. Mia's joins it.",
                        sameNightLine(MaybeNight(friend: mia, mine: hand,
                                                 theirs: local("n1", "21-11-2025", "Blå"))))
     }
 
+    /// Only a Night of mine typed by hand, against theirs from setlist.fm, is asked to adopt.
+    func testOnlyMineByHandAgainstTheirsFromSetlistFmAsksToTakeTheirs() {
+        let mia = Friend(setlistfm: "", name: "Mia")
+        let fm = show("m1", "21-11-2025", "Blå")
+        let hand = local("h1", "21-11-2025", "Blå")
+        XCTAssertTrue(maybeAdoptable(MaybeNight(friend: mia, mine: hand, theirs: fm)))
+        XCTAssertFalse(maybeAdoptable(MaybeNight(friend: mia, mine: fm, theirs: hand)))
+        XCTAssertFalse(maybeAdoptable(MaybeNight(friend: mia, mine: hand, theirs: local("n1", "21-11-2025", "Blå"))))
+        XCTAssertEqual("Take Mia's setlist.fm entry?", maybeAdoptQuestion(MaybeNight(friend: mia, mine: hand, theirs: fm)))
+    }
 }

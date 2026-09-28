@@ -577,25 +577,39 @@ fun compareMaybe(maybe: MaybeNight): List<MaybeField> {
 }
 
 /**
- * The one line under the comparison (#580): what "Same night" keeps. Mine, always, in
- * this build: their Night joins it (`nightJoins`), and whichever side came from
- * setlist.fm is named, so the line matches the case.
+ * The one line under the comparison (#580): what "Same night" keeps. Mine, and their
+ * Night joins it (`nightJoins`), with whichever side came from setlist.fm named so the
+ * line matches the case.
  *
  * - mine from setlist.fm: "Same night keeps your setlist.fm entry. Mia's joins it."
  * - both typed by hand: "Same night keeps your entry. Mia's joins it."
- * - only theirs from setlist.fm: "Same night keeps your entry. Mia's setlist.fm entry
- *   joins it." Taking their record over mine is the adoption path (`adoptSetlistId`),
- *   which cannot be undone yet, so it is not what "Same night" does.
+ * - only theirs from setlist.fm: "Mia's is on setlist.fm. After Same night you can take
+ *   it as yours." — "Same night" then asks ([maybeAdoptable]); taking it is an adoption.
  */
 fun sameNightLine(maybe: MaybeNight): String {
     val whose = maybeWhose(maybe)
     return when {
         !maybe.mine.isLocal() -> "Same night keeps your setlist.fm entry. $whose joins it."
-        !maybe.theirs.isLocal() -> "Same night keeps your entry. " +
-            (if (maybe.friend.name.isBlank()) "Their" else whose) + " setlist.fm entry joins it."
+        maybeAdoptable(maybe) -> "${if (maybe.friend.name.isBlank()) "Theirs" else whose} is on setlist.fm. " +
+            "After Same night you can take it as yours."
         else -> "Same night keeps your entry. $whose joins it."
     }
 }
+
+/**
+ * Mine typed by hand, theirs from setlist.fm (#580): "Same night" then offers to take
+ * their setlist.fm entry — an adoption, which merges the two for good. Asked, never
+ * assumed, because the adoption is the one answer that cannot be undone.
+ */
+fun maybeAdoptable(maybe: MaybeNight): Boolean = maybe.mine.isLocal() && !maybe.theirs.isLocal()
+
+/** The adoption question's heading (#580): "Take Mia's setlist.fm entry?" */
+fun maybeAdoptQuestion(maybe: MaybeNight): String = "Take ${maybeTheir(maybe, "their")} setlist.fm entry?"
+
+/** What taking it does, and what keeping yours does instead (#580). */
+fun maybeAdoptLine(maybe: MaybeNight): String =
+    "Your Night becomes ${maybeTheir(maybe, "their")} setlist.fm entry, setlist and all. " +
+        "This can't be undone. Keep mine joins the two Nights, and that can be undone."
 
 /** "Mia's" — or "Theirs" for a Contact with no name. */
 fun maybeWhose(maybe: MaybeNight): String =
