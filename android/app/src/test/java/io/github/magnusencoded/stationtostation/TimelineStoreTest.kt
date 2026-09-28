@@ -62,9 +62,21 @@ class TimelineStoreTest {
     fun `a failed fetch does not wipe the last good lane`() = runBlocking {
         val store = store()
         store.save(shows = mapOf("Ozzy" to listOf(show("a"))))
-        // loadFriendTimelines() puts an empty list in the map when a fetch throws.
+        // A failed fetch never reaches the store now; this is the belt to that brace,
+        // an empty answer over a lane that had Nights.
         store.save(shows = mapOf("Ozzy" to emptyList()))
         assertEquals(listOf("a"), store.load().shows["Ozzy"]?.map { it.id })
+    }
+
+    /**
+     * #405: an empty lane setlist.fm has answered for is held, not dropped, so the next
+     * launch does not read it as never asked and fetch it again.
+     */
+    @Test
+    fun `an empty lane is held where nothing was`() = runBlocking {
+        val store = store()
+        store.save(shows = mapOf("Ozzy" to emptyList()))
+        assertEquals(emptyList<String>(), store.load().shows["Ozzy"]?.map { it.id })
     }
 
     @Test

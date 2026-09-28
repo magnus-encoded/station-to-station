@@ -137,6 +137,52 @@ fun spineNights(
     return (attended + mine).sortedByDescending { it.localDate() }
 }
 
+/**
+ * Whether a **Contact**'s **Lane** needs a setlist.fm fetch when the strip opens (#405).
+ *
+ * [held] is what I already hold for them: null when nothing is, and an empty list when
+ * setlist.fm answered and they have no **Nights** there. The two are different facts.
+ * Reading them as one was the re-fetch loop: an empty answer was never held, so the
+ * Lane looked missing on every zoom-out and was asked for again, forever, against the
+ * one bundled key every tester shares. Once asked, an empty Lane is an answer.
+ *
+ * - no username: false. There is no address to fetch from, and whatever is held is all
+ *   there is.
+ * - nothing held: true.
+ * - stops short of me: true. A Lane whose oldest Night is newer than my own oldest
+ *   ([myOldest]) may be a truncated page, not a whole history. An empty Lane stops
+ *   short of nothing.
+ * - otherwise: false.
+ *
+ * ponytail: a Contact whose whole history is newer than my first Gig looks short every
+ * time, so zooming out costs them one page fetch each — the fetch stops on the first
+ * page because it has their whole list. Store their reported total if that one call
+ * ever matters.
+ */
+fun laneNeedsFetch(contact: Friend, held: List<FmSetlist>?, myOldest: LocalDate?): Boolean {
+    if (contact.setlistfm.isBlank()) return false
+    if (held == null) return true
+    if (held.isEmpty() || myOldest == null) return false
+    val theirOldest = held.mapNotNull { it.localDate() }.minOrNull() ?: return true
+    return theirOldest > myOldest
+}
+
+/**
+ * What I hold after [fetched] Lanes land on top of [held]: each fetched Lane replaces
+ * what was there, and an empty one is held too, so [laneNeedsFetch] reads it as an
+ * answer on the next pass. The one exception is an empty answer over a Lane that had
+ * Nights — that keeps the last good copy rather than trusting a blank page over it.
+ *
+ * Shared by the in-memory Lanes and [TimelineStore.save], so what is drawn and what is
+ * stored are one rule. A failed fetch is not an empty one: callers leave it out of
+ * [fetched] altogether.
+ */
+fun holdLanes(
+    held: Map<String, List<FmSetlist>>,
+    fetched: Map<String, List<FmSetlist>>,
+): Map<String, List<FmSetlist>> =
+    held + fetched.filter { (user, shows) -> shows.isNotEmpty() || held[user].isNullOrEmpty() }
+
 /** dd-MM-yyyy, the one date shape this app and setlist.fm both speak. */
 private val FM_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("dd-MM-yyyy", Locale.ENGLISH)
 

@@ -1,0 +1,16 @@
+{
+  "about": "laneNeedsFetch in Bill.kt and Bill.swift, clause for clause (#405). held is the dd-MM-yyyy dates of the Lane I hold: null is nothing held, [] is a Lane setlist.fm answered with no Nights. myOldest is my own oldest Gig, or null for none. A blank username is no username.",
+  "cases": [
+    { "name": "no username, nothing held", "username": "", "held": null, "myOldest": "25-06-2019", "fetch": false },
+    { "name": "no username, a Lane that stops short of me", "username": "", "held": ["01-01-2026"], "myOldest": "25-06-2019", "fetch": false },
+    { "name": "a whitespace username is no username", "username": "  ", "held": null, "myOldest": null, "fetch": false },
+    { "name": "nothing held", "username": "ozzy", "held": null, "myOldest": "25-06-2019", "fetch": true },
+    { "name": "nothing held, and no Gigs of my own", "username": "ozzy", "held": null, "myOldest": null, "fetch": true },
+    { "name": "an empty Lane, once asked, is an answer", "username": "ozzy", "held": [], "myOldest": "25-06-2019", "fetch": false },
+    { "name": "an empty Lane with no Gigs of my own", "username": "ozzy", "held": [], "myOldest": null, "fetch": false },
+    { "name": "a Lane that stops short of my oldest Gig", "username": "ozzy", "held": ["01-01-2026", "10-01-2020"], "myOldest": "25-06-2019", "fetch": true },
+    { "name": "a Lane reaching back past my oldest Gig", "username": "ozzy", "held": ["01-01-2026", "20-06-2019"], "myOldest": "25-06-2019", "fetch": false },
+    { "name": "a Lane reaching back to the day of my oldest Gig", "username": "ozzy", "held": ["25-06-2019"], "myOldest": "25-06-2019", "fetch": false },
+    { "name": "a Lane with no Gigs of my own to fall short of", "username": "ozzy", "held": ["01-01-2026"], "myOldest": null, "fetch": false }
+  ]
+}

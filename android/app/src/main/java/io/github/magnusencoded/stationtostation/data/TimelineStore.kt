@@ -1038,7 +1038,7 @@ class TimelineStore(
         attendedTotals: Map<String, Int> = emptyMap(),
     ): Unit = writeMerged { cache ->
         var c = cache.copy(
-            shows = cache.shows + shows.filterValues { list -> list.isNotEmpty() },
+            shows = holdLanes(cache.shows, shows),
             festivalNames = cache.festivalNames + festivalNames,
             festivals = cache.festivals.mergedWith(festivals),
             festivalIdByShow = cache.festivalIdByShow + festivalIdByShow,

@@ -83,10 +83,20 @@ final class TimelineStoreTests: XCTestCase {
     func testAFailedFetchDoesNotWipeTheLastGoodLane() async {
         let s = store()
         await s.save(shows: ["Ozzy": [show("a")]])
-        // A failed fetch puts an empty list in the map.
+        // A failed fetch never reaches the store now; this is the belt to that brace,
+        // an empty answer over a Lane that had Nights.
         await s.save(shows: ["Ozzy": []])
         let loaded = await s.load()
         XCTAssertEqual(["a"], loaded.shows["Ozzy"]?.map(\.id))
+    }
+
+    /// #405: an empty Lane setlist.fm has answered for is held, not dropped, so the
+    /// next launch does not read it as never asked and fetch it again.
+    func testAnEmptyLaneIsHeldWhereNothingWas() async {
+        let s = store()
+        await s.save(shows: ["Ozzy": []])
+        let loaded = await s.load()
+        XCTAssertEqual([], loaded.shows["Ozzy"]?.map(\.id))
     }
 
     /// Asked and answered are different facts: an evening with no festival behind it
