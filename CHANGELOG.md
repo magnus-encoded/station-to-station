@@ -10,11 +10,25 @@ plain text and at most 500 characters; `tools/changelog.py` extracts it and the
 release workflow refuses a tag whose version has no entry here. The rest of the
 section is the fuller account, and becomes the notes on the GitHub release.
 
+**A change that affects privacy comes first.** If a version changes what leaves
+the phone, or who it reaches, its Play summary opens with "Privacy:" and says
+so, before any feature, and the fuller account has a **Privacy.** paragraph.
+Every version listed under "What has changed" in the
+[privacy policy](docs/privacy-policy.md#what-has-changed) is checked for this.
+
 ## 1.11.0 — 2026-09-28
 
 <!-- play -->
-Friends you have swapped cards with no longer need a setlist.fm account: their nights come across when your phones meet. Two nights that might be the same gig are marked "maybe" until you compare them and decide. Tickets and gigs you logged yourself are looked up on setlist.fm. Settings is redrawn as a map of what feeds your timeline. Every control works with TalkBack. Security fixes, and the app opens straight onto your timeline.
+Privacy: syncing with a contact on the same WiFi now sends them the list of nights you have been at (date, act, venue), and the artist and date of tickets and hand-added gigs are looked up on setlist.fm. So contacts without a setlist.fm account get a line beside yours, and nights that may be the same gig are marked "maybe" for you to decide. Every control works with TalkBack, plus security fixes.
 <!-- /play -->
+
+**Privacy.** Two things now leave your phone that did not before. When you sync
+with a Contact on the same WiFi, your phone sends them the list of nights you
+have been at — date, act and venue, not what was played — where before it sent
+only the photos and notes you had shared. And the artist and date of a ticket,
+or of a gig you typed in, are sent to setlist.fm to find that night, including
+automatically while the app is open. See the
+[privacy policy](https://magnus-encoded.github.io/station-to-station/privacy-policy.html#what-has-changed).
 
 **Contacts without accounts.** Until now, someone you met in person only got a
 line beside yours if they kept their concert history on setlist.fm. A Contact's
@@ -50,8 +64,11 @@ screen until your timeline is ready instead of flashing half-loaded screens.
 *Android only. iOS stayed on 1.9.1 for this release.*
 
 <!-- play -->
-Tickets are read twice, from the PDF's own text and by reading the page as an image, and the two are cross-checked, so a ticket adds itself only when both agree. Every barcode on a ticket is kept: a ticket for two gives two entries, each redrawn at the door exactly as printed, whether QR, Aztec, PDF417, Data Matrix, Code 128 or EAN. A ticket for another act on the same date now asks, and a second shared ticket waits its turn.
+Privacy: the first version on Google Play where checking in at a gig passes small signed facts about that night to phones nearby over Bluetooth, in the background, until the night is over (from 1.9.0). Tickets are now read twice and cross-checked, and every barcode on a ticket is kept and redrawn at the door exactly as printed.
 <!-- /play -->
+
+**Privacy.** Gossip, added in 1.9.0, reaches Google Play for the first time with
+this version, because Play did not accept 1.9.0 or 1.9.1. See 1.9.0 below.
 
 **Tickets you can trust at the door.** A shared ticket PDF is now read twice —
 once from the text inside the PDF, once by recognising the printed page — and
@@ -86,7 +103,7 @@ Ticket PDFs shared from another app now arrive on Android. The barcode is read m
 ## 1.9.0 — 2026-09-20
 
 <!-- play -->
-Check-ins now travel between friends you have met in person over Bluetooth, in the background, even with no signal in the venue (experimental). A friend nearby can witness your check-in, the gig shows who else is there, and it remembers who you were seen with. Photos from a whole festival or run of nights can be seen together. A clear message when the shared setlist.fm key has run out for the day.
+Privacy: checking in at a gig now passes small signed facts about that night, such as your song log, to phones nearby over Bluetooth, in the background, until 06:00 the next morning at the latest. A friend nearby can witness your check-in, and the gig shows who else is there (experimental). Photos from a whole festival or run of nights can be seen together.
 <!-- /play -->
 
 **Check-ins that reach your friends without the internet (experimental).**
@@ -94,7 +111,12 @@ Checking in at a gig now passes quietly from phone to phone over Bluetooth
 between Contacts — people you have swapped cards with in person — even in a
 venue with no signal. A Contact standing nearby can witness your check-in, the
 gig shows who else is here, and afterwards it remembers who you were seen with.
-Everything is signed, you can see who said what, and you can block anyone. This
+Everything is signed, you can see who said what, and you can block anyone.
+
+**Privacy.** Phones in range pass these facts on, contacts and strangers alike.
+A stranger's phone learns a gig, a time and some text, never whose it is; your
+name, photos, notes and location are never part of it. It runs only once you
+have checked in, and on Android a notification with a Stop button says so. This
 replaces the earlier version of the feature; phones on older versions will not
 hear from this one. Not yet field-tested at a real show.
 
@@ -138,12 +160,14 @@ Tickets are named after the event, not the banner printed above it. On the day, 
 ## 1.7.0 — 2026-09-05
 
 <!-- play -->
-Share a ticket PDF into the app and it becomes a night on your timeline, after you confirm it. On the day, your ticket's QR code is on the gig screen. Moving to a new phone now tells you whether your accounts arrived.
+Privacy: the app now reads ticket PDFs you share with it and keeps their barcodes, on your phone only. Share a ticket PDF and it becomes a night on your timeline, after you confirm it. On the day, your ticket's QR code is on the gig screen. Moving to a new phone tells you whether your accounts arrived.
 <!-- /play -->
 
 **Tickets become nights.** Share a ticket PDF to Station to Station on either
 platform and it reads the artist, venue and date and offers the night for you
-to confirm. On the day, the ticket's code is on the gig's own screen.
+to confirm. On the day, the ticket's code is on the gig's own screen. The
+ticket is read and kept on your phone only; it is never uploaded or sent to
+your Contacts.
 
 - Moving to a new phone reports whether your accounts came across.
 - The hand-typed festival poster is gone; festival timetables (1.5.0) do the
@@ -179,13 +203,14 @@ The festival planner arrives on iOS. Back and forward now move through the plann
 ## 1.5.0 — 2026-09-01
 
 <!-- play -->
-Plan a festival: fetch its timetable from Clashfinder, pick the acts you are going to see, and each becomes a gig on your timeline, with clashes between stages shown.
+Privacy: festival timetables are fetched from Clashfinder using your own Clashfinder account, if you add one. Plan a festival: pick the acts you are going to see, and each becomes a gig on your timeline, with clashes between stages shown.
 <!-- /play -->
 
 **Departures: the festival planner.** Fetch a festival's published timetable
 from Clashfinder with your own account, pick the acts you mean to see, and
 each one becomes a gig on your timeline straight away. Clashes between stages
-are shown as you choose.
+are shown as you choose. Your Clashfinder private key stays on your phone; only
+a key derived from it is sent.
 
 ## 1.4.2 — 2026-08-29
 

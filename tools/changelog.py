@@ -3,7 +3,8 @@
 
     tools/changelog.py 1.11.0 --play    # Play's "What's new": the marked summary
     tools/changelog.py 1.11.0           # the whole section, for the GitHub release
-    tools/changelog.py --check          # every entry's Play summary fits
+    tools/changelog.py --check          # every Play summary fits, and a version
+                                        # the privacy policy names leads with it
 
 A version may be given with or without its tag's leading "v". A heading can name
 several versions ("## 1.2.3, 1.2.2, 1.2.1 — date") when they shipped as one.
@@ -18,6 +19,7 @@ import sys
 from pathlib import Path
 
 CHANGELOG = Path(__file__).resolve().parent.parent / "CHANGELOG.md"
+POLICY = CHANGELOG.parent / "docs" / "privacy-policy.md"
 
 # Play's own limit for one language's release notes. The API rejects a longer
 # text at commit time, after the upload, so it is enforced here instead.
@@ -74,8 +76,17 @@ def unwrap(text: str) -> str:
     return "\n".join(out)
 
 
-def check(text: str) -> list[str]:
+def privacy_versions(policy: str) -> set[str]:
+    """Versions the privacy policy's "What has changed" list names, each as a
+    bullet opening "**1.11.0, <date>: …". These are the releases that changed
+    what leaves the phone or who it reaches."""
+    changed = policy.split("## What has changed", 1)[-1].split("\n## ", 1)[0]
+    return set(re.findall(r"^- \*\*([0-9]+(?:\.[0-9]+)+),", changed, re.M))
+
+
+def check(text: str, policy: str) -> list[str]:
     problems = []
+    must_lead_with_privacy = privacy_versions(policy)
     for versions, body in sections(text):
         name = ", ".join(versions)
         try:
@@ -86,6 +97,14 @@ def check(text: str) -> list[str]:
         if len(notes) > PLAY_LIMIT:
             problems.append(f"{name}: Play summary is {len(notes)} characters, "
                             f"over Play's {PLAY_LIMIT}")
+        # Play's "What's new" is the one place a tester is told what changed, so a
+        # change to what the app shares is said there first, not after the features.
+        if must_lead_with_privacy & set(versions) and not notes.startswith("Privacy:"):
+            problems.append(f"{name}: the privacy policy lists a change in this version, "
+                            "so its Play summary must open with \"Privacy:\"")
+    missing = must_lead_with_privacy - {v for vs, _ in sections(text) for v in vs}
+    for version in sorted(missing):
+        problems.append(f"{version}: in the privacy policy's changes, but not in CHANGELOG.md")
     return problems
 
 
@@ -101,7 +120,7 @@ def main() -> int:
     text = CHANGELOG.read_text(encoding="utf-8")
 
     if args.check:
-        problems = check(text)
+        problems = check(text, POLICY.read_text(encoding="utf-8"))
         for problem in problems:
             print(problem, file=sys.stderr)
         return 1 if problems else 0

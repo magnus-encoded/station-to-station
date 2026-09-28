@@ -142,3 +142,10 @@ show; `tools/changelog.py --check` validates every entry.
 
 Write for someone who uses the app, not someone who reads the diff: what they
 can now do, or what stopped going wrong, and not which class moved.
+
+**Privacy first.** A release that changes what leaves the phone, or who it
+reaches, gets a bullet under "What has changed" in the privacy policy
+(`- **1.11.0, <date>: …**`) in the same PR, and its Play summary opens with
+"Privacy:". `--check` enforces the second from the first, so the policy entry
+is what makes the changelog say it; a privacy change missing from the policy
+is the one thing no check can catch.
