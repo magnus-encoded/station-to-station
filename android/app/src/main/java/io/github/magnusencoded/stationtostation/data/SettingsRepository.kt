@@ -3,6 +3,7 @@ package io.github.magnusencoded.stationtostation.data
 import android.content.Context
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -64,6 +65,8 @@ class SettingsRepository(private val context: Context) {
         val TOUR_ONCE = stringPreferencesKey("tour_once_commands")
         val TOUR_DEMO_WORLD = longPreferencesKey("tour_demo_world")
         val TOUR_RETURNED_FROM_PHOTOS = booleanPreferencesKey("tour_returned_from_photos")
+        val TOUR_DEMO_VENUE_LAT = doublePreferencesKey("tour_demo_venue_lat")
+        val TOUR_DEMO_VENUE_LON = doublePreferencesKey("tour_demo_venue_lon")
     }
 
     /**
@@ -122,6 +125,8 @@ class SettingsRepository(private val context: Context) {
             },
             demoWorld = (prefs[Keys.TOUR_DEMO_WORLD] ?: 0L).toInt(),
             returnedFromPhotos = prefs[Keys.TOUR_RETURNED_FROM_PHOTOS] ?: false,
+            demoVenueLat = prefs[Keys.TOUR_DEMO_VENUE_LAT],
+            demoVenueLon = prefs[Keys.TOUR_DEMO_VENUE_LON],
         )
     }
 
@@ -140,6 +145,10 @@ class SettingsRepository(private val context: Context) {
             }.sorted().joinToString(",")
             prefs[Keys.TOUR_DEMO_WORLD] = state.demoWorld.toLong()
             prefs[Keys.TOUR_RETURNED_FROM_PHOTOS] = state.returnedFromPhotos
+            state.demoVenueLat?.let { prefs[Keys.TOUR_DEMO_VENUE_LAT] = it }
+                ?: prefs.remove(Keys.TOUR_DEMO_VENUE_LAT)
+            state.demoVenueLon?.let { prefs[Keys.TOUR_DEMO_VENUE_LON] = it }
+                ?: prefs.remove(Keys.TOUR_DEMO_VENUE_LON)
         }
     }
 

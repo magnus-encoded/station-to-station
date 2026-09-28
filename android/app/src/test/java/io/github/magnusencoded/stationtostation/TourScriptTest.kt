@@ -14,7 +14,7 @@ class TourScriptTest {
     private val progress = listOf(
         TourEvent.Acknowledged, TourEvent.CurtainPulled, TourEvent.BandPicked,
         TourEvent.GigAdded, TourEvent.RoomOpened, TourEvent.SwipedBack,
-        TourEvent.ContactExchanged, TourEvent.PinchedOut, TourEvent.TicketImported,
+        TourEvent.ContactExchanged(59.91, 10.75), TourEvent.PinchedOut, TourEvent.TicketImported,
         TourEvent.CalendarAdded, TourEvent.MapsOpened, TourEvent.TicketShown,
         TourEvent.CheckedIn, TourEvent.LogEntryWritten, TourEvent.GapRecorded,
         TourEvent.GossipSent, TourEvent.SetlistFilled, TourEvent.ReturnedFromPhotos,
@@ -88,6 +88,24 @@ class TourScriptTest {
         assertEquals(TourStep.S6, result.state.step)
         result = runTour(result.state, TourEvent.SwipedBack)
         assertEquals(TourStep.S7, result.state.step)
+    }
+
+    @Test fun `meeting the friend records the venue then waits for pinch and ticket import`() {
+        var state = statesAtEveryInteractiveStep().single { it.step == TourStep.S7 }
+        var result = runTour(state, TourEvent.ContactExchanged(59.9139, 10.7522))
+        assertEquals(TourStep.S8, result.state.step)
+        assertEquals(59.9139, result.state.demoVenueLat)
+        assertEquals(10.7522, result.state.demoVenueLon)
+        assertEquals(listOf(TourCommand.ShowCoachMark(TourStep.S8)), result.commands)
+
+        state = result.state
+        assertEquals(state, runTour(state, TourEvent.TicketImported).state)
+        result = runTour(state, TourEvent.PinchedOut)
+        assertEquals(TourStep.S9, result.state.step)
+        assertEquals(listOf(TourCommand.ImportDemoTicket), result.commands)
+
+        result = runTour(result.state, TourEvent.TicketImported)
+        assertEquals(TourStep.S10, result.state.step)
     }
 
     private data class TourTransitionSnapshot(val state: TourState, val commands: List<TourCommand>)

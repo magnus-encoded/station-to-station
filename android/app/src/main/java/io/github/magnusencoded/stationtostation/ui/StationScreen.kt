@@ -505,7 +505,9 @@ fun StationTimelineScreen(
                     val zoomedOut = state.zoomedOut
                     LaunchedEffect(state.justConnected) {
                         if (state.justConnected) {
-                            viewModel.setZoomedOut(true)
+                            // The Tour teaches this gesture: landing from S7 must leave
+                            // the friend waiting off-screen until the user's own pinch.
+                            if (state.tour.step != TourStep.S8) viewModel.setZoomedOut(true)
                             viewModel.consumeJustConnected()
                         }
                     }

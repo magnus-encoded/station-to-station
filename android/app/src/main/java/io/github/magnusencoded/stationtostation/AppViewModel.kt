@@ -20,6 +20,7 @@ import io.github.magnusencoded.stationtostation.data.spineJoins
 import io.github.magnusencoded.stationtostation.data.MediaOffer
 import io.github.magnusencoded.stationtostation.data.mySpine
 import io.github.magnusencoded.stationtostation.data.withFriend
+import io.github.magnusencoded.stationtostation.data.withoutDemoFriends
 import io.github.magnusencoded.stationtostation.ble.probeCardFor
 import io.github.magnusencoded.stationtostation.data.DeviceLocation
 import io.github.magnusencoded.stationtostation.data.DeviceTimelinePlumbing
@@ -72,6 +73,7 @@ import io.github.magnusencoded.stationtostation.data.TimelineStore
 import io.github.magnusencoded.stationtostation.data.TourCommand
 import io.github.magnusencoded.stationtostation.data.TourEvent
 import io.github.magnusencoded.stationtostation.data.TourState
+import io.github.magnusencoded.stationtostation.data.TourStep
 import io.github.magnusencoded.stationtostation.data.runTour
 import io.github.magnusencoded.stationtostation.data.friendFromUri
 import io.github.magnusencoded.stationtostation.data.gigIdFromInvite
@@ -689,6 +691,7 @@ fun PendingTicket.confirmedAs(
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
+        private const val DEMO_FRIEND_ID = "tour-virtual-friend"
         /** setlist.fm's page size for attended lists — used to resume a cached spine. */
         private const val SETLISTS_PER_PAGE = 20
 
@@ -897,6 +900,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * reason — starting it is what raises the local-network permission prompt there.
      */
     fun startContactExchange() {
+        if (_state.value.tour.step == TourStep.S7) return
         if (_state.value.friends.any { !it.publicKey.isNullOrBlank() }) contactExchange.start()
     }
 
@@ -1018,7 +1022,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
             for (command in transition.commands) {
                 when (command) {
-                    TourCommand.PurgeDemoWorld -> timelines.purgeDemoWorld()
+                    TourCommand.ImportDemoTicket -> importDemoTicket()
+                    TourCommand.PurgeDemoWorld -> purgeDemoWorld()
                     else -> Unit // Later Tour slices own their platform side effects.
                 }
             }
@@ -1026,6 +1031,46 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun offerTourWhenOnline() = dispatchTour(TourEvent.Started(getApplication<Application>().isOnline()))
+
+    /** S9 uses the same parsed-ticket router as a PDF share; only the bytes are synthetic. */
+    private suspend fun importDemoTicket() {
+        val gig = timelines.load().gigs.values.singleOrNull { it.demo } ?: return
+        routeParsedTicket(
+            ParsedTicket(
+                admissions = listOf(
+                    Admission(
+                        payload = "station-to-station-tour-ticket".toByteArray(),
+                        symbology = QR_SYMBOLOGY,
+                    ),
+                ),
+                artist = gig.artist,
+                venue = gig.venue,
+                date = gig.date,
+            ),
+        )
+        dispatchTour(TourEvent.TicketImported)
+    }
+
+    /** Demo-tagged app data goes; the system's permission grants remain untouched. */
+    private suspend fun purgeDemoWorld() {
+        val demoIds = timelines.load().gigs.values.filter { it.demo }.mapTo(mutableSetOf()) { it.id }
+        val demoFriends = _state.value.friends.filter { it.demo }
+        timelines.purgeDemoWorld()
+        val friends = _state.value.friends.withoutDemoFriends()
+        settings.saveFriends(friends)
+        _state.update { state ->
+            state.copy(
+                friends = friends,
+                plannedGigs = state.plannedGigs.filterNot { it.id in demoIds },
+                attendanceByGig = state.attendanceByGig - demoIds,
+                showsByFriend = state.showsByFriend - demoFriends.map { it.laneKey }.toSet(),
+                exchangePeers = emptyList(),
+                connectingWith = null,
+                justConnected = false,
+                zoomedOut = false,
+            )
+        }
+    }
 
     fun consumeError() = _state.update { it.copy(error = null, errorKind = null) }
     fun consumeNotice() = _state.update { it.copy(notice = null) }
@@ -1755,6 +1800,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * People appear as they come into range, so the list is a live view of the room.
      */
     fun startExchange() {
+        if (_state.value.tour.step == TourStep.S7) {
+            _state.update {
+                it.copy(
+                    discovering = false,
+                    exchangePeers = listOf(demoExchangePeer()),
+                    connectingWith = null,
+                )
+            }
+            return
+        }
         // No username is not a reason to keep anyone off this screen. It only means
         // there is no card to hand over, so the advertising radios stay quiet while
         // scanning runs as usual — the room is still visible, and a card handed to me
@@ -1769,6 +1824,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Pulled down on the exchange screen: drop everything and listen again. */
     fun restartExchange() {
+        if (_state.value.tour.step == TourStep.S7) {
+            startExchange()
+            return
+        }
         _state.update { it.copy(discovering = true, exchangePeers = emptyList()) }
         exchange.restart(myCard(), myProbeCard())
     }
@@ -1780,6 +1839,51 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun exchangePermissions(): List<String> = exchange.requiredPermissions()
 
+    private fun demoFriend() = Friend(
+        setlistfm = DEMO_FRIEND_ID,
+        name = "Virtual friend",
+        demo = true,
+    )
+
+    private fun demoExchangePeer() = ExchangePeer(
+        id = DEMO_FRIEND_ID,
+        name = "Virtual friend",
+        setlistfm = DEMO_FRIEND_ID,
+    )
+
+    /** Local-only S7 exchange: one location fix, one tagged Contact, and no radio session. */
+    private fun connectDemoFriend(peer: ExchangePeer) {
+        _state.update { it.copy(connectingWith = peer.name) }
+        viewModelScope.launch {
+            val fix = where.currentFix()
+            if (fix == null) {
+                _state.update {
+                    it.copy(connectingWith = null, notice = "A location fix is needed to continue the Tour.")
+                }
+                return@launch
+            }
+            val cache = timelines.load()
+            val stored = cache.gigs.values.singleOrNull { it.demo } ?: return@launch
+            val gig = _state.value.plannedGigs.firstOrNull { it.id == stored.id } ?: return@launch
+            val friend = demoFriend()
+            val attendance = timelines.setDemoVenue(stored.id, fix.first, fix.second)
+            writeFriend(friend)
+            timelines.save(shows = mapOf(friend.laneKey to listOf(gig)))
+            // Move to S8 before navigation observes justConnected, otherwise the
+            // ordinary exchange landing would auto-open Timelines and steal the pinch.
+            dispatchTour(TourEvent.ContactExchanged(fix.first, fix.second))
+            _state.update {
+                it.copy(
+                    attendanceByGig = it.attendanceByGig + (stored.id to attendance),
+                    showsByFriend = it.showsByFriend + (friend.laneKey to listOf(gig)),
+                    justConnected = true,
+                    connectingWith = null,
+                    exchangePeers = emptyList(),
+                )
+            }
+        }
+    }
+
     /**
      * Bring a peer onto my timeline: the "row → Connecting with dizzi90 → connected"
      * sequence. On the Nearby path the card is already in hand and the middle is
@@ -1788,6 +1892,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * rather than the tap landing on a dead end.
      */
     fun connectWith(peer: ExchangePeer) {
+        if (_state.value.tour.step == TourStep.S7 && peer.id == DEMO_FRIEND_ID) {
+            connectDemoFriend(peer)
+            return
+        }
         _state.update { it.copy(connectingWith = peer.name) }
         exchange.connect(peer) { friend ->
             if (friend == null) {
@@ -1827,6 +1935,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun setZoomedOut(on: Boolean) = _state.update {
         if (on && it.friends.isEmpty()) it else it.copy(zoomedOut = on)
+    }.also {
+        if (on && _state.value.tour.step == TourStep.S8) dispatchTour(TourEvent.PinchedOut)
     }
 
     /**
@@ -1903,7 +2013,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Loads every known friend's attended shows for the woven (zoomed-out) view. */
     fun loadFriendTimelines() {
-        val friends = _state.value.friends
+        val friends = _state.value.friends.filterNot { it.demo }
         if (friends.isEmpty()) return
         val myOldest = _state.value.setlists.mapNotNull { it.localDate() }.minOrNull()
         // Cached-and-complete is the common case, and refetching every lane on every

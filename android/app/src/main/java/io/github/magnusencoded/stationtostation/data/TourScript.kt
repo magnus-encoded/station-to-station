@@ -10,6 +10,8 @@ data class TourState(
     val deliveredOnce: Set<TourCommand.Once> = emptySet(),
     val demoWorld: Int = 0,
     val returnedFromPhotos: Boolean = false,
+    val demoVenueLat: Double? = null,
+    val demoVenueLon: Double? = null,
 )
 
 enum class TourStep { S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S12, S13, S14, S15, S16, S17, S18, S19, S20 }
@@ -22,7 +24,7 @@ sealed interface TourEvent {
     data object GigAdded : TourEvent
     data object RoomOpened : TourEvent
     data object SwipedBack : TourEvent
-    data object ContactExchanged : TourEvent
+    data class ContactExchanged(val latitude: Double, val longitude: Double) : TourEvent
     data object PinchedOut : TourEvent
     data object TicketImported : TourEvent
     data object CalendarAdded : TourEvent
@@ -72,14 +74,15 @@ fun runTour(state: TourState, event: TourEvent): TourTransition {
         if (!event.online || state.step != null || state.finished) return TourTransition(state)
         return enter(state.copy(demoWorld = state.demoWorld + 1), TourStep.S1)
     }
-    val next = when (state.step to event) {
+    val next = if (state.step == TourStep.S7 && event is TourEvent.ContactExchanged) {
+        TourStep.S8
+    } else when (state.step to event) {
         TourStep.S1 to TourEvent.Acknowledged -> TourStep.S2
         TourStep.S2 to TourEvent.CurtainPulled -> TourStep.S3
         TourStep.S3 to TourEvent.BandPicked -> TourStep.S4
         TourStep.S4 to TourEvent.GigAdded -> TourStep.S5
         TourStep.S5 to TourEvent.RoomOpened -> TourStep.S6
         TourStep.S6 to TourEvent.SwipedBack -> TourStep.S7
-        TourStep.S7 to TourEvent.ContactExchanged -> TourStep.S8
         TourStep.S8 to TourEvent.PinchedOut -> TourStep.S9
         TourStep.S9 to TourEvent.TicketImported -> TourStep.S10
         TourStep.S10 to TourEvent.CalendarAdded -> TourStep.S11
@@ -99,7 +102,12 @@ fun runTour(state: TourState, event: TourEvent): TourTransition {
     if (state.step == TourStep.S18 && event == TourEvent.ReturnedFromPhotos) {
         return TourTransition(state.copy(returnedFromPhotos = true))
     }
-    val moved = state.copy(pendingSpotifyRetry = event == TourEvent.SpotifyDeclined)
+    val exchanged = event as? TourEvent.ContactExchanged
+    val moved = state.copy(
+        pendingSpotifyRetry = event == TourEvent.SpotifyDeclined,
+        demoVenueLat = exchanged?.latitude ?: state.demoVenueLat,
+        demoVenueLon = exchanged?.longitude ?: state.demoVenueLon,
+    )
     return if (next == TourStep.S20) finish(moved.copy(step = TourStep.S20)) else enter(moved, next!!)
 }
 
