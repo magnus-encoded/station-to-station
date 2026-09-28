@@ -14,6 +14,8 @@ import io.github.magnusencoded.stationtostation.data.holdingOffers
 import io.github.magnusencoded.stationtostation.data.joinedNights
 import io.github.magnusencoded.stationtostation.data.joiningNight
 import io.github.magnusencoded.stationtostation.data.dismissingMaybe
+import io.github.magnusencoded.stationtostation.data.undismissingMaybe
+import io.github.magnusencoded.stationtostation.data.unjoiningNight
 import io.github.magnusencoded.stationtostation.data.spineDismissals
 import io.github.magnusencoded.stationtostation.data.spineJoins
 import io.github.magnusencoded.stationtostation.data.waitingOn
@@ -525,5 +527,42 @@ class ContactReconcileTest {
 
         assertEquals(mapOf("their-a" to "sfm-1"), mine.spineJoins())
         assertEquals(mapOf("their-b" to setOf("sfm-1")), mine.spineDismissals())
+    }
+
+    // --- Undo (#580): an answer taken back is the maybe asked again. ---
+
+    @Test
+    fun `undoing same night takes the join away and nothing else`() {
+        val mine = TimelineCache(gigs = mapOf("my-local" to myGig))
+            .joiningNight("their-b", "my-local")
+
+        val undone = mine.joiningNight("their-local", "my-local").unjoiningNight("their-local", "my-local")
+
+        assertEquals(mine, undone)
+        assertEquals(mapOf("their-b" to "my-local"), undone.nightJoins)
+    }
+
+    @Test
+    fun `undo leaves a join to another night of mine alone`() {
+        val mine = TimelineCache(gigs = mapOf("my-local" to myGig))
+            .joiningNight("their-local", "my-other")
+
+        assertEquals(mine, mine.unjoiningNight("their-local", "my-local"))
+    }
+
+    @Test
+    fun `undoing not the same marks that pair again and keeps the others apart`() {
+        val mine = TimelineCache(gigs = mapOf("my-local" to myGig))
+        val once = mine.dismissingMaybe("their-local", "my-local")
+
+        assertEquals(mine, once.undismissingMaybe("their-local", "my-local"))
+        assertTrue(once.undismissingMaybe("their-local", "my-local").nightDismissals.isEmpty())
+
+        val two = once.dismissingMaybe("their-local", "my-other")
+        assertEquals(
+            mapOf("their-local" to listOf("my-other")),
+            two.undismissingMaybe("their-local", "my-local").nightDismissals,
+        )
+        assertEquals(two, two.undismissingMaybe("their-local", "nobody"))
     }
 }

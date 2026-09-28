@@ -3,12 +3,25 @@ package io.github.magnusencoded.stationtostation
 import io.github.magnusencoded.stationtostation.data.Festivals
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.StoredFestival
+import io.github.magnusencoded.stationtostation.data.TimelineCache
+import io.github.magnusencoded.stationtostation.data.dismissingMaybe
+import io.github.magnusencoded.stationtostation.data.joiningNight
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmCity
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmVenue
+import io.github.magnusencoded.stationtostation.data.undismissingMaybe
+import io.github.magnusencoded.stationtostation.data.unjoiningNight
 import io.github.magnusencoded.stationtostation.ui.MaybeNight
 import io.github.magnusencoded.stationtostation.ui.TimelineNode
+import io.github.magnusencoded.stationtostation.ui.WovenRow
+import io.github.magnusencoded.stationtostation.ui.compareMaybe
+import io.github.magnusencoded.stationtostation.ui.maybeAnswered
+import io.github.magnusencoded.stationtostation.ui.maybeFieldSpoken
+import io.github.magnusencoded.stationtostation.ui.maybeMergeLabel
 import io.github.magnusencoded.stationtostation.ui.maybeNights
+import io.github.magnusencoded.stationtostation.ui.maybePill
+import io.github.magnusencoded.stationtostation.ui.sameNightLine
 import io.github.magnusencoded.stationtostation.ui.weaveTimelines
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -517,5 +530,139 @@ class WeaveTimelinesTest {
         val n1 = local("n1", "21-11-2025", "Blå")
         val asked = maybeNights(listOf(m1), listOf(lemmy, ozzy), mapOf("Lemmy" to listOf(n1)))
         assertEquals(listOf(MaybeNight(lemmy, m1, n1)), asked)
+    }
+
+    // --- Answering a maybe from the Spine (#580). Twinned in WeaveTimelinesTests.swift. ---
+
+    private val tom = Friend(setlistfm = "Tom", name = "Tom")
+
+    private fun ids(rows: List<WovenRow>) = rows.map { it.shows.first().id }
+
+    /** Ozzy's catalogued Night that date is no question, and no longer stands between the pair. */
+    @Test
+    fun `a maybe pair becomes neighbours past another night that date`() {
+        val m1 = show("m1", "21-11-2025", "Blå")
+        val n1 = local("n1", "21-11-2025", "Brenneriveien 9")
+        val rows = weaveTimelines(
+            mine = listOf(m1),
+            festivals = Festivals(),
+            friends = listOf(ozzy, lemmy),
+            theirs = mapOf(
+                "Ozzy" to listOf(show("b1", "21-11-2025", "Rockefeller")),
+                "Lemmy" to listOf(n1),
+            ),
+        )
+        assertEquals(listOf("m1", "n1", "b1"), ids(rows))
+        assertEquals(listOf(MaybeNight(lemmy, m1, n1)), rows[1].maybeAbove)
+        assertTrue(rows[0].maybeAbove.isEmpty() && rows[2].maybeAbove.isEmpty())
+        // Asked by the merge row, so not said again in words on my row.
+        assertEquals(listOf(lemmy), rows[0].maybe)
+        assertTrue(rows[0].maybeInWords.isEmpty())
+    }
+
+    /** mine → merge(Lemmy) → Lemmy's → merge(Tom) → Tom's, in Lane order. */
+    @Test
+    fun `several maybes stack below my night in lane order`() {
+        val m1 = show("m1", "21-11-2025", "Blå")
+        val n1 = local("n1", "21-11-2025", "Brenneriveien 9")
+        val t1 = local("t1", "21-11-2025", "Rockefeller")
+        val rows = weaveTimelines(
+            mine = listOf(show("m0", "22-11-2025", "Sentrum"), m1, show("m2", "20-11-2025", "Parkteatret")),
+            festivals = Festivals(),
+            friends = listOf(tom, ozzy, lemmy),
+            theirs = mapOf(
+                "Tom" to listOf(t1),
+                "Ozzy" to listOf(show("b1", "21-11-2025", "Victoria")),
+                "Lemmy" to listOf(n1),
+            ),
+        )
+        assertEquals(listOf("m0", "m1", "t1", "n1", "b1", "m2"), ids(rows))
+        assertEquals(listOf(MaybeNight(tom, m1, t1)), rows[2].maybeAbove)
+        assertEquals(listOf(MaybeNight(lemmy, m1, n1)), rows[3].maybeAbove)
+        assertEquals(listOf(tom, lemmy), rows[1].maybe)
+        assertTrue(rows[1].maybeInWords.isEmpty())
+    }
+
+    /** One Night of theirs, two of mine that date: one merge row, and the other asks in words. */
+    @Test
+    fun `a night of theirs sits below the first night of mine that asks`() {
+        val m1 = local("m1", "21-11-2025", "Blå")
+        val m2 = local("m2", "21-11-2025", "Rockefeller")
+        val n1 = local("n1", "21-11-2025", "Brenneriveien 9")
+        val rows = weaveTimelines(listOf(m1, m2), Festivals(), listOf(lemmy), mapOf("Lemmy" to listOf(n1)))
+        assertEquals(listOf("m1", "n1", "m2"), ids(rows))
+        assertEquals(listOf(MaybeNight(lemmy, m1, n1)), rows[1].maybeAbove)
+        assertTrue(rows[0].maybeInWords.isEmpty())
+        assertEquals(listOf(lemmy), rows[2].maybeInWords)
+    }
+
+    @Test
+    fun `same night draws my node joined with them, and undo asks again`() {
+        val m1 = show("m1", "21-11-2025", "Blå")
+        val n1 = local("n1", "21-11-2025", "Brenneriveien 9")
+        val cache = TimelineCache()
+        fun weave(c: TimelineCache) = weaveTimelines(
+            listOf(m1), Festivals(), listOf(lemmy), mapOf("Lemmy" to listOf(n1)),
+            joins = c.nightJoins, apart = c.nightDismissals.mapValues { it.value.toSet() },
+        )
+        val before = weave(cache)
+
+        val joined = weave(cache.joiningNight("n1", "m1"))
+        assertEquals(1, joined.size)
+        assertEquals(listOf(lemmy), joined[0].joinedWith)
+        assertTrue(joined.all { it.maybeAbove.isEmpty() && it.maybe.isEmpty() })
+
+        val apart = weave(cache.dismissingMaybe("n1", "m1"))
+        assertTrue(apart.all { it.maybeAbove.isEmpty() && it.maybe.isEmpty() })
+
+        assertEquals(before, weave(cache.joiningNight("n1", "m1").unjoiningNight("n1", "m1")))
+        assertEquals(before, weave(cache.dismissingMaybe("n1", "m1").undismissingMaybe("n1", "m1")))
+        assertEquals(listOf(MaybeNight(lemmy, m1, n1)), before[1].maybeAbove)
+    }
+
+    // --- The comparison (#580) ---
+
+    @Test
+    fun `the comparison lights the fields that differ and never the source`() {
+        val mine = show("m1", "21-11-2025", "Blå").copy(
+            artist = FmArtist(name = "Isak Benjamin"),
+            venue = FmVenue(name = "Blå", city = FmCity(name = "Oslo")),
+        )
+        val theirs = local("n1", "21-11-2025", "Brenneriveien 9").copy(
+            artist = FmArtist(name = "isak benjamin "),
+            venue = FmVenue(name = "Brenneriveien 9", city = FmCity(name = "Oslo")),
+        )
+        val maybe = MaybeNight(Friend(setlistfm = "", name = "Mia"), mine, theirs)
+        val fields = compareMaybe(maybe)
+        assertEquals(listOf("Artist", "Date", "Venue", "City", "From"), fields.map { it.label })
+        assertEquals(listOf("Venue"), fields.filter { it.differs }.map { it.label })
+        assertEquals("21 Nov 2025", fields[1].yours)
+        assertEquals(listOf("setlist.fm", "typed by hand"), fields.last().let { listOf(it.yours, it.theirs) })
+        assertEquals("Venue: yours Blå, Mia's Brenneriveien 9, differs", maybeFieldSpoken(maybe, fields[2]))
+        assertEquals("City: yours Oslo, Mia's Oslo", maybeFieldSpoken(maybe, fields[3]))
+        assertEquals("Same night as Mia's?", maybePill(maybe))
+        assertEquals("Maybe the same night: yours above, Mia's below. Compare them.", maybeMergeLabel(maybe))
+        assertEquals("Joined with Mia's night", maybeAnswered(maybe, same = true))
+        assertEquals("Kept apart from Mia's night", maybeAnswered(maybe, same = false))
+    }
+
+    /** The setlist.fm record is the one kept; the line under the table says which, per case. */
+    @Test
+    fun `the line under the comparison names what same night keeps`() {
+        val mia = Friend(setlistfm = "", name = "Mia")
+        val fm = show("m1", "21-11-2025", "Blå")
+        val hand = local("h1", "21-11-2025", "Blå")
+        assertEquals(
+            "Same night keeps your setlist.fm entry. Mia's joins it.",
+            sameNightLine(MaybeNight(mia, fm, hand.copy(id = "n1"))),
+        )
+        assertEquals(
+            "Same night keeps your entry. Mia's setlist.fm entry joins it.",
+            sameNightLine(MaybeNight(mia, hand, fm.copy(id = "n1"))),
+        )
+        assertEquals(
+            "Same night keeps your entry. Mia's joins it.",
+            sameNightLine(MaybeNight(mia, hand, hand.copy(id = "n1"))),
+        )
     }
 }

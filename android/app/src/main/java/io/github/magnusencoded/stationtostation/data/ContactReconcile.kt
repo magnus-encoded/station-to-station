@@ -312,6 +312,24 @@ fun TimelineCache.dismissingMaybe(night: String, gigId: String): TimelineCache {
     return copy(nightDismissals = nightDismissals + (night to had + gigId))
 }
 
+/**
+ * Undo of "Same night" (#580): the join from their Night [night] to my **Gig** [gigId]
+ * goes, and the *maybe* is asked again. Only that join — a join since made to another
+ * Night of mine is somebody else's answer and stays.
+ */
+fun TimelineCache.unjoiningNight(night: String, gigId: String): TimelineCache {
+    if (nightJoins[night] != gigId) return this
+    return copy(nightJoins = nightJoins - night)
+}
+
+/** Undo of "Not the same" (#580): this pair is marked again. The other pairs stay apart. */
+fun TimelineCache.undismissingMaybe(night: String, gigId: String): TimelineCache {
+    val had = nightDismissals[night] ?: return this
+    if (gigId !in had) return this
+    val left = had - gigId
+    return copy(nightDismissals = if (left.isEmpty()) nightDismissals - night else nightDismissals + (night to left))
+}
+
 /** [TimelineCache.nightJoins] under the ids the **Spine** uses: their Night id → my Night id. */
 fun TimelineCache.spineJoins(): Map<String, String> =
     nightJoins.filter { (night, gigId) -> night.isNotBlank() && gigId.isNotBlank() }

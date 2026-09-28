@@ -1487,18 +1487,32 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * Mine alone — nothing is sent — and from here the Spine draws it **Joined** and what
      * they send for it lands directly.
      */
-    fun joinNight(night: String, key: String) {
+    fun joinNight(night: String, key: String) = viewModelScope.launch {
+        timelines.joinNight(night, key)
+        val cache = timelines.load()
+        _state.update { it.copy(nightJoins = cache.spineJoins()) }
+    }
+
+    /** "Not the same" to a *maybe* (#405): the marker goes, and stays gone. Mine alone. */
+    fun dismissMaybe(night: String, key: String) = viewModelScope.launch {
+        timelines.dismissMaybe(night, key)
+        val cache = timelines.load()
+        _state.update { it.copy(nightsApart = cache.spineDismissals()) }
+    }
+
+    /** Undo of [joinNight] (#580): the *maybe* is asked again. */
+    fun unjoinNight(night: String, key: String) {
         viewModelScope.launch {
-            timelines.joinNight(night, key)
+            timelines.unjoinNight(night, key)
             val cache = timelines.load()
             _state.update { it.copy(nightJoins = cache.spineJoins()) }
         }
     }
 
-    /** "Not the same" to a *maybe* (#405): the marker goes, and stays gone. Mine alone. */
-    fun dismissMaybe(night: String, key: String) {
+    /** Undo of [dismissMaybe] (#580): the *maybe* is asked again. */
+    fun undismissMaybe(night: String, key: String) {
         viewModelScope.launch {
-            timelines.dismissMaybe(night, key)
+            timelines.undismissMaybe(night, key)
             val cache = timelines.load()
             _state.update { it.copy(nightsApart = cache.spineDismissals()) }
         }

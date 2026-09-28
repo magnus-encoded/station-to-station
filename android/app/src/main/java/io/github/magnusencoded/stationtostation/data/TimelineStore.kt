@@ -1145,6 +1145,21 @@ class TimelineStore(
     }
 
     /**
+     * Undo of [joinNight] (#580): the *maybe* comes back. Mints nothing — the Gig the
+     * join made stays, holding nothing, as a Gig minted by any other write does.
+     */
+    suspend fun unjoinNight(night: String, key: String): Unit = writeMerged { c ->
+        val gigId = c.gigIdOrNull(key) ?: return@writeMerged c
+        c.unjoiningNight(night, gigId)
+    }
+
+    /** Undo of [dismissMaybe] (#580): the *maybe* comes back. */
+    suspend fun undismissMaybe(night: String, key: String): Unit = writeMerged { c ->
+        val gigId = c.gigIdOrNull(key) ?: return@writeMerged c
+        c.undismissingMaybe(night, gigId)
+    }
+
+    /**
      * A **Contact**'s **Nights** from a **Reconcile**, folded into the **Lane** held under
      * [laneKey] (#405) — `shows`, the same map a fetched Lane is held in, so a Contact with
      * no account draws offline the way a fetched one does. Adds, never removes: see
