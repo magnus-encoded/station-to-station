@@ -96,7 +96,9 @@ struct StationToStationApp: App {
             .preferredColorScheme(.dark)
             .appBanners(model) { nav.push(.settings) }
             .overlay(alignment: .bottom) {
-                if model.state.tour.isRunning { TourCoachMarkView() }
+                if model.state.tour.isRunning {
+                    TourCoachMarkView().environmentObject(model)
+                }
             }
             // Spotify's OAuth callback is handled by ASWebAuthenticationSession;
             // the app only needs to catch friend-card links here.
