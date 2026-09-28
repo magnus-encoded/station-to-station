@@ -16,7 +16,10 @@ func renderOriginal(_ url: URL, page: Int, width: CGFloat = 800) -> UIImage? {
     else { return nil }
     let bounds = pdfPage.bounds(for: .mediaBox)
     guard bounds.width > 0 else { return nil }
-    let size = CGSize(width: width, height: width * bounds.height / bounds.width)
+    // Bounded (#165): a page one point wide would otherwise ask for an image millions of
+    // points tall at this fixed width. Twice as tall as wide is past any real ticket.
+    let size = boundedPageSize(bounds.size, scale: width / bounds.width,
+                               maxEdge: 2 * width, maxArea: 2 * width * width)
     return pdfPage.thumbnail(of: size, for: .mediaBox)
 }
 
