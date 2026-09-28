@@ -7,10 +7,23 @@ import io.github.magnusencoded.stationtostation.data.StoredGig
 import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.TimelineCache
 import io.github.magnusencoded.stationtostation.data.contactLanding
+import io.github.magnusencoded.stationtostation.data.contactManifest
 import io.github.magnusencoded.stationtostation.data.contactReconcilePlan
+import io.github.magnusencoded.stationtostation.data.Friend
+import io.github.magnusencoded.stationtostation.data.StoredAttendance
+import io.github.magnusencoded.stationtostation.data.landNights
+import io.github.magnusencoded.stationtostation.data.laneNeedsFetch
+import io.github.magnusencoded.stationtostation.data.localGigSetlist
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSet
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSets
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSong
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDate
 
 /**
  * The LAN reconcile decision between two **Contacts** (#257). No radio, no socket, no
@@ -245,5 +258,98 @@ class ContactReconcileTest {
         val landing = contactLanding(mine, offer, resolved = emptyMap())
 
         assertTrue(landing.isEmpty())
+    }
+
+    // --- Nights ride the Reconcile offer (#405) ---
+    //
+    // A Contact with no setlist.fm account has no address to fetch a Lane from, so the
+    // Lane is what they hand over. Hand-logged and imported Nights go on the same terms.
+
+    private val imported = FmSetlist(
+        id = "sl-imported", eventDate = "13-08-2026", artist = FmArtist(name = "Wilco"),
+        url = "https://www.setlist.fm/setlist/wilco/2026/x.html",
+    )
+    private val handLogged = localGigSetlist(
+        gigId = "local-1", artist = "Nick Cave", date = LocalDate.of(2026, 8, 14),
+        venue = "Tøyenparken", city = "Oslo",
+    )
+
+    /** What a Contact's phone offers: its Spine, whichever way each Night got there. */
+    private fun theirCache() = TimelineCache(
+        shows = mapOf("theirs" to listOf(imported)),
+        gigPlanned = mapOf("local-1" to handLogged),
+        gigAttendance = mapOf("local-1" to StoredAttendance(provenance = StoredAttendance.Provenance.ATTENDED)),
+    )
+
+    @Test
+    fun `an unverified peer's nights are not taken`() {
+        val offer = HandoverManifest(nights = listOf(imported, handLogged))
+
+        assertTrue(contactReconcilePlan(TimelineCache(), offer, verified = false).nights.isEmpty())
+    }
+
+    @Test
+    fun `hand-logged nights are offered on the same terms as imported ones`() {
+        val offer = contactManifest(theirCache(), me = "their-key", setlistfm = "theirs")
+
+        assertEquals(setOf("sl-imported", "local-1"), offer.nights.map { it.id }.toSet())
+        val plan = contactReconcilePlan(TimelineCache(), offer, verified = true)
+        assertEquals(setOf("sl-imported", "local-1"), plan.nights.map { it.id }.toSet())
+    }
+
+    /** No account is no reason to offer less: what I logged by hand is my whole Line. */
+    @Test
+    fun `a contact with no account still offers every night they logged`() {
+        val offer = contactManifest(theirCache(), me = "their-key", setlistfm = "")
+
+        assertEquals(listOf("local-1"), offer.nights.map { it.id })
+    }
+
+    @Test
+    fun `nights the far end already holds are not taken again`() {
+        val offer = HandoverManifest(nights = listOf(imported, handLogged))
+
+        val plan = contactReconcilePlan(TimelineCache(), offer, verified = true, heldLane = listOf(imported))
+
+        assertEquals(listOf("local-1"), plan.nights.map { it.id })
+    }
+
+    @Test
+    fun `a lane already whole takes nothing, and running it twice is running it once`() {
+        val offer = HandoverManifest(nights = listOf(imported, handLogged, handLogged))
+
+        val first = contactReconcilePlan(TimelineCache(), offer, verified = true)
+        val lane = landNights(null, first.nights)
+        val second = contactReconcilePlan(TimelineCache(), offer, verified = true, heldLane = lane)
+
+        assertEquals(listOf("local-1", "sl-imported"), lane.map { it.id })
+        assertTrue(second.nights.isEmpty())
+    }
+
+    @Test
+    fun `a night with no id is no night`() {
+        val offer = HandoverManifest(nights = listOf(imported.copy(id = "")))
+
+        assertTrue(contactReconcilePlan(TimelineCache(), offer, verified = true).nights.isEmpty())
+    }
+
+    /** Their Nights draw from a date, an act and a room; the songs stay behind. */
+    @Test
+    fun `the offer carries no songs`() {
+        val withSongs = imported.copy(sets = FmSets(set = listOf(FmSet(song = listOf(FmSong(name = "Jesus, Etc."))))))
+        val cache = theirCache().copy(shows = mapOf("theirs" to listOf(withSongs)))
+
+        assertTrue(contactManifest(cache, me = "their-key", setlistfm = "theirs").nights.all { it.sets == null })
+    }
+
+    /** A received Lane is held, so an account-less Contact is never sent to setlist.fm. */
+    @Test
+    fun `an account-less contact's received lane draws without a fetch`() {
+        val dio = Friend(setlistfm = "", name = "Dio", publicKey = "k-dio")
+        val offer = contactManifest(theirCache(), me = "k-dio", setlistfm = "")
+        val lane = landNights(null, contactReconcilePlan(TimelineCache(), offer, verified = true).nights)
+
+        assertEquals(listOf("local-1"), lane.map { it.id })
+        assertFalse(laneNeedsFetch(dio, lane, LocalDate.of(2019, 6, 25)))
     }
 }

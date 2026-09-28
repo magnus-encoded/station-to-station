@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.magnusencoded.stationtostation.data.Festivals
 import io.github.magnusencoded.stationtostation.data.Friend
+import io.github.magnusencoded.stationtostation.data.laneKey
 import io.github.magnusencoded.stationtostation.data.StoredFestival
 import io.github.magnusencoded.stationtostation.data.billedAs
 import io.github.magnusencoded.stationtostation.data.isLocal
@@ -328,12 +329,12 @@ fun weaveTimelines(
     val showsAt = mutableMapOf<TimelineNode, LinkedHashMap<String, FmSetlist>>()
 
     for (friend in friends) {
-        val shows = theirs[friend.setlistfm].orEmpty()
+        val shows = theirs[friend.laneKey].orEmpty()
         if (shows.isEmpty()) continue
         for (node in groupIntoFestivals(shows, festivals)) {
             val host = hosts.firstOrNull { it.hosts(node) } ?: node.also { hosts.add(it) }
             friendsAt.getOrPut(host) { mutableListOf() }
-                .let { if (it.none { f -> f.setlistfm == friend.setlistfm }) it.add(friend) }
+                .let { if (it.none { f -> f.laneKey == friend.laneKey }) it.add(friend) }
             val here = showsAt.getOrPut(host) { LinkedHashMap() }
             node.shows.forEach { here.putIfAbsent(it.id, it) }
         }
@@ -359,7 +360,7 @@ fun weaveTimelines(
         val inner = node.runningOrder(row.showsHereByFriends)
             .map { show ->
                 val alsoHere =
-                    row.others.filter { f -> theirs[f.setlistfm].orEmpty().any { it.id == show.id } }
+                    row.others.filter { f -> theirs[f.laneKey].orEmpty().any { it.id == show.id } }
                 WovenRow(
                     node = TimelineNode.Concert(show),
                     mine = show.id in myIds,

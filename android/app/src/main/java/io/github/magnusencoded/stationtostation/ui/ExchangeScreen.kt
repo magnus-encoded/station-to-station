@@ -36,6 +36,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -175,9 +177,10 @@ fun ExchangeScreen(
                 GossipRelayLine(friends = state.friends)
                 val connecting = state.connectingWith
                 // Scanning runs whether or not I have a card, so the radar is honest for
-                // everyone. What changes without a username is only that I am not
-                // advertising back — said once, below, rather than by hiding the room.
-                val discoverable = state.mySetlistFmUser.isNotBlank()
+                // everyone. A card needs a name, not an account (#405): what changes with
+                // neither is only that I am not advertising back — said once, below,
+                // rather than by hiding the room.
+                val discoverable = state.mySetlistFmUser.isNotBlank() || state.myCardName.isNotBlank()
                 when {
                     connecting != null -> ConnectingBeat(connecting)
                     else -> LookingForPeople(
@@ -200,7 +203,13 @@ fun ExchangeScreen(
                         letterSpacing = 1.5.sp,
                         modifier = Modifier.align(Alignment.Start).padding(bottom = 8.dp),
                     )
-                    QrExchange(cardUri = cardUri, username = state.mySetlistFmUser, onSetUsername = onSetUsername)
+                    QrExchange(
+                        cardUri = cardUri,
+                        username = state.mySetlistFmUser,
+                        cardName = state.myCardName,
+                        onSaveCardName = viewModel::saveMyCardName,
+                        onSetUsername = onSetUsername,
+                    )
                 }
 
                 // Your people: contacts and followed lines already on the timeline.
@@ -322,10 +331,11 @@ private fun LookingForPeople(
             "Stand next to someone with the app open. When they appear, add them and your " +
                 "timelines weave together."
         } else {
-            // Finding and taking work with no account; only being found needs a card.
+            // Finding and taking work with nothing of mine; being found needs a card, and
+            // a card needs only a name (#405) — never an account.
             "Stand next to someone with the app open. When they appear, add them and " +
-                "their line joins yours — they will not see you back until you have a " +
-                "username."
+                "their line joins yours. Put your name on your card below and they can " +
+                "add you too."
         },
         color = Muted,
         fontSize = 13.sp,
@@ -419,34 +429,56 @@ private fun PeerRow(peer: ExchangePeer, onConnect: () -> Unit) {
  * that happens with your own code left on screen just as well as with it hidden.
  */
 @Composable
-private fun QrExchange(cardUri: String?, username: String, onSetUsername: () -> Unit) {
+private fun QrExchange(
+    cardUri: String?,
+    username: String,
+    cardName: String,
+    onSaveCardName: (String) -> Unit,
+    onSetUsername: () -> Unit,
+) {
     val context = LocalContext.current
     if (cardUri == null) {
-        // The exchange is not symmetric, and this used to read as though it were: one
-        // prompt asking for a username, which for a user who has decided against a
-        // setlist.fm account is a request they cannot satisfy (#225).
-        //
-        // The asymmetry is honest rather than a hole to fill. Weaving a line is a
-        // subscription to someone's *public setlist.fm data* — with no account there
-        // is no public data for a card to point at, so a card of theirs would resolve
-        // to nothing, and ADR-0003 rules out a backend that could make it resolve. So
-        // say what they can do, which is the half that works.
+        // No account is not a lesser way to use this screen (#405, and #225 before it).
+        // The radio hands over a card that is a key and a name; the Nights follow on the
+        // Reconcile, so there is no public history for a card to point at and none is
+        // needed. Only the code is username-shaped: a link cannot carry a key, and a link
+        // with no username names nobody. So the one thing asked for here is a name.
+        var draft by remember(cardName) { mutableStateOf(cardName) }
         Spacer(Modifier.height(10.dp))
         Text(
-            "You can take their card. Point your camera at their code and their " +
-                "line joins yours.",
+            if (cardName.isBlank()) {
+                "Put your name on your card and people standing next to you can add you, " +
+                    "no account needed. Your nights go with it."
+            } else {
+                "You are on your card as $cardName. Anyone next to you with this screen " +
+                    "open can add you."
+            },
             color = Muted,
             fontSize = 13.sp,
         )
         Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = draft,
+                onValueChange = { draft = it },
+                label = { Text("Your name") },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(8.dp))
+            TextButton(
+                onClick = { onSaveCardName(draft) },
+                enabled = draft.trim() != cardName,
+            ) { Text("Save", color = Amber) }
+        }
+        Spacer(Modifier.height(8.dp))
         Text(
-            "Handing yours over needs a setlist.fm username, because a card points at " +
-                "a public history and yours is on this phone only.",
+            "You can take their card too: point your camera at their code. A code of " +
+                "your own is for setlist.fm users.",
             color = Faint,
             fontSize = 12.sp,
         )
-        Spacer(Modifier.height(10.dp))
-        OutlinedButton(onClick = onSetUsername) { Text("Add your username", color = Amber) }
+        TextButton(onClick = onSetUsername) { Text("I have a setlist.fm username", color = Amber) }
         return
     }
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -494,7 +526,9 @@ private fun FriendRow(friend: Friend, onClick: () -> Unit) {
     ) {
         Column(Modifier.weight(1f)) {
             Text(friend.name, color = Ink, fontFamily = Serif, fontSize = 16.sp)
-            Text("@${friend.setlistfm}", color = Muted, fontSize = 12.sp)
+            if (friend.setlistfm.isNotBlank()) {
+                Text("@${friend.setlistfm}", color = Muted, fontSize = 12.sp)
+            }
         }
         Text("View timeline ›", color = Amber, fontSize = 13.sp)
     }
@@ -532,7 +566,12 @@ fun FriendTimelineScreen(
 
                 state.viewedFriendShows.isEmpty() ->
                     Text(
-                        "No public shows on setlist.fm for @${friend?.setlistfm}.",
+                        if (friend == null || friend.setlistfm.isBlank()) {
+                            // Their Nights arrive on the Reconcile, not from setlist.fm (#405).
+                            "No nights from ${friend?.name ?: "them"} yet."
+                        } else {
+                            "No public shows on setlist.fm for @${friend.setlistfm}."
+                        },
                         color = Muted,
                         modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     )

@@ -1093,6 +1093,17 @@ class TimelineStore(
     }
 
     /**
+     * A **Contact**'s **Nights** from a **Reconcile**, folded into the **Lane** held under
+     * [laneKey] (#405) — `shows`, the same map a fetched Lane is held in, so a Contact with
+     * no account draws offline the way a fetched one does. Adds, never removes: see
+     * [landNights].
+     */
+    suspend fun mergeContactNights(laneKey: String, nights: List<FmSetlist>): Unit = writeMerged { c ->
+        if (laneKey.isBlank() || nights.isEmpty()) return@writeMerged c
+        c.copy(shows = c.shows + (laneKey to landNights(c.shows[laneKey], nights)))
+    }
+
+    /**
      * A device handover's union, written (#142). Unlike [mergeContactMedia] this is the
      * whole timeline rather than media alone: [HandoverPlan.merged] already *is* the two
      * devices combined — nights, **Log**, attendance, playlists — so all that is left is

@@ -1,5 +1,6 @@
 package io.github.magnusencoded.stationtostation.ui
 
+import io.github.magnusencoded.stationtostation.data.laneKey
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -766,8 +767,8 @@ private fun ServiceControls(
                     Column(Modifier.weight(1f)) {
                         Text(friend.name, color = Ink)
                         Text(
-                            "@${friend.setlistfm} · " +
-                                "${state.showsByFriend[friend.setlistfm]?.size ?: 0} shows",
+                            (if (friend.setlistfm.isBlank()) "" else "@${friend.setlistfm} · ") +
+                                "${state.showsByFriend[friend.laneKey]?.size ?: 0} shows",
                             color = Muted,
                             fontSize = 12.sp,
                         )

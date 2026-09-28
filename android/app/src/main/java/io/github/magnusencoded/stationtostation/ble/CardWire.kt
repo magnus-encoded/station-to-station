@@ -43,6 +43,27 @@ data class ProbeCard(
 
 private fun esc(s: String) = URLEncoder.encode(s, "UTF-8")
 
+/**
+ * My own **Card** for the radio, or null when there is nothing to hand over (#405).
+ *
+ * **The key is the card; the username is an attribute.** With a setlist.fm username the
+ * card is what it always was — named by the username, carrying it. Without one it is
+ * still a card: [name] (what I asked to be called on the other phone) and the key. It
+ * used to be null without a username, which is what made a person with no account
+ * undiscoverable, and the reason two such people could not become **Contacts** at all.
+ *
+ * A card needs *something* to be called, because a row that cannot be labelled is not
+ * shown ("Connecting with …?"), and a Contact with no name is a Line nobody can read.
+ * So no username and no name is still no card.
+ */
+fun probeCardFor(setlistfm: String, name: String, publicKey: String): ProbeCard? {
+    val user = setlistfm.trim()
+    val key = publicKey.trim().ifBlank { return null }
+    if (user.isNotEmpty()) return ProbeCard(name = user, publicKey = key, setlistfm = user)
+    val called = name.trim().ifBlank { return null }
+    return ProbeCard(name = called, publicKey = key)
+}
+
 fun parseProbeCard(payload: String): ProbeCard? {
     val query = payload.substringAfter("://friend?", missingDelimiterValue = "")
     if (query.isEmpty()) return null

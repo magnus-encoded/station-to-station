@@ -158,6 +158,10 @@ import io.github.magnusencoded.stationtostation.NOT_STAMPED
 import io.github.magnusencoded.stationtostation.PendingTicket
 import io.github.magnusencoded.stationtostation.data.DeviceLocation
 import io.github.magnusencoded.stationtostation.data.Friend
+import io.github.magnusencoded.stationtostation.data.atUser
+import io.github.magnusencoded.stationtostation.data.handle
+import io.github.magnusencoded.stationtostation.data.laneKey
+import io.github.magnusencoded.stationtostation.data.nameOf
 import io.github.magnusencoded.stationtostation.data.FriendArrival
 import io.github.magnusencoded.stationtostation.data.FutureRow
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
@@ -595,7 +599,7 @@ fun StationTimelineScreen(
                             // first (#396) — one order for the whole legend, so the
                             // disclosure below just continues it.
                             val colourByUsername = remember(allLanes) {
-                                allLanes.withIndex().associate { (i, f) -> f.setlistfm to i }
+                                allLanes.withIndex().associate { (i, f) -> f.laneKey to i }
                             }
                             val (head, rest) = remember(allLanes, state.hiddenAt) {
                                 legendSplit(allLanes, state.hiddenAt, LegendHeadSize)
@@ -613,10 +617,10 @@ fun StationTimelineScreen(
                                         // The unfiltered index, never the legend's
                                         // re-ordered position — a Lane colour comes
                                         // from `allLanes.enumerated()` (#396).
-                                        color = railColor(colourByUsername[friend.setlistfm] ?: 0),
+                                        color = railColor(colourByUsername[friend.laneKey] ?: 0),
                                         label = friend.name,
-                                        hidden = friend.setlistfm in state.hiddenLines,
-                                        onToggle = { viewModel.toggleLineHidden(friend.setlistfm) },
+                                        hidden = friend.laneKey in state.hiddenLines,
+                                        onToggle = { viewModel.toggleLineHidden(friend.laneKey) },
                                     )
                                 }
                                 // A disclosure, never a truncation (#266): every name
@@ -1695,26 +1699,32 @@ private fun FriendOverwriteDialog(
                 conflict.existing.publicKey != conflict.incoming.publicKey
             Text(
                 if (keyChanged) {
-                    "${conflict.existing.name} (@${conflict.existing.setlistfm}) seems to " +
+                    "${conflict.existing.name}${conflict.existing.atUser} seems to " +
                         "be on a different phone than last time you saw them. Confirm you " +
                         "still want to share."
                 } else {
-                    "A card for @${conflict.existing.setlistfm} says something different " +
+                    "A card for ${conflict.existing.handle} says something different " +
                         "from what you have."
                 },
                 color = Muted,
                 fontSize = 13.sp,
             )
             Spacer(Modifier.height(10.dp))
-            Text("Now: ${conflict.existing.name}", color = Ink, fontSize = 13.sp)
-            Text("Card: ${conflict.incoming.name}", color = Amber, fontSize = 13.sp)
+            Text("Now: ${conflict.existing.name}${conflict.existing.atUser}", color = Ink, fontSize = 13.sp)
+            Text("Card: ${conflict.incoming.name}${conflict.incoming.atUser}", color = Amber, fontSize = 13.sp)
             Spacer(Modifier.height(10.dp))
-            Text(
-                "Their timeline does not change either way — only the name you see " +
-                    "against it.",
-                color = Faint,
-                fontSize = 11.sp,
-            )
+            // A card with a different setlist.fm username — or a first one — changes where
+            // their Line is read from (#405), so the reassurance only holds when it does not.
+            val sameUser = conflict.incoming.setlistfm.isBlank() ||
+                conflict.incoming.setlistfm.equals(conflict.existing.setlistfm, ignoreCase = true)
+            if (sameUser) {
+                Text(
+                    "Their timeline does not change either way — only the name you see " +
+                        "against it.",
+                    color = Faint,
+                    fontSize = 11.sp,
+                )
+            }
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text("Keep mine", color = Faint) }
@@ -2205,7 +2215,7 @@ internal fun visibleLanes(lanes: List<Friend>, hidden: Set<String>): List<Friend
  * anyone" is assertable with no canvas and no device.
  */
 internal fun laneColours(lanes: List<Friend>, hidden: Set<String>): List<Int> =
-    lanes.indices.filterNot { lanes[it].setlistfm in hidden }
+    lanes.indices.filterNot { lanes[it].laneKey in hidden }
 
 /**
  * One order for the whole lane legend: most recently toggled off first, and any
@@ -2217,7 +2227,7 @@ internal fun laneColours(lanes: List<Friend>, hidden: Set<String>): List<Int> =
  * second rule.
  */
 internal fun legendOrder(lanes: List<Friend>, hiddenAt: Map<String, Long>): List<Friend> =
-    lanes.sortedWith(compareByDescending { hiddenAt[it.setlistfm] ?: Long.MAX_VALUE })
+    lanes.sortedWith(compareByDescending { hiddenAt[it.laneKey] ?: Long.MAX_VALUE })
 
 /**
  * Where the legend's `+ N more` disclosure takes over (#396). The head holds every
@@ -2234,7 +2244,7 @@ internal fun legendSplit(
     headSize: Int,
 ): Pair<List<Friend>, List<Friend>> {
     val ordered = legendOrder(lanes, hiddenAt)
-    val activeCount = lanes.count { it.setlistfm !in hiddenAt }
+    val activeCount = lanes.count { it.laneKey !in hiddenAt }
     val count = maxOf(headSize, activeCount)
     return ordered.take(count) to ordered.drop(count)
 }
@@ -2258,7 +2268,7 @@ internal fun laneXf(offset: Int, step: Dp) = SpineX + step * (offset + 1)
 internal fun linesAt(row: WovenRow, lanes: List<Friend>): List<Int> = buildList {
     if (row.mine) add(Spine)
     lanes.forEachIndexed { i, f ->
-        if (row.others.any { it.setlistfm == f.setlistfm }) add(i)
+        if (row.others.any { it.laneKey == f.laneKey }) add(i)
     }
 }
 
@@ -2296,7 +2306,7 @@ internal fun lineOffset(row: WovenRow?, line: Int, lanes: List<Friend>): Int {
  * no lane, which is [Spine] — deliberately not lane 0, which belongs to a real friend.
  */
 internal fun hostLane(row: WovenRow?, friend: Friend, lanes: List<Friend>): Int =
-    lineOffset(row, lanes.indexOfFirst { it.setlistfm == friend.setlistfm }, lanes)
+    lineOffset(row, lanes.indexOfFirst { it.laneKey == friend.laneKey }, lanes)
 
 /**
  * Where a row's node sits. My line never moves — a night we shared happens *on* my
@@ -2358,19 +2368,19 @@ internal fun logWovenRows(
     val laneWidth = stripWidth(lanes.size)
     Log.d(
         "Woven",
-        "--- ${rows.size} rows, lanes=${lanes.map { it.setlistfm }}, " +
+        "--- ${rows.size} rows, lanes=${lanes.map { it.laneKey }}, " +
             "geometry in dp at laneWidth=${laneWidth.value} rowHeight=${DumpRowHeight.value} ---",
     )
     rows.forEachIndexed { i, row ->
         val where = lanes.joinToString(" ") { f ->
             val lane = hostLane(row, f, lanes)
-            "${f.setlistfm}@${if (lane == Spine) "spine" else "lane$lane"}"
+            "${f.laneKey}@${if (lane == Spine) "spine" else "lane$lane"}"
         }
         Log.d(
             "Woven",
             "${row.date} d${row.depth} ${if (row.mine) "mine" else "theirs"} " +
                 "node=${nodeKind(row.node)} " +
-                "with=[${row.others.joinToString(",") { it.setlistfm }}] " +
+                "with=[${row.others.joinToString(",") { it.laneKey }}] " +
                 "together=${row.sharedCount} theirs=${row.theirsCount} " +
                 "here=${row.showsHereByFriends.size} " +
                 "host=${nodeHost(row, lanes)} $where key=${row.key}",
@@ -2594,7 +2604,7 @@ internal fun CollectionMediaScreen(viewModel: AppViewModel, node: TimelineNode.S
             arranging = false,
             contactLight = state.contactLight,
             editable = false,
-            senderName = { key -> state.friends.firstOrNull { it.setlistfm == key }?.name },
+            senderName = { key -> state.friends.nameOf(key) },
             onArrange = {},
             onAdd = {},
             onOpen = { uri -> viewerUri = uri },
@@ -3595,7 +3605,7 @@ fun StationEventScreen(
     // words in my mouth about an evening it has since learned more about.
     val alsoThere = setlist?.let { s ->
         state.friends.filter { f ->
-            f.setlistfm.isNotBlank() && state.showsByFriend[f.setlistfm].orEmpty().any { it.id == s.id }
+            f.laneKey.isNotBlank() && state.showsByFriend[f.laneKey].orEmpty().any { it.id == s.id }
         }.map { it.name }
     }.orEmpty()
     val gigPreamble = preamble(
@@ -4416,7 +4426,7 @@ fun StationEventScreen(
                                 // lives on the friends list under a setlist.fm handle.
                                 // Nothing joins the two yet, so the promise degrades to
                                 // "someone else" rather than inventing a name.
-                                senderName = { key -> state.friends.firstOrNull { it.setlistfm == key }?.name },
+                                senderName = { key -> state.friends.nameOf(key) },
                                 onArrange = { arranging = true },
                                 onAdd = { band ->
                                     attachTo = band
@@ -4604,7 +4614,7 @@ fun StationEventScreen(
                     GigNotes(
                         media = gigMedia,
                         preamble = gigPreamble,
-                        senderName = { key -> state.friends.firstOrNull { it.setlistfm == key }?.name },
+                        senderName = { key -> state.friends.nameOf(key) },
                         contactLight = state.contactLight,
                         editable = editable,
                         onWrite = { band, text -> viewModel.setGigNote(setlist.id, band, text) },

@@ -3,6 +3,7 @@ package io.github.magnusencoded.stationtostation.ui
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.magnusencoded.stationtostation.data.Friend
+import io.github.magnusencoded.stationtostation.data.laneKey
 
 /**
  * What the Timelines resolution actually draws, as numbers.
@@ -230,4 +231,4 @@ private fun widthOf(people: Int): Dp = LineWidth + PerPerson * (people - 1)
 
 /** Whose line this is, for a log a person reads. */
 internal fun lineLabel(line: Int, lanes: List<Friend>): String =
-    if (line == Spine) "spine" else "lane$line(${lanes.getOrNull(line)?.setlistfm ?: "?"})"
+    if (line == Spine) "spine" else "lane$line(${lanes.getOrNull(line)?.laneKey ?: "?"})"

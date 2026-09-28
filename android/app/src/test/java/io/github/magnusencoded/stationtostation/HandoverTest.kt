@@ -12,6 +12,7 @@ import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.TimelineCache
 import io.github.magnusencoded.stationtostation.data.deviceManifest
 import io.github.magnusencoded.stationtostation.data.handoverPlan
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -45,6 +46,23 @@ class HandoverTest {
         val plan = handoverPlan(mine, HandoverManifest(timeline = theirs), all, verified = true)
 
         assertEquals(setOf("a", "b"), plan.merged.gigs.keys)
+    }
+
+    /**
+     * #405, user story 33: a Contact with no setlist.fm account holds their Lane under
+     * `key:` and a fingerprint, which both of my devices derive from the same card — so a
+     * Handover unions it like any username's Lane, and my new phone draws it too.
+     */
+    @Test
+    fun `an account-less contact's lane survives the handover beside the others`() {
+        val night = FmSetlist(id = "local-1", eventDate = "14-08-2026")
+        val mine = TimelineCache(shows = mapOf("ozzy" to listOf(FmSetlist(id = "s1", eventDate = "12-06-2026"))))
+        val theirs = TimelineCache(shows = mapOf("key:0123456789abcdef" to listOf(night)))
+
+        val plan = handoverPlan(mine, HandoverManifest(timeline = theirs), all, verified = true)
+
+        assertEquals(setOf("ozzy", "key:0123456789abcdef"), plan.merged.shows.keys)
+        assertEquals(listOf("local-1"), plan.merged.shows["key:0123456789abcdef"]?.map { it.id })
     }
 
     @Test

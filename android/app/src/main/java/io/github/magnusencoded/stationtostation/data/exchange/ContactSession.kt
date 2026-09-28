@@ -7,6 +7,7 @@ import io.github.magnusencoded.stationtostation.data.TimelineCache
 import io.github.magnusencoded.stationtostation.data.contactLanding
 import io.github.magnusencoded.stationtostation.data.contactReconcilePlan
 import io.github.magnusencoded.stationtostation.data.isSafeMediaId
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -62,11 +63,21 @@ fun runContactSession(
      * them *less* reliable than the bytes. Landed again in the return value — [unionMedia] is
      * keyed by id, so arriving twice is arriving once. */
     landNotes: (Map<String, List<StoredMedia>>) -> Unit = {},
+    /** The **Lane** I hold for the Contact whose key verified, so the Nights they offer
+     * that I already hold are not taken twice (#405). */
+    heldLane: (contactKey: String) -> List<FmSetlist> = { emptyList() },
+    /** Called with the verified Contact's key and the **Nights** of theirs I did not hold,
+     * as soon as the manifests are swapped — complete as they stand, like a **Note**, so a
+     * transfer that never finishes does not cost the Lane. Not called when there are none. */
+    landNights: (contactKey: String, nights: List<FmSetlist>) -> Unit = { _, _ -> },
 ): Map<String, List<StoredMedia>>? {
-    mutualContactAuth(socket, isServer, ownCert, privateKey, candidates) ?: return null
+    val contactKey = mutualContactAuth(socket, isServer, ownCert, privateKey, candidates) ?: return null
 
     val theirManifest = exchangeManifests(socket, isServer, myManifest) ?: return null
-    val plan = contactReconcilePlan(mine, theirManifest, verified = true, gallery = gallery)
+    val plan = contactReconcilePlan(
+        mine, theirManifest, verified = true, gallery = gallery, heldLane = heldLane(contactKey),
+    )
+    if (plan.nights.isNotEmpty()) landNights(contactKey, plan.nights)
 
     // Before the request round, not after it: everything a **Note** needs has already
     // arrived, and this is the earliest moment it can be written down.
