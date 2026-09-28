@@ -268,12 +268,8 @@ private val Serif = FontFamily.Serif
 @Composable
 fun SplashScreen(viewModel: AppViewModel, onProceed: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var loginError by remember { mutableStateOf<String?>(null) }
 
-    // Passing the splash (either button, or already onboarded on a later launch)
-    // advances to the timeline.
+    LaunchedEffect(Unit) { viewModel.offerTourWhenOnline() }
     LaunchedEffect(state.onboarded) { if (state.onboarded) onProceed() }
 
     Box(Modifier.fillMaxSize().background(Ground).padding(32.dp), contentAlignment = Alignment.Center) {
@@ -283,7 +279,7 @@ fun SplashScreen(viewModel: AppViewModel, onProceed: () -> Unit) {
             Text("Station to Station", fontFamily = Serif, fontSize = 30.sp, color = Ink)
             Spacer(Modifier.height(12.dp))
             Text(
-                "Your concerts, kept. Connect Spotify to turn any night's setlist into a playlist — or skip and just browse the setlists.",
+                "The Tour needs an internet connection. Connect, then try again — it will begin on the real timeline.",
                 color = Muted,
                 fontSize = 14.sp,
                 textAlign = TextAlign.Center,
@@ -291,25 +287,10 @@ fun SplashScreen(viewModel: AppViewModel, onProceed: () -> Unit) {
             )
             Spacer(Modifier.height(36.dp))
             Button(
-                onClick = {
-                    // startActivity fires before we navigate away, so cancelling the
-                    // splash's scope can't stop the browser from opening.
-                    scope.launch {
-                        loginError = startSpotifyLogin(context, viewModel)
-                        viewModel.markOnboarded()
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = SpotifyGreen, contentColor = Color.White),
+                onClick = viewModel::offerTourWhenOnline,
+                colors = ButtonDefaults.buttonColors(containerColor = Amber, contentColor = Ground),
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Log in with Spotify", fontWeight = FontWeight.SemiBold) }
-            Spacer(Modifier.height(4.dp))
-            TextButton(onClick = { viewModel.markOnboarded() }, modifier = Modifier.fillMaxWidth()) {
-                Text("Skip — just show me setlists", color = Muted)
-            }
-            loginError?.let {
-                Spacer(Modifier.height(10.dp))
-                Text(it, color = Danger, fontSize = 12.sp)
-            }
+            ) { Text("Try again", fontWeight = FontWeight.SemiBold) }
         }
     }
 }

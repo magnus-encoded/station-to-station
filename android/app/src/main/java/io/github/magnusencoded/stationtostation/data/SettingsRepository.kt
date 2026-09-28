@@ -56,6 +56,14 @@ class SettingsRepository(private val context: Context) {
         val CLASHFINDER_PUBLIC_KEY = stringPreferencesKey("clashfinder_public_key")
         val FRIENDS = stringPreferencesKey("friends")
         val ONBOARDED = booleanPreferencesKey("onboarded")
+        val TOUR_STEP = stringPreferencesKey("tour_step")
+        val TOUR_FINISHED = booleanPreferencesKey("tour_finished")
+        val TOUR_SPOTIFY_RETRY = booleanPreferencesKey("tour_spotify_retry")
+        val TOUR_UPGRADE_DISMISSED = booleanPreferencesKey("tour_upgrade_dismissed")
+        val TOUR_HINTS = stringPreferencesKey("tour_context_hints")
+        val TOUR_ONCE = stringPreferencesKey("tour_once_commands")
+        val TOUR_DEMO_WORLD = longPreferencesKey("tour_demo_world")
+        val TOUR_RETURNED_FROM_PHOTOS = booleanPreferencesKey("tour_returned_from_photos")
     }
 
     /**
@@ -90,12 +98,49 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit { prefs -> leftBehind.forEach { prefs.remove(it) } }
     }
 
-    /** True once the user has passed the splash (logged in with Spotify or skipped). */
+    /** True once the first-run Tour has been offered. */
     val onboarded: Flow<Boolean> =
         context.dataStore.data.map { it[Keys.ONBOARDED] ?: false }
 
     suspend fun setOnboarded() {
         context.dataStore.edit { it[Keys.ONBOARDED] = true }
+    }
+
+    val tourState: Flow<TourState> = context.dataStore.data.map { prefs ->
+        TourState(
+            step = prefs[Keys.TOUR_STEP]?.let { runCatching { TourStep.valueOf(it) }.getOrNull() },
+            finished = prefs[Keys.TOUR_FINISHED] ?: false,
+            pendingSpotifyRetry = prefs[Keys.TOUR_SPOTIFY_RETRY] ?: false,
+            upgradePromptDismissed = prefs[Keys.TOUR_UPGRADE_DISMISSED] ?: false,
+            seenContextHints = prefs[Keys.TOUR_HINTS].csv(),
+            deliveredOnce = prefs[Keys.TOUR_ONCE].csv().mapNotNullTo(mutableSetOf()) {
+                when (it) {
+                    "lookUpBand" -> TourCommand.LookUpBand
+                    "importDemoTicket" -> TourCommand.ImportDemoTicket
+                    else -> null
+                }
+            },
+            demoWorld = (prefs[Keys.TOUR_DEMO_WORLD] ?: 0L).toInt(),
+            returnedFromPhotos = prefs[Keys.TOUR_RETURNED_FROM_PHOTOS] ?: false,
+        )
+    }
+
+    suspend fun saveTourState(state: TourState) {
+        context.dataStore.edit { prefs ->
+            state.step?.let { prefs[Keys.TOUR_STEP] = it.name } ?: prefs.remove(Keys.TOUR_STEP)
+            prefs[Keys.TOUR_FINISHED] = state.finished
+            prefs[Keys.TOUR_SPOTIFY_RETRY] = state.pendingSpotifyRetry
+            prefs[Keys.TOUR_UPGRADE_DISMISSED] = state.upgradePromptDismissed
+            prefs[Keys.TOUR_HINTS] = state.seenContextHints.sorted().joinToString(",")
+            prefs[Keys.TOUR_ONCE] = state.deliveredOnce.map {
+                when (it) {
+                    TourCommand.LookUpBand -> "lookUpBand"
+                    TourCommand.ImportDemoTicket -> "importDemoTicket"
+                }
+            }.sorted().joinToString(",")
+            prefs[Keys.TOUR_DEMO_WORLD] = state.demoWorld.toLong()
+            prefs[Keys.TOUR_RETURNED_FROM_PHOTOS] = state.returnedFromPhotos
+        }
     }
 
     // `always_relay` (#416) is gone with v2's lifecycle: no active **Gig** means no radio,
@@ -338,6 +383,9 @@ class SettingsRepository(private val context: Context) {
         )
     }
 }
+
+private fun String?.csv(): Set<String> =
+    this?.split(',')?.filterTo(mutableSetOf()) { it.isNotBlank() } ?: emptySet()
 
 /**
  * What a bundled credential looks like in a field the user has not filled in.
