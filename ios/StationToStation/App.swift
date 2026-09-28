@@ -17,6 +17,10 @@ final class Nav: ObservableObject {
 // Spotify and only Spotify, said explicitly where it is meant (see GigView).
 private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
 
+/// Ground, the colour the launch screen is drawn in (`LaunchGround` in the asset
+/// catalogue), so lifting the launch look is the timeline appearing and nothing else.
+private let launchGround = Color(red: 0x0E / 255, green: 0x0B / 255, blue: 0x14 / 255)
+
 /// Spotify's own green, for the handful of places that really are about Spotify:
 /// the connect buttons, the now-playing dot on a Gig, the first-run door. Declared
 /// once now that five files want the same exception to the tint.
@@ -79,6 +83,16 @@ struct StationToStationApp: App {
                         case .handover: HandoverView()
                         }
                     }
+            }
+            // The launch look, held over the Timeline until its saved nights are on
+            // it — Android's system splash does the same. The Timeline is underneath
+            // all along, since appearing is what loads it; it is only kept out of
+            // sight, and out of VoiceOver's reach, while it is still empty.
+            .accessibilityHidden(!model.state.launched)
+            .overlay {
+                if !model.state.launched {
+                    launchGround.ignoresSafeArea()
+                }
             }
             .environmentObject(model)
             .environmentObject(nav)

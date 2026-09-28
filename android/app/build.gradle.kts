@@ -235,6 +235,8 @@ dependencies {
     implementation(composeBom)
 
     implementation("androidx.core:core-ktx:1.19.0")
+    // The launch splash, held until the timeline is ready (see MainActivity.onCreate).
+    implementation("androidx.core:core-splashscreen:1.0.1")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.compose.ui:ui")
     // @Preview and the renderer behind it. The annotation ships in the main artifact

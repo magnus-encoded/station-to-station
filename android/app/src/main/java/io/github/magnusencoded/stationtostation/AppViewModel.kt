@@ -537,6 +537,13 @@ data class UiState(
     val notice: String? = null,
     // True once the splash has been passed (Spotify login or skip).
     val onboarded: Boolean = false,
+    /**
+     * True once launch has read what the first screen needs: the settings (so
+     * [onboarded] is known) and the saved timeline, Festivals and all. The system
+     * splash stays up until then, so a returning user never sees onboarding, an
+     * empty timeline or a "0 shows" count on the way to their own.
+     */
+    val launched: Boolean = false,
 ) {
     /** Who is currently tapped out. Derived so there is only [hiddenAt] to keep in step. */
     val hiddenLines: Set<String> get() = hiddenAt.keys
@@ -904,6 +911,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (cached.shows.isEmpty() && cached.festivals.isEmpty() &&
             cached.gigPlaylists.isEmpty() && cached.gigPlanned.isEmpty()
         ) {
+            _state.update { it.copy(launched = true) }
             return
         }
         val me = _state.value.mySetlistFmUser
@@ -933,7 +941,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         // ponytail: this reads timelines.json a second time, since the plumbing owns
         // the load now and everything above still needs the rest of the cache. One
         // small file at launch. Hand the cache in if it is ever felt.
-        logic.loadSpine(me) { spine -> adoptSpine(spine, cached.attendedTotals[me]) }
+        //
+        // Launch is done at the first Spine, not after the Festival retry: that one
+        // asks setlist.fm, and the splash never waits on the network.
+        logic.loadSpine(me) { spine ->
+            adoptSpine(spine, cached.attendedTotals[me])
+            _state.update { it.copy(launched = true) }
+        }
+        _state.update { it.copy(launched = true) }
     }
 
     /**
