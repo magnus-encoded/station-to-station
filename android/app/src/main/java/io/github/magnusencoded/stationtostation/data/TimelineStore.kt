@@ -1334,7 +1334,7 @@ class TimelineStore(
      * facts are exactly what cannot be trusted as a key (venues get renamed, artists
      * rename, festival days split) — that is why the natural key was rejected.
      */
-    suspend fun createLocalGig(date: String, artist: String, venue: String): String {
+    suspend fun createLocalGig(date: String, artist: String, venue: String, demo: Boolean = false): String {
         val id = java.util.UUID.randomUUID().toString()
         writeMerged {
             it.copy(
@@ -1345,6 +1345,7 @@ class TimelineStore(
                         artist = artist,
                         venue = venue,
                         createdAt = it.nextCreatedAt(),
+                        demo = demo,
                     )
                     ),
             )

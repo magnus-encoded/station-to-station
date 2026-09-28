@@ -24,10 +24,10 @@ import androidx.compose.ui.unit.dp
 import io.github.magnusencoded.stationtostation.data.TourEvent
 import io.github.magnusencoded.stationtostation.data.TourStep
 
-/** First coach mark over the real Line. Human-owned friend copy remains a placeholder. */
+/** Coach marks over the real UI. Human-owned friend copy remains a placeholder. */
 @Composable
 fun TourCoachMark(step: TourStep?, onEvent: (TourEvent) -> Unit) {
-    if (step != TourStep.S1) return
+    if (step == null || step > TourStep.S6) return
     Box(
         Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)).padding(24.dp),
         contentAlignment = Alignment.BottomCenter,
@@ -37,14 +37,27 @@ fun TourCoachMark(step: TourStep?, onEvent: (TourEvent) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text("Virtual friend", color = Color(0xFFE7B24C), fontWeight = FontWeight.Bold)
-            Text("This is your Line. Up and down is time.", color = Color(0xFFEDE9F2))
+            Text(
+                when (step) {
+                    TourStep.S1 -> "This is your Line. Up and down is time."
+                    TourStep.S2 -> "Pull down the Planning Curtain and choose a gig."
+                    TourStep.S3 -> "Pick a band you like. MusicBrainz supplies the artist names."
+                    TourStep.S4 -> "Add this gig to your Line."
+                    TourStep.S5 -> "Tap the gig to open its Room."
+                    TourStep.S6 -> "Swipe right to return to your Line."
+                    else -> ""
+                },
+                color = Color(0xFFEDE9F2),
+            )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = { onEvent(TourEvent.Skipped) }) { Text("Skip") }
                 Spacer(Modifier.width(8.dp).weight(1f))
-                Button(
-                    onClick = { onEvent(TourEvent.Acknowledged) },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE7B24C), contentColor = Color(0xFF241A08)),
-                ) { Text("Got it") }
+                if (step == TourStep.S1) {
+                    Button(
+                        onClick = { onEvent(TourEvent.Acknowledged) },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE7B24C), contentColor = Color(0xFF241A08)),
+                    ) { Text("Got it") }
+                }
             }
         }
     }

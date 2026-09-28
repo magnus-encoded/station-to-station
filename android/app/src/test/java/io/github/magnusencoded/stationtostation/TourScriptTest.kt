@@ -72,6 +72,24 @@ class TourScriptTest {
         assertEquals(TourTransitionSnapshot(atS1, emptyList()), runTour(atS1, TourEvent.GigAdded).snapshot())
     }
 
+    @Test fun `add the gig waits for every real gesture in order`() {
+        var result = runTour(TourState(), TourEvent.Started(online = true))
+        result = runTour(result.state, TourEvent.Acknowledged)
+        assertEquals(TourStep.S2, result.state.step)
+        assertEquals(result.state, runTour(result.state, TourEvent.BandPicked).state)
+
+        result = runTour(result.state, TourEvent.CurtainPulled)
+        assertEquals(TourStep.S3, result.state.step)
+        result = runTour(result.state, TourEvent.BandPicked)
+        assertEquals(TourStep.S4, result.state.step)
+        result = runTour(result.state, TourEvent.GigAdded)
+        assertEquals(TourStep.S5, result.state.step)
+        result = runTour(result.state, TourEvent.RoomOpened)
+        assertEquals(TourStep.S6, result.state.step)
+        result = runTour(result.state, TourEvent.SwipedBack)
+        assertEquals(TourStep.S7, result.state.step)
+    }
+
     private data class TourTransitionSnapshot(val state: TourState, val commands: List<TourCommand>)
     private fun io.github.magnusencoded.stationtostation.data.TourTransition.snapshot() =
         TourTransitionSnapshot(state, commands)
