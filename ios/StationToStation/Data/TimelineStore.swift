@@ -810,6 +810,10 @@ struct TimelineCache: Codable {
     /// Their Night id → my own **Gig** id, for every Night I joined by accepting an offer
     /// for it (#405). Mine alone: never sent, never synchronised. See `joinedNights`.
     var nightJoins: [String: String] = [:]
+    /// Their Night id → my own **Gig** ids I said it is *not* (#405): a *maybe* answered
+    /// "not the same". A local dismissal — stop marking this — and not a claim about the
+    /// world, so it is never sent and never synchronised. See `maybeNights`.
+    var nightDismissals: [String: [String]] = [:]
 
     init() {}
 
@@ -843,6 +847,7 @@ struct TimelineCache: Codable {
         publicGossip = try c.decodeIfPresent(PublicGossipState.self, forKey: .publicGossip) ?? PublicGossipState()
         mediaOffers = map(.mediaOffers, MediaOffer.self)
         nightJoins = map(.nightJoins, String.self)
+        nightDismissals = map(.nightDismissals, [String].self)
     }
 
     /// The id this gig is known by *outside* the store: its setlist.fm id where it
@@ -1224,6 +1229,26 @@ actor TimelineStore {
     /// No to the offer for their Night `night`. See `decliningOffer`.
     func declineMediaOffer(_ night: String) {
         writeMerged { $0.decliningOffer(night) }
+    }
+
+    /// "Same Night" to a *maybe* (#405): their Night `night` is joined to my Night `key` —
+    /// a setlist.fm id or a gig id, whatever the screens use — minting the **Gig** if
+    /// nothing hung off it yet. Mine alone. See `joiningNight`.
+    func joinNight(_ night: String, key: String) {
+        writeMerged { cache in
+            var c = cache
+            let gigId = c.withGig(key)
+            return c.joiningNight(night, gigId: gigId)
+        }
+    }
+
+    /// "Not the same" to a *maybe* (#405). Mine alone. See `dismissingMaybe`.
+    func dismissMaybe(_ night: String, key: String) {
+        writeMerged { cache in
+            var c = cache
+            let gigId = c.withGig(key)
+            return c.dismissingMaybe(night, gigId: gigId)
+        }
     }
 
     /// A **Contact**'s **Nights** from a **Reconcile**, folded into the **Lane** held under

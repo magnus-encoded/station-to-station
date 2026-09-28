@@ -48,7 +48,9 @@ enum WeaveFixture {
             mine: cache.shows[input.me] ?? [],
             festivals: cache.festivalIdentities(),
             friends: lanes,
-            theirs: cache.shows.filter { $0.key != input.me }
+            theirs: cache.shows.filter { $0.key != input.me },
+            joins: cache.spineJoins(),
+            apart: cache.spineDismissals()
         )
         return (rows, lanes)
     }

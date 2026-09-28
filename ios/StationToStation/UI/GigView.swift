@@ -18,6 +18,9 @@ private let faint = Color(red: 0x5A / 255, green: 0x53 / 255, blue: 0x68 / 255)
 /// Mine. Never "the accent colour" — it means *mine*, at every Resolution
 /// (same mark StationView draws its Spine with).
 private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
+/// Meeting green, Android's `Crossed`: here only on a *maybe* (#405), a meeting that
+/// might have been.
+private let crossed = Color(red: 0x6F / 255, green: 0xBF / 255, blue: 0x9C / 255)
 
 /// "AmandaSvea is also here", for the **Contacts** a **Pass** just proved are in the room.
 ///
@@ -175,6 +178,8 @@ struct GigView: View {
     @State private var askingMatch = false
     /// Which **Contact**'s offer is being answered, by their Night id (#405).
     @State private var answeringOffer: String?
+    /// Which *maybe* is being asked from its tag (#405).
+    @State private var askingMaybe: MaybeNight?
     @State private var adoptLink = ""
 
     /// What this delete actually costs, said plainly. The count is of keepsakes whose
@@ -510,6 +515,29 @@ struct GigView: View {
         mediaOfferSenderName(offer, friends: model.state.friends)
     }
 
+    /// A **Contact** was out this date under a Night nothing links to this one (#405): a
+    /// *maybe*. It waits here costing nothing, and is asked outright only when I go to share
+    /// media from this Night. Android's `EventTag` for the same.
+    private var maybeTags: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(model.maybesOnSelected()) { maybe in
+                let line = maybeTagLine(maybe)
+                Button { askingMaybe = maybe } label: {
+                    Text(line)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(crossed)
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .overlay(Capsule().stroke(crossed, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 8)
+                .accessibilityLabel("\(line). \(maybeTheirNight(maybe)).")
+                .accessibilityHint("Opens same night or not.")
+            }
+        }
+        .modifier(MaybeNightAlert(asking: $askingMaybe))
+    }
+
     private func header(_ show: FmSetlist, _ room: Room?) -> some View {
         // Manual check-in (#174) is the only one there is when location was refused
         // or the venue couldn't be geocoded — the **Room**'s own offer, the same
@@ -554,6 +582,7 @@ struct GigView: View {
                 .accessibilityLabel(line)
                 .accessibilityHint("Opens accept or decline.")
             }
+            maybeTags
             // The same swap that was already here, with the ticket now on the near
             // side of it (#414). Checking in is what retires the barcode — you are
             // inside — so the checked-in line replaces the QR rather than sitting
@@ -886,6 +915,66 @@ private struct MediaOfferAlert: ViewModifier {
             Text(message(offer.offer))
         }
     }
+}
+
+/// The *maybe*, asked (#405): the one question, of the one person who cares. "Same night"
+/// joins their Night to this one and "Not the same" stops the marking; both are mine alone
+/// and nothing is sent. "Not now" leaves it a maybe, which costs nothing. `sharing` is when
+/// going to share media is what asked it (story 22), so the reason is said out loud, and
+/// `then` carries on with the share whatever the answer. Android's `MaybeNightDialog`.
+struct MaybeNightAlert: ViewModifier {
+    @EnvironmentObject var model: AppModel
+    @Binding var asking: MaybeNight?
+    var sharing: Bool = false
+    var then: () -> Void = {}
+
+    private func who(_ maybe: MaybeNight) -> String { maybe.friend.name.isEmpty ? "this Contact" : maybe.friend.name }
+
+    private func message(_ maybe: MaybeNight) -> String {
+        "\(maybeTheirNight(maybe)) on this date. "
+            + (sharing ? "You're sharing from this night, so it's worth knowing. " : "")
+            + "Only you see the answer."
+    }
+
+    private func finish() {
+        asking = nil
+        then()
+    }
+
+    func body(content: Content) -> some View {
+        let current = asking
+        let shown = Binding<Bool>(get: { current != nil }, set: { if !$0 { asking = nil } })
+        return content.alert("Were you both at this night?", isPresented: shown, presenting: current) { maybe in
+            Button("Same night") {
+                model.joinNight(maybe.theirs.id, key: maybe.mine.id)
+                finish()
+            }
+            .accessibilityLabel("Same night as \(who(maybe))'s")
+            Button("Not the same") {
+                model.dismissMaybe(maybe.theirs.id, key: maybe.mine.id)
+                finish()
+            }
+            .accessibilityLabel("Not the same night as \(who(maybe))'s")
+            Button("Not now", role: .cancel) { finish() }
+        } message: { maybe in
+            Text(message(maybe))
+        }
+    }
+}
+
+/// "Maybe with Mia" — the *maybe*'s tag on a Night of mine (#405). Android's `maybeTagLine`.
+func maybeTagLine(_ maybe: MaybeNight) -> String {
+    "Maybe with \(maybe.friend.name.isEmpty ? "a Contact" : maybe.friend.name)"
+}
+
+/// What their Night says it was: "Mia logged Kvelertak at Rockefeller". Android's
+/// `maybeTheirNight`.
+func maybeTheirNight(_ maybe: MaybeNight) -> String {
+    let who = maybe.friend.name.isEmpty ? "A Contact" : maybe.friend.name
+    let what = [maybe.theirs.artist?.name, maybe.theirs.venue?.name]
+        .compactMap { $0?.isEmpty == false ? $0 : nil }
+        .joined(separator: " at ")
+    return what.isEmpty ? "\(who) logged a night on this date" : "\(who) logged \(what)"
 }
 
 /// Whose offer this is: the Contact's name, or "A Contact" when their key is not on my list.

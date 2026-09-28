@@ -285,4 +285,117 @@ final class WeaveTimelinesTests: XCTestCase {
         )
         XCTAssertEqual(["b1", "a1", "a2"], rows.map { $0.shows[0].id })
     }
+
+    // MARK: The maybe-shared marker (#405). Twinned in WeaveTimelinesTest.kt.
+
+    /// A Night typed by hand: no setlist.fm id behind it.
+    private func local(_ id: String, _ date: String, _ venue: String) -> FmSetlist {
+        var night = show(id, date, venue)
+        night.url = nil
+        return night
+    }
+
+    func testTheSameDateAndTheSameIdIsJoinedNotAMaybe() {
+        let night = local("x1", "21-11-2025", "Blå")
+        let rows = weaveTimelines(mine: [night], friends: [lemmy], theirs: ["Lemmy": [night]])
+        XCTAssertEqual(1, rows.count)
+        XCTAssertEqual(1, rows[0].sharedCount)
+        XCTAssertTrue(rows[0].maybe.isEmpty)
+    }
+
+    func testTheSameDateUnderDifferentIdsIsAMaybeAndNeverACrossing() {
+        let rows = weaveTimelines(
+            mine: [local("m1", "21-11-2025", "Blå")],
+            friends: [lemmy],
+            theirs: ["Lemmy": [local("n1", "21-11-2025", "Blå")]]
+        )
+        // Two rows: the same room on the same date does not fold two hand-logged Nights,
+        // because folding them would be the app answering its own question.
+        XCTAssertEqual(2, rows.count)
+        let mine = rows.first { $0.mine }
+        XCTAssertEqual([lemmy], mine?.maybe)
+        XCTAssertEqual(true, mine?.others.isEmpty)
+        XCTAssertEqual(0, mine?.sharedCount)
+        XCTAssertEqual(true, rows.first { !$0.mine }?.maybe.isEmpty)
+    }
+
+    func testDifferentDatesAreNeither() {
+        let rows = weaveTimelines(
+            mine: [local("m1", "21-11-2025", "Blå")],
+            friends: [lemmy],
+            theirs: ["Lemmy": [local("n1", "22-11-2025", "Blå")]]
+        )
+        XCTAssertTrue(rows.allSatisfy { $0.maybe.isEmpty && $0.sharedCount == 0 })
+    }
+
+    func testAMaybeISaidIsNotTheSameDoesNotComeBack() {
+        let rows = weaveTimelines(
+            mine: [local("m1", "21-11-2025", "Blå")],
+            friends: [lemmy],
+            theirs: ["Lemmy": [local("n1", "21-11-2025", "Blå")]],
+            apart: ["n1": ["m1"]]
+        )
+        XCTAssertEqual(2, rows.count)
+        XCTAssertTrue(rows.allSatisfy { $0.maybe.isEmpty })
+    }
+
+    func testAMaybeIJoinedIsDrawnJoined() {
+        let rows = weaveTimelines(
+            mine: [local("m1", "21-11-2025", "Blå")],
+            friends: [lemmy],
+            theirs: ["Lemmy": [local("n1", "21-11-2025", "Somewhere else")]],
+            joins: ["n1": "m1"]
+        )
+        // Folded onto my node even across two room names, because I said so.
+        XCTAssertEqual(1, rows.count)
+        XCTAssertEqual([lemmy], rows[0].others)
+        XCTAssertEqual(1, rows[0].sharedCount)
+        XCTAssertEqual(0, rows[0].theirsCount)
+        XCTAssertTrue(rows[0].maybe.isEmpty)
+    }
+
+    /// Story 24: a Festival day against a single Act is a difference of granularity.
+    func testTheirFestivalDayAgainstMySingleActIsNotAssertedToBeTheSameRecord() {
+        let rows = weaveTimelines(
+            mine: [show("g1", "25-06-2026", "Ekebergsletta")],
+            festivals: festival("f1"),
+            friends: [lemmy],
+            theirs: ["Lemmy": [local("f1", "25-06-2026", "Ekebergsletta")]]
+        )
+        let mine = rows.first { $0.mine }
+        XCTAssertEqual(0, mine?.sharedCount)
+        XCTAssertEqual(true, mine?.others.isEmpty)
+        XCTAssertEqual([lemmy], mine?.maybe)
+    }
+
+    /// Two catalogued records are a fact, not a question: two rooms, two Nights.
+    func testTwoSetlistFmIdsOnOneDateAreNeverAMaybe() {
+        let rows = weaveTimelines(
+            mine: [show("a1", "21-11-2025", "Blå")],
+            friends: [lemmy],
+            theirs: ["Lemmy": [show("b1", "21-11-2025", "Rockefeller")]]
+        )
+        XCTAssertTrue(rows.allSatisfy { $0.maybe.isEmpty })
+    }
+
+    /// A Night of mine we already cross is no question, whatever else they logged that date.
+    func testANightAlreadyCrossedAsksNothingMore() {
+        let night = local("x1", "21-11-2025", "Blå")
+        let rows = weaveTimelines(
+            mine: [night],
+            friends: [lemmy],
+            theirs: ["Lemmy": [night, local("n2", "21-11-2025", "Rockefeller")]]
+        )
+        XCTAssertTrue(rows.allSatisfy { $0.maybe.isEmpty })
+    }
+
+    func testMaybeNightsNamesThePairItIsAskingAbout() {
+        let m1 = local("m1", "21-11-2025", "Blå")
+        let n1 = local("n1", "21-11-2025", "Blå")
+        let asked = maybeNights(mine: [m1], friends: [lemmy, ozzy], theirs: ["Lemmy": [n1]])
+        XCTAssertEqual(1, asked.count)
+        XCTAssertEqual(lemmy, asked.first?.friend)
+        XCTAssertEqual("m1", asked.first?.mine.id)
+        XCTAssertEqual("n1", asked.first?.theirs.id)
+    }
 }

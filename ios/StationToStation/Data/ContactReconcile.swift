@@ -313,6 +313,53 @@ extension TimelineCache {
     }
 }
 
+// MARK: - The maybe, answered (#405)
+//
+// Both answers are mine alone: never on the wire, never synchronised, never merged by a
+// Handover. Two Contacts may hold different answers about one Night, and that is a
+// supported outcome, not an inconsistency.
+
+extension TimelineCache {
+    /// "Same Night": their Night `night` is joined to my **Gig** `gigId` — the write
+    /// `joinedNights` already reads, so media they send for it lands directly from now on,
+    /// and the weave draws it **Joined**.
+    func joiningNight(_ night: String, gigId: String) -> TimelineCache {
+        if night.nilIfBlank == nil || gigId.nilIfBlank == nil { return self }
+        var c = self
+        c.nightJoins[night] = gigId
+        return c
+    }
+
+    /// "Not the same": stop marking this pair. Kept per pair, so a Night of theirs I said is
+    /// not this Night of mine can still be asked about against another Night of mine that date.
+    func dismissingMaybe(_ night: String, gigId: String) -> TimelineCache {
+        if night.nilIfBlank == nil || gigId.nilIfBlank == nil { return self }
+        let had = nightDismissals[night] ?? []
+        if had.contains(gigId) { return self }
+        var c = self
+        c.nightDismissals[night] = had + [gigId]
+        return c
+    }
+
+    /// `nightJoins` under the ids the **Spine** uses: their Night id → my Night id.
+    func spineJoins() -> [String: String] {
+        var out: [String: String] = [:]
+        for (night, gigId) in nightJoins where night.nilIfBlank != nil && gigId.nilIfBlank != nil {
+            out[night] = keyOf(gigId)
+        }
+        return out
+    }
+
+    /// `nightDismissals` under the ids the **Spine** uses.
+    func spineDismissals() -> [String: Set<String>] {
+        var out: [String: Set<String>] = [:]
+        for (night, gigIds) in nightDismissals where night.nilIfBlank != nil {
+            out[night] = Set(gigIds.filter { $0.nilIfBlank != nil }.map { keyOf($0) })
+        }
+        return out
+    }
+}
+
 /// One offer waiting on a Night of mine: their Night id and what they sent for it.
 struct WaitingOffer: Identifiable {
     let night: String

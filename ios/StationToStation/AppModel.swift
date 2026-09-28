@@ -147,6 +147,11 @@ struct UiState {
     /// Media **Contacts** sent for Nights of theirs I have not joined, by their Night id
     /// (#405): offered, never filed, and shown on my Night of the same date until I answer.
     var mediaOffers: [String: MediaOffer] = [:]
+    /// What I said about a **Contact**'s Night that nothing else links to mine (#405),
+    /// under the ids the **Spine** uses: their Night id → my Night id it is (`nightJoins`),
+    /// and → the Nights of mine it is not (`nightsApart`). Mine alone; the weave reads both.
+    var nightJoins: [String: String] = [:]
+    var nightsApart: [String: Set<String>] = [:]
     /// The open **Gig**'s share of it. **Derived, never assigned** — it was a second
     /// copy, and two places holding one night's media is a drift waiting to happen.
     var gigMedia: [StoredMedia] {
@@ -386,6 +391,8 @@ final class AppModel: ObservableObject {
             // after every write.
             state.mediaBySetlist = cache.media()
             state.mediaOffers = cache.mediaOffers
+            state.nightJoins = cache.spineJoins()
+            state.nightsApart = cache.spineDismissals()
             state.playlistsBySetlist = cache.playlists()
             state.hiddenAt = cache.hiddenLines
         }
@@ -1338,6 +1345,8 @@ final class AppModel: ObservableObject {
             let cache = await timelines.load()
             state.mediaOffers = cache.mediaOffers
             state.mediaBySetlist = cache.media()
+            // Accepting joined the Night, so the Spine draws it Joined now.
+            state.nightJoins = cache.spineJoins()
         }
     }
 
@@ -1346,6 +1355,39 @@ final class AppModel: ObservableObject {
         Task {
             await timelines.declineMediaOffer(night)
             state.mediaOffers = await timelines.load().mediaOffers
+        }
+    }
+
+    /// The *maybes* on the open Night (#405): a Contact out the same date under a Night
+    /// nothing links to mine. The same rule the Spine's weave draws them by, asked of this
+    /// one Night, so the Room and the Line cannot disagree about which are open.
+    func maybesOnSelected() -> [MaybeNight] {
+        guard let show = state.selectedSetlist else { return [] }
+        return maybeNights(
+            mine: state.timelineShows,
+            friends: state.friends,
+            theirs: state.showsByFriend,
+            festivals: state.festivals,
+            joins: state.nightJoins,
+            apart: state.nightsApart
+        ).filter { $0.mine.id == show.id }
+    }
+
+    /// "Same Night" to a *maybe* (#405): their Night `night` is joined to my Night `key`.
+    /// Mine alone — nothing is sent — and from here the Spine draws it **Joined** and what
+    /// they send for it lands directly.
+    func joinNight(_ night: String, key: String) {
+        Task {
+            await timelines.joinNight(night, key: key)
+            state.nightJoins = await timelines.load().spineJoins()
+        }
+    }
+
+    /// "Not the same" to a *maybe* (#405): the marker goes, and stays gone. Mine alone.
+    func dismissMaybe(_ night: String, key: String) {
+        Task {
+            await timelines.dismissMaybe(night, key: key)
+            state.nightsApart = await timelines.load().spineDismissals()
         }
     }
 

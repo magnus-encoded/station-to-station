@@ -257,6 +257,19 @@ struct WovenRow: Identifiable {
     /// `theirShows` is exactly why concatenating two friends' lists looked fine
     /// and double-counted every gig they both went to.
     var showsHereByFriends: [FmSetlist] = []
+    /// Their Night id → my Night id, for every Night I said is the same Night as one of
+    /// mine (#405): by accepting an offer for it, or by answering a *maybe*. Under the ids
+    /// the **Spine** uses. A joined pair counts as **Together** exactly as a shared id does.
+    var joins: [String: String] = [:]
+    /// The **Contacts** who were out on this row's date under a Night nothing links to
+    /// mine (#405): a *maybe*, never a **Crossing**. See `maybeNights`. Only ever on a row
+    /// of mine, and never for someone this row already crosses.
+    var maybe: [Friend] = []
+
+    /// Whether my `mine` and their `theirs` are one Night: a shared id, #433's match, or a join.
+    private func together(_ mine: FmSetlist, _ theirs: FmSetlist) -> Bool {
+        mine.sameAttendance(theirs) || joins[theirs.id] == mine.id
+    }
 
     /// Shows I was at with company: the number this Resolution exists to surface.
     /// Zero on a node that isn't mine — there, `shows` are already a friend's, so
@@ -264,7 +277,7 @@ struct WovenRow: Identifiable {
     /// a festival I never went to "3 together".
     var sharedCount: Int {
         guard mine else { return 0 }
-        return shows.filter { mine in showsHereByFriends.contains { mine.sameAttendance($0) } }.count
+        return shows.filter { mine in showsHereByFriends.contains { together(mine, $0) } }.count
     }
 
     /// Shows a friend was at here **and I was not** — which is what Theirs means: a Gig
@@ -276,7 +289,7 @@ struct WovenRow: Identifiable {
     /// not exist. Ported with Android.
     var theirsCount: Int {
         guard mine else { return showsHereByFriends.count }
-        return showsHereByFriends.filter { theirs in !shows.contains { $0.sameAttendance(theirs) } }.count
+        return showsHereByFriends.filter { theirs in !shows.contains { together($0, theirs) } }.count
     }
 
     var key: String {
@@ -321,11 +334,128 @@ enum RowOwnership: String {
 ///
 /// Anything looser — same venue, different nights, an identity nobody supplied — would
 /// mark unshared nights as shared, which is the four-day window #166 removed.
-private func hosts(_ node: TimelineNode, _ other: TimelineNode) -> Bool {
+///
+/// Two more, from #405. A Night I **joined** by hand (`joins`) folds like a shared id.
+/// And on one of my own nodes (`mineHost`), the same evening in the same room is not
+/// enough when every pair of Nights across the two is only a *maybe*
+/// (`couldBeSameNight`): two hand-logged Nights share no id, and folding them would be
+/// the app answering the question it is supposed to ask.
+private func hosts(
+    _ node: TimelineNode,
+    _ other: TimelineNode,
+    festivals: Festivals = Festivals(),
+    joins: [String: String] = [:],
+    mineHost: Bool = false
+) -> Bool {
     if sameIdentity(node, other) { return true }
-    let otherIds = Set(other.shows.map(\.id))
-    if node.shows.contains(where: { otherIds.contains($0.id) }) { return true }
-    return sameEvening(node, other)
+    for a in node.shows {
+        for b in other.shows where a.id == b.id || joins[b.id] == a.id || joins[a.id] == b.id {
+            return true
+        }
+    }
+    guard sameEvening(node, other) else { return false }
+    if !mineHost { return true }
+    return node.shows.contains { a in
+        other.shows.contains { b in !couldBeSameNight(a, b, festivals) }
+    }
+}
+
+/// A Night of a **Contact**'s that may be the same Night as one of mine, and nothing
+/// says either way (#405): the *maybe*. A question on my row, never a **Crossing**.
+struct MaybeNight: Equatable, Identifiable {
+    let friend: Friend
+    let mine: FmSetlist
+    let theirs: FmSetlist
+    var id: String { "\(friend.laneKey)|\(mine.id)|\(theirs.id)" }
+
+    static func == (a: MaybeNight, b: MaybeNight) -> Bool { a.id == b.id }
+}
+
+/// **The maybe-shared rule** (#405), decided where the Spine is woven. Android's
+/// `maybeNights`, term for term.
+///
+/// A Contact was out on the same date as one of my Nights, under a different id, and
+/// neither record claims the other. Pair by pair:
+///
+/// - **the same id** is a **Crossing**, as it always was — never a maybe;
+/// - **a different date** is neither;
+/// - **two setlist.fm ids** are two catalogued records, which is a fact rather than a
+///   question — a shared bill folds by the **Section** rule and two rooms are two Nights;
+/// - **#433's match** (one side hand-logged, same room, same date) is already the same
+///   attendance — unless one side is a **Festival** day and the other is not, which is a
+///   difference of granularity and is asked, never asserted (story 24);
+/// - a Night of theirs I **joined** (`joins`) to any Night of mine is answered, and so
+///   is a Night of mine they already cross;
+/// - a pair I said is **not the same** (`apart`: their id → my ids) never comes back.
+///
+/// No venue, artist or date-window matching: the date is the only thing compared, and a
+/// person answers the rest.
+func maybeNights(
+    mine: [FmSetlist],
+    friends: [Friend],
+    theirs: [String: [FmSetlist]],
+    festivals: Festivals = Festivals(),
+    joins: [String: String] = [:],
+    apart: [String: Set<String>] = [:]
+) -> [MaybeNight] {
+    let myIds = Set(mine.map(\.id))
+    // In Spine order within a date, so the twins name the pairs in the same order.
+    var dates: [Date] = []
+    var mineByDate: [Date: [FmSetlist]] = [:]
+    for night in mine {
+        guard let date = night.localDate() else { continue }
+        if mineByDate[date] == nil { dates.append(date) }
+        mineByDate[date, default: []].append(night)
+    }
+    var out: [MaybeNight] = []
+    for friend in friends {
+        let lane = theirs[friend.laneKey] ?? []
+        if lane.isEmpty { continue }
+        let laneIds = Set(lane.map(\.id))
+        var laneByDate: [Date: [FmSetlist]] = [:]
+        for night in lane {
+            if let date = night.localDate() { laneByDate[date, default: []].append(night) }
+        }
+        for date in dates {
+            let myThatDay = mineByDate[date] ?? []
+            let theirThatDay = laneByDate[date] ?? []
+            if theirThatDay.isEmpty { continue }
+            // A Night of theirs one of mine already answers to is no question.
+            let open = theirThatDay.filter { t in
+                !myIds.contains(t.id) && joins[t.id] == nil
+                    && !myThatDay.contains { m in sameRecord(m, t, festivals) }
+            }
+            if open.isEmpty { continue }
+            for m in myThatDay {
+                // Nor is a Night of mine they already cross.
+                let crossed = laneIds.contains(m.id)
+                    || lane.contains { joins[$0.id] == m.id }
+                    || theirThatDay.contains { sameRecord(m, $0, festivals) }
+                if crossed { continue }
+                for t in open where couldBeSameNight(m, t, festivals) {
+                    if apart[t.id]?.contains(m.id) == true { continue }
+                    out.append(MaybeNight(friend: friend, mine: m, theirs: t))
+                }
+            }
+        }
+    }
+    return out
+}
+
+/// The pair-level half of `maybeNights`, before anything I said: the same date, not the
+/// same record, and at least one side with no setlist.fm id behind it.
+private func couldBeSameNight(_ a: FmSetlist, _ b: FmSetlist, _ festivals: Festivals) -> Bool {
+    if a.id == b.id { return false }
+    if !a.isLocal && !b.isLocal { return false }
+    guard let date = a.localDate(), date == b.localDate() else { return false }
+    return !sameRecord(a, b, festivals)
+}
+
+/// `sameAttendance`, short of granularity (#405, story 24): #433's hand-logged match is
+/// not made between a **Festival** day and a Night that is not one.
+private func sameRecord(_ a: FmSetlist, _ b: FmSetlist, _ festivals: Festivals) -> Bool {
+    if a.id == b.id { return true }
+    return a.sameAttendance(b) && festivals.of(a.id)?.id == festivals.of(b.id)?.id
 }
 
 /// The one place the weave touches the kind, and only to compare two identities. It
@@ -416,12 +546,21 @@ private func newestFirst<T>(_ items: [T], date: (T) -> Date?) -> [T] {
 /// mine rather than sitting beside it: one Tons of Rock, marked shared. Expanding that
 /// node (`expanded` holds row keys) lists the individual gigs so the two attendances
 /// can be compared inside it.
+///
+/// `joins` and `apart` are what I have said about a Contact's Night that nothing else
+/// links to mine (#405), under the ids the Spine uses: their Night id → my Night id I
+/// said it is, and their Night id → my Night ids I said it is not. A joined pair folds
+/// and counts as **Together** like a shared id. A *maybe* (`maybeNights`) never folds:
+/// its Night stays on their **Lane**, and my row carries them in `WovenRow.maybe` until
+/// I answer — or, once I have said "not the same", carries nothing at all.
 func weaveTimelines(
     mine: [FmSetlist],
     festivals: Festivals = Festivals(),
     friends: [Friend] = [],
     theirs: [String: [FmSetlist]] = [:],
-    expanded: Set<String> = []
+    expanded: Set<String> = [],
+    joins: [String: String] = [:],
+    apart: [String: Set<String>] = [:]
 ) -> [WovenRow] {
     let myNodes = groupIntoFestivals(mine, festivals)
     // Every node on the spine, mine first so a night I was at always hosts the
@@ -440,7 +579,9 @@ func weaveTimelines(
         if shows.isEmpty { continue }
         for node in groupIntoFestivals(shows, festivals) {
             let host: Int
-            if let existing = hostNodes.firstIndex(where: { hosts($0, node) }) {
+            if let existing = hostNodes.indices.first(where: { i in
+                hosts(hostNodes[i], node, festivals: festivals, joins: joins, mineHost: i < myNodes.count)
+            }) {
                 host = existing
             } else {
                 hostNodes.append(node)
@@ -460,13 +601,32 @@ func weaveTimelines(
         }
     }
 
+    // Who may share each of my Nights, by my Night id. Decided once, over the whole
+    // Spine, so a Night of theirs one of my other Nights already answers is no question.
+    var maybeAt: [String: [Friend]] = [:]
+    for asked in maybeNights(mine: mine, friends: friends, theirs: theirs,
+                             festivals: festivals, joins: joins, apart: apart) {
+        maybeAt[asked.mine.id, default: []].append(asked.friend)
+    }
+    func maybeOn(_ shows: [FmSetlist]) -> [Friend] {
+        var out: [Friend] = []
+        for friend in shows.flatMap({ maybeAt[$0.id] ?? [] })
+        where !out.contains(where: { $0.laneKey == friend.laneKey }) {
+            out.append(friend)
+        }
+        return out
+    }
+
     let rows = newestFirst(
         hostNodes.enumerated().map { i, node in
-            WovenRow(
+            let isMine = i < myNodes.count
+            return WovenRow(
                 node: node,
-                mine: i < myNodes.count,
+                mine: isMine,
                 others: friendsAt[i] ?? [],
-                showsHereByFriends: showsAt[i] ?? []
+                showsHereByFriends: showsAt[i] ?? [],
+                joins: joins,
+                maybe: isMine ? maybeOn(node.shows) : []
             )
         },
         date: { $0.date }
@@ -480,13 +640,20 @@ func weaveTimelines(
         // it — reading it off the node made every gig inside a friend's festival
         // look mine.
         let myIds = Set(mine.map(\.id))
-        let inner = row.node.runningOrder(also: row.showsHereByFriends).map { show -> WovenRow in
+        // A Night of theirs I joined to one of mine is listed once, as mine — not again
+        // as a row of theirs beside it.
+        let also = row.showsHereByFriends.filter { night in
+            guard let joinedTo = joins[night.id] else { return true }
+            return !myIds.contains(joinedTo)
+        }
+        let inner = row.node.runningOrder(also: also).map { show -> WovenRow in
             let alsoHere = row.others.filter { f in
-                (theirs[f.laneKey] ?? []).contains { $0.id == show.id }
+                (theirs[f.laneKey] ?? []).contains { $0.id == show.id || joins[$0.id] == show.id }
             }
+            let isMine = myIds.contains(show.id)
             return WovenRow(
                 node: .concert(show),
-                mine: myIds.contains(show.id),
+                mine: isMine,
                 others: alsoHere,
                 depth: 1,
                 // Carried, not defaulted: `sharedCount` is an intersection with this
@@ -499,7 +666,8 @@ func weaveTimelines(
                 // `alsoHere` is already exactly the friends who were at this show, so
                 // this needs no rule of its own: the show is in the list when anyone
                 // else was there, and the list is empty when nobody was.
-                showsHereByFriends: alsoHere.isEmpty ? [] : [show]
+                showsHereByFriends: alsoHere.isEmpty ? [] : [show],
+                maybe: isMine ? maybeOn([show]) : []
             )
         }
         return [row] + inner

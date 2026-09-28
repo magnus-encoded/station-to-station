@@ -65,6 +65,9 @@ private struct RowsRecomputeModifier: ViewModifier {
     /// enough to know the underlying shows actually changed.
     let showIds: [String]
     let friendShowIds: [String: [String]]
+    /// What I said about a Contact's Night (#405): a join or a "not the same" redraws.
+    let joins: [String: String]
+    let apart: [String: Set<String>]
     let recompute: () -> Void
 
     func body(content: Content) -> some View {
@@ -75,6 +78,8 @@ private struct RowsRecomputeModifier: ViewModifier {
             .onChange(of: festivals) { _ in recompute() }
             .onChange(of: showIds) { _ in recompute() }
             .onChange(of: friendShowIds) { _ in recompute() }
+            .onChange(of: joins) { _ in recompute() }
+            .onChange(of: apart) { _ in recompute() }
     }
 }
 
@@ -128,7 +133,11 @@ struct StationView: View {
             festivals: s.festivals,
             friends: s.zoomedOut ? lanes : [],
             theirs: s.zoomedOut ? s.showsByFriend : [:],
-            expanded: s.expandedFestivals
+            expanded: s.expandedFestivals,
+            // What I said about a Contact's Night nothing else links to mine (#405):
+            // joined draws Joined, apart draws nothing.
+            joins: s.nightJoins,
+            apart: s.nightsApart
         )
     }
 
@@ -231,6 +240,8 @@ struct StationView: View {
             festivals: model.state.festivals,
             showIds: model.state.timelineShows.map(\.id),
             friendShowIds: model.state.showsByFriend.mapValues { $0.map(\.id) },
+            joins: model.state.nightJoins,
+            apart: model.state.nightsApart,
             recompute: recomputeRows
         ))
         // Check-in (#174): opening the timeline takes one fix and compares it
@@ -671,6 +682,7 @@ struct StationRow: View {
                 Text(row.node.label).font(.system(size: 17, design: .serif)).foregroundStyle(row.mine ? ink : muted)
                 Text(festivalDateRange(row.node)).font(.system(size: 13)).foregroundStyle(muted)
                 festivalCounts(shows).font(.system(size: 12)).padding(.top, 4)
+                maybeLine
             }
         case .concert(let show):
             VStack(alignment: .leading, spacing: 3) {
@@ -680,6 +692,7 @@ struct StationRow: View {
                     .font(.system(size: 17, design: .serif))
                     .foregroundStyle(row.mine ? ink : muted)
                 Text(show.venueLine()).font(.system(size: 13)).foregroundStyle(muted)
+                maybeLine
                 // The shared rule, not a local one: what the record says about its own
                 // songs (#127). Said "setlist not logged" here while Android said "no
                 // setlist yet" for the identical state — one line, two apps.
@@ -687,6 +700,22 @@ struct StationRow: View {
                 Text(setlistStatus(songCount: show.performed().count))
                     .font(.system(size: 12)).foregroundStyle(faint).padding(.top, 4)
             }
+        }
+    }
+
+    /// The *maybe* on this row (#405): "maybe with Mia". In the meeting's green, because
+    /// it is a meeting that might have been, but as words beside my node rather than a
+    /// line that bends to it — a line is a claim, and this is a question. Off under the
+    /// Contact light, like the green: a generic contact view has no "we" to ask about.
+    /// Android's `MaybeLine`.
+    @ViewBuilder
+    private var maybeLine: some View {
+        if !unlit && !row.maybe.isEmpty {
+            let who = row.maybe.map(\.name).joined(separator: " and ")
+            Text("maybe with \(who)")
+                .font(.system(size: 12))
+                .foregroundStyle(crossed.opacity(0.85))
+                .accessibilityLabel("Maybe a night shared with \(who). Open it to say whether it was.")
         }
     }
 

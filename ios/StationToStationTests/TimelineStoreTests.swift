@@ -140,6 +140,18 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual(["m-received"], loaded.mediaOffers["their-night"]?.declined)
     }
 
+    /// #405: both answers to a *maybe* are kept, and read back under the Spine's ids.
+    func testAMaybeAnsweredEitherWaySurvivesARelaunch() async {
+        let s = store()
+        await s.joinNight("their-a", key: "sl-a")
+        await s.dismissMaybe("their-b", key: "sl-b")
+
+        let loaded = await s.load()
+        XCTAssertEqual(["their-a": "sl-a"], loaded.spineJoins())
+        XCTAssertEqual(["their-b": Set(["sl-b"])], loaded.spineDismissals())
+        XCTAssertEqual(loaded.gigForSetlist("sl-a")?.id, loaded.nightJoins["their-a"])
+    }
+
     /// Asked and answered are different facts: an evening with no festival behind it
     /// must be remembered as asked, or every launch re-asks the whole timeline.
     func testFestivalsAskedAccumulatesAcrossSaves() async {
@@ -416,11 +428,13 @@ final class TimelineStoreTests: XCTestCase {
             // any more. `mediaOffers` and `nightJoins` joined it in #405: a Contact's media
             // for a Night I have not joined waits apart from `gigMedia`, and accepting it
             // records the join. Android declares both with defaults, so an absent key is
-            // an empty map there too.
+            // an empty map there too. `nightDismissals` joined it later in #405: a
+            // *maybe* answered "not the same", kept per pair and never sent; declared
+            // with a default on Android for the same reason.
             ["attendanceByGig", "attendedTotals", "calendarEventByGig",
              "festivalIdByShow", "festivalNames", "festivals", "festivalsAsked",
              "gigAttendance", "gigCalendarEvent", "gigLogs", "gigMedia", "gigPhotos", "gigPlanned",
-             "gigPlaylists", "gigSongOffsets", "gigs", "hiddenLines", "mediaOffers", "nightJoins", "photosBySetlist", "plannedShows", "playlistsMade", "publicGossip",
+             "gigPlaylists", "gigSongOffsets", "gigs", "hiddenLines", "mediaOffers", "nightDismissals", "nightJoins", "photosBySetlist", "plannedShows", "playlistsMade", "publicGossip",
              "shows", "songOffsetsBySetlist"],
             json?.keys.sorted()
         )
