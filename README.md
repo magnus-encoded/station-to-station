@@ -40,6 +40,8 @@ Each app README covers its own build, logins, and CI. Start there.
 There is no backend. Friends are exchanged phone-to-phone; everything else is on-device
 or comes from the setlist.fm and Spotify APIs.
 
+What changed in each release, for the people using it: [`CHANGELOG.md`](CHANGELOG.md).
+
 ## Reading the code
 
 - [`CONTEXT.md`](CONTEXT.md) — the glossary. **Read this first.** The timeline's

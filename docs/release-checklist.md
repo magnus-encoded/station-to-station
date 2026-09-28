@@ -130,12 +130,15 @@ JAVA_HOME='C:\Program Files\Eclipse Adoptium\jdk-17.0.20.8-hotspot'
 cd android && ./gradlew.bat bundleRelease
 ```
 
-## Release notes for this build
+## Release notes
 
-```
-First public build. Expect rough edges.
+[`CHANGELOG.md`](../CHANGELOG.md) is the only place they are written. Each
+version's entry opens with a `<!-- play -->` summary of at most 500 characters,
+which `android-release.yml` sends to Play as the release's "What's new" (en-US);
+the rest of the entry becomes the GitHub release's notes. A tag whose version
+has no entry fails the release before anything is built, so the entry goes in
+the version-bump PR. `tools/changelog.py 1.11.0 --play` prints what Play will
+show; `tools/changelog.py --check` validates every entry.
 
-Spotify export is limited during this test. Everything else works.
-
-Please report anything broken.
-```
+Write for someone who uses the app, not someone who reads the diff: what they
+can now do, or what stopped going wrong, and not which class moved.

@@ -48,6 +48,23 @@ jobs:
       # never resets. It only climbs if you tag from main: a tag on a branch that
       # is behind can produce a lower count than the last upload, which Play then
       # refuses. Left unguarded because the rejection is immediate and harmless.
+      # First, because it is the cheapest way this workflow can fail. A tag with
+      # no CHANGELOG.md entry would reach Play with an empty "What's new", and
+      # tracks().update does not keep the previous release's notes, so testers
+      # would see nothing at all. The version is the tag's; a dispatch against
+      # a branch has no tag and uses the version the build itself will carry.
+      - name: Take the release notes from CHANGELOG.md
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version=$(sed -n 's/^appVersionName=//p' android/gradle.properties)
+          fi
+          python3 tools/changelog.py --check
+          python3 tools/changelog.py "$version" --play > play-notes.txt
+          python3 tools/changelog.py "$version" > release-notes.md
+          echo "Play will show for $version:"; cat play-notes.txt
+
       - name: Derive versionCode from the commit count
         run: echo "VERSION_CODE=$(git rev-list --count HEAD)" >> "$GITHUB_ENV"
 
@@ -168,7 +185,8 @@ jobs:
           # of it, which Play rejects as a duplicate versionCode.
           python tools/publish_play.py \
             android/app/build/outputs/bundle/release/app-release.aab \
-            --track "$TRACK" --version-code "$VERSION_CODE" --commit
+            --track "$TRACK" --version-code "$VERSION_CODE" \
+            --notes-file play-notes.txt --commit
           echo "notes=On Google Play: the $TRACK track, versionCode $VERSION_CODE." >> "$GITHUB_OUTPUT"
 
       # The store is one channel, not the only one. The .apk is what someone
@@ -195,11 +213,15 @@ jobs:
           # offer a second file that is the wrong download for every phone.
           apk=android/app/build/outputs/apk/release/app-arm64-v8a-release.apk
           cp "$apk" "StationToStation-${{ github.ref_name }}.apk"
+          # The CHANGELOG.md entry leads, for the people installing it; the Play
+          # status and GitHub's list of merged PRs follow, for the people who
+          # build it.
+          printf '\n\n%s\n' "$PLAY_NOTES" >> release-notes.md
           # --clobber so a re-run replaces the asset rather than failing, and
           # `create || true` so the iOS side can own the release if it lands first.
           gh release create "${{ github.ref_name }}" \
             --title "${{ github.ref_name }}" \
-            --notes "$PLAY_NOTES" --generate-notes || true
+            --notes-file release-notes.md --generate-notes || true
           gh release upload "${{ github.ref_name }}" \
             "StationToStation-${{ github.ref_name }}.apk" --clobber
 

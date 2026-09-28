@@ -50,6 +50,12 @@ def main() -> int:
     p.add_argument("--rollout", type=float, metavar="FRACTION",
                    help="staged roll-out fraction, e.g. 0.1 — production only")
     p.add_argument("--name", help="release name (default: Play's auto-generated one)")
+    # "What's new" on the listing, in en-US. The text comes from CHANGELOG.md via
+    # tools/changelog.py; this script only carries it. Omitted, the release has
+    # no notes at all — tracks().update below replaces the old ones rather than
+    # keeping them.
+    p.add_argument("--notes-file", metavar="PATH",
+                   help="plain-text release notes, at most 500 characters")
     # What the bundle *would* be if uploaded. Lets a rebuild of an already
     # published tag skip the upload Play would reject and go straight to the
     # track change, which is the whole point of promoting a build.
@@ -66,6 +72,16 @@ def main() -> int:
     p.add_argument("--allow-downgrade", action="store_true",
                    help="release even if the track already serves a higher versionCode")
     args = p.parse_args()
+
+    # Read before anything touches Play: an over-long text is refused only at
+    # commit, after the upload has been spent, and leaves the edit dangling.
+    notes = None
+    if args.notes_file:
+        notes = open(args.notes_file, encoding="utf-8").read().strip()
+        if not notes or len(notes) > 500:
+            print(f"{args.notes_file}: release notes must be 1–500 characters, "
+                  f"got {len(notes)}", file=sys.stderr)
+            return 2
 
     raw = os.environ.get("PLAY_SERVICE_ACCOUNT_JSON")
     if not raw:
@@ -139,6 +155,8 @@ def main() -> int:
         release["status"] = "completed"
     if args.name:
         release["name"] = args.name
+    if notes:
+        release["releaseNotes"] = [{"language": "en-US", "text": notes}]
 
     # tracks().update replaces the track's release list rather than appending to
     # it. That is what we want — a track serves one build — but it also means an
