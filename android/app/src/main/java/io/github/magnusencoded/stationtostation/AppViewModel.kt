@@ -2385,8 +2385,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(errorKind = null, error = "A night needs who is playing and a date as dd-MM-yyyy.") }
             return
         }
+        val tourGig = _state.value.tour.step == io.github.magnusencoded.stationtostation.data.TourStep.S4
         viewModelScope.launch {
-            val gigId = timelines.createLocalGig(fmDate(night), artist.trim(), venue.trim())
+            val gigId = timelines.createLocalGig(fmDate(night), artist.trim(), venue.trim(), demo = tourGig)
             val gig = localGigSetlist(gigId, artist.trim(), night, venue.trim(), city = "")
             // The claim goes into state as well as onto disk. `plannedLane` filters on
             // it, so a gig added without it was written correctly and then drawn by
@@ -2400,6 +2401,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     artistSuggestions = emptyList(),
                 )
             }
+            if (tourGig) dispatchTour(TourEvent.GigAdded)
         }
     }
 

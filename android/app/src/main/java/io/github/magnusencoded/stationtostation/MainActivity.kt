@@ -285,7 +285,10 @@ fun AppNavigation(viewModel: AppViewModel) {
             Box {
                 StationTimelineScreen(
                     viewModel = viewModel,
-                    onOpenEvent = { navController.navigate("event") },
+                    onOpenEvent = {
+                        viewModel.dispatchTour(TourEvent.RoomOpened)
+                        navController.navigate("event")
+                    },
                     onOpenImport = { navController.navigate("import") },
                     // Both the people icon and the swipe-left gesture now lead to the one
                     // Exchange — there is a single way to meet someone.
@@ -328,6 +331,13 @@ fun AppNavigation(viewModel: AppViewModel) {
             )
         }
         composable("event") {
+            val state by viewModel.state.collectAsStateWithLifecycle()
+            val enteredDuringTour = remember { state.tour.step != null }
+            LaunchedEffect(state.tour.finished) {
+                if (enteredDuringTour && state.tour.finished) {
+                    navController.popBackStack("timeline", inclusive = false)
+                }
+            }
             // **The flyover replaces the landscape view** (#278). Not a second mode and
             // not a re-layout of the room: turned sideways, a night is a read-only walk
             // down its own spine, and the room's editing surfaces are absent because
@@ -337,18 +347,24 @@ fun AppNavigation(viewModel: AppViewModel) {
             // carries a modifier the other has to read around. Rotating recreates the
             // activity and the back stack is restored, so the night stays open across
             // the turn.
-            if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-                GigFlyoverScreen(
-                    viewModel = viewModel,
-                    onBack = { navController.popBackStack() },
-                )
-            } else {
-                StationEventScreen(
-                    viewModel = viewModel,
-                    onBack = { navController.popBackStack() },
-                    onConvert = { navController.navigate("confirm") },
-                    onOpenSettings = { navController.navigate("settings") },
-                )
+            Box {
+                if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+                    GigFlyoverScreen(
+                        viewModel = viewModel,
+                        onBack = { navController.popBackStack() },
+                    )
+                } else {
+                    StationEventScreen(
+                        viewModel = viewModel,
+                        onBack = {
+                            viewModel.dispatchTour(TourEvent.SwipedBack)
+                            navController.popBackStack()
+                        },
+                        onConvert = { navController.navigate("confirm") },
+                        onOpenSettings = { navController.navigate("settings") },
+                    )
+                }
+                TourCoachMark(state.tour.step, viewModel::dispatchTour)
             }
         }
         composable("search") {

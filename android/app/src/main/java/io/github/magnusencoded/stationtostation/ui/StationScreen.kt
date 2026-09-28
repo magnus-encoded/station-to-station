@@ -215,6 +215,8 @@ import io.github.magnusencoded.stationtostation.data.withheldFromContacts
 import io.github.magnusencoded.stationtostation.data.gigInviteUri
 import io.github.magnusencoded.stationtostation.data.StoredAdmission
 import io.github.magnusencoded.stationtostation.data.TicketOriginals
+import io.github.magnusencoded.stationtostation.data.TourEvent
+import io.github.magnusencoded.stationtostation.data.TourStep
 import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
 import io.github.magnusencoded.stationtostation.data.musicbrainz.MbArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
@@ -311,6 +313,11 @@ fun StationTimelineScreen(
     // history at all still has a ticket for something.
     var adding by remember { mutableStateOf(false) }
     var addingByHand by remember { mutableStateOf(false) }
+    // S3/S4 use the ordinary planning dialog. Restore that real flow when the
+    // process is recreated at either saved Tour step.
+    LaunchedEffect(state.tour.step) {
+        if (state.tour.step == TourStep.S3 || state.tour.step == TourStep.S4) adding = true
+    }
     // Whether the legend's `+ N more` has been opened — where the reader left the
     // disclosure, not a fact to remember across a launch (#396).
     var legendExpanded by remember { mutableStateOf(false) }
@@ -437,7 +444,10 @@ fun StationTimelineScreen(
                 AddPlannedGigDialog(
                     suggestions = state.artistSuggestions,
                     onArtistTyped = { viewModel.suggestArtists(it) },
-                    onArtistPicked = { viewModel.clearArtistSuggestions() },
+                    onArtistPicked = {
+                        viewModel.clearArtistSuggestions()
+                        viewModel.dispatchTour(TourEvent.BandPicked)
+                    },
                     onAdd = { artist, venue, date ->
                         viewModel.addPlannedGigByHand(artist, venue, date)
                         adding = false
@@ -555,6 +565,7 @@ fun StationTimelineScreen(
                     // release and the reader's custom action both call this, so a future
                     // rewire of one door can't silently leave the other stale (#164).
                     fun openDoor(door: PlanningDoor) {
+                        if (door == PlanningDoor.Gig) viewModel.dispatchTour(TourEvent.CurtainPulled)
                         when (door) {
                             PlanningDoor.Gig -> adding = true
                             PlanningDoor.Programme -> onOpenProgramme()
