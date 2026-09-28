@@ -1,6 +1,6 @@
 import SwiftUI
 
-private let slate = Color(red: 0x6D / 255, green: 0x7E / 255, blue: 0x9B / 255)
+private let slate = Color(red: 0x6F / 255, green: 0x80 / 255, blue: 0x9D / 255)
 
 /// What a shared **Ticket** read, put in front of the person holding it (#412).
 ///

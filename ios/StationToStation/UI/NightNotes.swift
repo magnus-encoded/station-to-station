@@ -14,7 +14,7 @@ import SwiftUI
 private let ink = Color(red: 0xED / 255, green: 0xE9 / 255, blue: 0xF2 / 255)
 private let muted = Color(red: 0x8B / 255, green: 0x82 / 255, blue: 0x99 / 255)
 private let faint = Color(red: 0x5A / 255, green: 0x53 / 255, blue: 0x68 / 255)
-private let slate = Color(red: 0x6D / 255, green: 0x7E / 255, blue: 0x9B / 255)
+private let slate = Color(red: 0x6F / 255, green: 0x80 / 255, blue: 0x9D / 255)
 private let crossed = Color(red: 0x6F / 255, green: 0xBF / 255, blue: 0x9C / 255)
 private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
 private let unlitField = Color(red: 0x1C / 255, green: 0x17 / 255, blue: 0x26 / 255)

@@ -82,7 +82,7 @@ private val Muted = Color(0xFF8B8299)
 private val Faint = Color(0xFF5A5368)
 private val Amber = Color(0xFFE7B24C)
 private val AmberSoft = Color(0x29E7B24C)
-private val Slate = Color(0xFF6D7E9B)
+private val Slate = Color(0xFF6F809D)
 private val Serif = FontFamily.Serif
 
 /**

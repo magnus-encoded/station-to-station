@@ -20,7 +20,7 @@ private let lineCol = Color(red: 0x2E / 255, green: 0x27 / 255, blue: 0x40 / 255
 private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
 private let onAmber = Color(red: 0x24 / 255, green: 0x1A / 255, blue: 0x08 / 255)
 private let timelineLitFill = Color(red: 0x2A / 255, green: 0x22 / 255, blue: 0x15 / 255)
-private let slate = Color(red: 0x6D / 255, green: 0x7E / 255, blue: 0x9B / 255)
+private let slate = Color(red: 0x6F / 255, green: 0x80 / 255, blue: 0x9D / 255)
 
 /// What the phone itself has granted. Re-read whenever the app comes back to the front:
 /// it changes in the system's Settings app, and that is where "Open app permissions" goes.

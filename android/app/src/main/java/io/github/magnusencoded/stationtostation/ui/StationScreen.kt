@@ -238,11 +238,11 @@ private val AmberSoft = Color(0x29E7B24C)
 private val Unlit = Color(0xFF7C7788)
 private val UnlitField = Color(0xFF1E1B26)
 private val SpotifyGreen = Color(0xFF1DB954)
-private val Slate = Color(0xFF6D7E9B) // the future / a connected-source, a cooler light
+private val Slate = Color(0xFF6F809D) // the future / a connected-source, a cooler light
 private val Danger = Color(0xFFE08A8A)
 
 /** The wash behind an armed band, in the accent that band is answering with (#268). */
-private val SlateSoft = Color(0x296D7E9B)
+private val SlateSoft = Color(0x296F809D)
 private val CrossedSoft = Color(0x296FBF9C)
 
 private val Serif = FontFamily.Serif

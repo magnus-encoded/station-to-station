@@ -26,7 +26,7 @@ private let faint = Color(red: 0x5A / 255, green: 0x53 / 255, blue: 0x68 / 255)
 /// each file keeps its own copy of the palette it needs.
 private let raised = Color(red: 0x17 / 255, green: 0x12 / 255, blue: 0x1F / 255)
 private let lineCol = Color(red: 0x2E / 255, green: 0x27 / 255, blue: 0x40 / 255)
-private let slate = Color(red: 0x6D / 255, green: 0x7E / 255, blue: 0x9B / 255)
+private let slate = Color(red: 0x6F / 255, green: 0x80 / 255, blue: 0x9D / 255)
 /// Mine. Never "the accent colour" — it means *mine*, at every Resolution.
 private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
 /// A Crossing and the Joined run after it. A meeting belongs to neither person,
@@ -37,7 +37,7 @@ private let crossed = Color(red: 0x6F / 255, green: 0xBF / 255, blue: 0x9C / 255
 /// not-green. Same list as Android's RailColors.
 private let laneColors: [Color] = [
     slate,
-    Color(red: 0x8A / 255, green: 0x6D / 255, blue: 0xA0 / 255),
+    Color(red: 0x8F / 255, green: 0x73 / 255, blue: 0xA4 / 255),
     Color(red: 0x5F / 255, green: 0x8E / 255, blue: 0x8A / 255),
     Color(red: 0xA0 / 255, green: 0x7E / 255, blue: 0x6D / 255),
     Color(red: 0x7B / 255, green: 0x8F / 255, blue: 0xC4 / 255),

@@ -15,7 +15,7 @@ private let muted = Color(red: 0x8B / 255, green: 0x82 / 255, blue: 0x99 / 255)
 private let faint = Color(red: 0x5A / 255, green: 0x53 / 255, blue: 0x68 / 255)
 private let lineLit = Color(red: 0x4A / 255, green: 0x3F / 255, blue: 0x63 / 255)
 private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
-private let slate = Color(red: 0x6D / 255, green: 0x7E / 255, blue: 0x9B / 255)
+private let slate = Color(red: 0x6F / 255, green: 0x80 / 255, blue: 0x9D / 255)
 
 // The QR affordance is revealed on a timer, not immediately: showing it too early
 // reads as "the radio gave up" when it hasn't. A quiet "use a code" once a couple

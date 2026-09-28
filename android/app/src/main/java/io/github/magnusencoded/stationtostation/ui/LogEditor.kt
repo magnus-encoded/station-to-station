@@ -41,7 +41,7 @@ private val Ink    = Color(0xFFEDE9F2)
 private val Muted  = Color(0xFF8B8299)
 private val Faint  = Color(0xFF5A5368)
 private val Amber  = Color(0xFFE7B24C)
-private val Slate  = Color(0xFF6D7E9B)
+private val Slate  = Color(0xFF6F809D)
 private val Serif  = androidx.compose.ui.text.font.FontFamily.Serif
 
 /** Big targets: one hand, sunlight, standing up. Everything here is thumb-sized. */
