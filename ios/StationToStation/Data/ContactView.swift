@@ -107,7 +107,10 @@ func categoriesFor(contact: Bool) -> Set<String> {
 /// that id only so the same timeline always produces the same manifest — a Swift
 /// dictionary has no order of its own, and a wire format that reshuffles per run is one
 /// nobody can assert against.
-func contactManifest(_ cache: TimelineCache, me: String) -> HandoverManifest {
+///
+/// `setlistfm` is my setlist.fm username, blank for none — which of `cache.shows` is mine,
+/// for the **Nights** the manifest carries (#405).
+func contactManifest(_ cache: TimelineCache, me: String, setlistfm: String = "") -> HandoverManifest {
     let shared = cache.gigMedia.mapValues(visibleToContacts).filter { !$0.value.isEmpty }
 
     // **Built up from empty, never handed a copy of the cache to subtract from.** A
@@ -147,5 +150,13 @@ func contactManifest(_ cache: TimelineCache, me: String) -> HandoverManifest {
             )
         }
     }
-    return HandoverManifest(timeline: timeline, media: media)
+    // My Spine, whole (#405): the Nights I imported and the ones I logged by hand, on the
+    // same terms. The songs stay behind — a Lane is drawn from a date, an act and a room,
+    // and a setlist is a catalogue lookup away for anyone who wants it.
+    let nights = cache.mySpine(setlistfm).map { night -> FmSetlist in
+        var bare = night
+        bare.sets = nil
+        return bare
+    }
+    return HandoverManifest(timeline: timeline, media: media, nights: nights)
 }

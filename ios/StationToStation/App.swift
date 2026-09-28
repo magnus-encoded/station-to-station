@@ -220,14 +220,7 @@ private struct BannersModifier: ViewModifier {
                 Button("Keep mine", role: .cancel) { model.dismissFriendOverwrite() }
                 Button("Use the card") { model.confirmFriendOverwrite() }
             } message: { conflict in
-                Text(conflict.keyChanged
-                     ? "\(conflict.existing.name) (@\(conflict.existing.setlistfm)) seems to be "
-                       + "on a different phone than last time you saw them. Confirm you still "
-                       + "want to share."
-                     : "A card for @\(conflict.existing.setlistfm) says something different from "
-                       + "what you have.\n\nNow: \(conflict.existing.name)\n"
-                       + "Card: \(conflict.incoming.name)\n\nTheir timeline does not change "
-                       + "either way — only the name you see against it.")
+                Text(conflict.message)
             }
             // A shared **Ticket**, waiting to be confirmed (#412). Mounted here with
             // the banners for the reason the card conflict above is: a Ticket arrives

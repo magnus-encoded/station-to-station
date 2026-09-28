@@ -456,7 +456,7 @@ struct GigView: View {
     /// about.
     private func gigPreamble(_ show: FmSetlist) -> String {
         let alsoThere = model.state.friends.filter { f in
-            !f.setlistfm.isEmpty && (model.state.showsByFriend[f.setlistfm] ?? []).contains { $0.id == show.id }
+            !f.laneKey.isEmpty && (model.state.showsByFriend[f.laneKey] ?? []).contains { $0.id == show.id }
         }.map(\.name)
         return preamble(people: alsoThere, venue: show.venue?.name, songCount: show.performed().count)
     }
@@ -465,7 +465,7 @@ struct GigView: View {
     /// friends list under a setlist.fm handle. Nothing joins the two yet, so
     /// the promise degrades to "someone else" rather than inventing a name.
     private func senderName(_ key: String) -> String? {
-        model.state.friends.first { $0.setlistfm == key }?.name
+        model.state.friends.nameOf(key)
     }
 
     /// The state of this night, as known — one value, decided once (#177).

@@ -59,7 +59,7 @@ struct FriendsView: View {
                         HStack {
                             VStack(alignment: .leading) {
                                 Text(friend.name)
-                                Text("@\(friend.setlistfm)").font(.caption).foregroundStyle(.secondary)
+                                Text(friend.setlistfm.nilIfBlank.map { "@\($0)" } ?? "Contact").font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
                         }

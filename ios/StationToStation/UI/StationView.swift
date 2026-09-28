@@ -325,7 +325,7 @@ struct StationView: View {
     /// one thing `legendSplit` does not give for free: it groups and reorders, and a
     /// re-ordered array's own position is not a Lane colour (#396).
     private var legendColourByUsername: [String: Int] {
-        Dictionary(uniqueKeysWithValues: allLanes.enumerated().map { ($1.setlistfm, $0) })
+        Dictionary(allLanes.enumerated().map { ($1.laneKey, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     /// "N gigs · since YYYY", and — only when someone else is on screen — the Lane
@@ -344,10 +344,10 @@ struct StationView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 14) {
                         laneKey(amber, "You")
-                        ForEach(legendExpanded ? head + rest : head, id: \.setlistfm) { f in
-                            laneKey(laneColor(colourOf[f.setlistfm] ?? 0), f.name,
-                                    hidden: model.state.hiddenLines.contains(f.setlistfm)) {
-                                model.toggleLineHidden(f.setlistfm)
+                        ForEach(legendExpanded ? head + rest : head, id: \.laneKey) { f in
+                            laneKey(laneColor(colourOf[f.laneKey] ?? 0), f.name,
+                                    hidden: model.state.hiddenLines.contains(f.laneKey)) {
+                                model.toggleLineHidden(f.laneKey)
                             }
                         }
                         // A disclosure, never a truncation (#266): every name above

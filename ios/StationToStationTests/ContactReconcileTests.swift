@@ -301,4 +301,99 @@ final class ContactReconcileTests: XCTestCase {
         XCTAssertEqual(["b"], Array(offered.timeline.gigMedia.keys))
         XCTAssertEqual(["m2"], offered.media.map(\.id))
     }
+
+    // MARK: - Nights ride the Reconcile offer (#405)
+    //
+    // A Contact with no setlist.fm account has no address to fetch a Lane from, so the
+    // Lane is what they hand over. Hand-logged and imported Nights go on the same terms.
+    // Android's `ContactReconcileTest`, case for case.
+
+    private let imported = FmSetlist(id: "sl-imported", eventDate: "13-08-2026",
+                                     artist: FmArtist(name: "Wilco"),
+                                     url: "https://www.setlist.fm/setlist/wilco/2026/x.html")
+    private let handLogged = localGigSetlist(gigId: "local-1", artist: "Nick Cave",
+                                             date: "14-08-2026", venue: "Tøyenparken", city: "Oslo")
+
+    /// What a Contact's phone offers: its Spine, whichever way each Night got there.
+    private func theirCache() -> TimelineCache {
+        var c = TimelineCache()
+        c.shows = ["theirs": [imported]]
+        c.gigPlanned = ["local-1": handLogged]
+        c.gigAttendance = ["local-1": StoredAttendance(provenance: "attended")]
+        return c
+    }
+
+    func testAnUnverifiedPeersNightsAreNotTaken() {
+        let offer = HandoverManifest(nights: [imported, handLogged])
+
+        XCTAssertTrue(contactReconcilePlan(mine: TimelineCache(), offer: offer, verified: false).nights.isEmpty)
+    }
+
+    func testHandLoggedNightsAreOfferedOnTheSameTermsAsImportedOnes() {
+        let offer = contactManifest(theirCache(), me: "their-key", setlistfm: "theirs")
+
+        XCTAssertEqual(["sl-imported", "local-1"], Set(offer.nights.map(\.id)))
+        let plan = contactReconcilePlan(mine: TimelineCache(), offer: offer, verified: true)
+        XCTAssertEqual(["sl-imported", "local-1"], Set(plan.nights.map(\.id)))
+    }
+
+    /// No account is no reason to offer less: what I logged by hand is my whole Line.
+    func testAContactWithNoAccountStillOffersEveryNightTheyLogged() {
+        let offer = contactManifest(theirCache(), me: "their-key", setlistfm: "")
+
+        XCTAssertEqual(["local-1"], offer.nights.map(\.id))
+    }
+
+    func testNightsTheFarEndAlreadyHoldsAreNotTakenAgain() {
+        let offer = HandoverManifest(nights: [imported, handLogged])
+
+        let plan = contactReconcilePlan(mine: TimelineCache(), offer: offer, verified: true,
+                                        heldLane: [imported])
+
+        XCTAssertEqual(["local-1"], plan.nights.map(\.id))
+    }
+
+    func testALaneAlreadyWholeTakesNothingAndRunningItTwiceIsRunningItOnce() {
+        let offer = HandoverManifest(nights: [imported, handLogged, handLogged])
+
+        let first = contactReconcilePlan(mine: TimelineCache(), offer: offer, verified: true)
+        let lane = landNights(nil, first.nights)
+        let second = contactReconcilePlan(mine: TimelineCache(), offer: offer, verified: true, heldLane: lane)
+
+        XCTAssertEqual(["local-1", "sl-imported"], lane.map(\.id))
+        XCTAssertTrue(second.nights.isEmpty)
+    }
+
+    func testANightWithNoIdIsNoNight() {
+        let offer = HandoverManifest(nights: [FmSetlist(id: "", eventDate: "13-08-2026")])
+
+        XCTAssertTrue(contactReconcilePlan(mine: TimelineCache(), offer: offer, verified: true).nights.isEmpty)
+    }
+
+    /// Their Nights draw from a date, an act and a room; the songs stay behind.
+    func testTheOfferCarriesNoSongs() {
+        var withSongs = imported
+        withSongs.sets = FmSets(set: [FmSet(song: [FmSong(name: "Jesus, Etc.")])])
+        var c = theirCache()
+        c.shows = ["theirs": [withSongs]]
+
+        XCTAssertTrue(contactManifest(c, me: "their-key", setlistfm: "theirs").nights.allSatisfy { $0.sets == nil })
+    }
+
+    /// A received Lane is held, so an account-less Contact is never sent to setlist.fm.
+    func testAnAccountlessContactsReceivedLaneDrawsWithoutAFetch() {
+        let dio = Friend(setlistfm: "", name: "Dio", publicKey: "k-dio")
+        let offer = contactManifest(theirCache(), me: "k-dio", setlistfm: "")
+        let lane = landNights(nil, contactReconcilePlan(mine: TimelineCache(), offer: offer, verified: true).nights)
+
+        XCTAssertEqual(["local-1"], lane.map(\.id))
+        XCTAssertFalse(laneNeedsFetch(dio, held: lane, myOldest: parseFmDate("25-06-2019")))
+    }
+
+    /// A peer on a build before #405 sends no `nights` key at all.
+    func testAManifestFromAnOlderBuildDecodesWithNoNights() throws {
+        let data = Data(#"{"media":[],"counts":{}}"#.utf8)
+
+        XCTAssertTrue(try JSONDecoder().decode(HandoverManifest.self, from: data).nights.isEmpty)
+    }
 }

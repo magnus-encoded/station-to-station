@@ -83,4 +83,64 @@ final class FriendsLogicTests: XCTestCase {
         let url = URL(string: "setlist2spotify://friend?u=magnus.vikan&name=Magnus&sid=dizzi")!
         XCTAssertEqual(Friend(setlistfm: "magnus.vikan", name: "Magnus", spotifyId: "dizzi"), friendFromURL(url))
     }
+
+    // --- A Contact needs no setlist.fm account (#405) ---
+
+    /// #405 lets a **Card** go without a username — over the radio, where it carries a
+    /// key. A link carries no key, so a link with no username is still nobody.
+    func testALinkWithNeitherKeyNorUsernameIsStillNobody() {
+        XCTAssertNil(friendFromURL(URL(string: "station-to-station://friend?name=Magnus&sid=dizziness")!))
+        XCTAssertNil(friendFromURL(URL(string: "station-to-station://friend?u=&name=Magnus")!))
+        XCTAssertNil(friendFromURL(URL(string: "station-to-station://friend?name=Magnus&k=base64-key")!))
+    }
+
+    /// An account-less Contact's Lane is filed under `key:…`, and no link can name it.
+    func testALinkCannotAddressAnAccountlessContactsLane() {
+        XCTAssertNil(friendFromURL(URL(string: "station-to-station://friend?u=key:52da85770864f909")!))
+    }
+
+    private let dio = Friend(setlistfm: "", name: "Dio", publicKey: "k-dio")
+
+    /// User story 34: everything held before this is found where it was left.
+    func testAContactWithAUsernameIsStillFiledUnderIt() {
+        XCTAssertEqual("magnus90", Friend(setlistfm: "magnus90", publicKey: "k").laneKey)
+        XCTAssertEqual("alice", Friend(setlistfm: "alice").laneKey)
+        XCTAssertEqual("alice", Friend(setlistfm: "alice").id)
+    }
+
+    func testAnAccountlessContactIsFiledUnderItsKeyAndStoresAndReadsBack() {
+        XCTAssertEqual("key:" + keyFingerprint("k-dio"), dio.laneKey)
+        XCTAssertEqual([dio], decodeFriends(encodeFriends([dio])))
+    }
+
+    func testTwoContactsWithoutAnAccountAreTwoLanes() {
+        let other = Friend(setlistfm: "", name: "Dio", publicKey: "k-other")
+        let both = withFriend(withFriend([], dio), other)
+        XCTAssertEqual(2, both.count)
+        XCTAssertEqual(2, Set(both.map(\.laneKey)).count)
+    }
+
+    func testWritingAThinnerCardKeepsTheKeyAndTheUsernameHeld() {
+        let held = [Friend(setlistfm: "ozzy", name: "Ozzy", publicKey: "k-ozzy")]
+        // A link: no key.
+        XCTAssertEqual("k-ozzy", withFriend(held, Friend(setlistfm: "ozzy", name: "Oz")).first?.publicKey)
+        // The radio, from a phone that stopped saying its username: same key, no username.
+        let written = withFriend(held, Friend(setlistfm: "", name: "Ozzy O", publicKey: "k-ozzy"))
+        XCTAssertEqual(1, written.count)
+        XCTAssertEqual("ozzy", written.first?.setlistfm)
+        XCTAssertEqual("Ozzy O", written.first?.name)
+    }
+
+    /// The most recently added person's Lane is Lane 1, so a write moves them there.
+    func testAWrittenContactGoesLast() {
+        let held = [dio, Friend(setlistfm: "alice")]
+        XCTAssertEqual(["alice", "Dio"], withFriend(held, dio).map(\.name))
+    }
+
+    func testMediaIsAttributedByKeyAndABlankSenderIsNobody() {
+        let friends = [dio, Friend(setlistfm: "alice", name: "Alice")]
+        XCTAssertEqual("Dio", friends.nameOf("k-dio"))
+        XCTAssertEqual("Alice", friends.nameOf("alice"))
+        XCTAssertNil(friends.nameOf(""))
+    }
 }

@@ -167,6 +167,45 @@ func laneNeedsFetch(_ contact: Friend, held: [FmSetlist]?, myOldest: Date?) -> B
 /// Shared by the in-memory Lanes and `TimelineStore.save`, so what is drawn and what is
 /// stored are one rule. A failed fetch is not an empty one: callers leave it out of
 /// `fetched` altogether. Term for term with Android's `holdLanes`.
+///
+/// A hand-logged Night of theirs reached me on the **Reconcile** (#405), and setlist.fm has
+/// never heard of it — so its answer, however complete, is not an answer about that Night.
+/// It stays.
 func holdLanes(_ held: [String: [FmSetlist]], _ fetched: [String: [FmSetlist]]) -> [String: [FmSetlist]] {
-    held.merging(fetched.filter { !$0.value.isEmpty || (held[$0.key] ?? []).isEmpty }) { _, new in new }
+    var out = held
+    for (user, shows) in fetched where !shows.isEmpty || (held[user] ?? []).isEmpty {
+        let ids = Set(shows.map(\.id))
+        let onlyReconciled = (held[user] ?? []).filter { $0.isLocal && !ids.contains($0.id) }
+        out[user] = onlyReconciled.isEmpty ? shows : newestFirst(shows + onlyReconciled)
+    }
+    return out
+}
+
+/// Newest first, as every Lane is; a Night with no date sinks to the bottom.
+private func newestFirst(_ nights: [FmSetlist]) -> [FmSetlist] {
+    nights.sorted { ($0.localDate() ?? .distantPast) > ($1.localDate() ?? .distantPast) }
+}
+
+extension TimelineCache {
+    /// My own **Nights**, as a cache holds them: the **Spine** `spineNights` draws, read
+    /// straight from the store. `me` is my setlist.fm username, blank when I have none —
+    /// then the Spine is my evidenced nights alone, which is the whole of it for someone
+    /// who logs by hand. Android's `mySpine`.
+    func mySpine(_ me: String) -> [FmSetlist] {
+        let attended = me.nilIfBlank.flatMap { shows[$0] } ?? []
+        return spineNights(attended: attended, planned: planned(), attendance: attendance())
+    }
+}
+
+/// A **Contact**'s **Lane** once the **Nights** they offered on a **Reconcile** land on
+/// what I `held` (#405). `received` is the plan's `nights` — already only what I did not
+/// hold — so this adds and never removes: the same Night twice is one Night, and a Lane
+/// setlist.fm filled in is not emptied by a Contact whose own copy of it is shorter.
+/// Newest first, as every Lane is. Android's `landNights`.
+func landNights(_ held: [FmSetlist]?, _ received: [FmSetlist]) -> [FmSetlist] {
+    let had = held ?? []
+    var ids = Set(had.map(\.id))
+    let fresh = received.filter { $0.id.nilIfBlank != nil && ids.insert($0.id).inserted }
+    if fresh.isEmpty { return had }
+    return newestFirst(had + fresh)
 }

@@ -23,6 +23,17 @@ struct ContactReconcilePlan: Equatable {
     var noBytes: [String] = []
     /// Media ids to ask for.
     var request: [String] = []
+    /// The **Nights** they offered that their **Lane** on this phone does not hold yet
+    /// (#405) — hand-logged and imported alike, because where a Night came from stops
+    /// mattering once it is theirs. Complete as they stand, like a **Note**: nothing is
+    /// fetched for them. See `landNights` for where they go.
+    var nights: [FmSetlist] = []
+
+    /// By id: `FmSetlist` is not `Equatable`, and the id is what makes two records one Night.
+    static func == (a: ContactReconcilePlan, b: ContactReconcilePlan) -> Bool {
+        a.held == b.held && a.fromGallery == b.fromGallery && a.noBytes == b.noBytes
+            && a.request == b.request && a.nights.map(\.id) == b.nights.map(\.id)
+    }
 }
 
 /// Whether a media id from a peer is safe to use as an identity and, downstream, as a
@@ -63,9 +74,16 @@ func contactReconcilePlan(
     mine: TimelineCache,
     offer: HandoverManifest,
     verified: Bool,
-    gallery: [GalleryItem] = []
+    gallery: [GalleryItem] = [],
+    /// The Lane I already hold for this Contact — whatever `laneKey` files it under.
+    heldLane: [FmSetlist] = []
 ) -> ContactReconcilePlan {
     if !verified { return ContactReconcilePlan() }
+
+    // Held by id, the one thing that says two records are one Night. A Night without an
+    // id is no Night, and one offered twice is taken once.
+    var heldNights = Set(heldLane.map(\.id))
+    let nights = offer.nights.filter { $0.id.nilIfBlank != nil && heldNights.insert($0.id).inserted }
 
     let mineIds = Set(mine.gigMedia.values.flatMap { $0 }.map(\.id))
     var byHash: [String: String] = [:]
@@ -73,7 +91,7 @@ func contactReconcilePlan(
         byHash[item.hash] = item.ref
     }
 
-    var plan = ContactReconcilePlan()
+    var plan = ContactReconcilePlan(nights: nights)
     for item in offer.media {
         if !isSafeMediaId(item.id) {
             continue

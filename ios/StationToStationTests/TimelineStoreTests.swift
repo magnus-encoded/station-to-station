@@ -99,6 +99,16 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual([], loaded.shows["Ozzy"]?.map(\.id))
     }
 
+    /// #405: a Contact's Nights off a Reconcile are held in the same `shows` map a fetched
+    /// Lane is, under their Lane key — no new stored field — and survive a relaunch.
+    func testAContactsReconciledNightsAreHeldUnderTheirLaneAndAddedTo() async {
+        let s = store()
+        await s.mergeContactNights("key:0123456789abcdef", [show("a")])
+        await s.mergeContactNights("key:0123456789abcdef", [show("a"), show("b")])
+        let loaded = await s.load()
+        XCTAssertEqual(["a", "b"], Set(loaded.shows["key:0123456789abcdef"]?.map(\.id) ?? []))
+    }
+
     /// Asked and answered are different facts: an evening with no festival behind it
     /// must be remembered as asked, or every launch re-asks the whole timeline.
     func testFestivalsAskedAccumulatesAcrossSaves() async {
