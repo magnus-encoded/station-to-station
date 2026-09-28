@@ -114,26 +114,25 @@ func contactReconcilePlan(
 /// `request` entries once their bytes have actually arrived over the wire. A **Note**'s
 /// ref is the empty string, which is what a note's ref is everywhere else too.
 ///
-/// A received item only lands on a night I already have, matched by `setlistId` — the one
-/// key that means the same thing on two people's timelines (#28). This never mints a new
-/// **Gig**: a Contact's offer is narrowed to a shared band, not a device's own history,
-/// so a night I have no record of attending is not one for their photographs to create.
+/// A received item only lands on a Night I have **joined** (`joinedNights`): one I hold
+/// under the same `setlistId`, the one key that means the same thing on two people's
+/// timelines (#28), or one I joined by accepting an offer for it. This never mints a new
+/// **Gig**. Media for a Night I have not joined is not filed here at all: it is
+/// `contactOffers`'s, and waits for me to say yes (#405).
 func contactLanding(
     mine: TimelineCache,
     offer: HandoverManifest,
-    resolved: [String: String]
+    resolved: [String: String],
+    joined: [String: String]? = nil
 ) -> [String: [StoredMedia]] {
-    var setlistToGigId: [String: String] = [:]
-    for gig in mine.gigs.values {
-        if let setlistId = gig.setlistId?.nilIfBlank { setlistToGigId[setlistId] = gig.id }
-    }
+    let joined = joined ?? joinedNights(mine)
     var attribution: [String: String] = [:]
     for item in offer.media { attribution[item.id] = item.from }
 
     var landing: [String: [StoredMedia]] = [:]
     for (theirGigId, items) in offer.timeline.gigMedia {
-        guard let setlistId = offer.timeline.gigs[theirGigId]?.setlistId,
-              let myGigId = setlistToGigId[setlistId]
+        guard offer.timeline.gigs[theirGigId] != nil,
+              let myGigId = joined[offer.timeline.keyOf(theirGigId)]
         else { continue }
         let landed: [StoredMedia] = items.compactMap { item in
             // Checked again here rather than trusted from the plan: these items come from
@@ -148,4 +147,185 @@ func contactLanding(
         if !landed.isEmpty { landing[myGigId] = landed }
     }
     return landing
+}
+
+// MARK: - Media a Contact sends is offered, never filed (#405)
+//
+// `contactLanding` used to be the whole of the receive path: a Contact's media went
+// straight onto whichever of my Gigs shared its setlist.fm id. That is safe only while the
+// id is a catalogue key both of us derived on our own. Once a Night can be joined by hand
+// it is not: a Contact's belief that we shared a Night would be written onto my record. So
+// media for a Night I have not joined is held apart, as an **Offer**, and nothing on my
+// timeline moves until I say. Android's `ContactReconcile.kt`, term for term.
+
+/// Media a **Contact** sent for a Night of theirs I have not joined, held apart from my
+/// timeline until I accept it or decline it (#405). Keyed in `TimelineCache.mediaOffers`
+/// by *their* Night id.
+///
+/// `date`, `artist` and `venue` are their Night's facts, kept so the offer can be shown on
+/// the Night of mine it might be and described without their Lane at hand. `declined` is
+/// the media ids I said no to: they are not offered again.
+struct MediaOffer: Codable, Equatable {
+    var date: String = ""
+    var artist: String = ""
+    var venue: String = ""
+    /// Waiting for an answer: `ref` is the local copy, `from` is the Contact's key.
+    var media: [StoredMedia] = []
+    var declined: [String] = []
+
+    init(date: String = "", artist: String = "", venue: String = "",
+         media: [StoredMedia] = [], declined: [String] = []) {
+        self.date = date
+        self.artist = artist
+        self.venue = venue
+        self.media = media
+        self.declined = declined
+    }
+
+    /// Every field optional on the way in, like every other stored record: a missing field
+    /// costs that field, never the whole timeline.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        date = (try? c.decodeIfPresent(String.self, forKey: .date)) ?? nil ?? ""
+        artist = (try? c.decodeIfPresent(String.self, forKey: .artist)) ?? nil ?? ""
+        venue = (try? c.decodeIfPresent(String.self, forKey: .venue)) ?? nil ?? ""
+        media = (try? c.decodeIfPresent([StoredMedia].self, forKey: .media)) ?? nil ?? []
+        declined = (try? c.decodeIfPresent([String].self, forKey: .declined)) ?? nil ?? []
+    }
+}
+
+/// The Nights I have joined, as Night id → the id of my own **Gig** it is (#405).
+///
+/// **This is the seam hand-joins will use.** Today a Night is joined in two ways: I hold
+/// it under that very catalogue id, or I accepted a Contact's offer for it, which wrote
+/// `TimelineCache.nightJoins`. A later "yes, same Night" writes the same map and arrives
+/// here without anything else changing. My own local ids are deliberately not in it: a
+/// peer who names one has named it on purpose, which is exactly the belief that must be
+/// offered rather than filed.
+func joinedNights(_ mine: TimelineCache) -> [String: String] {
+    var out: [String: String] = [:]
+    for (night, gigId) in mine.nightJoins where night.nilIfBlank != nil && mine.gigs[gigId] != nil {
+        out[night] = gigId
+    }
+    for gig in mine.gigs.values {
+        if let setlistId = gig.setlistId?.nilIfBlank { out[setlistId] = gig.id }
+    }
+    return out
+}
+
+/// The other half of `contactLanding`: what a Contact sent for Nights of theirs I have not
+/// joined, as their Night id → `MediaOffer`. Pure, like the plan; nothing here touches my
+/// timeline.
+///
+/// An offer is only made for a Night on a date I was out myself (`myNights`, my
+/// **Spine**): a Contact's manifest carries every item they share, so without the date
+/// every photograph of every Night of theirs would arrive as a question. A Night I hold
+/// under its own id is never an offer. Items are checked with `isSafeMediaId` again, and
+/// an item I already hold, or already declined, is not offered.
+func contactOffers(
+    mine: TimelineCache,
+    offer: HandoverManifest,
+    resolved: [String: String],
+    myNights: [FmSetlist],
+    joined: [String: String]? = nil
+) -> [String: MediaOffer] {
+    let joined = joined ?? joinedNights(mine)
+    let myIds = Set(myNights.map(\.id))
+    let myDates = Set(myNights.compactMap { $0.eventDate?.nilIfBlank })
+    let held = Set(mine.gigMedia.values.flatMap { $0 }.map(\.id))
+    var theirNights: [String: FmSetlist] = [:]
+    for night in offer.nights where theirNights[night.id] == nil { theirNights[night.id] = night }
+    var attribution: [String: String] = [:]
+    for item in offer.media { attribution[item.id] = item.from }
+
+    var out: [String: MediaOffer] = [:]
+    for (theirGigId, items) in offer.timeline.gigMedia {
+        guard let gig = offer.timeline.gigs[theirGigId] else { continue }
+        let night = offer.timeline.keyOf(theirGigId)
+        if night.nilIfBlank == nil || joined[night] != nil || myIds.contains(night) { continue }
+        let facts = theirNights[night]
+        let date = gig.date.nilIfBlank ?? facts?.eventDate ?? ""
+        guard myDates.contains(date) else { continue }
+        let declined = Set(mine.mediaOffers[night]?.declined ?? [])
+        let waiting: [StoredMedia] = items.compactMap { item in
+            guard isSafeMediaId(item.id), !held.contains(item.id), !declined.contains(item.id),
+                  let ref = resolved[item.id] else { return nil }
+            var copy = item
+            copy.ref = ref
+            copy.from = attribution[item.id] ?? item.from
+            return copy
+        }
+        if waiting.isEmpty { continue }
+        out[night] = MediaOffer(
+            date: date,
+            artist: gig.artist.nilIfBlank ?? facts?.artist?.name ?? "",
+            venue: gig.venue.nilIfBlank ?? facts?.venue?.name ?? "",
+            media: waiting
+        )
+    }
+    return out
+}
+
+extension TimelineCache {
+    /// Offers that just arrived, kept (#405). Adds to an offer already waiting for the
+    /// same Night rather than replacing it, and never brings back an item I declined.
+    func holdingOffers(_ arrived: [String: MediaOffer]) -> TimelineCache {
+        if arrived.isEmpty { return self }
+        var c = self
+        for (night, offer) in arrived {
+            let had = c.mediaOffers[night]
+            let declined = Set(had?.declined ?? [])
+            let fresh = offer.media.filter { !declined.contains($0.id) }
+            if var had {
+                had.media = unionMedia(had.media, fresh)
+                c.mediaOffers[night] = had
+            } else {
+                var kept = offer
+                kept.media = fresh
+                c.mediaOffers[night] = kept
+            }
+        }
+        return c
+    }
+
+    /// Yes (#405): the offer for their Night `night` is filed onto my **Gig** `gigId`, and
+    /// the Night is joined, so what they send for it later lands there directly.
+    func acceptingOffer(_ night: String, gigId: String) -> TimelineCache {
+        guard let offer = mediaOffers[night] else { return self }
+        var c = self
+        c.gigMedia[gigId] = unionMedia(c.gigMedia[gigId] ?? [], offer.media)
+        c.nightJoins[night] = gigId
+        c.mediaOffers[night] = nil
+        return c
+    }
+
+    /// No (#405). My timeline is untouched, and the items are remembered as declined so
+    /// the next **Reconcile** does not ask again.
+    func decliningOffer(_ night: String) -> TimelineCache {
+        guard var offer = mediaOffers[night] else { return self }
+        var c = self
+        var declined = offer.declined
+        for item in offer.media where !declined.contains(item.id) { declined.append(item.id) }
+        offer.declined = declined
+        offer.media = []
+        c.mediaOffers[night] = offer
+        return c
+    }
+}
+
+/// One offer waiting on a Night of mine: their Night id and what they sent for it.
+struct WaitingOffer: Identifiable {
+    let night: String
+    let offer: MediaOffer
+    var id: String { night }
+}
+
+/// The offers waiting on a Night of mine dated `date` (dd-MM-yyyy), in a stable order.
+/// Android's `waitingOn`.
+func offersWaiting(_ offers: [String: MediaOffer], on date: String?) -> [WaitingOffer] {
+    guard let date = date?.nilIfBlank else { return [] }
+    return offers
+        .filter { $0.value.date == date && !$0.value.media.isEmpty }
+        .sorted { $0.key < $1.key }
+        .map { WaitingOffer(night: $0.key, offer: $0.value) }
 }

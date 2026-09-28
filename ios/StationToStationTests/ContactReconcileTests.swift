@@ -396,4 +396,125 @@ final class ContactReconcileTests: XCTestCase {
 
         XCTAssertTrue(try JSONDecoder().decode(HandoverManifest.self, from: data).nights.isEmpty)
     }
+
+    // MARK: - Media a Contact sends is offered, never filed (#405)
+    //
+    // Another person's belief that we shared a Night must never write onto my record. What
+    // they send for a Night I hold under the same catalogue id merges as it always did;
+    // what they send for a Night I have not joined waits as an offer until I answer it.
+    // Android's `ContactReconcileTest`, case for case.
+
+    /// My own hand-logged Night on 14-08-2026, and the gig record it lives under.
+    private let myNight = localGigSetlist(gigId: "my-local", artist: "Nick Cave",
+                                          date: "14-08-2026", venue: "Tøyenparken", city: "Oslo")
+    private let myGig = StoredGig(id: "my-local", date: "14-08-2026", artist: "Nick Cave", venue: "Tøyenparken")
+
+    /// Their hand-logged record of the same evening: another id, so nothing links the two.
+    private func theirOffer(_ items: [StoredMedia]) -> HandoverManifest {
+        manifest(
+            timeline: cache(
+                gigs: ["their-local": StoredGig(id: "their-local", date: "14-08-2026",
+                                                artist: "Nick Cave", venue: "Tøyenparken")],
+                gigMedia: ["their-local": items]
+            ),
+            media: items.map { offered($0.id, hash: "h-\($0.id)") }
+        )
+    }
+
+    func testMediaForANightIHoldUnderTheSameCatalogueIdMergesAndIsNotOffered() {
+        let mine = cache(gigs: ["mine-gig": StoredGig(id: "mine-gig", date: "13-08-2026", setlistId: "sl-1")])
+        let offer = manifest(
+            timeline: cache(
+                gigs: ["their-gig": StoredGig(id: "their-gig", date: "13-08-2026", setlistId: "sl-1")],
+                gigMedia: ["their-gig": [photo("m1")]]
+            ),
+            media: [offered("m1", hash: "h1")]
+        )
+        let resolved = ["m1": "file:///received/m1"]
+        let spine = [FmSetlist(id: "sl-1", eventDate: "13-08-2026")]
+
+        XCTAssertEqual(["m1"], contactLanding(mine: mine, offer: offer, resolved: resolved)["mine-gig"]?.map(\.id))
+        XCTAssertTrue(contactOffers(mine: mine, offer: offer, resolved: resolved, myNights: spine).isEmpty)
+    }
+
+    func testMediaForANightIHaveNotJoinedIsOfferedAndMyTimelineIsUntouched() {
+        let mine = cache(gigs: ["my-local": myGig])
+        let offer = theirOffer([photo("m1"), photo("m2")])
+        let resolved = ["m1": "file:///received/m1", "m2": "file:///received/m2"]
+
+        let landing = contactLanding(mine: mine, offer: offer, resolved: resolved)
+        let offers = contactOffers(mine: mine, offer: offer, resolved: resolved, myNights: [myNight])
+        let held = mine.holdingOffers(offers)
+
+        XCTAssertTrue(landing.isEmpty)
+        let waiting = offers["their-local"]
+        XCTAssertEqual("14-08-2026", waiting?.date)
+        XCTAssertEqual(["m1", "m2"], waiting?.media.map(\.id).sorted())
+        XCTAssertEqual("file:///received/m1", waiting?.media.first { $0.id == "m1" }?.ref)
+        XCTAssertEqual("their-key", waiting?.media.first?.from)
+        // Held apart: the Night's media and the joins are exactly what they were.
+        XCTAssertEqual(mine.gigMedia, held.gigMedia)
+        XCTAssertEqual(mine.gigs, held.gigs)
+        XCTAssertTrue(joinedNights(held).isEmpty)
+        XCTAssertEqual(["their-local"], offersWaiting(held.mediaOffers, on: "14-08-2026").map(\.night))
+    }
+
+    /// Their manifest carries everything they share, not only what we might have in common.
+    func testMediaForANightOnADateIWasNotOutIsNeitherFiledNorOffered() {
+        let offer = theirOffer([photo("m1")])
+        let resolved = ["m1": "file:///received/m1"]
+        var elsewhere = myNight
+        elsewhere.eventDate = "01-01-2026"
+
+        XCTAssertTrue(contactLanding(mine: TimelineCache(), offer: offer, resolved: resolved).isEmpty)
+        XCTAssertTrue(contactOffers(mine: TimelineCache(), offer: offer, resolved: resolved,
+                                    myNights: [elsewhere]).isEmpty)
+    }
+
+    func testDecliningChangesNothingOnMyTimelineAndIsNotAskedAgain() {
+        let mine = cache(gigs: ["my-local": myGig], gigMedia: ["my-local": [photo("mine")]])
+        let offer = theirOffer([photo("m1")])
+        let resolved = ["m1": "file:///received/m1"]
+        let held = mine.holdingOffers(contactOffers(mine: mine, offer: offer, resolved: resolved, myNights: [myNight]))
+
+        let declined = held.decliningOffer("their-local")
+
+        XCTAssertEqual(mine.gigMedia, declined.gigMedia)
+        XCTAssertEqual(mine.gigs, declined.gigs)
+        XCTAssertTrue(joinedNights(declined).isEmpty)
+        XCTAssertTrue(offersWaiting(declined.mediaOffers, on: "14-08-2026").isEmpty)
+        // The next Reconcile brings the same photo again: it is not offered a second time.
+        let again = declined.holdingOffers(
+            contactOffers(mine: declined, offer: offer, resolved: resolved, myNights: [myNight]))
+        XCTAssertTrue(offersWaiting(again.mediaOffers, on: "14-08-2026").isEmpty)
+    }
+
+    func testAcceptingFilesTheMediaOnMyNightAndJoinsIt() {
+        let mine = cache(gigs: ["my-local": myGig], gigMedia: ["my-local": [photo("mine")]])
+        let resolved = ["m1": "file:///received/m1", "m2": "file:///received/m2"]
+        let held = mine.holdingOffers(
+            contactOffers(mine: mine, offer: theirOffer([photo("m1")]), resolved: resolved, myNights: [myNight]))
+
+        let accepted = held.acceptingOffer("their-local", gigId: "my-local")
+
+        XCTAssertEqual(["mine", "m1"], accepted.gigMedia["my-local"]?.map(\.id))
+        XCTAssertEqual("their-key", accepted.gigMedia["my-local"]?.last?.from)
+        XCTAssertEqual("my-local", joinedNights(accepted)["their-local"])
+        XCTAssertTrue(accepted.mediaOffers.isEmpty)
+        // Joined now, so what they send for it later lands directly, like any shared Night.
+        let later = theirOffer([photo("m1"), photo("m2")])
+        XCTAssertEqual(["m1", "m2"],
+                       contactLanding(mine: accepted, offer: later, resolved: resolved)["my-local"]?.map(\.id))
+        XCTAssertTrue(contactOffers(mine: accepted, offer: later, resolved: resolved, myNights: [myNight]).isEmpty)
+    }
+
+    func testAnUnsafeIdIsNeverOffered() {
+        let mine = cache(gigs: ["my-local": myGig])
+        let offer = theirOffer([photo("../evil"), photo("m1")])
+        let resolved = ["../evil": "file:///received/evil", "m1": "file:///received/m1"]
+
+        let offers = contactOffers(mine: mine, offer: offer, resolved: resolved, myNights: [myNight])
+
+        XCTAssertEqual(["m1"], offers["their-local"]?.media.map(\.id))
+    }
 }

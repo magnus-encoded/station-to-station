@@ -144,6 +144,9 @@ struct UiState {
     /// a night's first keepsakes on its own row: a night at a time was enough while
     /// only the grid read this, and it is not any more.
     var mediaBySetlist: [String: [StoredMedia]] = [:]
+    /// Media **Contacts** sent for Nights of theirs I have not joined, by their Night id
+    /// (#405): offered, never filed, and shown on my Night of the same date until I answer.
+    var mediaOffers: [String: MediaOffer] = [:]
     /// The open **Gig**'s share of it. **Derived, never assigned** — it was a second
     /// copy, and two places holding one night's media is a drift waiting to happen.
     var gigMedia: [StoredMedia] {
@@ -382,6 +385,7 @@ final class AppModel: ObservableObject {
             // any night is opened — and this already reads the cache at launch and
             // after every write.
             state.mediaBySetlist = cache.media()
+            state.mediaOffers = cache.mediaOffers
             state.playlistsBySetlist = cache.playlists()
             state.hiddenAt = cache.hiddenLines
         }
@@ -1320,6 +1324,31 @@ final class AppModel: ObservableObject {
         state.showsByFriend[lane] = landNights(state.showsByFriend[lane], nights)
     }
 
+    /// What a Contact sent for Nights I have not joined, kept and shown (#405).
+    func holdMediaOffers(_ offers: [String: MediaOffer]) async {
+        await timelines.holdMediaOffers(offers)
+        state.mediaOffers = await timelines.load().mediaOffers
+    }
+
+    /// Yes to a **Contact**'s offer (#405): their media is filed on my Night `key` and
+    /// their Night `night` is joined, so what they send for it later lands there directly.
+    func acceptMediaOffer(_ night: String, key: String) {
+        Task {
+            await timelines.acceptMediaOffer(night, key: key)
+            let cache = await timelines.load()
+            state.mediaOffers = cache.mediaOffers
+            state.mediaBySetlist = cache.media()
+        }
+    }
+
+    /// No to a **Contact**'s offer (#405): my Night is left exactly as it was.
+    func declineMediaOffer(_ night: String) {
+        Task {
+            await timelines.declineMediaOffer(night)
+            state.mediaOffers = await timelines.load().mediaOffers
+        }
+    }
+
     // MARK: - Reconcile over the same WiFi (#265)
 
     /// Whether there is anybody worth searching a network for: a **Contact** whose public
@@ -1367,7 +1396,11 @@ final class AppModel: ObservableObject {
             }
             return out
         },
-        onNights: { [weak self] key, nights in await self?.landContactNights(key, nights) }
+        onNights: { [weak self] key, nights in await self?.landContactNights(key, nights) },
+        myNights: { [timelines, settings] in
+            await timelines.load().mySpine(settings.mySetlistFmUser ?? "")
+        },
+        onOffers: { [weak self] offers in await self?.holdMediaOffers(offers) }
     )
 
     func startContactExchange() {
@@ -1885,6 +1918,7 @@ final class AppModel: ObservableObject {
             // The whole map: opening any night is also the cheapest moment to refresh
             // what the Timeline behind it is drawing.
             state.mediaBySetlist = cache.media()
+            state.mediaOffers = cache.mediaOffers
             state.playlistsBySetlist = cache.playlists()
             state.selectedAttendance = cache.attendance()[setlist.id]
             markSelectedOwnership(setlist, attendance: state.selectedAttendance)

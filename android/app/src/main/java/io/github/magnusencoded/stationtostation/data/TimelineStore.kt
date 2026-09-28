@@ -848,6 +848,18 @@ data class TimelineCache(
      * called Norma and only one of them played.
      */
     val catalogueByArtist: Map<String, List<String>> = emptyMap(),
+    /**
+     * Media a **Contact** sent for a Night of theirs I have not joined, by *their* Night id
+     * (#405). Held apart from [gigMedia] on purpose: another person's belief that we
+     * shared a Night must never write onto my record, so what they send waits here until I
+     * accept it or decline it. See [MediaOffer].
+     */
+    val mediaOffers: Map<String, MediaOffer> = emptyMap(),
+    /**
+     * Their Night id → my own **Gig** id, for every Night I joined by accepting an offer
+     * for it (#405). Mine alone: never sent, never synchronised. See [joinedNights].
+     */
+    val nightJoins: Map<String, String> = emptyMap(),
 ) {
     /**
      * The id this gig is known by *outside* the store: its setlist.fm id where it
@@ -1091,6 +1103,24 @@ class TimelineStore(
         for ((gigId, items) in landing) out = out + (gigId to unionMedia(out[gigId].orEmpty(), items))
         c.copy(gigMedia = out)
     }
+
+    /** A Contact reconcile's [contactOffers], kept until I answer them (#405). */
+    suspend fun holdMediaOffers(arrived: Map<String, MediaOffer>): Unit = writeMerged { c ->
+        c.holdingOffers(arrived)
+    }
+
+    /**
+     * Yes to the offer for their Night [night], on my Night [key] — a setlist.fm id or a
+     * gig id, whatever the screens use, minting the **Gig** if nothing hung off it yet.
+     */
+    suspend fun acceptMediaOffer(night: String, key: String): Unit = writeMerged { c ->
+        if (night !in c.mediaOffers) return@writeMerged c
+        val (withGig, gigId) = c.withGig(key)
+        withGig.acceptingOffer(night, gigId)
+    }
+
+    /** No to the offer for their Night [night]. See [decliningOffer]. */
+    suspend fun declineMediaOffer(night: String): Unit = writeMerged { c -> c.decliningOffer(night) }
 
     /**
      * A **Contact**'s **Nights** from a **Reconcile**, folded into the **Lane** held under

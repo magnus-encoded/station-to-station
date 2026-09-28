@@ -3,6 +3,7 @@ package io.github.magnusencoded.stationtostation.data.exchange
 import android.content.Context
 import io.github.magnusencoded.stationtostation.data.GalleryItem
 import io.github.magnusencoded.stationtostation.data.HandoverManifest
+import io.github.magnusencoded.stationtostation.data.MediaOffer
 import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.TimelineCache
 import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
@@ -49,6 +50,10 @@ class ContactExchange(
     private val lanesByKey: suspend () -> Map<String, List<FmSetlist>> = { emptyMap() },
     /** A verified Contact's **Nights** that I did not hold yet, by their key (#405). */
     private val onNights: suspend (contactKey: String, nights: List<FmSetlist>) -> Unit = { _, _ -> },
+    /** My own **Spine**, which decides which Nights an offer could be about (#405). */
+    private val myNights: suspend () -> List<FmSetlist> = { emptyList() },
+    /** Media for Nights I have not joined: offered, never filed (#405). */
+    private val onOffers: suspend (Map<String, MediaOffer>) -> Unit = {},
 ) {
     private val peers = ContactPeers(context)
     private var server: SSLServerSocket? = null
@@ -134,6 +139,7 @@ class ContactExchange(
             if (candidates.isEmpty() || ownCert == null) return@runCatching
             val cache = mine()
             val lanes = lanesByKey()
+            val spine = myNights()
             val refById = cache.gigMedia.values.flatten().associate { it.id to it.ref }
             val landing = runContactSession(
                 socket = socket,
@@ -157,6 +163,8 @@ class ContactExchange(
                 // Launched for the notes' reason: text, complete the moment the manifest
                 // is, and not to be held up behind a photograph.
                 landNights = { key, nights -> scope.launch { onNights(key, nights) } },
+                myNights = spine,
+                landOffers = { offers -> scope.launch { onOffers(offers) } },
             )
             if (!landing.isNullOrEmpty()) onLanded(landing)
         }

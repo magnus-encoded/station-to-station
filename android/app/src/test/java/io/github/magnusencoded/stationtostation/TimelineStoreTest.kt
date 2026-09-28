@@ -1,5 +1,6 @@
 package io.github.magnusencoded.stationtostation
 
+import io.github.magnusencoded.stationtostation.data.MediaOffer
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredFestival
 import io.github.magnusencoded.stationtostation.data.StoredLog
@@ -89,6 +90,39 @@ class TimelineStoreTest {
         store.mergeContactNights("key:0123456789abcdef", listOf(show("a")))
         store.mergeContactNights("key:0123456789abcdef", listOf(show("a"), show("b")))
         assertEquals(setOf("a", "b"), store.load().shows["key:0123456789abcdef"]?.map { it.id }?.toSet())
+    }
+
+    /**
+     * #405: a Contact's offer is held apart from the Night until answered, and accepting it
+     * on a Night nothing hung off yet mints that Night's **Gig** to file it on.
+     */
+    @Test
+    fun `an offer is held until accepted, then filed on my night`() = runBlocking {
+        val store = store()
+        val offer = MediaOffer(date = "25-06-2026", media = listOf(photo("received").copy(from = "k-mia")))
+        store.holdMediaOffers(mapOf("their-night" to offer))
+        assertTrue(store.load().media().isEmpty())
+        assertEquals(listOf("m-received"), store.load().mediaOffers["their-night"]?.media?.map { it.id })
+
+        store.acceptMediaOffer("their-night", "sl-a")
+
+        val loaded = store.load()
+        assertEquals(listOf("m-received"), loaded.media()["sl-a"]?.map { it.id })
+        assertTrue(loaded.mediaOffers.isEmpty())
+        assertEquals(loaded.gigs.values.single { it.setlistId == "sl-a" }.id, loaded.nightJoins["their-night"])
+    }
+
+    @Test
+    fun `a declined offer leaves my nights as they were`() = runBlocking {
+        val store = store()
+        store.holdMediaOffers(mapOf("their-night" to MediaOffer(date = "25-06-2026", media = listOf(photo("received")))))
+        store.declineMediaOffer("their-night")
+
+        val loaded = store.load()
+        assertTrue(loaded.media().isEmpty())
+        assertTrue(loaded.gigs.isEmpty())
+        assertTrue(loaded.nightJoins.isEmpty())
+        assertEquals(listOf("m-received"), loaded.mediaOffers["their-night"]?.declined)
     }
 
     @Test

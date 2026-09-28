@@ -2,9 +2,11 @@ package io.github.magnusencoded.stationtostation.data.exchange
 
 import io.github.magnusencoded.stationtostation.data.GalleryItem
 import io.github.magnusencoded.stationtostation.data.HandoverManifest
+import io.github.magnusencoded.stationtostation.data.MediaOffer
 import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.TimelineCache
 import io.github.magnusencoded.stationtostation.data.contactLanding
+import io.github.magnusencoded.stationtostation.data.contactOffers
 import io.github.magnusencoded.stationtostation.data.contactReconcilePlan
 import io.github.magnusencoded.stationtostation.data.isSafeMediaId
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
@@ -70,6 +72,11 @@ fun runContactSession(
      * as soon as the manifests are swapped — complete as they stand, like a **Note**, so a
      * transfer that never finishes does not cost the Lane. Not called when there are none. */
     landNights: (contactKey: String, nights: List<FmSetlist>) -> Unit = { _, _ -> },
+    /** My own **Spine**: the Nights an offer could be about (#405). See [contactOffers]. */
+    myNights: List<FmSetlist> = emptyList(),
+    /** Called once the bytes are in with what they sent for Nights I have not joined:
+     * **offered, never filed** (#405). Not called when there are none. */
+    landOffers: (Map<String, MediaOffer>) -> Unit = {},
 ): Map<String, List<StoredMedia>>? {
     val contactKey = mutualContactAuth(socket, isServer, ownCert, privateKey, candidates) ?: return null
 
@@ -100,6 +107,8 @@ fun runContactSession(
         sendRequested(socket, theirRequest, mediaSource)
     }
 
+    val offers = contactOffers(mine, theirManifest, resolved, myNights)
+    if (offers.isNotEmpty()) landOffers(offers)
     return contactLanding(mine, theirManifest, resolved)
 }
 

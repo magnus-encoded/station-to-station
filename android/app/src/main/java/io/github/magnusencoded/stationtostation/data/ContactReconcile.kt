@@ -1,6 +1,7 @@
 package io.github.magnusencoded.stationtostation.data
 
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
+import kotlinx.serialization.Serializable
 
 /**
  * The other pairwise sync (#257): two **Contacts**, same WiFi, whatever's sitting in the
@@ -113,21 +114,22 @@ fun contactReconcilePlan(
  * over the wire. A **Note**'s ref is the empty string, which is what a note's ref is
  * everywhere else too.
  *
- * A received item only lands on a gig I already have, matched by `setlistId` — the one key
- * that means the same thing on both timelines (#28). Unlike [handoverPlan], this never mints a
- * new gig: a Contact's offer is narrowed to a shared band already, not a device's own history,
- * so a night I have no record of attending is not one for their photos to create.
+ * A received item only lands on a Night I have **joined** ([joinedNights]): one I hold under
+ * the same `setlistId`, the one key that means the same thing on both timelines (#28), or
+ * one I joined by accepting an offer for it. Unlike [handoverPlan], this never mints a new
+ * gig. Media for a Night I have not joined is not filed here at all: it is
+ * [contactOffers]'s, and waits for me to say yes (#405).
  */
 fun contactLanding(
     mine: TimelineCache,
     offer: HandoverManifest,
     resolved: Map<String, String>,
+    joined: Map<String, String> = joinedNights(mine),
 ): Map<String, List<StoredMedia>> {
-    val setlistToGigId = mine.gigs.values.mapNotNull { g -> g.setlistId?.let { it to g.id } }.toMap()
     val attribution = offer.media.associate { it.id to it.from }
     return offer.timeline.gigMedia.entries.mapNotNull { (theirGigId, items) ->
-        val setlistId = offer.timeline.gigs[theirGigId]?.setlistId ?: return@mapNotNull null
-        val myGigId = setlistToGigId[setlistId] ?: return@mapNotNull null
+        if (theirGigId !in offer.timeline.gigs) return@mapNotNull null
+        val myGigId = joined[offer.timeline.keyOf(theirGigId)] ?: return@mapNotNull null
         // Re-checked here rather than trusted from the plan: these items come from
         // `offer.timeline.gigMedia`, a different part of the peer's message than
         // `offer.media`, and the two could disagree.
@@ -138,3 +140,152 @@ fun contactLanding(
         if (landed.isEmpty()) null else myGigId to landed
     }.toMap()
 }
+
+// ---- Media a Contact sends is offered, never filed (#405) ----------------------------
+//
+// [contactLanding] used to be the whole of the receive path: a Contact's media went
+// straight onto whichever of my Gigs shared its setlist.fm id. That is safe only while the
+// id is a catalogue key both of us derived on our own, so that agreeing is structural.
+// Once a Night can be joined by hand it is not: a Contact's belief that we shared a Night
+// would be written onto my record. So media for a Night I have not joined is held apart,
+// as an **Offer**, and nothing on my timeline moves until I say.
+
+/**
+ * Media a **Contact** sent for a Night of theirs I have not joined, held apart from my
+ * timeline until I accept it or decline it (#405). Keyed in [TimelineCache.mediaOffers]
+ * by *their* Night id.
+ *
+ * [date], [artist] and [venue] are their Night's facts, kept so the offer can be shown on
+ * the Night of mine it might be — a date is how it is found — and described without their
+ * Lane at hand. [declined] is the media ids I said no to: they are not offered again, so a
+ * no stays a no across every later **Reconcile**.
+ */
+@Serializable
+data class MediaOffer(
+    val date: String = "",
+    val artist: String = "",
+    val venue: String = "",
+    /** Waiting for an answer: ref is the local copy, `from` is the Contact's key. */
+    val media: List<StoredMedia> = emptyList(),
+    val declined: List<String> = emptyList(),
+)
+
+/**
+ * The Nights I have joined, as Night id → the id of my own **Gig** it is (#405).
+ *
+ * **This is the seam hand-joins will use.** Today a Night is joined in two ways: I hold it
+ * under that very catalogue id (the setlist.fm id, which is the one key that means the
+ * same thing on both timelines), or I accepted a Contact's offer for it, which wrote
+ * [TimelineCache.nightJoins]. A later "yes, same Night" writes the same map and arrives
+ * here without anything else changing.
+ *
+ * My own local ids are deliberately not in it. A hand-logged Night's id is a UUID minted
+ * on this phone, and a peer who names it has named it on purpose — which is exactly the
+ * belief that must be offered rather than filed.
+ */
+fun joinedNights(mine: TimelineCache): Map<String, String> {
+    val out = LinkedHashMap<String, String>()
+    for ((night, gigId) in mine.nightJoins) if (night.isNotBlank() && gigId in mine.gigs) out[night] = gigId
+    for (gig in mine.gigs.values) gig.setlistId?.takeIf { it.isNotBlank() }?.let { out[it] = gig.id }
+    return out
+}
+
+/**
+ * The other half of [contactLanding]: what a Contact sent for Nights of theirs I have not
+ * joined, as their Night id → [MediaOffer]. Pure, like the plan. Nothing here touches my
+ * timeline; [TimelineCache.holdingOffers] is where these are kept.
+ *
+ * An offer is only made for a Night on a date I was out myself ([myNights], my **Spine**).
+ * A Contact's manifest carries every item they share, not only the ones for Nights we
+ * might have in common, so without the date every photograph of every Night of theirs
+ * would arrive as a question. A Night I hold under its own id is never an offer: it is
+ * [contactLanding]'s, as it always was.
+ *
+ * Items are checked with [isSafeMediaId] again, for [contactLanding]'s reason, and an
+ * item I already hold, or already declined, is not offered.
+ */
+fun contactOffers(
+    mine: TimelineCache,
+    offer: HandoverManifest,
+    resolved: Map<String, String>,
+    myNights: List<FmSetlist>,
+    joined: Map<String, String> = joinedNights(mine),
+): Map<String, MediaOffer> {
+    val myIds = myNights.mapTo(HashSet()) { it.id }
+    val myDates = myNights.mapNotNullTo(HashSet()) { it.eventDate?.takeIf(String::isNotBlank) }
+    val held = mine.gigMedia.values.flatten().mapTo(HashSet()) { it.id }
+    val theirNights = offer.nights.associateBy { it.id }
+    val attribution = offer.media.associate { it.id to it.from }
+
+    val out = LinkedHashMap<String, MediaOffer>()
+    for ((theirGigId, items) in offer.timeline.gigMedia) {
+        val gig = offer.timeline.gigs[theirGigId] ?: continue
+        val night = offer.timeline.keyOf(theirGigId)
+        if (night.isBlank() || night in joined || night in myIds) continue
+        val facts = theirNights[night]
+        val date = gig.date.ifBlank { facts?.eventDate.orEmpty() }
+        if (date !in myDates) continue
+        val declined = mine.mediaOffers[night]?.declined.orEmpty().toSet()
+        val waiting = items.mapNotNull { m ->
+            if (!isSafeMediaId(m.id) || m.id in held || m.id in declined) null
+            else resolved[m.id]?.let { m.copy(ref = it, from = attribution[m.id] ?: m.from) }
+        }
+        if (waiting.isEmpty()) continue
+        out[night] = MediaOffer(
+            date = date,
+            artist = gig.artist.ifBlank { facts?.artist?.name.orEmpty() },
+            venue = gig.venue.ifBlank { facts?.venue?.name.orEmpty() },
+            media = waiting,
+        )
+    }
+    return out
+}
+
+/**
+ * Offers that just arrived, kept (#405). Adds to an offer already waiting for the same
+ * Night rather than replacing it, and never brings back an item I declined.
+ */
+fun TimelineCache.holdingOffers(arrived: Map<String, MediaOffer>): TimelineCache {
+    if (arrived.isEmpty()) return this
+    val out = LinkedHashMap(mediaOffers)
+    for ((night, offer) in arrived) {
+        val had = out[night]
+        val fresh = offer.media.filter { it.id !in had?.declined.orEmpty() }
+        out[night] = if (had == null) offer.copy(media = fresh)
+        else had.copy(media = unionMedia(had.media, fresh))
+    }
+    return copy(mediaOffers = out)
+}
+
+/**
+ * Yes (#405): the offer for their Night [night] is filed onto my **Gig** [gigId], and the
+ * Night is joined — so what they send for it later lands there directly, like any shared
+ * Night. Nothing else on my timeline moves.
+ */
+fun TimelineCache.acceptingOffer(night: String, gigId: String): TimelineCache {
+    val offer = mediaOffers[night] ?: return this
+    return copy(
+        gigMedia = gigMedia + (gigId to unionMedia(gigMedia[gigId].orEmpty(), offer.media)),
+        nightJoins = nightJoins + (night to gigId),
+        mediaOffers = mediaOffers - night,
+    )
+}
+
+/**
+ * No (#405). My timeline is untouched — that is the whole of declining — and the items
+ * are remembered as declined so the next **Reconcile** does not ask again.
+ */
+fun TimelineCache.decliningOffer(night: String): TimelineCache {
+    val offer = mediaOffers[night] ?: return this
+    return copy(
+        mediaOffers = mediaOffers + (night to offer.copy(
+            media = emptyList(),
+            declined = (offer.declined + offer.media.map { it.id }).distinct(),
+        )),
+    )
+}
+
+/** The offers waiting on a Night of mine dated [date] (dd-MM-yyyy), their Night id first. */
+fun Map<String, MediaOffer>.waitingOn(date: String?): List<Pair<String, MediaOffer>> =
+    if (date.isNullOrBlank()) emptyList()
+    else entries.filter { it.value.date == date && it.value.media.isNotEmpty() }.map { it.key to it.value }
