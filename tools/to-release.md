@@ -1,7 +1,8 @@
 ---
 name: to-release
-description: Release what has landed on main to Google Play. Picks the version (incremental by default, or minor, major, or an explicit X.Y.Z), writes the CHANGELOG.md entry and any privacy policy change, merges them, and tags the tip of main so android-release.yml publishes it. Use when at least one change has been merged to main since the last v* tag and the user wants it released, e.g. "/to-release", "/to-release minor", "ship it", "cut 1.12.0", "release what's on main".
+description: Release what has landed on main to Google Play, with its changelog entry and any privacy policy change.
 argument-hint: "[incremental|minor|major|X.Y.Z]"
+disable-model-invocation: true
 ---
 
 # /to-release
