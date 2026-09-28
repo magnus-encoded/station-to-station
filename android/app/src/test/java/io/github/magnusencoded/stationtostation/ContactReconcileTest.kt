@@ -286,7 +286,6 @@ class ContactReconcileTest {
         venue = "Tøyenparken", city = "Oslo",
     )
 
-    /** What a Contact's phone offers: its Spine, whichever way each Night got there. */
     private fun theirCache() = TimelineCache(
         shows = mapOf("theirs" to listOf(imported)),
         gigPlanned = mapOf("local-1" to handLogged),
@@ -345,7 +344,6 @@ class ContactReconcileTest {
         assertTrue(contactReconcilePlan(TimelineCache(), offer, verified = true).nights.isEmpty())
     }
 
-    /** Their Nights draw from a date, an act and a room; the songs stay behind. */
     @Test
     fun `the offer carries no songs`() {
         val withSongs = imported.copy(sets = FmSets(set = listOf(FmSet(song = listOf(FmSong(name = "Jesus, Etc."))))))
@@ -470,7 +468,6 @@ class ContactReconcileTest {
         assertEquals("their-key", accepted.gigMedia.getValue("my-local").last().from)
         assertEquals(mapOf("their-local" to "my-local"), joinedNights(accepted).filterKeys { it == "their-local" })
         assertTrue(accepted.mediaOffers.isEmpty())
-        // Joined now, so what they send for it later lands directly, like any shared Night.
         val later = theirOffer(photo("m1"), photo("m2"))
         assertEquals(listOf("m1", "m2"), contactLanding(accepted, later, resolved).getValue("my-local").map { it.id })
         assertTrue(contactOffers(accepted, later, resolved, listOf(myNight)).isEmpty())
@@ -487,8 +484,6 @@ class ContactReconcileTest {
         assertEquals(listOf("m1"), offers.getValue("their-local").media.map { it.id })
     }
 
-    // --- The maybe, answered (#405): mine alone, and the seam #578 left for it. ---
-
     @Test
     fun `same night joins it, so what they send lands directly and nothing is offered`() {
         val mine = TimelineCache(gigs = mapOf("my-local" to myGig))
@@ -500,7 +495,6 @@ class ContactReconcileTest {
         assertEquals(mapOf("their-local" to "my-local"), joined.spineJoins())
         assertEquals(listOf("m1"), contactLanding(joined, theirOffer(photo("m1")), resolved).getValue("my-local").map { it.id })
         assertTrue(contactOffers(joined, theirOffer(photo("m1")), resolved, listOf(myNight)).isEmpty())
-        // Saying so moved nothing on my timeline by itself.
         assertEquals(mine.gigMedia, joined.gigMedia)
         assertEquals(mine.gigs, joined.gigs)
     }
@@ -528,8 +522,6 @@ class ContactReconcileTest {
         assertEquals(mapOf("their-a" to "sfm-1"), mine.spineJoins())
         assertEquals(mapOf("their-b" to setOf("sfm-1")), mine.spineDismissals())
     }
-
-    // --- Undo (#580): an answer taken back is the maybe asked again. ---
 
     @Test
     fun `undoing same night takes the join away and nothing else`() {

@@ -186,7 +186,6 @@ class GossipLifecycleTest {
         assertTrue(gossipRelayShouldRun(gossipActiveUntil(timeline), java.time.Instant.ofEpochMilli(duringGrace)))
         assertFalse(gossipRelayShouldRun(gossipActiveUntil(timeline), java.time.Instant.ofEpochMilli(done + 1_800_000)))
 
-        // And it is visible where the set is read, beside the line this phone wrote itself.
         val rows = weaveGossip(mine.songs, gossip.publicStates.first().project(setOf(gigId)))
         assertEquals(listOf("Choke", "Evolve"), rows.map { it.text })
     }
@@ -355,7 +354,6 @@ class GossipLifecycleTest {
         val after = done + 31 * 60_000
         assertNull(gossipBullet(gossipParticipationEnds(timeline)[first], active = true, stopped = false, now = after))
         assertEquals(second, active(after))
-        // And once the night itself is over there is nothing to be standing at.
         assertNull(active(end.plusSeconds(60).toEpochMilli()))
     }
 
@@ -377,7 +375,6 @@ class GossipLifecycleTest {
         val second = timeline.gig(tonight, stoppedAt + 600_000)
         val now = stoppedAt + 900_000
 
-        // The radio runs again, and for the night checked into after the stop.
         assertTrue(gossipRelayShouldRun(gossipActiveUntil(timeline, gossip.stoppedAt()),
             java.time.Instant.ofEpochMilli(now)))
         assertEquals(second, gossipActiveGigId(timeline, gossip.stoppedAt(), gossip.selectedGigId(), now))

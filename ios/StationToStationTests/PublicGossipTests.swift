@@ -343,7 +343,6 @@ final class PublicGossipTests: XCTestCase {
         // credit the ranker reads under that same key was never written.
         XCTAssertTrue(state.offer(to: neighbourRelay, now: 2001).isEmpty)
         XCTAssertNil(state.useful[neighbourRelay])
-        // Addressed as the meeting will prove it, both halves work.
         let addressed = receiptFor(carried, from: neighbourRelay, recognised: true, author: me,
                                    now: 2000, sign: sign)!
         var correct = PublicGossipState()
@@ -370,7 +369,6 @@ final class PublicGossipTests: XCTestCase {
         for receipt in receipts {
             XCTAssertTrue(state.receive(receipt, from: "", now: 2000, local: true))
         }
-        // The receipt is actually held, actually offered, and actually credited the neighbour.
         XCTAssertEqual(state.held.values.filter { $0.envelope.kind == "receipt" }.map { $0.envelope }, receipts)
         XCTAssertEqual(state.offer(to: "neighbour", now: 2001), receipts)
         XCTAssertEqual(state.useful["neighbour"], 2000 + publicReceiptMs)
@@ -593,7 +591,6 @@ final class PublicGossipTests: XCTestCase {
         XCTAssertNotNil(state.facts[witness.id])
         XCTAssertNil(state.held[claim.id])
         XCTAssertNotNil(state.held[witness.id])
-        // This device witnessed someone else. Its own night is not witnessed by that.
         XCTAssertEqual(state.witnessedGigIds(), [])
         var remote = PublicGossipState()
         XCTAssertTrue(remote.receive(witness, from: "blind-relay", now: 1800))

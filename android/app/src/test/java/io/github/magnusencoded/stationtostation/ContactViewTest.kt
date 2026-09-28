@@ -73,7 +73,6 @@ class ContactViewTest {
         assertEquals(listOf("b"), withheldFromContacts(held).map { it.id })
     }
 
-    /** A night with everything vaulted withholds all of it, and the view says so. */
     @Test
     fun `an all-vault night withholds all of it`() {
         val held = listOf(mine("a", personal = true), mine("b", personal = true))
@@ -97,11 +96,9 @@ class ContactViewTest {
     fun `the lit thumbnails are exactly the ones a contact is sent`() {
         fun lit(media: List<StoredMedia>) = visibleToContacts(media).map { it.ref }.toSet()
 
-        // The night that used to lie: nothing held back, yet drawn as if it were.
         val nothingHeldBack = listOf(mine("a"), mine("b"))
         assertEquals(nothingHeldBack.map { it.ref }.toSet(), lit(nothingHeldBack))
 
-        // The night it was indistinguishable from.
         val allHeldBack = listOf(mine("a", personal = true), mine("b", personal = true))
         assertTrue(lit(allHeldBack).isEmpty())
 
@@ -275,8 +272,6 @@ class ContactViewTest {
         assertEquals(setOf("a"), offered)
     }
 
-    // ---- text obeys the same tier line as everything else (#50) --------------
-
     private fun myNote(id: String, text: String, personal: Boolean, verdict: String? = null) =
         StoredMedia(
             id = id,
@@ -341,8 +336,6 @@ class ContactViewTest {
     fun `the note categories exist for my own device and the personal one never for a contact`() {
         assertTrue(categoriesFor(contact = true).contains(StoredMedia.Kind.NOTE))
         assertFalse(categoriesFor(contact = true).contains("personal_note"))
-        // My own other phone: a draft has to travel, or keeping it back costs me the
-        // material I write from.
         assertTrue(categoriesFor(contact = false).contains("personal_note"))
     }
 

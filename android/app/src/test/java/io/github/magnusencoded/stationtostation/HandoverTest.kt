@@ -95,7 +95,6 @@ class HandoverTest {
 
         assertEquals(setOf("older"), plan.merged.gigs.keys)
         assertEquals("Hollowmoor Park", plan.merged.gigs["older"]?.venue)
-        // My media moved onto the surviving id rather than being stranded on mine.
         assertEquals(listOf("m-mine"), plan.merged.gigMedia["older"]?.map { it.id })
     }
 
@@ -240,7 +239,6 @@ class HandoverTest {
             ),
             allow = all,
             verified = true,
-            // Same night, same minute, different bytes.
             gallery = listOf(GalleryItem(ref = "content://mine/98", hash = "h-other")),
         )
 

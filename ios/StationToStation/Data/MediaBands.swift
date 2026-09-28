@@ -23,7 +23,6 @@ enum Band {
 
 /// What letting go right now would do to the shared band's Crossing.
 enum ReleaseHint {
-    /// Nothing changes, or the change is invisible. The usual answer.
     case none
     /// One more contributor arrives and the night becomes one I shared.
     case gained

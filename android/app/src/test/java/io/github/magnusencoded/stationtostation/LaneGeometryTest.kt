@@ -99,7 +99,6 @@ class LaneGeometryTest {
 
     @Test
     fun `one parting on the row the other joins is two independent answers`() {
-        // Above: I was out with Lemmy. Here: with Ozzy instead.
         val above = row(mine = true, lemmy)
         val here = row(mine = true, ozzy)
 
@@ -246,12 +245,10 @@ class LaneGeometryTest {
         assertDp(5f, drawn(row(mine = true).copy(depth = 1)).at(Spine).nodeR)
         assertDp(11f, drawn(festivalRow(mine = true)).at(Spine).nodeR)
 
-        // And the node itself sits lower on a festival, which is a bigger ring.
         assertDp(13f, drawn(row(mine = true)).at(Spine).nodeY)
         assertDp(15f, drawn(festivalRow(mine = true)).at(Spine).nodeY)
     }
 
-    /** A stranger's lane is not notched by a night they missed. */
     @Test
     fun `a line nobody present is on runs past the node with no rim gap`() {
         val d = drawn(row(mine = true)).at(0) // Ozzy wasn't there
@@ -287,7 +284,6 @@ class LaneGeometryTest {
         assertEquals(LineColour.Mine(present = false), drawn(row(mine = false, lemmy)).at(Spine).colour)
         // A friend alone on their own lane takes their own light.
         assertEquals(LineColour.Rail(1), drawn(row(mine = false, lemmy)).at(1).colour)
-        // Company, whoever it is with.
         assertEquals(LineColour.Meeting, drawn(row(mine = true, ozzy)).at(Spine).colour)
     }
 
@@ -326,7 +322,6 @@ class LaneGeometryTest {
         assertEquals(LineColour.Rail(0), leaving.colourAhead) // takes its own colour back
         assertDp(laneXf(0, laneStep(lanes.size)).value, leaving.toX) // and swings out to its lane
 
-        // The row after the parting: nothing green is left of it.
         drawn(alone).forEach { assertFalse(it.colour == LineColour.Meeting) }
     }
 
@@ -444,8 +439,6 @@ class LaneGeometryTest {
         assertEquals(LineColour.Absent, kvelertak.at(1).colour) // Ozzy, past a night he missed
     }
 
-    // --- The legend's recency order (#396) ---
-
     private val motorhead = Friend(setlistfm = "Motorhead", name = "Motorhead")
 
     /**
@@ -560,7 +553,6 @@ class LaneGeometryTest {
         // Hide the lane inside his: he is drawn one step in and keeps his own colour.
         val packed = drawnHiding(night, hidden = hiding(lemmy))
         assertEquals(LineColour.Rail(2), packed.at(1).colour)
-        // And the one who did not move is untouched either.
         assertEquals(LineColour.Rail(0), drawnHiding(row(mine = false, ozzy)).at(0).colour)
         assertEquals(
             LineColour.Rail(0),
@@ -592,7 +584,6 @@ class LaneGeometryTest {
         assertEquals(2.0f, mineAlone.width.value, 0.01f)
     }
 
-    /** Hiding a stranger to a night changes that night only by the packing. */
     @Test
     fun `hiding someone who was not there changes nothing else about the row`() {
         val night = row(mine = true, ozzy) // Dio was not at this one
@@ -605,7 +596,6 @@ class LaneGeometryTest {
         assertNull(after.line(2))
     }
 
-    /** The filter's extreme is a state I already recognise: My timeline. */
     @Test
     fun `hiding everyone yields exactly the single-line geometry`() {
         val night = row(mine = true, ozzy, lemmy, dio)
@@ -636,7 +626,6 @@ class LaneGeometryTest {
         assertEquals(1, festival.sharedCount)
         assertEquals(0, festival.theirsCount)
 
-        // And with everybody hidden it is my own timeline, counts and all.
         assertEquals(listOf("c-m0-0", "f-tor2026"), nobody.map { it.key })
         nobody.forEach {
             assertTrue(it.others.isEmpty())

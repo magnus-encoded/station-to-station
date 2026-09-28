@@ -547,7 +547,6 @@ func maybeNights(
             }
             if open.isEmpty { continue }
             for m in myThatDay {
-                // Nor is a Night of mine they already cross.
                 let crossed = laneIds.contains(m.id)
                     || lane.contains { joins[$0.id] == m.id }
                     || theirThatDay.contains { sameRecord(m, $0, festivals) }
@@ -738,7 +737,6 @@ func weaveTimelines(
     func maybeOn(_ shows: [FmSetlist]) -> [Friend] {
         distinctLanes(shows.flatMap { (pairsAt[$0.id] ?? []).map(\.friend) })
     }
-    // Whose Night I joined to one of these, by the same joins the fold reads.
     func joinedOn(_ shows: [FmSetlist], _ others: [Friend]) -> [Friend] {
         let ids = Set(shows.map(\.id))
         return others.filter { f in

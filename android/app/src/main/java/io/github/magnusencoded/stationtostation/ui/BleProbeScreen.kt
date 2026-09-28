@@ -250,8 +250,6 @@ fun BleProbeScreen(onBack: () -> Unit) {
                     } else {
                         nameProbe.stop()
                         nameProbe.advertiseLength(nameProbeLength) { appendLog("Nearby: $it") }
-                        // Each tap goes one step longer, so the pair walks past the
-                        // ceiling and the watching phone shows where it stopped growing.
                         nameProbeLength += 20
                     }
                 }) { Text("Advertise ${nameProbeLength}B name") }

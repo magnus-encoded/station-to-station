@@ -126,7 +126,6 @@ final class GossipUpdateTests: XCTestCase {
         XCTAssertEqual(gossipWitnessedIds(["local-gig"], cache: cache), ["local-gig", "fm-gig"])
         XCTAssertEqual(gossipWitnessedIds(["fm-gig"], cache: cache), ["local-gig", "fm-gig"])
         XCTAssertEqual(gossipWitnessedIds(["never-adopted"], cache: cache), ["never-adopted"])
-        // A night nobody witnessed gains nothing from the rename.
         XCTAssertEqual(gossipWitnessedIds([], cache: cache), [])
     }
 

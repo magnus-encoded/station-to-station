@@ -203,7 +203,6 @@ class SetlistFmClient(
 /** The one OkHttp client the app's setlist.fm traffic shares. */
 private val sharedHttp = OkHttpClient()
 
-/** The production transport: one GET, its status and its body. */
 private suspend fun okHttpGet(url: String, apiKey: String): SetlistFmResponse =
     withContext(Dispatchers.IO) {
         val request = Request.Builder()

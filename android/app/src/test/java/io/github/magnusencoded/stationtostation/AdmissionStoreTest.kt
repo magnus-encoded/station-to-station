@@ -44,8 +44,6 @@ class AdmissionStoreTest {
     )
     private val legacyAdmission = StoredAdmission("U1lOVEhFVElDLUxFR0FDWS1RUg==", "qr", 0, false)
 
-    // --- The shared file ------------------------------------------------------
-
     @Test
     fun `the shared file loads, saves and reloads without losing an Admission`() = runBlocking {
         val file = tempFile(fixture().readText())
@@ -158,8 +156,6 @@ class AdmissionStoreTest {
         assertEquals(setOf("g1"), loaded.gigs.keys)
         assertEquals(StoredAttendance(provenance = StoredAttendance.Provenance.ATTENDED), loaded.gigAttendance["g1"])
     }
-
-    // --- Attaching: appended, one per payload (stories 18, 19) ----------------
 
     @Test
     fun `a second ticket for the night adds its Admissions and the same one twice adds nothing`() = runBlocking {

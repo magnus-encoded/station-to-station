@@ -270,7 +270,6 @@ struct StoredSetlistFmLookup: Codable, Equatable {
         return next
     }
 
-    /// "None of these": every hit the chip offered is remembered as not this night.
     func rejectingPending() -> StoredSetlistFmLookup {
         var next = self
         for id in pendingHitIds where !next.rejectedIds.contains(id) { next.rejectedIds.append(id) }

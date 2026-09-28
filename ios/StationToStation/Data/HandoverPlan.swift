@@ -108,7 +108,6 @@ func handoverPlan(
         } else if mineIds.contains(item.id) {
             plan.held.append(item.id)
         } else if let landed = received[item.id] {
-            // Already arrived, this session. Resolvable locally now, whatever it was.
             plan.fromGallery[item.id] = landed
         } else if item.kind == StoredMedia.Kind.note {
             // A **Note** is complete the moment the manifest is: text and a **Verdict**,

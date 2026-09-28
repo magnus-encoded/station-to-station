@@ -228,8 +228,6 @@ data class ParsedTicket(
     val showsEveryAdmission: Boolean get() = admissions.all { it.redrawable == true || it.original != null }
 }
 
-// --- Picking fields ---
-
 /**
  * The pure half of ticket reading: evidence in, a best-effort [ParsedTicket] out —
  * never a decision about what to do with it, which every caller (the ViewModel, the
@@ -441,8 +439,6 @@ private fun <V : Any> crossCheck(
         else -> t to TicketSupport.TEXT_LAYER
     }
 }
-
-// --- One reading's guess ---
 
 /** What the rules make of one reading on its own, before it is compared with another. */
 private class Guess(var artist: String? = null, var venue: String? = null, var date: LocalDate? = null)

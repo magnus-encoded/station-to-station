@@ -92,7 +92,6 @@ final class TimelineLogicTests: XCTestCase {
          show("b", "25-06-2026", venue: "Ekebergsletta", artist: "Gojira")]
     }
 
-    /// The identity that evening turns out to have, as the scrape hands it over.
     private func scraped() -> ScrapedFestival {
         ScrapedFestival(
             name: "Tons of Rock 2026",
@@ -203,7 +202,6 @@ final class TimelineLogicTests: XCTestCase {
 
         let first = await logic.resolveFestivals(mine: mine, known: Festivals())
         XCTAssertTrue(first.isEmpty)
-        // The evening, not the act: one page answers for the whole night.
         XCTAssertEqual(Set(["a", "b"]), fake.savedAsked)
 
         fake.calls.removeAll()

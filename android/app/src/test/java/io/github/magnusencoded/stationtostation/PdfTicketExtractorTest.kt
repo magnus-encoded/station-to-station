@@ -150,7 +150,6 @@ class PdfTicketExtractorTest {
 
     @Test
     fun aSourceThatWillNotOpenIsNoEvidence() = runBlocking {
-        // A deleted file, a revoked grant, a password: the "couldn't read this" prompt.
         val ocr = RecordingReader(TicketReading.Origin.OCR) { listOf("x") }
         val extractor = PdfTicketExtractor<Unit>(open = { null }, readers = listOf(ocr), barcodes = RecordingLocator())
 

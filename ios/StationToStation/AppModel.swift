@@ -47,7 +47,6 @@ struct UiState {
     /// Until then the launch look stays over the Timeline, so a reopened app never
     /// shows an empty timeline or a "0 shows" count on the way to its own.
     var launched = false
-    // Search
     var artistQuery = ""
     var userQuery = ""
     var artistResults: [FmArtist] = []
@@ -560,7 +559,6 @@ final class AppModel: ObservableObject {
     /// Deposits read from the box and not yet settled: being routed, or on the prompt.
     private var depositsInHand: Set<String> = []
 
-    /// Out of the box for good: what it became is on disk, or the person dismissed it.
     private func settleDeposit(_ id: String?) {
         guard let id else { return }
         TicketInbox.remove(id)
@@ -1366,7 +1364,6 @@ final class AppModel: ObservableObject {
             let cache = await timelines.load()
             state.mediaOffers = cache.mediaOffers
             state.mediaBySetlist = cache.media()
-            // Accepting joined the Night, so the Spine draws it Joined now.
             state.nightJoins = cache.spineJoins()
         }
     }
@@ -1677,7 +1674,6 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// The confirmed overwrite, and the only thing the prompt can do besides nothing.
     func confirmFriendOverwrite() {
         guard let pending = state.friendConflict else { return }
         state.friendConflict = nil
@@ -1826,8 +1822,6 @@ final class AppModel: ObservableObject {
             }
         }
     }
-
-    // --- Search ---
 
     func setArtistQuery(_ q: String) { state.artistQuery = q }
     func setUserQuery(_ q: String) { state.userQuery = q }
@@ -2629,8 +2623,6 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// The chip's "None of these": every hit it asked about is not this night, and the
-    /// checks resume.
     func rejectSetlistFmMatches(gigId: String) {
         Task {
             guard let settled = await timelines.editSetlistFmLookup(gigId: gigId, { $0.rejectingPending() })

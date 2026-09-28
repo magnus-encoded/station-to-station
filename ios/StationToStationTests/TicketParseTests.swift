@@ -574,8 +574,6 @@ final class TicketParseTests: XCTestCase {
                                    now: day(2026, 8, 1), calendar: calendar))
     }
 
-    // #568: a failed redraw with its original kept needs no one.
-
     func testACompleteTicketWhoseOriginalIsKeptGoesStraightOntoThePlan() {
         var eventim = complete
         eventim.admissions = [Admission(payload: Data("000000000000000000000001".utf8),
@@ -699,7 +697,6 @@ final class TicketParseTests: XCTestCase {
         XCTAssertEqual(.confirm(guessed), route)
     }
 
-    /// Both readings agreed on every field: nothing left to ask.
     func testACompleteParseBothReadingsBackedIsAdded() {
         var agreed = complete
         agreed.readingCount = 2

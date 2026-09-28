@@ -129,8 +129,6 @@ final class FriendArrivalTests: XCTestCase {
         XCTAssertEqual(FriendArrival.promotion(lemmy), friendArrival(lemmy, known: known))
     }
 
-    // --- What the model does with each outcome, which is where the doors meet it ---
-
     /// `AppModel` loads the stored list at init and saves every write, so a model test
     /// has to both start clean and leave clean — otherwise it reads, or hands on, what
     /// another test in the same run left in UserDefaults.

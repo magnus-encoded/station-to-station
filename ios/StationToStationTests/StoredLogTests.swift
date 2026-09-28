@@ -82,7 +82,6 @@ final class StoredLogTests: XCTestCase {
     }
 
     func testASecondCorrectionKeepsTheFirstWords() {
-        // The ones written in the dark. A title I already chose is not a memory.
         let log = StoredLog(songs: ["all held together by toothpicks"])
             .correctingAt(0, title: "Wrong Song")
             .correctingAt(0, title: "Toothpicks and Gum")
@@ -92,7 +91,6 @@ final class StoredLogTests: XCTestCase {
     }
 
     func testAGapIsNotCorrected() {
-        // "One I couldn't name" is an acknowledged fact, not an invitation to guess.
         let log = StoredLog(songs: ["", "Vardhavn"])
 
         XCTAssertEqual(log, log.correctingAt(0, title: "Paper Cranes"))

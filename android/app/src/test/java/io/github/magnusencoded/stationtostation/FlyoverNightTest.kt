@@ -96,8 +96,6 @@ class FlyoverNightTest {
             verdict = verdict,
         )
 
-    // --- Who is on the night ----------------------------------------------
-
     /**
      * A **Contact** keeps the colour their **Lane** has on the woven timeline, so one
      * person is one colour everywhere — which is the whole claim behind "follow one
@@ -250,7 +248,6 @@ class FlyoverNightTest {
         assertEquals(StoredMedia.Verdict.DOWN, notes.first { it.id == "b" }.verdict)
     }
 
-    /** An empty note is not something that was said. */
     @Test
     fun `a note nobody wrote in is not on the wall`() {
         assertTrue(flyoverNotes(listOf(note("blank", "   ")), emptyList()).isEmpty())
@@ -260,7 +257,6 @@ class FlyoverNightTest {
 
     private fun song(name: String, number: Int?) = EventRow.SongItem(number, FmSong(name = name))
 
-    /** The night is one list: the same weave the room reads down, stood on end. */
     @Test
     fun `a song both records hold is one marker that says so`() {
         val rows = listOf(song("Tupelo", 1), song("Joy", 2))
@@ -330,8 +326,6 @@ class FlyoverNightTest {
         val gaps = markers.map { it.z }.zipWithNext { a, b -> b - a }
         assertTrue("every gap is the same", gaps.distinct().size == 1)
     }
-
-    // --- A run of Gigs (#313) ----------------------------------------------
 
     private val friday = LocalDate.of(2025, 8, 8)
     private val saturday = LocalDate.of(2025, 8, 9)
@@ -623,8 +617,6 @@ class FlyoverNightTest {
         assertEquals(listOf("n1", "n2"), night.notes.map { it.id })
     }
 
-    // --- Assembling a Collection's run (#313 slice 2: the run billboard) ---
-
     private fun setlist(id: String, artist: String, date: LocalDate) = FmSetlist(
         id = id,
         artist = FmArtist(name = artist),
@@ -735,8 +727,6 @@ class FlyoverNightTest {
         )
         assertEquals(listOf("shared"), lit.first().media.map { it.id })
     }
-
-    // --- The portrait face: every Gig's media, combined (#313 story 5) ---
 
     /** The whole claim: a three-day festival's media reads as one weekend, in one list. */
     @Test

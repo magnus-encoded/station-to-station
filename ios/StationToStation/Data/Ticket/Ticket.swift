@@ -186,7 +186,6 @@ struct TicketEvidence: Equatable, Sendable {
 struct TicketReading: Equatable, Sendable {
     enum Origin: String, Codable, Sendable { case textLayer, ocr }
     var origin: Origin
-    /// Text lines in reading order: down the page, then across it.
     var lines: [String]
 }
 

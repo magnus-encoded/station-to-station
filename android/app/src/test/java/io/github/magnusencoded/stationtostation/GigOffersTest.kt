@@ -60,8 +60,6 @@ class GigOffersTest {
 
     private fun offers(gig: GigAsKnown) = gigOffers(gig, now)
 
-    // --- The table, row by row ------------------------------------------------
-
     @Test
     fun `a night three weeks out offers the calendar and asks whether the event moved`() {
         val o = offers(night(date = today.plusDays(21), provenance = planned))
@@ -197,7 +195,6 @@ class GigOffersTest {
                 songCount = 12,
             ),
         )
-        // An imported night is not unfinished. It leads somewhere.
         assertEquals(Alcove.SPOTIFY, o.alcove)
         assertEquals(Curtain.CHECK_EDITS, o.curtain)
         assertFalse(o.room.checkIn)
@@ -218,7 +215,6 @@ class GigOffersTest {
 
     @Test
     fun `checking in before the listed start opens capture anyway`() {
-        // Standing there is the strongest evidence the thing has begun.
         val early = LocalDate.of(2026, 8, 12)
         val o = gigOffers(night(date = early, provenance = checkedIn), now)
         assertTrue(o.room.capture)
@@ -320,8 +316,6 @@ class GigOffersTest {
     fun `CHECK_EVENT dispatches to nothing — no event-moved endpoint exists yet`() {
         assertEquals(CurtainAction.NONE, curtainAction(Curtain.CHECK_EVENT))
     }
-
-    // --- Stepping between Admissions (#441, story 5) ---
 
     @Test
     fun threeAdmissionsAreStepped1Of3To3Of3AndStopAtEachEnd() {

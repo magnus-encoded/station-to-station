@@ -2,6 +2,12 @@
 
 **Status:** accepted (2026-08-11, recording a persona in use since the original Collector/Historian split)
 
+## Summary
+
+- **Wants:** true facts about what happened when, flowing outward to a correct shared record.
+- **A story serves them when:** it gets correct data upstream to setlist.fm, or prefers real venues and MBIDs over local approximations.
+- **Never:** gating anything on accuracy, or marking a local-only record deficient.
+
 ## Context
 
 Wants documentation: true facts about what happened when. The distinguishing feature is direction.

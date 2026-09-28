@@ -133,8 +133,6 @@ actor GossipLedger {
         }
     }
 
-    // --- The file ---
-
     private func load() -> StoredGossip {
         if let cache { return cache }
         guard let data = try? Data(contentsOf: file),
