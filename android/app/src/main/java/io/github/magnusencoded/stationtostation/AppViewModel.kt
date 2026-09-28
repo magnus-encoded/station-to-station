@@ -74,6 +74,7 @@ import io.github.magnusencoded.stationtostation.data.sfmStamp
 import io.github.magnusencoded.stationtostation.data.sfmUserFromDescription
 import io.github.magnusencoded.stationtostation.data.spotifyPlaylistId
 import io.github.magnusencoded.stationtostation.data.toShareUri
+import io.github.magnusencoded.stationtostation.ui.MaybeNight
 import io.github.magnusencoded.stationtostation.ui.TimelineNode
 import io.github.magnusencoded.stationtostation.ui.atVenue
 import io.github.magnusencoded.stationtostation.ui.canCheckInManually
@@ -1502,18 +1503,43 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * Mine alone — nothing is sent — and from here the Spine draws it **Joined** and what
      * they send for it lands directly.
      */
-    fun joinNight(night: String, key: String) {
+    fun joinNight(night: String, key: String) = viewModelScope.launch {
+        timelines.joinNight(night, key)
+        val cache = timelines.load()
+        _state.update { it.copy(nightJoins = cache.spineJoins()) }
+    }
+
+    /** "Not the same" to a *maybe* (#405): the marker goes, and stays gone. Mine alone. */
+    fun dismissMaybe(night: String, key: String) = viewModelScope.launch {
+        timelines.dismissMaybe(night, key)
+        val cache = timelines.load()
+        _state.update { it.copy(nightsApart = cache.spineDismissals()) }
+    }
+
+    /**
+     * "Same night", then "Take it" (#580): my typed-by-hand Night adopts their setlist.fm
+     * entry, so both Nights answer to one id and meet without a join. Where the adoption
+     * can't happen (the Night already took an id) it falls back to [joinNight].
+     */
+    fun adoptMaybe(maybe: MaybeNight) = viewModelScope.launch {
+        if (!adoptSetlist(maybe.mine.id, maybe.theirs.id, fresh = null, notice = true)) {
+            joinNight(maybe.theirs.id, maybe.mine.id).join()
+        }
+    }
+
+    /** Undo of [joinNight] (#580): the *maybe* is asked again. */
+    fun unjoinNight(night: String, key: String) {
         viewModelScope.launch {
-            timelines.joinNight(night, key)
+            timelines.unjoinNight(night, key)
             val cache = timelines.load()
             _state.update { it.copy(nightJoins = cache.spineJoins()) }
         }
     }
 
-    /** "Not the same" to a *maybe* (#405): the marker goes, and stays gone. Mine alone. */
-    fun dismissMaybe(night: String, key: String) {
+    /** Undo of [dismissMaybe] (#580): the *maybe* is asked again. */
+    fun undismissMaybe(night: String, key: String) {
         viewModelScope.launch {
-            timelines.dismissMaybe(night, key)
+            timelines.undismissMaybe(night, key)
             val cache = timelines.load()
             _state.update { it.copy(nightsApart = cache.spineDismissals()) }
         }

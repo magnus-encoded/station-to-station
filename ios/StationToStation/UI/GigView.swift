@@ -917,51 +917,6 @@ private struct MediaOfferAlert: ViewModifier {
     }
 }
 
-/// The *maybe*, asked (#405): the one question, of the one person who cares. "Same night"
-/// joins their Night to this one and "Not the same" stops the marking; both are mine alone
-/// and nothing is sent. "Not now" leaves it a maybe, which costs nothing. `sharing` is when
-/// going to share media is what asked it (story 22), so the reason is said out loud, and
-/// `then` carries on with the share whatever the answer. Android's `MaybeNightDialog`.
-struct MaybeNightAlert: ViewModifier {
-    @EnvironmentObject var model: AppModel
-    @Binding var asking: MaybeNight?
-    var sharing: Bool = false
-    var then: () -> Void = {}
-
-    private func who(_ maybe: MaybeNight) -> String { maybe.friend.name.isEmpty ? "this Contact" : maybe.friend.name }
-
-    private func message(_ maybe: MaybeNight) -> String {
-        "\(maybeTheirNight(maybe)) on this date. "
-            + (sharing ? "You're sharing from this night, so it's worth knowing. " : "")
-            + "Only you see the answer."
-    }
-
-    private func finish() {
-        asking = nil
-        then()
-    }
-
-    func body(content: Content) -> some View {
-        let current = asking
-        let shown = Binding<Bool>(get: { current != nil }, set: { if !$0 { asking = nil } })
-        return content.alert("Were you both at this night?", isPresented: shown, presenting: current) { maybe in
-            Button("Same night") {
-                model.joinNight(maybe.theirs.id, key: maybe.mine.id)
-                finish()
-            }
-            .accessibilityLabel("Same night as \(who(maybe))'s")
-            Button("Not the same") {
-                model.dismissMaybe(maybe.theirs.id, key: maybe.mine.id)
-                finish()
-            }
-            .accessibilityLabel("Not the same night as \(who(maybe))'s")
-            Button("Not now", role: .cancel) { finish() }
-        } message: { maybe in
-            Text(message(maybe))
-        }
-    }
-}
-
 /// "Maybe with Mia" — the *maybe*'s tag on a Night of mine (#405). Android's `maybeTagLine`.
 func maybeTagLine(_ maybe: MaybeNight) -> String {
     "Maybe with \(maybe.friend.name.isEmpty ? "a Contact" : maybe.friend.name)"

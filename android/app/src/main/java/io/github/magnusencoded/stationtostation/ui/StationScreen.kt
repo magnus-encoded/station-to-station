@@ -107,6 +107,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
@@ -322,6 +334,43 @@ fun StationTimelineScreen(
     // disclosure, not a fact to remember across a launch (#396).
     var legendExpanded by remember { mutableStateOf(false) }
 
+    // The *maybe* being compared from its merge row (#580), and the snackbar that
+    // offers the answer back. The undo is ephemeral: it lives as long as the snackbar.
+    var comparing by remember { mutableStateOf<MaybeNight?>(null) }
+    val answers = remember { SnackbarHostState() }
+    val answerScope = rememberCoroutineScope()
+    fun answer(maybe: MaybeNight, same: Boolean, adopt: Boolean = false) {
+        comparing = null
+        // Taking their setlist.fm entry can't be undone, so it offers no Undo; the
+        // adoption says "Adopted" itself.
+        if (adopt) { viewModel.adoptMaybe(maybe); return }
+        val night = maybe.theirs.id
+        val key = maybe.mine.id
+        val write = if (same) viewModel.joinNight(night, key) else viewModel.dismissMaybe(night, key)
+        answerScope.launch {
+            write.join()
+            answers.currentSnackbarData?.dismiss()
+            val undo = answers.showSnackbar(
+                maybeAnswered(maybe, same),
+                actionLabel = "Undo",
+                duration = SnackbarDuration.Long,
+            )
+            if (undo == SnackbarResult.ActionPerformed) {
+                if (same) viewModel.unjoinNight(night, key) else viewModel.undismissMaybe(night, key)
+            }
+        }
+    }
+    comparing?.let { maybe ->
+        MaybeCompareSheet(
+            maybe = maybe,
+            theirColour = laneColourOf(maybe.friend, state.friends),
+            sharing = false,
+            onSame = { adopt -> answer(maybe, same = true, adopt = adopt) },
+            onApart = { answer(maybe, same = false) },
+            onDismiss = { comparing = null },
+        )
+    }
+
     // Check-in (#33): opening the timeline takes one fix and compares it against
     // what's already known. Foreground, one-shot, nothing scheduled.
     val locationPermission = rememberLauncherForActivityResult(
@@ -355,6 +404,17 @@ fun StationTimelineScreen(
 
     Scaffold(
         containerColor = Ground,
+        snackbarHost = {
+            SnackbarHost(answers) { data ->
+                Snackbar(
+                    data,
+                    containerColor = Raised2,
+                    contentColor = Ink,
+                    actionColor = Amber,
+                    shape = RoundedCornerShape(10.dp),
+                )
+            }
+        },
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Ground, titleContentColor = Muted),
@@ -762,7 +822,9 @@ fun StationTimelineScreen(
                             // every gig I'm going to sits between it and them. Counted
                             // off the same list the LazyColumn emits, so the two cannot
                             // drift.
-                            listState.animateScrollToItem(at + 1 + future.size)
+                            // …and every merge row (#580) down to and including this one's.
+                            val merges = rows.take(at + 1).count { it.maybeAbove.isNotEmpty() }
+                            listState.animateScrollToItem(at + 1 + future.size + merges)
                             viewModel.consumeGigLink()
                         }
 
@@ -883,83 +945,107 @@ fun StationTimelineScreen(
                                         }
                                     }
                             }
-                            itemsIndexed(rows, key = { _, row -> row.key }) { index, row ->
-                                val isFirst = index == 0
-                                val rails: @Composable () -> Unit =
-                                    { PeopleRails(row, rows.getOrNull(index + 1), lanes, laneWidth, colours) }
-                                val nodeX = crossingX(row, lanes, laneWidth)
-                                when (val node = row.node) {
-                                    is TimelineNode.Concert -> {
-                                        // Visuals only. A Note has no bytes and an empty
-                                        // `ref` (#170), and one drew a blank tile on the row.
-                                        val nightMedia = state.mediaBySetlist[node.setlist.id]
-                                            .orEmpty().filterNot { it.kind == StoredMedia.Kind.NOTE }
-                                        TimelineItem(
-                                            setlist = node.setlist,
-                                            highlight = isFirst && row.mine,
-                                            mine = row.mine,
+                            rows.forEachIndexed { index, row ->
+                                // The merge row (#580): its own row, between my Night and the
+                                // Night of theirs the weave put right below it. The rails run
+                                // on through it; under the contact light it keeps its height
+                                // and loses its question, so flipping the switch moves nothing.
+                                val above = rows.getOrNull(index - 1)
+                                if (row.maybeAbove.isNotEmpty() && above != null) {
+                                    item(key = "maybe-${row.key}") {
+                                        MergeRow(
+                                            mine = above,
+                                            theirs = row,
+                                            lanes = lanes,
                                             laneWidth = laneWidth,
-                                            inside = row.depth > 0,
-                                            nodeX = nodeX,
-                                            shared = row.shared && !state.contactLight,
-                                            unlit = state.contactLight,
-                                            rails = rails,
-                                            // Unfiltered on purpose. Filtering here removed a
-                                            // night's whole photo strip, so every row changed
-                                            // height and the line moved under you — the one
-                                            // thing a light switch must never do.
-                                            photos = nightMedia.map { Uri.parse(it.ref) },
-                                            // Which is why the answer rides alongside instead:
-                                            // the same thumbnails in the same places, lit one
-                                            // by one. The Room still holds the detail and the
-                                            // sharing decision; the timeline now at least says
-                                            // truthfully which nights are worth opening.
-                                            litPhotos = visibleToContacts(nightMedia)
-                                                .map { Uri.parse(it.ref) }.toSet(),
-                                            loadPhotoPreview = viewModel::photoPreview,
-                                            // Off under the light, like the green: a
-                                            // generic contact view has no "we" to ask about.
-                                            maybeWith = if (state.contactLight) emptyList()
-                                            else row.maybe.map { it.name },
-                                            onClick = {
-                                                viewModel.openShow(node.setlist)
-                                                onOpenEvent()
-                                            },
+                                            colours = colours,
+                                            maybes = if (state.contactLight) emptyList() else row.maybeAbove,
+                                            onCompare = { comparing = it },
                                         )
                                     }
+                                }
+                                item(key = row.key) {
+                                    val isFirst = index == 0
+                                    val rails: @Composable () -> Unit =
+                                        { PeopleRails(row, rows.getOrNull(index + 1), lanes, laneWidth, colours) }
+                                    val nodeX = crossingX(row, lanes, laneWidth)
+                                    when (val node = row.node) {
+                                        is TimelineNode.Concert -> {
+                                            // Visuals only. A Note has no bytes and an empty
+                                            // `ref` (#170), and one drew a blank tile on the row.
+                                            val nightMedia = state.mediaBySetlist[node.setlist.id]
+                                                .orEmpty().filterNot { it.kind == StoredMedia.Kind.NOTE }
+                                            TimelineItem(
+                                                setlist = node.setlist,
+                                                highlight = isFirst && row.mine,
+                                                mine = row.mine,
+                                                laneWidth = laneWidth,
+                                                inside = row.depth > 0,
+                                                nodeX = nodeX,
+                                                shared = row.shared && !state.contactLight,
+                                                unlit = state.contactLight,
+                                                rails = rails,
+                                                // Unfiltered on purpose. Filtering here removed a
+                                                // night's whole photo strip, so every row changed
+                                                // height and the line moved under you — the one
+                                                // thing a light switch must never do.
+                                                photos = nightMedia.map { Uri.parse(it.ref) },
+                                                // Which is why the answer rides alongside instead:
+                                                // the same thumbnails in the same places, lit one
+                                                // by one. The Room still holds the detail and the
+                                                // sharing decision; the timeline now at least says
+                                                // truthfully which nights are worth opening.
+                                                litPhotos = visibleToContacts(nightMedia)
+                                                    .map { Uri.parse(it.ref) }.toSet(),
+                                                loadPhotoPreview = viewModel::photoPreview,
+                                                // Off under the light, like the green: a
+                                                // generic contact view has no "we" to ask about.
+                                                // Only the maybes no merge row asks (#580): the
+                                                // rest have a row of their own right below.
+                                                maybeWith = if (state.contactLight) emptyList()
+                                                else row.maybeInWords.map { it.name },
+                                                joinedWith = if (state.contactLight) emptyList()
+                                                else row.joinedWith.map { it.name },
+                                                onClick = {
+                                                    viewModel.openShow(node.setlist)
+                                                    onOpenEvent()
+                                                },
+                                            )
+                                        }
 
-                                    // A festival opens where it stands rather than pushing
-                                    // you into a screen of its own.
-                                    is TimelineNode.Several -> FestivalItem(
-                                        festival = node,
-                                        highlight = isFirst,
-                                        open = row.key in expanded,
-                                        mine = row.mine,
-                                        laneWidth = laneWidth,
-                                        nodeX = nodeX,
-                                        sharedCount = row.sharedCount,
-                                        theirCount = row.theirsCount,
-                                        // Company has a colour of its own — a night two
-                                        // friends shared is nobody's lane colour either.
-                                        // …and the lane colour is the host's *stable* one,
-                                        // so hiding someone never repaints this (#266).
-                                        theirColor = if (row.others.size > 1) Crossed
-                                        else railColor(colours.getOrElse(nodeHost(row, lanes)) { 0 }),
-                                        unlit = state.contactLight,
-                                        rails = rails,
-                                        maybeWith = if (state.contactLight) emptyList()
-                                        else row.maybe.map { it.name },
-                                        onClick = {
-                                            viewModel.toggleFestival(row.key)
-                                        },
-                                        // The non-gestural route to the Collection
-                                        // resolution (#313): the pinch is aimed by where
-                                        // the fingers land, and a reader with no fingers
-                                        // to aim needs the same node named instead. Calls
-                                        // the same function the (not yet built) pinch
-                                        // will call, so the two paths cannot drift.
-                                        onWalk = { viewModel.openCollectionWalk(node) },
-                                    )
+                                        // A festival opens where it stands rather than pushing
+                                        // you into a screen of its own.
+                                        is TimelineNode.Several -> FestivalItem(
+                                            festival = node,
+                                            highlight = isFirst,
+                                            open = row.key in expanded,
+                                            mine = row.mine,
+                                            laneWidth = laneWidth,
+                                            nodeX = nodeX,
+                                            sharedCount = row.sharedCount,
+                                            theirCount = row.theirsCount,
+                                            // Company has a colour of its own — a night two
+                                            // friends shared is nobody's lane colour either.
+                                            // …and the lane colour is the host's *stable* one,
+                                            // so hiding someone never repaints this (#266).
+                                            theirColor = if (row.others.size > 1) Crossed
+                                            else railColor(colours.getOrElse(nodeHost(row, lanes)) { 0 }),
+                                            unlit = state.contactLight,
+                                            rails = rails,
+                                            maybeWith = if (state.contactLight) emptyList()
+                                            else row.maybeInWords.map { it.name },
+                                            onClick = {
+                                                viewModel.toggleFestival(row.key)
+                                            },
+                                            // The non-gestural route to the Collection
+                                            // resolution (#313): the pinch is aimed by where
+                                            // the fingers land, and a reader with no fingers
+                                            // to aim needs the same node named instead. Calls
+                                            // the same function the (not yet built) pinch
+                                            // will call, so the two paths cannot drift.
+                                            onWalk = { viewModel.openCollectionWalk(node) },
+                                        )
+                                    }
                                 }
                             }
                             // The past edge: a quiet spinner while the next page flows in.
@@ -1675,59 +1761,6 @@ private fun maybeTheirNight(maybe: MaybeNight): String {
 }
 
 /**
- * The *maybe*, asked (#405): the one question, of the one person who cares. "Same night"
- * joins their Night to this one and "Not the same" stops the marking; both are mine alone
- * and nothing is sent. "Not now" leaves it a maybe, which costs nothing. [sharing] is when
- * going to share media is what asked it (story 22), so the reason is said out loud.
- */
-@Composable
-private fun MaybeNightDialog(
-    maybe: MaybeNight,
-    sharing: Boolean,
-    onSame: () -> Unit,
-    onApart: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val who = maybe.friend.name.ifBlank { "this Contact" }
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            Modifier
-                .clip(RoundedCornerShape(16.dp))
-                .background(Raised)
-                .padding(20.dp),
-        ) {
-            Text(
-                "Were you both at this night?",
-                fontFamily = Serif,
-                fontSize = 19.sp,
-                color = Ink,
-                modifier = Modifier.asHeading(),
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "${maybeTheirNight(maybe)} on this date. " +
-                    (if (sharing) "You're sharing from this night, so it's worth knowing. " else "") +
-                    "Only you see the answer.",
-                color = Muted,
-                fontSize = 13.sp,
-            )
-            Spacer(Modifier.height(4.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("Not now", color = Faint) }
-                TextButton(
-                    onClick = onApart,
-                    modifier = Modifier.semantics { contentDescription = "Not the same night as $who's" },
-                ) { Text("Not the same", color = Slate) }
-                TextButton(
-                    onClick = onSame,
-                    modifier = Modifier.semantics { contentDescription = "Same night as $who's" },
-                ) { Text("Same night", color = Crossed) }
-            }
-        }
-    }
-}
-
-/**
  * A night you were at, typed in — the door onto the zero-account floor (#225).
  *
  * The mirror image of [AddPlannedGigDialog], and the difference between them is the
@@ -2181,6 +2214,8 @@ internal fun TimelineItem(
      * a **Crossing** — the node stays mine until I answer in the **Room**.
      */
     maybeWith: List<String> = emptyList(),
+    /** Whose Night I said was this one (#580): "With Mia" under the joined node. */
+    joinedWith: List<String> = emptyList(),
 ) {
     val songCount = setlist.performed().size
     val zoomedOut = laneWidth > 0.dp
@@ -2254,6 +2289,10 @@ internal fun TimelineItem(
             )
             Spacer(Modifier.height(2.dp))
             Text(setlist.venueLine(), color = Muted, fontSize = 13.sp)
+            if (joinedWith.isNotEmpty()) {
+                Spacer(Modifier.height(3.dp))
+                Text("With ${joinedWith.joinToString(" and ")}", color = Crossed, fontSize = 12.sp)
+            }
             if (maybeWith.isNotEmpty()) MaybeLine(maybeWith)
             // The Reliver's own keepsakes of the night — under the artist, over the
             // song count. Big enough to actually read as a photo; the facts still win
@@ -2662,6 +2701,226 @@ internal fun PeopleRails(
                     Offset(x, nodeY),
                     style = ring,
                 )
+            }
+        }
+    }
+}
+
+/**
+ * A **Contact**'s **Lane colour**, the one their rail carries: the lane order is the
+ * friends list reversed, and a colour is kept by the unfiltered index (#266).
+ */
+internal fun laneColourOf(friend: Friend, friends: List<Friend>): Color =
+    railColor(friends.reversed().indexOfFirst { it.laneKey == friend.laneKey }.coerceAtLeast(0))
+
+/**
+ * The merge row (#580): its own row between my Night ([mine]) and the Night of theirs
+ * the weave put right below it ([theirs]). Every **Line** runs straight on through it,
+ * at the x and in the colour the edge between the two rows already has — the tails of
+ * [mine] finished their bend above — and a dashed link runs from my node down to theirs.
+ * A link is a question, not a **Crossing**, so it is dashed and in no one's colour.
+ *
+ * With no [maybes] (the contact light) the row keeps its height and draws the rails
+ * alone, so flipping the switch moves nothing.
+ */
+@Composable
+private fun MergeRow(
+    mine: WovenRow,
+    theirs: WovenRow,
+    lanes: List<Friend>,
+    laneWidth: Dp,
+    colours: List<Int>,
+    maybes: List<MaybeNight>,
+    onCompare: (MaybeNight) -> Unit,
+) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 60.dp).height(IntrinsicSize.Min)) {
+        Box(Modifier.width(SpineWidth + laneWidth).fillMaxHeight()) {
+            Canvas(Modifier.fillMaxSize()) {
+                val h = size.height
+                val drawn = rowGeometry(mine, theirs, lanes, laneWidth, h.toDp(), colours)
+                drawn.forEach { d ->
+                    val x = d.toX.toPx()
+                    drawLine(d.colourAhead.paint(), Offset(x, 0f), Offset(x, h), strokeWidth = d.widthAhead.toPx())
+                }
+                if (maybes.isNotEmpty()) {
+                    val from = SpineLineX.toPx()
+                    val host = nodeHost(theirs, lanes)
+                    val to = drawn.firstOrNull { it.line == host }?.toX?.toPx() ?: from
+                    val link = Path().apply {
+                        moveTo(from, 0f)
+                        cubicTo(from, h * 0.5f, to, h * 0.5f, to, h)
+                    }
+                    drawPath(
+                        link,
+                        Ink.copy(alpha = 0.7f),
+                        style = Stroke(
+                            width = 1.5.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 4.dp.toPx())),
+                        ),
+                    )
+                }
+            }
+        }
+        Column(
+            Modifier.padding(end = 18.dp, top = 8.dp, bottom = 8.dp).align(Alignment.CenterVertically),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            maybes.forEach { maybe -> MaybePill(maybe, onClick = { onCompare(maybe) }) }
+        }
+    }
+}
+
+/** "Same night as Mia's? Compare" — the merge row's one control (#580). */
+@Composable
+private fun MaybePill(maybe: MaybeNight, onClick: () -> Unit) {
+    val label = maybeMergeLabel(maybe)
+    Row(
+        Modifier
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(22.dp))
+            .background(Raised)
+            .drawBehind {
+                val w = 1.dp.toPx()
+                drawRoundRect(
+                    Muted,
+                    topLeft = Offset(w / 2, w / 2),
+                    size = androidx.compose.ui.geometry.Size(size.width - w, size.height - w),
+                    cornerRadius = CornerRadius(22.dp.toPx() - w / 2),
+                    style = Stroke(width = w, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx()))),
+                )
+            }
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = label }
+            .padding(start = 14.dp, end = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(maybePill(maybe), color = Ink, fontSize = 14.sp, modifier = Modifier.weight(1f, fill = false).clearAndSetSemantics {})
+        Text("Compare", color = Amber, fontSize = 14.sp, modifier = Modifier.clearAndSetSemantics {})
+    }
+}
+
+/**
+ * The *maybe*, compared (#580): my Night and theirs side by side — Artist, Date, Venue,
+ * City, From — with the rows that disagree lit, and read out row by row with
+ * "differs" said, never only shown. Then the one line that says what "Same night"
+ * keeps, and the three answers. Nothing is chosen field by field.
+ *
+ * The one sheet for both places the question is asked: the merge row on the Spine,
+ * and the **Room**, where going to share media from a *maybe* Night asks it first
+ * ([sharing], story 22 of #405) — which is why the reason is said out loud there.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MaybeCompareSheet(
+    maybe: MaybeNight,
+    theirColour: Color,
+    sharing: Boolean,
+    onSame: (adopt: Boolean) -> Unit,
+    onApart: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val whose = maybeWhose(maybe)
+    // "Same night" on a Night of mine typed by hand, against theirs from setlist.fm,
+    // asks one more thing: take their entry? Asked, because taking it can't be undone.
+    var adopting by remember(maybe) { mutableStateOf(false) }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Raised,
+        contentColor = Ink,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        dragHandle = {
+            Box(
+                Modifier.padding(top = 12.dp).size(width = 36.dp, height = 4.dp)
+                    .clip(RoundedCornerShape(2.dp)).background(LineCol),
+            )
+        },
+    ) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            if (adopting) {
+                Text(
+                    maybeAdoptQuestion(maybe),
+                    fontFamily = Serif,
+                    fontSize = 22.sp,
+                    color = Ink,
+                    modifier = Modifier.asHeading(),
+                )
+                Text(maybeAdoptLine(maybe), color = Muted, fontSize = 14.sp, lineHeight = 20.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { onSame(true) },
+                        colors = ButtonDefaults.buttonColors(containerColor = Amber, contentColor = Ground),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    ) { Text("Take it", fontWeight = FontWeight.SemiBold, fontSize = 15.sp) }
+                    OutlinedButton(
+                        onClick = { onSame(false) },
+                        border = BorderStroke(1.dp, LineLit),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    ) { Text("Keep mine", color = Ink, fontSize = 15.sp) }
+                }
+            } else {
+                Text(
+                    "Were you both at this night?",
+                    fontFamily = Serif,
+                    fontSize = 22.sp,
+                    color = Ink,
+                    modifier = Modifier.asHeading(),
+                )
+                Column {
+                    // The column heads are said in every row below, so a reader moving row
+                    // by row never has to remember which side is whose.
+                    Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).clearAndSetSemantics {}) {
+                        Spacer(Modifier.width(64.dp))
+                        Text("Yours", color = Amber, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f).padding(end = 8.dp))
+                        Text(whose, color = theirColour, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    }
+                    compareMaybe(maybe).forEach { field ->
+                        val value = if (field.differs) Amber else Ink
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(LineCol))
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .background(if (field.differs) AmberSoft else Color.Transparent)
+                                .clearAndSetSemantics { contentDescription = maybeFieldSpoken(maybe, field) }
+                                .padding(vertical = 10.dp, horizontal = if (field.differs) 6.dp else 0.dp),
+                        ) {
+                            Text(field.label, color = Muted, fontSize = 14.sp, modifier = Modifier.width(if (field.differs) 58.dp else 64.dp))
+                            Text(field.yours, color = value, fontSize = 14.sp, modifier = Modifier.weight(1f).padding(end = 8.dp))
+                            Text(field.theirs, color = value, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+                Text(
+                    sameNightLine(maybe) +
+                        if (sharing) " You're sharing from this night, so it's worth knowing first." else "",
+                    color = Muted,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { if (maybeAdoptable(maybe)) adopting = true else onSame(false) },
+                        colors = ButtonDefaults.buttonColors(containerColor = Amber, contentColor = Ground),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    ) { Text("Same night", fontWeight = FontWeight.SemiBold, fontSize = 15.sp) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = onApart,
+                            border = BorderStroke(1.dp, LineLit),
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                        ) { Text("Not the same", color = Ink, fontSize = 15.sp) }
+                        TextButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                        ) { Text("Not now", color = Muted, fontSize = 15.sp) }
+                    }
+                }
             }
         }
     }
@@ -4163,8 +4422,25 @@ fun StationEventScreen(
     // through the OS share sheet. Repeatable — an invite is per-person.
     val onInvite: () -> Unit = { setlist?.let { context.startActivity(gigInviteChooser(it)) } }
 
+    val maybeAnswers = remember { SnackbarHostState() }
+    fun recordAnswer(maybe: MaybeNight, same: Boolean, adopt: Boolean = false) {
+        if (adopt) { viewModel.adoptMaybe(maybe); return }
+        val write = if (same) viewModel.joinNight(maybe.theirs.id, maybe.mine.id)
+            else viewModel.dismissMaybe(maybe.theirs.id, maybe.mine.id)
+        scope.launch {
+            write.join()
+            maybeAnswers.currentSnackbarData?.dismiss()
+            if (maybeAnswers.showSnackbar(maybeAnswered(maybe, same), "Undo",
+                    duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed) {
+                if (same) viewModel.unjoinNight(maybe.theirs.id, maybe.mine.id)
+                else viewModel.undismissMaybe(maybe.theirs.id, maybe.mine.id)
+            }
+        }
+    }
+
     Scaffold(
         containerColor = Ground,
+        snackbarHost = { SnackbarHost(maybeAnswers) },
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Ground, titleContentColor = Faint),
@@ -4478,11 +4754,14 @@ fun StationEventScreen(
                 }
                 Unit
             }
-            MaybeNightDialog(
+            // The same comparison the merge row opens (#580), so the question reads the
+            // same wherever it is asked.
+            MaybeCompareSheet(
                 maybe = maybe,
+                theirColour = laneColourOf(maybe.friend, state.friends),
                 sharing = shareAfterMaybe != null,
-                onSame = { viewModel.joinNight(maybe.theirs.id, setlist.id); done() },
-                onApart = { viewModel.dismissMaybe(maybe.theirs.id, setlist.id); done() },
+                onSame = { adopt -> recordAnswer(maybe, true, adopt); done() },
+                onApart = { recordAnswer(maybe, false); done() },
                 onDismiss = done,
             )
         }

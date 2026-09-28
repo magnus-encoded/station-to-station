@@ -196,6 +196,7 @@ private struct BannersModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .safeAreaInset(edge: .bottom) { MaybeUndoBanner(model: model) }
             .alert("Error", isPresented: Binding(
                 get: { model.state.error != nil },
                 set: { if !$0 { model.consumeError() } }

@@ -265,6 +265,16 @@ struct WovenRow: Identifiable {
     /// mine (#405): a *maybe*, never a **Crossing**. See `maybeNights`. Only ever on a row
     /// of mine, and never for someone this row already crosses.
     var maybe: [Friend] = []
+    /// On a row of theirs the weave put directly below one of my Nights (#580): the
+    /// *maybes* the merge row above it asks about, one per pair. Empty everywhere else.
+    var maybeAbove: [MaybeNight] = []
+    /// The part of `maybe` no merge row can ask (#580), because their Night has no row of
+    /// its own to sit below mine — folded into another node, or already under another Night
+    /// of mine that date. Said in words on my row, as #405 did everywhere.
+    var maybeInWords: [Friend] = []
+    /// The **Contacts** whose Night I joined to one of this row's Nights (#405, #580):
+    /// "With Mia" under my node. Only ever on a row of mine.
+    var joinedWith: [Friend] = []
 
     /// Whether my `mine` and their `theirs` are one Night: a shared id, #433's match, or a join.
     private func together(_ mine: FmSetlist, _ theirs: FmSetlist) -> Bool {
@@ -369,6 +379,116 @@ struct MaybeNight: Equatable, Identifiable {
     var id: String { "\(friend.laneKey)|\(mine.id)|\(theirs.id)" }
 
     static func == (a: MaybeNight, b: MaybeNight) -> Bool { a.id == b.id }
+}
+
+/// A completed answer, held only until Undo, dismissal, or another answer (#580).
+struct MaybeAnswer: Identifiable {
+    let id = UUID()
+    let maybe: MaybeNight
+    let same: Bool
+}
+
+/// One line of the *maybe*'s comparison (#580): what `label` says on my Night (`yours`)
+/// and on theirs (`theirs`), and whether the two disagree. "From" never `differs`: at
+/// least one side of every maybe is typed by hand, so where each came from is the reason
+/// for the question, not a disagreement about the night. Android's `MaybeField`.
+struct MaybeField: Equatable {
+    let label: String
+    let yours: String
+    let theirs: String
+    let differs: Bool
+}
+
+private let compareDateFormatter = fmFormatter("d MMM yyyy")
+
+private func orDash(_ text: String?) -> String {
+    let t = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    return t.isEmpty ? "—" : t
+}
+
+/// Two values the same when a person would read them as the same: case and spacing aside.
+private func sameWords(_ a: String, _ b: String) -> Bool {
+    a.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        == b.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+}
+
+private func fromWords(_ s: FmSetlist) -> String { s.isLocal ? "typed by hand" : "setlist.fm" }
+
+private func shortDate(_ s: FmSetlist) -> String? {
+    if let d = s.localDate() { return compareDateFormatter.string(from: d) }
+    return s.eventDate
+}
+
+/// The *maybe* side by side (#580): Artist, Date, Venue, City, From — mine on the left,
+/// theirs on the right — so "were you both there" is answered by reading, never by
+/// choosing field by field. Android's `compareMaybe`, term for term.
+func compareMaybe(_ maybe: MaybeNight) -> [MaybeField] {
+    let mine = maybe.mine
+    let theirs = maybe.theirs
+    func field(_ label: String, _ a: String, _ b: String) -> MaybeField {
+        MaybeField(label: label, yours: a, theirs: b, differs: !sameWords(a, b))
+    }
+    return [
+        field("Artist", orDash(mine.artist?.name), orDash(theirs.artist?.name)),
+        field("Date", orDash(shortDate(mine)), orDash(shortDate(theirs))),
+        field("Venue", orDash(mine.venue?.name), orDash(theirs.venue?.name)),
+        field("City", orDash(mine.venue?.city?.name), orDash(theirs.venue?.city?.name)),
+        MaybeField(label: "From", yours: fromWords(mine), theirs: fromWords(theirs), differs: false),
+    ]
+}
+
+/// "Mia's" — or `fallback` for a Contact with no name.
+private func maybeTheir(_ maybe: MaybeNight, _ fallback: String) -> String {
+    maybe.friend.name.nilIfBlank.map { "\($0)'s" } ?? fallback
+}
+
+/// "Mia's" — or "Theirs" for a Contact with no name. The comparison's column head.
+func maybeWhose(_ maybe: MaybeNight) -> String { maybeTheir(maybe, "Theirs") }
+
+/// The one line under the comparison (#580): what "Same night" keeps. Mine, and their
+/// Night joins it — except mine typed by hand against theirs from setlist.fm, where
+/// "Same night" goes on to ask whether to take theirs (`maybeAdoptable`). Android's
+/// `sameNightLine`.
+func sameNightLine(_ maybe: MaybeNight) -> String {
+    let whose = maybeWhose(maybe)
+    if !maybe.mine.isLocal { return "Same night keeps your setlist.fm entry. \(whose) joins it." }
+    if maybeAdoptable(maybe) {
+        return "\(whose) is on setlist.fm. After Same night you can take it as yours."
+    }
+    return "Same night keeps your entry. \(whose) joins it."
+}
+
+/// Mine typed by hand, theirs from setlist.fm (#580): "Same night" then offers to take
+/// their setlist.fm entry — an adoption, which merges the two for good. Asked, never
+/// assumed, because the adoption is the one answer that cannot be undone. Android's
+/// `maybeAdoptable`.
+func maybeAdoptable(_ maybe: MaybeNight) -> Bool { maybe.mine.isLocal && !maybe.theirs.isLocal }
+
+/// The adoption question's heading (#580): "Take Mia's setlist.fm entry?"
+func maybeAdoptQuestion(_ maybe: MaybeNight) -> String { "Take \(maybeTheir(maybe, "their")) setlist.fm entry?" }
+
+/// What taking it does, and what keeping yours does instead (#580).
+func maybeAdoptLine(_ maybe: MaybeNight) -> String {
+    "Your Night becomes \(maybeTheir(maybe, "their")) setlist.fm entry, setlist and all. "
+        + "This can't be undone. Keep mine joins the two Nights, and that can be undone."
+}
+
+/// The merge row's pill (#580): "Same night as Mia's?", then "Compare".
+func maybePill(_ maybe: MaybeNight) -> String { "Same night as \(maybeTheir(maybe, "theirs"))?" }
+
+/// What a screen reader says for the merge row (#580).
+func maybeMergeLabel(_ maybe: MaybeNight) -> String {
+    "Maybe the same night: yours above, \(maybeTheir(maybe, "theirs")) below. Compare them."
+}
+
+/// One line of the comparison, read aloud: "Venue: yours Blå, Mia's Brenneriveien 9, differs".
+func maybeFieldSpoken(_ maybe: MaybeNight, _ field: MaybeField) -> String {
+    "\(field.label): yours \(field.yours), \(maybeWhose(maybe)) \(field.theirs)" + (field.differs ? ", differs" : "")
+}
+
+/// The toast after an answer (#580): "Joined with Mia's night" / "Kept apart from Mia's night".
+func maybeAnswered(_ maybe: MaybeNight, same: Bool) -> String {
+    (same ? "Joined with " : "Kept apart from ") + maybeTheir(maybe, "their") + " night"
 }
 
 /// **The maybe-shared rule** (#405), decided where the Spine is woven. Android's
@@ -603,34 +723,58 @@ func weaveTimelines(
 
     // Who may share each of my Nights, by my Night id. Decided once, over the whole
     // Spine, so a Night of theirs one of my other Nights already answers is no question.
-    var maybeAt: [String: [Friend]] = [:]
+    var pairsAt: [String: [MaybeNight]] = [:]
     for asked in maybeNights(mine: mine, friends: friends, theirs: theirs,
                              festivals: festivals, joins: joins, apart: apart) {
-        maybeAt[asked.mine.id, default: []].append(asked.friend)
+        pairsAt[asked.mine.id, default: []].append(asked)
     }
-    func maybeOn(_ shows: [FmSetlist]) -> [Friend] {
+    func distinctLanes(_ friends: [Friend]) -> [Friend] {
         var out: [Friend] = []
-        for friend in shows.flatMap({ maybeAt[$0.id] ?? [] })
-        where !out.contains(where: { $0.laneKey == friend.laneKey }) {
+        for friend in friends where !out.contains(where: { $0.laneKey == friend.laneKey }) {
             out.append(friend)
         }
         return out
     }
+    func maybeOn(_ shows: [FmSetlist]) -> [Friend] {
+        distinctLanes(shows.flatMap { (pairsAt[$0.id] ?? []).map(\.friend) })
+    }
+    // Whose Night I joined to one of these, by the same joins the fold reads.
+    func joinedOn(_ shows: [FmSetlist], _ others: [Friend]) -> [Friend] {
+        let ids = Set(shows.map(\.id))
+        return others.filter { f in
+            (theirs[f.laneKey] ?? []).contains { night in joins[night.id].map(ids.contains) ?? false }
+        }
+    }
 
-    let rows = newestFirst(
+    let sorted = newestFirst(
         hostNodes.enumerated().map { i, node in
             let isMine = i < myNodes.count
+            let others = friendsAt[i] ?? []
             return WovenRow(
                 node: node,
                 mine: isMine,
-                others: friendsAt[i] ?? [],
+                others: others,
                 showsHereByFriends: showsAt[i] ?? [],
                 joins: joins,
-                maybe: isMine ? maybeOn(node.shows) : []
+                maybe: isMine ? maybeOn(node.shows) : [],
+                joinedWith: isMine ? joinedOn(node.shows, others) : []
             )
         },
         date: { $0.date }
     )
+
+    let (placedRows, placed) = maybesBelowMine(sorted, pairsAt)
+    func inWords(_ shows: [FmSetlist]) -> [Friend] {
+        distinctLanes(shows.flatMap { s in
+            (pairsAt[s.id] ?? []).filter { !placed.contains($0.id) }.map(\.friend)
+        })
+    }
+    let rows = placedRows.map { row -> WovenRow in
+        guard row.mine else { return row }
+        var out = row
+        out.maybeInWords = inWords(row.shows)
+        return out
+    }
 
     if expanded.isEmpty { return rows }
     // Open festivals list their gigs underneath, each tagged with who was at that one.
@@ -667,11 +811,62 @@ func weaveTimelines(
                 // this needs no rule of its own: the show is in the list when anyone
                 // else was there, and the list is empty when nobody was.
                 showsHereByFriends: alsoHere.isEmpty ? [] : [show],
-                maybe: isMine ? maybeOn([show]) : []
+                maybe: isMine ? maybeOn([show]) : [],
+                maybeInWords: isMine ? inWords([show]) : [],
+                joinedWith: isMine ? joinedOn([show], alsoHere) : []
             )
         }
         return [row] + inner
     }
+}
+
+/// **A maybe pair is always neighbours** (#580). Android's `maybesBelowMine`, term for
+/// term. Rows arrive newest first; this moves each row of theirs that holds a *maybe*
+/// against one of my Nights to directly below that Night, so the merge row between the
+/// two has both of them to point at.
+///
+/// Several maybes on one Night of mine stack below it, in the order `maybeNights` names
+/// them (Lane order): mine → Mia's → Tom's, each with its merge row above it. A row of
+/// theirs goes below the first Night of mine that asks about it and nowhere else; a pair
+/// whose Night has no row of theirs — folded onto a node, or already placed under
+/// another Night of mine — is not placed, and is said in words instead.
+///
+/// Returns the rows, with `maybeAbove` set, and the ids of the pairs that were placed.
+private func maybesBelowMine(
+    _ rows: [WovenRow],
+    _ pairsAt: [String: [MaybeNight]]
+) -> ([WovenRow], Set<String>) {
+    if pairsAt.isEmpty { return (rows, []) }
+    var ownerOf: [Int: Int] = [:]
+    var below: [Int: [Int]] = [:]
+    var above: [Int: [MaybeNight]] = [:]
+    for (i, row) in rows.enumerated() where row.mine {
+        for pair in row.shows.flatMap({ pairsAt[$0.id] ?? [] }) {
+            guard let j = rows.indices.first(where: { j in
+                !rows[j].mine && row.date != nil && rows[j].date == row.date
+                    && (rows[j].shows + rows[j].showsHereByFriends).contains { $0.id == pair.theirs.id }
+            }) else { continue }
+            if ownerOf[j] == nil {
+                ownerOf[j] = i
+                below[i, default: []].append(j)
+            }
+            if ownerOf[j] != i { continue }
+            above[j, default: []].append(pair)
+        }
+    }
+    if above.isEmpty { return (rows, []) }
+    var out: [WovenRow] = []
+    out.reserveCapacity(rows.count)
+    for (i, row) in rows.enumerated() {
+        if ownerOf[i] != nil { continue }
+        out.append(row)
+        for j in below[i] ?? [] {
+            var moved = rows[j]
+            moved.maybeAbove = above[j] ?? []
+            out.append(moved)
+        }
+    }
+    return (out, Set(above.values.flatMap { $0.map(\.id) }))
 }
 
 // MARK: - Lane geometry

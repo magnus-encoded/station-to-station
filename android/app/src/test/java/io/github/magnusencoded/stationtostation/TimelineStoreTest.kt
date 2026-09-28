@@ -1297,4 +1297,24 @@ class TimelineStoreTest {
         assertNull(parseFmDate("2026-08-07")) // ISO, which is not what setlist.fm speaks
         assertEquals("07-08-2026", fmDate(parseFmDate(" 07-08-2026 ")!!))
     }
+    @Test
+    fun `undo answers survive reload and preserve unrelated pairs and media`() = runBlocking {
+        val file = File.createTempFile("maybe-undo", ".json").also { it.delete() }
+        val store = TimelineStore(file)
+        store.saveMedia("my-fm-night", listOf(photo("keepsake")))
+        store.joinNight("their-night", "my-fm-night")
+        store.joinNight("other-night", "other-fm-night")
+        store.unjoinNight("their-night", "my-fm-night")
+        var held = TimelineStore(file).load()
+        assertFalse(held.nightJoins.containsKey("their-night"))
+        assertTrue(held.nightJoins.containsKey("other-night"))
+        assertEquals(listOf("keepsake"), held.media()["my-fm-night"]?.map { it.ref })
+
+        store.dismissMaybe("their-night", "my-fm-night")
+        store.dismissMaybe("their-night", "other-fm-night")
+        store.undismissMaybe("their-night", "my-fm-night")
+        held = TimelineStore(file).load()
+        assertEquals(listOf(held.gigForSetlist("other-fm-night")?.id), held.nightDismissals["their-night"])
+    }
+
 }
