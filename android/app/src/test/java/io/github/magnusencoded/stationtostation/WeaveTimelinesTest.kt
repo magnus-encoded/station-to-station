@@ -620,6 +620,19 @@ class WeaveTimelinesTest {
         assertEquals(listOf(MaybeNight(lemmy, m1, n1)), before[1].maybeAbove)
     }
 
+    @Test
+    fun `a multi day festival is not dragged across dates to place a maybe`() {
+        val mine = show("m1", "21-11-2025", "Blå")
+        val rows = weaveTimelines(
+            listOf(mine), festival("f1", "f2"), listOf(lemmy),
+            mapOf("Lemmy" to listOf(local("f1", "21-11-2025", "Festival"),
+                local("f2", "23-11-2025", "Festival"))),
+        )
+        assertEquals(listOf("2025-11-23", "2025-11-21"), rows.map { it.date.toString() })
+        assertTrue(rows.all { it.maybeAbove.isEmpty() })
+        assertEquals(listOf(lemmy), rows.single { it.mine }.maybeInWords)
+    }
+
     // --- The comparison (#580) ---
 
     @Test
