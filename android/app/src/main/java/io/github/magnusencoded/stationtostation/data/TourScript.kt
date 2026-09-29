@@ -1,5 +1,7 @@
 package io.github.magnusencoded.stationtostation.data
 
+import java.time.LocalDateTime
+
 /** The saved position of the first-run Tour. Pure data; the UI only renders commands. */
 data class TourState(
     val step: TourStep? = null,
@@ -12,7 +14,18 @@ data class TourState(
     val returnedFromPhotos: Boolean = false,
     val demoVenueLat: Double? = null,
     val demoVenueLon: Double? = null,
+    val demoNow: String? = null,
 )
+
+/** Tour time is an input to the ordinary gig rules, never a branch inside them. */
+fun TourState.now(realNow: LocalDateTime): LocalDateTime =
+    if (step != null && !finished) demoNow?.let { runCatching { LocalDateTime.parse(it) }.getOrNull() } ?: realNow
+    else realNow
+
+/** The exchange fix stands in for GPS only while the Tour is active. */
+fun TourState.location(realLocation: Pair<Double, Double>?): Pair<Double, Double>? =
+    if (step != null && !finished && demoVenueLat != null && demoVenueLon != null) demoVenueLat to demoVenueLon
+    else realLocation
 
 enum class TourStep { S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S12, S13, S14, S15, S16, S17, S18, S19, S20 }
 

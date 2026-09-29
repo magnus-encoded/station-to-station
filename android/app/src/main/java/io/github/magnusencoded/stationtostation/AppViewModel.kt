@@ -75,6 +75,8 @@ import io.github.magnusencoded.stationtostation.data.TourEvent
 import io.github.magnusencoded.stationtostation.data.TourState
 import io.github.magnusencoded.stationtostation.data.TourStep
 import io.github.magnusencoded.stationtostation.data.runTour
+import io.github.magnusencoded.stationtostation.data.now
+import io.github.magnusencoded.stationtostation.data.location
 import io.github.magnusencoded.stationtostation.data.friendFromUri
 import io.github.magnusencoded.stationtostation.data.gigIdFromInvite
 import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
@@ -88,6 +90,7 @@ import io.github.magnusencoded.stationtostation.ui.atVenue
 import io.github.magnusencoded.stationtostation.ui.canCheckInManually
 import io.github.magnusencoded.stationtostation.ui.checkInCandidate
 import io.github.magnusencoded.stationtostation.ui.venueMapsQuery
+import io.github.magnusencoded.stationtostation.ui.deleteCalendarEvent
 import io.github.magnusencoded.stationtostation.ble.ProbeCard
 import io.github.magnusencoded.stationtostation.data.AccountsMove
 import io.github.magnusencoded.stationtostation.data.AccountsPayload
@@ -1024,11 +1027,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 when (command) {
                     TourCommand.ImportDemoTicket -> importDemoTicket()
                     TourCommand.PurgeDemoWorld -> purgeDemoWorld()
+                    is TourCommand.AdvanceDemoClock -> advanceDemoClock(command.moment)
                     else -> Unit // Later Tour slices own their platform side effects.
                 }
             }
         }
     }
+
+    private suspend fun advanceDemoClock(moment: String) {
+        val date = timelines.load().gigs.values.singleOrNull { it.demo }?.date?.let(::parseFmDate) ?: return
+        val now = when (moment) {
+            "approaching" -> date.minusDays(1).atTime(12, 0)
+            "doors" -> date.atTime(19, 0)
+            "showStarted" -> date.atTime(21, 0)
+            "after" -> date.plusDays(1).atTime(12, 0)
+            else -> return
+        }
+        val tour = _state.value.tour.copy(demoNow = now.toString())
+        _state.update { it.copy(tour = tour) }
+        settings.saveTourState(tour)
+    }
+
+    fun tourNow(realNow: LocalDateTime = LocalDateTime.now()): LocalDateTime = _state.value.tour.now(realNow)
 
     fun offerTourWhenOnline() = dispatchTour(TourEvent.Started(getApplication<Application>().isOnline()))
 
@@ -1054,6 +1074,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     /** Demo-tagged app data goes; the system's permission grants remain untouched. */
     private suspend fun purgeDemoWorld() {
         val demoIds = timelines.load().gigs.values.filter { it.demo }.mapTo(mutableSetOf()) { it.id }
+        withContext(Dispatchers.IO) {
+            demoIds.mapNotNull { _state.value.calendarEventByGig[it] }.forEach {
+                deleteCalendarEvent(getApplication<Application>().contentResolver, it)
+            }
+        }
         val demoFriends = _state.value.friends.filter { it.demo }
         timelines.purgeDemoWorld()
         val friends = _state.value.friends.withoutDemoFriends()
@@ -1063,6 +1088,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 friends = friends,
                 plannedGigs = state.plannedGigs.filterNot { it.id in demoIds },
                 attendanceByGig = state.attendanceByGig - demoIds,
+                calendarEventByGig = state.calendarEventByGig - demoIds,
                 showsByFriend = state.showsByFriend - demoFriends.map { it.laneKey }.toSet(),
                 exchangePeers = emptyList(),
                 connectingWith = null,
@@ -2855,6 +2881,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun markCalendarAdded(gigId: String, eventUri: String) {
         _state.update { it.copy(calendarEventByGig = it.calendarEventByGig + (gigId to eventUri)) }
         viewModelScope.launch { timelines.markCalendarAdded(gigId, eventUri) }
+        if (_state.value.tour.step == TourStep.S10) dispatchTour(TourEvent.CalendarAdded)
     }
 
     /**
@@ -3288,7 +3315,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * permission is warranted at all, so the prompt only ever appears on a night
      * there is actually something to check into.
      */
-    fun checkInDue(now: LocalDateTime = LocalDateTime.now()): Boolean =
+    fun checkInDue(now: LocalDateTime = tourNow()): Boolean =
         _state.value.plannedGigs.any { gig ->
             canCheckInManually(gig, now) && !isCheckedIn(gig.id)
         }
@@ -3311,10 +3338,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (askedToCheckIn) return
         askedToCheckIn = true
         viewModelScope.launch {
-            val now = LocalDateTime.now()
-            val fix = where.currentFix() ?: return@launch
+            val now = tourNow()
+            val fix = _state.value.tour.location(where.currentFix()) ?: return@launch
             val candidates = _state.value.plannedGigs.filterNot { isCheckedIn(it.id) }
-            val gig = checkInCandidate(candidates, now, fix) ?: return@launch
+            val gig = checkInCandidate(candidates, now, fix) ?: candidates.firstOrNull { candidate ->
+                val attendance = _state.value.attendanceByGig[candidate.id]
+                val venue = if (candidate.demo && attendance?.venueLat != null && attendance.venueLon != null) {
+                    attendance.venueLat to attendance.venueLon
+                } else null
+                venue != null && canCheckInManually(candidate, now) && atVenue(fix, venue)
+            } ?: return@launch
             val venue = venueCoords(gig) ?: return@launch
             if (!atVenue(fix, venue)) return@launch
             _state.update { it.copy(checkInOffer = gig) }
@@ -3359,6 +3392,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 checkedInAt = System.currentTimeMillis(),
             )
         }
+        if (_state.value.tour.step == TourStep.S13) dispatchTour(TourEvent.CheckedIn)
         viewModelScope.launch {
             saved.join()
             withContext(Dispatchers.IO) { runCatching { gossipAbout(gigId) } }

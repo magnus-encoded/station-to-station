@@ -32,6 +32,7 @@ class DemoWorldTest {
             gigMedia = mapOf("demo" to listOf(StoredMedia(id = "photo"))),
             gigLogs = mapOf("demo" to StoredLog(), "real" to StoredLog()),
             gigPlaylists = mapOf("demo" to listOf(StoredPlaylist("https://playlist"))),
+            gigCalendarEvent = mapOf("demo" to "content://calendar/events/7", "real" to "content://calendar/events/8"),
         )
 
         val purged = cache.withoutDemoWorld()
@@ -44,6 +45,8 @@ class DemoWorldTest {
         assertTrue("real" in purged.gigAttendance)
         assertTrue("real" in purged.gigLogs)
         assertEquals(cache.gigPlaylists, purged.gigPlaylists)
+        assertFalse("demo" in purged.gigCalendarEvent)
+        assertEquals("content://calendar/events/8", purged.gigCalendarEvent["real"])
     }
 
     @Test fun `meet friend data uses the exchange fix real admission store and purge`() = runBlocking {
