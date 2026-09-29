@@ -12,10 +12,14 @@ import io.github.magnusencoded.stationtostation.BuildConfig
 import io.github.magnusencoded.stationtostation.data.clashfinder.ClashfinderAuth
 import io.github.magnusencoded.stationtostation.data.clashfinder.clashfinderPublicKey
 import io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmKey
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.setlistfm.sharedQuotaSpent
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 private val Context.dataStore by preferencesDataStore(name = "settings")
 
@@ -60,6 +64,7 @@ class SettingsRepository(private val context: Context) {
         val TOUR_STEP = stringPreferencesKey("tour_step")
         val TOUR_FINISHED = booleanPreferencesKey("tour_finished")
         val TOUR_SPOTIFY_RETRY = booleanPreferencesKey("tour_spotify_retry")
+        val TOUR_SPOTIFY_RETRY_SETLIST = stringPreferencesKey("tour_spotify_retry_setlist")
         val TOUR_UPGRADE_DISMISSED = booleanPreferencesKey("tour_upgrade_dismissed")
         val TOUR_HINTS = stringPreferencesKey("tour_context_hints")
         val TOUR_ONCE = stringPreferencesKey("tour_once_commands")
@@ -137,6 +142,7 @@ class SettingsRepository(private val context: Context) {
             state.step?.let { prefs[Keys.TOUR_STEP] = it.name } ?: prefs.remove(Keys.TOUR_STEP)
             prefs[Keys.TOUR_FINISHED] = state.finished
             prefs[Keys.TOUR_SPOTIFY_RETRY] = state.pendingSpotifyRetry
+            if (!state.pendingSpotifyRetry) prefs.remove(Keys.TOUR_SPOTIFY_RETRY_SETLIST)
             prefs[Keys.TOUR_UPGRADE_DISMISSED] = state.upgradePromptDismissed
             prefs[Keys.TOUR_HINTS] = state.seenContextHints.sorted().joinToString(",")
             prefs[Keys.TOUR_ONCE] = state.deliveredOnce.map {
@@ -154,6 +160,16 @@ class SettingsRepository(private val context: Context) {
             state.demoNow?.let { prefs[Keys.TOUR_DEMO_NOW] = it }
                 ?: prefs.remove(Keys.TOUR_DEMO_NOW)
         }
+    }
+
+    val tourSpotifyRetrySetlist: Flow<FmSetlist?> = context.dataStore.data.map { prefs ->
+        prefs[Keys.TOUR_SPOTIFY_RETRY_SETLIST]?.let {
+            runCatching { Json.decodeFromString<FmSetlist>(it) }.getOrNull()
+        }
+    }
+
+    suspend fun saveTourSpotifyRetrySetlist(setlist: FmSetlist) {
+        context.dataStore.edit { it[Keys.TOUR_SPOTIFY_RETRY_SETLIST] = Json.encodeToString(setlist) }
     }
 
     // `always_relay` (#416) is gone with v2's lifecycle: no active **Gig** means no radio,

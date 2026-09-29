@@ -74,6 +74,8 @@ import io.github.magnusencoded.stationtostation.data.TourCommand
 import io.github.magnusencoded.stationtostation.data.TourEvent
 import io.github.magnusencoded.stationtostation.data.TourState
 import io.github.magnusencoded.stationtostation.data.TourStep
+import io.github.magnusencoded.stationtostation.data.tourPlaylistDescription
+import io.github.magnusencoded.stationtostation.data.tourPlaylistName
 import io.github.magnusencoded.stationtostation.data.runTour
 import io.github.magnusencoded.stationtostation.data.now
 import io.github.magnusencoded.stationtostation.data.location
@@ -3646,7 +3648,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
         // Year – Artist – Where. The rule itself is the logic layer's, asserted by
         // the same cases on both platforms — it is the one that drifted before.
-        val defaultName = TimelineLogic.playlistName(
+        val tourExport = _state.value.tour.step == TourStep.S19 || _state.value.tour.pendingSpotifyRetry
+        val defaultName = if (tourExport) tourPlaylistName() else TimelineLogic.playlistName(
             setlist, _state.value.setlists, _state.value.festivals,
         )
         _state.update {
@@ -3655,6 +3658,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 matches = matches,
                 matching = true,
                 playlistName = defaultName,
+                playlistPublic = if (tourExport) true else it.playlistPublic,
                 createdPlaylistUrl = null,
                 // A different show means different photos.
                 coverCandidates = emptyList(),
@@ -3714,6 +3718,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setPlaylistName(name: String) = _state.update { it.copy(playlistName = name) }
     fun setPlaylistPublic(public: Boolean) = _state.update { it.copy(playlistPublic = public) }
+
+    fun declineTourSpotify() {
+        val setlist = _state.value.selectedSetlist ?: return
+        viewModelScope.launch {
+            settings.saveTourSpotifyRetrySetlist(setlist)
+            dispatchTour(TourEvent.SpotifyDeclined)
+        }
+    }
+
+    fun prepareTourSpotifyRetry() {
+        viewModelScope.launch {
+            settings.tourSpotifyRetrySetlist.first()?.let(::selectSetlist)
+        }
+    }
 
     /**
      * Discovers a friend from a Spotify playlist link they shared: reads the playlist's
@@ -4053,6 +4071,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun createPlaylist() {
         val s = _state.value
+        val tourExport = s.tour.step == TourStep.S19 || s.tour.pendingSpotifyRetry
         val tracks = s.matches.filter { it.included && it.selected != null }.mapNotNull { it.selected }
         if (tracks.isEmpty()) {
             _state.update { it.copy(errorKind = null, error = "No songs selected") }
@@ -4076,7 +4095,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 // link. Appended after the 300-char clamp so truncation can't cut it off.
                 val stamp = s.mySetlistFmUser.trim().takeIf { it.isNotEmpty() }
                     ?.let { " " + sfmStamp(it) } ?: ""
-                val description = buildString {
+                val description = if (tourExport) tourPlaylistDescription() else buildString {
                     append("Live at ").append(setlist?.venueLine() ?: "an unknown venue")
                     // The name carries only the year, so the full date lives here.
                     setlist?.readableDate()?.let { append(", ").append(it) }
@@ -4085,7 +4104,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     append(" From setlist.fm")
                     setlist?.url?.let { append(": ").append(it) }
                 }.take(300 - stamp.length) + stamp
-                val playlist = spotify.createPlaylist(name, description, s.playlistPublic)
+                val playlist = spotify.createPlaylist(name, description, if (tourExport) true else s.playlistPublic)
                 val result = try {
                     spotify.addTracks(playlist.id, tracks.map { it.uri })
                 } catch (e: Exception) {
@@ -4126,6 +4145,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 // So the night still points at it on the next launch.
                 if (night != null) timelines.save(playlists = mapOf(night to made))
+                if (tourExport) dispatchTour(TourEvent.SpotifyExported)
             } catch (e: Exception) {
                 fail(e)
             }
