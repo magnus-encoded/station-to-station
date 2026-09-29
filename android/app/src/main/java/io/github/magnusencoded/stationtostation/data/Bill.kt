@@ -146,6 +146,27 @@ fun parseFmDate(text: String): LocalDate? =
     runCatching { LocalDate.parse(text.trim(), FM_DATE) }.getOrNull()
 
 /**
+ * yyyy-MM-dd, tried as a fallback wherever a person types a date by hand.
+ *
+ * ISO order is unambiguous by construction — a four-digit year cannot be mistaken
+ * for a day or a month — so it is safe to accept alongside dd-MM-yyyy even though
+ * the two shapes could otherwise collide (01-02-2026 is a real dd-MM-yyyy date, but
+ * no yyyy-MM-dd date starts with two digits, so there is no ambiguity between them).
+ */
+private val ISO_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.ENGLISH)
+
+/**
+ * What every hand-typed date field (planned-by-hand, local gig, ticket confirm)
+ * parses with. dd-MM-yyyy is the one shape this app shows people, but yyyy-mm-dd is
+ * unambiguous on its own terms and an easy slip for anyone used to writing dates
+ * that way, so it is accepted too rather than rejected on a technicality.
+ */
+fun parseHandTypedDate(text: String): LocalDate? {
+    val trimmed = text.trim()
+    return parseFmDate(trimmed) ?: runCatching { LocalDate.parse(trimmed, ISO_DATE) }.getOrNull()
+}
+
+/**
  * A **Log**: the ordered songs *I* observed at one **Gig**, on my own device.
  *
  * Not setlist.fm's setlist. That is the published shared record; this is the witness

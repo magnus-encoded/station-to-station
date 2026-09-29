@@ -183,6 +183,7 @@ import io.github.magnusencoded.stationtostation.data.visibleToContacts
 import io.github.magnusencoded.stationtostation.data.withheldFromContacts
 import io.github.magnusencoded.stationtostation.data.gigInviteUri
 import io.github.magnusencoded.stationtostation.data.decodeTicketQrBase64
+import io.github.magnusencoded.stationtostation.data.fmDate
 import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
 import io.github.magnusencoded.stationtostation.data.musicbrainz.MbArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
@@ -192,6 +193,7 @@ import io.github.magnusencoded.stationtostation.ui.flyover.collectionBillboard
 import io.github.magnusencoded.stationtostation.ui.flyover.collectionFlyoverGigs
 import io.github.magnusencoded.stationtostation.ui.flyover.collectionMedia
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import java.time.LocalDateTime
 import kotlin.math.roundToInt
 
@@ -372,8 +374,7 @@ fun StationTimelineScreen(
                     onArtistTyped = { viewModel.suggestArtists(it) },
                     onArtistPicked = { viewModel.clearArtistSuggestions() },
                     onAdd = { artist, venue, date ->
-                        viewModel.addPlannedGigByHand(artist, venue, date)
-                        adding = false
+                        if (viewModel.addPlannedGigByHand(artist, venue, date)) adding = false
                     },
                     onAddByLink = { link -> viewModel.addPlannedGig(link); adding = false },
                     onDismiss = { viewModel.clearArtistSuggestions(); adding = false },
@@ -382,8 +383,7 @@ fun StationTimelineScreen(
             if (addingByHand) {
                 AddLocalGigDialog(
                     onAdd = { artist, venue, date ->
-                        viewModel.addLocalGig(artist, venue, date)
-                        addingByHand = false
+                        if (viewModel.addLocalGig(artist, venue, date)) addingByHand = false
                     },
                     onDismiss = { addingByHand = false },
                 )
@@ -1236,7 +1236,15 @@ private fun AddLocalGigDialog(
             StationField(venue, { venue = it }, "venue (optional)")
             Spacer(Modifier.height(8.dp))
             StationField(date, { date = it }, "date (dd-MM-yyyy)", imeDone = true)
-            Spacer(Modifier.height(10.dp))
+            Text(
+                "Today ›",
+                color = Amber,
+                fontSize = 12.sp,
+                modifier = Modifier
+                    .clickable { date = fmDate(LocalDate.now()) }
+                    .padding(top = 4.dp, bottom = 2.dp),
+            )
+            Spacer(Modifier.height(6.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text("Cancel", color = Faint) }
                 TextButton(
@@ -1461,9 +1469,10 @@ fun ImportScreen(
     if (byHand) {
         AddLocalGigDialog(
             onAdd = { artist, venue, date ->
-                viewModel.addLocalGig(artist, venue, date)
-                byHand = false
-                onDone()
+                if (viewModel.addLocalGig(artist, venue, date)) {
+                    byHand = false
+                    onDone()
+                }
             },
             onDismiss = { byHand = false },
         )

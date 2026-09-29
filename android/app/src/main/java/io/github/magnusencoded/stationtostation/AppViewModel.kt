@@ -35,6 +35,7 @@ import io.github.magnusencoded.stationtostation.data.isLocal
 import io.github.magnusencoded.stationtostation.data.localGigSetlist
 import io.github.magnusencoded.stationtostation.data.moveMedia
 import io.github.magnusencoded.stationtostation.data.parseFmDate
+import io.github.magnusencoded.stationtostation.data.parseHandTypedDate
 import io.github.magnusencoded.stationtostation.data.plannedLane
 import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.StoredPlaylist
@@ -1826,11 +1827,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * not been to yet has no claim to make. Writing `ATTENDED` here would be the app
      * asserting I was somewhere I have not been.
      */
-    fun addPlannedGigByHand(artist: String, venue: String, date: String) {
-        val night = parseFmDate(date)
+    fun addPlannedGigByHand(artist: String, venue: String, date: String): Boolean {
+        val night = parseHandTypedDate(date)
         if (artist.isBlank() || night == null) {
-            _state.update { it.copy(errorKind = null, error = "A night needs who is playing and a date as dd-MM-yyyy.") }
-            return
+            _state.update { it.copy(errorKind = null, error = "A night needs who is playing and a date as dd-MM-yyyy (or yyyy-mm-dd).") }
+            return false
         }
         viewModelScope.launch {
             val gigId = timelines.createLocalGig(fmDate(night), artist.trim(), venue.trim())
@@ -1848,6 +1849,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         }
+        return true
     }
 
     /**
@@ -1918,9 +1920,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun confirmPendingTicket(artist: String, venue: String, date: String) {
         val pending = _state.value.pendingTicket ?: return
-        val night = parseFmDate(date)
+        val night = parseHandTypedDate(date)
         if (artist.isBlank() || night == null) {
-            _state.update { it.copy(errorKind = null, error = "A night needs who is playing and a date as dd-MM-yyyy.") }
+            _state.update { it.copy(errorKind = null, error = "A night needs who is playing and a date as dd-MM-yyyy (or yyyy-mm-dd).") }
             return
         }
         viewModelScope.launch {
@@ -2008,11 +2010,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * A blank venue stays blank rather than becoming "": an unknown room is not a
      * place two gigs have in common, and `localGigSetlist` is careful about that.
      */
-    fun addLocalGig(artist: String, venue: String, date: String) {
-        val night = parseFmDate(date)
+    fun addLocalGig(artist: String, venue: String, date: String): Boolean {
+        val night = parseHandTypedDate(date)
         if (artist.isBlank() || night == null) {
-            _state.update { it.copy(errorKind = null, error = "A night needs who played and a date as dd-MM-yyyy.") }
-            return
+            _state.update { it.copy(errorKind = null, error = "A night needs who played and a date as dd-MM-yyyy (or yyyy-mm-dd).") }
+            return false
         }
         viewModelScope.launch {
             val gigId = timelines.createLocalGig(fmDate(night), artist.trim(), venue.trim())
@@ -2027,6 +2029,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         }
+        return true
     }
 
     /**
