@@ -1069,6 +1069,7 @@ final class AppModel: ObservableObject {
         Task {
             if let id = await insertCalendarEvent(setlist) {
                 markCalendarAdded(setlist.id, eventId: id)
+                if state.tour.step == .calendar { sendTourEvent(.calendarAdded) }
             } else {
                 state.error = "Couldn't add this to your calendar."
                 state.errorKind = nil
@@ -1373,7 +1374,9 @@ final class AppModel: ObservableObject {
             }
             guard let index = state.plannedGigs.firstIndex(where: { $0.id == gigID }) else { return }
             var gig = state.plannedGigs[index]
-            gig.venue = FmVenue(name: "Demo venue")
+            gig.venue = FmVenue(
+                name: "Demo venue",
+                city: FmCity(name: "Demo location", coords: FmCoords(lat: fix.lat, long: fix.lon)))
             state.plannedGigs[index] = gig
             _ = await timelines.savePlanned(gig)
             let attendance = await timelines.setDemoVenue(
@@ -1410,15 +1413,20 @@ final class AppModel: ObservableObject {
     private func acceptTour(_ transition: TourTransition) {
         state.tour = transition.state
         state.tourCommands = transition.commands
+        for command in transition.commands {
+            if case .advanceDemoClock(let moment) = command { advanceDemoClock(moment) }
+        }
         if transition.commands.contains(.purgeDemoWorld), let world = state.tour.demoWorldID {
             let ids = Set(state.demoRecords.filter { $0.demoTag?.worldID == world }.map(\.id))
             let demoFriends = state.friends.filter { $0.demo == true }
             let demoGigIDs = Set(state.demoRecords
                 .filter { $0.demoTag?.worldID == world && !demoFriends.map(\.laneKey).contains($0.id) }
                 .map(\.id))
+            let calendarIDs = demoGigIDs.compactMap { state.calendarEventByGig[$0] }
             state.plannedGigs = purgeDemoGigs(state.plannedGigs, records: state.demoRecords, worldID: world)
             state.timelineShows = purgeDemoGigs(state.timelineShows, records: state.demoRecords, worldID: world)
             for id in ids { state.attendanceByGig[id] = nil }
+            for id in demoGigIDs { state.calendarEventByGig[id] = nil }
             if let selected = state.selectedSetlist, ids.contains(selected.id) {
                 state.selectedSetlist = nil
             }
@@ -1429,6 +1437,7 @@ final class AppModel: ObservableObject {
             state.zoomedOut = false
             state.demoRecords = purgeDemoWorld(state.demoRecords, worldID: world)
             Task {
+                for id in calendarIDs { await deleteCalendarEvent(id) }
                 await timelines.purgeDemoWorld(
                     gigIDs: demoGigIDs,
                     laneKeys: Set(demoFriends.map(\.laneKey)))
@@ -1441,6 +1450,31 @@ final class AppModel: ObservableObject {
         }) {
             Task { await importDemoTicket() }
         }
+    }
+
+    private func advanceDemoClock(_ moment: DemoClock) {
+        guard let gigID = state.tour.demoGigID,
+              let gig = (state.plannedGigs + state.timelineShows).first(where: { $0.id == gigID }),
+              let day = gig.localDate() else { return }
+        let calendar = Calendar.current
+        switch moment {
+        case .approaching:
+            state.tour.demoNow = calendar.date(byAdding: .day, value: -1, to: day)
+                .flatMap { calendar.date(bySettingHour: 12, minute: 0, second: 0, of: $0) }
+        case .doors:
+            state.tour.demoNow = calendar.date(bySettingHour: 19, minute: 0, second: 0, of: day)
+        case .showStarted:
+            state.tour.demoNow = calendar.date(bySettingHour: 21, minute: 0, second: 0, of: day)
+        case .after:
+            state.tour.demoNow = calendar.date(byAdding: .day, value: 1, to: day)
+                .flatMap { calendar.date(bySettingHour: 12, minute: 0, second: 0, of: $0) }
+        }
+    }
+
+    func openTourVenueInMaps(_ show: FmSetlist) {
+        guard let query = venueMapsQuery(venueName: show.venue?.name, city: show.venue?.city?.name) else { return }
+        openVenueInMaps(query)
+        if state.tour.step == .maps { sendTourEvent(.mapsOpened) }
     }
 
     func disconnectSpotify() {
@@ -2182,7 +2216,7 @@ final class AppModel: ObservableObject {
         let cache = await timelines.load()
         let attendance = cache.attendance()
         return cache.planned().contains { gig in
-            canCheckInManually(gig: gig, now: now) && attendance[gig.id]?.provenance != "checked_in"
+            canCheckInManually(gig: gig, now: state.tour.now(now)) && attendance[gig.id]?.provenance != "checked_in"
         }
     }
 
@@ -2207,7 +2241,7 @@ final class AppModel: ObservableObject {
             let cache = await timelines.load()
             let attendance = cache.attendance()
             let candidates = cache.planned().filter { attendance[$0.id]?.provenance != "checked_in" }
-            guard let gig = checkInCandidate(gigs: candidates, now: Date(), where: fix) else { return }
+            guard let gig = checkInCandidate(gigs: candidates, now: state.tour.now(), where: fix) else { return }
             guard let venue = await venueCoords(gig, cache: cache) else { return }
             guard atVenue(where: fix, venue: venue) else { return }
             state.checkInOffer = gig
@@ -2250,7 +2284,7 @@ final class AppModel: ObservableObject {
             // Only the claim changes. The ticket's Admissions and the venue's coordinates
             // are carried across the check-in by editing the record in place, read and
             // written under one lock — Android's `updateAttendance { it.copy(…) }` (#412).
-            let checkedInAt = Int64(Date().timeIntervalSince1970 * 1000)
+            let checkedInAt = Int64(state.tour.now().timeIntervalSince1970 * 1000)
             let attendance = await timelines.updateAttendance(setlistId: gigId) {
                 $0.provenance = "checked_in"
                 $0.checkedInAt = checkedInAt
@@ -2267,6 +2301,7 @@ final class AppModel: ObservableObject {
             guard let localGig = cache.gigs[gigId] ?? cache.gigForSetlist(gigId) else { return }
             _ = await GossipChannel.shared.checkedIn(gigId: gigId, localGigId: localGig.id, gigDate: gigDate)
             gossipContactsChanged()
+            if state.tour.step == .checkIn { sendTourEvent(.checkedIn) }
         }
     }
 
