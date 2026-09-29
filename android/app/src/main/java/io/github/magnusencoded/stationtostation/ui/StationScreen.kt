@@ -215,6 +215,8 @@ import io.github.magnusencoded.stationtostation.data.withheldFromContacts
 import io.github.magnusencoded.stationtostation.data.gigInviteUri
 import io.github.magnusencoded.stationtostation.data.StoredAdmission
 import io.github.magnusencoded.stationtostation.data.TicketOriginals
+import io.github.magnusencoded.stationtostation.data.TourEvent
+import io.github.magnusencoded.stationtostation.data.TourStep
 import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
 import io.github.magnusencoded.stationtostation.data.musicbrainz.MbArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
@@ -230,7 +232,6 @@ import io.github.magnusencoded.stationtostation.ui.flyover.collectionBillboard
 import io.github.magnusencoded.stationtostation.ui.flyover.collectionFlyoverGigs
 import io.github.magnusencoded.stationtostation.ui.flyover.collectionMedia
 import kotlinx.coroutines.launch
-import java.time.LocalDateTime
 import kotlin.math.roundToInt
 
 // Station to Station — the timeline face of the app.
@@ -267,12 +268,8 @@ private val Serif = FontFamily.Serif
 @Composable
 fun SplashScreen(viewModel: AppViewModel, onProceed: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var loginError by remember { mutableStateOf<String?>(null) }
 
-    // Passing the splash (either button, or already onboarded on a later launch)
-    // advances to the timeline.
+    LaunchedEffect(Unit) { viewModel.offerTourWhenOnline() }
     LaunchedEffect(state.onboarded) { if (state.onboarded) onProceed() }
 
     Box(Modifier.fillMaxSize().background(Ground).padding(32.dp), contentAlignment = Alignment.Center) {
@@ -282,7 +279,7 @@ fun SplashScreen(viewModel: AppViewModel, onProceed: () -> Unit) {
             Text("Station to Station", fontFamily = Serif, fontSize = 30.sp, color = Ink)
             Spacer(Modifier.height(12.dp))
             Text(
-                "Your concerts, kept. Connect Spotify to turn any night's setlist into a playlist — or skip and just browse the setlists.",
+                "The Tour needs an internet connection. Connect, then try again — it will begin on the real timeline.",
                 color = Muted,
                 fontSize = 14.sp,
                 textAlign = TextAlign.Center,
@@ -290,25 +287,10 @@ fun SplashScreen(viewModel: AppViewModel, onProceed: () -> Unit) {
             )
             Spacer(Modifier.height(36.dp))
             Button(
-                onClick = {
-                    // startActivity fires before we navigate away, so cancelling the
-                    // splash's scope can't stop the browser from opening.
-                    scope.launch {
-                        loginError = startSpotifyLogin(context, viewModel)
-                        viewModel.markOnboarded()
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = SpotifyGreen, contentColor = Color.White),
+                onClick = viewModel::offerTourWhenOnline,
+                colors = ButtonDefaults.buttonColors(containerColor = Amber, contentColor = Ground),
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Log in with Spotify", fontWeight = FontWeight.SemiBold) }
-            Spacer(Modifier.height(4.dp))
-            TextButton(onClick = { viewModel.markOnboarded() }, modifier = Modifier.fillMaxWidth()) {
-                Text("Skip — just show me setlists", color = Muted)
-            }
-            loginError?.let {
-                Spacer(Modifier.height(10.dp))
-                Text(it, color = Danger, fontSize = 12.sp)
-            }
+            ) { Text("Try again", fontWeight = FontWeight.SemiBold) }
         }
     }
 }
@@ -329,6 +311,11 @@ fun StationTimelineScreen(
     // history at all still has a ticket for something.
     var adding by remember { mutableStateOf(false) }
     var addingByHand by remember { mutableStateOf(false) }
+    // S3/S4 use the ordinary planning dialog. Restore that real flow when the
+    // process is recreated at either saved Tour step.
+    LaunchedEffect(state.tour.step) {
+        if (state.tour.step == TourStep.S3 || state.tour.step == TourStep.S4) adding = true
+    }
     // Whether the legend's `+ N more` has been opened — where the reader left the
     // disclosure, not a fact to remember across a launch (#396).
     var legendExpanded by remember { mutableStateOf(false) }
@@ -455,7 +442,10 @@ fun StationTimelineScreen(
                 AddPlannedGigDialog(
                     suggestions = state.artistSuggestions,
                     onArtistTyped = { viewModel.suggestArtists(it) },
-                    onArtistPicked = { viewModel.clearArtistSuggestions() },
+                    onArtistPicked = {
+                        viewModel.clearArtistSuggestions()
+                        viewModel.dispatchTour(TourEvent.BandPicked)
+                    },
                     onAdd = { artist, venue, date ->
                         viewModel.addPlannedGigByHand(artist, venue, date)
                         adding = false
@@ -513,7 +503,9 @@ fun StationTimelineScreen(
                     val zoomedOut = state.zoomedOut
                     LaunchedEffect(state.justConnected) {
                         if (state.justConnected) {
-                            viewModel.setZoomedOut(true)
+                            // The Tour teaches this gesture: landing from S7 must leave
+                            // the friend waiting off-screen until the user's own pinch.
+                            if (state.tour.step != TourStep.S8) viewModel.setZoomedOut(true)
                             viewModel.consumeJustConnected()
                         }
                     }
@@ -573,6 +565,7 @@ fun StationTimelineScreen(
                     // release and the reader's custom action both call this, so a future
                     // rewire of one door can't silently leave the other stale (#164).
                     fun openDoor(door: PlanningDoor) {
+                        if (door == PlanningDoor.Gig) viewModel.dispatchTour(TourEvent.CurtainPulled)
                         when (door) {
                             PlanningDoor.Gig -> adding = true
                             PlanningDoor.Programme -> onOpenProgramme()
@@ -4159,7 +4152,10 @@ fun StationEventScreen(
     // gallery permission needed for that path, unlike the suggestions below.
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia()
-    ) { uris -> if (uris.isNotEmpty()) setlist?.let { viewModel.addPickedGigPhotos(it.id, uris, attachTo) } }
+    ) { uris ->
+        if (state.tour.step == TourStep.S18) viewModel.dispatchTour(TourEvent.ReturnedFromPhotos)
+        if (uris.isNotEmpty()) setlist?.let { viewModel.addPickedGigPhotos(it.id, uris, attachTo) }
+    }
     // Gallery access is only ever asked for after the "suggest" tap, so opening
     // a gig never triggers a permission prompt on its own.
     val gigSuggestPermissionLauncher = rememberLauncherForActivityResult(
@@ -4290,7 +4286,8 @@ fun StationEventScreen(
     // The phase and the curtain come off the same value as the offers, so they cannot
     // disagree. The alcove is still not dispatched from — the swipe's action order is
     // a separate, deliberately deferred change (#129).
-    val offers = gigOffers(gigAsKnown, LocalDateTime.now())
+    val now = viewModel.tourNow()
+    val offers = gigOffers(gigAsKnown, now)
     val leaf = offers.phase
     // What pulling the curtain down asks for, decided by the same fold that draws the
     // chip — never the same request on a night three weeks away, a night being stood
@@ -4382,7 +4379,7 @@ fun StationEventScreen(
         if (band == Band.SHARED && wasKept) maybes.firstOrNull()?.let { askingMaybe = it }
     }
 
-    val plannedTimeState = if (planned) setlist?.localDate()?.let { gigTimeState(LocalDateTime.now(), it) } else null
+    val plannedTimeState = if (planned) setlist?.localDate()?.let { gigTimeState(now, it) } else null
     val planAhead = planned &&
         plannedTimeState != GigTimeState.PAST && plannedTimeState != GigTimeState.DAY_OF
     // The insert is a couple of binder calls, so it runs off the main thread; success
@@ -4520,7 +4517,7 @@ fun StationEventScreen(
                 // it's still ahead, check in on the night, nudge setlist.fm once it's
                 // over. An unparseable date can't be placed on that line, so it falls
                 // to the plan-ahead actions rather than losing them.
-                val timeState = setlist.localDate()?.let { gigTimeState(LocalDateTime.now(), it) }
+                val timeState = setlist.localDate()?.let { gigTimeState(now, it) }
                 Column(
                     Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -4532,10 +4529,15 @@ fun StationEventScreen(
                     // is attached, not held back until the day-of check-in window the
                     // way the offer to check in is.
                     val admissions = state.attendanceByGig[setlist.id]?.admissions.orEmpty()
+                    LaunchedEffect(state.tour.step, setlist.id, admissions.size) {
+                        if (state.tour.step == TourStep.S12 && admissions.isNotEmpty()) {
+                            viewModel.dispatchTour(TourEvent.TicketShown)
+                        }
+                    }
                     // The manual check-in, and the only one there is when location was
                     // refused or the venue couldn't be geocoded. Same night window as
                     // the ambient offer; no location involved at all.
-                    if (canCheckInManually(setlist, LocalDateTime.now())) {
+                    if (canCheckInManually(setlist, now)) {
                         if (checkedIn) {
                             presenceRow()
                         } else {
@@ -4575,6 +4577,22 @@ fun StationEventScreen(
                         // grammar as the Spotify convert, where the made-playlist link
                         // persists and the hint moves on to "make another".
                         else -> {
+                            if (state.tour.step == TourStep.S11) {
+                                val demoQuery = state.tour.demoVenueLat?.let { lat ->
+                                    state.tour.demoVenueLon?.let { lon -> "$lat,$lon" }
+                                }
+                                if (demoQuery != null) {
+                                    Text(
+                                        "Open the venue in maps ↗",
+                                        color = Amber,
+                                        fontSize = 13.sp,
+                                        modifier = Modifier.clickable {
+                                            openVenueInMaps(context, demoQuery)
+                                            viewModel.dispatchTour(TourEvent.MapsOpened)
+                                        }.padding(vertical = 6.dp),
+                                    )
+                                }
+                            }
                             if (calendarEventUri != null) {
                                 // The created event, as a persisted tappable link — the
                                 // mirror of a made-playlist row. Opens the event with
@@ -5224,6 +5242,14 @@ fun StationEventScreen(
                 if (canLog) {
                     item {
                         Spacer(Modifier.height(6.dp))
+                        if (state.tour.step == TourStep.S17) {
+                            Text(
+                                "Looking for the real setlist on setlist.fm, then MusicBrainz if it isn't there yet…",
+                                color = Faint,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+                            )
+                        }
                         LogEditor(
                             candidates = catalogue,
                             // Naming which artist a wrong match came from was the

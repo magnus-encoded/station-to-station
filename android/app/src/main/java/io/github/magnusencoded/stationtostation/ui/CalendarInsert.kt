@@ -38,6 +38,11 @@ fun insertCalendarEvent(resolver: ContentResolver, setlist: FmSetlist): Uri? {
     return resolver.insert(CalendarContract.Events.CONTENT_URI, values)
 }
 
+/** Removes the exact event the Tour inserted; provider/permission failures stay harmless. */
+fun deleteCalendarEvent(resolver: ContentResolver, eventUri: String) {
+    runCatching { resolver.delete(Uri.parse(eventUri), null, null) }
+}
+
 /**
  * Which calendar to write into: the account's primary if one is marked, otherwise the
  * first visible calendar. Good enough — the user moves the event in their own app if

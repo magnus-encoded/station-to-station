@@ -12,6 +12,16 @@ these words exactly; if a new concept appears, name it here **before** building 
 hand-patch that file to match this one. Where the two disagree, this file wins; where the
 code disagrees with both, the code wins and this file is the one to correct.
 
+## First-run guidance
+
+| Term | Definition | Aliases to avoid |
+| ---- | ---------- | ---------------- |
+| **Tour** | The first-run, resumable sequence of coach marks over the real app. A user learns each flow by doing it in a **Demo world**, with **Skip** available throughout. | onboarding, tutorial, walkthrough |
+| **Demo world** | Throwaway, demo-tagged records created by the **Tour**. It uses real app paths, is purged on completion or Skip, and never includes the lasting Spotify playlist, the photo library, or granted permissions. | sample data, fake account, sandbox |
+| **Virtual friend** | The fixed concert-goer character who accompanies the user through the **Tour**. Their exchange, gossip and media arrive locally, without traffic between phones. | bot, assistant, mascot |
+| **Context hint** | A one-off explanation shown when a feature first becomes relevant outside a running **Tour**. Skipping the Tour does not suppress these hints. | coach mark, tooltip, tutorial |
+| **Demo clock** | The **Tour**'s controllable time, passed where the app would normally use `now`, so one demo night can move through its lifecycle without waiting. | fake time, system clock |
+
 ## The line
 
 **Down is earlier.** The newest night sits at the top; travelling down the **Line** travels
@@ -239,6 +249,16 @@ nobody — so the durable key it used to need never has to cross at all.
 | **Preamble** | The sentence rendered above a **Note** from facts the record already holds — who else was there, the venue, the set. Composed at read time, **never stored, never typed, never sent**: **Reconcile** has no time bound, so who was there changes, and a frozen sentence would be the app putting words in my mouth. Every clause is droppable and a night that knows nothing gets none. | header, generated text, template, auto-caption |
 
 ## Relationships
+
+## Tour
+
+| Term | Definition | Aliases to avoid |
+| ---- | ---------- | ---------------- |
+| **Tour** | The resumable first-run sequence that teaches the real app through events and commands. | onboarding flow |
+| **Demo world** | Throwaway, tagged records created by one Tour run and purged together on Skip or completion. | sample data |
+| **Virtual friend** | The fixed local character who accompanies the Tour; no real peer traffic is involved. | bot |
+| **Context hint** | A one-off prompt shown when a feature becomes relevant, suppressed while the Tour runs. | tooltip |
+| **Demo clock** | The Tour's injected time, advanced by its script without changing device time. | fake date |
 
 - A **Line** belongs to exactly one person and occupies one **Spine** or **Lane**.
 - A **Gig** sits on every **Line** whose owner **Attended** it.

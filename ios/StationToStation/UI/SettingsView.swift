@@ -96,15 +96,26 @@ struct SettingsView: View {
             // Outside the Field, so a pan never carries it away. Moving to a new phone
             // lives here rather than on the Exchange screen: that screen is for meeting
             // *people*, and this is the same person's second device (#142).
-            HStack {
-                Button { nav.push(.handover) } label: {
-                    Text("Move to a new phone").foregroundColor(ink)
+            VStack(spacing: 8) {
+                HStack {
+                    if model.state.tour.isRunning {
+                        Button("Resume tour") { model.resumeTour(); nav.popToRoot() }
+                            .foregroundColor(ink)
+                    }
+                    Button("Replay tour") { model.replayTour(); nav.popToRoot() }
+                        .foregroundColor(ink)
+                    Spacer()
                 }
-                Spacer()
-                Text(buildLabel)
-                    .font(.system(size: 11))
-                    .foregroundColor(faint)
-                    .lineLimit(1)
+                HStack {
+                    Button { nav.push(.handover) } label: {
+                        Text("Move to a new phone").foregroundColor(ink)
+                    }
+                    Spacer()
+                    Text(buildLabel)
+                        .font(.system(size: 11))
+                        .foregroundColor(faint)
+                        .lineLimit(1)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)

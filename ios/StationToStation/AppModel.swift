@@ -1,4 +1,5 @@
 import Foundation
+import Network
 
 /// One setlist song together with its Spotify match candidates and selection.
 struct SongMatch: Identifiable {
@@ -43,6 +44,10 @@ struct UiState {
     /// Whether the first-run door has been passed (#358). The splash is shown while
     /// this is false, and a launch after it never sees one again.
     var onboarded = false
+    /// Persisted script state and the latest commands waiting for the platform shell.
+    var tour = TourState.unstarted
+    var tourCommands: [TourCommand] = []
+    var demoRecords: [DemoRecord] = []
     /// True once launch has put the saved timeline on screen, Festivals and all.
     /// Until then the launch look stays over the Timeline, so a reopened app never
     /// shows an empty timeline or a "0 shows" count on the way to its own.
@@ -277,6 +282,8 @@ struct HandoverUi {
 @MainActor
 final class AppModel: ObservableObject {
 
+    private static let demoFriendUser = "tour-virtual-friend"
+
     @Published var state = UiState()
     /// Ephemeral, never persisted or sent. Shared by the Spine and Room comparison.
     @Published var maybeUndo: MaybeAnswer?
@@ -300,6 +307,8 @@ final class AppModel: ObservableObject {
     /// above is handed in rather than constructed inside it.
     private lazy var logic = TimelineLogic(plumbing: plumbing)
     private lazy var location = DeviceLocation()
+    private let tourConnectivity = NWPathMonitor()
+    private var tourFriendConnecting = false
 
     private var matchTask: Task<Void, Never>?
     /// One-shot per launch: dismissing an offer must not make it reappear (#174).
@@ -318,11 +327,18 @@ final class AppModel: ObservableObject {
         state.bundledSetlistFmKey = settings.hasBundledSetlistFmKey
         state.grantedScope = settings.grantedScope
         state.onboarded = settings.onboarded
+        state.tour = settings.tourState
         state.mySetlistFmUser = settings.mySetlistFmUser ?? ""
         state.myCardName = settings.myCardName ?? ""
         state.friends = settings.friends
         state.clashfinderUser = settings.clashfinderUser ?? ""
         state.clashfinderPrivateKey = settings.clashfinderPrivateKey ?? ""
+
+        if state.tour.isRunning { applyTour(.resumed) }
+        tourConnectivity.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor in self?.offerTourIfNeeded(online: path.status == .satisfied) }
+        }
+        tourConnectivity.start(queue: DispatchQueue(label: "tour-connectivity"))
 
         // CI (and a URL bar) seed a Resolution here: `-seedFixture <name>` on the
         // launch line. UserDefaults maps `-key value` argv automatically, so no
@@ -338,7 +354,11 @@ final class AppModel: ObservableObject {
         // Refusing the location prompt is not a dead end and not an error: the
         // ambient offer just never appears, and the gig's own screen still has
         // a check-in you can press by hand.
-        location.onAuthorizationChanged = { [weak self] in self?.offerCheckIn() }
+        location.onAuthorizationChanged = { [weak self] in
+            guard let self else { return }
+            if self.state.tour.step == .exchange { self.connectTourFriend() }
+            else { self.offerCheckIn() }
+        }
 
         // The cold-launch half of the inbox drain; the foreground half is in
         // `App.swift`. A launch that goes straight to active may never register as a
@@ -663,7 +683,7 @@ final class AppModel: ObservableObject {
         let ends = knownNights.reduce(into: [String: Date]()) { ends, gig in
             if let date = gig.eventDate, let end = gossipExpiry(gigDate: date) { ends[gig.id] = end }
         }
-        let friends = state.friends
+        let friends = state.friends.filter { $0.demo != true }
         Task {
             let cache = await timelines.load()
             let stoppedAt = GossipTransport.shared.stoppedAt
@@ -1047,6 +1067,7 @@ final class AppModel: ObservableObject {
         Task {
             if let id = await insertCalendarEvent(setlist) {
                 markCalendarAdded(setlist.id, eventId: id)
+                if state.tour.step == .calendar { sendTourEvent(.calendarAdded) }
             } else {
                 state.error = "Couldn't add this to your calendar."
                 state.errorKind = nil
@@ -1115,6 +1136,7 @@ final class AppModel: ObservableObject {
     func setZoomedOut(_ v: Bool) {
         if v && state.friends.isEmpty { return }
         state.zoomedOut = v
+        if v && state.tour.step == .timelines { sendTourEvent(.pinchedOut) }
     }
 
     /// Flip the light switch: my own Line, as a Contact sees it. Always comes on
@@ -1135,7 +1157,7 @@ final class AppModel: ObservableObject {
     /// blocks the others. Ported term for term from Android's
     /// `loadFriendTimelines`.
     func loadFriendTimelines() {
-        let friends = state.friends
+        let friends = state.friends.filter { $0.demo != true }
         if friends.isEmpty { return }
         let myOldest = state.timelineShows.compactMap { $0.localDate() }.min()
         let stale = friends.filter {
@@ -1282,6 +1304,175 @@ final class AppModel: ObservableObject {
     func markOnboarded() {
         settings.setOnboarded()
         state.onboarded = true
+    }
+
+    /// The start gate owns the meaning of `onboarded`: it flips only once an online
+    /// launch has actually offered S1, never merely because the app was opened.
+    func offerTourIfNeeded(online: Bool) {
+        guard !state.onboarded, state.tour.step == nil, !state.tour.finished else { return }
+        let transition = runTour(state.tour, .started(online: online))
+        guard transition.state != state.tour else { return }
+        settings.setOnboarded()
+        state.onboarded = true
+        acceptTour(transition)
+    }
+
+    func sendTourEvent(_ event: TourEvent) { acceptTour(runTour(state.tour, event)) }
+    func resumeTour() { sendTourEvent(.resumed) }
+    func replayTour() { sendTourEvent(.replayRequested) }
+    func skipTour() { sendTourEvent(.skipped) }
+
+    /// Pick one of MusicBrainz's real results; its identity follows the demo Gig so
+    /// later Tour steps can fetch recordings for precisely the artist chosen here.
+    func pickTourBand(_ artist: MbArtist) {
+        guard state.tour.step == .band else { return }
+        clearArtistSuggestions()
+        state.tour.demoBandMbid = artist.mbid
+        sendTourEvent(.bandPicked(artist.name))
+    }
+
+    /// Put the Tour night on the real future lane, tagged to this Demo world. It is
+    /// deliberately in-memory until the Demo-world store lands; Skip and End remove
+    /// it through the same tag rather than relying on a magic id prefix.
+    func addTourGig(now: Date = Date()) {
+        guard state.tour.step == .addGig,
+              let world = state.tour.demoWorldID,
+              let name = state.tour.demoBandName else { return }
+        let artist = MbArtist(name: name, mbid: state.tour.demoBandMbid ?? "")
+        let gig = tourDemoGig(
+            worldID: world,
+            artist: artist,
+            date: Calendar.current.date(byAdding: .day, value: 7, to: now) ?? now
+        )
+        state.tour.demoGigID = gig.id
+        state.demoRecords.append(DemoRecord(id: gig.id, demoTag: DemoTag(worldID: world)))
+        state.attendanceByGig[gig.id] = StoredAttendance()
+        state.plannedGigs = sortedPlanned(state.plannedGigs.filter { $0.id != gig.id } + [gig])
+        sendTourEvent(.gigAdded)
+    }
+
+    /// S7 is a local simulation: it asks Core Location for the real venue fix,
+    /// creates one tagged Contact and Lane, and never starts either exchange radio.
+    func connectTourFriend() {
+        guard state.tour.step == .exchange,
+              let world = state.tour.demoWorldID,
+              let gigID = state.tour.demoGigID,
+              state.plannedGigs.contains(where: { $0.id == gigID }) else { return }
+        guard location.hasPermission else {
+            location.requestPermission()
+            return
+        }
+        guard !tourFriendConnecting else { return }
+        tourFriendConnecting = true
+        Task {
+            defer { tourFriendConnecting = false }
+            guard let fix = await location.currentFix() else {
+                state.notice = "A location fix is needed to continue the Tour."
+                return
+            }
+            guard let index = state.plannedGigs.firstIndex(where: { $0.id == gigID }) else { return }
+            var gig = state.plannedGigs[index]
+            gig.venue = FmVenue(
+                name: "Demo venue",
+                city: FmCity(name: "Demo location", coords: FmCoords(lat: fix.lat, long: fix.lon)))
+            state.plannedGigs[index] = gig
+            _ = await timelines.savePlanned(gig)
+            let attendance = await timelines.setDemoVenue(
+                setlistId: gig.id, latitude: fix.lat, longitude: fix.lon)
+
+            let friend = Friend(setlistfm: Self.demoFriendUser,
+                                name: "Virtual friend", demo: true)
+            let friends = withFriend(state.friends, friend)
+            settings.saveFriends(friends)
+            await timelines.save(shows: [friend.laneKey: [gig]])
+
+            state.friends = friends
+            state.showsByFriend[friend.laneKey] = [gig]
+            state.attendanceByGig[gig.id] = attendance
+            state.tour.demoVenueLat = fix.lat
+            state.tour.demoVenueLon = fix.lon
+            state.demoRecords.append(DemoRecord(id: friend.laneKey, demoTag: DemoTag(worldID: world)))
+            sendTourEvent(.contactExchanged(location: "\(fix.lat),\(fix.lon)"))
+        }
+    }
+
+    /// S9 travels through the ordinary Admission attachment path. Only the payload
+    /// is synthetic; storage, de-duplication and Room state are the production code.
+    private func importDemoTicket() async {
+        guard state.tour.step == .ticket, let gigID = state.tour.demoGigID else { return }
+        let admission = Admission(payload: Data("station-to-station-tour-ticket".utf8),
+                                  symbology: qrSymbology, redrawable: true)
+        await attachAdmissions(gigId: gigID, [admission])
+        sendTourEvent(.ticketImported)
+    }
+
+    private func applyTour(_ event: TourEvent) { acceptTour(runTour(state.tour, event)) }
+
+    private func acceptTour(_ transition: TourTransition) {
+        state.tour = transition.state
+        state.tourCommands = transition.commands
+        for command in transition.commands {
+            if case .advanceDemoClock(let moment) = command { advanceDemoClock(moment) }
+        }
+        if transition.commands.contains(.purgeDemoWorld), let world = state.tour.demoWorldID {
+            let ids = Set(state.demoRecords.filter { $0.demoTag?.worldID == world }.map(\.id))
+            let demoFriends = state.friends.filter { $0.demo == true }
+            let demoGigIDs = Set(state.demoRecords
+                .filter { $0.demoTag?.worldID == world && !demoFriends.map(\.laneKey).contains($0.id) }
+                .map(\.id))
+            let calendarIDs = demoGigIDs.compactMap { state.calendarEventByGig[$0] }
+            state.plannedGigs = purgeDemoGigs(state.plannedGigs, records: state.demoRecords, worldID: world)
+            state.timelineShows = purgeDemoGigs(state.timelineShows, records: state.demoRecords, worldID: world)
+            for id in ids { state.attendanceByGig[id] = nil }
+            for id in demoGigIDs { state.calendarEventByGig[id] = nil }
+            if let selected = state.selectedSetlist, ids.contains(selected.id) {
+                state.selectedSetlist = nil
+            }
+            let keptFriends = withoutDemoFriends(state.friends)
+            settings.saveFriends(keptFriends)
+            state.friends = keptFriends
+            for friend in demoFriends { state.showsByFriend[friend.laneKey] = nil }
+            state.zoomedOut = false
+            state.demoRecords = purgeDemoWorld(state.demoRecords, worldID: world)
+            Task {
+                for id in calendarIDs { await deleteCalendarEvent(id) }
+                await timelines.purgeDemoWorld(
+                    gigIDs: demoGigIDs,
+                    laneKeys: Set(demoFriends.map(\.laneKey)))
+            }
+        }
+        settings.saveTourState(state.tour)
+        if transition.commands.contains(where: {
+            if case .importDemoTicket = $0 { return true }
+            return false
+        }) {
+            Task { await importDemoTicket() }
+        }
+    }
+
+    private func advanceDemoClock(_ moment: DemoClock) {
+        guard let gigID = state.tour.demoGigID,
+              let gig = (state.plannedGigs + state.timelineShows).first(where: { $0.id == gigID }),
+              let day = gig.localDate() else { return }
+        let calendar = Calendar.current
+        switch moment {
+        case .approaching:
+            state.tour.demoNow = calendar.date(byAdding: .day, value: -1, to: day)
+                .flatMap { calendar.date(bySettingHour: 12, minute: 0, second: 0, of: $0) }
+        case .doors:
+            state.tour.demoNow = calendar.date(bySettingHour: 19, minute: 0, second: 0, of: day)
+        case .showStarted:
+            state.tour.demoNow = calendar.date(bySettingHour: 21, minute: 0, second: 0, of: day)
+        case .after:
+            state.tour.demoNow = calendar.date(byAdding: .day, value: 1, to: day)
+                .flatMap { calendar.date(bySettingHour: 12, minute: 0, second: 0, of: $0) }
+        }
+    }
+
+    func openTourVenueInMaps(_ show: FmSetlist) {
+        guard let query = venueMapsQuery(venueName: show.venue?.name, city: show.venue?.city?.name) else { return }
+        openVenueInMaps(query)
+        if state.tour.step == .maps { sendTourEvent(.mapsOpened) }
     }
 
     func disconnectSpotify() {
@@ -1444,7 +1635,7 @@ final class AppModel: ObservableObject {
     /// *when discovery starts* is the only lever there is — and a brand-new user pairing
     /// for the first time should not be asked for a permission that would do nothing.
     var hasReconcilableContact: Bool {
-        state.friends.contains { $0.publicKey?.nilIfBlank != nil }
+        state.friends.contains { $0.demo != true && $0.publicKey?.nilIfBlank != nil }
     }
 
     /// #265's LAN reconcile, screen-scoped: `start`/`stop` sit on `ExchangeView`'s own
@@ -1489,6 +1680,7 @@ final class AppModel: ObservableObject {
     )
 
     func startContactExchange() {
+        guard state.tour.step != .exchange else { return }
         if hasReconcilableContact { contactExchange.start() }
     }
 
@@ -2018,7 +2210,7 @@ final class AppModel: ObservableObject {
         let cache = await timelines.load()
         let attendance = cache.attendance()
         return cache.planned().contains { gig in
-            canCheckInManually(gig: gig, now: now) && attendance[gig.id]?.provenance != "checked_in"
+            canCheckInManually(gig: gig, now: state.tour.now(now)) && attendance[gig.id]?.provenance != "checked_in"
         }
     }
 
@@ -2043,7 +2235,7 @@ final class AppModel: ObservableObject {
             let cache = await timelines.load()
             let attendance = cache.attendance()
             let candidates = cache.planned().filter { attendance[$0.id]?.provenance != "checked_in" }
-            guard let gig = checkInCandidate(gigs: candidates, now: Date(), where: fix) else { return }
+            guard let gig = checkInCandidate(gigs: candidates, now: state.tour.now(), where: fix) else { return }
             guard let venue = await venueCoords(gig, cache: cache) else { return }
             guard atVenue(where: fix, venue: venue) else { return }
             state.checkInOffer = gig
@@ -2086,7 +2278,7 @@ final class AppModel: ObservableObject {
             // Only the claim changes. The ticket's Admissions and the venue's coordinates
             // are carried across the check-in by editing the record in place, read and
             // written under one lock — Android's `updateAttendance { it.copy(…) }` (#412).
-            let checkedInAt = Int64(Date().timeIntervalSince1970 * 1000)
+            let checkedInAt = Int64(state.tour.now().timeIntervalSince1970 * 1000)
             let attendance = await timelines.updateAttendance(setlistId: gigId) {
                 $0.provenance = "checked_in"
                 $0.checkedInAt = checkedInAt
@@ -2103,6 +2295,7 @@ final class AppModel: ObservableObject {
             guard let localGig = cache.gigs[gigId] ?? cache.gigForSetlist(gigId) else { return }
             _ = await GossipChannel.shared.checkedIn(gigId: gigId, localGigId: localGig.id, gigDate: gigDate)
             gossipContactsChanged()
+            if state.tour.step == .checkIn { sendTourEvent(.checkedIn) }
         }
     }
 

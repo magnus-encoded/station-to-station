@@ -149,8 +149,10 @@ fun SettingsScreen(
     viewModel: AppViewModel,
     onBack: () -> Unit,
     onOpenHandover: () -> Unit = {},
+    onOpenTour: () -> Unit = {},
+    onRetryTourSpotify: () -> Unit = {},
 ) = MaterialTheme(colorScheme = FieldColours) {
-    SettingsField(viewModel, onBack, onOpenHandover)
+    SettingsField(viewModel, onBack, onOpenHandover, onOpenTour, onRetryTourSpotify)
 }
 
 /** What the phone itself has granted. Re-read on every resume: it changes in system settings. */
@@ -205,6 +207,8 @@ private fun SettingsField(
     viewModel: AppViewModel,
     onBack: () -> Unit,
     onOpenHandover: () -> Unit,
+    onOpenTour: () -> Unit,
+    onRetryTourSpotify: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -259,6 +263,12 @@ private fun SettingsField(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(onClick = onOpenHandover) { Text("Move to a new phone", color = Ink) }
+                TextButton(onClick = onOpenTour) {
+                    Text(if (state.tour.step != null) "Resume tour" else "Replay tour", color = Ink)
+                }
+                if (state.tour.pendingSpotifyRetry) {
+                    TextButton(onClick = onRetryTourSpotify) { Text("Retry Spotify playlist", color = Ink) }
+                }
                 Spacer(Modifier.weight(1f))
                 Text(
                     "Build ${BuildConfig.VERSION_NAME} · ${BuildConfig.GIT_SHA}",

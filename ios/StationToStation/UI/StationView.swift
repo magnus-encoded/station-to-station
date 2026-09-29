@@ -198,6 +198,17 @@ struct StationView: View {
                     }
                 }
         )
+        // S2 is learned by doing the gesture. A downward pull opens the planning
+        // door and only then advances the script; tapping the ordinary + remains
+        // available outside the Tour.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20).onEnded { value in
+                guard model.state.tour.step == .curtain,
+                      value.translation.height >= 80,
+                      abs(value.translation.width) < 60 else { return }
+                model.sendTourEvent(.curtainPulled)
+            }
+        )
         // Swipe the timeline left to start connecting with someone nearby — the
         // "act on this level" gesture, people axis.
         .swipeLeft { nav.push(.exchange) }
@@ -457,7 +468,7 @@ struct StationView: View {
                 switch row {
                 case .ticket(let node):
                     if case .concert(let gig) = node {
-                        PlannedGigRow(setlist: gig)
+                        PlannedGigRow(setlist: gig, now: model.state.tour.now())
                             .contentShape(Rectangle())
                             .onTapGesture { openGig(gig) }
                     } else {
@@ -511,7 +522,7 @@ struct StationView: View {
             .buttonStyle(.plain)
             if open {
                 ForEach(node.shows) { gig in
-                    PlannedGigRow(setlist: gig)
+                    PlannedGigRow(setlist: gig, now: model.state.tour.now())
                         .padding(.leading, 14)
                         .contentShape(Rectangle())
                         .onTapGesture { openGig(gig) }
@@ -523,6 +534,9 @@ struct StationView: View {
 
     private func openGig(_ show: FmSetlist) {
         model.selectSetlist(show)
+        if model.state.tour.step == .room, show.id == model.state.tour.demoGigID {
+            model.sendTourEvent(.roomOpened)
+        }
         nav.push(.gig)
     }
 
@@ -782,6 +796,7 @@ struct StationRow: View {
 /// `gigStatus` gives an attended row once it has passed.
 private struct PlannedGigRow: View {
     let setlist: FmSetlist
+    let now: Date
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -790,7 +805,7 @@ private struct PlannedGigRow: View {
             Text(setlist.artist?.name ?? "Unknown artist")
                 .font(.system(size: 15, design: .serif)).foregroundStyle(ink)
             Text(setlist.venueLine()).font(.system(size: 13)).foregroundStyle(muted)
-            Text(plannedStatus(gigDate: setlist.eventDate, now: Date(), songCount: setlist.performed().count))
+            Text(plannedStatus(gigDate: setlist.eventDate, now: now, songCount: setlist.performed().count))
                 .font(.system(size: 12)).foregroundStyle(slate).padding(.top, 2)
         }
         .padding(.vertical, 8)
@@ -1172,4 +1187,3 @@ struct AddLocalGigSheet: View {
         }
     }
 }
-

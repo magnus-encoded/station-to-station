@@ -1,0 +1,166 @@
+{
+  "version": 1,
+  "interactiveSteps": [
+    "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10",
+    "S11", "S12", "S13", "S14", "S15", "S16", "S17", "S18", "S19"
+  ],
+  "cases": [
+    {
+      "name": "happy path",
+      "kind": "sequence",
+      "online": true,
+      "events": [
+        { "type": "started" },
+        { "type": "acknowledged" },
+        { "type": "curtainPulled" },
+        { "type": "bandPicked", "value": "demo-band" },
+        { "type": "gigAdded" },
+        { "type": "roomOpened" },
+        { "type": "swipedBack" },
+        { "type": "contactExchanged", "value": "demo-location" },
+        { "type": "pinchedOut" },
+        { "type": "ticketImported" },
+        { "type": "calendarAdded" },
+        { "type": "mapsOpened" },
+        { "type": "ticketShown" },
+        { "type": "checkedIn" },
+        { "type": "logEntryWritten", "value": "song-1" },
+        { "type": "gapRecorded" },
+        { "type": "gossipSent" },
+        { "type": "setlistFilled" },
+        { "type": "returnedFromPhotos" },
+        { "type": "mediaAdded", "value": "shared" },
+        { "type": "spotifyExported" }
+      ],
+      "expect": {
+        "visitedSteps": [
+          "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10",
+          "S11", "S12", "S13", "S14", "S15", "S16", "S17", "S18", "S19", "S20"
+        ],
+        "finalCommands": ["purgeDemoWorld", "markTourFinished"],
+        "finished": true,
+        "spotify": "exported"
+      }
+    },
+    {
+      "name": "offline start",
+      "kind": "sequence",
+      "online": false,
+      "events": [{ "type": "started" }],
+      "expect": {
+        "visitedSteps": [],
+        "commands": [],
+        "started": false
+      }
+    },
+    {
+      "name": "skip at every step",
+      "kind": "atEachStep",
+      "event": { "type": "skipped" },
+      "atSteps": [
+        "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10",
+        "S11", "S12", "S13", "S14", "S15", "S16", "S17", "S18", "S19"
+      ],
+      "expect": {
+        "finalCommands": ["purgeDemoWorld", "markTourFinished"],
+        "finished": true,
+        "spotify": "notCreated"
+      }
+    },
+    {
+      "name": "resume at every step",
+      "kind": "atEachStepAfterRestart",
+      "event": { "type": "resumed" },
+      "atSteps": [
+        "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10",
+        "S11", "S12", "S13", "S14", "S15", "S16", "S17", "S18", "S19"
+      ],
+      "expect": {
+        "returnsToSavedStep": true,
+        "reEmitsEntryCommands": true,
+        "doesNotRepeatCommands": ["lookUpBand", "importDemoTicket"]
+      }
+    },
+    {
+      "name": "replay",
+      "kind": "sequence",
+      "given": "finishedTour",
+      "events": [{ "type": "replayRequested" }],
+      "expect": {
+        "visitedSteps": ["S1"],
+        "commands": ["showCoachMark(line)"],
+        "freshDemoWorld": true
+      }
+    },
+    {
+      "name": "spotify declined",
+      "kind": "sequenceFromStep",
+      "fromStep": "S19",
+      "events": [{ "type": "spotifyDeclined" }],
+      "expect": {
+        "visitedSteps": ["S20"],
+        "finalCommands": ["purgeDemoWorld", "markTourFinished"],
+        "pendingSpotifyRetry": true
+      }
+    },
+    {
+      "name": "spotify retry",
+      "kind": "sequence",
+      "given": "pendingSpotifyRetry",
+      "events": [{ "type": "spotifyExported" }],
+      "expect": {
+        "pendingSpotifyRetry": false
+      }
+    },
+    {
+      "name": "fill from setlist.fm",
+      "kind": "setlistFill",
+      "fromStep": "S17",
+      "userEntered": ["song-1", "song-2"],
+      "setlistFmSongs": [
+        "song-1", "song-3", "song-4", "song-5", "song-6", "song-7",
+        "song-8", "song-9", "song-10", "song-11", "song-12", "song-13"
+      ],
+      "musicBrainzSongs": ["recording-1", "recording-2"],
+      "expect": {
+        "source": "setlist.fm",
+        "songs": [
+          "song-3", "song-4", "song-5", "song-6", "song-7",
+          "song-8", "song-9", "song-10", "song-11", "song-12"
+        ],
+        "excludesUserEntered": true
+      }
+    },
+    {
+      "name": "fill from MusicBrainz fallback",
+      "kind": "setlistFill",
+      "fromStep": "S17",
+      "userEntered": ["recording-1", "recording-2"],
+      "setlistFmSongs": [],
+      "musicBrainzSongs": [
+        "recording-1", "recording-3", "recording-4", "recording-5", "recording-6",
+        "recording-7", "recording-8", "recording-9", "recording-10", "recording-11",
+        "recording-12", "recording-13"
+      ],
+      "expect": {
+        "source": "musicBrainz",
+        "songs": [
+          "recording-3", "recording-4", "recording-5", "recording-6", "recording-7",
+          "recording-8", "recording-9", "recording-10", "recording-11", "recording-12"
+        ],
+        "excludesUserEntered": true
+      }
+    },
+    {
+      "name": "out-of-order event",
+      "kind": "sequenceFromStep",
+      "fromStep": "S1",
+      "events": [{ "type": "gigAdded" }],
+      "expect": {
+        "visitedSteps": ["S1"],
+        "commands": [],
+        "stateChanged": false
+      }
+    }
+  ]
+}

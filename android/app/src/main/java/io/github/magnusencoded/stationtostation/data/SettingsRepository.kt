@@ -3,6 +3,7 @@ package io.github.magnusencoded.stationtostation.data
 import android.content.Context
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -11,10 +12,14 @@ import io.github.magnusencoded.stationtostation.BuildConfig
 import io.github.magnusencoded.stationtostation.data.clashfinder.ClashfinderAuth
 import io.github.magnusencoded.stationtostation.data.clashfinder.clashfinderPublicKey
 import io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmKey
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.setlistfm.sharedQuotaSpent
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 private val Context.dataStore by preferencesDataStore(name = "settings")
 
@@ -56,6 +61,18 @@ class SettingsRepository(private val context: Context) {
         val CLASHFINDER_PUBLIC_KEY = stringPreferencesKey("clashfinder_public_key")
         val FRIENDS = stringPreferencesKey("friends")
         val ONBOARDED = booleanPreferencesKey("onboarded")
+        val TOUR_STEP = stringPreferencesKey("tour_step")
+        val TOUR_FINISHED = booleanPreferencesKey("tour_finished")
+        val TOUR_SPOTIFY_RETRY = booleanPreferencesKey("tour_spotify_retry")
+        val TOUR_SPOTIFY_RETRY_SETLIST = stringPreferencesKey("tour_spotify_retry_setlist")
+        val TOUR_UPGRADE_DISMISSED = booleanPreferencesKey("tour_upgrade_dismissed")
+        val TOUR_HINTS = stringPreferencesKey("tour_context_hints")
+        val TOUR_ONCE = stringPreferencesKey("tour_once_commands")
+        val TOUR_DEMO_WORLD = longPreferencesKey("tour_demo_world")
+        val TOUR_RETURNED_FROM_PHOTOS = booleanPreferencesKey("tour_returned_from_photos")
+        val TOUR_DEMO_VENUE_LAT = doublePreferencesKey("tour_demo_venue_lat")
+        val TOUR_DEMO_VENUE_LON = doublePreferencesKey("tour_demo_venue_lon")
+        val TOUR_DEMO_NOW = stringPreferencesKey("tour_demo_now")
     }
 
     /**
@@ -90,12 +107,69 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit { prefs -> leftBehind.forEach { prefs.remove(it) } }
     }
 
-    /** True once the user has passed the splash (logged in with Spotify or skipped). */
+    /** True once the first-run Tour has been offered. */
     val onboarded: Flow<Boolean> =
         context.dataStore.data.map { it[Keys.ONBOARDED] ?: false }
 
     suspend fun setOnboarded() {
         context.dataStore.edit { it[Keys.ONBOARDED] = true }
+    }
+
+    val tourState: Flow<TourState> = context.dataStore.data.map { prefs ->
+        TourState(
+            step = prefs[Keys.TOUR_STEP]?.let { runCatching { TourStep.valueOf(it) }.getOrNull() },
+            finished = prefs[Keys.TOUR_FINISHED] ?: false,
+            pendingSpotifyRetry = prefs[Keys.TOUR_SPOTIFY_RETRY] ?: false,
+            upgradePromptDismissed = prefs[Keys.TOUR_UPGRADE_DISMISSED] ?: false,
+            seenContextHints = prefs[Keys.TOUR_HINTS].csv(),
+            deliveredOnce = prefs[Keys.TOUR_ONCE].csv().mapNotNullTo(mutableSetOf()) {
+                when (it) {
+                    "lookUpBand" -> TourCommand.LookUpBand
+                    "importDemoTicket" -> TourCommand.ImportDemoTicket
+                    else -> null
+                }
+            },
+            demoWorld = (prefs[Keys.TOUR_DEMO_WORLD] ?: 0L).toInt(),
+            returnedFromPhotos = prefs[Keys.TOUR_RETURNED_FROM_PHOTOS] ?: false,
+            demoVenueLat = prefs[Keys.TOUR_DEMO_VENUE_LAT],
+            demoVenueLon = prefs[Keys.TOUR_DEMO_VENUE_LON],
+            demoNow = prefs[Keys.TOUR_DEMO_NOW],
+        )
+    }
+
+    suspend fun saveTourState(state: TourState) {
+        context.dataStore.edit { prefs ->
+            state.step?.let { prefs[Keys.TOUR_STEP] = it.name } ?: prefs.remove(Keys.TOUR_STEP)
+            prefs[Keys.TOUR_FINISHED] = state.finished
+            prefs[Keys.TOUR_SPOTIFY_RETRY] = state.pendingSpotifyRetry
+            if (!state.pendingSpotifyRetry) prefs.remove(Keys.TOUR_SPOTIFY_RETRY_SETLIST)
+            prefs[Keys.TOUR_UPGRADE_DISMISSED] = state.upgradePromptDismissed
+            prefs[Keys.TOUR_HINTS] = state.seenContextHints.sorted().joinToString(",")
+            prefs[Keys.TOUR_ONCE] = state.deliveredOnce.map {
+                when (it) {
+                    TourCommand.LookUpBand -> "lookUpBand"
+                    TourCommand.ImportDemoTicket -> "importDemoTicket"
+                }
+            }.sorted().joinToString(",")
+            prefs[Keys.TOUR_DEMO_WORLD] = state.demoWorld.toLong()
+            prefs[Keys.TOUR_RETURNED_FROM_PHOTOS] = state.returnedFromPhotos
+            state.demoVenueLat?.let { prefs[Keys.TOUR_DEMO_VENUE_LAT] = it }
+                ?: prefs.remove(Keys.TOUR_DEMO_VENUE_LAT)
+            state.demoVenueLon?.let { prefs[Keys.TOUR_DEMO_VENUE_LON] = it }
+                ?: prefs.remove(Keys.TOUR_DEMO_VENUE_LON)
+            state.demoNow?.let { prefs[Keys.TOUR_DEMO_NOW] = it }
+                ?: prefs.remove(Keys.TOUR_DEMO_NOW)
+        }
+    }
+
+    val tourSpotifyRetrySetlist: Flow<FmSetlist?> = context.dataStore.data.map { prefs ->
+        prefs[Keys.TOUR_SPOTIFY_RETRY_SETLIST]?.let {
+            runCatching { Json.decodeFromString<FmSetlist>(it) }.getOrNull()
+        }
+    }
+
+    suspend fun saveTourSpotifyRetrySetlist(setlist: FmSetlist) {
+        context.dataStore.edit { it[Keys.TOUR_SPOTIFY_RETRY_SETLIST] = Json.encodeToString(setlist) }
     }
 
     // `always_relay` (#416) is gone with v2's lifecycle: no active **Gig** means no radio,
@@ -338,6 +412,9 @@ class SettingsRepository(private val context: Context) {
         )
     }
 }
+
+private fun String?.csv(): Set<String> =
+    this?.split(',')?.filterTo(mutableSetOf()) { it.isNotBlank() } ?: emptySet()
 
 /**
  * What a bundled credential looks like in a field the user has not filled in.

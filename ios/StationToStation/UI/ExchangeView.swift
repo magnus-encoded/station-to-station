@@ -51,7 +51,9 @@ struct ExchangeView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                if session.bluetoothDenied {
+                if model.state.tour.step == .exchange {
+                    demoExchange
+                } else if session.bluetoothDenied {
                     note("Bluetooth is off for this app, so nobody can find you over the "
                         + "air. A code still works.")
                 }
@@ -87,6 +89,9 @@ struct ExchangeView: View {
         .navigationTitle("Connect a timeline")
         .navigationBarTitleDisplayMode(.inline)
         .task {
+            // The Virtual friend exists only on this phone. Starting either session
+            // here would turn a demonstration into real nearby traffic.
+            guard model.state.tour.step != .exchange else { return }
             // Opening this screen is the user saying they want to be found; the
             // Bluetooth prompt comes from starting the radios, here and nowhere else.
             // The peer tapped, not me: their card arrived over the write
@@ -115,6 +120,18 @@ struct ExchangeView: View {
             // background service, no listener left advertising, no exported bytes left
             // in the outbox.
             model.stopContactExchange()
+        }
+        .onChange(of: model.state.tour.step) { step in
+            if step == .timelines { nav.popToRoot() }
+        }
+    }
+
+    private var demoExchange: some View {
+        VStack(spacing: 16) {
+            note("Your Virtual friend is here on this phone. Exchange uses your location so the demo venue is where you are.")
+            Button("Connect with Virtual friend") { model.connectTourFriend() }
+                .buttonStyle(.borderedProminent)
+                .tint(amber)
         }
     }
 

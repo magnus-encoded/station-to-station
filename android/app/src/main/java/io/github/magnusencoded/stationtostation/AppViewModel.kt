@@ -4,6 +4,8 @@ import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -18,6 +20,7 @@ import io.github.magnusencoded.stationtostation.data.spineJoins
 import io.github.magnusencoded.stationtostation.data.MediaOffer
 import io.github.magnusencoded.stationtostation.data.mySpine
 import io.github.magnusencoded.stationtostation.data.withFriend
+import io.github.magnusencoded.stationtostation.data.withoutDemoFriends
 import io.github.magnusencoded.stationtostation.ble.probeCardFor
 import io.github.magnusencoded.stationtostation.data.DeviceLocation
 import io.github.magnusencoded.stationtostation.data.DeviceTimelinePlumbing
@@ -67,6 +70,15 @@ import io.github.magnusencoded.stationtostation.data.QR_SYMBOLOGY
 import io.github.magnusencoded.stationtostation.data.TimelineLogic
 import io.github.magnusencoded.stationtostation.data.TimelineCache
 import io.github.magnusencoded.stationtostation.data.TimelineStore
+import io.github.magnusencoded.stationtostation.data.TourCommand
+import io.github.magnusencoded.stationtostation.data.TourEvent
+import io.github.magnusencoded.stationtostation.data.TourState
+import io.github.magnusencoded.stationtostation.data.TourStep
+import io.github.magnusencoded.stationtostation.data.tourPlaylistDescription
+import io.github.magnusencoded.stationtostation.data.tourPlaylistName
+import io.github.magnusencoded.stationtostation.data.runTour
+import io.github.magnusencoded.stationtostation.data.now
+import io.github.magnusencoded.stationtostation.data.location
 import io.github.magnusencoded.stationtostation.data.friendFromUri
 import io.github.magnusencoded.stationtostation.data.gigIdFromInvite
 import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
@@ -80,6 +92,7 @@ import io.github.magnusencoded.stationtostation.ui.atVenue
 import io.github.magnusencoded.stationtostation.ui.canCheckInManually
 import io.github.magnusencoded.stationtostation.ui.checkInCandidate
 import io.github.magnusencoded.stationtostation.ui.venueMapsQuery
+import io.github.magnusencoded.stationtostation.ui.deleteCalendarEvent
 import io.github.magnusencoded.stationtostation.ble.ProbeCard
 import io.github.magnusencoded.stationtostation.data.AccountsMove
 import io.github.magnusencoded.stationtostation.data.AccountsPayload
@@ -136,6 +149,8 @@ import io.github.magnusencoded.stationtostation.data.exchange.writeAccountsStep
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSong
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSet
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSets
 import io.github.magnusencoded.stationtostation.data.musicbrainz.MbArtist
 import io.github.magnusencoded.stationtostation.data.musicbrainz.MusicBrainzClient
 import io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmClient
@@ -158,6 +173,7 @@ import io.github.magnusencoded.stationtostation.data.setlistfm.ticketImport
 import io.github.magnusencoded.stationtostation.data.SetlistFmMatch
 import io.github.magnusencoded.stationtostation.data.StoredSetlistFmHit
 import io.github.magnusencoded.stationtostation.data.matchSetlistFm
+import io.github.magnusencoded.stationtostation.data.tourSetlistFill
 import io.github.magnusencoded.stationtostation.data.spotify.SpotifyClient
 import io.github.magnusencoded.stationtostation.data.spotify.SpotifyTrack
 import io.github.magnusencoded.stationtostation.data.spotify.rankCandidates
@@ -536,8 +552,9 @@ data class UiState(
     val setlistFmSharedQuotaSpent: Boolean = false,
     // Transient non-error notice (e.g. "Added a friend from that playlist")
     val notice: String? = null,
-    // True once the splash has been passed (Spotify login or skip).
+    // True once the first-run Tour has been offered.
     val onboarded: Boolean = false,
+    val tour: TourState = TourState(),
     /**
      * True once launch has read what the first screen needs: the settings (so
      * [onboarded] is known) and the saved timeline, Festivals and all. The system
@@ -682,6 +699,7 @@ fun PendingTicket.confirmedAs(
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
+        private const val DEMO_FRIEND_ID = "tour-virtual-friend"
         /** setlist.fm's page size for attended lists — used to resume a cached spine. */
         private const val SETLISTS_PER_PAGE = 20
 
@@ -820,7 +838,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     myCardName = settings.myCardName.first() ?: "",
                     friends = settings.friends.first(),
                     onboarded = settings.onboarded.first(),
+                    tour = settings.tourState.first(),
                 )
+            }
+            val restoredTour = _state.value.tour
+            when {
+                restoredTour.step != null && !restoredTour.finished -> dispatchTour(TourEvent.Resumed)
+                !_state.value.onboarded -> dispatchTour(TourEvent.Started(application.isOnline()))
             }
             restoreTimelines()
             // After the timeline is back, because the only reason the radio runs is a Gig
@@ -884,6 +908,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * reason — starting it is what raises the local-network permission prompt there.
      */
     fun startContactExchange() {
+        if (_state.value.tour.step == TourStep.S7) return
         if (_state.value.friends.any { !it.publicKey.isNullOrBlank() }) contactExchange.start()
     }
 
@@ -991,6 +1016,179 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun markOnboarded() {
         _state.update { it.copy(onboarded = true) }
         viewModelScope.launch { settings.setOnboarded() }
+    }
+
+    fun dispatchTour(event: TourEvent) {
+        val transition = runTour(_state.value.tour, event)
+        if (transition.state == _state.value.tour && transition.commands.isEmpty()) return
+        _state.update { it.copy(tour = transition.state) }
+        viewModelScope.launch {
+            settings.saveTourState(transition.state)
+            if (!_state.value.onboarded && transition.state.step != null) {
+                settings.setOnboarded()
+                _state.update { it.copy(onboarded = true) }
+            }
+            for (command in transition.commands) {
+                when (command) {
+                    TourCommand.ImportDemoTicket -> importDemoTicket()
+                    TourCommand.PurgeDemoWorld -> purgeDemoWorld()
+                    is TourCommand.AdvanceDemoClock -> advanceDemoClock(command.moment)
+                    TourCommand.DeliverGossip -> deliverTourGossip()
+                    TourCommand.FillSetlist -> fillTourSetlist()
+                    TourCommand.DeliverFriendSelfie -> deliverTourFriendSelfie()
+                    else -> Unit // Later Tour slices own their platform side effects.
+                }
+            }
+        }
+    }
+
+    private suspend fun advanceDemoClock(moment: String) {
+        val date = timelines.load().gigs.values.singleOrNull { it.demo }?.date?.let(::parseFmDate) ?: return
+        val now = when (moment) {
+            "approaching" -> date.minusDays(1).atTime(12, 0)
+            "doors" -> date.atTime(19, 0)
+            "showStarted" -> date.atTime(21, 0)
+            "after" -> date.plusDays(1).atTime(12, 0)
+            else -> return
+        }
+        val tour = _state.value.tour.copy(demoNow = now.toString())
+        _state.update { it.copy(tour = tour) }
+        settings.saveTourState(tour)
+    }
+
+    /** The Virtual friend's local-only fact names the Gap without starting the radio. */
+    private suspend fun deliverTourGossip() {
+        val gig = _state.value.selectedSetlist ?: return
+        val before = logFor(gig.id)
+        val gap = before.songs.indexOfFirst { it.isBlank() }.takeIf { it >= 0 } ?: return
+        val title = "Placeholder song"
+        val updated = before.fillingGapAt(gap, title)
+        timelines.saveLog(gig.id, updated)
+
+        val now = System.currentTimeMillis()
+        val identity = withContext(Dispatchers.IO) { GigIdentity("tour-friend-${_state.value.tour.demoWorld}") }
+        val envelope = withContext(Dispatchers.IO) {
+            val author = identity.publicKey()
+            GossipEnvelope(
+                gigId = gig.id,
+                scope = "tour-friend-${_state.value.tour.demoWorld}",
+                author = author,
+                createdAt = now,
+                expiresAt = now + 60 * 60 * 1000L,
+                kind = "log",
+                line = before.lineNumberAt(gap),
+                text = title,
+                attribution = identity.attribution(),
+            ).signed(identity::sign)
+        } ?: return
+        timelines.updatePublicGossip { public ->
+            public.receive(envelope, "tour-virtual-friend", now)
+            // It arrived locally for the story; it is never queued for a radio Pass.
+            public.held.remove(envelope.id)
+            public.recognition[envelope.author] = "tour-virtual-friend"
+            public.contactNames["tour-virtual-friend"] = "Virtual friend"
+        }
+        val public = timelines.load().publicGossip
+        _state.update { it.copy(logsByGig = it.logsByGig + (gig.id to updated), publicGossip = public) }
+    }
+
+    /** Real sources, in order: recent setlist.fm data, then the band's MusicBrainz catalogue. */
+    private suspend fun fillTourSetlist() {
+        val gig = _state.value.selectedSetlist ?: return
+        val mbid = gig.artist?.mbid?.takeIf { it.isNotBlank() } ?: return
+        val setlistSongs = runCatching {
+            setlistFm.artistSetlists(mbid).setlist.firstOrNull { it.performed().isNotEmpty() }
+                ?.performed().orEmpty().map { it.name }
+        }.getOrDefault(emptyList())
+        val fallback = if (setlistSongs.isEmpty()) {
+            runCatching { musicBrainz.catalogue(mbid) }.getOrDefault(emptyList())
+        } else emptyList()
+        val fill = tourSetlistFill(setlistSongs, fallback, logFor(gig.id).named())
+        if (fill.titles.isEmpty()) return
+        val filled = gig.copy(sets = FmSets(listOf(FmSet(song = fill.titles.map { FmSong(name = it) }))))
+        timelines.savePlanned(filled)
+        _state.update {
+            it.copy(
+                selectedSetlist = filled,
+                plannedGigs = it.plannedGigs.map { planned -> if (planned.id == gig.id) filled else planned },
+            )
+        }
+        dispatchTour(TourEvent.SetlistFilled)
+    }
+
+    /** Adds the Tour friend's placeholder as received media, without starting the radio. */
+    private suspend fun deliverTourFriendSelfie() {
+        val gig = _state.value.selectedSetlist ?: return
+        val id = "tour-friend-selfie-${_state.value.tour.demoWorld}"
+        if (_state.value.mediaBySetlist[gig.id].orEmpty().any { it.id == id }) return
+        val ref = photos.createTourFriendSelfie(id) ?: return
+        if (!photos.generateThumbnails(id, ref)) {
+            photos.deleteOwnedBytes(id, ref.toString())
+            return
+        }
+        val received = StoredMedia(
+            id = id,
+            kind = StoredMedia.Kind.PHOTO,
+            ref = ref.toString(),
+            capturedAt = System.currentTimeMillis(),
+            from = "tour-virtual-friend",
+            personal = false,
+        )
+        val held = _state.value.mediaBySetlist[gig.id].orEmpty()
+        setGigMedia(gig.id, bandsOf(held + received).let { it.shared + it.received + it.vault })
+    }
+
+    fun tourNow(realNow: LocalDateTime = LocalDateTime.now()): LocalDateTime = _state.value.tour.now(realNow)
+
+    fun offerTourWhenOnline() = dispatchTour(TourEvent.Started(getApplication<Application>().isOnline()))
+
+    /** S9 uses the same parsed-ticket router as a PDF share; only the bytes are synthetic. */
+    private suspend fun importDemoTicket() {
+        val gig = timelines.load().gigs.values.singleOrNull { it.demo } ?: return
+        routeParsedTicket(
+            ParsedTicket(
+                admissions = listOf(
+                    Admission(
+                        payload = "station-to-station-tour-ticket".toByteArray(),
+                        symbology = QR_SYMBOLOGY,
+                    ),
+                ),
+                artist = gig.artist,
+                venue = gig.venue,
+                date = gig.date,
+            ),
+        )
+        dispatchTour(TourEvent.TicketImported)
+    }
+
+    /** Demo-tagged app data goes; the system's permission grants remain untouched. */
+    private suspend fun purgeDemoWorld() {
+        val timeline = timelines.load()
+        val demoIds = timeline.gigs.values.filter { it.demo }.mapTo(mutableSetOf()) { it.id }
+        val demoMedia = demoIds.flatMap { timeline.gigMedia[it].orEmpty() }
+        withContext(Dispatchers.IO) {
+            demoIds.mapNotNull { _state.value.calendarEventByGig[it] }.forEach {
+                deleteCalendarEvent(getApplication<Application>().contentResolver, it)
+            }
+        }
+        val demoFriends = _state.value.friends.filter { it.demo }
+        timelines.purgeDemoWorld()
+        demoMedia.forEach { photos.deleteOwnedBytes(it.id, it.ref) }
+        val friends = _state.value.friends.withoutDemoFriends()
+        settings.saveFriends(friends)
+        _state.update { state ->
+            state.copy(
+                friends = friends,
+                plannedGigs = state.plannedGigs.filterNot { it.id in demoIds },
+                attendanceByGig = state.attendanceByGig - demoIds,
+                calendarEventByGig = state.calendarEventByGig - demoIds,
+                showsByFriend = state.showsByFriend - demoFriends.map { it.laneKey }.toSet(),
+                exchangePeers = emptyList(),
+                connectingWith = null,
+                justConnected = false,
+                zoomedOut = false,
+            )
+        }
     }
 
     fun consumeError() = _state.update { it.copy(error = null, errorKind = null) }
@@ -1715,6 +1913,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * People appear as they come into range, so the list is a live view of the room.
      */
     fun startExchange() {
+        if (_state.value.tour.step == TourStep.S7) {
+            _state.update {
+                it.copy(
+                    discovering = false,
+                    exchangePeers = listOf(demoExchangePeer()),
+                    connectingWith = null,
+                )
+            }
+            return
+        }
         // No username is not a reason to keep anyone off this screen. It only means
         // there is no card to hand over, so the advertising radios stay quiet while
         // scanning runs as usual — the room is still visible, and a card handed to me
@@ -1729,6 +1937,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Pulled down on the exchange screen: drop everything and listen again. */
     fun restartExchange() {
+        if (_state.value.tour.step == TourStep.S7) {
+            startExchange()
+            return
+        }
         _state.update { it.copy(discovering = true, exchangePeers = emptyList()) }
         exchange.restart(myCard(), myProbeCard())
     }
@@ -1740,6 +1952,51 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun exchangePermissions(): List<String> = exchange.requiredPermissions()
 
+    private fun demoFriend() = Friend(
+        setlistfm = DEMO_FRIEND_ID,
+        name = "Virtual friend",
+        demo = true,
+    )
+
+    private fun demoExchangePeer() = ExchangePeer(
+        id = DEMO_FRIEND_ID,
+        name = "Virtual friend",
+        setlistfm = DEMO_FRIEND_ID,
+    )
+
+    /** Local-only S7 exchange: one location fix, one tagged Contact, and no radio session. */
+    private fun connectDemoFriend(peer: ExchangePeer) {
+        _state.update { it.copy(connectingWith = peer.name) }
+        viewModelScope.launch {
+            val fix = where.currentFix()
+            if (fix == null) {
+                _state.update {
+                    it.copy(connectingWith = null, notice = "A location fix is needed to continue the Tour.")
+                }
+                return@launch
+            }
+            val cache = timelines.load()
+            val stored = cache.gigs.values.singleOrNull { it.demo } ?: return@launch
+            val gig = _state.value.plannedGigs.firstOrNull { it.id == stored.id } ?: return@launch
+            val friend = demoFriend()
+            val attendance = timelines.setDemoVenue(stored.id, fix.first, fix.second)
+            writeFriend(friend)
+            timelines.save(shows = mapOf(friend.laneKey to listOf(gig)))
+            // Move to S8 before navigation observes justConnected, otherwise the
+            // ordinary exchange landing would auto-open Timelines and steal the pinch.
+            dispatchTour(TourEvent.ContactExchanged(fix.first, fix.second))
+            _state.update {
+                it.copy(
+                    attendanceByGig = it.attendanceByGig + (stored.id to attendance),
+                    showsByFriend = it.showsByFriend + (friend.laneKey to listOf(gig)),
+                    justConnected = true,
+                    connectingWith = null,
+                    exchangePeers = emptyList(),
+                )
+            }
+        }
+    }
+
     /**
      * Bring a peer onto my timeline: the "row → Connecting with dizzi90 → connected"
      * sequence. On the Nearby path the card is already in hand and the middle is
@@ -1748,6 +2005,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * rather than the tap landing on a dead end.
      */
     fun connectWith(peer: ExchangePeer) {
+        if (_state.value.tour.step == TourStep.S7 && peer.id == DEMO_FRIEND_ID) {
+            connectDemoFriend(peer)
+            return
+        }
         _state.update { it.copy(connectingWith = peer.name) }
         exchange.connect(peer) { friend ->
             if (friend == null) {
@@ -1787,6 +2048,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun setZoomedOut(on: Boolean) = _state.update {
         if (on && it.friends.isEmpty()) it else it.copy(zoomedOut = on)
+    }.also {
+        if (on && _state.value.tour.step == TourStep.S8) dispatchTour(TourEvent.PinchedOut)
     }
 
     /**
@@ -1863,7 +2126,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Loads every known friend's attended shows for the woven (zoomed-out) view. */
     fun loadFriendTimelines() {
-        val friends = _state.value.friends
+        val friends = _state.value.friends.filterNot { it.demo }
         if (friends.isEmpty()) return
         val myOldest = _state.value.setlists.mapNotNull { it.localDate() }.minOrNull()
         // Cached-and-complete is the common case, and refetching every lane on every
@@ -2343,8 +2606,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(errorKind = null, error = "A night needs who is playing and a date as dd-MM-yyyy.") }
             return
         }
+        val tourGig = _state.value.tour.step == io.github.magnusencoded.stationtostation.data.TourStep.S4
         viewModelScope.launch {
-            val gigId = timelines.createLocalGig(fmDate(night), artist.trim(), venue.trim())
+            val gigId = timelines.createLocalGig(fmDate(night), artist.trim(), venue.trim(), demo = tourGig)
             val gig = localGigSetlist(gigId, artist.trim(), night, venue.trim(), city = "")
             // The claim goes into state as well as onto disk. `plannedLane` filters on
             // it, so a gig added without it was written correctly and then drawn by
@@ -2358,6 +2622,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     artistSuggestions = emptyList(),
                 )
             }
+            if (tourGig) dispatchTour(TourEvent.GigAdded)
         }
     }
 
@@ -2701,6 +2966,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun markCalendarAdded(gigId: String, eventUri: String) {
         _state.update { it.copy(calendarEventByGig = it.calendarEventByGig + (gigId to eventUri)) }
         viewModelScope.launch { timelines.markCalendarAdded(gigId, eventUri) }
+        if (_state.value.tour.step == TourStep.S10) dispatchTour(TourEvent.CalendarAdded)
     }
 
     /**
@@ -2877,7 +3143,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * cannot say whether the third entry was deleted or renamed. The intent is what
      * keeps the two lists parallel, and [StoredLog] is the one place that does it.
      */
-    fun addToLog(gigId: String, song: String) = writeLog(gigId) { it.adding(song) }
+    fun addToLog(gigId: String, song: String) {
+        val step = _state.value.tour.step
+        writeLog(gigId) { it.adding(song) }
+        when {
+            step == TourStep.S14 && song.isNotBlank() -> dispatchTour(TourEvent.LogEntryWritten)
+            step == TourStep.S15 && song.isBlank() -> dispatchTour(TourEvent.GapRecorded)
+            step == TourStep.S16 && song.isNotBlank() -> dispatchTour(TourEvent.GossipSent)
+        }
+    }
 
     fun removeFromLog(gigId: String, index: Int) = writeLog(gigId) { it.removingAt(index) }
 
@@ -2901,11 +3175,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun writeLog(gigId: String, edit: (StoredLog) -> StoredLog) {
         val before = logFor(gigId)
         val updated = edit(before)
+        val localOnlyTour = _state.value.tour.step in setOf(TourStep.S14, TourStep.S15, TourStep.S16)
         _state.update { it.copy(logsByGig = it.logsByGig + (gigId to updated)) }
         viewModelScope.launch {
             timelines.saveLog(gigId, updated)
-            withContext(Dispatchers.IO) { publishLog(gigId, before, updated) }
-            syncGossip()
+            if (!localOnlyTour) {
+                withContext(Dispatchers.IO) { publishLog(gigId, before, updated) }
+                syncGossip()
+            }
         }
     }
 
@@ -3132,7 +3409,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * permission is warranted at all, so the prompt only ever appears on a night
      * there is actually something to check into.
      */
-    fun checkInDue(now: LocalDateTime = LocalDateTime.now()): Boolean =
+    fun checkInDue(now: LocalDateTime = tourNow()): Boolean =
         _state.value.plannedGigs.any { gig ->
             canCheckInManually(gig, now) && !isCheckedIn(gig.id)
         }
@@ -3155,10 +3432,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (askedToCheckIn) return
         askedToCheckIn = true
         viewModelScope.launch {
-            val now = LocalDateTime.now()
-            val fix = where.currentFix() ?: return@launch
+            val now = tourNow()
+            val fix = _state.value.tour.location(where.currentFix()) ?: return@launch
             val candidates = _state.value.plannedGigs.filterNot { isCheckedIn(it.id) }
-            val gig = checkInCandidate(candidates, now, fix) ?: return@launch
+            val demoIds = timelines.load().gigs.values.filter { it.demo }.mapTo(mutableSetOf()) { it.id }
+            val gig = checkInCandidate(candidates, now, fix) ?: candidates.firstOrNull { candidate ->
+                val attendance = _state.value.attendanceByGig[candidate.id]
+                val venue = if (candidate.id in demoIds && attendance?.venueLat != null && attendance.venueLon != null) {
+                    attendance.venueLat to attendance.venueLon
+                } else null
+                venue != null && canCheckInManually(candidate, now) && atVenue(fix, venue)
+            } ?: return@launch
             val venue = venueCoords(gig) ?: return@launch
             if (!atVenue(fix, venue)) return@launch
             _state.update { it.copy(checkInOffer = gig) }
@@ -3203,6 +3487,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 checkedInAt = System.currentTimeMillis(),
             )
         }
+        if (_state.value.tour.step == TourStep.S13) dispatchTour(TourEvent.CheckedIn)
         viewModelScope.launch {
             saved.join()
             withContext(Dispatchers.IO) { runCatching { gossipAbout(gigId) } }
@@ -3353,7 +3638,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
         // Year – Artist – Where. The rule itself is the logic layer's, asserted by
         // the same cases on both platforms — it is the one that drifted before.
-        val defaultName = TimelineLogic.playlistName(
+        val tourExport = _state.value.tour.step == TourStep.S19 || _state.value.tour.pendingSpotifyRetry
+        val defaultName = if (tourExport) tourPlaylistName() else TimelineLogic.playlistName(
             setlist, _state.value.setlists, _state.value.festivals,
         )
         _state.update {
@@ -3362,6 +3648,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 matches = matches,
                 matching = true,
                 playlistName = defaultName,
+                playlistPublic = if (tourExport) true else it.playlistPublic,
                 createdPlaylistUrl = null,
                 // A different show means different photos.
                 coverCandidates = emptyList(),
@@ -3421,6 +3708,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setPlaylistName(name: String) = _state.update { it.copy(playlistName = name) }
     fun setPlaylistPublic(public: Boolean) = _state.update { it.copy(playlistPublic = public) }
+
+    fun declineTourSpotify() {
+        val setlist = _state.value.selectedSetlist ?: return
+        viewModelScope.launch {
+            settings.saveTourSpotifyRetrySetlist(setlist)
+            dispatchTour(TourEvent.SpotifyDeclined)
+        }
+    }
+
+    fun prepareTourSpotifyRetry() {
+        viewModelScope.launch {
+            settings.tourSpotifyRetrySetlist.first()?.let(::selectSetlist)
+        }
+    }
 
     /**
      * Discovers a friend from a Spotify playlist link they shared: reads the playlist's
@@ -3542,12 +3843,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun addPickedGigPhotos(setlistId: String, uris: List<Uri>, band: Band = Band.VAULT) {
         viewModelScope.launch {
             val had = _state.value.mediaBySetlist[setlistId].orEmpty()
-            attach(
+            val attached = attach(
                 setlistId,
                 had,
                 uris.mapNotNull { picked -> photos.persistCopy(picked)?.let { it to picked } },
                 band,
             )
+            if (attached && _state.value.tour.step == TourStep.S18) dispatchTour(TourEvent.MediaAdded)
         }
     }
 
@@ -3569,7 +3871,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         had: List<StoredMedia>,
         wanted: List<Pair<Uri, Uri>>,
         band: Band,
-    ) {
+    ): Boolean {
         val fresh = mutableListOf<StoredMedia>()
         var failed = 0
         for ((ref, from) in wanted) {
@@ -3599,6 +3901,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         }
+        return fresh.isNotEmpty()
     }
 
     fun removeGigPhoto(setlistId: String, uri: Uri) {
@@ -3755,6 +4058,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun createPlaylist() {
         val s = _state.value
+        val tourExport = s.tour.step == TourStep.S19 || s.tour.pendingSpotifyRetry
         val tracks = s.matches.filter { it.included && it.selected != null }.mapNotNull { it.selected }
         if (tracks.isEmpty()) {
             _state.update { it.copy(errorKind = null, error = "No songs selected") }
@@ -3778,7 +4082,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 // link. Appended after the 300-char clamp so truncation can't cut it off.
                 val stamp = s.mySetlistFmUser.trim().takeIf { it.isNotEmpty() }
                     ?.let { " " + sfmStamp(it) } ?: ""
-                val description = buildString {
+                val description = if (tourExport) tourPlaylistDescription() else buildString {
                     append("Live at ").append(setlist?.venueLine() ?: "an unknown venue")
                     // The name carries only the year, so the full date lives here.
                     setlist?.readableDate()?.let { append(", ").append(it) }
@@ -3787,7 +4091,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     append(" From setlist.fm")
                     setlist?.url?.let { append(": ").append(it) }
                 }.take(300 - stamp.length) + stamp
-                val playlist = spotify.createPlaylist(name, description, s.playlistPublic)
+                val playlist = spotify.createPlaylist(name, description, if (tourExport) true else s.playlistPublic)
                 val result = try {
                     spotify.addTracks(playlist.id, tracks.map { it.uri })
                 } catch (e: Exception) {
@@ -3828,6 +4132,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 // So the night still points at it on the next launch.
                 if (night != null) timelines.save(playlists = mapOf(night to made))
+                if (tourExport) dispatchTour(TourEvent.SpotifyExported)
             } catch (e: Exception) {
                 fail(e)
             }
@@ -3849,4 +4154,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             "The cover could not be uploaded. ${e.message}"
         }
     }
+}
+
+private fun Context.isOnline(): Boolean {
+    val manager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    val network = manager.activeNetwork ?: return false
+    val capabilities = manager.getNetworkCapabilities(network) ?: return false
+    return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+        capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
 }

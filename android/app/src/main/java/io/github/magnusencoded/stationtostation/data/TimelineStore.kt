@@ -3,6 +3,7 @@ package io.github.magnusencoded.stationtostation.data
 import android.content.Context
 import android.net.Uri
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
+import io.github.magnusencoded.stationtostation.data.gossip.withoutGigs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -396,6 +397,8 @@ data class StoredGig(
     val setlistId: String? = null,
     /** Epoch millis. 0 means "came in with the migration". */
     val createdAt: Long = 0L,
+    /** True only for records created inside the disposable Tour Demo world. */
+    val demo: Boolean = false,
 )
 
 /**
@@ -1295,6 +1298,18 @@ class TimelineStore(
         return settled
     }
 
+    /** The exchange fix is the Demo gig's venue, stored through the ordinary attendance record. */
+    suspend fun setDemoVenue(gigId: String, latitude: Double, longitude: Double): StoredAttendance {
+        var settled = StoredAttendance()
+        writeMerged {
+            val (c, id) = it.withGig(gigId)
+            val had = c.gigAttendance[id] ?: StoredAttendance()
+            settled = had.copy(venueLat = latitude, venueLon = longitude)
+            c.copy(gigAttendance = c.gigAttendance + (id to settled))
+        }
+        return settled
+    }
+
     /**
      * Changes one night's setlist.fm lookup state (#531) as it stands *now*, read and
      * written under one lock: [edit] gets the stored state, or an empty one for a night
@@ -1332,7 +1347,7 @@ class TimelineStore(
      * facts are exactly what cannot be trusted as a key (venues get renamed, artists
      * rename, festival days split) — that is why the natural key was rejected.
      */
-    suspend fun createLocalGig(date: String, artist: String, venue: String): String {
+    suspend fun createLocalGig(date: String, artist: String, venue: String, demo: Boolean = false): String {
         val id = java.util.UUID.randomUUID().toString()
         writeMerged {
             it.copy(
@@ -1343,6 +1358,7 @@ class TimelineStore(
                         artist = artist,
                         venue = venue,
                         createdAt = it.nextCreatedAt(),
+                        demo = demo,
                     )
                     ),
             )
@@ -1425,6 +1441,9 @@ class TimelineStore(
         return deleted
     }
 
+    /** Removes the disposable Demo world while preserving real records and playlists. */
+    suspend fun purgeDemoWorld() = writeMerged { it.withoutDemoWorld() }
+
     /**
      * Two records found to be the same night become one — the case where a night
      * added by hand is later also imported.
@@ -1485,6 +1504,27 @@ class TimelineStore(
                 Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
             }
         }
+}
+
+internal fun TimelineCache.withoutDemoWorld(): TimelineCache {
+    val demoIds = gigs.values.filter { it.demo }.mapTo(mutableSetOf()) { it.id }
+    if (demoIds.isEmpty()) return this
+    val demoSetlistIds = demoIds.toMutableSet().apply {
+        addAll(demoIds.mapNotNull { gigs[it]?.setlistId })
+    }
+    return copy(
+        shows = shows.mapValues { (_, lane) -> lane.filterNot { it.id in demoSetlistIds } },
+        gigs = gigs - demoIds,
+        gigPlanned = gigPlanned - demoIds,
+        gigAttendance = gigAttendance - demoIds,
+        gigCalendarEvent = gigCalendarEvent - demoIds,
+        gigMedia = gigMedia - demoIds,
+        gigLogs = gigLogs - demoIds,
+        gigSongOffsets = gigSongOffsets - demoIds,
+        publicGossip = publicGossip.withoutGigs(demoSetlistIds),
+        // The exported Spotify playlist is the keepsake, so its record survives too.
+        gigPlaylists = gigPlaylists,
+    )
 }
 
 /**

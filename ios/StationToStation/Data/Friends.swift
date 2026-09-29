@@ -22,13 +22,17 @@ struct Friend: Codable, Identifiable, Hashable {
     /// LAN peer's challenge (#265). Removing the Friend takes the key with it —
     /// that is the whole of revocation.
     var publicKey: String?
+    /// Present only for the disposable local Contact made by the first-run Tour.
+    /// Optional keeps Friends written before the Tour decodable without a migration.
+    var demo: Bool?
 
     init(setlistfm: String, name: String? = nil, spotifyId: String? = nil,
-         publicKey: String? = nil) {
+         publicKey: String? = nil, demo: Bool = false) {
         self.setlistfm = setlistfm
         self.name = name?.nilIfBlank ?? setlistfm
         self.spotifyId = spotifyId
         self.publicKey = publicKey
+        self.demo = demo ? true : nil
     }
 
     /// By Lane, not by username: two Contacts without an account share a blank one.
@@ -65,6 +69,8 @@ struct Friend: Codable, Identifiable, Hashable {
         return c.url!
     }
 }
+
+func withoutDemoFriends(_ friends: [Friend]) -> [Friend] { friends.filter { $0.demo != true } }
 
 /// What arriving at my **Contact** list means for a card I have just been handed (#188).
 ///

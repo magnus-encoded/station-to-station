@@ -6,7 +6,10 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Matrix
+import android.graphics.Paint
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
@@ -109,6 +112,27 @@ class PhotoRepository(private val context: Context) {
             context.contentResolver.openInputStream(uri)?.use { input ->
                 file.outputStream().use { input.copyTo(it) }
             } ?: return@runCatching null
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        }.getOrNull()
+    }
+
+    /** A deliberately simple, local-only stand-in for the Tour friend's selfie. */
+    suspend fun createTourFriendSelfie(mediaId: String): Uri? = withContext(Dispatchers.IO) {
+        runCatching {
+            val file = receivedMediaFile(mediaId, StoredMedia.Kind.PHOTO)
+            val bitmap = Bitmap.createBitmap(640, 640, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            canvas.drawColor(Color.rgb(38, 31, 54))
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+            paint.color = Color.rgb(246, 202, 159)
+            canvas.drawCircle(320f, 300f, 170f, paint)
+            paint.color = Color.rgb(43, 35, 52)
+            canvas.drawCircle(260f, 275f, 18f, paint)
+            canvas.drawCircle(380f, 275f, 18f, paint)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 14f
+            canvas.drawArc(250f, 290f, 390f, 410f, 15f, 150f, false, paint)
+            file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }
             FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
         }.getOrNull()
     }

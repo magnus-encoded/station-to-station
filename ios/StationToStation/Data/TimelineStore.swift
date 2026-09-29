@@ -1110,6 +1110,39 @@ actor TimelineStore {
         return settled
     }
 
+    /// The Exchange fix is the Demo gig's venue, kept through the ordinary
+    /// attendance record so Check-in reads it exactly like a real venue fix.
+    func setDemoVenue(setlistId: String, latitude: Double, longitude: Double) -> StoredAttendance {
+        updateAttendance(setlistId: setlistId) {
+            $0.venueLat = latitude
+            $0.venueLon = longitude
+        }
+    }
+
+    /// Removes the explicitly tagged Demo records. IDs come from the Tour's tag
+    /// registry, never from a name or prefix, so real records cannot match by accident.
+    func purgeDemoWorld(gigIDs: Set<String>, laneKeys: Set<String>) {
+        guard !gigIDs.isEmpty || !laneKeys.isEmpty else { return }
+        writeMerged { cache in
+            var c = cache
+            let ids = Set(gigIDs.compactMap { c.gigIdOrNil($0) })
+            for id in ids {
+                c.gigs[id] = nil
+                c.gigPlanned[id] = nil
+                c.gigAttendance[id] = nil
+                c.gigLogs[id] = nil
+                c.gigMedia[id] = nil
+                c.gigCalendarEvent[id] = nil
+                c.gigPlaylists[id] = nil
+                c.gigSongOffsets[id] = nil
+            }
+            c.shows = c.shows
+                .filter { !laneKeys.contains($0.key) }
+                .mapValues { $0.filter { !gigIDs.contains($0.id) } }
+            return c
+        }
+    }
+
     /// Forgets a gig I am no longer going to.
     ///
     /// Drops the attendance claim with it — **but only while it is still `planned`**. A

@@ -383,6 +383,12 @@ struct GigView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
+        .swipeRight {
+            guard model.state.tour.step == .swipeBack,
+                  model.state.selectedSetlist?.id == model.state.tour.demoGigID else { return }
+            model.sendTourEvent(.swipedBack)
+            nav.pop()
+        }
         // Pasting the link to the record whoever created it just made. A pasted link
         // rather than a search by artist and date: the moment this is used is the moment
         // you are looking at the page you just created, so its url is in your hand, and
@@ -506,7 +512,7 @@ struct GigView: View {
                 // Android reaches the same field through `state.attendanceByGig[id]`.
                 admissionCount: model.state.selectedAttendance?.admissions.count ?? 0
             ),
-            now: Date()
+            now: model.state.tour.now()
         )
     }
 
@@ -611,6 +617,9 @@ struct GigView: View {
                 if room?.showTicket == true,
                    let admissions = model.state.selectedAttendance?.admissions, !admissions.isEmpty {
                     TicketAtTheDoor(admissions: admissions).padding(.top, 10)
+                        .onAppear {
+                            if model.state.tour.step == .atTheDoor { model.sendTourEvent(.ticketShown) }
+                        }
                 }
                 if room?.checkIn == true {
                     Text("I'm here — check in").font(.system(size: 13)).foregroundStyle(amber)
@@ -698,8 +707,8 @@ struct GigView: View {
                         Label("Add to calendar", systemImage: "calendar.badge.plus")
                     }
                 }
-                if let mapsQuery {
-                    Button { openVenueInMaps(mapsQuery) } label: {
+                if mapsQuery != nil {
+                    Button { model.openTourVenueInMaps(show) } label: {
                         Label("Open in Maps", systemImage: "map")
                     }
                 }

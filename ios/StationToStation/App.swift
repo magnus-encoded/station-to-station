@@ -55,15 +55,10 @@ struct StationToStationApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-            // The first-run door (#358), and nothing else is reachable behind it.
-            // A splash pushed *onto* the stack could be dismissed by a back
-            // gesture into a timeline nobody had asked to see yet.
+            // An offline first launch stays at the launch ground. It has not been
+            // offered the Tour yet, so the next online launch still starts at S1.
             if !model.state.onboarded {
-                SplashView()
-                    .environmentObject(model)
-                    .tint(amber)
-                    .preferredColorScheme(.dark)
-                    .appBanners(model)
+                launchGround.ignoresSafeArea()
             } else {
             NavigationStack(path: $nav.path) {
                 // The Timeline is home; the setlist-to-Spotify converter stays
@@ -100,6 +95,11 @@ struct StationToStationApp: App {
             // Nocturnal single theme: the Timeline is dark whatever the phone is.
             .preferredColorScheme(.dark)
             .appBanners(model) { nav.push(.settings) }
+            .overlay(alignment: .bottom) {
+                if model.state.tour.isRunning {
+                    TourCoachMarkView().environmentObject(model)
+                }
+            }
             // Spotify's OAuth callback is handled by ASWebAuthenticationSession;
             // the app only needs to catch friend-card links here.
             .onOpenURL { url in
@@ -180,6 +180,77 @@ struct StationToStationApp: App {
                 break
             }
         }
+    }
+}
+
+/// Placeholder shell for the platform-specific coach-mark engine. The Virtual
+/// friend's final character and writing are human-owned (#607).
+private struct TourCoachMarkView: View {
+    @EnvironmentObject var model: AppModel
+    @State private var bandQuery = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.headline)
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if model.state.tour.step == .band {
+                TextField("A band you like", text: $bandQuery)
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: bandQuery) { model.suggestArtists($0) }
+                ForEach(model.state.artistSuggestions) { artist in
+                    Button {
+                        bandQuery = artist.name
+                        model.pickTourBand(artist)
+                    } label: {
+                        VStack(alignment: .leading) {
+                            Text(artist.name)
+                            if !artist.disambiguation.isEmpty {
+                                Text(artist.disambiguation).font(.caption2)
+                            }
+                        }
+                    }
+                }
+            }
+            HStack {
+                Button("Skip") { model.skipTour() }
+                Spacer()
+                if model.state.tour.step == .line {
+                    Button("Got it") { model.sendTourEvent(.acknowledged) }
+                        .buttonStyle(.borderedProminent)
+                } else if model.state.tour.step == .addGig {
+                    Button("Add the gig") { model.addTourGig() }
+                        .buttonStyle(.borderedProminent)
+                }
+            }
+        }
+        .padding(16)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .padding()
+        .accessibilityElement(children: .contain)
+    }
+
+    private var title: String {
+        switch model.state.tour.step {
+        case .line: return "Your line runs through time."
+        case .curtain: return "Pull down to plan a gig."
+        case .band: return "Who should we go and see?"
+        case .addGig: return "Add this gig to your line."
+        case .room: return "Tap the gig to open its Room."
+        case .swipeBack: return "Swipe right to go back."
+        case .exchange: return "Meet your Virtual friend."
+        case .timelines: return "Pinch out to put your lines side by side."
+        case .ticket: return "Your friend is sending the ticket."
+        default: return "Tour"
+        }
+    }
+
+    private var detail: String {
+        model.state.tour.step == .band
+            ? "MusicBrainz is an open music catalogue; choose the artist you mean."
+            : "Virtual friend"
     }
 }
 

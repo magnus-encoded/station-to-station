@@ -326,6 +326,12 @@ data class StoredLog(
         nextLineNumber = maxOf(nextLineNumber, (songs.indices.maxOfOrNull(::lineNumberAt) ?: -1) + 1) + 1,
     )
 
+    /** Gossip may name an acknowledged Gap; all other handwritten lines stay untouched. */
+    fun fillingGapAt(i: Int, title: String): StoredLog =
+        if (songs.getOrNull(i)?.isBlank() == true && title.isNotBlank()) copy(
+            songs = songs.mapIndexed { j, song -> if (j == i) title else song },
+        ) else this
+
     /** One entry gone, and the words behind it with it. */
     fun removingAt(i: Int): StoredLog = copy(
         songs = songs.filterIndexed { j, _ -> j != i },

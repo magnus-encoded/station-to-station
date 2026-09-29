@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -43,6 +44,8 @@ import io.github.magnusencoded.stationtostation.ui.SettingsScreen
 import io.github.magnusencoded.stationtostation.ui.SplashScreen
 import io.github.magnusencoded.stationtostation.ui.StationEventScreen
 import io.github.magnusencoded.stationtostation.ui.StationTimelineScreen
+import io.github.magnusencoded.stationtostation.ui.TourCoachMark
+import io.github.magnusencoded.stationtostation.data.TourEvent
 import io.github.magnusencoded.stationtostation.ui.flyover.GigFlyoverScreen
 import kotlinx.coroutines.flow.map
 
@@ -278,17 +281,24 @@ fun AppNavigation(viewModel: AppViewModel) {
             )
         }
         composable("timeline") {
-            StationTimelineScreen(
-                viewModel = viewModel,
-                onOpenEvent = { navController.navigate("event") },
-                onOpenImport = { navController.navigate("import") },
-                // Both the people icon and the swipe-left gesture now lead to the one
-                // Exchange — there is a single way to meet someone.
-                onOpenConnect = { navController.navigate("exchange") },
-                onOpenNearby = { navController.navigate("exchange") },
-                onOpenSettings = { navController.navigate("settings") },
-                onOpenProgramme = { navController.navigate("programme") },
-            )
+            val state by viewModel.state.collectAsStateWithLifecycle()
+            Box {
+                StationTimelineScreen(
+                    viewModel = viewModel,
+                    onOpenEvent = {
+                        viewModel.dispatchTour(TourEvent.RoomOpened)
+                        navController.navigate("event")
+                    },
+                    onOpenImport = { navController.navigate("import") },
+                    // Both the people icon and the swipe-left gesture now lead to the one
+                    // Exchange — there is a single way to meet someone.
+                    onOpenConnect = { navController.navigate("exchange") },
+                    onOpenNearby = { navController.navigate("exchange") },
+                    onOpenSettings = { navController.navigate("settings") },
+                    onOpenProgramme = { navController.navigate("programme") },
+                )
+                TourCoachMark(state.tour.step, viewModel::dispatchTour)
+            }
         }
         composable("exchange") {
             ExchangeScreen(
@@ -320,6 +330,13 @@ fun AppNavigation(viewModel: AppViewModel) {
             )
         }
         composable("event") {
+            val state by viewModel.state.collectAsStateWithLifecycle()
+            val enteredDuringTour = remember { state.tour.step != null }
+            LaunchedEffect(state.tour.finished) {
+                if (enteredDuringTour && state.tour.finished) {
+                    navController.popBackStack("timeline", inclusive = false)
+                }
+            }
             // **The flyover replaces the landscape view** (#278). Not a second mode and
             // not a re-layout of the room: turned sideways, a night is a read-only walk
             // down its own spine, and the room's editing surfaces are absent because
@@ -329,18 +346,24 @@ fun AppNavigation(viewModel: AppViewModel) {
             // carries a modifier the other has to read around. Rotating recreates the
             // activity and the back stack is restored, so the night stays open across
             // the turn.
-            if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-                GigFlyoverScreen(
-                    viewModel = viewModel,
-                    onBack = { navController.popBackStack() },
-                )
-            } else {
-                StationEventScreen(
-                    viewModel = viewModel,
-                    onBack = { navController.popBackStack() },
-                    onConvert = { navController.navigate("confirm") },
-                    onOpenSettings = { navController.navigate("settings") },
-                )
+            Box {
+                if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+                    GigFlyoverScreen(
+                        viewModel = viewModel,
+                        onBack = { navController.popBackStack() },
+                    )
+                } else {
+                    StationEventScreen(
+                        viewModel = viewModel,
+                        onBack = {
+                            viewModel.dispatchTour(TourEvent.SwipedBack)
+                            navController.popBackStack()
+                        },
+                        onConvert = { navController.navigate("confirm") },
+                        onOpenSettings = { navController.navigate("settings") },
+                    )
+                }
+                TourCoachMark(state.tour.step, viewModel::dispatchTour)
             }
         }
         composable("search") {
@@ -378,6 +401,15 @@ fun AppNavigation(viewModel: AppViewModel) {
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
                 onOpenHandover = { navController.navigate("handover") },
+                onOpenTour = {
+                    val event = if (viewModel.state.value.tour.finished) TourEvent.ReplayRequested else TourEvent.Resumed
+                    viewModel.dispatchTour(event)
+                    navController.popBackStack("timeline", inclusive = false)
+                },
+                onRetryTourSpotify = {
+                    viewModel.prepareTourSpotifyRetry()
+                    navController.navigate("confirm")
+                },
             )
         }
         composable("handover") {
