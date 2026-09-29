@@ -9,6 +9,21 @@ import XCTest
 /// festival date.
 final class GigTimeStateTests: XCTestCase {
 
+    func testDemoClockDrivesRealGigAndCheckInRulesOnlyWhileTourRuns() {
+        let real = Date(timeIntervalSince1970: 100)
+        let doors = at("31-07-2026", 19)
+        var tour = TourState(step: .atTheDoor, demoNow: doors)
+
+        XCTAssertEqual(tour.now(real), doors)
+        XCTAssertEqual(.dayOf, gigTimeState(now: tour.now(real), gigDate: "31-07-2026", calendar: cal))
+        XCTAssertTrue(canCheckInManually(
+            gig: FmSetlist(eventDate: "31-07-2026"), now: tour.now(real), calendar: cal))
+        XCTAssertTrue(atVenue(where: (59.91, 10.75), venue: (59.91, 10.75)))
+
+        tour.finished = true
+        XCTAssertEqual(tour.now(real), real)
+    }
+
     func testGossipParticipationEndsWithoutRenewingAfterCompletion() {
         let end = Date(timeIntervalSince1970: 10000)
         let done: Int64 = 6_000_000

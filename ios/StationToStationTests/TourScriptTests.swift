@@ -185,17 +185,22 @@ final class TourScriptTests: XCTestCase {
         _ = await store.attachAdmissions(
             setlistId: demo.id,
             admissions: [StoredAdmission(payload: "dGlja2V0", symbology: qrSymbology)])
+        await store.markCalendarAdded(gigId: demo.id, eventId: "demo-calendar-event")
+        await store.markCalendarAdded(gigId: real.id, eventId: "real-calendar-event")
 
         var before = await store.load()
         XCTAssertEqual(before.attendance()[demo.id]?.venueLat, 59.91)
         XCTAssertEqual(before.attendance()[demo.id]?.venueLon, 10.75)
         XCTAssertEqual(before.attendance()[demo.id]?.admissions.count, 1)
+        XCTAssertEqual(before.calendarEvents()[demo.id], "demo-calendar-event")
 
         await store.purgeDemoWorld(gigIDs: [demo.id], laneKeys: ["tour-virtual-friend"])
         before = await store.load()
         XCTAssertNil(before.attendance()[demo.id])
         XCTAssertFalse(before.planned().contains { $0.id == demo.id })
         XCTAssertNil(before.shows["tour-virtual-friend"])
+        XCTAssertNil(before.calendarEvents()[demo.id])
+        XCTAssertEqual(before.calendarEvents()[real.id], "real-calendar-event")
         XCTAssertTrue(before.planned().contains { $0.id == real.id })
         XCTAssertEqual(before.shows["real-friend"]?.map(\.id), [real.id])
     }

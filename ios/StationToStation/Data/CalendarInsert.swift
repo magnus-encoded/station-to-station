@@ -44,6 +44,13 @@ func insertCalendarEvent(_ setlist: FmSetlist) async -> String? {
     }
 }
 
+/// Removes only the EventKit event whose identifier the Demo Gig stored.
+func deleteCalendarEvent(_ identifier: String) async {
+    let store = EKEventStore()
+    guard await requestCalendarAccess(store), let event = store.event(withIdentifier: identifier) else { return }
+    try? store.remove(event, span: .thisEvent, commit: true)
+}
+
 /// Which calendar to write into: EventKit's own default, or the first one that accepts
 /// new events. Mirrors Android's "primary, else first visible" — good enough, since the
 /// user can move the event in their own calendar app if it lands on the wrong one, and

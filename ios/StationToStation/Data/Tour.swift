@@ -55,9 +55,11 @@ struct TourState: Codable, Equatable {
     var demoGigID: String?
     var demoVenueLat: Double?
     var demoVenueLon: Double?
+    var demoNow: Date?
 
     static let unstarted = TourState()
     var isRunning: Bool { step != nil && !finished }
+    func now(_ realNow: Date = Date()) -> Date { isRunning ? (demoNow ?? realNow) : realNow }
 }
 
 /// The Tour's planned night uses the same `FmSetlist` face as every other local Gig.
