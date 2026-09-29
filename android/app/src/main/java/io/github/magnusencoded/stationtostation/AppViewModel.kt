@@ -3341,9 +3341,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val now = tourNow()
             val fix = _state.value.tour.location(where.currentFix()) ?: return@launch
             val candidates = _state.value.plannedGigs.filterNot { isCheckedIn(it.id) }
+            val demoIds = timelines.load().gigs.values.filter { it.demo }.mapTo(mutableSetOf()) { it.id }
             val gig = checkInCandidate(candidates, now, fix) ?: candidates.firstOrNull { candidate ->
                 val attendance = _state.value.attendanceByGig[candidate.id]
-                val venue = if (candidate.demo && attendance?.venueLat != null && attendance.venueLon != null) {
+                val venue = if (candidate.id in demoIds && attendance?.venueLat != null && attendance.venueLon != null) {
                     attendance.venueLat to attendance.venueLon
                 } else null
                 venue != null && canCheckInManually(candidate, now) && atVenue(fix, venue)
