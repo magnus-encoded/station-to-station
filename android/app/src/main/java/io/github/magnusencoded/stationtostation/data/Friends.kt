@@ -32,7 +32,12 @@ data class Friend(
      * Only the radio fills this in. A link or QR code never can (#271).
      */
     val publicKey: String? = null,
+    /** True only for the disposable local Contact created by the first-run Tour. */
+    val demo: Boolean = false,
 )
+
+/** Purge only the Tour's tagged Contact; real contacts and followed lines survive. */
+internal fun List<Friend>.withoutDemoFriends(): List<Friend> = filterNot { it.demo }
 
 /**
  * What arriving at my **Contact** list means for a card I have just been handed (#188).

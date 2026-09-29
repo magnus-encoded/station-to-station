@@ -1297,6 +1297,18 @@ class TimelineStore(
         return settled
     }
 
+    /** The exchange fix is the Demo gig's venue, stored through the ordinary attendance record. */
+    suspend fun setDemoVenue(gigId: String, latitude: Double, longitude: Double): StoredAttendance {
+        var settled = StoredAttendance()
+        writeMerged {
+            val (c, id) = it.withGig(gigId)
+            val had = c.gigAttendance[id] ?: StoredAttendance()
+            settled = had.copy(venueLat = latitude, venueLon = longitude)
+            c.copy(gigAttendance = c.gigAttendance + (id to settled))
+        }
+        return settled
+    }
+
     /**
      * Changes one night's setlist.fm lookup state (#531) as it stands *now*, read and
      * written under one lock: [edit] gets the stored state, or an empty one for a night
@@ -1496,7 +1508,9 @@ class TimelineStore(
 internal fun TimelineCache.withoutDemoWorld(): TimelineCache {
     val demoIds = gigs.values.filter { it.demo }.mapTo(mutableSetOf()) { it.id }
     if (demoIds.isEmpty()) return this
-    val demoSetlistIds = demoIds.mapNotNullTo(mutableSetOf()) { gigs[it]?.setlistId }
+    val demoSetlistIds = demoIds.toMutableSet().apply {
+        addAll(demoIds.mapNotNull { gigs[it]?.setlistId })
+    }
     return copy(
         shows = shows.mapValues { (_, lane) -> lane.filterNot { it.id in demoSetlistIds } },
         gigs = gigs - demoIds,

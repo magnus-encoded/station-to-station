@@ -70,7 +70,9 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.MultiFormatWriter
 import com.google.zxing.common.BitMatrix
 import io.github.magnusencoded.stationtostation.AppViewModel
+import io.github.magnusencoded.stationtostation.data.DeviceLocation
 import io.github.magnusencoded.stationtostation.data.Friend
+import io.github.magnusencoded.stationtostation.data.TourStep
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangePeer
 import io.github.magnusencoded.stationtostation.data.gossip.GossipRadioStatus
 import kotlinx.coroutines.delay
@@ -106,6 +108,7 @@ fun ExchangeScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val demoTour = state.tour.step == TourStep.S7
 
     // Permission is asked for here and nowhere else: this is the only screen that needs
     // the radios, and opening it is the user saying they want to be found.
@@ -113,7 +116,8 @@ fun ExchangeScreen(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { viewModel.startExchange() }
     LaunchedEffect(Unit) {
-        permissionLauncher.launch(viewModel.exchangePermissions().toTypedArray())
+        val permissions = if (demoTour) DeviceLocation.requiredPermissions() else viewModel.exchangePermissions().toTypedArray()
+        permissionLauncher.launch(permissions)
     }
     // Being discoverable is opted into by standing here, not a background state — and
     // that goes for #257's LAN reconcile too, which is this screen's fourth radio rather
@@ -134,7 +138,7 @@ fun ExchangeScreen(
     // My share card for the QR/link fallback; null until I've set my username.
     var cardUri by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(state.mySetlistFmUser, state.spotifyConnected) {
-        cardUri = viewModel.myCardUri()?.toString()
+        if (!demoTour) cardUri = viewModel.myCardUri()?.toString()
     }
 
     val peers = state.exchangePeers
@@ -177,7 +181,7 @@ fun ExchangeScreen(
                 // radios. Who is actually in the room is the gig page's line — that is the
                 // screen open while standing at the venue, and asking the same question in
                 // two places would be two answers to keep in step.
-                GossipRelayLine(friends = state.friends)
+                if (!demoTour) GossipRelayLine(friends = state.friends)
                 val connecting = state.connectingWith
                 // Scanning runs whether or not I have a card, so the radar is honest for
                 // everyone. A card needs a name, not an account (#405): what changes with
@@ -196,7 +200,7 @@ fun ExchangeScreen(
 
                 // My card, always here rather than behind a toggle: the radar above never
                 // stops or hands off to it, so there is nothing to reveal — you just scroll.
-                if (connecting == null) {
+                if (connecting == null && !demoTour) {
                     Spacer(Modifier.height(28.dp))
                     Text(
                         "OR HAND OVER YOUR CARD",
