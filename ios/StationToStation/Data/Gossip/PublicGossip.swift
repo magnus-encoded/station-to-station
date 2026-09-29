@@ -188,6 +188,16 @@ struct PublicGossipState: Codable {
 
     init() {}
 
+    func withoutGigs(_ gigIDs: Set<String>) -> PublicGossipState {
+        var result = self
+        let removed = Set(result.facts.compactMap { gigIDs.contains($0.value.gigId) ? $0.key : nil })
+        result.facts = result.facts.filter { !removed.contains($0.key) }
+        result.held = result.held.filter { !removed.contains($0.key) }
+        result.seen = result.seen.filter { !removed.contains($0.key) }
+        result.metDevices = result.metDevices.filter { !gigIDs.contains($0.key) }
+        return result
+    }
+
     /// Every field read with `decodeIfPresent`, because Swift's synthesized `init(from:)`
     /// throws on a missing key even where the property has a default — and `GossipLedger`
     /// decodes the whole file with `try?`, so one absent key would silently empty a night's

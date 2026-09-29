@@ -15,6 +15,33 @@ enum TourCoachMark: String, Codable, Equatable {
 enum DemoClock: String, Codable, Equatable { case approaching, doors, showStarted, after }
 enum MediaVisibility: String, Codable, Equatable { case personal, shared }
 
+struct TourSetlistFill: Equatable {
+    var titles: [String]
+    var usedSetlistFm: Bool
+}
+
+/// The Tour uses the same source order as the Room: a recent setlist.fm set first,
+/// then MusicBrainz only when setlist.fm has no songs. The result is just the missing
+/// tail, so titles already written in the Log remain the person's record.
+func tourSetlistFill(setlistFm: [String], musicBrainz: [String], entered: [String], target: Int = 10) -> TourSetlistFill {
+    let fromSetlistFm = setlistFm.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    let source = fromSetlistFm ? setlistFm : musicBrainz
+    let room = max(0, target - entered.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count)
+    guard room > 0 else { return TourSetlistFill(titles: [], usedSetlistFm: fromSetlistFm) }
+    var kept: [String] = []
+    for title in source where !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        guard !entered.contains(where: { sameSong($0, title) }),
+              !kept.contains(where: { sameSong($0, title) }) else { continue }
+        kept.append(title)
+        if kept.count == room { break }
+    }
+    return TourSetlistFill(titles: kept, usedSetlistFm: fromSetlistFm)
+}
+
+func tourKeepsLogLocal(_ step: TourStep?) -> Bool {
+    [.firstSong, .gap, .gossipBack, .setlistFill].contains { $0 == step }
+}
+
 enum TourCommand: Equatable {
     case showCoachMark(TourCoachMark)
     case lookUpBand

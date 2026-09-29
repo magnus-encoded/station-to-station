@@ -1415,6 +1415,8 @@ final class AppModel: ObservableObject {
         state.tourCommands = transition.commands
         for command in transition.commands {
             if case .advanceDemoClock(let moment) = command { advanceDemoClock(moment) }
+            if command == .deliverGossipGapFill { Task { await deliverTourGossip() } }
+            if command == .fillSetlist { Task { await fillTourSetlist() } }
         }
         if transition.commands.contains(.purgeDemoWorld), let world = state.tour.demoWorldID {
             let ids = Set(state.demoRecords.filter { $0.demoTag?.worldID == world }.map(\.id))
@@ -1450,6 +1452,53 @@ final class AppModel: ObservableObject {
         }) {
             Task { await importDemoTicket() }
         }
+    }
+
+    /// The Virtual friend's signed fact is stored through the normal public ledger,
+    /// but removed from the relay queue: this story never emits network traffic.
+    private func deliverTourGossip() async {
+        guard let gig = state.selectedSetlist,
+              let gap = state.gigLog.songs.firstIndex(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }),
+              let world = state.tour.demoWorldID else { return }
+        let before = state.gigLog
+        let title = "Placeholder song"
+        let updated = before.fillingGapAt(gap, title: title)
+        await timelines.saveLog(setlistId: gig.id, log: updated)
+
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        let scope = "tour-friend-\(world.uuidString)"
+        guard let author = GigIdentity.publicKeyBase64(scope: scope) else { return }
+        var draft = GossipEnvelope(gigId: gig.id, scope: scope, author: author,
+            createdAt: now, expiresAt: now + 60 * 60 * 1000, kind: "log",
+            line: before.lineNumberAt(gap), text: title)
+        draft.attribution = GigIdentity.attribution(scope: scope, author: author) ?? ""
+        guard let envelope = draft.signed({ GigIdentity.sign(scope: scope, $0) }) else { return }
+        await timelines.updatePublicGossip { public in
+            _ = public.receive(envelope, from: Self.demoFriendUser, now: now)
+            public.held[envelope.id] = nil
+            public.recognition[envelope.author] = Self.demoFriendUser
+            public.contactNames[Self.demoFriendUser] = "Virtual friend"
+        }
+        state.gigLog = updated
+        state.publicGossip = await timelines.load().publicGossip
+    }
+
+    /// Real sources, in order: recent setlist.fm data, then the band's MusicBrainz catalogue.
+    private func fillTourSetlist() async {
+        guard var gig = state.selectedSetlist,
+              let mbid = gig.artist?.mbid.nilIfBlank else { return }
+        let response = try? await setlistFm.artistSetlists(mbid)
+        let setlistSongs = response?.setlist.first(where: { !$0.performed().isEmpty })?.performed().map(\.name) ?? []
+        let fallback: [String]
+        if setlistSongs.isEmpty { fallback = await musicBrainz.catalogue(mbid: mbid) }
+        else { fallback = [] }
+        let fill = tourSetlistFill(setlistFm: setlistSongs, musicBrainz: fallback, entered: state.gigLog.named())
+        guard !fill.titles.isEmpty else { return }
+        gig.sets = FmSets(set: [FmSet(song: fill.titles.map { FmSong(name: $0) })])
+        _ = await timelines.savePlanned(gig)
+        state.selectedSetlist = gig
+        state.plannedGigs = state.plannedGigs.map { $0.id == gig.id ? gig : $0 }
+        sendTourEvent(.setlistFilled)
     }
 
     private func advanceDemoClock(_ moment: DemoClock) {
@@ -2931,16 +2980,27 @@ final class AppModel: ObservableObject {
         guard let setlist = state.selectedSetlist else { return }
         let before = state.gigLog
         let updated = edit(before)
+        let tourStep = state.tour.step
         state.gigLog = updated
         Task {
             await timelines.saveLog(setlistId: setlist.id, log: updated)
             let cache = await timelines.load()
-            if let local = cache.gigs[setlist.id] ?? cache.gigForSetlist(setlist.id),
+            if !tourKeepsLogLocal(tourStep),
+               let local = cache.gigs[setlist.id] ?? cache.gigForSetlist(setlist.id),
                let date = setlist.eventDate, let end = gossipExpiry(gigDate: date),
                let until = gossipParticipationUntil(checkedInAt: cache.attendance()[setlist.id]?.checkedInAt,
                     closed: updated.closed, completedAt: updated.completedAt, nightEnd: end, stoppedAt: GossipTransport.shared.stoppedAt), Date() < until {
                 await GossipChannel.shared.publishLog(gigId: setlist.id, localGigId: local.id,
                     expiry: end, changes: gossipLogChanges(before: before, after: updated))
+            }
+            if updated.songs.count > before.songs.count {
+                if tourStep == .firstSong, let song = updated.songs.last, !song.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    sendTourEvent(.logEntryWritten(song))
+                } else if tourStep == .gap, updated.songs.last?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
+                    sendTourEvent(.gapRecorded)
+                }
+            } else if tourStep == .gossipBack, updated != before {
+                sendTourEvent(.gossipSent)
             }
             gossipContactsChanged()
         }
