@@ -5247,6 +5247,14 @@ fun StationEventScreen(
                 if (canLog) {
                     item {
                         Spacer(Modifier.height(6.dp))
+                        if (state.tour.step == TourStep.S17) {
+                            Text(
+                                "Looking for the real setlist on setlist.fm, then MusicBrainz if it isn't there yet…",
+                                color = Faint,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+                            )
+                        }
                         LogEditor(
                             candidates = catalogue,
                             // Naming which artist a wrong match came from was the

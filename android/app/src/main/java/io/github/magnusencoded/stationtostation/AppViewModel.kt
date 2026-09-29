@@ -147,6 +147,8 @@ import io.github.magnusencoded.stationtostation.data.exchange.writeAccountsStep
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSong
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSet
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSets
 import io.github.magnusencoded.stationtostation.data.musicbrainz.MbArtist
 import io.github.magnusencoded.stationtostation.data.musicbrainz.MusicBrainzClient
 import io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmClient
@@ -169,6 +171,7 @@ import io.github.magnusencoded.stationtostation.data.setlistfm.ticketImport
 import io.github.magnusencoded.stationtostation.data.SetlistFmMatch
 import io.github.magnusencoded.stationtostation.data.StoredSetlistFmHit
 import io.github.magnusencoded.stationtostation.data.matchSetlistFm
+import io.github.magnusencoded.stationtostation.data.tourSetlistFill
 import io.github.magnusencoded.stationtostation.data.spotify.SpotifyClient
 import io.github.magnusencoded.stationtostation.data.spotify.SpotifyTrack
 import io.github.magnusencoded.stationtostation.data.spotify.rankCandidates
@@ -1028,6 +1031,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     TourCommand.ImportDemoTicket -> importDemoTicket()
                     TourCommand.PurgeDemoWorld -> purgeDemoWorld()
                     is TourCommand.AdvanceDemoClock -> advanceDemoClock(command.moment)
+                    TourCommand.DeliverGossip -> deliverTourGossip()
+                    TourCommand.FillSetlist -> fillTourSetlist()
                     else -> Unit // Later Tour slices own their platform side effects.
                 }
             }
@@ -1046,6 +1051,66 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val tour = _state.value.tour.copy(demoNow = now.toString())
         _state.update { it.copy(tour = tour) }
         settings.saveTourState(tour)
+    }
+
+    /** The Virtual friend's local-only fact names the Gap without starting the radio. */
+    private suspend fun deliverTourGossip() {
+        val gig = _state.value.selectedSetlist ?: return
+        val before = logFor(gig.id)
+        val gap = before.songs.indexOfFirst { it.isBlank() }.takeIf { it >= 0 } ?: return
+        val title = "Placeholder song"
+        val updated = before.fillingGapAt(gap, title)
+        timelines.saveLog(gig.id, updated)
+
+        val now = System.currentTimeMillis()
+        val identity = withContext(Dispatchers.IO) { GigIdentity("tour-friend-${_state.value.tour.demoWorld}") }
+        val envelope = withContext(Dispatchers.IO) {
+            val author = identity.publicKey()
+            GossipEnvelope(
+                gigId = gig.id,
+                scope = "tour-friend-${_state.value.tour.demoWorld}",
+                author = author,
+                createdAt = now,
+                expiresAt = now + 60 * 60 * 1000L,
+                kind = "log",
+                line = before.lineNumberAt(gap),
+                text = title,
+                attribution = identity.attribution(),
+            ).signed(identity::sign)
+        } ?: return
+        timelines.updatePublicGossip { public ->
+            public.receive(envelope, "tour-virtual-friend", now)
+            // It arrived locally for the story; it is never queued for a radio Pass.
+            public.held.remove(envelope.id)
+            public.recognition[envelope.author] = "tour-virtual-friend"
+            public.contactNames["tour-virtual-friend"] = "Virtual friend"
+        }
+        val public = timelines.load().publicGossip
+        _state.update { it.copy(logsByGig = it.logsByGig + (gig.id to updated), publicGossip = public) }
+    }
+
+    /** Real sources, in order: recent setlist.fm data, then the band's MusicBrainz catalogue. */
+    private suspend fun fillTourSetlist() {
+        val gig = _state.value.selectedSetlist ?: return
+        val mbid = gig.artist?.mbid?.takeIf { it.isNotBlank() } ?: return
+        val setlistSongs = runCatching {
+            setlistFm.artistSetlists(mbid).setlist.firstOrNull { it.performed().isNotEmpty() }
+                ?.performed().orEmpty().map { it.name }
+        }.getOrDefault(emptyList())
+        val fallback = if (setlistSongs.isEmpty()) {
+            runCatching { musicBrainz.catalogue(mbid) }.getOrDefault(emptyList())
+        } else emptyList()
+        val fill = tourSetlistFill(setlistSongs, fallback, logFor(gig.id).named())
+        if (fill.titles.isEmpty()) return
+        val filled = gig.copy(sets = FmSets(listOf(FmSet(song = fill.titles.map { FmSong(name = it) }))))
+        timelines.savePlanned(filled)
+        _state.update {
+            it.copy(
+                selectedSetlist = filled,
+                plannedGigs = it.plannedGigs.map { planned -> if (planned.id == gig.id) filled else planned },
+            )
+        }
+        dispatchTour(TourEvent.SetlistFilled)
     }
 
     fun tourNow(realNow: LocalDateTime = LocalDateTime.now()): LocalDateTime = _state.value.tour.now(realNow)
@@ -3058,7 +3123,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * cannot say whether the third entry was deleted or renamed. The intent is what
      * keeps the two lists parallel, and [StoredLog] is the one place that does it.
      */
-    fun addToLog(gigId: String, song: String) = writeLog(gigId) { it.adding(song) }
+    fun addToLog(gigId: String, song: String) {
+        val step = _state.value.tour.step
+        writeLog(gigId) { it.adding(song) }
+        when {
+            step == TourStep.S14 && song.isNotBlank() -> dispatchTour(TourEvent.LogEntryWritten)
+            step == TourStep.S15 && song.isBlank() -> dispatchTour(TourEvent.GapRecorded)
+            step == TourStep.S16 && song.isNotBlank() -> dispatchTour(TourEvent.GossipSent)
+        }
+    }
 
     fun removeFromLog(gigId: String, index: Int) = writeLog(gigId) { it.removingAt(index) }
 
@@ -3082,11 +3155,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun writeLog(gigId: String, edit: (StoredLog) -> StoredLog) {
         val before = logFor(gigId)
         val updated = edit(before)
+        val localOnlyTour = _state.value.tour.step in setOf(TourStep.S14, TourStep.S15, TourStep.S16)
         _state.update { it.copy(logsByGig = it.logsByGig + (gigId to updated)) }
         viewModelScope.launch {
             timelines.saveLog(gigId, updated)
-            withContext(Dispatchers.IO) { publishLog(gigId, before, updated) }
-            syncGossip()
+            if (!localOnlyTour) {
+                withContext(Dispatchers.IO) { publishLog(gigId, before, updated) }
+                syncGossip()
+            }
         }
     }
 
