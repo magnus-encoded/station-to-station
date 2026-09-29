@@ -2002,10 +2002,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * always real; what was missing was a way onto it, because both affordances on
      * the empty spine led to setlist.fm.
      *
-     * **Attendance is ATTENDED, never CHECKED_IN.** Typing a night in is a claim
-     * about the past made now; a check-in is a claim the phone corroborated at the
-     * venue on the night. Recording the two as the same thing would make the
-     * provenance the Room shows a lie, which is the one thing this path must not do.
+     * **A past night is ATTENDED, never CHECKED_IN.** Typing in a night that has
+     * already happened is a claim about the past made now; a check-in is a claim
+     * the phone corroborated at the venue on the night, and recording the two as
+     * the same thing would make the provenance the Room shows a lie.
+     *
+     * **A night still on is PLANNED, exactly like any other gig on the day of it.**
+     * "Tonight" typed in by hand is not evidence I was there yet — it is the same
+     * not-yet-confirmed claim `addPlannedGigByHand` writes for a gig further out,
+     * and it earns the same offer: `canCheckInManually` (CheckIn.kt) gates on the
+     * night's window, never on location, so a local gig with no venue to geocode
+     * gets the "I'm here — check in" prompt exactly as readily as one that came
+     * from setlist.fm. That is what turns "typed in" into a CHECKED_IN with a real
+     * timestamp, instead of inventing one at entry time.
      *
      * A blank venue stays blank rather than becoming "": an unknown room is not a
      * place two gigs have in common, and `localGigSetlist` is careful about that.
@@ -2016,12 +2025,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(errorKind = null, error = "A night needs who played and a date as dd-MM-yyyy (or yyyy-mm-dd).") }
             return false
         }
+        val stillOn = !night.isBefore(LocalDate.now())
         viewModelScope.launch {
             val gigId = timelines.createLocalGig(fmDate(night), artist.trim(), venue.trim())
             val gig = localGigSetlist(gigId, artist.trim(), night, venue.trim(), city = "")
-            val attendance = StoredAttendance(provenance = StoredAttendance.Provenance.ATTENDED)
-            timelines.savePlanned(gig)
-            timelines.saveAttendance(gigId, attendance)
+            val attendance = if (stillOn) {
+                timelines.savePlanned(gig)
+            } else {
+                timelines.savePlanned(gig)
+                StoredAttendance(provenance = StoredAttendance.Provenance.ATTENDED).also {
+                    timelines.saveAttendance(gigId, it)
+                }
+            }
             _state.update {
                 it.copy(
                     plannedGigs = sortedPlanned(it.plannedGigs + gig),

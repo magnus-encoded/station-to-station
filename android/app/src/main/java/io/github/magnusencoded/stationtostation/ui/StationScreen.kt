@@ -3353,7 +3353,12 @@ fun StationEventScreen(
     val convertible = setlist != null &&
         (setlist.performed().isNotEmpty() || (log.closed && log.named().isNotEmpty()))
     val localGig = setlist != null && setlist.isLocal()
-    val canLog = setlist != null && (checkedIn || localGig)
+    // A local gig only skips the check-in gate once it is actually attendance, not
+    // merely a plan — "tonight" typed in by hand is PLANNED until checked into, same
+    // as any other gig on the day of it (see AppViewModel.addLocalGig), so a local
+    // gig still `planned` has to fall through to the check-in branch below exactly
+    // like one that came from setlist.fm would.
+    val canLog = setlist != null && (checkedIn || (localGig && !planned))
     // Whose catalogue to offer when correcting an entry: the night's own setlist.fm
     // record. Hoisted above the Log editor because the pull-to-refresh curtain
     // (below) needs the same answer.
