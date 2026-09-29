@@ -407,6 +407,10 @@ fun AppNavigation(viewModel: AppViewModel) {
                     viewModel.dispatchTour(event)
                     navController.popBackStack("timeline", inclusive = false)
                 },
+                onRetryTourSpotify = {
+                    viewModel.prepareTourSpotifyRetry()
+                    navController.navigate("confirm")
+                },
             )
         }
         composable("handover") {

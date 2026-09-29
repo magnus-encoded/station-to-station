@@ -97,6 +97,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.magnusencoded.stationtostation.AppViewModel
 import io.github.magnusencoded.stationtostation.CoverCandidate
 import io.github.magnusencoded.stationtostation.SongMatch
+import io.github.magnusencoded.stationtostation.data.TourStep
 import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
 import io.github.magnusencoded.stationtostation.data.spotify.SpotifyTrack
 import kotlinx.coroutines.launch
@@ -197,6 +198,15 @@ private fun ConfirmScreenContent(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             Column(Modifier.padding(16.dp)) {
+                if (state.tour.step == TourStep.S19) {
+                    TextButton(
+                        onClick = {
+                            viewModel.declineTourSpotify()
+                            onBack()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Not now") }
+                }
                 if (!state.spotifyConnected) {
                     Button(
                         onClick = {

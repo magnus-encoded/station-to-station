@@ -5,6 +5,8 @@ import io.github.magnusencoded.stationtostation.data.TourEvent
 import io.github.magnusencoded.stationtostation.data.TourState
 import io.github.magnusencoded.stationtostation.data.TourStep
 import io.github.magnusencoded.stationtostation.data.runTour
+import io.github.magnusencoded.stationtostation.data.tourPlaylistDescription
+import io.github.magnusencoded.stationtostation.data.tourPlaylistName
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -120,6 +122,28 @@ class TourScriptTest {
         assertEquals(TourStep.S19, attached.state.step)
         assertEquals(TourCommand.DeliverFriendSelfie, attached.commands.first())
         assertTrue(attached.commands.contains(TourCommand.ShowCoachMark(TourStep.S19)))
+    }
+
+    @Test fun `Spotify export finishes and decline leaves a retry that export clears`() {
+        val atSpotify = statesAtEveryInteractiveStep().single { it.step == TourStep.S19 }
+        val declined = runTour(atSpotify, TourEvent.SpotifyDeclined)
+        assertTrue(declined.state.finished)
+        assertTrue(declined.state.pendingSpotifyRetry)
+        assertEquals(listOf(TourCommand.PurgeDemoWorld, TourCommand.MarkTourFinished), declined.commands)
+
+        val retried = runTour(declined.state, TourEvent.SpotifyExported)
+        assertFalse(retried.state.pendingSpotifyRetry)
+        assertTrue(retried.commands.isEmpty())
+
+        val exported = runTour(atSpotify, TourEvent.SpotifyExported)
+        assertTrue(exported.state.finished)
+        assertFalse(exported.state.pendingSpotifyRetry)
+        assertEquals(listOf(TourCommand.PurgeDemoWorld, TourCommand.MarkTourFinished), exported.commands)
+    }
+
+    @Test fun `Tour playlist metadata uses explicit placeholder friend copy`() {
+        assertEquals("Went to a gig with Virtual friend", tourPlaylistName())
+        assertEquals("Tour complete: went to a gig with Virtual friend.", tourPlaylistDescription())
     }
 
     private data class TourTransitionSnapshot(val state: TourState, val commands: List<TourCommand>)

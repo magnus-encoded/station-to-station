@@ -4,6 +4,12 @@ import java.time.LocalDateTime
 
 data class TourSetlistFill(val titles: List<String>, val usedSetlistFm: Boolean)
 
+/** Placeholder identity/writing until #607 supplies the final Virtual friend. */
+const val TOUR_FRIEND_NAME = "Virtual friend"
+fun tourPlaylistName(friendName: String = TOUR_FRIEND_NAME) = "Went to a gig with $friendName"
+fun tourPlaylistDescription(friendName: String = TOUR_FRIEND_NAME) =
+    "Tour complete: went to a gig with $friendName."
+
 /** Chooses one real source, removes the user's entries and recording-title duplicates. */
 fun tourSetlistFill(
     setlistFm: List<String>,
