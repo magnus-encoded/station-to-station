@@ -1033,6 +1033,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     is TourCommand.AdvanceDemoClock -> advanceDemoClock(command.moment)
                     TourCommand.DeliverGossip -> deliverTourGossip()
                     TourCommand.FillSetlist -> fillTourSetlist()
+                    TourCommand.DeliverFriendSelfie -> deliverTourFriendSelfie()
                     else -> Unit // Later Tour slices own their platform side effects.
                 }
             }
@@ -1113,6 +1114,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         dispatchTour(TourEvent.SetlistFilled)
     }
 
+    /** Adds the Tour friend's placeholder as received media, without starting the radio. */
+    private suspend fun deliverTourFriendSelfie() {
+        val gig = _state.value.selectedSetlist ?: return
+        val id = "tour-friend-selfie-${_state.value.tour.demoWorld}"
+        if (_state.value.mediaBySetlist[gig.id].orEmpty().any { it.id == id }) return
+        val ref = photos.createTourFriendSelfie(id) ?: return
+        if (!photos.generateThumbnails(id, ref)) {
+            photos.deleteOwnedBytes(id, ref.toString())
+            return
+        }
+        val received = StoredMedia(
+            id = id,
+            kind = StoredMedia.Kind.PHOTO,
+            ref = ref.toString(),
+            capturedAt = System.currentTimeMillis(),
+            from = "tour-virtual-friend",
+            personal = false,
+        )
+        val held = _state.value.mediaBySetlist[gig.id].orEmpty()
+        setGigMedia(gig.id, bandsOf(held + received).let { it.shared + it.received + it.vault })
+    }
+
     fun tourNow(realNow: LocalDateTime = LocalDateTime.now()): LocalDateTime = _state.value.tour.now(realNow)
 
     fun offerTourWhenOnline() = dispatchTour(TourEvent.Started(getApplication<Application>().isOnline()))
@@ -1138,7 +1161,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Demo-tagged app data goes; the system's permission grants remain untouched. */
     private suspend fun purgeDemoWorld() {
-        val demoIds = timelines.load().gigs.values.filter { it.demo }.mapTo(mutableSetOf()) { it.id }
+        val timeline = timelines.load()
+        val demoIds = timeline.gigs.values.filter { it.demo }.mapTo(mutableSetOf()) { it.id }
+        val demoMedia = demoIds.flatMap { timeline.gigMedia[it].orEmpty() }
         withContext(Dispatchers.IO) {
             demoIds.mapNotNull { _state.value.calendarEventByGig[it] }.forEach {
                 deleteCalendarEvent(getApplication<Application>().contentResolver, it)
@@ -1146,6 +1171,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         val demoFriends = _state.value.friends.filter { it.demo }
         timelines.purgeDemoWorld()
+        demoMedia.forEach { photos.deleteOwnedBytes(it.id, it.ref) }
         val friends = _state.value.friends.withoutDemoFriends()
         settings.saveFriends(friends)
         _state.update { state ->
@@ -3811,12 +3837,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun addPickedGigPhotos(setlistId: String, uris: List<Uri>, band: Band = Band.VAULT) {
         viewModelScope.launch {
             val had = _state.value.mediaBySetlist[setlistId].orEmpty()
-            attach(
+            val attached = attach(
                 setlistId,
                 had,
                 uris.mapNotNull { picked -> photos.persistCopy(picked)?.let { it to picked } },
                 band,
             )
+            if (attached && _state.value.tour.step == TourStep.S18) dispatchTour(TourEvent.MediaAdded)
         }
     }
 
@@ -3838,7 +3865,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         had: List<StoredMedia>,
         wanted: List<Pair<Uri, Uri>>,
         band: Band,
-    ) {
+    ): Boolean {
         val fresh = mutableListOf<StoredMedia>()
         var failed = 0
         for ((ref, from) in wanted) {
@@ -3868,6 +3895,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         }
+        return fresh.isNotEmpty()
     }
 
     fun removeGigPhoto(setlistId: String, uri: Uri) {

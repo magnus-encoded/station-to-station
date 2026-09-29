@@ -141,7 +141,11 @@ fun runTour(state: TourState, event: TourEvent): TourTransition {
         demoVenueLat = exchanged?.latitude ?: state.demoVenueLat,
         demoVenueLon = exchanged?.longitude ?: state.demoVenueLon,
     )
-    return if (next == TourStep.S20) finish(moved.copy(step = TourStep.S20)) else enter(moved, next!!)
+    if (next == TourStep.S20) return finish(moved.copy(step = TourStep.S20))
+    val entered = enter(moved, next!!)
+    return if (state.step == TourStep.S18 && event == TourEvent.MediaAdded) {
+        entered.copy(commands = listOf(TourCommand.DeliverFriendSelfie) + entered.commands)
+    } else entered
 }
 
 private fun enter(state: TourState, step: TourStep): TourTransition {
