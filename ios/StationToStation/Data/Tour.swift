@@ -53,6 +53,8 @@ struct TourState: Codable, Equatable {
     var demoBandName: String?
     var demoBandMbid: String?
     var demoGigID: String?
+    var demoVenueLat: Double?
+    var demoVenueLon: Double?
 
     static let unstarted = TourState()
     var isRunning: Bool { step != nil && !finished }
