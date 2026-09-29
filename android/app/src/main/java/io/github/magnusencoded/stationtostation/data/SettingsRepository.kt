@@ -67,6 +67,7 @@ class SettingsRepository(private val context: Context) {
         val TOUR_RETURNED_FROM_PHOTOS = booleanPreferencesKey("tour_returned_from_photos")
         val TOUR_DEMO_VENUE_LAT = doublePreferencesKey("tour_demo_venue_lat")
         val TOUR_DEMO_VENUE_LON = doublePreferencesKey("tour_demo_venue_lon")
+        val TOUR_DEMO_NOW = stringPreferencesKey("tour_demo_now")
     }
 
     /**
@@ -127,6 +128,7 @@ class SettingsRepository(private val context: Context) {
             returnedFromPhotos = prefs[Keys.TOUR_RETURNED_FROM_PHOTOS] ?: false,
             demoVenueLat = prefs[Keys.TOUR_DEMO_VENUE_LAT],
             demoVenueLon = prefs[Keys.TOUR_DEMO_VENUE_LON],
+            demoNow = prefs[Keys.TOUR_DEMO_NOW],
         )
     }
 
@@ -149,6 +151,8 @@ class SettingsRepository(private val context: Context) {
                 ?: prefs.remove(Keys.TOUR_DEMO_VENUE_LAT)
             state.demoVenueLon?.let { prefs[Keys.TOUR_DEMO_VENUE_LON] = it }
                 ?: prefs.remove(Keys.TOUR_DEMO_VENUE_LON)
+            state.demoNow?.let { prefs[Keys.TOUR_DEMO_NOW] = it }
+                ?: prefs.remove(Keys.TOUR_DEMO_NOW)
         }
     }
 

@@ -232,7 +232,6 @@ import io.github.magnusencoded.stationtostation.ui.flyover.collectionBillboard
 import io.github.magnusencoded.stationtostation.ui.flyover.collectionFlyoverGigs
 import io.github.magnusencoded.stationtostation.ui.flyover.collectionMedia
 import kotlinx.coroutines.launch
-import java.time.LocalDateTime
 import kotlin.math.roundToInt
 
 // Station to Station — the timeline face of the app.
@@ -4290,7 +4289,8 @@ fun StationEventScreen(
     // The phase and the curtain come off the same value as the offers, so they cannot
     // disagree. The alcove is still not dispatched from — the swipe's action order is
     // a separate, deliberately deferred change (#129).
-    val offers = gigOffers(gigAsKnown, LocalDateTime.now())
+    val now = viewModel.tourNow()
+    val offers = gigOffers(gigAsKnown, now)
     val leaf = offers.phase
     // What pulling the curtain down asks for, decided by the same fold that draws the
     // chip — never the same request on a night three weeks away, a night being stood
@@ -4382,7 +4382,7 @@ fun StationEventScreen(
         if (band == Band.SHARED && wasKept) maybes.firstOrNull()?.let { askingMaybe = it }
     }
 
-    val plannedTimeState = if (planned) setlist?.localDate()?.let { gigTimeState(LocalDateTime.now(), it) } else null
+    val plannedTimeState = if (planned) setlist?.localDate()?.let { gigTimeState(now, it) } else null
     val planAhead = planned &&
         plannedTimeState != GigTimeState.PAST && plannedTimeState != GigTimeState.DAY_OF
     // The insert is a couple of binder calls, so it runs off the main thread; success
@@ -4520,7 +4520,7 @@ fun StationEventScreen(
                 // it's still ahead, check in on the night, nudge setlist.fm once it's
                 // over. An unparseable date can't be placed on that line, so it falls
                 // to the plan-ahead actions rather than losing them.
-                val timeState = setlist.localDate()?.let { gigTimeState(LocalDateTime.now(), it) }
+                val timeState = setlist.localDate()?.let { gigTimeState(now, it) }
                 Column(
                     Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -4532,10 +4532,15 @@ fun StationEventScreen(
                     // is attached, not held back until the day-of check-in window the
                     // way the offer to check in is.
                     val admissions = state.attendanceByGig[setlist.id]?.admissions.orEmpty()
+                    LaunchedEffect(state.tour.step, setlist.id, admissions.size) {
+                        if (state.tour.step == TourStep.S12 && admissions.isNotEmpty()) {
+                            viewModel.dispatchTour(TourEvent.TicketShown)
+                        }
+                    }
                     // The manual check-in, and the only one there is when location was
                     // refused or the venue couldn't be geocoded. Same night window as
                     // the ambient offer; no location involved at all.
-                    if (canCheckInManually(setlist, LocalDateTime.now())) {
+                    if (canCheckInManually(setlist, now)) {
                         if (checkedIn) {
                             presenceRow()
                         } else {
@@ -4575,6 +4580,22 @@ fun StationEventScreen(
                         // grammar as the Spotify convert, where the made-playlist link
                         // persists and the hint moves on to "make another".
                         else -> {
+                            if (state.tour.step == TourStep.S11) {
+                                val demoQuery = state.tour.demoVenueLat?.let { lat ->
+                                    state.tour.demoVenueLon?.let { lon -> "$lat,$lon" }
+                                }
+                                if (demoQuery != null) {
+                                    Text(
+                                        "Open the venue in maps ↗",
+                                        color = Amber,
+                                        fontSize = 13.sp,
+                                        modifier = Modifier.clickable {
+                                            openVenueInMaps(context, demoQuery)
+                                            viewModel.dispatchTour(TourEvent.MapsOpened)
+                                        }.padding(vertical = 6.dp),
+                                    )
+                                }
+                            }
                             if (calendarEventUri != null) {
                                 // The created event, as a persisted tappable link — the
                                 // mirror of a made-playlist row. Opens the event with
