@@ -187,19 +187,41 @@ struct StationToStationApp: App {
 /// friend's final character and writing are human-owned (#607).
 private struct TourCoachMarkView: View {
     @EnvironmentObject var model: AppModel
+    @State private var bandQuery = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(model.state.tour.step == .line ? "Your line runs through time." : "Tour")
+            Text(title)
                 .font(.headline)
-            Text("Virtual friend")
+            Text(detail)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            if model.state.tour.step == .band {
+                TextField("A band you like", text: $bandQuery)
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: bandQuery) { model.suggestArtists($0) }
+                ForEach(model.state.artistSuggestions) { artist in
+                    Button {
+                        bandQuery = artist.name
+                        model.pickTourBand(artist)
+                    } label: {
+                        VStack(alignment: .leading) {
+                            Text(artist.name)
+                            if !artist.disambiguation.isEmpty {
+                                Text(artist.disambiguation).font(.caption2)
+                            }
+                        }
+                    }
+                }
+            }
             HStack {
                 Button("Skip") { model.skipTour() }
                 Spacer()
                 if model.state.tour.step == .line {
                     Button("Got it") { model.sendTourEvent(.acknowledged) }
+                        .buttonStyle(.borderedProminent)
+                } else if model.state.tour.step == .addGig {
+                    Button("Add the gig") { model.addTourGig() }
                         .buttonStyle(.borderedProminent)
                 }
             }
@@ -208,6 +230,24 @@ private struct TourCoachMarkView: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
         .padding()
         .accessibilityElement(children: .contain)
+    }
+
+    private var title: String {
+        switch model.state.tour.step {
+        case .line: return "Your line runs through time."
+        case .curtain: return "Pull down to plan a gig."
+        case .band: return "Who should we go and see?"
+        case .addGig: return "Add this gig to your line."
+        case .room: return "Tap the gig to open its Room."
+        case .swipeBack: return "Swipe right to go back."
+        default: return "Tour"
+        }
+    }
+
+    private var detail: String {
+        model.state.tour.step == .band
+            ? "MusicBrainz is an open music catalogue; choose the artist you mean."
+            : "Virtual friend"
     }
 }
 

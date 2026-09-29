@@ -79,6 +79,46 @@ final class TourScriptTests: XCTestCase {
         XCTAssertEqual(runTour(started, .gigAdded), TourTransition(state: started, commands: []))
     }
 
+    func testAddTheGigStepsWaitForTheirActualGesturesInOrder() {
+        var state = runTour(.unstarted, .started(online: true)).state
+        state = runTour(state, .acknowledged).state
+        XCTAssertEqual(state.step, .curtain)
+
+        for early in [TourEvent.bandPicked("Low"), .gigAdded, .roomOpened, .swipedBack] {
+            XCTAssertEqual(runTour(state, early).state, state)
+        }
+        state = runTour(state, .curtainPulled).state
+        XCTAssertEqual(state.step, .band)
+        state = runTour(state, .bandPicked("Low")).state
+        XCTAssertEqual(state.step, .addGig)
+        XCTAssertEqual(state.demoBandName, "Low")
+        state = runTour(state, .gigAdded).state
+        XCTAssertEqual(state.step, .room)
+        state = runTour(state, .roomOpened).state
+        XCTAssertEqual(state.step, .swipeBack)
+        state = runTour(state, .swipedBack).state
+        XCTAssertEqual(state.step, .exchange)
+    }
+
+    func testDemoGigUsesThePickedMusicBrainzArtistAndDemoWorldIdentity() {
+        let world = UUID(uuidString: "00000000-0000-0000-0000-000000000592")!
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let date = Date(timeIntervalSince1970: 1_800_000_000)
+
+        let gig = tourDemoGig(
+            worldID: world,
+            artist: MbArtist(name: "Low", mbid: "mb-low"),
+            date: date,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(gig.id, "tour-00000000-0000-0000-0000-000000000592")
+        XCTAssertEqual(gig.artist?.name, "Low")
+        XCTAssertEqual(gig.artist?.mbid, "mb-low")
+        XCTAssertNil(gig.url)
+    }
+
     func testSkipPurgesOnlyThisDemoWorld() {
         let thisWorld = UUID(), anotherWorld = UUID()
         let records = [
@@ -87,5 +127,14 @@ final class TourScriptTests: XCTestCase {
             DemoRecord(id: "other", demoTag: DemoTag(worldID: anotherWorld)),
         ]
         XCTAssertEqual(purgeDemoWorld(records, worldID: thisWorld).map(\.id), ["real", "other"])
+    }
+
+    func testPurgeRemovesTheDemoGigFromTheLineAndLeavesRealGigs() {
+        let world = UUID()
+        let real = localGigSetlist(gigId: "real", artist: "Real", date: "01-10-2026", venue: "", city: "")
+        let demo = localGigSetlist(gigId: "demo", artist: "Demo", date: "02-10-2026", venue: "", city: "")
+        let records = [DemoRecord(id: demo.id, demoTag: DemoTag(worldID: world))]
+
+        XCTAssertEqual(purgeDemoGigs([real, demo], records: records, worldID: world).map(\.id), ["real"])
     }
 }

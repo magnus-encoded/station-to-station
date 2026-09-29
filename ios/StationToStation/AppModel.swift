@@ -1315,12 +1315,48 @@ final class AppModel: ObservableObject {
     func replayTour() { sendTourEvent(.replayRequested) }
     func skipTour() { sendTourEvent(.skipped) }
 
+    /// Pick one of MusicBrainz's real results; its identity follows the demo Gig so
+    /// later Tour steps can fetch recordings for precisely the artist chosen here.
+    func pickTourBand(_ artist: MbArtist) {
+        guard state.tour.step == .band else { return }
+        clearArtistSuggestions()
+        state.tour.demoBandMbid = artist.mbid
+        sendTourEvent(.bandPicked(artist.name))
+    }
+
+    /// Put the Tour night on the real future lane, tagged to this Demo world. It is
+    /// deliberately in-memory until the Demo-world store lands; Skip and End remove
+    /// it through the same tag rather than relying on a magic id prefix.
+    func addTourGig(now: Date = Date()) {
+        guard state.tour.step == .addGig,
+              let world = state.tour.demoWorldID,
+              let name = state.tour.demoBandName else { return }
+        let artist = MbArtist(name: name, mbid: state.tour.demoBandMbid ?? "")
+        let gig = tourDemoGig(
+            worldID: world,
+            artist: artist,
+            date: Calendar.current.date(byAdding: .day, value: 7, to: now) ?? now
+        )
+        state.tour.demoGigID = gig.id
+        state.demoRecords.append(DemoRecord(id: gig.id, demoTag: DemoTag(worldID: world)))
+        state.attendanceByGig[gig.id] = StoredAttendance()
+        state.plannedGigs = sortedPlanned(state.plannedGigs.filter { $0.id != gig.id } + [gig])
+        sendTourEvent(.gigAdded)
+    }
+
     private func applyTour(_ event: TourEvent) { acceptTour(runTour(state.tour, event)) }
 
     private func acceptTour(_ transition: TourTransition) {
         state.tour = transition.state
         state.tourCommands = transition.commands
         if transition.commands.contains(.purgeDemoWorld), let world = state.tour.demoWorldID {
+            let ids = Set(state.demoRecords.filter { $0.demoTag?.worldID == world }.map(\.id))
+            state.plannedGigs = purgeDemoGigs(state.plannedGigs, records: state.demoRecords, worldID: world)
+            state.timelineShows = purgeDemoGigs(state.timelineShows, records: state.demoRecords, worldID: world)
+            for id in ids { state.attendanceByGig[id] = nil }
+            if let selected = state.selectedSetlist, ids.contains(selected.id) {
+                state.selectedSetlist = nil
+            }
             state.demoRecords = purgeDemoWorld(state.demoRecords, worldID: world)
         }
         settings.saveTourState(state.tour)
