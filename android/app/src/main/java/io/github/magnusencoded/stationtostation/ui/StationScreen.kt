@@ -3496,10 +3496,11 @@ fun StationEventScreen(
                 ) {
                     Text(
                         when (leaf) {
-                            // "above" was true when the editor sat over the set. The
-                            // entries are the set now and the way in is under it (#268).
-                            GigLeaf.CAPTURE -> "noting the set — add what they play below"
-                            else -> "your log · add anything you remember below"
+                            // This copy sits in the bottom bar, under the scrolling
+                            // content that holds the entry field (#268), so "below" was
+                            // backwards from where a reader's eyes actually are.
+                            GigLeaf.CAPTURE -> "noting the set — add what they play above"
+                            else -> "your log · add anything you remember above"
                         },
                         color = Faint,
                         fontSize = 12.sp,
@@ -3938,11 +3939,18 @@ fun StationEventScreen(
                                 // has an id. Not "self-reported", which describes how
                                 // nearly every claim here was made and so marks nothing.
                                 //
-                                // Deliberately inert. `/edit` shows a signed-out user a
-                                // sign-in wall, and #34 is explicit that a dead-end link
-                                // is worse than no crumb — so the absence is stated and
-                                // the labelled action below is the door.
-                                EventTag("local", color = Faint)
+                                // Tapping it is the door, not a dead end: there is no
+                                // setlist.fm data to show for a record that only exists
+                                // here, so the one thing worth doing with the tap is
+                                // exactly what a local night's other "paste the link"
+                                // affordance already does — adopt the id once setlist.fm
+                                // has caught up.
+                                EventTag(
+                                    "local",
+                                    color = Faint,
+                                    onClick = { adopting = true },
+                                    label = "Paste the setlist.fm link for this night",
+                                )
                             }
                         }
                         // Nothing can be pinned to a night nobody has been to yet — the
