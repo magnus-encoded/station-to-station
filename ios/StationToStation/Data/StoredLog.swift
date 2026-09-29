@@ -151,6 +151,17 @@ struct StoredLog: Codable, Equatable {
             lineNumbers: lineNumbers, nextLineNumber: nextLineNumber)
     }
 
+    /// A received, signed Log fact may name a Gap. This is deliberately separate
+    /// from correction: the blank remains something the user recorded, and only a
+    /// received title is allowed to fill it.
+    func fillingGapAt(_ i: Int, title: String) -> StoredLog {
+        guard i >= 0, i < songs.count, songs[i].isBlank, !title.isBlank else { return self }
+        var s = songs
+        s[i] = title
+        return StoredLog(songs: s, closed: closed, remembered: aligned(), enteredAt: alignedTimestamps(),
+            completedAt: completedAt, lineNumbers: lineNumbers, nextLineNumber: nextLineNumber)
+    }
+
     /// The words come back as the entry. A wrong correction is never a one-way door.
     func restoringAt(_ i: Int) -> StoredLog {
         guard let line = rememberedAt(i) else { return self }

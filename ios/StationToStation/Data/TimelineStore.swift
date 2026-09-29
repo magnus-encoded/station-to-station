@@ -1140,6 +1140,7 @@ actor TimelineStore {
             c.shows = c.shows
                 .filter { !laneKeys.contains($0.key) }
                 .mapValues { $0.filter { !gigIDs.contains($0.id) } }
+            c.publicGossip = c.publicGossip.withoutGigs(gigIDs)
             return c
         }
     }
