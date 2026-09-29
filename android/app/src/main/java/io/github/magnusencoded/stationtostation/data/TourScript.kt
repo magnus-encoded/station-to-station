@@ -2,6 +2,26 @@ package io.github.magnusencoded.stationtostation.data
 
 import java.time.LocalDateTime
 
+data class TourSetlistFill(val titles: List<String>, val usedSetlistFm: Boolean)
+
+/** Chooses one real source, removes the user's entries and recording-title duplicates. */
+fun tourSetlistFill(
+    setlistFm: List<String>,
+    musicBrainz: List<String>,
+    entered: List<String>,
+    target: Int = 10,
+): TourSetlistFill {
+    val fromSetlistFm = setlistFm.any { it.isNotBlank() }
+    val source = if (fromSetlistFm) setlistFm else musicBrainz
+    val room = (target - entered.count { it.isNotBlank() }).coerceAtLeast(0)
+    val titles = source.filter { it.isNotBlank() }
+        .fold(mutableListOf<String>()) { kept, title ->
+            if (entered.none { sameSong(it, title) } && kept.none { sameSong(it, title) }) kept += title
+            kept
+        }.take(room)
+    return TourSetlistFill(titles, fromSetlistFm)
+}
+
 /** The saved position of the first-run Tour. Pure data; the UI only renders commands. */
 data class TourState(
     val step: TourStep? = null,

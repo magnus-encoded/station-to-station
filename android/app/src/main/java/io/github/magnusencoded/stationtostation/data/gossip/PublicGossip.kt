@@ -676,3 +676,18 @@ fun weaveGossip(base: List<String?>, facts: List<GossipEnvelope>): List<GossipLo
     }
     return rows
 }
+
+/** Removes the night-scoped facts and keys belonging to a disposable Demo world. */
+fun PublicGossipState.withoutGigs(gigIds: Set<String>): PublicGossipState {
+    val removed = facts.values.filter { it.gigId in gigIds || it.formerIds.any(gigIds::contains) }
+    val factIds = removed.mapTo(mutableSetOf()) { it.id }
+    val authors = removed.mapTo(mutableSetOf()) { it.author }
+    return copy(
+        facts = facts.filterKeys { it !in factIds }.toMutableMap(),
+        seen = seen.filterKeys { it !in factIds }.toMutableMap(),
+        held = held.filterKeys { it !in factIds }.toMutableMap(),
+        recognition = recognition.filterKeys { it !in authors }.toMutableMap(),
+        contactNames = contactNames.filterKeys { it !in recognition.filterKeys { key -> key in authors }.values }.toMutableMap(),
+        localAuthors = localAuthors.filterNotTo(mutableSetOf()) { it in authors },
+    )
+}

@@ -3,6 +3,7 @@ package io.github.magnusencoded.stationtostation.data
 import android.content.Context
 import android.net.Uri
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
+import io.github.magnusencoded.stationtostation.data.gossip.withoutGigs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -1520,6 +1521,7 @@ internal fun TimelineCache.withoutDemoWorld(): TimelineCache {
         gigMedia = gigMedia - demoIds,
         gigLogs = gigLogs - demoIds,
         gigSongOffsets = gigSongOffsets - demoIds,
+        publicGossip = publicGossip.withoutGigs(demoSetlistIds),
         // The exported Spotify playlist is the keepsake, so its record survives too.
         gigPlaylists = gigPlaylists,
     )
