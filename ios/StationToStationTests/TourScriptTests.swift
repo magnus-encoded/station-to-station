@@ -137,4 +137,66 @@ final class TourScriptTests: XCTestCase {
 
         XCTAssertEqual(purgeDemoGigs([real, demo], records: records, worldID: world).map(\.id), ["real"])
     }
+
+    func testMeetFriendStepsWaitForExchangeThenPinchThenTicket() {
+        var state = runTour(.unstarted, .started(online: true)).state
+        for events in progress.prefix(6) {
+            state = events.reduce(state) { runTour($0, $1).state }
+        }
+        XCTAssertEqual(state.step, .exchange)
+        XCTAssertEqual(runTour(state, .pinchedOut).state, state)
+        XCTAssertEqual(runTour(state, .ticketImported).state, state)
+
+        state.demoVenueLat = 59.91
+        state.demoVenueLon = 10.75
+        state = runTour(state, .contactExchanged(location: "59.91,10.75")).state
+        XCTAssertEqual(state.step, .timelines)
+        let ticket = runTour(state, .pinchedOut)
+        XCTAssertEqual(ticket.state.step, .ticket)
+        XCTAssertTrue(ticket.commands.contains {
+            if case .importDemoTicket = $0 { return true }
+            return false
+        })
+        XCTAssertEqual(runTour(ticket.state, .ticketImported).state.step, .calendar)
+    }
+
+    func testDemoFriendTagIsOptionalForOldContactsAndPurgeIsScoped() throws {
+        let old = try JSONDecoder().decode(
+            Friend.self,
+            from: Data(#"{"setlistfm":"real","name":"Real"}"#.utf8))
+        let demo = Friend(setlistfm: "tour-virtual-friend", name: "Virtual friend", demo: true)
+        XCTAssertNil(old.demo)
+        XCTAssertEqual(withoutDemoFriends([old, demo]), [old])
+    }
+
+    func testDemoVenueTicketAndFriendLaneArePurgedFromTheRealStore() async throws {
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tour-594-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let store = TimelineStore(file: file)
+        let demo = localGigSetlist(gigId: "demo", artist: "Demo", date: "29-09-2026",
+                                   venue: "Demo venue", city: "")
+        let real = localGigSetlist(gigId: "real", artist: "Real", date: "30-09-2026",
+                                   venue: "Real venue", city: "")
+        _ = await store.savePlanned(demo)
+        _ = await store.savePlanned(real)
+        await store.save(shows: ["tour-virtual-friend": [demo], "real-friend": [real]])
+        _ = await store.setDemoVenue(setlistId: demo.id, latitude: 59.91, longitude: 10.75)
+        _ = await store.attachAdmissions(
+            setlistId: demo.id,
+            admissions: [StoredAdmission(payload: "dGlja2V0", symbology: qrSymbology)])
+
+        var before = await store.load()
+        XCTAssertEqual(before.attendance()[demo.id]?.venueLat, 59.91)
+        XCTAssertEqual(before.attendance()[demo.id]?.venueLon, 10.75)
+        XCTAssertEqual(before.attendance()[demo.id]?.admissions.count, 1)
+
+        await store.purgeDemoWorld(gigIDs: [demo.id], laneKeys: ["tour-virtual-friend"])
+        before = await store.load()
+        XCTAssertNil(before.attendance()[demo.id])
+        XCTAssertFalse(before.planned().contains { $0.id == demo.id })
+        XCTAssertNil(before.shows["tour-virtual-friend"])
+        XCTAssertTrue(before.planned().contains { $0.id == real.id })
+        XCTAssertEqual(before.shows["real-friend"]?.map(\.id), [real.id])
+    }
 }

@@ -240,6 +240,9 @@ private struct TourCoachMarkView: View {
         case .addGig: return "Add this gig to your line."
         case .room: return "Tap the gig to open its Room."
         case .swipeBack: return "Swipe right to go back."
+        case .exchange: return "Meet your Virtual friend."
+        case .timelines: return "Pinch out to put your lines side by side."
+        case .ticket: return "Your friend is sending the ticket."
         default: return "Tour"
         }
     }
