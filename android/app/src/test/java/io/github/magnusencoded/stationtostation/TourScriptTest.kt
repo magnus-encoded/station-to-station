@@ -108,6 +108,20 @@ class TourScriptTest {
         assertEquals(TourStep.S10, result.state.step)
     }
 
+    @Test fun `selfie round trip resumes S18 and delivers friend selfie after a real attach`() {
+        val atSelfie = statesAtEveryInteractiveStep().single { it.step == TourStep.S18 }
+
+        assertEquals(atSelfie, runTour(atSelfie, TourEvent.MediaAdded).state)
+        val returned = runTour(atSelfie, TourEvent.ReturnedFromPhotos)
+        assertEquals(TourStep.S18, returned.state.step)
+        assertTrue(returned.state.returnedFromPhotos)
+
+        val attached = runTour(returned.state, TourEvent.MediaAdded)
+        assertEquals(TourStep.S19, attached.state.step)
+        assertEquals(TourCommand.DeliverFriendSelfie, attached.commands.first())
+        assertTrue(attached.commands.contains(TourCommand.ShowCoachMark(TourStep.S19)))
+    }
+
     private data class TourTransitionSnapshot(val state: TourState, val commands: List<TourCommand>)
     private fun io.github.magnusencoded.stationtostation.data.TourTransition.snapshot() =
         TourTransitionSnapshot(state, commands)

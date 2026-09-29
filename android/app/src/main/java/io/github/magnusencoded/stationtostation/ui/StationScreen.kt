@@ -4158,7 +4158,10 @@ fun StationEventScreen(
     // gallery permission needed for that path, unlike the suggestions below.
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia()
-    ) { uris -> if (uris.isNotEmpty()) setlist?.let { viewModel.addPickedGigPhotos(it.id, uris, attachTo) } }
+    ) { uris ->
+        if (state.tour.step == TourStep.S18) viewModel.dispatchTour(TourEvent.ReturnedFromPhotos)
+        if (uris.isNotEmpty()) setlist?.let { viewModel.addPickedGigPhotos(it.id, uris, attachTo) }
+    }
     // Gallery access is only ever asked for after the "suggest" tap, so opening
     // a gig never triggers a permission prompt on its own.
     val gigSuggestPermissionLauncher = rememberLauncherForActivityResult(
