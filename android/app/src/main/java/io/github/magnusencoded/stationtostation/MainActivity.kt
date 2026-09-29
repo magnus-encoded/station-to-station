@@ -103,27 +103,21 @@ class MainActivity : ComponentActivity() {
 
     private fun handleAuthIntent(intent: Intent?) {
         val uri = intent?.data ?: return
-        // Everything now rides one scheme, station-to-station. The old setlist2spotify
-        // scheme is still accepted so links shared before the rename keep resolving.
-        // The authority tells the deep links apart from a timeline place, whose
-        // authority is a line name (see AppViewModel.openGigLink) — a line literally
-        // named friend/gig/callback would collide, which is acceptable.
-        if (uri.scheme != "station-to-station" && uri.scheme != "setlist2spotify") return
-        when (uri.authority) {
-            "friend" -> viewModel.handleFriendLink(uri)
-            // The other phone's QR, read by whatever camera app the person pointed at it
-            // — the same trick a friend card uses, and the reason there is no in-app
-            // scanner and no camera permission on the receiving side (#142).
-            "handover" -> viewModel.joinHandover(uri)
-            "gig" -> viewModel.handleGigInvite(uri)
-            "callback" -> viewModel.handleAuthRedirect(uri)
-            // A ticketing provider's own confirmation page, linking straight to a gig
-            // with the fields it already knows rather than a PDF for this app to OCR
-            // (see AppViewModel.handleTicketLink) — station-to-station://ticket?artist=
-            // …&venue=…&date=…&qr=…, embeddable in a page the same way "open in app"
-            // links from other services are.
-            "ticket" -> viewModel.handleTicketLink(uri)
-            else -> viewModel.openGigLink(uri)
+        when (val link = parseDeepLink(uri.toString())) {
+            null -> Unit
+            is LinkIntent.PassThrough -> when (link.kind) {
+                PassThroughKind.FRIEND -> viewModel.handleFriendLink(uri)
+                // The other phone's QR, read by whatever camera app the person pointed at it
+                // — the same trick a friend card uses, and the reason there is no in-app
+                // scanner and no camera permission on the receiving side.
+                PassThroughKind.HANDOVER -> viewModel.joinHandover(uri)
+                PassThroughKind.CALLBACK -> viewModel.handleAuthRedirect(uri)
+                // A ticketing provider's own confirmation page, linking straight to a gig
+                // with the fields it already knows rather than a PDF for this app to OCR
+                // (see AppViewModel.handleTicketLink).
+                PassThroughKind.TICKET -> viewModel.handleTicketLink(uri)
+            }
+            else -> viewModel.handleLink(link)
         }
     }
 
@@ -399,6 +393,22 @@ fun AppNavigation(viewModel: AppViewModel) {
                 onOpenSettings = { navController.navigate("settings") },
             )
         }
+    }
+    // A link names a screen from wherever the person is: back to the timeline first, so
+    // one command always starts from the same place.
+    val linkScreen by remember(viewModel) { viewModel.state.map { it.linkScreen } }
+        .collectAsStateWithLifecycle(null)
+    LaunchedEffect(linkScreen) {
+        val screen = linkScreen ?: return@LaunchedEffect
+        if (runCatching { navController.getBackStackEntry("timeline") }.isSuccess) {
+            navController.popBackStack("timeline", inclusive = false)
+            when (screen) {
+                LinkScreen.SETTINGS -> navController.navigate("settings")
+                LinkScreen.PROGRAMME -> navController.navigate("programme")
+                LinkScreen.TIMELINE, LinkScreen.TIMELINES -> Unit
+            }
+        }
+        viewModel.consumeLinkScreen()
     }
 }
 

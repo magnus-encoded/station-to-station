@@ -103,58 +103,50 @@ struct StationToStationApp: App {
             // Spotify's OAuth callback is handled by ASWebAuthenticationSession;
             // the app only needs to catch friend-card links here.
             .onOpenURL { url in
-                // Everything rides one scheme now, station-to-station; the old
-                // setlist2spotify scheme is still accepted so a friend card shared
-                // before the rename still opens the app. The authority tells a friend
-                // card apart from a timeline place, whose host is a line name — a line
-                // literally named "friend" would collide, which is acceptable.
-                guard url.scheme == "station-to-station" || url.scheme == "setlist2spotify"
-                else { return }
-                if url.host == "friend" {
-                    model.handleFriendLink(url)
+                switch parseDeepLink(url.absoluteString) {
+                case nil:
                     return
-                }
-                // An invite a contact sent, opening the night it names (#179). Until
-                // this, every invite an Android phone shared was dead on arrival here.
-                // The old phone's code (#142). It carries the address, the certificate
-                // to pin and the key for the transfer, which is why any camera can open
-                // it and only the phone that read it can join.
-                if url.host == "handover" {
-                    // Parsed here rather than trusting the host alone: a truncated or
-                    // hand-typed link would otherwise land the reader on the *source*
-                    // side's tick list — this phone offering to hand itself over, from a
-                    // link that asked it to receive. A link that is not an invite is not
-                    // a navigation.
+                case .passThrough(.friend, _):
+                    model.handleFriendLink(url)
+                case .passThrough(.handover, _):
+                    // The old phone's code: the address, the certificate to pin and the
+                    // key for the transfer, which is why any camera can open it and only
+                    // the phone that read it can join. Parsed before trusting the host: a
+                    // truncated or hand-typed link would land the reader on the *source*
+                    // side's tick list, this phone offering to hand itself over.
                     guard parseHandoverInvite(url.absoluteString) != nil else { return }
                     model.joinHandover(url)
                     nav.popToRoot()
                     nav.push(.handover)
-                    return
-                }
-                if url.host == "gig" {
-                    model.handleGigInvite(url) { nav.popToRoot(); nav.push(.gig) }
-                    return
-                }
-                // station-to-station://<host>/… — a Resolution reached without a
-                // gesture, so CI and a URL bar can both get to the Spine (pinch
-                // cannot be scripted). The Timeline is the root now, so routing
-                // means popping to it and setting its Resolution, not pushing.
-                //
-                //   me                         → My timeline (single Line)
-                //   fixture/<name>[/open]      → seed a bundled weave fixture; a
-                //                                fixture with Lanes lands zoomed
-                //                                out, /open uncollapses Festivals
-                nav.popToRoot()
-                let segments = url.pathComponents.filter { $0 != "/" }
-                switch url.host {
-                case "fixture":
-                    if let name = segments.first {
-                        model.loadFixture(name, open: segments.contains("open"))
+                case .passThrough:
+                    nav.popToRoot()
+                case .some(let intent):
+                    // The Timeline is the root, so routing is popping to it and setting
+                    // its Resolution, never pushing it. Pinch cannot be scripted.
+                    nav.popToRoot()
+                    switch intent {
+                    case .open(.settings, _): nav.push(.settings)
+                    case .open(.programme, _): nav.push(.programme)
+                    case .open(let screen, let date):
+                        model.openTimeline(zoomedOut: screen == .timelines, date: date)
+                    case .openGig(let id):
+                        model.openGig(id) { nav.push(.gig) }
+                    case .addGig(let artist, let venue, let date):
+                        model.openAddGig(artist: artist, venue: venue, date: date)
+                    case .writeToLog(let id, let appends, let replacements):
+                        model.openGig(id) {
+                            nav.push(.gig)
+                            model.writeToLog(appends: appends, replacements: replacements)
+                        }
+                    case .legacyPlace(let id, let at):
+                        model.openPlace(id, as: at) { nav.push(.gig) }
+                    case .me:
+                        model.setZoomedOut(false)
+                    case .fixture(let name, let open):
+                        model.loadFixture(name, open: open)
+                    case .passThrough:
+                        break
                     }
-                default:
-                    // "me", nil, or a friend's line: my own Spine. Zoomed state
-                    // is left as it is so a friend link can land on the strip.
-                    if url.host == nil || url.host == "me" { model.setZoomedOut(false) }
                 }
             }
             }

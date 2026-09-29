@@ -90,6 +90,68 @@ private struct RowsRecomputeModifier: ViewModifier {
 // Nothing made them agree. `linesAt`, `nodeHost`, `lineDrawnOffset`, `laneXf` and
 // `crossingX` are now the model's, and this file draws what they answer (#69).
 
+/// Runs `resolve` whenever a link's Gig or date is set, or the rows or Lanes it waits
+/// on change. One modifier for the same reason as `RowsRecomputeModifier`.
+private struct LinkResolveModifier: ViewModifier {
+    let gig: String?
+    let date: String?
+    let rowKeys: [String]
+    let lanesLoading: Bool
+    let resolve: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear(perform: resolve)
+            .onChange(of: gig) { _ in resolve() }
+            .onChange(of: date) { _ in resolve() }
+            .onChange(of: rowKeys) { _ in resolve() }
+            .onChange(of: lanesLoading) { _ in resolve() }
+    }
+}
+
+/// Takes an add-gig link when it arrives, and once on appearing for one that came first.
+private struct AddGigLinkModifier: ViewModifier {
+    let link: AddGigLink?
+    let take: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear(perform: take)
+            .onChange(of: link) { _ in take() }
+    }
+}
+
+/// The two add sheets, on the screen rather than on the future edge, so an add-gig link
+/// finds them wherever the list is scrolled and the empty timeline has them too.
+private struct AddGigSheets: ViewModifier {
+    @EnvironmentObject var model: AppModel
+    @Binding var planned: Bool
+    @Binding var local: Bool
+    @Binding var prefill: AddGigLink?
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: $planned) {
+                AddPlannedGigSheet(initial: prefill) { artist, venue, date in
+                    model.addPlannedGigByHand(artist: artist, venue: venue, date: date)
+                    planned = false
+                    prefill = nil
+                } onAddByLink: { link in
+                    model.addPlannedGig(link)
+                    planned = false
+                    prefill = nil
+                } onCancel: { planned = false; prefill = nil }
+            }
+            .sheet(isPresented: $local) {
+                AddLocalGigSheet(initial: prefill) { artist, venue, date in
+                    model.addLocalGig(artist: artist, venue: venue, date: date)
+                    local = false
+                    prefill = nil
+                } onCancel: { local = false; prefill = nil }
+            }
+    }
+}
+
 struct StationView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var nav: Nav
@@ -102,6 +164,8 @@ struct StationView: View {
     /// model state: it exists only while the sheet is open.
     @State private var addingPlanned = false
     @State private var addingLocal = false
+    /// What a link pre-filled the open add sheet with; nil for one opened by hand.
+    @State private var prefill: AddGigLink?
     /// Whether the legend's `+ N more` has been opened. View-local: it is where the
     /// reader left the disclosure, not a fact to remember across a launch (#396).
     @State private var legendExpanded = false
@@ -163,6 +227,8 @@ struct StationView: View {
             }
         }
         .modifier(MaybeNightAlert(asking: $askingMaybe))
+        .modifier(AddGigSheets(planned: $addingPlanned, local: $addingLocal, prefill: $prefill))
+        .modifier(AddGigLinkModifier(link: model.state.addGigLink, take: takeAddGigLink))
         .toolbar {
             // Explicit placement: iOS 16 puts an unplaced item somewhere else.
             ToolbarItem(placement: .principal) { wordmark }
@@ -306,6 +372,19 @@ struct StationView: View {
     }
 
     private var timeline: some View {
+        ScrollViewReader { proxy in
+            timelineScroll
+                .modifier(LinkResolveModifier(
+                    gig: model.state.linkedGig,
+                    date: model.state.linkedDate,
+                    rowKeys: rows.map(\.key),
+                    lanesLoading: model.state.lanesLoading,
+                    resolve: { resolveLink(proxy) }
+                ))
+        }
+    }
+
+    private var timelineScroll: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 header
@@ -469,21 +548,6 @@ struct StationView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
         .padding(.bottom, 18)
-        .sheet(isPresented: $addingPlanned) {
-            AddPlannedGigSheet { artist, venue, date in
-                model.addPlannedGigByHand(artist: artist, venue: venue, date: date)
-                addingPlanned = false
-            } onAddByLink: { link in
-                model.addPlannedGig(link)
-                addingPlanned = false
-            } onCancel: { addingPlanned = false }
-        }
-        .sheet(isPresented: $addingLocal) {
-            AddLocalGigSheet { artist, venue, date in
-                model.addLocalGig(artist: artist, venue: venue, date: date)
-                addingLocal = false
-            } onCancel: { addingLocal = false }
-        }
     }
 
     /// Several planned nights that group — a **Section** above today. Opens in place on
@@ -524,6 +588,71 @@ struct StationView: View {
     private func openGig(_ show: FmSetlist) {
         model.selectSetlist(show)
         nav.push(.gig)
+    }
+
+    /// Opens the sheet a link asked for, pre-filled. Never saves: the sheet's own
+    /// button is the only thing that does.
+    private func takeAddGigLink() {
+        guard let link = model.state.addGigLink else { return }
+        prefill = link
+        switch link.dialog {
+        case .planned: addingPlanned = true
+        case .attended: addingLocal = true
+        }
+        model.state.addGigLink = nil
+    }
+
+    /// A linked **Gig** or date becomes a place only here. One inside a collapsed
+    /// **Festival** has no row until it opens, so this may take two passes: open it,
+    /// let the rows rebuild, then scroll. A date waits for the Lanes when the weave is
+    /// open, so it does not land on the nearest **Gig** of a weave with nobody in it yet.
+    private func resolveLink(_ proxy: ScrollViewProxy) {
+        if let date = model.state.linkedDate {
+            if model.state.zoomedOut {
+                model.loadFriendTimelines()
+                if model.state.lanesLoading { return }
+            }
+            let ahead = futureRows(tickets: model.state.plannedGigs,
+                                   attendance: model.state.attendanceByGig,
+                                   festivals: model.state.festivals)
+            let shows = rows.flatMap { $0.shows + $0.showsHereByFriends }
+                + ahead.flatMap { row -> [FmSetlist] in
+                    switch row { case .ticket(let node): return node.shows }
+                }
+            let dated = shows.compactMap { show in
+                isoDate(fromFm: show.eventDate).map { (id: show.id, date: $0) }
+            }
+            model.state.linkedDate = nil
+            if let id = nearestGig(dated, to: date) {
+                model.state.linkedGig = id
+                model.state.linkedGigAs = model.state.zoomedOut ? .woven : .singleLine
+            }
+        }
+        guard let gig = model.state.linkedGig, model.state.linkedGigAs != .setlist else { return }
+        // Last, not first: an open festival lists the gig again as a row of its own below
+        // its header, and that row is the place the link means.
+        if let row = rows.last(where: { r in
+            r.shows.contains { $0.id == gig } || r.showsHereByFriends.contains { $0.id == gig }
+        }) {
+            if row.node.isSeveral && !model.state.expandedFestivals.contains(row.key) {
+                model.toggleFestival(row.key)
+                return
+            }
+            model.state.linkedGig = nil
+            model.state.linkedGigAs = nil
+            withAnimation { proxy.scrollTo(row.key, anchor: .center) }
+            return
+        }
+        let ahead = futureRows(tickets: model.state.plannedGigs,
+                               attendance: model.state.attendanceByGig,
+                               festivals: model.state.festivals)
+        if let row = ahead.first(where: { row in
+            switch row { case .ticket(let node): return node.shows.contains { $0.id == gig } }
+        }) {
+            model.state.linkedGig = nil
+            model.state.linkedGigAs = nil
+            withAnimation { proxy.scrollTo(row.id, anchor: .center) }
+        }
     }
 
     @ViewBuilder
@@ -1047,19 +1176,31 @@ private struct RowThumb: View {
 /// time would teach people to ignore the one above it. A plain field that never
 /// guesses is the honest version of a venue.
 private struct AddPlannedGigSheet: View {
+    let initial: AddGigLink?
     let onAdd: (String, String, String) -> Void
     let onAddByLink: (String) -> Void
     let onCancel: () -> Void
 
     @EnvironmentObject var model: AppModel
-    @State private var artist = ""
-    @State private var venue = ""
-    @State private var date = ""
+    @State private var artist: String
+    @State private var venue: String
+    @State private var date: String
     @State private var link = ""
     @State private var pasting = false
     /// The last spelling picked from the list, so writing it into the field is not
     /// mistaken for typing it.
     @State private var picked = ""
+
+    init(initial: AddGigLink?, onAdd: @escaping (String, String, String) -> Void,
+         onAddByLink: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
+        self.initial = initial
+        self.onAdd = onAdd
+        self.onAddByLink = onAddByLink
+        self.onCancel = onCancel
+        _artist = State(initialValue: initial?.artist ?? "")
+        _venue = State(initialValue: initial?.venue ?? "")
+        _date = State(initialValue: initial?.date ?? "")
+    }
 
     private var ready: Bool {
         pasting
@@ -1140,9 +1281,18 @@ struct AddLocalGigSheet: View {
     let onAdd: (String, String, String) -> Void
     let onCancel: () -> Void
 
-    @State private var artist = ""
-    @State private var venue = ""
-    @State private var date = ""
+    @State private var artist: String
+    @State private var venue: String
+    @State private var date: String
+
+    init(initial: AddGigLink? = nil, onAdd: @escaping (String, String, String) -> Void,
+         onCancel: @escaping () -> Void) {
+        self.onAdd = onAdd
+        self.onCancel = onCancel
+        _artist = State(initialValue: initial?.artist ?? "")
+        _venue = State(initialValue: initial?.venue ?? "")
+        _date = State(initialValue: initial?.date ?? "")
+    }
 
     var body: some View {
         NavigationStack {

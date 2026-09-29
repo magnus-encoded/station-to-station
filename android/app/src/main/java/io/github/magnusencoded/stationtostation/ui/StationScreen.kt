@@ -164,6 +164,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.magnusencoded.stationtostation.AddGigDialog
+import io.github.magnusencoded.stationtostation.AddGigLink
 import io.github.magnusencoded.stationtostation.AppViewModel
 import io.github.magnusencoded.stationtostation.ErrorKind
 import io.github.magnusencoded.stationtostation.BuildConfig
@@ -172,6 +174,7 @@ import io.github.magnusencoded.stationtostation.GigLink
 import io.github.magnusencoded.stationtostation.MediaThumb
 import io.github.magnusencoded.stationtostation.NOT_STAMPED
 import io.github.magnusencoded.stationtostation.PendingTicket
+import io.github.magnusencoded.stationtostation.nearestGig
 import io.github.magnusencoded.stationtostation.data.DeviceLocation
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.atUser
@@ -329,6 +332,17 @@ fun StationTimelineScreen(
     // history at all still has a ticket for something.
     var adding by remember { mutableStateOf(false) }
     var addingByHand by remember { mutableStateOf(false) }
+    // What a link pre-filled the open add dialog with; null for a dialog opened by hand.
+    var prefill by remember { mutableStateOf<AddGigLink?>(null) }
+    LaunchedEffect(state.addGigLink) {
+        val link = state.addGigLink ?: return@LaunchedEffect
+        prefill = link
+        when (link.dialog) {
+            AddGigDialog.PLANNED -> adding = true
+            AddGigDialog.ATTENDED -> addingByHand = true
+        }
+        viewModel.consumeAddGigLink()
+    }
     // Whether the legend's `+ N more` has been opened — where the reader left the
     // disclosure, not a fact to remember across a launch (#396).
     var legendExpanded by remember { mutableStateOf(false) }
@@ -453,24 +467,28 @@ fun StationTimelineScreen(
             )
             if (adding) {
                 AddPlannedGigDialog(
+                    initial = prefill,
                     suggestions = state.artistSuggestions,
                     onArtistTyped = { viewModel.suggestArtists(it) },
                     onArtistPicked = { viewModel.clearArtistSuggestions() },
                     onAdd = { artist, venue, date ->
                         viewModel.addPlannedGigByHand(artist, venue, date)
                         adding = false
+                        prefill = null
                     },
-                    onAddByLink = { link -> viewModel.addPlannedGig(link); adding = false },
-                    onDismiss = { viewModel.clearArtistSuggestions(); adding = false },
+                    onAddByLink = { link -> viewModel.addPlannedGig(link); adding = false; prefill = null },
+                    onDismiss = { viewModel.clearArtistSuggestions(); adding = false; prefill = null },
                 )
             }
             if (addingByHand) {
                 AddLocalGigDialog(
+                    initial = prefill,
                     onAdd = { artist, venue, date ->
                         viewModel.addLocalGig(artist, venue, date)
                         addingByHand = false
+                        prefill = null
                     },
-                    onDismiss = { addingByHand = false },
+                    onDismiss = { addingByHand = false; prefill = null },
                 )
             }
             state.pendingTicket?.let { pending ->
@@ -785,6 +803,24 @@ fun StationTimelineScreen(
                             )
                         }
 
+                        // A date is only a place once the rows exist. Friends' Lanes load
+                        // after zooming out, so it waits for them rather than landing on
+                        // the nearest Gig of a weave with nobody in it yet.
+                        LaunchedEffect(state.linkedDate, rows, future, state.timelinesLoading) {
+                            val date = state.linkedDate ?: return@LaunchedEffect
+                            if (zoomedOut) {
+                                viewModel.loadFriendTimelines()
+                                if (viewModel.state.value.timelinesLoading) return@LaunchedEffect
+                            }
+                            val dated = (rows.flatMap { it.shows + it.showsHereByFriends } +
+                                future.flatMap { it.node.shows })
+                                .mapNotNull { show -> show.localDate()?.let { show.id to it } }
+                            viewModel.consumeLinkedDate()
+                            nearestGig(dated, date)?.let {
+                                viewModel.linkGig(it, if (zoomedOut) GigLink.WOVEN else GigLink.SINGLE_LINE)
+                            }
+                        }
+
                         // A station-to-station:// link names a gig, and only here can a
                         // gig be turned into a place: one inside a collapsed festival
                         // has no row of its own until the festival opens, so this may
@@ -809,7 +845,13 @@ fun StationTimelineScreen(
                                 row.shows.any { it.id == gig } ||
                                     row.showsHereByFriends.any { it.id == gig }
                             }
-                            if (at < 0) return@LaunchedEffect
+                            if (at < 0) {
+                                val ahead = future.indexOfFirst { row -> row.node.shows.any { it.id == gig } }
+                                if (ahead < 0) return@LaunchedEffect
+                                listState.animateScrollToItem(1 + ahead)
+                                viewModel.consumeGigLink()
+                                return@LaunchedEffect
+                            }
                             val row = rows[at]
                             val insideClosedFestival =
                                 row.node is TimelineNode.Several && row.key !in expanded
@@ -1380,6 +1422,7 @@ private fun ConfirmAdmissions(parsed: ParsedTicket) {
  */
 @Composable
 private fun AddPlannedGigDialog(
+    initial: AddGigLink?,
     suggestions: List<MbArtist>,
     onArtistTyped: (String) -> Unit,
     onArtistPicked: () -> Unit,
@@ -1387,9 +1430,9 @@ private fun AddPlannedGigDialog(
     onAddByLink: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var artist by remember { mutableStateOf("") }
-    var venue by remember { mutableStateOf("") }
-    var date by remember { mutableStateOf("") }
+    var artist by remember { mutableStateOf(initial?.artist.orEmpty()) }
+    var venue by remember { mutableStateOf(initial?.venue.orEmpty()) }
+    var date by remember { mutableStateOf(initial?.date.orEmpty()) }
     var link by remember { mutableStateOf("") }
     var pasting by remember { mutableStateOf(false) }
 
@@ -1773,12 +1816,13 @@ private fun maybeTheirNight(maybe: MaybeNight): String {
  */
 @Composable
 private fun AddLocalGigDialog(
+    initial: AddGigLink? = null,
     onAdd: (artist: String, venue: String, date: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var artist by remember { mutableStateOf("") }
-    var venue by remember { mutableStateOf("") }
-    var date by remember { mutableStateOf("") }
+    var artist by remember { mutableStateOf(initial?.artist.orEmpty()) }
+    var venue by remember { mutableStateOf(initial?.venue.orEmpty()) }
+    var date by remember { mutableStateOf(initial?.date.orEmpty()) }
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier

@@ -68,7 +68,6 @@ import io.github.magnusencoded.stationtostation.data.TimelineLogic
 import io.github.magnusencoded.stationtostation.data.TimelineCache
 import io.github.magnusencoded.stationtostation.data.TimelineStore
 import io.github.magnusencoded.stationtostation.data.friendFromUri
-import io.github.magnusencoded.stationtostation.data.gigIdFromInvite
 import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
 import io.github.magnusencoded.stationtostation.data.sfmStamp
 import io.github.magnusencoded.stationtostation.data.sfmUserFromDescription
@@ -243,6 +242,9 @@ fun parseGigLink(segments: List<String>): Pair<String, GigLink>? {
     }
     return gig to where
 }
+
+/** A pre-filled add dialog; [date] is in the form's own dd-MM-yyyy, blank when the link gave none. */
+data class AddGigLink(val dialog: AddGigDialog, val artist: String, val venue: String, val date: String)
 
 /** A gallery photo from the night of the show, offered as the playlist cover. */
 data class CoverCandidate(val uri: Uri, val preview: Bitmap?)
@@ -503,6 +505,12 @@ data class UiState(
      */
     val linkedGig: String? = null,
     val linkedGigAs: GigLink? = null,
+    /** A screen a link asked for, acted on by the navigation and cleared when done. */
+    val linkScreen: LinkScreen? = null,
+    /** The night a link wants the **Line** scrolled to; the timeline finds the nearest **Gig** and clears it. */
+    val linkedDate: LocalDate? = null,
+    /** An add dialog a link asked for, pre-filled and unsaved; the timeline opens it and clears this. */
+    val addGigLink: AddGigLink? = null,
     /** Set when the playlist was made but its cover could not be uploaded. */
     val coverUploadError: String? = null,
     /** The device handover on screen, if one is running or has just finished (#142). */
@@ -1439,11 +1447,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         friendFromUri(uri)?.let { addFriend(it) }
     }
 
-    /** A gig-invite deep link a contact sent: add their gig to my plans, same as pasting its link. */
-    fun handleGigInvite(uri: Uri) {
-        gigIdFromInvite(uri)?.let { addPlannedGig(it) }
-    }
-
     fun removeFriend(friend: Friend) {
         viewModelScope.launch {
             // By Lane, not by username: two Contacts without an account share a blank one.
@@ -1790,18 +1793,75 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * A `station-to-station://` link. The first segment is whose line to show — a
-     * username, or `Friends` for the woven view — and the last is always the gig's
-     * setlist.fm id. A single segment is the gig on its own, so it opens the setlist.
-     *
-     * The link only records the intent; [UiState.linkedGig] is acted on by the
-     * timeline, which is the only place that knows which row a gig ended up in.
+     * What a parsed `station-to-station://` link asks for. Only records the intent:
+     * [UiState.linkedGig], [UiState.linkedDate], [UiState.addGigLink] and
+     * [UiState.linkScreen] are acted on by the timeline and the navigation, which are
+     * the only places that know where a row or a screen ended up. Pass-through links
+     * are the caller's; they never arrive here.
      */
-    fun openGigLink(uri: Uri) {
-        val (gig, where) = parseGigLink(listOfNotNull(uri.host) + uri.pathSegments) ?: return
-        if (where != GigLink.SETLIST) setZoomedOut(where == GigLink.WOVEN)
-        _state.update { it.copy(linkedGig = gig, linkedGigAs = where) }
+    fun handleLink(intent: LinkIntent) {
+        when (intent) {
+            is LinkIntent.Open -> openScreen(intent.screen, intent.date)
+            is LinkIntent.OpenGig -> openGig(intent.id)
+            is LinkIntent.AddGig -> openAddGig(intent.artist, intent.venue, intent.date)
+            is LinkIntent.WriteToLog -> openGig(intent.gigId) {
+                writeLog(intent.gigId) { it.writing(intent.appends, intent.replacements) }
+            }
+            is LinkIntent.LegacyPlace -> {
+                if (intent.at != GigLink.SETLIST) setZoomedOut(intent.at == GigLink.WOVEN)
+                _state.update { it.copy(linkedGig = intent.gigId, linkedGigAs = intent.at) }
+            }
+            LinkIntent.LegacyMe -> openScreen(LinkScreen.TIMELINE, null)
+            is LinkIntent.LegacyFixture, is LinkIntent.PassThrough -> Unit
+        }
     }
+
+    private fun openScreen(screen: LinkScreen, date: String?) = _state.update {
+        val zoomedOut = when (screen) {
+            LinkScreen.TIMELINE -> false
+            LinkScreen.TIMELINES -> it.friends.isNotEmpty()
+            else -> it.zoomedOut
+        }
+        it.copy(linkScreen = screen, zoomedOut = zoomedOut, linkedDate = date?.let(LocalDate::parse))
+    }
+
+    /**
+     * A **Gig** on my **Line** opens as it is. An unknown setlist.fm id is fetched and
+     * planned first, as an invite always did; [then] runs once it is open. An id with
+     * nothing to fetch says so and goes nowhere.
+     */
+    private fun openGig(id: String, then: () -> Unit = {}) {
+        val land = {
+            _state.update { it.copy(linkScreen = LinkScreen.TIMELINE, linkedGig = id, linkedGigAs = GigLink.SETLIST) }
+            then()
+        }
+        val mine = _state.value.let { s -> s.setlists.any { it.id == id } || s.plannedGigs.any { it.id == id } }
+        when (planOpenGig(id, mine)) {
+            OpenGigPlan.OPEN -> land()
+            OpenGigPlan.FETCH_THEN_OPEN -> addPlannedGig(id, then = land)
+            OpenGigPlan.REFUSE -> addPlannedGig(id)
+        }
+    }
+
+    private fun openAddGig(artist: String?, venue: String?, date: String?) {
+        val day = date?.let(LocalDate::parse)
+        val link = AddGigLink(
+            dialog = addGigDialog(day, LocalDate.now()),
+            artist = artist.orEmpty(),
+            venue = venue.orEmpty(),
+            date = day?.let(::fmDate).orEmpty(),
+        )
+        _state.update { it.copy(linkScreen = LinkScreen.TIMELINE, addGigLink = link) }
+    }
+
+    /** The **Gig** nearest a linked date, scrolled to by the timeline like any linked **Gig**. */
+    fun linkGig(id: String, at: GigLink) = _state.update { it.copy(linkedGig = id, linkedGigAs = at) }
+
+    fun consumeLinkScreen() = _state.update { it.copy(linkScreen = null) }
+
+    fun consumeLinkedDate() = _state.update { it.copy(linkedDate = null) }
+
+    fun consumeAddGigLink() = _state.update { it.copy(addGigLink = null) }
 
     fun consumeGigLink() = _state.update { it.copy(linkedGig = null, linkedGigAs = null) }
 
@@ -1836,6 +1896,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     /** The gig behind a link, wherever it is already loaded — mine or any lane's. */
     fun knownGig(id: String): FmSetlist? =
         _state.value.setlists.firstOrNull { it.id == id }
+            ?: _state.value.plannedGigs.firstOrNull { it.id == id }
             ?: _state.value.showsByFriend.values.firstNotNullOfOrNull { shows ->
                 shows.firstOrNull { it.id == id }
             }
@@ -2284,7 +2345,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * it can only be asked for by the id sitting in the url of the page the user
      * was on when they pressed "I'll be there".
      */
-    fun addPlannedGig(linkOrId: String) {
+    fun addPlannedGig(linkOrId: String, then: () -> Unit = {}) {
         val id = parseSetlistId(linkOrId)
         if (id == null) {
             _state.update { it.copy(errorKind = null, error = "That doesn't look like a setlist.fm gig link.") }
@@ -2296,6 +2357,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 planFmGig(setlistFm.setlist(id))
                 _state.update { it.copy(planningLoading = false) }
+                then()
             } catch (e: Exception) {
                 _state.update { it.copy(planningLoading = false) }
                 fail(e)
