@@ -468,7 +468,7 @@ struct StationView: View {
                 switch row {
                 case .ticket(let node):
                     if case .concert(let gig) = node {
-                        PlannedGigRow(setlist: gig, now: s.tour.now())
+                        PlannedGigRow(setlist: gig, now: model.state.tour.now())
                             .contentShape(Rectangle())
                             .onTapGesture { openGig(gig) }
                     } else {
@@ -522,7 +522,7 @@ struct StationView: View {
             .buttonStyle(.plain)
             if open {
                 ForEach(node.shows) { gig in
-                    PlannedGigRow(setlist: gig, now: s.tour.now())
+                    PlannedGigRow(setlist: gig, now: model.state.tour.now())
                         .padding(.leading, 14)
                         .contentShape(Rectangle())
                         .onTapGesture { openGig(gig) }
