@@ -1,4 +1,5 @@
 import Foundation
+import Network
 
 /// One setlist song together with its Spotify match candidates and selection.
 struct SongMatch: Identifiable {
@@ -43,6 +44,10 @@ struct UiState {
     /// Whether the first-run door has been passed (#358). The splash is shown while
     /// this is false, and a launch after it never sees one again.
     var onboarded = false
+    /// Persisted script state and the latest commands waiting for the platform shell.
+    var tour = TourState.unstarted
+    var tourCommands: [TourCommand] = []
+    var demoRecords: [DemoRecord] = []
     /// True once launch has put the saved timeline on screen, Festivals and all.
     /// Until then the launch look stays over the Timeline, so a reopened app never
     /// shows an empty timeline or a "0 shows" count on the way to its own.
@@ -301,6 +306,7 @@ final class AppModel: ObservableObject {
     /// above is handed in rather than constructed inside it.
     private lazy var logic = TimelineLogic(plumbing: plumbing)
     private lazy var location = DeviceLocation()
+    private let tourConnectivity = NWPathMonitor()
 
     private var matchTask: Task<Void, Never>?
     /// One-shot per launch: dismissing an offer must not make it reappear (#174).
@@ -319,11 +325,18 @@ final class AppModel: ObservableObject {
         state.bundledSetlistFmKey = settings.hasBundledSetlistFmKey
         state.grantedScope = settings.grantedScope
         state.onboarded = settings.onboarded
+        state.tour = settings.tourState
         state.mySetlistFmUser = settings.mySetlistFmUser ?? ""
         state.myCardName = settings.myCardName ?? ""
         state.friends = settings.friends
         state.clashfinderUser = settings.clashfinderUser ?? ""
         state.clashfinderPrivateKey = settings.clashfinderPrivateKey ?? ""
+
+        if state.tour.isRunning { applyTour(.resumed) }
+        tourConnectivity.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor in self?.offerTourIfNeeded(online: path.status == .satisfied) }
+        }
+        tourConnectivity.start(queue: DispatchQueue(label: "tour-connectivity"))
 
         // CI (and a URL bar) seed a Resolution here: `-seedFixture <name>` on the
         // launch line. UserDefaults maps `-key value` argv automatically, so no
@@ -1284,6 +1297,33 @@ final class AppModel: ObservableObject {
     func markOnboarded() {
         settings.setOnboarded()
         state.onboarded = true
+    }
+
+    /// The start gate owns the meaning of `onboarded`: it flips only once an online
+    /// launch has actually offered S1, never merely because the app was opened.
+    func offerTourIfNeeded(online: Bool) {
+        guard !state.onboarded, state.tour.step == nil, !state.tour.finished else { return }
+        let transition = runTour(state.tour, .started(online: online))
+        guard transition.state != state.tour else { return }
+        settings.setOnboarded()
+        state.onboarded = true
+        acceptTour(transition)
+    }
+
+    func sendTourEvent(_ event: TourEvent) { acceptTour(runTour(state.tour, event)) }
+    func resumeTour() { sendTourEvent(.resumed) }
+    func replayTour() { sendTourEvent(.replayRequested) }
+    func skipTour() { sendTourEvent(.skipped) }
+
+    private func applyTour(_ event: TourEvent) { acceptTour(runTour(state.tour, event)) }
+
+    private func acceptTour(_ transition: TourTransition) {
+        state.tour = transition.state
+        state.tourCommands = transition.commands
+        if transition.commands.contains(.purgeDemoWorld), let world = state.tour.demoWorldID {
+            state.demoRecords = purgeDemoWorld(state.demoRecords, worldID: world)
+        }
+        settings.saveTourState(state.tour)
     }
 
     func disconnectSpotify() {
