@@ -244,7 +244,7 @@ fun parseGigLink(segments: List<String>): Pair<String, GigLink>? {
 }
 
 /** A pre-filled add dialog; [date] is in the form's own dd-MM-yyyy, blank when the link gave none. */
-data class AddGigLink(val dialog: AddGigDialog, val artist: String, val venue: String, val date: String)
+data class AddGigLink(val artist: String, val venue: String, val date: String)
 
 /** A gallery photo from the night of the show, offered as the playlist cover. */
 data class CoverCandidate(val uri: Uri, val preview: Bitmap?)
@@ -1827,8 +1827,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * A **Gig** on my **Line** opens as it is. An unknown setlist.fm id is fetched and
-     * planned first, as an invite always did; [then] runs once it is open. An id with
-     * nothing to fetch says so and goes nowhere.
+     * opened without being kept: joining it is a question the **Room** asks, and an
+     * invite never answers it. [then] runs once it is open. An id with nothing to fetch
+     * says so and goes nowhere.
      */
     private fun openGig(id: String, then: () -> Unit = {}) {
         val land = {
@@ -1838,15 +1839,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val mine = _state.value.let { s -> s.setlists.any { it.id == id } || s.plannedGigs.any { it.id == id } }
         when (planOpenGig(id, mine)) {
             OpenGigPlan.OPEN -> land()
-            OpenGigPlan.FETCH_THEN_OPEN -> addPlannedGig(id, then = land)
-            OpenGigPlan.REFUSE -> addPlannedGig(id)
+            OpenGigPlan.FETCH_THEN_OPEN -> viewModelScope.launch {
+                try {
+                    openShow(setlistFm.setlist(id))
+                    land()
+                } catch (e: Exception) {
+                    fail(e)
+                }
+            }
+            OpenGigPlan.REFUSE -> _state.update {
+                it.copy(errorKind = null, error = "That doesn't look like a setlist.fm gig link.")
+            }
         }
     }
 
     private fun openAddGig(artist: String?, venue: String?, date: String?) {
         val day = date?.let(LocalDate::parse)
         val link = AddGigLink(
-            dialog = addGigDialog(day, LocalDate.now()),
             artist = artist.orEmpty(),
             venue = venue.orEmpty(),
             date = day?.let(::fmDate).orEmpty(),
@@ -1900,6 +1909,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             ?: _state.value.showsByFriend.values.firstNotNullOfOrNull { shows ->
                 shows.firstOrNull { it.id == id }
             }
+            ?: _state.value.selectedSetlist?.takeIf { it.id == id }
 
     /**
      * Asks setlist.fm whether the unidentified evenings on the timeline belong to a
@@ -2345,7 +2355,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * it can only be asked for by the id sitting in the url of the page the user
      * was on when they pressed "I'll be there".
      */
-    fun addPlannedGig(linkOrId: String, then: () -> Unit = {}) {
+    fun addPlannedGig(linkOrId: String) {
         val id = parseSetlistId(linkOrId)
         if (id == null) {
             _state.update { it.copy(errorKind = null, error = "That doesn't look like a setlist.fm gig link.") }
@@ -2357,7 +2367,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 planFmGig(setlistFm.setlist(id))
                 _state.update { it.copy(planningLoading = false) }
-                then()
             } catch (e: Exception) {
                 _state.update { it.copy(planningLoading = false) }
                 fail(e)
@@ -2379,6 +2388,51 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 plannedGigs = sortedPlanned(it.plannedGigs.filterNot { g -> g.id == hit.id } + hit),
                 attendanceByGig = it.attendanceByGig + (hit.id to attendance),
             )
+        }
+    }
+
+    /**
+     * The one add form's write. The date decides the rule underneath: a night before
+     * today is one I was at ([addLocalGig]), any other is one I am going to
+     * ([addPlannedGigByHand]).
+     */
+    fun addGig(artist: String, venue: String, date: String) {
+        val night = parseFmDate(date)
+        if (artist.isBlank() || night == null) {
+            _state.update { it.copy(errorKind = null, error = "A night needs who played and a date as dd-MM-yyyy.") }
+            return
+        }
+        when (nightKind(night, LocalDate.now())) {
+            NightKind.GOING_TO -> addPlannedGigByHand(artist, venue, date)
+            NightKind.WAS_AT -> addLocalGig(artist, venue, date)
+        }
+    }
+
+    /**
+     * Joins a **Contact**'s **Gig**: it goes onto my **Line** under the same id, so
+     * holding it on both **Lines** makes the **Crossing** and nothing else has to be
+     * said. The date decides the claim, as it does for the add form: a night before
+     * today is one I was there, attended; any other is one I am going to, planned and
+     * claiming nothing.
+     *
+     * Joining answers no **Maybe**. A **Maybe** is joined only by my "same night", so a
+     * hand-logged night of mine on this date stays a question, and is now asked against
+     * a night I hold.
+     */
+    fun joinGig(gig: FmSetlist) {
+        val kind = nightKind(gig.localDate(), LocalDate.now())
+        viewModelScope.launch {
+            var attendance = timelines.savePlanned(gig)
+            if (kind == NightKind.WAS_AT) {
+                attendance = StoredAttendance(provenance = StoredAttendance.Provenance.ATTENDED)
+                timelines.saveAttendance(gig.id, attendance)
+            }
+            _state.update {
+                it.copy(
+                    plannedGigs = sortedPlanned(it.plannedGigs.filterNot { g -> g.id == gig.id } + gig),
+                    attendanceByGig = it.attendanceByGig + (gig.id to attendance),
+                )
+            }
         }
     }
 

@@ -161,19 +161,22 @@ fun nearestGig(gigs: List<Pair<String, LocalDate>>, target: LocalDate): String? 
             .thenBy { it.second },
     )?.first
 
-/** Which add dialog a link opens: a night before [today] is one I was at, anything else is planned. */
-fun addGigDialog(date: LocalDate?, today: LocalDate): AddGigDialog =
-    if (date == null || !date.isBefore(today)) AddGigDialog.PLANNED else AddGigDialog.ATTENDED
+/** Which rule the add form applies: a night before [today] is one I was at, anything else is one I am going to. */
+fun nightKind(date: LocalDate?, today: LocalDate): NightKind =
+    if (date == null || !date.isBefore(today)) NightKind.GOING_TO else NightKind.WAS_AT
 
-/** "A gig you're going to" or "A night you were at". */
-enum class AddGigDialog { PLANNED, ATTENDED }
+/**
+ * [GOING_TO] is planned and claims nothing; [WAS_AT] is attended, minted locally with
+ * nothing on setlist.fm to collide with.
+ */
+enum class NightKind { GOING_TO, WAS_AT }
 
 enum class OpenGigPlan { OPEN, FETCH_THEN_OPEN, REFUSE }
 
 /**
  * What a link to a **Gig** does. On my **Line**, planned or attended, it opens and
  * adds nothing: an invite must not turn a night I attended into a plan. Otherwise a
- * setlist.fm id is fetched and planned, and anything else is refused.
+ * setlist.fm id is fetched and opened unkept, and anything else is refused.
  */
 fun planOpenGig(id: String, onMyLine: Boolean): OpenGigPlan = when {
     onMyLine -> OpenGigPlan.OPEN

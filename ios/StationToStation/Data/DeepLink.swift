@@ -174,18 +174,19 @@ func nearestGig(_ gigs: [(id: String, date: String)], to target: String) -> Stri
         }?.id
 }
 
-/// Which add dialog a link opens.
-enum AddGigDialog { case planned, attended }
+/// `goingTo` is planned and claims nothing; `wasAt` is attended, minted locally with
+/// nothing on setlist.fm to collide with.
+enum NightKind { case goingTo, wasAt }
 
-/// A night before `today` (ISO) is one I was at; today, later or no date is planned.
-func addGigDialog(date: String?, today: String) -> AddGigDialog {
-    guard let date, date < today else { return .planned }
-    return .attended
+/// The rule the add form applies: a night before `today` (ISO) is one I was at; today,
+/// later or no date is one I am going to.
+func nightKind(date: String?, today: String) -> NightKind {
+    guard let date, date < today else { return .goingTo }
+    return .wasAt
 }
 
-/// A pre-filled add dialog; `date` is in the form's own dd-MM-yyyy, blank when the link gave none.
+/// A pre-filled add form; `date` is in the form's own dd-MM-yyyy, blank when the link gave none.
 struct AddGigLink: Equatable {
-    let dialog: AddGigDialog
     let artist: String
     let venue: String
     let date: String
@@ -195,7 +196,7 @@ enum OpenGigPlan { case open, fetchThenOpen, refuse }
 
 /// What a link to a **Gig** does. On my **Line**, planned or attended, it opens and
 /// adds nothing: an invite must not turn a night I attended into a plan. Otherwise a
-/// setlist.fm id is fetched and planned, and anything else is refused.
+/// setlist.fm id is fetched and opened unkept, and anything else is refused.
 func planOpenGig(_ id: String, onMyLine: Bool) -> OpenGigPlan {
     if onMyLine { return .open }
     return parseSetlistId(id) != nil ? .fetchThenOpen : .refuse

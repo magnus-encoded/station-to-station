@@ -24,8 +24,8 @@ requires. An unknown screen or action does nothing. The grammar and every case a
 | `timeline?date=yyyy-MM-dd` | My **Line**, scrolled to the **Gig** nearest that date; a tie goes to the earlier. |
 | `timelines` | The weave, zoomed out. Needs a followed Line or a **Contact**. |
 | `timelines?date=yyyy-MM-dd` | The weave, scrolled to the nearest **Gig** across all Lanes. |
-| `timeline/add-gig?artist=&venue=&date=` | The add dialog, pre-filled and unsaved. A date before today opens "A night you were at"; today, later or no date opens "A gig you're going to". |
-| `gig/<id>` | The **Gig** view. On my **Line** it adds nothing; an unknown setlist.fm id is fetched and planned first. |
+| `timeline/add-gig?artist=&venue=&date=` | The one add form, pre-filled and unsaved. The date decides what saving it does: before today is a night you were at, today, later or no date is a gig you're going to. |
+| `gig/<id>` | The **Gig** view. On my **Line** it adds nothing; an unknown setlist.fm id is fetched and opened without being kept, and the **Room** offers to join it. |
 | `gig/<id>/write-to-log?<text>[&<text>…][&N=<text>…]` | Writes to that **Gig**'s **Log** as typed input would. A bare item is the next song; `N=` replaces song N (from 1), appends if N is just past the end, and is ignored if further out. |
 | `programme` | The festival programme. |
 | `settings` | Settings. |

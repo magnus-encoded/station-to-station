@@ -40,18 +40,18 @@ class DeepLinkTest {
 
     @Test fun aNightBeforeTodayIsOneIWasAt() {
         val today = LocalDate.of(2026, 9, 29)
-        assertEquals(AddGigDialog.ATTENDED, addGigDialog(today.minusDays(1), today))
+        assertEquals(NightKind.WAS_AT, nightKind(today.minusDays(1), today))
     }
 
     @Test fun todayIsAGigIAmGoingTo() {
         val today = LocalDate.of(2026, 9, 29)
-        assertEquals(AddGigDialog.PLANNED, addGigDialog(today, today))
+        assertEquals(NightKind.GOING_TO, nightKind(today, today))
     }
 
     @Test fun aLaterNightOrNoDateIsAGigIAmGoingTo() {
         val today = LocalDate.of(2026, 9, 29)
-        assertEquals(AddGigDialog.PLANNED, addGigDialog(today.plusDays(1), today))
-        assertEquals(AddGigDialog.PLANNED, addGigDialog(null, today))
+        assertEquals(NightKind.GOING_TO, nightKind(today.plusDays(1), today))
+        assertEquals(NightKind.GOING_TO, nightKind(null, today))
     }
 
     @Test fun aGigOnMyLineOpensWithoutBeingAdded() {

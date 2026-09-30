@@ -31,7 +31,7 @@ struct ConfirmTicketSheet: View {
     @State private var venue: String
     @State private var date: String
     /// The last spelling picked from the list, so writing it into the field is not
-    /// mistaken for typing it — the same guard `AddPlannedGigSheet` needs.
+    /// mistaken for typing it — the same guard `AddGigSheet` needs.
     @State private var picked = ""
     /// The setlist.fm hit ticked, nil for "None of these" (#531). Hidden, and so
     /// answering nothing, once the artist or the date is edited away from the lookup.

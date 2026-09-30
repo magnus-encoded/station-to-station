@@ -121,33 +121,25 @@ private struct AddGigLinkModifier: ViewModifier {
     }
 }
 
-/// The two add sheets, on the screen rather than on the future edge, so an add-gig link
-/// finds them wherever the list is scrolled and the empty timeline has them too.
+/// The add sheet, on the screen rather than on the future edge, so an add-gig link
+/// finds it wherever the list is scrolled and the empty timeline has it too.
 private struct AddGigSheets: ViewModifier {
     @EnvironmentObject var model: AppModel
-    @Binding var planned: Bool
-    @Binding var local: Bool
+    @Binding var adding: Bool
     @Binding var prefill: AddGigLink?
 
     func body(content: Content) -> some View {
         content
-            .sheet(isPresented: $planned) {
-                AddPlannedGigSheet(initial: prefill) { artist, venue, date in
-                    model.addPlannedGigByHand(artist: artist, venue: venue, date: date)
-                    planned = false
+            .sheet(isPresented: $adding) {
+                AddGigSheet(initial: prefill) { artist, venue, date in
+                    model.addGig(artist: artist, venue: venue, date: date)
+                    adding = false
                     prefill = nil
                 } onAddByLink: { link in
                     model.addPlannedGig(link)
-                    planned = false
+                    adding = false
                     prefill = nil
-                } onCancel: { planned = false; prefill = nil }
-            }
-            .sheet(isPresented: $local) {
-                AddLocalGigSheet(initial: prefill) { artist, venue, date in
-                    model.addLocalGig(artist: artist, venue: venue, date: date)
-                    local = false
-                    prefill = nil
-                } onCancel: { local = false; prefill = nil }
+                } onCancel: { adding = false; prefill = nil }
             }
     }
 }
@@ -162,8 +154,7 @@ struct StationView: View {
     @State private var dragFraction: CGFloat?
     /// The entry point for the future edge (#175). A sheet's-worth of state, not
     /// model state: it exists only while the sheet is open.
-    @State private var addingPlanned = false
-    @State private var addingLocal = false
+    @State private var adding = false
     /// What a link pre-filled the open add sheet with; nil for one opened by hand.
     @State private var prefill: AddGigLink?
     /// Whether the legend's `+ N more` has been opened. View-local: it is where the
@@ -227,7 +218,7 @@ struct StationView: View {
             }
         }
         .modifier(MaybeNightAlert(asking: $askingMaybe))
-        .modifier(AddGigSheets(planned: $addingPlanned, local: $addingLocal, prefill: $prefill))
+        .modifier(AddGigSheets(adding: $adding, prefill: $prefill))
         .modifier(AddGigLinkModifier(link: model.state.addGigLink, take: takeAddGigLink))
         .toolbar {
             // Explicit placement: iOS 16 puts an unplaced item somewhere else.
@@ -525,10 +516,10 @@ struct StationView: View {
                         .accessibilityLabel("Looking it up on setlist.fm")
                         .spokenOnAppear("Looking it up on setlist.fm")
                 }
-                Button { addingPlanned = true } label: {
+                Button { adding = true } label: {
                     Image(systemName: "plus.circle").foregroundStyle(slate)
                 }
-                .accessibilityLabel("Add a gig you're going to")
+                .accessibilityLabel("Add a gig")
             }
             ForEach(futureRows(tickets: model.state.plannedGigs,
                                attendance: model.state.attendanceByGig,
@@ -595,10 +586,7 @@ struct StationView: View {
     private func takeAddGigLink() {
         guard let link = model.state.addGigLink else { return }
         prefill = link
-        switch link.dialog {
-        case .planned: addingPlanned = true
-        case .attended: addingLocal = true
-        }
+        adding = true
         model.state.addGigLink = nil
     }
 
@@ -673,15 +661,11 @@ struct StationView: View {
                     .multilineTextAlignment(.center)
                 Button("Import my concerts") { model.refreshTimeline() }
                     .buttonStyle(.borderedProminent).tint(amber).foregroundStyle(Color.black)
-                // A line can start above today as easily as below it: someone with no
-                // history yet still has a ticket for something.
-                Button("\u{2191}  or add a gig you're going to") { addingPlanned = true }
+                // The one door that does not end at setlist.fm (#347), and a line can start
+                // above today as easily as below it: someone with no history yet still has
+                // a ticket for something.
+                Button("or add a gig by hand") { adding = true }
                     .font(.system(size: 13)).foregroundStyle(slate).padding(.top, 4)
-                    .accessibilityLabel("Or add a gig you're going to")
-                // Both doors above end at setlist.fm. This one does not, and it is the
-                // only affordance here a person without an account can act on (#347).
-                Button("or type in a night you were at") { addingLocal = true }
-                    .font(.system(size: 13)).foregroundStyle(slate)
             }
         }
         .padding(32)
@@ -1164,18 +1148,17 @@ private struct RowThumb: View {
     }
 }
 
-/// A gig I'm going to, typed in — or pasted, for a night setlist.fm already has.
-///
-/// Typing is the default and the link is the alternative, which is the way round
-/// Android settled on: the paste is the faster door only for a show already
-/// catalogued, and a future show usually is not (#349). Twin of Android's
-/// `AddPlannedGigDialog`.
+/// Add a **Gig**: who played or is playing, where, and when. One form for both, because
+/// the input is the same and both put a **Gig** on my **Line**; the date decides the rule
+/// underneath (see `nightKind`). Typing is the default and the link is the alternative:
+/// the paste is the faster door only for a show already catalogued, and a future show
+/// usually is not (#349). Twin of Android's `AddGigDialog`.
 ///
 /// **The artist completes; the venue does not.** MusicBrainz has a `place` entity and
 /// its coverage of small rooms is thin, so a completion box that fails most of the
 /// time would teach people to ignore the one above it. A plain field that never
 /// guesses is the honest version of a venue.
-private struct AddPlannedGigSheet: View {
+struct AddGigSheet: View {
     let initial: AddGigLink?
     let onAdd: (String, String, String) -> Void
     let onAddByLink: (String) -> Void
@@ -1191,7 +1174,7 @@ private struct AddPlannedGigSheet: View {
     /// mistaken for typing it.
     @State private var picked = ""
 
-    init(initial: AddGigLink?, onAdd: @escaping (String, String, String) -> Void,
+    init(initial: AddGigLink? = nil, onAdd: @escaping (String, String, String) -> Void,
          onAddByLink: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
         self.initial = initial
         self.onAdd = onAdd
@@ -1200,6 +1183,11 @@ private struct AddPlannedGigSheet: View {
         _artist = State(initialValue: initial?.artist ?? "")
         _venue = State(initialValue: initial?.venue ?? "")
         _date = State(initialValue: initial?.date ?? "")
+    }
+
+    private var kind: NightKind {
+        nightKind(date: isoDate(fromFm: date.trimmingCharacters(in: .whitespaces)),
+                  today: isoToday())
     }
 
     private var ready: Bool {
@@ -1248,8 +1236,11 @@ private struct AddPlannedGigSheet: View {
                         TextField("date (dd-MM-yyyy)", text: $date)
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
                     } footer: {
-                        Text("It can't be searched for this far ahead, so this night "
-                             + "lives on this phone until setlist.fm catches up with it.")
+                        Text(kind == .goingTo
+                             ? "A night ahead can't be searched for, so it lives on this phone "
+                               + "until setlist.fm catches up with it."
+                             : "No account needed. This night lives on this phone, and what "
+                               + "was played goes in its log afterwards.")
                     }
                 }
                 Section {
@@ -1259,7 +1250,7 @@ private struct AddPlannedGigSheet: View {
                     .font(.footnote)
                 }
             }
-            .navigationTitle("A gig you're going to")
+            .navigationTitle("Add a gig")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -1271,52 +1262,6 @@ private struct AddPlannedGigSheet: View {
                         if pasting { onAddByLink(link) } else { onAdd(artist, venue, date) }
                     }
                     .disabled(!ready)
-                }
-            }
-        }
-    }
-}
-
-struct AddLocalGigSheet: View {
-    let onAdd: (String, String, String) -> Void
-    let onCancel: () -> Void
-
-    @State private var artist: String
-    @State private var venue: String
-    @State private var date: String
-
-    init(initial: AddGigLink? = nil, onAdd: @escaping (String, String, String) -> Void,
-         onCancel: @escaping () -> Void) {
-        self.onAdd = onAdd
-        self.onCancel = onCancel
-        _artist = State(initialValue: initial?.artist ?? "")
-        _venue = State(initialValue: initial?.venue ?? "")
-        _date = State(initialValue: initial?.date ?? "")
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("who played", text: $artist)
-                    TextField("venue (optional)", text: $venue)
-                    TextField("date (dd-MM-yyyy)", text: $date)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                } footer: {
-                    Text("No account needed. This night lives on this phone, and what "
-                         + "was played goes in its log afterwards.")
-                }
-            }
-            .navigationTitle("A night you were at")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", action: onCancel)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Add it") { onAdd(artist, venue, date) }
-                        .disabled(artist.trimmingCharacters(in: .whitespaces).isEmpty
-                                  || date.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
         }

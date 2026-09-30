@@ -29,16 +29,16 @@ final class DeepLinkTests: XCTestCase {
     }
 
     func testANightBeforeTodayIsOneIWasAt() {
-        XCTAssertEqual(.attended, addGigDialog(date: "2026-09-28", today: "2026-09-29"))
+        XCTAssertEqual(.wasAt, nightKind(date: "2026-09-28", today: "2026-09-29"))
     }
 
     func testTodayIsAGigIAmGoingTo() {
-        XCTAssertEqual(.planned, addGigDialog(date: "2026-09-29", today: "2026-09-29"))
+        XCTAssertEqual(.goingTo, nightKind(date: "2026-09-29", today: "2026-09-29"))
     }
 
     func testALaterNightOrNoDateIsAGigIAmGoingTo() {
-        XCTAssertEqual(.planned, addGigDialog(date: "2026-09-30", today: "2026-09-29"))
-        XCTAssertEqual(.planned, addGigDialog(date: nil, today: "2026-09-29"))
+        XCTAssertEqual(.goingTo, nightKind(date: "2026-09-30", today: "2026-09-29"))
+        XCTAssertEqual(.goingTo, nightKind(date: nil, today: "2026-09-29"))
     }
 
     func testAGigOnMyLineOpensWithoutBeingAdded() {

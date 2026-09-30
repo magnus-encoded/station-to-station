@@ -148,7 +148,7 @@ struct UiState {
     /// The night (ISO) a link wants the **Line** scrolled to; the timeline finds the
     /// nearest **Gig** and clears it.
     var linkedDate: String?
-    /// An add dialog a link asked for, pre-filled and unsaved; the timeline opens it and clears this.
+    /// The add form a link asked for, pre-filled and unsaved; the timeline opens it and clears this.
     var addGigLink: AddGigLink?
     /// Every night's media (#97), in the order it was attached, keyed by setlist id.
     ///
@@ -489,6 +489,22 @@ final class AppModel: ObservableObject {
     func clearArtistSuggestions() {
         artistSearch?.cancel()
         state.artistSuggestions = []
+    }
+
+    /// The one add form's write. The date decides the rule underneath: a night before
+    /// today is one I was at (`addLocalGig`), any other is one I am going to
+    /// (`addPlannedGigByHand`).
+    func addGig(artist: String, venue: String, date: String, today: String = isoToday()) {
+        guard let night = isoDate(fromFm: date.trimmingCharacters(in: .whitespaces)),
+              !artist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            state.error = "A night needs who played and a date as dd-MM-yyyy."
+            state.errorKind = nil
+            return
+        }
+        switch nightKind(date: night, today: today) {
+        case .goingTo: addPlannedGigByHand(artist: artist, venue: venue, date: date)
+        case .wasAt: addLocalGig(artist: artist, venue: venue, date: date)
+        }
     }
 
     /// A gig I'm going to, typed in: who is playing, where, and when.
@@ -1712,11 +1728,10 @@ final class AppModel: ObservableObject {
     }
 
     /// A **Gig** a link names. On my **Line** it opens as it is; an unknown setlist.fm id
-    /// is fetched and planned first, as an invite always did — safe on a night I turn out
-    /// to have attended, because `savePlanned` never downgrades a claim. An id with
-    /// nothing to fetch says so. A failed fetch reports nothing: an invite for a night
-    /// setlist.fm cannot serve is a dead link, and a banner would be telling the reader
-    /// about the sender's problem.
+    /// is fetched and opened without being kept: joining it is a question the **Room**
+    /// asks, and an invite never answers it. An id with nothing to fetch says so. A failed
+    /// fetch reports nothing: an invite for a night setlist.fm cannot serve is a dead
+    /// link, and a banner would be telling the reader about the sender's problem.
     func openGig(_ id: String, onOpen: @escaping () -> Void) {
         let known = state.timelineShows.first(where: { $0.id == id })
             ?? state.plannedGigs.first(where: { $0.id == id })
@@ -1729,12 +1744,32 @@ final class AppModel: ObservableObject {
         case .fetchThenOpen:
             Task {
                 guard let fetched = try? await setlistFm.setlist(id) else { return }
-                state.attendanceByGig[fetched.id] = await timelines.savePlanned(fetched)
-                // Keeps the future edge in step with what was just written — without this
-                // an invited-in gig would not appear above tonight until the next launch.
-                state.plannedGigs = sortedPlanned(state.plannedGigs.filter { $0.id != fetched.id } + [fetched])
                 open(fetched, onOpen)
             }
+        }
+    }
+
+    /// Joins a **Contact**'s **Gig**: it goes onto my **Line** under the same id, so holding
+    /// it on both **Lines** makes the **Crossing** and nothing else has to be said. The date
+    /// decides the claim, as it does for the add form: a night before today is one I was
+    /// there, attended; any other is one I am going to, planned and claiming nothing.
+    ///
+    /// Joining answers no **Maybe**. A **Maybe** is joined only by my "same night", so a
+    /// hand-logged night of mine on this date stays a question, and is now asked against a
+    /// night I hold.
+    func joinGig(_ show: FmSetlist) {
+        let kind = nightKind(date: isoDate(fromFm: show.eventDate), today: isoToday())
+        Task {
+            var attendance = await timelines.savePlanned(show)
+            if kind == .wasAt {
+                attendance = StoredAttendance(provenance: "attended")
+                await timelines.saveAttendance(setlistId: show.id, attendance: attendance)
+            }
+            state.plannedGigs = sortedPlanned(state.plannedGigs.filter { $0.id != show.id } + [show])
+            state.attendanceByGig[show.id] = attendance
+            state.selectedAttendance = attendance
+            markSelectedOwnership(show, attendance: attendance)
+            loadTimeline()
         }
     }
 
@@ -1758,9 +1793,8 @@ final class AppModel: ObservableObject {
         state.linkedGigAs = at
     }
 
-    func openAddGig(artist: String?, venue: String?, date: String?, today: String = isoToday()) {
+    func openAddGig(artist: String?, venue: String?, date: String?) {
         state.addGigLink = AddGigLink(
-            dialog: addGigDialog(date: date, today: today),
             artist: artist ?? "",
             venue: venue ?? "",
             date: date.map { $0.split(separator: "-").reversed().joined(separator: "-") } ?? ""
