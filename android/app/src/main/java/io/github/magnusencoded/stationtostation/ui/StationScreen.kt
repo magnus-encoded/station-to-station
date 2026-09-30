@@ -73,6 +73,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -164,7 +166,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.magnusencoded.stationtostation.GigMenuItem
+import io.github.magnusencoded.stationtostation.caption
 import io.github.magnusencoded.stationtostation.NightKind
+import io.github.magnusencoded.stationtostation.gigMenu
 import io.github.magnusencoded.stationtostation.nightKind
 import io.github.magnusencoded.stationtostation.AddGigLink
 import io.github.magnusencoded.stationtostation.AppViewModel
@@ -341,6 +346,31 @@ fun StationTimelineScreen(
         prefill = link
         adding = true
         viewModel.consumeAddGigLink()
+    }
+    // The Gig a long press asked to delete, held while the dialog for lost photographs is up.
+    var deleteAsked by remember { mutableStateOf<FmSetlist?>(null) }
+    val timelineContext = LocalContext.current
+    fun menuFor(gig: FmSetlist): GigMenuSpec? {
+        val standing = viewModel.standing(gig.id)
+        val entries = gigMenu(standing, gig.url != null).map { item ->
+            when (item) {
+                GigMenuItem.OPEN_ON_SETLIST_FM -> GigMenuEntry("Open on setlist.fm") {
+                    timelineContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(gig.url)))
+                }
+                GigMenuItem.DELETE -> GigMenuEntry("Delete gig", danger = true) {
+                    if (viewModel.photosLostByDeleting(gig.id) > 0) deleteAsked = gig
+                    else viewModel.deleteGig(gig.id)
+                }
+            }
+        }
+        return if (entries.isEmpty()) null else GigMenuSpec(standing.caption(), entries)
+    }
+    deleteAsked?.let { gig ->
+        DeleteNightDialog(
+            photos = viewModel.photosLostByDeleting(gig.id),
+            onDelete = { deleteAsked = null; viewModel.deleteGig(gig.id) },
+            onDismiss = { deleteAsked = null },
+        )
     }
     // Whether the legend's `+ N more` has been opened — where the reader left the
     // disclosure, not a fact to remember across a launch (#396).
@@ -934,6 +964,7 @@ fun StationTimelineScreen(
                                             highlight = false,
                                             planned = true,
                                             laneWidth = laneWidth,
+                                            menu = menuFor(node.setlist),
                                             onClick = {
                                                 viewModel.openShow(node.setlist)
                                                 onOpenEvent()
@@ -962,6 +993,7 @@ fun StationTimelineScreen(
                                                             planned = true,
                                                             inside = true,
                                                             laneWidth = laneWidth,
+                                                            menu = menuFor(gig),
                                                             onClick = {
                                                                 viewModel.openShow(gig)
                                                                 onOpenEvent()
@@ -1007,6 +1039,7 @@ fun StationTimelineScreen(
                                                 setlist = node.setlist,
                                                 highlight = isFirst && row.mine,
                                                 mine = row.mine,
+                                                menu = if (row.mine) menuFor(node.setlist) else null,
                                                 laneWidth = laneWidth,
                                                 inside = row.depth > 0,
                                                 nodeX = nodeX,
@@ -2145,6 +2178,12 @@ internal fun StationField(
     )
 }
 
+/** One line of a **Gig**'s long-press menu. */
+internal class GigMenuEntry(val label: String, val danger: Boolean = false, val run: () -> Unit)
+
+/** A **Gig**'s long-press menu: where it is held, and what can be done. */
+internal class GigMenuSpec(val caption: String, val entries: List<GigMenuEntry>)
+
 @Composable
 internal fun TimelineItem(
     setlist: FmSetlist,
@@ -2190,12 +2229,39 @@ internal fun TimelineItem(
     maybeWith: List<String> = emptyList(),
     /** Whose Night I said was this one (#580): "With Mia" under the joined node. */
     joinedWith: List<String> = emptyList(),
+    /** What a long press offers; null, and the row has no menu. */
+    menu: GigMenuSpec? = null,
 ) {
     val songCount = setlist.performed().size
     val zoomedOut = laneWidth > 0.dp
+    var menuOpen by remember { mutableStateOf(false) }
     Row(
-        Modifier.fillMaxWidth().height(IntrinsicSize.Min).clickable(onClick = onClick),
+        Modifier.fillMaxWidth().height(IntrinsicSize.Min).combinedClickable(
+            onClick = onClick,
+            onLongClickLabel = if (menu == null) null else "More",
+            onLongClick = if (menu == null) null else ({ menuOpen = true }),
+        ),
     ) {
+        if (menu != null) {
+            DropdownMenu(
+                expanded = menuOpen,
+                onDismissRequest = { menuOpen = false },
+                modifier = Modifier.background(Raised),
+            ) {
+                Text(
+                    menu.caption,
+                    color = Faint,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                menu.entries.forEach { entry ->
+                    DropdownMenuItem(
+                        text = { Text(entry.label, color = if (entry.danger) Danger else Ink) },
+                        onClick = { menuOpen = false; entry.run() },
+                    )
+                }
+            }
+        }
         // My own spine, always at the same place. A show only someone else was at
         // leaves it bare: the line runs on, the edge between my nodes just gets longer.
         Box(Modifier.width(SpineWidth + laneWidth).fillMaxHeight()) {
@@ -4484,7 +4550,7 @@ fun StationEventScreen(
                             modifier = Modifier
                                 .clickable {
                                     if (viewModel.photosLostByDeleting(setlist.id) > 0) deleting = true
-                                    else { viewModel.deleteLocalGig(setlist.id); onBack() }
+                                    else { viewModel.deleteGig(setlist.id); onBack() }
                                 }
                                 .padding(vertical = 6.dp),
                         )
@@ -4735,7 +4801,7 @@ fun StationEventScreen(
         if (deleting) {
             DeleteNightDialog(
                 photos = viewModel.photosLostByDeleting(setlist.id),
-                onDelete = { deleting = false; viewModel.deleteLocalGig(setlist.id); onBack() },
+                onDelete = { deleting = false; viewModel.deleteGig(setlist.id); onBack() },
                 onDismiss = { deleting = false },
             )
         }

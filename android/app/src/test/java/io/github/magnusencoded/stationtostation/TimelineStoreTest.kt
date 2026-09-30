@@ -1043,6 +1043,16 @@ class TimelineStoreTest {
         assertEquals(1, store.load().gigs.size)
     }
 
+    @Test
+    fun `the deliberate delete also takes the night off my cached attended list`() = runBlocking {
+        val store = store()
+        val id = store.createLocalGig("06-08-2026", "Silent Majority", "Ringnes")
+        store.adoptSetlistId(id, "abc123")
+        store.mergeContactNights("dizzi90", listOf(show("abc123"), show("other")))
+        assertTrue(store.deleteGig("abc123", anyId = true, attendedLane = "dizzi90"))
+        assertEquals(listOf("other"), store.load().shows["dizzi90"].orEmpty().map { it.id })
+    }
+
     // --- #128: a setlistId names one Gig, and the read never drops one -----------
 
     /**

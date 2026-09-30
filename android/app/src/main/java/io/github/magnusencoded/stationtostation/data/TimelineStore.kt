@@ -1390,9 +1390,10 @@ class TimelineStore(
      * The only destructive operation in this store, so it is fenced by what it
      * refuses rather than by what it does:
      *
-     * - **A gig with a setlist.fm id stays.** It is no longer only ours; it is a
+     * - **A gig with a setlist.fm id stays, unless [anyId].** It is no longer only ours; it is a
      *   night other people's lines can meet at, and adoption is not undone by a
-     *   long press.
+     *   mistap. [anyId] is the deliberate delete of a night kept only here, such as one
+     *   joined from a **Contact**.
      * - **A gig with any media stays, unless [withMedia].** Media is irreplaceable
      *   and a night someone photographed is not a mistap. [withMedia] is the
      *   deliberate delete from the night's own screen, where the person is looking
@@ -1403,15 +1404,22 @@ class TimelineStore(
      * either outcome — `removePlanned` deliberately refuses to erase a check-in,
      * and that refusal is exactly what strands one here.
      */
-    suspend fun deleteGig(gigId: String, withMedia: Boolean = false): Boolean {
+    suspend fun deleteGig(
+        gigId: String,
+        withMedia: Boolean = false,
+        anyId: Boolean = false,
+        attendedLane: String? = null,
+    ): Boolean {
         var deleted = false
         writeMerged { cache ->
             val id = cache.gigIdOrNull(gigId) ?: return@writeMerged cache
             val gig = cache.gigs[id] ?: return@writeMerged cache
-            if (gig.setlistId != null) return@writeMerged cache
+            if (gig.setlistId != null && !anyId) return@writeMerged cache
             if (!withMedia && cache.gigMedia[id].orEmpty().isNotEmpty()) return@writeMerged cache
             deleted = true
             cache.copy(
+                shows = attendedLane?.let { cache.shows + (it to cache.shows[it].orEmpty().filterNot { g -> g.id == gigId }) }
+                    ?: cache.shows,
                 gigs = cache.gigs - id,
                 gigPlanned = cache.gigPlanned - id,
                 gigAttendance = cache.gigAttendance - id,

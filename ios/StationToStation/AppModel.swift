@@ -440,14 +440,31 @@ final class AppModel: ObservableObject {
             .count
     }
 
+    /// Where the **Gig** is held. Read from the raw attended list under my own key, never from
+    /// `timelineShows`: that one also carries the nights I attended here, which is what this
+    /// has to tell apart.
+    func standing(_ gigId: String) -> GigStanding {
+        gigStanding(
+            gigId,
+            held: state.plannedGigs.map(\.id),
+            attendedOnSetlistFm: (state.showsByFriend[state.mySetlistFmUser.trimmingCharacters(in: .whitespaces)] ?? []).map(\.id))
+    }
+
     /// A night deleted from its own screen.
     ///
     /// Unlike the mistap undo this takes the media with it, because someone reading
     /// the night's own screen can see what is on it.
-    func deleteLocalGig(_ gigId: String) {
+    ///
+    /// Any **Gig** this phone holds a record of can go, its setlist.fm id or not. One held only
+    /// by my setlist.fm attended list has no delete; see `gigMenu`.
+    func deleteGig(_ gigId: String) {
         let media = state.mediaBySetlist[gigId] ?? []
+        let me = state.mySetlistFmUser.trimmingCharacters(in: .whitespaces)
         state.plannedGigs.removeAll { $0.id == gigId }
         state.timelineShows.removeAll { $0.id == gigId }
+        // The cached copy of my attended list goes too, or the night comes back as soon as
+        // the Spine is read again. Setlist.fm itself is not touched.
+        state.showsByFriend[me] = (state.showsByFriend[me] ?? []).filter { $0.id != gigId }
         state.attendanceByGig[gigId] = nil
         state.mediaBySetlist[gigId] = nil
         state.calendarEventByGig[gigId] = nil
@@ -456,7 +473,7 @@ final class AppModel: ObservableObject {
             state.gigLog = StoredLog()
         }
         Task {
-            guard await timelines.deleteGig(gigId, withMedia: true) else { return }
+            guard await timelines.deleteGig(gigId, withMedia: true, anyId: true, attendedLane: me) else { return }
             for item in media { PhotoLibrary.deleteThumbnails(item.id) }
         }
     }
@@ -2946,7 +2963,7 @@ final class AppModel: ObservableObject {
     ///
     /// For a playlist deleted on Spotify, where the pointer left behind is dead
     /// weight. It removes the *link*, never the night — which is why it is a separate
-    /// door from `deleteLocalGig` and not a step inside it.
+    /// door from `deleteGig` and not a step inside it.
     func removePlaylist(_ setlistId: String, url: String) {
         state.playlistsBySetlist[setlistId] =
             (state.playlistsBySetlist[setlistId] ?? []).filter { $0.url != url }

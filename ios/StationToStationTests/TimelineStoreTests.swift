@@ -946,6 +946,18 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertNotNil(after.gigs[id])
     }
 
+    func testTheDeliberateDeleteAlsoTakesTheNightOffMyCachedAttendedList() async {
+        let store = TimelineStore(file: tempFile(contents: "{}"))
+        let id = await store.createLocalGig(date: "06-08-2026", artist: "Velvet Ditch", venue: "")
+        _ = await store.adoptSetlistId(gigId: id, setlistId: "fm-1")
+        await store.mergeContactNights("dizzi90", [FmSetlist(id: "fm-1"), FmSetlist(id: "other")])
+
+        let gone = await store.deleteGig("fm-1", anyId: true, attendedLane: "dizzi90")
+        XCTAssertTrue(gone)
+        let after = await store.load()
+        XCTAssertEqual(["other"], (after.shows["dizzi90"] ?? []).map(\.id))
+    }
+
     /// Twin of Android's reload regression: Undo changes answers, never keepsakes.
     func testUndoAnswersSurviveReloadAndPreserveUnrelatedPairsAndMedia() async throws {
         let file = tempFile()

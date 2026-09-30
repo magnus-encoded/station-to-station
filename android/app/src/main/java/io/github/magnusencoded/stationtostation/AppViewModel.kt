@@ -2937,6 +2937,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      *
      * The screen asks this to decide whether to stop and ask.
      */
+    /**
+     * Where the **Gig** is held. Read from the raw attended list under my own key, never from
+     * [UiState.setlists]: that one also carries the nights I attended here, which is what
+     * this has to tell apart.
+     */
+    fun standing(gigId: String): GigStanding = _state.value.let { s ->
+        gigStanding(
+            gigId,
+            s.plannedGigs.map { it.id },
+            s.showsByFriend[s.mySetlistFmUser.trim()].orEmpty().map { it.id },
+        )
+    }
+
     fun photosLostByDeleting(gigId: String): Int =
         _state.value.mediaBySetlist[gigId].orEmpty().count { photos.ownsBytes(it.ref) }
 
@@ -2947,13 +2960,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * what is on it. The screen is responsible for asking first when
      * [photosLostByDeleting] says bytes would go — a pointer into the gallery is not
      * worth a dialog, the only copy of a photograph is.
+     *
+     * Any **Gig** that is that this phone holds a record of can go, its setlist.fm id or not. One held only
+     * by my setlist.fm attended list has no delete; see [gigMenu].
      */
-    fun deleteLocalGig(gigId: String) {
+    fun deleteGig(gigId: String) {
         val media = _state.value.mediaBySetlist[gigId].orEmpty()
+        val me = _state.value.mySetlistFmUser.trim()
         _state.update {
             it.copy(
                 plannedGigs = it.plannedGigs.filterNot { g -> g.id == gigId },
                 setlists = it.setlists.filterNot { g -> g.id == gigId },
+                // The cached copy of my attended list goes too, or the night comes back as
+                // soon as the Spine is read again. Setlist.fm itself is not touched.
+                showsByFriend = it.showsByFriend + (me to it.showsByFriend[me].orEmpty().filterNot { g -> g.id == gigId }),
                 attendanceByGig = it.attendanceByGig - gigId,
                 logsByGig = it.logsByGig - gigId,
                 mediaBySetlist = it.mediaBySetlist - gigId,
@@ -2963,7 +2983,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         viewModelScope.launch {
-            if (timelines.deleteGig(gigId, withMedia = true)) {
+            if (timelines.deleteGig(gigId, withMedia = true, anyId = true, attendedLane = me)) {
                 media.forEach { photos.deleteOwnedBytes(it.id, it.ref) }
             }
         }
