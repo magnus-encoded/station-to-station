@@ -1146,10 +1146,33 @@ final class AppModel: ObservableObject {
     /// bring it back. Nothing is sent and nothing says anything about the
     /// relationship — but the toggle and its moment are persisted (#396), which is
     /// what lets the legend's recency order survive a launch.
+    /// Showing a **Line** also asks setlist.fm for its latest: it may have been off for a while.
     func toggleLineHidden(_ lane: String) {
-        if state.hiddenAt[lane] != nil { state.hiddenAt[lane] = nil }
+        let showing = state.hiddenAt[lane] != nil
+        if showing { state.hiddenAt[lane] = nil }
         else { state.hiddenAt[lane] = Int64(Date().timeIntervalSince1970 * 1000) }
         Task { await timelines.saveHiddenLines(state.hiddenAt) }
+        if showing, let friend = state.friends.first(where: { $0.laneKey == lane }) {
+            refreshLine(friend)
+        }
+    }
+
+    /// Asks setlist.fm for `friend`'s **Line** again, back to my oldest **Gig** or to the
+    /// oldest one held, whichever is older, so the answer never cuts a **Line** short.
+    /// A failure keeps the last good copy. Android's `refreshLine`.
+    private func refreshLine(_ friend: Friend) {
+        if friend.setlistfm.nilIfBlank == nil { return }
+        let oldest = [
+            state.timelineShows.compactMap { $0.localDate() }.min(),
+            (state.showsByFriend[friend.laneKey] ?? []).compactMap { $0.localDate() }.min(),
+        ].compactMap { $0 }.min()
+        Task {
+            guard let shows = try? await setlistFm.attendedShows(friend.setlistfm, backTo: oldest).shows
+            else { return }
+            let fetched = [friend.laneKey: shows]
+            state.showsByFriend = holdLanes(state.showsByFriend, fetched)
+            await timelines.save(shows: fetched)
+        }
     }
 
     /// Pinch out to open the friends' Lanes beside my Spine, pinch in to close

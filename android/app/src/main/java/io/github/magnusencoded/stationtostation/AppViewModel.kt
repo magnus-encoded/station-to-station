@@ -1566,6 +1566,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 // The same runaway guard the shared-concerts lookup uses, named once.
                 val shows = attendedConcerts(friend.setlistfm, maxPages = TimelineLogic.ATTENDED_PAGE_CAP)
                 _state.update { it.copy(viewedFriendShows = shows, viewedFriendLoading = false) }
+                // What this screen just learned is the **Line** too: the timelines view
+                // must never be behind it.
+                landLine(friend, shows)
             } catch (e: Exception) {
                 _state.update {
                     it.copy(
@@ -1577,6 +1580,30 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             }
+        }
+    }
+
+    /** [shows] fresh from setlist.fm, held as [friend]'s **Line** on screen and on disk. */
+    private suspend fun landLine(friend: Friend, shows: List<FmSetlist>) {
+        val fetched = mapOf(friend.laneKey to shows)
+        _state.update { it.copy(showsByFriend = holdLanes(it.showsByFriend, fetched)) }
+        timelines.save(shows = fetched)
+    }
+
+    /**
+     * Asks setlist.fm for [friend]'s **Line** again, back to my oldest **Gig** or to the
+     * oldest one held, whichever is older, so the answer never cuts a **Line** short.
+     * A failure keeps the last good copy.
+     */
+    private fun refreshLine(friend: Friend) {
+        if (friend.setlistfm.isBlank()) return
+        val oldest = listOfNotNull(
+            _state.value.setlists.mapNotNull { it.localDate() }.minOrNull(),
+            _state.value.showsByFriend[friend.laneKey].orEmpty().mapNotNull { it.localDate() }.minOrNull(),
+        ).minOrNull()
+        viewModelScope.launch {
+            runCatching { attendedBackTo(friend.setlistfm, oldest) }.getOrNull()
+                ?.let { landLine(friend, it) }
         }
     }
 
@@ -1886,7 +1913,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * Hide or show one **Line** in the weave. The gesture is its own undo, so there is
      * one entry point and no separate restore. A new map each time, so remember() sees
      * it. Persisted with the toggle-off moment (#396), which the legend's recency
-     * order sorts by.
+     * order sorts by. Showing a **Line** also asks setlist.fm for its latest.
      */
     fun toggleLineHidden(lane: String) {
         val hiddenAt = if (lane in _state.value.hiddenAt) {
@@ -1896,6 +1923,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         _state.update { it.copy(hiddenAt = hiddenAt) }
         viewModelScope.launch { timelines.saveHiddenLines(hiddenAt) }
+        // Switching a **Line** on is a reason to look: it may have been off for a while.
+        if (lane !in hiddenAt) {
+            _state.value.friends.firstOrNull { it.laneKey == lane }?.let(::refreshLine)
+        }
     }
 
     fun openFestival(key: String) = _state.update {
