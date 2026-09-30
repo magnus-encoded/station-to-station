@@ -1128,22 +1128,24 @@ actor TimelineStore {
     /// A night this app minted, gone entirely — the record and everything keyed by it.
     ///
     /// Refused in two cases, and both refusals are the point. A **Gig** that has taken a
-    /// setlist.fm id is not ours to delete: the vendor's record outlives our copy of it.
-    /// A night with **Media** on it is not a mistap — the photographs are irreplaceable
+    /// setlist.fm id is not ours to delete: the vendor's record outlives our copy of it,
+    /// unless `anyId` says this is the deliberate delete of a night kept only here, such as
+    /// one joined from a **Contact**. A night with **Media** on it is not a mistap — the photographs are irreplaceable
     /// and there is no undo for bytes. Returns whether it went, so the caller can say so
     /// rather than silently doing nothing.
     ///
     /// Deletion rather than `removePlanned`, which rightly refuses to erase a check-in —
     /// that refusal is exactly what used to strand an attendance claim for a night
     /// nothing pointed at any more.
-    func deleteGig(_ gigId: String, withMedia: Bool = false) -> Bool {
+    func deleteGig(_ gigId: String, withMedia: Bool = false, anyId: Bool = false, attendedLane: String? = nil) -> Bool {
         var deleted = false
         writeMerged { cache in
             var c = cache
             guard let id = c.gigIdOrNil(gigId), let gig = c.gigs[id] else { return c }
-            guard gig.setlistId == nil else { return c }
+            guard gig.setlistId == nil || anyId else { return c }
             guard withMedia || (c.gigMedia[id] ?? []).isEmpty else { return c }
             deleted = true
+            if let lane = attendedLane { c.shows[lane] = (c.shows[lane] ?? []).filter { $0.id != gigId } }
             c.gigs[id] = nil
             c.gigPlanned[id] = nil
             c.gigAttendance[id] = nil

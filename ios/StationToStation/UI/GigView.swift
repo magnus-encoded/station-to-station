@@ -434,7 +434,7 @@ struct GigView: View {
         .alert("Delete this night?", isPresented: $deleting) {
             Button("Delete", role: .destructive) {
                 if let show = model.state.selectedSetlist {
-                    model.deleteLocalGig(show.id)
+                    model.deleteGig(show.id)
                     nav.pop()
                 }
             }

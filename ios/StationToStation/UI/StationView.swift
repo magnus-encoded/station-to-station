@@ -144,6 +144,26 @@ private struct AddGigSheets: ViewModifier {
     }
 }
 
+/// The delete a long press asked for, held while the alert for lost photographs is up.
+private struct GigDeleteAlert: ViewModifier {
+    @EnvironmentObject var model: AppModel
+    @Binding var asked: FmSetlist?
+
+    func body(content: Content) -> some View {
+        content.alert("Delete this night?", isPresented: Binding(
+            get: { asked != nil }, set: { if !$0 { asked = nil } })) {
+            Button("Delete", role: .destructive) {
+                if let gig = asked { model.deleteGig(gig.id) }
+                asked = nil
+            }
+            Button("Keep it", role: .cancel) { asked = nil }
+        } message: {
+            let lost = asked.map { model.photosLostByDeleting($0.id) } ?? 0
+            Text("\(lost) of its photographs are only stored here. Deleting the night deletes them. There is no undo.")
+        }
+    }
+}
+
 struct StationView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var nav: Nav
@@ -155,6 +175,8 @@ struct StationView: View {
     /// The entry point for the future edge (#175). A sheet's-worth of state, not
     /// model state: it exists only while the sheet is open.
     @State private var adding = false
+    @State private var deleteAsked: FmSetlist?
+    @Environment(\.openURL) private var openURL
     /// What a link pre-filled the open add sheet with; nil for one opened by hand.
     @State private var prefill: AddGigLink?
     /// Whether the legend's `+ N more` has been opened. View-local: it is where the
@@ -219,6 +241,7 @@ struct StationView: View {
         }
         .modifier(MaybeNightAlert(asking: $askingMaybe))
         .modifier(AddGigSheets(adding: $adding, prefill: $prefill))
+        .modifier(GigDeleteAlert(asked: $deleteAsked))
         .modifier(AddGigLinkModifier(link: model.state.addGigLink, take: takeAddGigLink))
         .toolbar {
             // Explicit placement: iOS 16 puts an unplaced item somewhere else.
@@ -401,6 +424,7 @@ struct StationView: View {
                             else if case .concert(let show) = row.node { openGig(show) }
                         }
                     )
+                    .contextMenu { rowContextMenu(row) }
                 }
             }
             .padding(.top, 4)
@@ -530,6 +554,7 @@ struct StationView: View {
                         PlannedGigRow(setlist: gig)
                             .contentShape(Rectangle())
                             .onTapGesture { openGig(gig) }
+                            .contextMenu { gigContextMenu(gig) }
                     } else {
                         plannedCluster(node)
                     }
@@ -570,6 +595,7 @@ struct StationView: View {
                         .padding(.leading, 14)
                         .contentShape(Rectangle())
                         .onTapGesture { openGig(gig) }
+                        .contextMenu { gigContextMenu(gig) }
                 }
             }
         }
@@ -579,6 +605,36 @@ struct StationView: View {
     private func openGig(_ show: FmSetlist) {
         model.selectSetlist(show)
         nav.push(.gig)
+    }
+
+    /// The menu of a row of mine holding one **Gig**; a **Contact**'s row and a festival have none.
+    @ViewBuilder
+    private func rowContextMenu(_ row: WovenRow) -> some View {
+        if row.mine, case .concert(let show) = row.node { gigContextMenu(show) }
+    }
+
+    /// A **Gig**'s long-press menu: where it is held, then what can be done. `gigMenu` decides.
+    @ViewBuilder
+    private func gigContextMenu(_ gig: FmSetlist) -> some View {
+        let standing = model.standing(gig.id)
+        let items = gigMenu(standing, hasPage: gig.url != nil)
+        if !items.isEmpty {
+            Section(standing.caption) {
+                ForEach(items, id: \.self) { item in
+                    switch item {
+                    case .openOnSetlistFm:
+                        Button("Open on setlist.fm") {
+                            if let url = gig.url.flatMap(URL.init(string:)) { openURL(url) }
+                        }
+                    case .delete:
+                        Button("Delete gig", role: .destructive) {
+                            if model.photosLostByDeleting(gig.id) > 0 { deleteAsked = gig }
+                            else { model.deleteGig(gig.id) }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Opens the sheet a link asked for, pre-filled. Never saves: the sheet's own
