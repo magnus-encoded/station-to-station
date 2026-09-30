@@ -1144,7 +1144,7 @@ final class AppModel: ObservableObject {
     /// oldest one held, whichever is older, so the answer never cuts a **Line** short.
     /// A failure keeps the last good copy. Android's `refreshLine`.
     private func refreshLine(_ friend: Friend) {
-        if friend.setlistfm.isBlank { return }
+        if friend.setlistfm.nilIfBlank == nil { return }
         let oldest = [
             state.timelineShows.compactMap { $0.localDate() }.min(),
             (state.showsByFriend[friend.laneKey] ?? []).compactMap { $0.localDate() }.min(),
