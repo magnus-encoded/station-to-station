@@ -164,6 +164,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.magnusencoded.stationtostation.NightKind
+import io.github.magnusencoded.stationtostation.nightKind
+import io.github.magnusencoded.stationtostation.AddGigLink
 import io.github.magnusencoded.stationtostation.AppViewModel
 import io.github.magnusencoded.stationtostation.ErrorKind
 import io.github.magnusencoded.stationtostation.BuildConfig
@@ -172,11 +175,13 @@ import io.github.magnusencoded.stationtostation.GigLink
 import io.github.magnusencoded.stationtostation.MediaThumb
 import io.github.magnusencoded.stationtostation.NOT_STAMPED
 import io.github.magnusencoded.stationtostation.PendingTicket
+import io.github.magnusencoded.stationtostation.nearestGig
 import io.github.magnusencoded.stationtostation.data.DeviceLocation
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.atUser
 import io.github.magnusencoded.stationtostation.data.handle
 import io.github.magnusencoded.stationtostation.data.laneKey
+import io.github.magnusencoded.stationtostation.data.parseFmDate
 import io.github.magnusencoded.stationtostation.data.nameOf
 import io.github.magnusencoded.stationtostation.data.MediaOffer
 import io.github.magnusencoded.stationtostation.data.waitingOn
@@ -230,6 +235,7 @@ import io.github.magnusencoded.stationtostation.ui.flyover.collectionBillboard
 import io.github.magnusencoded.stationtostation.ui.flyover.collectionFlyoverGigs
 import io.github.magnusencoded.stationtostation.ui.flyover.collectionMedia
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import java.time.LocalDateTime
 import kotlin.math.roundToInt
 
@@ -328,7 +334,14 @@ fun StationTimelineScreen(
     // Reachable from both the future edge and the empty spine: a collector with no
     // history at all still has a ticket for something.
     var adding by remember { mutableStateOf(false) }
-    var addingByHand by remember { mutableStateOf(false) }
+    // What a link pre-filled the open add dialog with; null for a dialog opened by hand.
+    var prefill by remember { mutableStateOf<AddGigLink?>(null) }
+    LaunchedEffect(state.addGigLink) {
+        val link = state.addGigLink ?: return@LaunchedEffect
+        prefill = link
+        adding = true
+        viewModel.consumeAddGigLink()
+    }
     // Whether the legend's `+ N more` has been opened — where the reader left the
     // disclosure, not a fact to remember across a launch (#396).
     var legendExpanded by remember { mutableStateOf(false) }
@@ -452,25 +465,18 @@ fun StationTimelineScreen(
                 modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 4.dp),
             )
             if (adding) {
-                AddPlannedGigDialog(
+                AddGigDialog(
+                    initial = prefill,
                     suggestions = state.artistSuggestions,
                     onArtistTyped = { viewModel.suggestArtists(it) },
                     onArtistPicked = { viewModel.clearArtistSuggestions() },
                     onAdd = { artist, venue, date ->
-                        viewModel.addPlannedGigByHand(artist, venue, date)
+                        viewModel.addGig(artist, venue, date)
                         adding = false
+                        prefill = null
                     },
-                    onAddByLink = { link -> viewModel.addPlannedGig(link); adding = false },
-                    onDismiss = { viewModel.clearArtistSuggestions(); adding = false },
-                )
-            }
-            if (addingByHand) {
-                AddLocalGigDialog(
-                    onAdd = { artist, venue, date ->
-                        viewModel.addLocalGig(artist, venue, date)
-                        addingByHand = false
-                    },
-                    onDismiss = { addingByHand = false },
+                    onAddByLink = { link -> viewModel.addPlannedGig(link); adding = false; prefill = null },
+                    onDismiss = { viewModel.clearArtistSuggestions(); adding = false; prefill = null },
                 )
             }
             state.pendingTicket?.let { pending ->
@@ -499,8 +505,7 @@ fun StationTimelineScreen(
                 state.setlists.isEmpty() && state.plannedGigs.isEmpty() ->
                     EmptyTimeline(
                         onAdd = onOpenImport,
-                        onPlan = { adding = true },
-                        onAddByHand = { addingByHand = true },
+                        onAddGig = { adding = true },
                     )
 
                 else -> {
@@ -785,6 +790,24 @@ fun StationTimelineScreen(
                             )
                         }
 
+                        // A date is only a place once the rows exist. Friends' Lanes load
+                        // after zooming out, so it waits for them rather than landing on
+                        // the nearest Gig of a weave with nobody in it yet.
+                        LaunchedEffect(state.linkedDate, rows, future, state.timelinesLoading) {
+                            val date = state.linkedDate ?: return@LaunchedEffect
+                            if (zoomedOut) {
+                                viewModel.loadFriendTimelines()
+                                if (viewModel.state.value.timelinesLoading) return@LaunchedEffect
+                            }
+                            val dated = (rows.flatMap { it.shows + it.showsHereByFriends } +
+                                future.flatMap { it.node.shows })
+                                .mapNotNull { show -> show.localDate()?.let { show.id to it } }
+                            viewModel.consumeLinkedDate()
+                            nearestGig(dated, date)?.let {
+                                viewModel.linkGig(it, if (zoomedOut) GigLink.WOVEN else GigLink.SINGLE_LINE)
+                            }
+                        }
+
                         // A station-to-station:// link names a gig, and only here can a
                         // gig be turned into a place: one inside a collapsed festival
                         // has no row of its own until the festival opens, so this may
@@ -809,7 +832,13 @@ fun StationTimelineScreen(
                                 row.shows.any { it.id == gig } ||
                                     row.showsHereByFriends.any { it.id == gig }
                             }
-                            if (at < 0) return@LaunchedEffect
+                            if (at < 0) {
+                                val ahead = future.indexOfFirst { row -> row.node.shows.any { it.id == gig } }
+                                if (ahead < 0) return@LaunchedEffect
+                                listState.animateScrollToItem(1 + ahead)
+                                viewModel.consumeGigLink()
+                                return@LaunchedEffect
+                            }
                             val row = rows[at]
                             val insideClosedFestival =
                                 row.node is TimelineNode.Several && row.key !in expanded
@@ -1360,18 +1389,18 @@ private fun ConfirmAdmissions(parsed: ParsedTicket) {
 }
 
 /**
- * A gig you're going to: who is playing, where, and when.
+ * Add a **Gig**: who played or is playing, where, and when. One form for both, because
+ * the input is the same and both put a **Gig** on my **Line**; the date decides the rule
+ * underneath (see [nightKind]).
  *
- * **This used to be a paste box for a setlist.fm link**, defended on two grounds. The
- * first still holds: setlist.fm's search index stops about a day out, so a show weeks
- * away cannot be *found* by artist, venue or date (#29). The second — that typing the
- * details in "would invent a second record for a gig setlist.fm already has" — is no
- * longer true: `createLocalGig` mints local **Gig**s for nights setlist.fm has never
- * heard of and `adoptSetlistId` moves one onto the vendor id when setlist.fm catches
- * up, with every association intact.
+ * **A night I was at** has no upstream record to collide with, so it is minted locally
+ * and claimed attended. **A night I am going to** is minted locally too and claims
+ * nothing, because setlist.fm's search index stops about a day out and a show weeks away
+ * cannot be *found* by artist, venue or date; it moves onto the vendor id when setlist.fm
+ * catches up.
  *
- * **The link path stays, demoted.** It is strictly better when you have the link: it
- * brings the real id, the real venue and the real date, and needs no adoption later.
+ * **The link path stays, demoted.** A setlist.fm link is strictly better when you have
+ * it: it brings the real id, venue and date, and needs no adoption later.
  *
  * **The artist completes; the venue does not.** MusicBrainz has a `place` entity and
  * its coverage of small rooms is thin, so a completion box that fails most of the time
@@ -1379,7 +1408,8 @@ private fun ConfirmAdmissions(parsed: ParsedTicket) {
  * the honest version of a venue.
  */
 @Composable
-private fun AddPlannedGigDialog(
+private fun AddGigDialog(
+    initial: AddGigLink?,
     suggestions: List<MbArtist>,
     onArtistTyped: (String) -> Unit,
     onArtistPicked: () -> Unit,
@@ -1387,11 +1417,12 @@ private fun AddPlannedGigDialog(
     onAddByLink: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var artist by remember { mutableStateOf("") }
-    var venue by remember { mutableStateOf("") }
-    var date by remember { mutableStateOf("") }
+    var artist by remember { mutableStateOf(initial?.artist.orEmpty()) }
+    var venue by remember { mutableStateOf(initial?.venue.orEmpty()) }
+    var date by remember { mutableStateOf(initial?.date.orEmpty()) }
     var link by remember { mutableStateOf("") }
     var pasting by remember { mutableStateOf(false) }
+    val kind = nightKind(parseFmDate(date), LocalDate.now())
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -1400,7 +1431,7 @@ private fun AddPlannedGigDialog(
                 .background(Raised)
                 .padding(20.dp),
         ) {
-            Text("A gig you're going to", fontFamily = Serif, fontSize = 19.sp, color = Ink, modifier = Modifier.asHeading())
+            Text("Add a gig", fontFamily = Serif, fontSize = 19.sp, color = Ink, modifier = Modifier.asHeading())
             Spacer(Modifier.height(6.dp))
             if (pasting) {
                 Text(
@@ -1413,8 +1444,14 @@ private fun AddPlannedGigDialog(
                 StationField(link, { link = it }, "setlist.fm link", imeDone = true)
             } else {
                 Text(
-                    "It can't be searched for this far ahead, so this night lives on " +
-                        "this phone until setlist.fm catches up with it.",
+                    when (kind) {
+                        NightKind.GOING_TO ->
+                            "A night ahead can't be searched for, so it lives on this phone " +
+                                "until setlist.fm catches up with it."
+                        NightKind.WAS_AT ->
+                            "No account needed. This night lives on this phone, and what was " +
+                                "played goes in its log afterwards."
+                    },
                     color = Muted,
                     fontSize = 12.sp,
                 )
@@ -1457,7 +1494,7 @@ private fun AddPlannedGigDialog(
  * uncertain — a complete, unambiguous parse skips this dialog entirely.
  *
  * Every field starts pre-filled with whatever the parse found and stays editable —
- * the same fields [AddPlannedGigDialog] and [AddLocalGigDialog] use, wearing a guess
+ * the same fields [AddGigDialog] uses, wearing a guess
  * instead of a blank. A [PendingTicket.parsed] that found nothing at all still opens
  * this dialog with three empty fields, which is what makes "couldn't read this
  * ticket" an honest state rather than a silent failure.
@@ -1760,64 +1797,6 @@ private fun maybeTheirNight(maybe: MaybeNight): String {
 }
 
 /**
- * A night you were at, typed in — the door onto the zero-account floor (#225).
- *
- * The mirror image of [AddPlannedGigDialog], and the difference between them is the
- * whole reason both exist. A gig you are *going to* cannot be typed in, because
- * setlist.fm's search stops about a day out and a hand-typed future night would
- * invent a second record for one setlist.fm already holds. A night that has already
- * happened, entered by someone with no setlist.fm account, has no upstream record to
- * collide with — there is nothing to import, which is exactly why this is here.
- *
- * The venue is optional and blank is honest. What the app cannot do is guess it.
- */
-@Composable
-private fun AddLocalGigDialog(
-    onAdd: (artist: String, venue: String, date: String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var artist by remember { mutableStateOf("") }
-    var venue by remember { mutableStateOf("") }
-    var date by remember { mutableStateOf("") }
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            Modifier
-                .clip(RoundedCornerShape(16.dp))
-                .background(Raised)
-                .padding(20.dp),
-        ) {
-            Text("A night you were at", fontFamily = Serif, fontSize = 19.sp, color = Ink, modifier = Modifier.asHeading())
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "No account needed. This night lives on this phone, and what was " +
-                    "played goes in its log afterwards.",
-                color = Muted,
-                fontSize = 12.sp,
-            )
-            Spacer(Modifier.height(14.dp))
-            StationField(artist, { artist = it }, "who played")
-            Spacer(Modifier.height(8.dp))
-            StationField(venue, { venue = it }, "venue (optional)")
-            Spacer(Modifier.height(8.dp))
-            StationField(date, { date = it }, "date (dd-MM-yyyy)", imeDone = true)
-            Spacer(Modifier.height(10.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("Cancel", color = Faint) }
-                TextButton(
-                    onClick = { onAdd(artist, venue, date) },
-                    enabled = artist.isNotBlank() && date.isNotBlank(),
-                ) {
-                    Text(
-                        "Add it",
-                        color = if (artist.isBlank() || date.isBlank()) Faint else Amber,
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
  * "Are you here?" — the one thing a check-in asks. Shown only when a fix already
  * put the phone at the venue on the night, so it states what it thinks and offers
  * the two honest answers.
@@ -1963,14 +1942,13 @@ private fun DeleteNightDialog(photos: Int, onDelete: () -> Unit, onDismiss: () -
 /**
  * The empty spine: one lit node you tap to bring in your shows.
  *
- * Three doors, and the third is not decoration. The lit node imports from
- * setlist.fm and the planned-gig row needs a setlist.fm link, so until #225 every
- * way onto a fresh timeline ran through an account the app insists is optional.
- * The manual row is what makes that claim true at the front door as well as in the
- * data model.
+ * Two doors, and the second is not decoration. The lit node imports from setlist.fm,
+ * so without the by-hand row every way onto a fresh timeline would run through an
+ * account the app insists is optional. That row is what makes the claim true at the
+ * front door as well as in the data model.
  */
 @Composable
-private fun EmptyTimeline(onAdd: () -> Unit, onPlan: () -> Unit, onAddByHand: () -> Unit) {
+private fun EmptyTimeline(onAdd: () -> Unit, onAddGig: () -> Unit) {
     Column(
         Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1993,21 +1971,13 @@ private fun EmptyTimeline(onAdd: () -> Unit, onPlan: () -> Unit, onAddByHand: ()
         Spacer(Modifier.height(4.dp))
         Text("Pull your history from setlist.fm.", color = Muted, fontSize = 13.sp)
         Spacer(Modifier.height(18.dp))
-        // A line can start above today as easily as below it: someone with no history
-        // yet still has a ticket for something.
+        // The one row that does not end at setlist.fm, and a line can start above today
+        // as easily as below it: someone with no history yet still has a ticket for something.
         Text(
-            "↑  or add a gig you're going to",
+            "or add a gig by hand",
             color = Slate,
             fontSize = 13.sp,
-            modifier = Modifier.clickable(onClick = onPlan).padding(8.dp),
-        )
-        // Both rows above end at setlist.fm. This one does not, and it is the only
-        // affordance on this screen that a user without an account can act on.
-        Text(
-            "or type in a night you were at",
-            color = Slate,
-            fontSize = 13.sp,
-            modifier = Modifier.clickable(onClick = onAddByHand).padding(8.dp),
+            modifier = Modifier.clickable(onClick = onAddGig).padding(8.dp),
         )
     }
 }
@@ -2029,13 +1999,18 @@ fun ImportScreen(
     var byHand by remember { mutableStateOf(false) }
 
     if (byHand) {
-        AddLocalGigDialog(
+        AddGigDialog(
+            initial = null,
+            suggestions = state.artistSuggestions,
+            onArtistTyped = { viewModel.suggestArtists(it) },
+            onArtistPicked = { viewModel.clearArtistSuggestions() },
             onAdd = { artist, venue, date ->
-                viewModel.addLocalGig(artist, venue, date)
+                viewModel.addGig(artist, venue, date)
                 byHand = false
                 onDone()
             },
-            onDismiss = { byHand = false },
+            onAddByLink = { link -> viewModel.addPlannedGig(link); byHand = false; onDone() },
+            onDismiss = { viewModel.clearArtistSuggestions(); byHand = false },
         )
     }
 
@@ -2128,7 +2103,7 @@ fun ImportScreen(
             // whole job is "add your shows" — the empty spine offers it too, but the
             // empty spine is gone the moment there is one night on the line (#225).
             Text(
-                "or type a night in by hand",
+                "or add a gig by hand",
                 color = Slate,
                 fontSize = 13.sp,
                 modifier = Modifier
@@ -5097,6 +5072,15 @@ fun StationEventScreen(
                                 onAdd = { uri -> viewModel.addGigPhotos(setlist.id, listOf(uri), Band.VAULT) },
                             )
                         }
+                    }
+                }
+                if (!mineNight) item {
+                    val going = nightKind(setlist.localDate(), LocalDate.now()) == NightKind.GOING_TO
+                    TextButton(
+                        onClick = { viewModel.joinGig(setlist) },
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    ) {
+                        Text(if (going) "I am going too" else "I was there too", color = Amber)
                     }
                 }
                 val gossipFacts = state.publicGossip.project(setOf(setlist.id))

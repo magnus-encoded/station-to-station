@@ -9,6 +9,11 @@
 - [`docs/personas.md`](docs/personas.md) — who this is for.
 - [`fixtures/weave/`](fixtures/weave/README.md) — the corpus both platforms assert against.
 
+## Driving the app
+
+[`docs/agents/device.md`](docs/agents/device.md) — every `station-to-station://` link, and
+the order to try them in. Use it before swiping over `adb` or `simctl`.
+
 ## Writing comments
 
 Follow [`docs/agents/comments.md`](docs/agents/comments.md): separate rules for logic, plumbing and tests. The periodic comment review checks against them.

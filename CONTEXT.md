@@ -266,6 +266,9 @@ nobody — so the durable key it used to need never has to cross at all.
   and only my accepting it joins the Night.
 - A **Maybe** is joined by my "same night" or by my accepting an offer for it, and from then on
   it is drawn **Joined** like any shared Night. Nobody else's answer moves it.
+- Joining a **Contact**'s **Gig** ("I am going too" for a night ahead, "I was there too" for one
+  behind) puts it on my **Line** under the same id, and the **Crossing** follows from holding it
+  on both. It answers no **Maybe**, and an invite to a **Gig** I do not hold opens it unkept.
 - **Reconcile** runs between **Contacts**, over **Attended** in common — not over what was
   attached recently, and not over who was checked in at the time.
 

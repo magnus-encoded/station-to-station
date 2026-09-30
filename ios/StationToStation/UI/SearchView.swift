@@ -92,7 +92,7 @@ private struct ArtistTab: View {
 private struct UserTab: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var nav: Nav
-    @State private var addingLocal = false
+    @State private var adding = false
 
     var body: some View {
         let s = model.state
@@ -121,19 +121,23 @@ private struct UserTab: View {
             // person without an account can act on (#347). It lives here because this
             // is the import surface — where Android's `ImportScreen` keeps it — and
             // the cold start is the other place it is offered.
-            Button("Or type in a night you were at") { addingLocal = true }
+            Button("Or add a gig by hand") { adding = true }
                 .font(.subheadline)
             Text("The poster in the window, the small venue nobody catalogues.")
                 .font(.caption).foregroundStyle(.secondary)
             Spacer()
         }
         .padding(.horizontal)
-        .sheet(isPresented: $addingLocal) {
-            AddLocalGigSheet { artist, venue, date in
-                model.addLocalGig(artist: artist, venue: venue, date: date)
-                addingLocal = false
+        .sheet(isPresented: $adding) {
+            AddGigSheet { artist, venue, date in
+                model.addGig(artist: artist, venue: venue, date: date)
+                adding = false
                 nav.popToRoot()
-            } onCancel: { addingLocal = false }
+            } onAddByLink: { link in
+                model.addPlannedGig(link)
+                adding = false
+                nav.popToRoot()
+            } onCancel: { adding = false }
         }
     }
 }
