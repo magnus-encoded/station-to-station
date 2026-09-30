@@ -255,12 +255,7 @@ struct GigView: View {
                                 .font(.system(size: 12)).foregroundStyle(muted)
                                 .padding(.horizontal, 24).padding(.top, 2)
                         }
-                        if !model.state.selectedIsMine {
-                            let going = nightKind(date: isoDate(fromFm: show.eventDate), today: isoToday()) == .goingTo
-                            Button(going ? "I am going too" : "I was there too") { model.joinGig(show) }
-                                .font(.system(size: 15)).foregroundStyle(amber)
-                                .padding(.horizontal, 24).padding(.vertical, 8)
-                        }
+                        if !model.state.selectedIsMine { JoinGigButton(show: show) }
                         let log = model.state.gigLog
                         let woven = weaveSetlist(published: rows.map(publishedTitle),
                                                  logged: log.songs)
@@ -959,4 +954,20 @@ func mediaOfferLine(_ offer: MediaOffer, sender: String) -> String {
         what = "\(n) things"
     }
     return "\(sender) offered \(what)"
+}
+
+/// The offer on a **Gig** that is not mine: join it, as the date says.
+private struct JoinGigButton: View {
+    @EnvironmentObject var model: AppModel
+    let show: FmSetlist
+
+    private var going: Bool {
+        nightKind(date: isoDate(fromFm: show.eventDate), today: isoToday()) == .goingTo
+    }
+
+    var body: some View {
+        Button(going ? "I am going too" : "I was there too") { model.joinGig(show) }
+            .font(.system(size: 15)).foregroundStyle(amber)
+            .padding(.horizontal, 24).padding(.vertical, 8)
+    }
 }
