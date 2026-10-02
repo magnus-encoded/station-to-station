@@ -1007,14 +1007,32 @@ private fun evidence(provenance: String): Int = when (provenance) {
 class TimelineStore(
     private val file: File,
     private val mimeOf: ((String) -> String?)? = null,
-) {
+    private val myAttendedList: () -> String = { "" },
+    private val deleteLocalCopies: suspend (StoredMedia) -> Unit = {},
+) : GigStorage {
 
-    constructor(context: Context) : this(
+    constructor(
+        context: Context,
+        myAttendedList: () -> String = { "" },
+        deleteLocalCopies: suspend (StoredMedia) -> Unit = {},
+    ) : this(
         File(context.filesDir, "timelines.json"),
         // A named function, not a lambda written here: a lambda inside a delegating
         // constructor call reads as capturing `this`, which does not exist yet.
         mimeResolver(context),
+        myAttendedList,
+        deleteLocalCopies,
     )
+
+    override suspend fun delete(gigId: String): GigDeletionOutcome {
+        val cache = load()
+        // Media is read before the record goes; its local copies are deleted only once the record is.
+        val media = cache.gigIdOrNull(gigId)?.let { cache.gigMedia[it] }.orEmpty()
+        val lane = myAttendedList().ifEmpty { null }
+        if (!deleteGig(gigId, withMedia = true, anyId = true, attendedLane = lane)) return GigDeletionOutcome.KEPT
+        media.forEach { deleteLocalCopies(it) }
+        return GigDeletionOutcome.DELETED
+    }
 
     // encodeDefaults so an empty cache round-trips; ignoreUnknownKeys so a field
     // added to FmSetlist doesn't make an existing cache unreadable.

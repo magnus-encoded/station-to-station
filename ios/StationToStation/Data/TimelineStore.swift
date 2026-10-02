@@ -897,10 +897,18 @@ func unionMedia(_ kept: [StoredMedia], _ arriving: [StoredMedia]) -> [StoredMedi
 actor TimelineStore {
 
     private let file: URL
+    private let myAttendedList: @Sendable () async -> String
+    private let deleteLocalCopies: @Sendable (StoredMedia) -> Void
 
     /// `file` is injectable only so the merge can be tested off a device.
-    init(file: URL = TimelineStore.defaultFile) {
+    init(
+        file: URL = TimelineStore.defaultFile,
+        myAttendedList: @escaping @Sendable () async -> String = { "" },
+        deleteLocalCopies: @escaping @Sendable (StoredMedia) -> Void = { _ in }
+    ) {
         self.file = file
+        self.myAttendedList = myAttendedList
+        self.deleteLocalCopies = deleteLocalCopies
     }
 
     static var defaultFile: URL {
@@ -1625,5 +1633,17 @@ extension Dictionary where Key == String {
         copy[drop] = nil
         copy[keep] = self[keep].map { union($0, dropped) } ?? dropped
         return copy
+    }
+}
+
+extension TimelineStore: GigStorage {
+    func delete(_ gigId: String) async -> GigDeletionOutcome {
+        let cache = load()
+        // Media is read before the record goes; its local copies are deleted only once the record is.
+        let media = cache.gigIdOrNil(gigId).flatMap { cache.gigMedia[$0] } ?? []
+        let lane = await myAttendedList()
+        guard deleteGig(gigId, withMedia: true, anyId: true, attendedLane: lane.isEmpty ? nil : lane) else { return .kept }
+        media.forEach(deleteLocalCopies)
+        return .deleted
     }
 }

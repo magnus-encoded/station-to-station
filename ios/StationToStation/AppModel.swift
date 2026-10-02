@@ -300,7 +300,10 @@ final class AppModel: ObservableObject {
     private let musicBrainz = MusicBrainzClient()
     /// The in-flight suggestion lookup, held so the next keystroke can cancel it.
     private var artistSearch: Task<Void, Never>?
-    private let timelines = TimelineStore()
+    private lazy var timelines = TimelineStore(
+        myAttendedList: { [unowned self] in await self.state.mySetlistFmUser.trimmingCharacters(in: .whitespaces) },
+        deleteLocalCopies: { PhotoLibrary.deleteThumbnails($0.id) }
+    )
     /// The device half of the Timeline (ADR-0001): the store, the client, the
     /// bundle. Held as the concrete type because seeding a fixture is an iOS-only
     /// entry point that the shared logic layer only ever *reads* the result of.
@@ -458,23 +461,9 @@ final class AppModel: ObservableObject {
     /// Any **Gig** this phone holds a record of can go, its setlist.fm id or not. One held only
     /// by my setlist.fm attended list has no delete; see `gigMenu`.
     func deleteGig(_ gigId: String) {
-        let media = state.mediaBySetlist[gigId] ?? []
         let me = state.mySetlistFmUser.trimmingCharacters(in: .whitespaces)
-        state.plannedGigs.removeAll { $0.id == gigId }
-        state.timelineShows.removeAll { $0.id == gigId }
-        // The cached copy of my attended list goes too, or the night comes back as soon as
-        // the Spine is read again. Setlist.fm itself is not touched.
-        state.showsByFriend[me] = (state.showsByFriend[me] ?? []).filter { $0.id != gigId }
-        state.attendanceByGig[gigId] = nil
-        state.mediaBySetlist[gigId] = nil
-        state.calendarEventByGig[gigId] = nil
-        if state.selectedSetlist?.id == gigId {
-            state.selectedSetlist = nil
-            state.gigLog = StoredLog()
-        }
         Task {
-            guard await timelines.deleteGig(gigId, withMedia: true, anyId: true, attendedLane: me) else { return }
-            for item in media { PhotoLibrary.deleteThumbnails(item.id) }
+            _ = await deleteFromStorage(gigId, storage: timelines) { state.deleteGig(gigId, mine: me) }
         }
     }
 
