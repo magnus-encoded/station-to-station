@@ -66,6 +66,7 @@ import io.github.magnusencoded.stationtostation.data.routeTicket
 import io.github.magnusencoded.stationtostation.data.QR_SYMBOLOGY
 import io.github.magnusencoded.stationtostation.data.TimelineLogic
 import io.github.magnusencoded.stationtostation.data.TimelineCache
+import io.github.magnusencoded.stationtostation.data.GigStorage
 import io.github.magnusencoded.stationtostation.data.TimelineStore
 import io.github.magnusencoded.stationtostation.data.friendFromUri
 import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
@@ -687,7 +688,11 @@ fun PendingTicket.confirmedAs(
         ?: ConfirmedTicket.Mint(artist.trim(), venue.trim(), night, parsed.admissions)
 }
 
-class AppViewModel(application: Application) : AndroidViewModel(application) {
+class AppViewModel @JvmOverloads constructor(
+    application: Application,
+    /** Wraps this phone's store in the place **Gigs** are kept; null keeps them on this phone alone. */
+    private val pluggedStorage: ((local: GigStorage) -> GigStorage)? = null,
+) : AndroidViewModel(application) {
 
     companion object {
         /** setlist.fm's page size for attended lists — used to resume a cached spine. */
@@ -706,6 +711,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         myAttendedList = { _state.value.mySetlistFmUser.trim() },
         deleteLocalCopies = { photos.deleteOwnedBytes(it.id, it.ref) },
     )
+    /** Where a **Gig** is stored. The default is this phone's [TimelineStore]; a connector wraps it. */
+    private val gigStorage: GigStorage = pluggedStorage?.invoke(timelines) ?: timelines
     private val ticketOriginals = TicketOriginals.of(application)
     private val setlistFm = SetlistFmClient(
         keySource = { settings.setlistFmKey() },
@@ -3002,7 +3009,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteGig(gigId: String) {
         val me = _state.value.mySetlistFmUser.trim()
         viewModelScope.launch {
-            deleteFromStorage(gigId, timelines) { _state.update { it.deletingGig(gigId, me) } }
+            deleteFromStorage(gigId, gigStorage) { _state.update { it.deletingGig(gigId, me) } }
         }
     }
 

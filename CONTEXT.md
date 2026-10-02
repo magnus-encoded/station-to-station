@@ -161,9 +161,10 @@ carry, how they are established, and what they permit.
 | **Card** | What is handed over in an **Exchange**: a public key, a display name, and *optionally* a setlist.fm username. The key is the identity; setlist.fm is an attribute. | profile, account |
 | **Exchange** | Two people, standing together, each getting their phone out: the other appears, you tap, *"Connecting with dizzi90"*, and you are contacts from then on. Physical presence is the authentication — the whole point, not an implementation detail. **The moment is one thing; the mechanism is three** (Nearby between Androids, BLE GATT everywhere else, QR when the radio sulks) and the user must never be shown which one ran. Budget: two seconds. | pairing, friend request, connect |
 | **Mutual** | The stored bit saying an **Exchange** happened. Outlives the radio session that created it; a **Contact** is exactly a person this bit is set for. | connected, paired |
+| **Link holder** | Someone who holds a link to a **Gig** kept in a store, and so can open what the link grants. A capability, not a relationship: no key was exchanged, there is no account, and nobody knows who they are. The owner grants it from their own store, revocably; the app sends nothing, and the owner is not answerable for a copy made of what was opened. | viewer, guest, recipient, follower |
 
 A person can be a **Followed line**, a **Contact**, both, or neither. Following someone
-never makes them a **Contact**, and a **Contact** need not be on setlist.fm at all.
+never makes them a **Contact**, and a **Contact** need not be on setlist.fm at all. Holding a link to a **Gig** never makes anyone a **Contact** either.
 
 ## Gossip
 

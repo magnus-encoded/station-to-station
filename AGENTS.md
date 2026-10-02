@@ -17,3 +17,17 @@ the order to try them in. Use it before swiping over `adb` or `simctl`.
 ## Writing comments
 
 Follow [`docs/agents/comments.md`](docs/agents/comments.md): separate rules for logic, plumbing and tests. The periodic comment review checks against them.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues (`magnus-encoded/station-to-station`, via `gh`). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at the root. See `docs/agents/domain.md`.

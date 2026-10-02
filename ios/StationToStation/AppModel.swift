@@ -304,6 +304,8 @@ final class AppModel: ObservableObject {
         myAttendedList: { [unowned self] in await self.state.mySetlistFmUser.trimmingCharacters(in: .whitespaces) },
         deleteLocalCopies: { PhotoLibrary.deleteThumbnails($0.id) }
     )
+    private lazy var gigStorage: GigStorage = pluggedStorage?(timelines) ?? timelines
+    private let pluggedStorage: ((GigStorage) -> GigStorage)?
     /// The device half of the Timeline (ADR-0001): the store, the client, the
     /// bundle. Held as the concrete type because seeding a fixture is an iOS-only
     /// entry point that the shared logic layer only ever *reads* the result of.
@@ -317,7 +319,8 @@ final class AppModel: ObservableObject {
     /// One-shot per launch: dismissing an offer must not make it reappear (#174).
     private var askedToCheckIn = false
 
-    init() {
+    init(pluggedStorage: ((GigStorage) -> GigStorage)? = nil) {
+        self.pluggedStorage = pluggedStorage
         state.setlistFmApiKey = settings.setlistFmApiKey ?? ""
         // Effective value, so Settings shows the bundled ID and lets it be
         // swapped for another app's without a rebuild.
@@ -463,7 +466,7 @@ final class AppModel: ObservableObject {
     func deleteGig(_ gigId: String) {
         let me = state.mySetlistFmUser.trimmingCharacters(in: .whitespaces)
         Task {
-            _ = await deleteFromStorage(gigId, storage: timelines) { state.deleteGig(gigId, mine: me) }
+            _ = await deleteFromStorage(gigId, storage: gigStorage) { state.deleteGig(gigId, mine: me) }
         }
     }
 
