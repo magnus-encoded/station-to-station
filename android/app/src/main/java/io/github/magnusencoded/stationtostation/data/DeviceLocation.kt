@@ -6,15 +6,16 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Geocoder
 import android.location.LocationManager
+import android.os.CancellationSignal
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
-import androidx.core.os.CancellationSignal
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 import kotlin.coroutines.resume
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Where the phone is, and where a venue is. One fix, in the foreground, when the
@@ -36,7 +37,7 @@ class DeviceLocation(private val context: Context) {
          * they have started scrolling is worse than none. Indoors at a venue a GPS
          * fix can take far longer than this — that is the case being given up on.
          */
-        private const val FIX_TIMEOUT_MS = 8_000L
+        private val FIX_TIMEOUT = 8.seconds
 
         /** Either grant is enough: coarse is ~100 m, well inside the venue radius. */
         fun requiredPermissions(): Array<String> = arrayOf(
@@ -63,25 +64,25 @@ class DeviceLocation(private val context: Context) {
         val provider = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
             .firstOrNull { runCatching { manager.isProviderEnabled(it) }.getOrDefault(false) }
             ?: return null
-        val signal = CancellationSignal()
-        return withTimeoutOrNull(FIX_TIMEOUT_MS) {
-            suspendCancellableCoroutine<Pair<Double, Double>?> { cont ->
-                cont.invokeOnCancellation { runCatching { signal.cancel() } }
-                runCatching {
-                    LocationManagerCompat.getCurrentLocation(
-                        manager,
-                        provider,
-                        signal,
-                        // The main executor rather than one spun up per call: all the
-                        // callback does is resume this coroutine.
-                        ContextCompat.getMainExecutor(context),
-                    ) { location ->
-                        if (cont.isActive) cont.resume(location?.let { it.latitude to it.longitude })
-                    }
-                }.onFailure { if (cont.isActive) cont.resume(null) }
+        return withTimeoutOrNull(FIX_TIMEOUT) { awaitFix(manager, provider) }
+    }
+
+    @SuppressLint("MissingPermission")
+    private suspend fun awaitFix(manager: LocationManager, provider: String): Pair<Double, Double>? =
+        suspendCancellableCoroutine { cont ->
+            val signal = CancellationSignal()
+            cont.invokeOnCancellation { signal.cancel() }
+            // The main executor rather than one spun up per call: all the callback
+            // does is resume this coroutine.
+            val executor = ContextCompat.getMainExecutor(context)
+            try {
+                LocationManagerCompat.getCurrentLocation(manager, provider, signal, executor) { location ->
+                    if (cont.isActive) cont.resume(location?.let { it.latitude to it.longitude })
+                }
+            } catch (_: Exception) {
+                if (cont.isActive) cont.resume(null)
             }
         }
-    }
 
     /**
      * The venue's own coordinates, from the keyless native forward geocoder — the
