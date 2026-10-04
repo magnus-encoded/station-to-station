@@ -7,6 +7,9 @@ import android.graphics.Bitmap
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.magnusencoded.stationtostation.features.settings.SettingsController
+import io.github.magnusencoded.stationtostation.features.settings.asSettingsStore
+import io.github.magnusencoded.stationtostation.features.settings.asSpotifyLogin
 import io.github.magnusencoded.stationtostation.data.Band
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.FriendArrival
@@ -717,21 +720,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      */
     val clashfinder = ClashfinderClient { settings.clashfinderAuth() }
 
-    /**
-     * Hand one clashfinder document to the browser, which the host does still answer.
-     *
-     * The address carries the account's credentials because the data needs them, so this
-     * puts the public key in the browser's history — accepted only because it is the one
-     * route to the file while the app itself is refused, and it is the user's own key on
-     * their own phone.
-     */
-    suspend fun openClashfinderInBrowser(context: Context, path: String) {
-        val auth = settings.clashfinderAuth() ?: return
-        context.startActivity(
-            Intent(Intent.ACTION_VIEW, Uri.parse(clashfinderUrl(path, auth)))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        )
-    }
+    suspend fun openClashfinderInBrowser(context: Context, path: String) =
+        settingsController.openClashfinderInBrowser(context, path)
 
     /**
      * The Timeline's sequence and rules (ADR-0001), with the device half handed in
@@ -793,6 +783,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
+
+    private val settingsController = SettingsController(
+        update = { transform -> _state.update(transform) },
+        settings = settings.asSettingsStore(),
+        spotify = spotify.asSpotifyLogin(),
+        scope = viewModelScope,
+        fail = { fail(it) },
+    )
 
     private var matchJob: Job? = null
 
@@ -995,11 +993,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    /** Records that the splash was passed, so it never shows again. */
-    fun markOnboarded() {
-        _state.update { it.copy(onboarded = true) }
-        viewModelScope.launch { settings.setOnboarded() }
-    }
+    fun markOnboarded() = settingsController.markOnboarded()
 
     fun consumeError() = _state.update { it.copy(error = null, errorKind = null) }
     fun consumeNotice() = _state.update { it.copy(notice = null) }
@@ -1025,70 +1019,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun isSharedQuota(e: Throwable): Boolean =
         e is SetlistFmRateLimited && e.sharedKey
 
-    fun saveSettings(apiKey: String, clientId: String) {
-        viewModelScope.launch { saveSettingsNow(apiKey, clientId) }
-    }
+    fun saveSettings(apiKey: String, clientId: String) =
+        settingsController.saveSettings(apiKey, clientId)
 
-    suspend fun saveSettingsNow(apiKey: String, clientId: String) {
-        settings.saveSetlistFmApiKey(apiKey)
-        settings.saveSpotifyClientId(clientId)
-        _state.update {
-            it.copy(
-                setlistFmApiKey = apiKey.trim(),
-                spotifyClientId = clientId.trim(),
-                spotifyLoginReady = settings.spotifyClientIdValue() != null,
-                setlistFmReady = settings.setlistFmApiKeyValue() != null,
-                setlistFmSharedQuotaSpent = settings.sharedQuotaSpentNow(),
-            )
-        }
-    }
+    suspend fun saveSettingsNow(apiKey: String, clientId: String) =
+        settingsController.saveSettingsNow(apiKey, clientId)
 
-    /**
-     * The clashfinder account. Saved as its own gesture rather than folded into
-     * [saveSettings], because it is two fields that only mean anything together.
-     */
-    fun saveClashfinderCredentials(user: String, privateKey: String) {
-        viewModelScope.launch {
-            settings.saveClashfinderCredentials(user, privateKey)
-            _state.update {
-                it.copy(
-                    clashfinderUser = user.trim(),
-                    clashfinderPrivateKey = privateKey.trim(),
-                    clashfinderReady = settings.clashfinderAuth() != null,
-                )
-            }
-        }
-    }
+    fun saveClashfinderCredentials(user: String, privateKey: String) =
+        settingsController.saveClashfinderCredentials(user, privateKey)
 
-    suspend fun buildSpotifyAuthUri(): Uri = spotify.buildAuthorizationUri()
+    suspend fun buildSpotifyAuthUri(): Uri = settingsController.buildSpotifyAuthUri()
 
-    fun handleAuthRedirect(uri: Uri) {
-        val code = uri.getQueryParameter("code")
-        val authError = uri.getQueryParameter("error")
-        viewModelScope.launch {
-            try {
-                when {
-                    code != null -> {
-                        spotify.exchangeCodeForTokens(code)
-                        _state.update {
-                            it.copy(spotifyConnected = true, grantedScope = settings.grantedScope())
-                        }
-                    }
-                    authError != null ->
-                        _state.update { it.copy(errorKind = null, error = "Spotify login failed: $authError") }
-                }
-            } catch (e: Exception) {
-                fail(e)
-            }
-        }
-    }
+    fun handleAuthRedirect(uri: Uri) = settingsController.handleAuthRedirect(uri)
 
-    fun disconnectSpotify() {
-        viewModelScope.launch {
-            settings.clearSpotifyAuth()
-            _state.update { it.copy(spotifyConnected = false, grantedScope = null) }
-        }
-    }
+    fun disconnectSpotify() = settingsController.disconnectSpotify()
 
     // --- Device handover, accounts step (#143) --------------------------------------
     //
