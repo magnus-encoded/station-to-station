@@ -100,7 +100,6 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
@@ -737,7 +736,7 @@ private fun rememberPlanningPull(onOpenDoor: (PlanningDoor) -> Unit): PlanningPu
     // at the top of the list.
     val pullMax = with(LocalDensity.current) { 200.dp.toPx() }
     val haptics = LocalHapticFeedback.current
-    val openDoor by rememberUpdatedState(onOpenDoor)
+    val openDoor = onOpenDoor
     return remember {
         val nest = object : NestedScrollConnection {
             /** Last detent crossed, so each one ticks once. */
