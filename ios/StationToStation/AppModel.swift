@@ -1405,9 +1405,12 @@ final class AppModel: ObservableObject {
             $0.publicKey?.trimmingCharacters(in: .whitespacesAndNewlines) == key
         }) else { return }
         let lane = friend.laneKey
-        let dropped = await timelines.mergeContactNights(lane, nights, withdrawn)
+        let (held, dropped) = await timelines.mergeContactNights(lane, nights, withdrawn)
         for media in dropped { PhotoLibrary.deleteReceivedMedia(media) }
-        state.showsByFriend[lane] = withdrawNights(landNights(state.showsByFriend[lane], nights), withdrawn)
+        // The Lane as written, never one rebuilt from what is on screen: a Reconcile can
+        // land before the screen has its copy, and rebuilding from nothing drew the whole
+        // Lane as the few Nights the session touched.
+        if let held { state.showsByFriend[lane] = held }
         if !withdrawn.isEmpty { state.mediaOffers = await timelines.load().mediaOffers }
     }
 

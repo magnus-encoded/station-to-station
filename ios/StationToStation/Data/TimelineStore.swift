@@ -1272,20 +1272,23 @@ actor TimelineStore {
     /// A **Contact**'s **Nights** from a **Reconcile**, folded into the **Lane** held under
     /// `laneKey` (#405) — `shows`, the same map a fetched Lane is held in, so a Contact with
     /// no account draws offline the way a fetched one does. `withdrawn` leaves it again,
-    /// with whatever was offered me for it (`withdrawingOffers`); that media is returned so
-    /// its bytes can be deleted once it is out of the cache. The twin of Android's
-    /// `mergeContactNights`.
+    /// with whatever was offered me for it (`withdrawingOffers`). Returns the Lane as
+    /// written, for the screen to take whole, and that media, so its bytes can be deleted
+    /// once it is out of the cache. The twin of Android's `mergeContactNights`.
     @discardableResult
-    func mergeContactNights(_ laneKey: String, _ nights: [FmSetlist], _ withdrawn: [String] = []) -> [StoredMedia] {
-        if laneKey.nilIfBlank == nil || (nights.isEmpty && withdrawn.isEmpty) { return [] }
+    func mergeContactNights(_ laneKey: String, _ nights: [FmSetlist],
+                            _ withdrawn: [String] = []) -> (lane: [FmSetlist]?, dropped: [StoredMedia]) {
+        if laneKey.nilIfBlank == nil || (nights.isEmpty && withdrawn.isEmpty) { return (nil, []) }
+        var lane: [FmSetlist]?
         var dropped: [StoredMedia] = []
         writeMerged { cache in
             dropped = withdrawn.flatMap { cache.mediaOffers[$0]?.media ?? [] }
             var c = cache.withdrawingOffers(withdrawn)
             c.shows[laneKey] = withdrawNights(landNights(c.shows[laneKey], nights), withdrawn)
+            lane = c.shows[laneKey]
             return c
         }
-        return dropped
+        return (lane, dropped)
     }
 
     /// The union a device handover decided, written under this actor's own lock (#142).

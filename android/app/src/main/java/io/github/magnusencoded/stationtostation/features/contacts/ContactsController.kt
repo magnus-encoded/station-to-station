@@ -21,8 +21,6 @@ import io.github.magnusencoded.stationtostation.data.holdLanes
 import io.github.magnusencoded.stationtostation.data.laneKey
 import io.github.magnusencoded.stationtostation.data.laneNeedsFetch
 import io.github.magnusencoded.stationtostation.data.StoredMedia
-import io.github.magnusencoded.stationtostation.data.landNights
-import io.github.magnusencoded.stationtostation.data.withdrawNights
 import io.github.magnusencoded.stationtostation.data.mySpine
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmClient
@@ -140,11 +138,11 @@ class ContactsController(
     ): List<StoredMedia> {
         val friend = state().friends.firstOrNull { it.publicKey?.trim() == contactKey.trim() } ?: return emptyList()
         val key = friend.laneKey
-        val dropped = timelines.mergeContactNights(key, nights, withdrawn)
-        update {
-            val lane = withdrawNights(landNights(it.showsByFriend[key], nights), withdrawn)
-            it.copy(showsByFriend = it.showsByFriend + (key to lane))
-        }
+        val (held, dropped) = timelines.mergeContactNights(key, nights, withdrawn)
+        // The Lane as written, never one rebuilt from what is on screen: a Reconcile can
+        // land before the screen has its copy, and rebuilding from nothing drew the whole
+        // Lane as the few Nights the session touched.
+        if (held != null) update { it.copy(showsByFriend = it.showsByFriend + (key to held)) }
         return dropped
     }
 

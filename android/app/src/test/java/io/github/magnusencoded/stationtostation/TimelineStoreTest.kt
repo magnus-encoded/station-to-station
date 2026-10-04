@@ -92,6 +92,18 @@ class TimelineStoreTest {
         assertEquals(setOf("a", "b"), store.load().shows["key:0123456789abcdef"]?.map { it.id }?.toSet())
     }
 
+    /** The screen takes the Lane whole from here, so it must be the Lane, not the Nights touched. */
+    @Test
+    fun `a withdrawal returns the whole lane as written`() = runBlocking {
+        val store = store()
+        store.mergeContactNights("dio", listOf(show("a"), show("b"), show("c")))
+
+        val (lane, _) = store.mergeContactNights("dio", emptyList(), withdrawn = listOf("a"))
+
+        assertEquals(setOf("b", "c"), lane?.map { it.id }?.toSet())
+        assertEquals(lane, store.load().shows["dio"])
+    }
+
     /**
      * #405: a Contact's offer is held apart from the Night until answered, and accepting it
      * on a Night nothing hung off yet mints that Night's **Gig** to file it on.
