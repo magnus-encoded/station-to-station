@@ -33,10 +33,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * setlist.fm search, the attended import, the open show's refresh and the automatic
- * lookups for local **Gigs**. Pieces other features own arrive as functions.
- */
 class SetlistController(
     private val state: () -> UiState,
     private val update: ((UiState) -> UiState) -> Unit,
@@ -155,8 +151,8 @@ class SetlistController(
     fun refreshSelectedSetlist() {
         val open = state().selectedSetlist ?: return
         // A local Gig's id is this app's, not setlist.fm's — asking them for it is a
-        // guaranteed 404. A pull on one asks setlist.fm whether the night is there yet
-        // instead (#531), by artist and day, the way the automatic checks do.
+        // guaranteed 404. A pull on one asks setlist.fm by artist and day instead,
+        // the way the automatic checks do.
         if (open.isLocal()) {
             refreshLocalGig(open.id)
             return
@@ -188,16 +184,9 @@ class SetlistController(
                 val user = state().userQuery.trim()
                 if (user.isNotEmpty()) timelines.save(shows = mapOf(user to setlists))
             } catch (e: Exception) {
-                // A refresh is optional freshness, never a fatal operation: the night
-                // is already on screen from cache, with its artist, venue and date.
-                // `fail` sets the global error, and doing that here tore the screen up
-                // mid-gesture — the pull's own fling was still running, which is how a
-                // 404 on a 1985 setlist came back as "measure is called on a
-                // deactivated node". A notice says what happened and changes nothing.
-                //
-                // The id and code are logged because this only ever fails in the field,
-                // on someone else's phone, where there is no other way to find out
-                // which night and which status it was.
+                // Notice, not `fail`: the night is already on screen from cache, and the
+                // global error tears the screen up while the pull's fling is still running.
+                // Logged with id and message: this only fails in the field.
                 android.util.Log.w("StationToStation", "refresh failed for setlist ${open.id}: ${e.message}")
                 update {
                     it.copy(
@@ -210,7 +199,7 @@ class SetlistController(
     }
 
     /**
-     * A pull on local Gig [gigId] (#531): one lookup now, whatever the schedule says,
+     * A pull on local Gig [gigId]: one lookup now, whatever the schedule says,
      * unless the last one went out under a minute ago — then nothing is sent or
      * stamped, and the notice says the checks carry on.
      */
@@ -233,7 +222,7 @@ class SetlistController(
     }
 
     /**
-     * One setlist.fm lookup for local Gig [gigId] (#531): `search/setlists` by its artist
+     * One setlist.fm lookup for local Gig [gigId]: `search/setlists` by its artist
      * and day, no venue, held to the night by [setlistFmLookupOutcome]. A sure hit is
      * adopted with the "Adopted" notice; a doubtful one becomes the "Possible match"
      * chip; nothing only stamps. [manual] is a pull, which says so when setlist.fm
@@ -285,7 +274,7 @@ class SetlistController(
     private var lookupChecks: Job? = null
 
     /**
-     * The automatic setlist.fm checks (#531), while the app is in the foreground: at
+     * The automatic setlist.fm checks, while the app is in the foreground: at
      * launch, on coming back, and on a timer. Each pass plans every local Gig with
      * [setlistFmLookupPlan], looks up the ones due one at a time, and sleeps until the
      * next is due, five minutes at most. Nothing at all without a setlist.fm key.
