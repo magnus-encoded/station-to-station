@@ -238,6 +238,17 @@ nobody — so the durable key it used to need never has to cross at all.
 | **Verdict** | Thumb down, thumb up, or thumb up twice, carried by the **Note** it was written on. Three values and unset, and unset is real. **Never aggregated** — not averaged, not ranked, not compared across people; a score that could be would be the merit primitive ADR-0011 defers. | rating, score, stars, five-star, review |
 | **Preamble** | The sentence rendered above a **Note** from facts the record already holds — who else was there, the venue, the set. Composed at read time, **never stored, never typed, never sent**: **Reconcile** has no time bound, so who was there changes, and a frozen sentence would be the app putting words in my mouth. Every clause is droppable and a night that knows nothing gets none. | header, generated text, template, auto-caption |
 
+
+## Tour
+
+| Term | Definition | Aliases to avoid |
+| ---- | ---------- | ---------------- |
+| **Tour** | The first-run guided trip through the real app, driven by coach marks and a **Virtual friend**. It can be skipped, resumed and replayed. | tutorial, onboarding |
+| **Demo world** | Throwaway, demo-tagged records created by the **Tour** and purged when it ends or is skipped. Real records are never part of it. | sample data, sandbox |
+| **Virtual friend** | The fixed fictional concert-goer who accompanies the user through the **Tour**; exchange, gossip and media from them are delivered locally, never over the radio. | bot, tutorial user |
+| **Context hint** | A one-off hint shown when a feature first becomes relevant outside a running **Tour**. | tooltip, coach mark |
+| **Demo clock** | The **Tour**'s supplied notion of now, advanced by the script so the demo **Gig** can move through its lifecycle without waiting for real time. | fake time, mock clock |
+
 ## Relationships
 
 - A **Line** belongs to exactly one person and occupies one **Spine** or **Lane**.
