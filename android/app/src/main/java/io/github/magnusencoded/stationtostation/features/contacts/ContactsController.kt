@@ -37,9 +37,6 @@ import kotlinx.coroutines.launch
 /**
  * Friends and the Exchange: who is on my timeline, how they got there, and whose
  * **Line** is held.
- *
- * Cross-feature work arrives as injected functions so the controller depends on no
- * other feature.
  */
 class ContactsController(
     private val state: () -> UiState,
@@ -73,7 +70,7 @@ class ContactsController(
 
     /**
      * A card handed to me. Writes into an empty space; **asks before changing a contact
-     * I already hold** (#188).
+     * I already hold**.
      *
      * Every route in comes through here — a deep link, a BLE write, a pasted username —
      * so the question is answered once rather than at each door.
@@ -103,7 +100,7 @@ class ContactsController(
     fun dismissFriendOverwrite() = update { it.copy(friendConflict = null) }
 
     private suspend fun writeFriend(friend: Friend) {
-        // De-duped on the key, then the username (#405), and never dropping a key or a
+        // De-duped on the key, then the username, and never dropping a key or a
         // username a thinner card is silent about. See [withFriend].
         val next = withFriend(state().friends, friend)
         settings.saveFriends(next)
@@ -129,7 +126,7 @@ class ContactsController(
     }
 
     /**
-     * A **Contact**'s **Nights**, off a **Reconcile** (#405): held under their Lane, on disk
+     * A **Contact**'s **Nights**, off a **Reconcile**: held under their Lane, on disk
      * and on screen, so the Lane draws now and after a relaunch without asking anyone.
      * [contactKey] is the key that verified; a Contact removed mid-session lands nothing.
      */
@@ -143,7 +140,7 @@ class ContactsController(
     }
 
     /**
-     * "Same Night" to a *maybe* (#405): their Night [night] is joined to my Night [key].
+     * "Same Night" to a *maybe*: their Night [night] is joined to my Night [key].
      * Mine alone — nothing is sent — and from here the Spine draws it **Joined** and what
      * they send for it lands directly.
      */
@@ -153,7 +150,7 @@ class ContactsController(
         update { it.copy(nightJoins = cache.spineJoins()) }
     }
 
-    /** "Not the same" to a *maybe* (#405): the marker goes, and stays gone. Mine alone. */
+    /** "Not the same" to a *maybe*: the marker goes, and stays gone. Mine alone. */
     fun dismissMaybe(night: String, key: String) = scope.launch {
         timelines.dismissMaybe(night, key)
         val cache = timelines.load()
@@ -161,7 +158,7 @@ class ContactsController(
     }
 
     /**
-     * "Same night", then "Take it" (#580): my typed-by-hand Night adopts their setlist.fm
+     * "Same night", then "Take it": my typed-by-hand Night adopts their setlist.fm
      * entry, so both Nights answer to one id and meet without a join. Where the adoption
      * can't happen (the Night already took an id) it falls back to [joinNight].
      */
@@ -171,7 +168,7 @@ class ContactsController(
         }
     }
 
-    /** Undo of [joinNight] (#580): the *maybe* is asked again. */
+    /** Undo of [joinNight]: the *maybe* is asked again. */
     fun unjoinNight(night: String, key: String) {
         scope.launch {
             timelines.unjoinNight(night, key)
@@ -180,7 +177,7 @@ class ContactsController(
         }
     }
 
-    /** Undo of [dismissMaybe] (#580): the *maybe* is asked again. */
+    /** Undo of [dismissMaybe]: the *maybe* is asked again. */
     fun undismissMaybe(night: String, key: String) {
         scope.launch {
             timelines.undismissMaybe(night, key)
@@ -192,7 +189,7 @@ class ContactsController(
     /** Loads a friend's whole attended-concert timeline for the Connect screen. */
     fun viewFriendTimeline(friend: Friend) {
         // Nobody to ask about a Contact with no account: what the Reconcile brought is the
-        // whole of their Line, and it is already here (#405).
+        // whole of their Line, and it is already here.
         if (friend.setlistfm.isBlank()) {
             update {
                 it.copy(
@@ -208,7 +205,7 @@ class ContactsController(
         }
         scope.launch {
             try {
-                // The same runaway guard the shared-concerts lookup uses, named once.
+                // Same runaway guard as the shared-concerts lookup.
                 val shows = attendedConcerts(friend.setlistfm, maxPages = TimelineLogic.ATTENDED_PAGE_CAP)
                 update { it.copy(viewedFriendShows = shows, viewedFriendLoading = false) }
                 // What this screen just learned is the **Line** too: the timelines view
@@ -297,7 +294,7 @@ class ContactsController(
     fun openSharedConcerts(friend: Friend) {
         val me = state().mySetlistFmUser.trim()
         // Either of us without an account: the intersection is of what this phone already
-        // holds — my Spine and their Lane — rather than of two setlist.fm lists (#405).
+        // holds — my Spine and their Lane — rather than of two setlist.fm lists.
         if (friend.setlistfm.isBlank() || me.isEmpty()) {
             val theirs = state().showsByFriend[friend.laneKey].orEmpty().mapTo(HashSet()) { it.id }
             update {
@@ -360,8 +357,8 @@ class ContactsController(
         ?.let { Friend(setlistfm = it, name = it) }
 
     /**
-     * My card for the radio: the public key #28 makes the identity, and a username only if
-     * I have one (#405). Without one it is named by [UiState.myCardName]; see
+     * My card for the radio: the public key is the identity, and a username only if
+     * I have one. Without one it is named by [UiState.myCardName]; see
      * [probeCardFor]. Only the radio carries this — a link cannot carry a key, so the QR
      * and share link stay username-only.
      */
@@ -371,7 +368,7 @@ class ContactsController(
         publicKey = contactIdentityPublicKeyBase64(),
     )
 
-    /** The name on a card with no username (#405). Restarts a running Exchange to hand it over. */
+    /** The name on a card with no username. Restarts a running Exchange to hand it over. */
     fun saveMyCardName(name: String) {
         val trimmed = name.trim()
         scope.launch {
@@ -391,11 +388,8 @@ class ContactsController(
         // No username is not a reason to keep anyone off this screen. It only means
         // there is no card to hand over, so the advertising radios stay quiet while
         // scanning runs as usual — the room is still visible, and a card handed to me
-        // is still mine to take (#225's "you can take their card", now actually wired).
-        //
-        // This used to return early with `error` set. `error` is a failure channel and
-        // this screen hosts no snackbar, so the message surfaced on whatever screen the
-        // user opened next, reading as a fault on an unrelated page.
+        // is still mine to take. Not an `error`: this screen hosts no snackbar, so it
+        // would surface on the next screen as a fault on an unrelated page.
         update { it.copy(discovering = true, exchangePeers = emptyList(), connectingWith = null) }
         exchange.start(myCard(), myProbeCard())
     }
@@ -442,13 +436,13 @@ class ContactsController(
         // Persist the friend before loading, or the load runs against the old list.
         addFriendNow(friend)
         // A card that would change someone I already hold has written nothing and left a
-        // question open (#188). Landing anyway would report a swap that did not happen —
+        // question open. Landing anyway would report a swap that did not happen —
         // and stopping the radios mid-exchange is exactly what a hostile write wants.
         if (state().friendConflict != null) return
         update { it.copy(justConnected = true, connectingWith = null) }
         loadFriendTimelines()
         exchange.stop()
-        // A first **Contact** is the moment the gossip radio stops being pointless (#416).
+        // A first **Contact** is the moment the gossip radio stops being pointless.
         syncGossip()
     }
 
@@ -469,7 +463,7 @@ class ContactsController(
         update { it.copy(timelinesLoading = true) }
         scope.launch {
             // A failed fetch is left out entirely, so the friend keeps their last good
-            // lane; an empty answer is kept, so it is not asked for again (#405).
+            // lane; an empty answer is kept, so it is not asked for again.
             val loaded = stale.mapNotNull { friend ->
                 runCatching { attendedBackTo(friend.setlistfm, myOldest) }.getOrNull()
                     ?.let { friend.setlistfm to it }
@@ -482,7 +476,7 @@ class ContactsController(
     }
 
     /**
-     * Called when the Exchange screen appears — see [contactExchange]'s doc comment.
+     * Called when the Exchange screen appears; [contactExchange] runs only while it is on screen.
      *
      * Only once there is a **Contact** with a key to search for: a first-time user has
      * nobody to reconcile with, and lighting up a radio to look for them is asking the
@@ -493,6 +487,6 @@ class ContactsController(
         if (state().friends.any { !it.publicKey.isNullOrBlank() }) contactExchange.start()
     }
 
-    /** Called when the Exchange screen goes away — see [contactExchange]'s doc comment. */
+    /** Called when the Exchange screen goes away. */
     fun stopContactExchange() = contactExchange.stop()
 }
