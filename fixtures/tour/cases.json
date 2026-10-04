@@ -1,0 +1,1361 @@
+[
+  {
+    "id": "happy-path",
+    "row": "Happy path",
+    "events": [
+      {
+        "type": "started",
+        "online": true
+      },
+      {
+        "type": "acknowledged"
+      },
+      {
+        "type": "curtainPulled"
+      },
+      {
+        "type": "bandPicked"
+      },
+      {
+        "type": "gigAdded"
+      },
+      {
+        "type": "roomOpened"
+      },
+      {
+        "type": "swipedBack"
+      },
+      {
+        "type": "contactExchanged",
+        "location": {
+          "latitude": 59.9139,
+          "longitude": 10.7522
+        }
+      },
+      {
+        "type": "pinchedOut"
+      },
+      {
+        "type": "ticketImported"
+      },
+      {
+        "type": "calendarAdded"
+      },
+      {
+        "type": "mapsOpened"
+      },
+      {
+        "type": "ticketShown"
+      },
+      {
+        "type": "checkedIn"
+      },
+      {
+        "type": "logEntryWritten"
+      },
+      {
+        "type": "gapRecorded"
+      },
+      {
+        "type": "gossipSent"
+      },
+      {
+        "type": "setlistFilled"
+      },
+      {
+        "type": "returnedFromPhotos"
+      },
+      {
+        "type": "mediaAdded",
+        "visibility": "shared"
+      },
+      {
+        "type": "spotifyExported"
+      }
+    ],
+    "expect": {
+      "visitedSteps": [
+        "S1",
+        "S2",
+        "S3",
+        "S4",
+        "S5",
+        "S6",
+        "S7",
+        "S8",
+        "S9",
+        "S10",
+        "S11",
+        "S12",
+        "S13",
+        "S14",
+        "S15",
+        "S16",
+        "S17",
+        "S18",
+        "S19",
+        "S20"
+      ],
+      "commandsEnd": [
+        "purgeDemoWorld",
+        "markTourFinished"
+      ],
+      "spotify": "exported"
+    }
+  },
+  {
+    "id": "offline-start",
+    "row": "Offline start",
+    "events": [
+      {
+        "type": "started",
+        "online": false
+      }
+    ],
+    "expect": {
+      "currentStep": null,
+      "commands": []
+    }
+  },
+  {
+    "id": "skip-at-s1",
+    "row": "Skip at Sn",
+    "events": [
+      {
+        "type": "started",
+        "online": true
+      },
+      {
+        "type": "skipped"
+      }
+    ],
+    "expect": {
+      "currentStep": null,
+      "commandsEnd": [
+        "purgeDemoWorld",
+        "markTourFinished"
+      ],
+      "finished": true,
+      "playlistCreated": false
+    }
+  },
+  {
+    "id": "skip-at-s2",
+    "row": "Skip at Sn",
+    "events": [
+      {
+        "type": "started",
+        "online": true
+      },
+      {
+        "type": "acknowledged"
+      },
+      {
+        "type": "skipped"
+      }
+    ],
+    "expect": {
+      "currentStep": null,
+      "commandsEnd": [
+        "purgeDemoWorld",
+        "markTourFinished"
+      ],
+      "finished": true,
+      "playlistCreated": false
+    }
+  },
+  {
+    "id": "skip-at-s3",
+    "row": "Skip at Sn",
+    "events": [
+      {
+        "type": "started",
+        "online": true
+      },
+      {
+        "type": "acknowledged"
+      },
+      {
+        "type": "curtainPulled"
+      },
+      {
+        "type": "skipped"
+      }
+    ],
+    "expect": {
+      "currentStep": null,
+      "commandsEnd": [
+        "purgeDemoWorld",
+        "markTourFinished"
+      ],
+      "finished": true,
+      "playlistCreated": false
+    }
+  },
+  {
+    "id": "skip-at-s4",
+    "row": "Skip at Sn",
+    "events": [
+      {
+        "type": "started",
+        "online": true
+      },
+      {
+        "type": "acknowledged"
+      },
+      {
+        "type": "curtainPulled"
+      },
+      {
+        "type": "bandPicked"
+      },
+      {
+        "type": "skipped"
+      }
+    ],
+    "expect": {
+      "currentStep": null,
+      "commandsEnd": [
+        "purgeDemoWorld",
+        "markTourFinished"
+      ],
+      "finished": true,
+      "playlistCreated": false
+    }
+  },
+  {
+    "id": "skip-at-s5",
+    "row": "Skip at Sn",
+    "events": [
+      {
+        "type": "started",
+        "online": true
+      },
+      {
+        "type": "acknowledged"
+      },
+      {
+        "type": "curtainPulled"
+      },
+      {
+        "type": "bandPicked"
+      },
+      {
+        "type": "gigAdded"
+      },
+      {
+        "type": "skipped"
+      }
+    ],
+    "expect": {
+      "currentStep": null,
+      "commandsEnd": [
+        "purgeDemoWorld",
+        "markTourFinished"
+      ],
+      "finished": true,
+      "playlistCreated": false
+    }
+  },
+  {
+    "id": "skip-at-s6",
+    "row": "Skip at Sn",
+    "events": [
+      {
+        "type": "started",
+        "online": true
+      },
+      {
+        "type": "acknowledged"
+      },
+      {
+        "type": "curtainPulled"
+      },
+      {
+        "type": "bandPicked"
+      },
+      {
+        "type": "gigAdded"
+      },
+      {
+        "type": "roomOpened"
+      },
+      {
+        "type": "skipped"
+      }
+    ],
+    "expect": {
+      "currentStep": null,
+      "commandsEnd": [
+        "purgeDemoWorld",
+        "markTourFinished"
+      ],
+      "finished": true,
+      "playlistCreated": false
+    }
+  },
+  {
+    "id": "skip-at-s7",
+    "row": "Skip at Sn",
+    "events": [
+      {
+        "type": "started",
+        "online": true
+      },
+      {
+        "type": "acknowledged"
+      },
+      {
+        "type": "curtainPulled"
+      },
+      {
+        "type": "bandPicked"
+      },
+      {
+        "type": "gigAdded"
+      },
+      {
+        "type": "roomOpened"
+      },
+      {
+        "type": "swipedBack"
+      },
+      {
+        "type": "skipped"
+      }
+    ],
+    "expect": {
+      "currentStep": null,
+      "commandsEnd": [
+        "purgeDemoWorld",
+        "markTourFinished"
+      ],
+      "finished": true,
+      "playlistCreated": false
+    }
+  },
+  {
+    "id": "skip-at-s8",
+    "row": "Skip at Sn",
+    "events": [
+      {
+        "type": "started",
+        "online": true
+      },
+      {
+        "type": "acknowledged"
+      },
+      {
+        "type": "curtainPulled"
+      },
+      {
+        "type": "bandPicked"
+      },
+      {
+        "type": "gigAdded"
+      },
+      {
+        "type": "roomOpened"
+      },
+      {
+        "type": "swipedBack"
+      },
+      {
+        "type": "contactExchanged",
+        "location": {
+          "latitude": 59.9139,
+          "longitude": 10.7522
+        }
+      },
+      {
+        "type": "skipped"
+      }
+    ],
+    "expect": {
+      "currentStep": null,
+      "commandsEnd": [
+        "purgeDemoWorld",
+        "markTourFinished"
+      ],
+      "finished": true,
+      "playlistCreated": false
+    }
+  },
+  {
+    "id": "skip-at-s9",
+    "row": "Skip at Sn",
+    "events": [
+      {
+        "type": "started",
+        "online": true
+      },
+      {
+        "type": "acknowledged"
+      },
+      {
+        "type": "curtainPulled"
+      },
+      {
+        "type": "bandPicked"
+      },
+      {
+        "type": "gigAdded"
+      },
+      {
+        "type": "roomOpened"
+      },
+      {
+        "type": "swipedBack"
+      },
+      {
+        "type": "contactExchanged",
+        "location": {
+          "latitude": 59.9139,
+          "longitude": 10.7522
+        }
+      },
+      {
+        "type": "pinchedOut"
+      },
+      {
+        "type": "skipped"
+      }
+    ],
+    "expect": {
+      "currentStep": null,
+      "commandsEnd": [
+        "purgeDemoWorld",
+        "markTourFinished"
+      ],
+      "finished": true,
+      "playlistCreated": false
+    }
+  },
+  {
+    "id": "skip-at-s10",
+    "row": "Skip at Sn",
+    "events": [
+      {
+        "type": "started",
+        "online": true
+      },
+      {
+        "type": "acknowledged"
+      },
+      {
+        "type": "curtainPulled"
+      },
+      {
+        "type": "bandPicked"
+      },
+      {
+        "type": "gigAdded"
+      },
+      {
+        "type": "roomOpened"
+      },
+      {
+        "type": "swipedBack"
+      },
+      {
+        "type": "contactExchanged",
+        "location": {
+          "latitude": 59.9139,
+          "longitude": 10.7522
+        }
+      },
+      {
+        "type": "pinchedOut"
+      },
+      {
+        "type": "ticketImported"
+      },
+      {
+        "type": "skipped"
+      }
+    ],
+    "expect": {
+      "currentStep": null,
+      "commandsEnd": [
+        "purgeDemoWorld",
+        "markTourFinished"
+      ],
+      "finished": true,
+      "playlistCreated": false
+    }
+  },
+  {
+    "id": "skip-at-s11",
+    "row": "Skip at Sn",
+    "events": [
+      {
+        "type": "started",
+        "online": true
+      },
+      {
+        "type": "acknowledged"
+      },
+      {
+        "type": "curtainPulled"
+      },
+      {
+        "type": "bandPicked"
+      },
+      {
+        "type": "gigAdded"
+      },
+      {
+        "type": "roomOpened"
+      },
+      {
+        "type": "swipedBack"
+      },
+      {
+        "type": "contactExchanged",
+        "location": {
+          "latitude": 59.9139,
+          "longitude": 10.7522
+        }
+      },
+      {
+        "type": "pinchedOut"
+      },
+      {
+        "type": "ticketImported"
+      },
+      {
+        "type": "calendarAdded"
+      },
+      {
+        "type": "skipped"
+      }
+    ],
+    "expect": {
+      "currentStep": null,
+      "commandsEnd": [
+        "purgeDemoWorld",
+        "markTourFinished"
+      ],
+      "finished": true,
+      "playlistCreated": false
+    }
+  },
+  {
+    "id": "skip-at-s12",
+    "row": "Skip at Sn",
+    "events": [
+      {
+        "type": "started",
+        "online": true
+      },
+      {
+        "type": "acknowledged"
+      },
+      {
+        "type": "curtainPulled"
+      },
+      {
+        "type": "bandPicked"
+      },
+      {
+        "type": "gigAdded"
+      },
+      {
+        "type": "roomOpened"
+      },
+      {
+        "type": "swipedBack"
+      },
+      {
+        "type": "contactExchanged",
+        "location": {
+          "latitude": 59.9139,
+          "longitude": 10.7522
+        }
+      },
+      {
+        "type": "pinchedOut"
+      },
+      {
+        "type": "ticketImported"
+      },
+      {
+        "type": "calendarAdded"
+      },
+      {
+        "type": "mapsOpened"
+      },
+      {
+        "type": "skipped"
+      }
+    ],
+    "expect": {
+      "currentStep": null,
+      "commandsEnd": [
+        "purgeDemoWorld",
+        "markTourFinished"
+      ],
+      "finished": true,
+      "playlistCreated": false
+    }
+  },
+  {
+    "id": "skip-at-s13",
+    "row": "Skip at Sn",
+    "events": [
+      {
+        "type": "started",
+        "online": true
+      },
+      {
+        "type": "acknowledged"
+      },
+      {
+        "type": "curtainPulled"
+      },
+      {
+        "type": "bandPicked"
+      },
+      {
+        "type": "gigAdded"
+      },
+      {
+        "type": "roomOpened"
+      },
+      {
+        "type": "swipedBack"
+      },
+      {
+        "type": "contactExchanged",
+        "location": {
+          "latitude": 59.9139,
+          "longitude": 10.7522
+        }
+      },
+      {
+        "type": "pinchedOut"
+      },
+      {
+        "type": "ticketImported"
+      },
+      {
+        "type": "calendarAdded"
+      },
+      {
+        "type": "mapsOpened"
+      },
+      {
+        "type": "ticketShown"
+      },
+      {
+        "type": "skipped"
+      }
+    ],
+    "expect": {
+      "currentStep": null,
+      "commandsEnd": [
+        "purgeDemoWorld",
+        "markTourFinished"
+      ],
+      "finished": true,
+      "playlistCreated": false
+    }
+  },
+  {
+    "id": "skip-at-s14",
+    "row": "Skip at Sn",
+    "events": [
+      {
+        "type": "started",
+        "online": true
+      },
+      {
+        "type": "acknowledged"
+      },
+      {
+        "type": "curtainPulled"
+      },
+      {
+        "type": "bandPicked"
+      },
+      {
+        "type": "gigAdded"
+      },
+      {
+        "type": "roomOpened"
+      },
+      {
+        "type": "swipedBack"
+      },
+      {
+        "type": "contactExchanged",
+        "location": {
+          "latitude": 59.9139,
+          "longitude": 10.7522
+        }
+      },
+      {
+        "type": "pinchedOut"
+      },
+      {
+        "type": "ticketImported"
+      },
+      {
+        "type": "calendarAdded"
+      },
+      {
+        "type": "mapsOpened"
+      },
+      {
+        "type": "ticketShown"
+      },
+      {
+        "type": "checkedIn"
+      },
+      {
+        "type": "skipped"
+      }
+    ],
+    "expect": {
+      "currentStep": null,
+      "commandsEnd": [
+        "purgeDemoWorld",
+        "markTourFinished"
+      ],
+      "finished": true,
+      "playlistCreated": false
+    }
+  },
+  {
+    "id": "skip-at-s15",
+    "row": "Skip at Sn",
+    "events": [
+      {
+        "type": "started",
+        "online": true
+      },
+      {
+        "type": "acknowledged"
+      },
+      {
+        "type": "curtainPulled"
+      },
+      {
+        "type": "bandPicked"
+      },
+      {
+        "type": "gigAdded"
+      },
+      {
+        "type": "roomOpened"
+      },
+      {
+        "type": "swipedBack"
+      },
+      {
+        "type": "contactExchanged",
+        "location": {
+          "latitude": 59.9139,
+          "longitude": 10.7522
+        }
+      },
+      {
+        "type": "pinchedOut"
+      },
+      {
+        "type": "ticketImported"
+      },
+      {
+        "type": "calendarAdded"
+      },
+      {
+        "type": "mapsOpened"
+      },
+      {
+        "type": "ticketShown"
+      },
+      {
+        "type": "checkedIn"
+      },
+      {
+        "type": "logEntryWritten"
+      },
+      {
+        "type": "skipped"
+      }
+    ],
+    "expect": {
+      "currentStep": null,
+      "commandsEnd": [
+        "purgeDemoWorld",
+        "markTourFinished"
+      ],
+      "finished": true,
+      "playlistCreated": false
+    }
+  },
+  {
+    "id": "skip-at-s16",
+    "row": "Skip at Sn",
+    "events": [
+      {
+        "type": "started",
+        "online": true
+      },
+      {
+        "type": "acknowledged"
+      },
+      {
+        "type": "curtainPulled"
+      },
+      {
+        "type": "bandPicked"
+      },
+      {
+        "type": "gigAdded"
+      },
+      {
+        "type": "roomOpened"
+      },
+      {
+        "type": "swipedBack"
+      },
+      {
+        "type": "contactExchanged",
+        "location": {
+          "latitude": 59.9139,
+          "longitude": 10.7522
+        }
+      },
+      {
+        "type": "pinchedOut"
+      },
+      {
+        "type": "ticketImported"
+      },
+      {
+        "type": "calendarAdded"
+      },
+      {
+        "type": "mapsOpened"
+      },
+      {
+        "type": "ticketShown"
+      },
+      {
+        "type": "checkedIn"
+      },
+      {
+        "type": "logEntryWritten"
+      },
+      {
+        "type": "gapRecorded"
+      },
+      {
+        "type": "skipped"
+      }
+    ],
+    "expect": {
+      "currentStep": null,
+      "commandsEnd": [
+        "purgeDemoWorld",
+        "markTourFinished"
+      ],
+      "finished": true,
+      "playlistCreated": false
+    }
+  },
+  {
+    "id": "skip-at-s17",
+    "row": "Skip at Sn",
+    "events": [
+      {
+        "type": "started",
+        "online": true
+      },
+      {
+        "type": "acknowledged"
+      },
+      {
+        "type": "curtainPulled"
+      },
+      {
+        "type": "bandPicked"
+      },
+      {
+        "type": "gigAdded"
+      },
+      {
+        "type": "roomOpened"
+      },
+      {
+        "type": "swipedBack"
+      },
+      {
+        "type": "contactExchanged",
+        "location": {
+          "latitude": 59.9139,
+          "longitude": 10.7522
+        }
+      },
+      {
+        "type": "pinchedOut"
+      },
+      {
+        "type": "ticketImported"
+      },
+      {
+        "type": "calendarAdded"
+      },
+      {
+        "type": "mapsOpened"
+      },
+      {
+        "type": "ticketShown"
+      },
+      {
+        "type": "checkedIn"
+      },
+      {
+        "type": "logEntryWritten"
+      },
+      {
+        "type": "gapRecorded"
+      },
+      {
+        "type": "gossipSent"
+      },
+      {
+        "type": "skipped"
+      }
+    ],
+    "expect": {
+      "currentStep": null,
+      "commandsEnd": [
+        "purgeDemoWorld",
+        "markTourFinished"
+      ],
+      "finished": true,
+      "playlistCreated": false
+    }
+  },
+  {
+    "id": "skip-at-s18",
+    "row": "Skip at Sn",
+    "events": [
+      {
+        "type": "started",
+        "online": true
+      },
+      {
+        "type": "acknowledged"
+      },
+      {
+        "type": "curtainPulled"
+      },
+      {
+        "type": "bandPicked"
+      },
+      {
+        "type": "gigAdded"
+      },
+      {
+        "type": "roomOpened"
+      },
+      {
+        "type": "swipedBack"
+      },
+      {
+        "type": "contactExchanged",
+        "location": {
+          "latitude": 59.9139,
+          "longitude": 10.7522
+        }
+      },
+      {
+        "type": "pinchedOut"
+      },
+      {
+        "type": "ticketImported"
+      },
+      {
+        "type": "calendarAdded"
+      },
+      {
+        "type": "mapsOpened"
+      },
+      {
+        "type": "ticketShown"
+      },
+      {
+        "type": "checkedIn"
+      },
+      {
+        "type": "logEntryWritten"
+      },
+      {
+        "type": "gapRecorded"
+      },
+      {
+        "type": "gossipSent"
+      },
+      {
+        "type": "setlistFilled"
+      },
+      {
+        "type": "skipped"
+      }
+    ],
+    "expect": {
+      "currentStep": null,
+      "commandsEnd": [
+        "purgeDemoWorld",
+        "markTourFinished"
+      ],
+      "finished": true,
+      "playlistCreated": false
+    }
+  },
+  {
+    "id": "skip-at-s19",
+    "row": "Skip at Sn",
+    "events": [
+      {
+        "type": "started",
+        "online": true
+      },
+      {
+        "type": "acknowledged"
+      },
+      {
+        "type": "curtainPulled"
+      },
+      {
+        "type": "bandPicked"
+      },
+      {
+        "type": "gigAdded"
+      },
+      {
+        "type": "roomOpened"
+      },
+      {
+        "type": "swipedBack"
+      },
+      {
+        "type": "contactExchanged",
+        "location": {
+          "latitude": 59.9139,
+          "longitude": 10.7522
+        }
+      },
+      {
+        "type": "pinchedOut"
+      },
+      {
+        "type": "ticketImported"
+      },
+      {
+        "type": "calendarAdded"
+      },
+      {
+        "type": "mapsOpened"
+      },
+      {
+        "type": "ticketShown"
+      },
+      {
+        "type": "checkedIn"
+      },
+      {
+        "type": "logEntryWritten"
+      },
+      {
+        "type": "gapRecorded"
+      },
+      {
+        "type": "gossipSent"
+      },
+      {
+        "type": "setlistFilled"
+      },
+      {
+        "type": "returnedFromPhotos"
+      },
+      {
+        "type": "mediaAdded",
+        "visibility": "shared"
+      },
+      {
+        "type": "skipped"
+      }
+    ],
+    "expect": {
+      "currentStep": null,
+      "commandsEnd": [
+        "purgeDemoWorld",
+        "markTourFinished"
+      ],
+      "finished": true,
+      "playlistCreated": false
+    }
+  },
+  {
+    "id": "resume",
+    "row": "Resume",
+    "events": [
+      {
+        "type": "started",
+        "online": true
+      },
+      {
+        "type": "acknowledged"
+      },
+      {
+        "type": "curtainPulled"
+      },
+      {
+        "type": "bandPicked"
+      },
+      {
+        "type": "restart"
+      },
+      {
+        "type": "resumed"
+      }
+    ],
+    "expect": {
+      "currentStep": "S4",
+      "reenteredStep": "S4",
+      "reemitEntryCommands": true,
+      "doNotRepeat": [
+        "lookUpBand",
+        "importDemoTicket"
+      ]
+    }
+  },
+  {
+    "id": "replay",
+    "row": "Replay",
+    "precondition": {
+      "finished": true
+    },
+    "events": [
+      {
+        "type": "replayRequested"
+      }
+    ],
+    "expect": {
+      "currentStep": "S1",
+      "freshDemoWorld": true
+    }
+  },
+  {
+    "id": "spotify-declined",
+    "row": "Spotify declined",
+    "events": [
+      {
+        "type": "started",
+        "online": true
+      },
+      {
+        "type": "acknowledged"
+      },
+      {
+        "type": "curtainPulled"
+      },
+      {
+        "type": "bandPicked"
+      },
+      {
+        "type": "gigAdded"
+      },
+      {
+        "type": "roomOpened"
+      },
+      {
+        "type": "swipedBack"
+      },
+      {
+        "type": "contactExchanged",
+        "location": {
+          "latitude": 59.9139,
+          "longitude": 10.7522
+        }
+      },
+      {
+        "type": "pinchedOut"
+      },
+      {
+        "type": "ticketImported"
+      },
+      {
+        "type": "calendarAdded"
+      },
+      {
+        "type": "mapsOpened"
+      },
+      {
+        "type": "ticketShown"
+      },
+      {
+        "type": "checkedIn"
+      },
+      {
+        "type": "logEntryWritten"
+      },
+      {
+        "type": "gapRecorded"
+      },
+      {
+        "type": "gossipSent"
+      },
+      {
+        "type": "setlistFilled"
+      },
+      {
+        "type": "returnedFromPhotos"
+      },
+      {
+        "type": "mediaAdded",
+        "visibility": "shared"
+      },
+      {
+        "type": "spotifyDeclined"
+      }
+    ],
+    "expect": {
+      "visitedSteps": [
+        "S1",
+        "S2",
+        "S3",
+        "S4",
+        "S5",
+        "S6",
+        "S7",
+        "S8",
+        "S9",
+        "S10",
+        "S11",
+        "S12",
+        "S13",
+        "S14",
+        "S15",
+        "S16",
+        "S17",
+        "S18",
+        "S19",
+        "S20"
+      ],
+      "commandsEnd": [
+        "purgeDemoWorld",
+        "markTourFinished"
+      ],
+      "pendingSpotifyRetry": true
+    }
+  },
+  {
+    "id": "spotify-retry",
+    "row": "Spotify retry",
+    "precondition": {
+      "pendingSpotifyRetry": true
+    },
+    "events": [
+      {
+        "type": "spotifyExported"
+      }
+    ],
+    "expect": {
+      "pendingSpotifyRetry": false
+    }
+  },
+  {
+    "id": "fill-setlistfm-hit",
+    "row": "Fill: setlist.fm hit",
+    "precondition": {
+      "currentStep": "S17",
+      "userSongs": [
+        "First Song",
+        "Second Song"
+      ],
+      "setlistFmSongs": [
+        "First Song",
+        "Third Song",
+        "Fourth Song",
+        "Fifth Song",
+        "Sixth Song",
+        "Seventh Song",
+        "Eighth Song",
+        "Ninth Song",
+        "Tenth Song",
+        "Eleventh Song"
+      ],
+      "musicBrainzSongs": [
+        "Fallback Song"
+      ]
+    },
+    "events": [
+      {
+        "type": "setlistFilled",
+        "source": "setlist.fm"
+      }
+    ],
+    "expect": {
+      "source": "setlist.fm",
+      "excludeUserSongs": true,
+      "targetSongCount": "about 10"
+    }
+  },
+  {
+    "id": "fill-fallback",
+    "row": "Fill: fallback",
+    "precondition": {
+      "currentStep": "S17",
+      "userSongs": [
+        "First Song"
+      ],
+      "setlistFmSongs": [],
+      "musicBrainzSongs": [
+        "First Song",
+        "Second Song",
+        "Third Song",
+        "Fourth Song",
+        "Fifth Song",
+        "Sixth Song",
+        "Seventh Song",
+        "Eighth Song",
+        "Ninth Song",
+        "Tenth Song",
+        "Eleventh Song"
+      ]
+    },
+    "events": [
+      {
+        "type": "setlistFilled",
+        "source": "musicbrainz"
+      }
+    ],
+    "expect": {
+      "source": "musicbrainz",
+      "excludeUserSongs": true,
+      "targetSongCount": "about 10"
+    }
+  },
+  {
+    "id": "out-of-order-event",
+    "row": "Out-of-order event",
+    "precondition": {
+      "currentStep": "S1"
+    },
+    "events": [
+      {
+        "type": "gigAdded"
+      }
+    ],
+    "expect": {
+      "currentStep": "S1",
+      "commands": [],
+      "stateChanged": false
+    }
+  }
+]
