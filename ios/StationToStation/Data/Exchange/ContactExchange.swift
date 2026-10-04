@@ -49,7 +49,7 @@ final class ContactExchange {
     /// The **Lane** held for each Contact, by their key (#405). Re-read per session.
     private let lanesByKey: () async -> [String: [FmSetlist]]
     /// A verified Contact's **Nights** that I did not hold yet, by their key (#405).
-    private let onNights: (String, [FmSetlist]) async -> Void
+    private let onNights: (String, [FmSetlist], [String]) async -> Void
     /// My own **Spine**, which decides which Nights an offer could be about (#405).
     private let myNights: () async -> [FmSetlist]
     /// Media for Nights I have not joined: offered, never filed (#405).
@@ -61,7 +61,7 @@ final class ContactExchange {
          gallery: @escaping () async -> [GalleryItem],
          onLanded: @escaping ([String: [StoredMedia]]) async -> Void,
          lanesByKey: @escaping () async -> [String: [FmSetlist]] = { [:] },
-         onNights: @escaping (String, [FmSetlist]) async -> Void = { _, _ in },
+         onNights: @escaping (String, [FmSetlist], [String]) async -> Void = { _, _, _ in },
          myNights: @escaping () async -> [FmSetlist] = { [] },
          onOffers: @escaping ([String: MediaOffer]) async -> Void = { _ in }) {
         self.contactKeys = contactKeys
@@ -246,10 +246,10 @@ final class ContactExchange {
                 heldLane: { key in lanes[key] ?? [] },
                 // Landed for the notes' reason: text, complete the moment the manifest is,
                 // and not to be held up behind a photograph.
-                landNights: { key, nights in
+                landNights: { key, nights, withdrawn in
                     if Task.isCancelled { return }
-                    log.info("\(side, privacy: .public): \(nights.count, privacy: .public) nights landing")
-                    await onNights(key, nights)
+                    log.info("\(side, privacy: .public): \(nights.count, privacy: .public) nights landing, \(withdrawn.count, privacy: .public) withdrawn")
+                    await onNights(key, nights, withdrawn)
                 },
                 myNights: spine,
                 // Held, not filed. Their tiers are cut now, for the landing's reason below:

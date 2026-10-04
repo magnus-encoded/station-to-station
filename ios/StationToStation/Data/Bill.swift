@@ -197,6 +197,14 @@ extension TimelineCache {
     }
 }
 
+/// A **Contact**'s **Lane** with the Nights they took back on a **Reconcile** taken out
+/// (`ContactReconcilePlan.withdrawn`). Hand-logged Nights only, whatever `withdrawn` names:
+/// a setlist.fm Night is only ever revised by setlist.fm. Android's `withdrawNights`.
+func withdrawNights(_ held: [FmSetlist]?, _ withdrawn: [String]) -> [FmSetlist] {
+    let gone = Set(withdrawn)
+    return (held ?? []).filter { !($0.isLocal && gone.contains($0.id)) }
+}
+
 /// A **Contact**'s **Lane** once the **Nights** they offered on a **Reconcile** land on
 /// what I `held` (#405). `received` is the plan's `nights` — already only what I did not
 /// hold — so this adds and never removes: the same Night twice is one Night, and a Lane

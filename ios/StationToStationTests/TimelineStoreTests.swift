@@ -109,6 +109,18 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual(["a", "b"], Set(loaded.shows["key:0123456789abcdef"]?.map(\.id) ?? []))
     }
 
+    /// The screen takes the Lane whole from here, so it must be the Lane, not the Nights touched.
+    func testAWithdrawalReturnsTheWholeLaneAsWritten() async {
+        let s = store()
+        await s.mergeContactNights("dio", [show("a"), show("b"), show("c")])
+
+        let (lane, _) = await s.mergeContactNights("dio", [], ["a"])
+
+        XCTAssertEqual(["b", "c"], Set(lane?.map(\.id) ?? []))
+        let loaded = await s.load()
+        XCTAssertEqual(lane?.map(\.id), loaded.shows["dio"]?.map(\.id))
+    }
+
     /// #405: a Contact's offer is held apart from the Night until answered, and accepting it
     /// on a Night nothing hung off yet mints that Night's **Gig** to file it on.
     func testAnOfferIsHeldUntilAcceptedThenFiledOnMyNight() async {

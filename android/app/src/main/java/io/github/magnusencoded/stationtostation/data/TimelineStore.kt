@@ -1162,12 +1162,26 @@ class TimelineStore(
     /**
      * A **Contact**'s **Nights** from a **Reconcile**, folded into the **Lane** held under
      * [laneKey] (#405) — `shows`, the same map a fetched Lane is held in, so a Contact with
-     * no account draws offline the way a fetched one does. Adds, never removes: see
-     * [landNights].
+     * no account draws offline the way a fetched one does. [withdrawn] leaves it again,
+     * with whatever was offered me for it ([withdrawingOffers]). Returns the Lane as
+     * written, for the screen to take whole, and that media, so its bytes can be deleted
+     * once it is out of the cache.
      */
-    suspend fun mergeContactNights(laneKey: String, nights: List<FmSetlist>): Unit = writeMerged { c ->
-        if (laneKey.isBlank() || nights.isEmpty()) return@writeMerged c
-        c.copy(shows = c.shows + (laneKey to landNights(c.shows[laneKey], nights)))
+    suspend fun mergeContactNights(
+        laneKey: String,
+        nights: List<FmSetlist>,
+        withdrawn: List<String> = emptyList(),
+    ): Pair<List<FmSetlist>?, List<StoredMedia>> {
+        var lane: List<FmSetlist>? = null
+        var dropped = emptyList<StoredMedia>()
+        writeMerged { c ->
+            if (laneKey.isBlank() || (nights.isEmpty() && withdrawn.isEmpty())) return@writeMerged c
+            dropped = withdrawn.flatMap { c.mediaOffers[it]?.media.orEmpty() }
+            val held = withdrawNights(landNights(c.shows[laneKey], nights), withdrawn)
+            lane = held
+            c.copy(shows = c.shows + (laneKey to held)).withdrawingOffers(withdrawn)
+        }
+        return lane to dropped
     }
 
     /**

@@ -20,7 +20,7 @@ import io.github.magnusencoded.stationtostation.data.friendFromUri
 import io.github.magnusencoded.stationtostation.data.holdLanes
 import io.github.magnusencoded.stationtostation.data.laneKey
 import io.github.magnusencoded.stationtostation.data.laneNeedsFetch
-import io.github.magnusencoded.stationtostation.data.landNights
+import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.mySpine
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmClient
@@ -128,14 +128,22 @@ class ContactsController(
      * A **Contact**'s **Nights**, off a **Reconcile**: held under their Lane, on disk
      * and on screen, so the Lane draws now and after a relaunch without asking anyone.
      * [contactKey] is the key that verified; a Contact removed mid-session lands nothing.
+     * [withdrawn] is the Nights of theirs they took back, which leave the Lane here too;
+     * the media that was waiting on them is returned for its bytes to be deleted.
      */
-    internal suspend fun landContactNights(contactKey: String, nights: List<FmSetlist>) {
-        val friend = state().friends.firstOrNull { it.publicKey?.trim() == contactKey.trim() } ?: return
+    internal suspend fun landContactNights(
+        contactKey: String,
+        nights: List<FmSetlist>,
+        withdrawn: List<String> = emptyList(),
+    ): List<StoredMedia> {
+        val friend = state().friends.firstOrNull { it.publicKey?.trim() == contactKey.trim() } ?: return emptyList()
         val key = friend.laneKey
-        timelines.mergeContactNights(key, nights)
-        update {
-            it.copy(showsByFriend = it.showsByFriend + (key to landNights(it.showsByFriend[key], nights)))
-        }
+        val (held, dropped) = timelines.mergeContactNights(key, nights, withdrawn)
+        // The Lane as written, never one rebuilt from what is on screen: a Reconcile can
+        // land before the screen has its copy, and rebuilding from nothing drew the whole
+        // Lane as the few Nights the session touched.
+        if (held != null) update { it.copy(showsByFriend = it.showsByFriend + (key to held)) }
+        return dropped
     }
 
     /**
