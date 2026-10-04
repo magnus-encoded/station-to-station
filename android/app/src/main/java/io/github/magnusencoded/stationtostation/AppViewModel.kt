@@ -882,7 +882,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         addFriend = ::addFriend,
     )
 
-    private val planning = PlanningController(
+    private val planning: PlanningController = PlanningController(
         state = { _state.value },
         update = { f -> _state.update(f) },
         timelines = timelines,
@@ -896,7 +896,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         lookUpLocalGig = { gigId, manual -> setlists.lookUpLocalGig(gigId, manual) },
     )
 
-    private val setlists = SetlistController(
+    private val setlists: SetlistController = SetlistController(
         state = { _state.value },
         update = { change -> _state.update(change) },
         setlistFm = setlistFm,
@@ -1233,7 +1233,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun connectWith(peer: ExchangePeer) = contacts.connectWith(peer)
 
     fun consumeJustConnected() = contacts.consumeJustConnected()
-        gossipController.sync()
 
     fun setZoomedOut(on: Boolean) = navigation.setZoomedOut(on)
 
@@ -1302,7 +1301,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         picked: Set<String>,
         now: LocalDateTime = LocalDateTime.now(),
     ) = planning.commitProgramme(programme, diff, picked, now)
-        gigController.onLine(night, artist, mbid)
 
     fun standing(gigId: String): GigStanding = gigController.standing(gigId)
 
