@@ -15,6 +15,7 @@ private let raised = Color(red: 0x17 / 255, green: 0x12 / 255, blue: 0x1F / 255)
 private let ink = Color(red: 0xED / 255, green: 0xE9 / 255, blue: 0xF2 / 255)
 private let muted = Color(red: 0x8B / 255, green: 0x82 / 255, blue: 0x99 / 255)
 private let faint = Color(red: 0x5A / 255, green: 0x53 / 255, blue: 0x68 / 255)
+private let slate = Color(red: 0x6F / 255, green: 0x80 / 255, blue: 0x9D / 255)
 /// Mine. Never "the accent colour" — it means *mine*, at every Resolution
 /// (same mark StationView draws its Spine with).
 private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
@@ -539,6 +540,36 @@ struct GigView: View {
         .modifier(MaybeNightAlert(asking: $askingMaybe))
     }
 
+    /// The setlist.fm id, rendered (Android's header `EventTag`). It *is* the record's
+    /// setlist.fm id, and its absence is the stub condition showing itself: that id is the
+    /// correspondence key between people, so this pill is where my record meets everyone
+    /// else's. It opens the canonical setlist page, never a constructed edit url, which
+    /// needs no login. A night with no id says "local" and does nothing: an `/edit` link
+    /// would only show a signed-out reader a sign-in wall.
+    @ViewBuilder
+    private func setlistFmPill(_ show: FmSetlist) -> some View {
+        if let page = show.url.flatMap(URL.init(string:)) {
+            Button { openURL(page) } label: {
+                Text("\(show.id) \u{2197}")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(slate)
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .overlay(Capsule().stroke(slate, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 6)
+            // The words without the "↗", which VoiceOver reads as an arrow (#164).
+            .accessibilityLabel("Link to this setlist on setlist.fm")
+        } else {
+            Text("local")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(faint)
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .overlay(Capsule().stroke(faint, lineWidth: 1))
+                .padding(.top, 6)
+        }
+    }
+
     private func header(_ show: FmSetlist, _ room: Room?) -> some View {
         // Manual check-in (#174) is the only one there is when location was refused
         // or the venue couldn't be geocoded — the **Room**'s own offer, the same
@@ -551,6 +582,7 @@ struct GigView: View {
                 .font(.system(size: 26, design: .serif)).foregroundStyle(ink)
                 .accessibilityAddTraits(.isHeader)
             Text(show.venueLine()).font(.system(size: 14)).foregroundStyle(muted)
+            setlistFmPill(show)
             // A lookup found something but was not sure (#531): the question waits here,
             // on the night, until it is answered. Dismissing the list leaves it waiting;
             // the automatic checks pause meanwhile.
