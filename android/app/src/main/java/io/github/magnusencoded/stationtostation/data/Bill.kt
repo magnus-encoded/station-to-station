@@ -220,6 +220,17 @@ fun landNights(held: List<FmSetlist>?, received: List<FmSetlist>): List<FmSetlis
     return (had + fresh).sortedByDescending { it.localDate() }
 }
 
+/**
+ * A **Contact**'s **Lane** with the Nights they took back on a **Reconcile** taken out
+ * ([ContactReconcilePlan.withdrawn]). Hand-logged Nights only, whatever [withdrawn] names:
+ * a setlist.fm Night is only ever revised by setlist.fm.
+ */
+fun withdrawNights(held: List<FmSetlist>?, withdrawn: Collection<String>): List<FmSetlist> {
+    val had = held.orEmpty()
+    val gone = withdrawn.toSet()
+    return had.filterNot { it.isLocal() && it.id in gone }
+}
+
 /** dd-MM-yyyy, the one date shape this app and setlist.fm both speak. */
 private val FM_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("dd-MM-yyyy", Locale.ENGLISH)
 

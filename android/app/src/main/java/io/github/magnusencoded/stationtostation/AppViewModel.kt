@@ -771,7 +771,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 f.publicKey?.let { key -> shows[f.laneKey]?.let { key to it } }
             }.toMap()
         },
-        onNights = { key, nights -> contacts.landContactNights(key, nights) },
+        onNights = { key, nights, withdrawn ->
+            val dropped = contacts.landContactNights(key, nights, withdrawn)
+            dropped.forEach { photos.deleteOwnedBytes(it.id, it.ref) }
+            if (withdrawn.isNotEmpty()) _state.update { it.copy(mediaOffers = timelines.load().mediaOffers) }
+        },
         myNights = { timelines.load().mySpine(settings.mySetlistFmUser.first().orEmpty()) },
         onOffers = { offers ->
             timelines.holdMediaOffers(offers)

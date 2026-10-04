@@ -24,6 +24,8 @@ import io.github.magnusencoded.stationtostation.data.contactReconcilePlan
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.landNights
+import io.github.magnusencoded.stationtostation.data.withdrawNights
+import io.github.magnusencoded.stationtostation.data.withdrawingOffers
 import io.github.magnusencoded.stationtostation.data.laneNeedsFetch
 import io.github.magnusencoded.stationtostation.data.localGigSetlist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
@@ -361,6 +363,51 @@ class ContactReconcileTest {
 
         assertEquals(listOf("local-1"), lane.map { it.id })
         assertFalse(laneNeedsFetch(dio, lane))
+    }
+
+    // --- "I was there", taken back ---
+    //
+    // Their manifest carries their whole Spine, so a hand-logged Night it leaves out is one
+    // they no longer claim. It leaves their Lane here, and what they offered for it goes too.
+
+    @Test
+    fun `a hand-logged night they no longer offer is withdrawn`() {
+        val offer = HandoverManifest(nights = listOf(imported))
+
+        val plan = contactReconcilePlan(TimelineCache(), offer, verified = true, heldLane = listOf(imported, handLogged))
+
+        assertEquals(listOf("local-1"), plan.withdrawn)
+        assertEquals(listOf("sl-imported"), withdrawNights(listOf(imported, handLogged), plan.withdrawn).map { it.id })
+    }
+
+    /** setlist.fm's Nights are setlist.fm's to take back, whatever a phone without the account sends. */
+    @Test
+    fun `a setlist fm night they do not offer stays`() {
+        val offer = HandoverManifest(nights = listOf(handLogged))
+
+        val plan = contactReconcilePlan(TimelineCache(), offer, verified = true, heldLane = listOf(imported, handLogged))
+
+        assertTrue(plan.withdrawn.isEmpty())
+        assertEquals(listOf(imported, handLogged), withdrawNights(listOf(imported, handLogged), listOf("sl-imported")))
+    }
+
+    /** What a manifest from before Nights travelled decodes to. */
+    @Test
+    fun `an offer with no nights withdraws nothing`() {
+        val plan = contactReconcilePlan(TimelineCache(), HandoverManifest(), verified = true, heldLane = listOf(handLogged))
+
+        assertTrue(plan.withdrawn.isEmpty())
+    }
+
+    @Test
+    fun `a withdrawn night takes its offer with it and leaves what I accepted`() {
+        val mine = TimelineCache(gigs = mapOf("my-local" to myGig))
+        val resolved = mapOf("m1" to "content://received/m1")
+        val held = mine.holdingOffers(contactOffers(mine, theirOffer(photo("m1")), resolved, listOf(myNight)))
+        val accepted = held.acceptingOffer("their-local", "my-local")
+
+        assertTrue(held.withdrawingOffers(listOf("their-local")).mediaOffers.isEmpty())
+        assertEquals(accepted, accepted.withdrawingOffers(listOf("their-local")))
     }
 
     // --- Media a Contact sends is offered, never filed (#405) ---

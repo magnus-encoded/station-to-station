@@ -19,7 +19,7 @@ Every version listed under "What has changed" in the
 ## 1.11.1 — 2026-10-05
 
 <!-- play -->
-Syncing with a contact on the same WiFi works again: it could fail after the Exchange screen had been opened before, so hand-added gigs never reached them. Both phones need the Exchange screen open while they sync. A contact's whole setlist.fm history now shows beside yours, not just the stretch since your own first gig, and a gig you share no longer appears twice beside a festival that evening.
+Syncing with a contact on the same WiFi works again: it could fail after the Exchange screen had been opened before, so hand-added gigs never reached them. Both phones need the Exchange screen open while they sync. A contact's whole setlist.fm history now shows beside yours, not just the stretch since your own first gig, and a gig you share no longer appears twice beside a festival that evening. A gig you added by hand and then delete leaves your contacts' phones at the next sync.
 <!-- /play -->
 
 **Syncing with a Contact, fixed.** On Android, every visit to the Exchange
@@ -32,6 +32,12 @@ have the Exchange screen open on the same WiFi, not in the background.
 **Checking in to a gig you added by hand.** A gig you typed in yourself had no
 "I'm here — check in" on Android, so it stayed planned — and a planned gig is
 never sent to a Contact. It can now be checked into on the night like any other.
+
+**Taking a gig back.** A gig you added by hand and later delete, or no longer
+mark as attended, now leaves your line on a Contact's phone the next time you
+sync, the way unticking "I was there" on setlist.fm does. Photos you had sent
+them for it go too, unless they had already said it was their night as well —
+then the photos are on their own gig and stay there.
 
 **A Contact's whole history.** Their line used to stop at your own oldest gig,
 so someone who had just started saw only a page of a friend's years. All of it

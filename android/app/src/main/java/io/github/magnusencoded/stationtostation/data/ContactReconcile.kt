@@ -35,6 +35,14 @@ data class ContactReconcilePlan(
      * fetched for them. See [landNights] for where they go.
      */
     val nights: List<FmSetlist> = emptyList(),
+    /**
+     * The hand-logged **Nights** their **Lane** on this phone holds that they no longer
+     * offer: "I was there", taken back. Their manifest carries their whole **Spine**, so a
+     * Night it leaves out is one they are not claiming any more — the same revision a
+     * setlist.fm Lane makes when its "I was there" is unticked. Only Nights that arrived
+     * on a **Reconcile**: setlist.fm's own are setlist.fm's to take back. See [withdrawNights].
+     */
+    val withdrawn: List<String> = emptyList(),
 )
 
 /**
@@ -83,6 +91,11 @@ fun contactReconcilePlan(
     // id is no Night, and one offered twice is taken once.
     val heldNights = heldLane.mapTo(HashSet()) { it.id }
     val nights = offer.nights.filter { it.id.isNotBlank() && heldNights.add(it.id) }
+    // An empty Spine is read as no answer rather than as every Night taken back: it is
+    // what a manifest from before Nights travelled decodes to.
+    val offered = offer.nights.mapTo(HashSet()) { it.id }
+    val withdrawn = if (offered.isEmpty()) emptyList()
+    else heldLane.filter { it.isLocal() && it.id !in offered }.map { it.id }
 
     val mineIds = mine.gigMedia.values.flatten().mapTo(HashSet()) { it.id }
     // Empty hashes excluded, which is not tidiness: a **Note** has no bytes and hashes to
@@ -103,7 +116,8 @@ fun contactReconcilePlan(
     }
 
     return ContactReconcilePlan(held = held, fromGallery = fromGallery,
-                                noBytes = noBytes, request = request, nights = nights)
+                                noBytes = noBytes, request = request, nights = nights,
+                                withdrawn = withdrawn)
 }
 
 /**
@@ -284,6 +298,15 @@ fun TimelineCache.decliningOffer(night: String): TimelineCache {
         )),
     )
 }
+
+/**
+ * Their Nights [nights], taken back (see [ContactReconcilePlan.withdrawn]): what they had
+ * offered me for them goes with them, bytes and all. An offer is media waiting on their
+ * Night, and with the Night gone there is nothing left to show it on. What I already
+ * accepted stays — that is on a Night of mine now, and mine is not theirs to revise.
+ */
+fun TimelineCache.withdrawingOffers(nights: Collection<String>): TimelineCache =
+    if (nights.none { it in mediaOffers }) this else copy(mediaOffers = mediaOffers - nights.toSet())
 
 // ---- The maybe, answered (#405) -------------------------------------------------------
 //

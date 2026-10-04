@@ -20,7 +20,9 @@ import io.github.magnusencoded.stationtostation.data.friendFromUri
 import io.github.magnusencoded.stationtostation.data.holdLanes
 import io.github.magnusencoded.stationtostation.data.laneKey
 import io.github.magnusencoded.stationtostation.data.laneNeedsFetch
+import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.landNights
+import io.github.magnusencoded.stationtostation.data.withdrawNights
 import io.github.magnusencoded.stationtostation.data.mySpine
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmClient
@@ -128,14 +130,22 @@ class ContactsController(
      * A **Contact**'s **Nights**, off a **Reconcile**: held under their Lane, on disk
      * and on screen, so the Lane draws now and after a relaunch without asking anyone.
      * [contactKey] is the key that verified; a Contact removed mid-session lands nothing.
+     * [withdrawn] is the Nights of theirs they took back, which leave the Lane here too;
+     * the media that was waiting on them is returned for its bytes to be deleted.
      */
-    internal suspend fun landContactNights(contactKey: String, nights: List<FmSetlist>) {
-        val friend = state().friends.firstOrNull { it.publicKey?.trim() == contactKey.trim() } ?: return
+    internal suspend fun landContactNights(
+        contactKey: String,
+        nights: List<FmSetlist>,
+        withdrawn: List<String> = emptyList(),
+    ): List<StoredMedia> {
+        val friend = state().friends.firstOrNull { it.publicKey?.trim() == contactKey.trim() } ?: return emptyList()
         val key = friend.laneKey
-        timelines.mergeContactNights(key, nights)
+        val dropped = timelines.mergeContactNights(key, nights, withdrawn)
         update {
-            it.copy(showsByFriend = it.showsByFriend + (key to landNights(it.showsByFriend[key], nights)))
+            val lane = withdrawNights(landNights(it.showsByFriend[key], nights), withdrawn)
+            it.copy(showsByFriend = it.showsByFriend + (key to lane))
         }
+        return dropped
     }
 
     /**

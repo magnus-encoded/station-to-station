@@ -395,6 +395,49 @@ final class ContactReconcileTests: XCTestCase {
         XCTAssertTrue(try JSONDecoder().decode(HandoverManifest.self, from: data).nights.isEmpty)
     }
 
+    // MARK: - "I was there", taken back
+    //
+    // Their manifest carries their whole Spine, so a hand-logged Night it leaves out is one
+    // they no longer claim. It leaves their Lane here, and what they offered for it goes too.
+
+    func testAHandLoggedNightTheyNoLongerOfferIsWithdrawn() {
+        let offer = HandoverManifest(nights: [imported])
+
+        let plan = contactReconcilePlan(mine: TimelineCache(), offer: offer, verified: true, heldLane: [imported, handLogged])
+
+        XCTAssertEqual(["local-1"], plan.withdrawn)
+        XCTAssertEqual(["sl-imported"], withdrawNights([imported, handLogged], plan.withdrawn).map(\.id))
+    }
+
+    /// setlist.fm's Nights are setlist.fm's to take back, whatever a phone without the account sends.
+    func testASetlistFmNightTheyDoNotOfferStays() {
+        let offer = HandoverManifest(nights: [handLogged])
+
+        let plan = contactReconcilePlan(mine: TimelineCache(), offer: offer, verified: true, heldLane: [imported, handLogged])
+
+        XCTAssertTrue(plan.withdrawn.isEmpty)
+        XCTAssertEqual(["sl-imported", "local-1"], withdrawNights([imported, handLogged], ["sl-imported"]).map(\.id))
+    }
+
+    /// What a manifest from before Nights travelled decodes to.
+    func testAnOfferWithNoNightsWithdrawsNothing() {
+        let plan = contactReconcilePlan(mine: TimelineCache(), offer: HandoverManifest(), verified: true, heldLane: [handLogged])
+
+        XCTAssertTrue(plan.withdrawn.isEmpty)
+    }
+
+    func testAWithdrawnNightTakesItsOfferWithItAndLeavesWhatIAccepted() {
+        let mine = cache(gigs: ["my-local": myGig])
+        let resolved = ["m1": "file:///received/m1"]
+        let held = mine.holdingOffers(contactOffers(mine: mine, offer: theirOffer([photo("m1")]), resolved: resolved, myNights: [myNight]))
+        let accepted = held.acceptingOffer("their-local", gigId: "my-local")
+
+        XCTAssertTrue(held.withdrawingOffers(["their-local"]).mediaOffers.isEmpty)
+        let after = accepted.withdrawingOffers(["their-local"])
+        XCTAssertEqual(["m1"], after.gigMedia["my-local"]?.map(\.id))
+        XCTAssertEqual(accepted.nightJoins, after.nightJoins)
+    }
+
     // MARK: - Media a Contact sends is offered, never filed (#405)
     //
     // Another person's belief that we shared a Night must never write onto my record. What

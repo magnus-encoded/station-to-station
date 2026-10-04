@@ -1396,15 +1396,19 @@ final class AppModel: ObservableObject {
     /// A **Contact**'s **Nights**, off a **Reconcile** (#405): held under their Lane, on
     /// disk and on screen, so the Lane draws now and after a relaunch without asking
     /// anyone. `contactKey` is the key that verified; a Contact removed mid-session lands
-    /// nothing. Android's `landContactNights`.
-    func landContactNights(_ contactKey: String, _ nights: [FmSetlist]) async {
+    /// nothing. `withdrawn` is the Nights of theirs they took back, which leave the Lane
+    /// here too, along with the bytes of whatever was offered me for them. Android's
+    /// `landContactNights`.
+    func landContactNights(_ contactKey: String, _ nights: [FmSetlist], _ withdrawn: [String] = []) async {
         let key = contactKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let friend = state.friends.first(where: {
             $0.publicKey?.trimmingCharacters(in: .whitespacesAndNewlines) == key
         }) else { return }
         let lane = friend.laneKey
-        await timelines.mergeContactNights(lane, nights)
-        state.showsByFriend[lane] = landNights(state.showsByFriend[lane], nights)
+        let dropped = await timelines.mergeContactNights(lane, nights, withdrawn)
+        for media in dropped { PhotoLibrary.deleteReceivedMedia(media) }
+        state.showsByFriend[lane] = withdrawNights(landNights(state.showsByFriend[lane], nights), withdrawn)
+        if !withdrawn.isEmpty { state.mediaOffers = await timelines.load().mediaOffers }
     }
 
     /// What a Contact sent for Nights I have not joined, kept and shown (#405).
@@ -1538,7 +1542,7 @@ final class AppModel: ObservableObject {
             }
             return out
         },
-        onNights: { [weak self] key, nights in await self?.landContactNights(key, nights) },
+        onNights: { [weak self] key, nights, withdrawn in await self?.landContactNights(key, nights, withdrawn) },
         myNights: { [timelines, settings] in
             await timelines.load().mySpine(settings.mySetlistFmUser ?? "")
         },

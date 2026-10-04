@@ -65,7 +65,7 @@ class ContactExchange(
     /** The **Lane** held for each Contact, by their key (#405). Re-read per session. */
     private val lanesByKey: suspend () -> Map<String, List<FmSetlist>> = { emptyMap() },
     /** A verified Contact's **Nights** that I did not hold yet, by their key (#405). */
-    private val onNights: suspend (contactKey: String, nights: List<FmSetlist>) -> Unit = { _, _ -> },
+    private val onNights: suspend (contactKey: String, nights: List<FmSetlist>, withdrawn: List<String>) -> Unit = { _, _, _ -> },
     /** My own **Spine**, which decides which Nights an offer could be about (#405). */
     private val myNights: suspend () -> List<FmSetlist> = { emptyList() },
     /** Media for Nights I have not joined: offered, never filed (#405). */
@@ -204,9 +204,9 @@ class ContactExchange(
                 heldLane = { key -> lanes[key].orEmpty() },
                 // Launched for the notes' reason: text, complete the moment the manifest
                 // is, and not to be held up behind a photograph.
-                landNights = { key, nights ->
-                    Log.i(TAG, "$side: ${nights.size} nights landing")
-                    scope.launch { onNights(key, nights) }
+                landNights = { key, nights, withdrawn ->
+                    Log.i(TAG, "$side: ${nights.size} nights landing, ${withdrawn.size} withdrawn")
+                    scope.launch { onNights(key, nights, withdrawn) }
                 },
                 myNights = spine,
                 landOffers = { offers -> scope.launch { onOffers(offers) } },

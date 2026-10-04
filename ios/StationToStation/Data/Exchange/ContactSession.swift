@@ -37,8 +37,10 @@ func runContactSession(
     heldLane: (String) -> [FmSetlist] = { _ in [] },
     /// Called with the verified Contact's key and the **Nights** of theirs I did not hold,
     /// as soon as the manifests are swapped — complete as they stand, like a **Note**, so a
-    /// transfer that never finishes does not cost the Lane. Not called when there are none.
-    landNights: (String, [FmSetlist]) async -> Void = { _, _ in },
+    /// transfer that never finishes does not cost the Lane. The last argument is the
+    /// hand-logged Nights of theirs I hold that they no longer claim. Not called when both
+    /// are empty.
+    landNights: (String, [FmSetlist], [String]) async -> Void = { _, _, _ in },
     /// My own **Spine**: the Nights an offer could be about (#405). See `contactOffers`.
     myNights: [FmSetlist] = [],
     /// Called once the bytes are in with what they sent for Nights I have not joined:
@@ -55,7 +57,9 @@ func runContactSession(
 
     let plan = contactReconcilePlan(mine: mine, offer: theirManifest, verified: true, gallery: gallery,
                                     heldLane: heldLane(contactKey))
-    if !plan.nights.isEmpty { await landNights(contactKey, plan.nights) }
+    if !plan.nights.isEmpty || !plan.withdrawn.isEmpty {
+        await landNights(contactKey, plan.nights, plan.withdrawn)
+    }
 
     // Before the request round, not after it: everything a **Note** needs has already
     // arrived, and this is the earliest moment it can be written down.
