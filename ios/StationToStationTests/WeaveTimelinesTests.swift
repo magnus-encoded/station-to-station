@@ -62,6 +62,25 @@ final class WeaveTimelinesTests: XCTestCase {
         XCTAssertEqual([lemmy], rows[0].others)
     }
 
+    /// My festival and my single gig the same evening at the same venue, the gig outside
+    /// the festival identity: their copy of that gig is the same record as my gig, so it
+    /// joins my gig, not my festival — else my gig reads mine-only right under a shared
+    /// festival row holding the very same gig.
+    func testTheirCopyOfMyGigJoinsMyGigNotMyFestivalThatEvening() {
+        let rows = weaveTimelines(
+            mine: [show("a1", "13-08-2026", "Tøyenparken"), show("a2", "13-08-2026", "Tøyenparken"),
+                   show("me", "13-08-2026", "Tøyenparken")],
+            festivals: festival("a1", "a2"),
+            friends: [lemmy],
+            theirs: ["Lemmy": [show("me", "13-08-2026", "Tøyenparken")]]
+        )
+        let gig = rows.filter { !$0.node.isIdentified }
+        XCTAssertEqual(1, gig.count)
+        XCTAssertEqual(1, gig.first?.sharedCount)
+        XCTAssertEqual([lemmy], gig.first?.others)
+        XCTAssertEqual(0, rows.first { $0.node.isIdentified }?.sharedCount)
+    }
+
     /// And with no identity, they do not fold: nothing knows those are one thing.
     func testTheirRunAtMyVenueWithNoIdentityStaysBesideMyNights() {
         let rows = weaveTimelines(
