@@ -24,9 +24,10 @@ class GigMediaControllerTest {
 
     // The methods under test never touch it; a Context is unavailable off-device.
     private val photos: PhotoRepository = run {
-        val unsafe = Class.forName("sun.misc.Unsafe").getDeclaredField("theUnsafe")
-            .also { it.isAccessible = true }.get(null) as sun.misc.Unsafe
-        unsafe.allocateInstance(PhotoRepository::class.java) as PhotoRepository
+        val unsafeClass = Class.forName("sun.misc.Unsafe")
+        val unsafe = unsafeClass.getDeclaredField("theUnsafe").also { it.isAccessible = true }.get(null)
+        unsafeClass.getMethod("allocateInstance", Class::class.java)
+            .invoke(unsafe, PhotoRepository::class.java) as PhotoRepository
     }
 
     // A cancelled scope: persistence launches never run, the state change is what is asserted.
