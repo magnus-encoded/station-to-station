@@ -117,6 +117,7 @@ import io.github.magnusencoded.stationtostation.data.gossip.contactKeysOf
 import io.github.magnusencoded.stationtostation.data.gossip.contactNamesOf
 import io.github.magnusencoded.stationtostation.data.gossip.gossipExpiry
 import io.github.magnusencoded.stationtostation.data.gossip.GossipService
+import io.github.magnusencoded.stationtostation.features.gossip.GossipController
 import io.github.magnusencoded.stationtostation.data.gossip.GossipStore
 import io.github.magnusencoded.stationtostation.data.gossip.gigDatesOf
 import io.github.magnusencoded.stationtostation.data.gossip.gossipGigTonight
@@ -794,6 +795,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
+    private val gossipController = GossipController(
+        state = { _state.value },
+        update = { edit -> _state.update(edit) },
+        gossip = gossip,
+        timelines = timelines,
+        radio = { activeUntil -> GossipService.sync(getApplication<Application>(), activeUntil) },
+        scope = viewModelScope,
+    )
+
     private var matchJob: Job? = null
 
     /** The in-flight artist lookup, so a new keystroke cancels the last one. */
@@ -833,7 +843,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             restoreTimelines()
             // After the timeline is back, because the only reason the radio runs is a Gig
             // on this timeline that is still in participation.
-            syncGossip()
+            gossipController.sync()
         }
         // Witnessed check-in is the one gossip answer the screens ask for. Read from the
         // store rather than pushed at the moment of witnessing, so a phone that was closed
@@ -1806,7 +1816,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         loadFriendTimelines()
         exchange.stop()
         // A first **Contact** is the moment the gossip radio stops being pointless (#416).
-        syncGossip()
+        gossipController.sync()
     }
 
     fun consumeJustConnected() = _state.update { it.copy(justConnected = false) }
@@ -3022,11 +3032,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- The Log: what I saw, as opposed to what setlist.fm publishes ---
 
-    fun blockGossip(author: String) {
-        viewModelScope.launch {
-            gossip.updatePublic(System.currentTimeMillis()) { it.blocked.add(it.recognition[author] ?: author) }
-        }
-    }
+    fun blockGossip(author: String) = gossipController.block(author)
 
     fun logFor(gigId: String): StoredLog = _state.value.logsByGig[gigId] ?: StoredLog()
 
@@ -3072,7 +3078,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             timelines.saveLog(gigId, updated)
             withContext(Dispatchers.IO) { publishLog(gigId, before, updated) }
-            syncGossip()
+            gossipController.sync()
         }
     }
 
@@ -3372,116 +3378,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             saved.join()
-            withContext(Dispatchers.IO) { runCatching { gossipAbout(gigId) } }
-            syncGossip()
+            withContext(Dispatchers.IO) { runCatching { gossipController.gossipAbout(gigId) } }
+            gossipController.sync()
         }
     }
 
-    /**
-     * Author this phone's own check-in as a public **Envelope** and start carrying it (#416).
-     *
-     * It goes into the same store, and through the same
-     * [receive][io.github.magnusencoded.stationtostation.data.gossip.PublicGossipState.receive],
-     * that an envelope arriving off the radio does — `local = true` marking only that the
-     * transport did not vouch for the sender, because there was no transport. There is no
-     * second authoring path to keep working, and no way for a check-in this device made to
-     * be shaped differently from one it relays.
-     *
-     * **The author is a temporary **Gig** key, not this device's **Contact** identity.** The
-     * scope is bound to the *local* **Gig** rather than its external id, so a setlist.fm id
-     * arriving later does not rotate who the night's entries were written by; the durable
-     * Contact key appears nowhere on the wire, only inside the masked attribution proof.
-     *
-     * Quietly does nothing where there is nothing to do: a **Gig** with no date to expire
-     * against, no local **Gig** to bind a scope to, or a signer that refuses. A check-in is a
-     * fact about this timeline first; whether anyone hears about it is secondary, and an
-     * error about the secondary thing would be noise on a night out.
-     */
-    private suspend fun gossipAbout(gigId: String) {
-        val cache = timelines.load()
-        val localGig = cache.gigs[gigId] ?: cache.gigForSetlist(gigId) ?: return
-        val gigDate = runCatching { LocalDate.parse(localGig.date,
-            java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy")) }.getOrNull() ?: return
-        val scope = gossip.authorScope(localGig.id)
-        val identity = GigIdentity(scope)
-        // The same night-end ceiling a relay would have capped the claim at, so this device
-        // asks for exactly as long as a stranger carrying for it would have allowed.
-        val createdAt = Instant.now()
-        val public = GossipEnvelope(
-            gigId = gigId, scope = scope, author = identity.publicKey(),
-            createdAt = createdAt.toEpochMilli(), expiresAt = gossipExpiry(gigDate).toEpochMilli(),
-            kind = "request",
-            attribution = identity.attribution(),
-        ).signed(identity::sign)
-        if (public != null) {
-            val now = System.currentTimeMillis()
-            gossip.updatePublic(now) { it.receive(public, "", now, local = true) }
-        }
-    }
+    fun refreshGossip() = gossipController.refresh()
 
-    /**
-     * Bring the gossip radio into line with the one reason it may run: a **Gig** on this
-     * timeline that has been checked in to and whose participation has not ended (#448).
-     *
-     * Called from every place that answer can change: a launch, a check-in, a **Log** edit
-     * that completes or reopens the set, a stop. The decision itself is
-     * [gossipRelayShouldRun][io.github.magnusencoded.stationtostation.data.gossip.gossipRelayShouldRun],
-     * which is where it is argued and where a reviewer should push back on it.
-     */
-    private suspend fun syncGossip() {
-        val stoppedAt = gossip.stoppedAt()
-        GossipService.sync(
-            context = getApplication<Application>(),
-            activeUntil = io.github.magnusencoded.stationtostation.data.gossip.gossipActiveUntil(timelines, stoppedAt),
-        )
-        // What the **Presence rows** draw, read at the same moment as what the radio is told —
-        // two answers a moment apart would light a bullet for a night the service has just
-        // stopped transmitting for.
-        val cache = timelines.load()
-        val active = gossipActiveGigId(timelines, stoppedAt, gossip.selectedGigId(), System.currentTimeMillis())
-        val eligible = gossipParticipationEnds(timelines)
-        val running = gossipParticipationEnds(timelines, stoppedAt)
-        _state.update {
-            it.copy(
-                gossipEligibleUntil = eligible,
-                gossipActiveGig = active?.let(cache::keyOf),
-                gossipStoppedGigs = gossipStoppedGigs(eligible, running),
-            )
-        }
-    }
-
-    /**
-     * Stand at this **Gig**: the tap on a **Presence row** (#500).
-     *
-     * [gigId] is the id the **Room** holds, which is the adopted one where the night has one;
-     * the selection is stored under the local id, because that is the only id for a night that
-     * cannot change under the device.
-     *
-     * It mints no **Check-in** and touches no attendance — choosing which night you are standing
-     * at is not a claim to have been at it, and the claim was already made by checking in. It
-     * does clear a stop, and that is the only thing that clears one: a dim bullet means "could
-     * be gossiping, isn't", and tapping it is the explicit Resume the story asks for, where
-     * reopening a **Log** deliberately still is not.
-     */
-    /**
-     * Re-read what the **Presence rows** draw, on the **Room**'s own clock.
-     *
-     * The deadlines are the only thing on this screen that changes without anybody doing
-     * anything, and a night's grace running out has to take its bullet with it while somebody is
-     * looking at the row — including handing the amber to whichever night is next. Same call as
-     * every other input, so the service hears about it too.
-     */
-    fun refreshGossip() { viewModelScope.launch { syncGossip() } }
-
-    fun selectGossipGig(gigId: String) {
-        viewModelScope.launch {
-            val local = timelines.load().gigs.values.firstOrNull { it.id == gigId || it.setlistId == gigId }
-                ?: return@launch
-            gossip.selectGig(local.id)
-            if (gossip.stoppedAt() > 0) gossip.resumeParticipation()
-            syncGossip()
-        }
-    }
+    fun selectGossipGig(gigId: String) = gossipController.selectGig(gigId)
 
     /** Writes one gig's attendance to state and disk together, never one without the other. */
     private fun updateAttendance(gigId: String, edit: (StoredAttendance) -> StoredAttendance): Job {
