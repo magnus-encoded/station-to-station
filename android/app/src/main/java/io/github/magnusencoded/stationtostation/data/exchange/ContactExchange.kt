@@ -1,6 +1,7 @@
 package io.github.magnusencoded.stationtostation.data.exchange
 
 import android.content.Context
+import android.util.Log
 import io.github.magnusencoded.stationtostation.data.GalleryItem
 import io.github.magnusencoded.stationtostation.data.HandoverManifest
 import io.github.magnusencoded.stationtostation.data.MediaOffer
@@ -10,6 +11,8 @@ import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -20,6 +23,13 @@ import javax.net.ssl.SSLSocket
 
 /** A stalled peer (open TCP, no bytes) must not tie up an IO thread forever. */
 private const val SESSION_TIMEOUT_MS = 15_000
+
+/** How often one peer is dialed per [ContactExchange.start] before it is left alone, and
+ * how long between tries. A failed dial is usually the far end still coming up. */
+private const val DIAL_ATTEMPTS = 3
+private const val DIAL_RETRY_MS = 4_000L
+
+private const val TAG = "ContactExchange"
 
 /**
  * One device's whole participation in #257 while the app is in the foreground: advertise
@@ -32,7 +42,13 @@ private const val SESSION_TIMEOUT_MS = 15_000
  * meant to sit on the same lifecycle edge that already drives that session.
  *
  * Each discovered address is dialed at most once per [start] — [handled] — so a peer that
- * keeps answering mDNS queries does not get reconciled with on every beacon.
+ * keeps answering mDNS queries does not get reconciled with on every beacon. A dial that
+ * fails before the session runs is tried again, up to [DIAL_ATTEMPTS].
+ *
+ * Every coroutine [start] launches is held in [jobs] and cancelled by [stop]. They used to
+ * outlive it: each opening of the screen left its peer collector running with its own,
+ * by-then-deleted session key, and whichever stale collector reached a new peer first
+ * dialed it with a key the store no longer had (`Key permanently invalidated`).
  */
 class ContactExchange(
     private val context: Context,
@@ -59,6 +75,8 @@ class ContactExchange(
     private var server: SSLServerSocket? = null
     private val handled = mutableSetOf<InetSocketAddress>()
     private var running = false
+    private val jobs = mutableListOf<Job>()
+    private var sessionAlias: String? = null
 
     // Manifest/gallery hashing walks the whole library — computed once per start(), not
     // once per discovered peer, so several Contacts on the same WiFi don't each trigger
@@ -82,18 +100,21 @@ class ContactExchange(
         // SHA-256-only and TLS cannot sign a handshake with it (see [selfSignedIdentity]).
         // Nothing about trust moves — [proveContactIdentity] below still signs with the
         // durable key, over *this* certificate's fingerprint.
-        val (_, keyStore) = generateContactSessionIdentity()
-        val sessionContext = contactSessionContext(keyStore, CharArray(0), CONTACT_SESSION_ALIAS)
+        val (alias, _, keyStore) = generateContactSessionIdentity()
+        sessionAlias = alias
+        val sessionContext = contactSessionContext(keyStore, CharArray(0), alias)
         val socket = sessionContext.serverSocketFactory.createServerSocket(0) as SSLServerSocket
         server = socket
         peers.startAdvertising(socket.localPort)
         peers.startDiscovery()
-        scope.launch(Dispatchers.IO) { acceptLoop(socket) }
-        scope.launch(Dispatchers.IO) {
+        Log.i(TAG, "started on port ${socket.localPort}")
+        jobs += scope.launch(Dispatchers.IO) { acceptLoop(socket) }
+        jobs += scope.launch(Dispatchers.IO) {
             peers.peers.collect { addresses ->
                 for (address in addresses) {
                     if (handled.add(address)) {
-                        scope.launch(Dispatchers.IO) { connectTo(address, sessionContext) }
+                        Log.i(TAG, "peer found: $address")
+                        jobs += scope.launch(Dispatchers.IO) { connectTo(address, sessionContext) }
                     }
                 }
             }
@@ -101,13 +122,17 @@ class ContactExchange(
     }
 
     fun stop() {
+        if (running) Log.i(TAG, "stopped")
         running = false
+        jobs.forEach { it.cancel() }
+        jobs.clear()
         peers.stopAdvertising()
         peers.stopDiscovery()
         runCatching { server?.close() }
         server = null
         handled.clear()
-        runCatching { forgetContactSessionIdentity() }
+        sessionAlias?.let { alias -> runCatching { forgetContactSessionIdentity(alias) } }
+        sessionAlias = null
         manifestCache = null
         galleryCache = null
     }
@@ -120,23 +145,40 @@ class ContactExchange(
                     soTimeout = SESSION_TIMEOUT_MS
                 }
             }.getOrNull() ?: break
-            scope.launch(Dispatchers.IO) { runSession(accepted, isServer = true) }
+            Log.i(TAG, "accepted ${accepted.inetAddress}")
+            jobs += scope.launch(Dispatchers.IO) { runSession(accepted, isServer = true) }
         }
     }
 
     private suspend fun connectTo(address: InetSocketAddress, sessionContext: SSLContext) {
-        val socket = runCatching {
-            (sessionContext.socketFactory.createSocket(address.address, address.port) as SSLSocket)
-                .apply { soTimeout = SESSION_TIMEOUT_MS }
-        }.getOrNull() ?: return
-        runSession(socket, isServer = false)
+        for (attempt in 1..DIAL_ATTEMPTS) {
+            if (!running) return
+            val socket = runCatching {
+                (sessionContext.socketFactory.createSocket(address.address, address.port) as SSLSocket)
+                    .apply { soTimeout = SESSION_TIMEOUT_MS }
+            }.onFailure { Log.w(TAG, "dial $address failed (try $attempt): $it") }.getOrNull()
+            if (socket != null && runSession(socket, isServer = false)) return
+            if (attempt < DIAL_ATTEMPTS) delay(DIAL_RETRY_MS)
+        }
     }
 
-    private suspend fun runSession(socket: SSLSocket, isServer: Boolean) {
+    /** True once the handshake is through, whatever the session then lands: a peer that
+     * got that far has had its turn, and dialing it again would only repeat the same plan. */
+    private suspend fun runSession(socket: SSLSocket, isServer: Boolean): Boolean {
+        val side = if (isServer) "server" else "client"
+        var handshook = false
         runCatching {
             val candidates = contactKeys()
             val ownCert = socket.session.localCertificates?.firstOrNull()
-            if (candidates.isEmpty() || ownCert == null) return@runCatching
+            if (ownCert == null) {
+                Log.w(TAG, "$side: handshake failed with ${socket.inetAddress}")
+                return@runCatching
+            }
+            handshook = true
+            if (candidates.isEmpty()) {
+                Log.i(TAG, "$side: no contact keys to check against")
+                return@runCatching
+            }
             val cache = mine()
             val lanes = lanesByKey()
             val spine = myNights()
@@ -162,12 +204,18 @@ class ContactExchange(
                 heldLane = { key -> lanes[key].orEmpty() },
                 // Launched for the notes' reason: text, complete the moment the manifest
                 // is, and not to be held up behind a photograph.
-                landNights = { key, nights -> scope.launch { onNights(key, nights) } },
+                landNights = { key, nights ->
+                    Log.i(TAG, "$side: ${nights.size} nights landing")
+                    scope.launch { onNights(key, nights) }
+                },
                 myNights = spine,
                 landOffers = { offers -> scope.launch { onOffers(offers) } },
             )
+            if (landing == null) Log.w(TAG, "$side: session ended without a landing (not a contact, or dropped)")
+            else Log.i(TAG, "$side: session done, ${landing.values.sumOf { it.size }} media landed")
             if (!landing.isNullOrEmpty()) onLanded(landing)
-        }
+        }.onFailure { Log.w(TAG, "$side: session failed: $it") }
         runCatching { socket.close() }
+        return handshook
     }
 }

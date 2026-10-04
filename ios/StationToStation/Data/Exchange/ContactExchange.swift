@@ -1,5 +1,11 @@
 import Foundation
 import Network
+import os
+
+/// What the Reconcile did, step by step, in release builds too: a session that ends quietly
+/// is otherwise indistinguishable from one that never started. Counts and sides only —
+/// never a key, a name or a night.
+private let log = Logger(subsystem: "io.github.magnusencoded.stationtostation", category: "ContactExchange")
 
 /// A peer that vanishes mid-session — walks out of the room, drops off the WiFi — must not
 /// leave a session waiting on bytes that are never coming. TCP keepalive is what notices,
@@ -122,6 +128,7 @@ final class ContactExchange {
         }
         listener.start(queue: .global(qos: .utility))
         self.listener = listener
+        log.info("started")
 
         peers.deliverTo { [weak self] endpoint in
             Task { @MainActor in
@@ -133,6 +140,7 @@ final class ContactExchange {
     }
 
     func stop() {
+        if listener != nil { log.info("stopped") }
         // Nil'd before anything else, and `tls` is cleared below, so a discovery already in
         // flight on the browse queue finds nothing to dial by the time it reaches the
         // main actor.
@@ -194,11 +202,19 @@ final class ContactExchange {
 
     private func run(_ connection: NWConnection, isServer: Bool) {
         guard let ownCertificate = tls?.certificate else { connection.cancel(); return }
+        let side = isServer ? "server" : "client"
         let session = Task.detached(priority: .utility) { [warmup, contactKeys, mine, onLanded, lanesByKey, onNights, myNights, onOffers] in
             defer { connection.cancel() }
-            guard let peerCertificate = await ready(connection) else { return }
+            guard let peerCertificate = await ready(connection) else {
+                log.notice("\(side, privacy: .public): handshake failed")
+                return
+            }
+            log.info("\(side, privacy: .public): handshake done")
             let candidates = await contactKeys()
-            if candidates.isEmpty { return }
+            if candidates.isEmpty {
+                log.notice("\(side, privacy: .public): no contact keys to check against")
+                return
+            }
             guard let warmed = await warmup?.value else { return }
             let (manifest, gallery) = warmed
             let cache = await mine()
@@ -232,6 +248,7 @@ final class ContactExchange {
                 // and not to be held up behind a photograph.
                 landNights: { key, nights in
                     if Task.isCancelled { return }
+                    log.info("\(side, privacy: .public): \(nights.count, privacy: .public) nights landing")
                     await onNights(key, nights)
                 },
                 myNights: spine,
@@ -245,7 +262,12 @@ final class ContactExchange {
                     await onOffers(offers)
                 }
             )
-            guard let landing, !landing.isEmpty else { return }
+            guard let landing else {
+                log.notice("\(side, privacy: .public): session ended without a landing (not a contact, or dropped)")
+                return
+            }
+            log.info("\(side, privacy: .public): session done, \(landing.values.map(\.count).reduce(0, +), privacy: .public) media landed")
+            if landing.isEmpty { return }
             // The screen closed while this was in flight. `stop()` cancels the connection
             // too, so a session almost always dies at a read — but once the bytes are all
             // here there is no read left to fail, and nothing about #265 is supposed to
