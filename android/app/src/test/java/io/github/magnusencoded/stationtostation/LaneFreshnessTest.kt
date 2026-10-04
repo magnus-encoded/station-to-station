@@ -5,7 +5,6 @@ import io.github.magnusencoded.stationtostation.data.holdLanes
 import io.github.magnusencoded.stationtostation.data.landNights
 import io.github.magnusencoded.stationtostation.data.laneKey
 import io.github.magnusencoded.stationtostation.data.laneNeedsFetch
-import io.github.magnusencoded.stationtostation.data.parseFmDate
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import kotlinx.serialization.Serializable
@@ -39,7 +38,6 @@ class LaneFreshnessTest {
         val name: String,
         val username: String,
         val held: List<String>? = null,
-        val myOldest: String? = null,
         val fetch: Boolean,
     )
 
@@ -60,7 +58,6 @@ class LaneFreshnessTest {
             val got = laneNeedsFetch(
                 Friend(setlistfm = case.username),
                 case.held?.map { night(it) },
-                case.myOldest?.let { parseFmDate(it) ?: error("${case.name}: bad myOldest") },
             )
             assertEquals(case.name, case.fetch, got)
         }
@@ -68,22 +65,21 @@ class LaneFreshnessTest {
     }
 
     private val ozzy = Friend(setlistfm = "ozzy")
-    private val myOldest = parseFmDate("25-06-2019")
 
     @Test
     fun `a contact with no nights is not fetched on a second pass`() {
         var held = emptyMap<String, List<FmSetlist>>()
-        assertTrue("first pass", laneNeedsFetch(ozzy, held[ozzy.setlistfm], myOldest))
+        assertTrue("first pass", laneNeedsFetch(ozzy, held[ozzy.setlistfm]))
         // setlist.fm answers: a real user with no attended shows.
         held = holdLanes(held, mapOf(ozzy.setlistfm to emptyList()))
-        assertFalse("second pass", laneNeedsFetch(ozzy, held[ozzy.setlistfm], myOldest))
+        assertFalse("second pass", laneNeedsFetch(ozzy, held[ozzy.setlistfm]))
     }
 
     @Test
     fun `a failed fetch is asked again on the next pass`() {
         // A failure is left out of what landed, so nothing is held for them yet.
         val held = holdLanes(emptyMap(), emptyMap())
-        assertTrue(laneNeedsFetch(ozzy, held[ozzy.setlistfm], myOldest))
+        assertTrue(laneNeedsFetch(ozzy, held[ozzy.setlistfm]))
     }
 
     @Test
@@ -116,7 +112,7 @@ class LaneFreshnessTest {
         val lane = landNights(null, listOf(night("01-01-2026", id = "local-2").copy(url = null)))
         val held = mapOf(dio.laneKey to lane)
 
-        assertFalse(laneNeedsFetch(dio, held[dio.laneKey], myOldest))
+        assertFalse(laneNeedsFetch(dio, held[dio.laneKey]))
         assertEquals(listOf("local-2"), held[dio.laneKey]?.map { it.id })
     }
 
@@ -129,6 +125,6 @@ class LaneFreshnessTest {
         val held = holdLanes(had, mapOf(ozzy.setlistfm to listOf(night("20-06-2019"))))
         assertEquals(listOf("n-20-06-2019"), held[ozzy.setlistfm]?.map { it.id })
         assertEquals(listOf("n-01-01-2026"), held["magnus"]?.map { it.id })
-        assertFalse(laneNeedsFetch(ozzy, held[ozzy.setlistfm], myOldest))
+        assertFalse(laneNeedsFetch(ozzy, held[ozzy.setlistfm]))
     }
 }

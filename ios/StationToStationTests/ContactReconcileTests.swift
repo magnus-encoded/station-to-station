@@ -385,7 +385,7 @@ final class ContactReconcileTests: XCTestCase {
         let lane = landNights(nil, contactReconcilePlan(mine: TimelineCache(), offer: offer, verified: true).nights)
 
         XCTAssertEqual(["local-1"], lane.map(\.id))
-        XCTAssertFalse(laneNeedsFetch(dio, held: lane, myOldest: parseFmDate("25-06-2019")))
+        XCTAssertFalse(laneNeedsFetch(dio, held: lane))
     }
 
     /// A peer on a build before #405 sends no `nights` key at all.

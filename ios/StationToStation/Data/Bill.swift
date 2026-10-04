@@ -142,21 +142,21 @@ func spineNights(attended: [FmSetlist], planned: [FmSetlist],
 /// - no username: false. There is no address to fetch from, and whatever is held is all
 ///   there is.
 /// - nothing held: true.
-/// - stops short of me: true. A Lane whose oldest Night is newer than my own oldest
-///   (`myOldest`) may be a truncated page, not a whole history. An empty Lane stops
-///   short of nothing.
+/// - whole pages: true. A Lane's setlist.fm Nights counting a whole number of pages
+///   may be one cut short — a Lane held from before the whole history was fetched
+///   stopped at my own oldest Gig, always on a page boundary. Anything else is their
+///   whole history. Hand-logged Nights from the Reconcile are not setlist.fm's and
+///   are not counted.
 /// - otherwise: false.
 ///
-/// ponytail: a Contact whose whole history is newer than my first Gig looks short every
-/// time, so zooming out costs them one page fetch each — the fetch stops on the first
-/// page because it has their whole list. Store their reported total if that one call
-/// ever matters. Term for term with Android's `laneNeedsFetch`.
-func laneNeedsFetch(_ contact: Friend, held: [FmSetlist]?, myOldest: Date?) -> Bool {
+/// ponytail: a whole history that happens to be whole pages long is fetched again on
+/// every zoom-out. Store their reported total if that ever matters. Term for term with
+/// Android's `laneNeedsFetch`.
+func laneNeedsFetch(_ contact: Friend, held: [FmSetlist]?) -> Bool {
     if contact.setlistfm.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
     guard let held else { return true }
-    guard !held.isEmpty, let myOldest else { return false }
-    guard let theirOldest = held.compactMap({ $0.localDate() }).min() else { return true }
-    return theirOldest > myOldest
+    let fromSetlistFm = held.filter { !$0.isLocal }.count
+    return fromSetlistFm > 0 && fromSetlistFm % SetlistFmClient.pageSize == 0
 }
 
 /// What I hold after `fetched` Lanes land on top of `held`: each fetched Lane replaces
