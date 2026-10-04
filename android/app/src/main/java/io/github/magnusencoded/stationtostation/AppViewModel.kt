@@ -1258,7 +1258,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun knownGig(id: String): FmSetlist? = navigation.knownGig(id)
 
     fun resolveFestivals() = navigation.resolveFestivals()
-            _state.value.friends.firstOrNull { it.laneKey == lane }?.let(contacts::refreshLine)
 
     fun loadFriendTimelines() = contacts.loadFriendTimelines()
 
@@ -1275,7 +1274,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun acceptSetlistFmMatch(gigId: String, setlistId: String) = setlists.acceptSetlistFmMatch(gigId, setlistId)
     fun rejectSetlistFmMatches(gigId: String) = setlists.rejectSetlistFmMatches(gigId)
     fun loadMoreSetlists() = setlists.loadMoreSetlists()
-                val next = setlistFmLookupOutcome(ticket, hits, planning.lineArtists(), had, at)
 
     // --- Matching ---
 
@@ -1298,7 +1296,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun clearArtistSuggestions() = planning.clearArtistSuggestions()
     fun addLocalGig(artist: String, venue: String, date: String) = planning.addLocalGig(artist, venue, date)
     fun markCalendarAdded(gigId: String, eventUri: String) = planning.markCalendarAdded(gigId, eventUri)
-                setlists.lookUpLocalGig(landing.gigId, manual = false)
     fun commitProgramme(
         programme: StoredProgramme,
         diff: ProgrammeDiff,
@@ -1330,7 +1327,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun setLogClosed(gigId: String, closed: Boolean) = gigController.setLogClosed(gigId, closed)
 
     private fun writeLog(gigId: String, edit: (StoredLog) -> StoredLog) = gigController.writeLog(gigId, edit)
-            gossipController.sync()
 
     /**
      * The light switch, at the outermost rung of my own **Line** (#145).
@@ -1387,7 +1383,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun adoptSetlist(gigId: String, setlistId: String, fresh: FmSetlist?, notice: Boolean): Boolean =
         gigController.adoptSetlist(gigId, setlistId, fresh, notice)
-                    plannedGigs = planning.sortedPlanned(it.plannedGigs.filterNot { g -> g.id == setlistId } + real),
 
     fun removePlannedGig(gigId: String) = gigController.removePlannedGig(gigId)
 
@@ -1402,8 +1397,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun dismissCheckInOffer() = gigController.dismissCheckInOffer()
 
     fun checkIn(gigId: String) = gigController.checkIn(gigId)
-            withContext(Dispatchers.IO) { runCatching { gossipController.gossipAbout(gigId) } }
-            gossipController.sync()
 
     fun refreshGossip() = gossipController.refresh()
 
