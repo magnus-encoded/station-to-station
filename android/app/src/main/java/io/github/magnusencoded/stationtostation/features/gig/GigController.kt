@@ -137,8 +137,8 @@ class GigController(
      * ordinary — the **Log** is the app's own record and stays editable forever —
      * and saying "that was the whole set" is a separate, deliberate sentence.
      *
-     * Four edits rather than one "here is the new list", because a **Log** now carries
-     * a **Remembered Line** beside each entry (#126) and a whole-list replacement
+     * Four edits rather than one "here is the new list", because a **Log** carries
+     * a **Remembered Line** beside each entry and a whole-list replacement
      * cannot say whether the third entry was deleted or renamed. The intent is what
      * keeps the two lists parallel, and [StoredLog] is the one place that does it.
      */
@@ -205,7 +205,7 @@ class GigController(
     }
 
     /**
-     * Write, edit or clear my **Note** in one **Band** (#50).
+     * Write, edit or clear my **Note** in one **Band**.
      *
      * At most one of mine per band, so this is an upsert keyed by band rather than by
      * id: the write-line the finger landed on already said which one it means. Two
@@ -258,13 +258,11 @@ class GigController(
     }
 
     /**
-     * The night is now on setlist.fm — someone typed it in, possibly not me. The
-     * local **Gig** takes their id and stops being a stub, which is the whole payoff
-     * #34 names: only then can it be a **Crossing**.
+     * The night is on setlist.fm — someone typed it in, possibly not me. The
+     * local **Gig** takes their id and stops being a stub; only then can it be a **Crossing**.
      *
-     * A pasted link rather than a search by artist+date. #34 sketched the search, but
-     * the moment this is used is the moment you are looking at the page you just
-     * created, so its url is in your hand and matching heuristics are a way to be
+     * A pasted link rather than a search by artist+date: this is used while looking at the page just
+     * created, so its url is in hand and matching heuristics are a way to be
      * wrong about which night you meant.
      */
     fun adoptSetlistLink(gigId: String, linkOrId: String) {
@@ -282,8 +280,8 @@ class GigController(
 
     /**
      * Local **Gig** [gigId] takes setlist.fm's [setlistId]: [adoptSetlistLink]'s pasted
-     * link, a search hit the person picked, or one the automatic checks were sure of
-     * (#531). [fresh] is the record already in hand from a search, which saves asking
+     * link, a search hit the person picked, or one the automatic checks were sure of.
+     * [fresh] is the record already in hand from a search, which saves asking
      * setlist.fm for it again; null fetches it. [notice] shows "Adopted". False where
      * the night already had an id, or is gone, and nothing was changed.
      */
@@ -378,8 +376,8 @@ class GigController(
     fun dismissCheckInOffer() = update { it.copy(checkInOffer = null) }
 
     /**
-     * The venue's coordinates, geocoded once and kept on the attendance record —
-     * the same cache #29 reserved the fields for. Null for a venue the geocoder
+     * The venue's coordinates, geocoded once and kept on the attendance record.
+     * Null for a venue the geocoder
      * can't place, which costs this gig its prompt and nothing else.
      */
     private suspend fun venueCoords(gig: FmSetlist): Pair<Double, Double>? {
@@ -397,10 +395,10 @@ class GigController(
     }
 
     /**
-     * I am here. Sets the provenance the whole issue exists for, with the moment it
+     * I am here. Sets the provenance with the moment it
      * happened — evidence of a different strength than setlist.fm's retroactive
      * flag, not a competing record. Not a gate on anything: the peer-attested badge
-     * (#30) decorates this entry later, it doesn't replace it.
+     * decorates this entry later, it doesn't replace it.
      */
     fun checkIn(gigId: String) {
         update { it.copy(checkInOffer = null) }
