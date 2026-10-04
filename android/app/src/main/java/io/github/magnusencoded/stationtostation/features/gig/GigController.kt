@@ -86,6 +86,7 @@ class GigController(
      * gallery, so removing the night costs nothing that cannot be found again.
      *
      * The screen asks this to decide whether to stop and ask.
+     */
     fun photosLostByDeleting(gigId: String): Int =
         state().mediaBySetlist[gigId].orEmpty().count { photos.ownsBytes(it.ref) }
 
