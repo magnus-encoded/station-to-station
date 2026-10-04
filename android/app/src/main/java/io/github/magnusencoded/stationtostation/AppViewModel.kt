@@ -30,7 +30,6 @@ import io.github.magnusencoded.stationtostation.data.ProgrammeAct
 import io.github.magnusencoded.stationtostation.data.StoredProgramme
 import io.github.magnusencoded.stationtostation.data.programmeDays
 import io.github.magnusencoded.stationtostation.data.clashfinder.ClashfinderClient
-import io.github.magnusencoded.stationtostation.data.clashfinder.clashfinderUrl
 import io.github.magnusencoded.stationtostation.data.SettingsRepository
 import io.github.magnusencoded.stationtostation.data.StoredAdmission
 import io.github.magnusencoded.stationtostation.data.TicketOriginals
