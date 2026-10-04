@@ -753,7 +753,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * no background service, no extra permission, and no advertising on the network for
      * as long as the app merely happens to be open.
      */
-    private val contactExchange = ContactExchange(
+    private val contactExchange: ContactExchange = ContactExchange(
         context = application,
         scope = viewModelScope,
         photos = photos,
@@ -781,7 +781,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         },
     )
 
-    private val contacts = ContactsController(
+    private val contacts: ContactsController = ContactsController(
         state = { _state.value },
         update = { change -> _state.update(change) },
         settings = settings,
