@@ -28,11 +28,12 @@ class PlaylistControllerTest {
      * need an Android context to build, so the controller is handed uninitialised ones.
      */
     private fun <T> unbuilt(type: Class<T>): T {
-        val field = Class.forName("sun.misc.Unsafe").getDeclaredField("theUnsafe")
+        val unsafeClass = Class.forName("sun.misc.Unsafe")
+        val field = unsafeClass.getDeclaredField("theUnsafe")
         field.isAccessible = true
-        val unsafe = field.get(null) as sun.misc.Unsafe
         @Suppress("UNCHECKED_CAST")
-        return unsafe.allocateInstance(type) as T
+        return unsafeClass.getMethod("allocateInstance", Class::class.java)
+            .invoke(field.get(null), type) as T
     }
 
     private val controller = PlaylistController(
