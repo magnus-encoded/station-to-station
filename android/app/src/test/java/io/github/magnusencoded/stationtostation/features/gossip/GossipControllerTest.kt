@@ -60,8 +60,11 @@ class GossipControllerTest {
 
     @Test fun standingAtAGigThatIsNotOnTheTimelineChangesNothing() = rig { r ->
         r.store.stopParticipation(1000)
+        val parent = r.scope.coroutineContext[kotlinx.coroutines.Job]!!
+        val before = parent.children.toSet()
         r.controller.selectGig("unknown")
-        r.scope.coroutineContext[kotlinx.coroutines.Job]!!.children.forEach { it.join() }
+        // The DataStore actor lives on this scope too and never completes; join only the new launch.
+        (parent.children.toSet() - before).forEach { it.join() }
         assertNull(r.store.selectedGigId())
         assertEquals(1000L, r.store.stoppedAt())
         assertTrue(r.radioCalls.isEmpty())
