@@ -159,6 +159,7 @@ final class TimelineLogicTests: XCTestCase {
     // Load, then ask about the evenings nothing has identified, then save the answers.
     // A call-order rule, and the reason this layer is allowed to call plumbing at all.
 
+    @MainActor
     func testAnUnidentifiedEveningIsAskedAboutOnLoad() async {
         let mine = oneEvening()
         let fake = FakePlumbing()
@@ -179,6 +180,7 @@ final class TimelineLogicTests: XCTestCase {
         XCTAssertEqual(["Tons of Rock 2026"], fake.savedFestivals.values.map(\.name))
     }
 
+    @MainActor
     func testAnEveningAlreadyIdentifiedIsNotAskedAboutAgain() async {
         let mine = oneEvening()
         let fake = FakePlumbing()
@@ -271,6 +273,7 @@ final class TimelineLogicTests: XCTestCase {
         XCTAssertEqual(6, mine.filter { found.of($0.id) != nil }.count)
     }
 
+    @MainActor
     func testASeededFixtureIsTheSpineAndTheStoreIsNeverRead() async {
         let fake = FakePlumbing()
         fake.seeded = LoadedSpine(me: "dizzi90", mine: [show("fixture")])
@@ -286,6 +289,7 @@ final class TimelineLogicTests: XCTestCase {
         XCTAssertFalse(fake.calls.contains("storedSpine"))
     }
 
+    @MainActor
     func testNothingStoredYetLeavesTheScreenAlone() async {
         let fake = FakePlumbing()
 
