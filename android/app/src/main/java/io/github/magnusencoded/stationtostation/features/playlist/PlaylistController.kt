@@ -22,10 +22,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/**
- * Song matching, playlist creation and the playlist cover. State lives in the shared
- * [UiState]; [fail] and [addFriend] belong to the features that own them.
- */
+/** Song matching, playlist creation and the playlist cover. */
 class PlaylistController(
     private val state: () -> UiState,
     private val update: ((UiState) -> UiState) -> Unit,
@@ -42,15 +39,9 @@ class PlaylistController(
     fun selectSetlist(setlist: FmSetlist) {
         matchJob?.cancel()
         val artistName = setlist.artist?.name ?: ""
-        // A closed **Log** is a setlist. #121 put it plainly — "the app is the source
-        // of truth about what was observed and setlist.fm is a publication target" —
-        // so a night whose set I said was complete converts like any other, whether or
-        // not their record has caught up. Only when *closed*: an open Log is a night
-        // still in progress, and offering to make a playlist of the first four songs
-        // while the band is still on is not the same gesture.
-        //
-        // setlist.fm still wins where it has songs. It has the covers and the tape
-        // markers, which a typed title cannot carry.
+        // A closed **Log** converts like a setlist, even before setlist.fm has the night.
+        // An open one does not: the band may still be playing.
+        // setlist.fm wins where it has songs: it carries covers and tape markers.
         val songs = setlist.songs().filter { it.name.isNotBlank() }.ifEmpty {
             state().logsByGig[setlist.id]
                 ?.takeIf { it.closed }
@@ -67,8 +58,7 @@ class PlaylistController(
                     included = !song.tape,
                 )
             }
-        // Year – Artist – Where. The rule itself is the logic layer's, asserted by
-        // the same cases on both platforms — it is the one that drifted before.
+        // Year – Artist – Where; the rule is the logic layer's.
         val defaultName = TimelineLogic.playlistName(
             setlist, state().setlists, state().festivals,
         )
