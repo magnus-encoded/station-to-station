@@ -49,10 +49,7 @@ import java.net.Socket
 import java.security.SecureRandom
 import java.util.UUID
 
-/**
- * Moving to a new phone: both ends of a device handover, their sockets and their lifecycle.
- * Owns the [HandoverUi] slice of [UiState]; reaches the rest through [state] and [update].
- */
+/** Moving to a new phone: both ends of a device handover, their sockets and lifecycle. */
 class HandoverController(
     private val state: () -> UiState,
     private val update: ((UiState) -> UiState) -> Unit,
@@ -65,17 +62,9 @@ class HandoverController(
     private val restoreTimelines: suspend () -> Unit,
 ) {
 
-    // Device handover, accounts step.
-    //
-    // What connects `HandoverWire`'s tested wire primitives (#259) to real storage.
-    // Both functions take an already-authenticated `Socket` — the TLS handshake and
-    // `proveLinkKey`/`verifyLinkKey` challenge (`HandoverWire.kt`) already passed —
-    // because establishing that socket between two real devices is the transport
-    // bring-up #142 owns, not this step. Deliberately not unit-testable at this layer
-    // for the same reason `AndroidKeyStoreCert`/`HandoverDebugHarness` are not: real
-    // sockets. The protocol sequencing they call is already covered by
-    // `HandoverWireTest`, and the gating decision they call ([mayClearCredentials]) is
-    // already covered by `AccountsTest`.
+    // Both accounts functions take a socket whose TLS handshake and link-key challenge
+    // already passed. Not unit-testable here (real sockets); the sequencing is covered by
+    // `HandoverWireTest` and the clear-gating by `AccountsTest`.
 
     /**
      * Receiving device's half. Stores whatever arrives — durably, via [settings] —
@@ -110,17 +99,16 @@ class HandoverController(
      * *here* only if the receiver's ack genuinely arrives ([mayClearCredentials]): a
      * dropped connection after the send must never clear a credential that may exist
      * nowhere else. This is the one call site of a handover-triggered
-     * [SettingsRepository.clearSpotifyAuth] — manual sign-out (`AppViewModel.disconnectSpotify`) does
-     * not go through it and is untouched.
+     * [SettingsRepository.clearSpotifyAuth] — manual sign-out (`AppViewModel.disconnectSpotify`)
+     * does not go through it.
      */
     suspend fun sendHandoverAccounts(socket: Socket, payload: AccountsPayload): AccountsMove =
         withContext(Dispatchers.IO) {
             writeAccountsStep(socket, payload)
             val step = if (readAccountsAck(socket)) AccountsMove.ACKNOWLEDGED else AccountsMove.SENT
             // The payload, not the step, decides whether there is anything to let go of:
-            // an identities-only frame (the accounts row unticked, #143 story 11) travels
-            // and is acked exactly like a full one, and signing out on that ack would move
-            // an account nobody asked to move.
+            // an identities-only frame (accounts row unticked) is acked like a full
+            // one, and signing out on that ack would move an account nobody asked to move.
             if (mayClearCredentials(step) && !payload.credentials.spotifyRefreshToken.isNullOrBlank()) {
                 settings.clearSpotifyAuth()
                 update { it.copy(spotifyConnected = false, grantedScope = null) }
@@ -128,12 +116,9 @@ class HandoverController(
             step
         }
 
-    // Device handover, the session itself.
-    //
-    // The two ends of one transfer, each a single job holding a single socket. Everything
-    // decidable inside them lives in `HandoverSession.kt` and is tested over a loopback
-    // pair; what is here is the device half — a real certificate from `AndroidKeyStore`, a
-    // real TLS socket, the real gallery and the real store.
+    // Each end of a transfer is one job holding one socket. Decidable parts live in
+    // `HandoverSession.kt`; this is the device half: keystore certificate, TLS socket,
+    // real gallery and store.
 
     private var handoverJob: Job? = null
 
@@ -268,7 +253,7 @@ class HandoverController(
         handoverJob = null
     }
 
-    /** Starting is not a commitment (#142 story 15). What already arrived stays. */
+    /** Starting is not a commitment: what already arrived stays. */
     fun cancelHandover() {
         endHandover()
         handoverUi {
@@ -339,7 +324,7 @@ class HandoverController(
         )
     }
 
-    /** Credentials only when the row was ticked; identities travel either way (#143). */
+    /** Credentials only when the row was ticked; identities travel either way. */
     private suspend fun accountsPayload(allow: Set<String>): AccountsPayload {
         val identities = myIdentities()
         if (CATEGORY_ACCOUNTS !in allow) return identitiesOnly(identities)
