@@ -929,7 +929,22 @@ private fun EventBottomBar(
             // Above the **Log** prompt, because standing somewhere comes before
             // writing anything down — and because this is the bar a night that was
             // checked into actually gets.
-            if (checkedIn) presenceRow()
+            if (checkedIn) {
+                presenceRow()
+            } else if (planned && canCheckInManually(setlist, LocalDateTime.now())) {
+                // A hand-added night lands here while still planned, and this was the
+                // only branch with no way to say "I'm here" — so it stayed planned, and
+                // a planned night is never offered to a Contact on a Reconcile.
+                if (showTicket) TicketAtTheDoor(admissions)
+                Text(
+                    "I'm here — check in",
+                    color = Amber,
+                    fontSize = 13.sp,
+                    modifier = Modifier
+                        .clickable(onClick = onCheckIn)
+                        .padding(vertical = 6.dp),
+                )
+            }
             Text(
                 when (leaf) {
                     // The entries are the set; the way in is under it.

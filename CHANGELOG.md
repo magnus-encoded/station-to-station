@@ -29,6 +29,10 @@ tried again. It now starts clean each time and retries a phone it could not
 reach. To be clear about when syncing happens: the two phones sync while both
 have the Exchange screen open on the same WiFi, not in the background.
 
+**Checking in to a gig you added by hand.** A gig you typed in yourself had no
+"I'm here — check in" on Android, so it stayed planned — and a planned gig is
+never sent to a Contact. It can now be checked into on the night like any other.
+
 **A Contact's whole history.** Their line used to stop at your own oldest gig,
 so someone who had just started saw only a page of a friend's years. All of it
 is now fetched and kept.
