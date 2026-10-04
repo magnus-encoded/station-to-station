@@ -8,6 +8,7 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.magnusencoded.stationtostation.data.Band
+import io.github.magnusencoded.stationtostation.features.contacts.ContactsController
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.FriendArrival
 import io.github.magnusencoded.stationtostation.data.friendArrival
@@ -780,6 +781,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         },
     )
 
+    private val contacts = ContactsController(
+        state = { _state.value },
+        update = { change -> _state.update(change) },
+        settings = settings,
+        timelines = timelines,
+        spotify = spotify,
+        setlistFm = setlistFm,
+        logic = logic,
+        exchange = exchange,
+        contactExchange = contactExchange,
+        scope = viewModelScope,
+        fail = { e -> fail(e) },
+        errorKindOf = { e -> errorKindOf(e) },
+        isSharedQuota = { e -> isSharedQuota(e) },
+        adoptSetlist = { gigId, setlistId, fresh, notice -> adoptSetlist(gigId, setlistId, fresh, notice) },
+        syncGossip = { syncGossip() },
+    )
+
     /**
      * What this phone carries on the gossip channel (#416).
      *
@@ -880,23 +899,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         // #87: the peer tapped, not me — their card arrived over the write characteristic.
         // Same landing as a tap, so one tap brings both people in.
-        exchange.onFriendReceived = { friend -> viewModelScope.launch { bringIn(friend) } }
+        exchange.onFriendReceived = { friend -> viewModelScope.launch { contacts.bringIn(friend) } }
     }
 
-    /**
-     * Called when the Exchange screen appears — see [contactExchange]'s doc comment.
-     *
-     * Only once there is a **Contact** with a key to search for: a first-time user has
-     * nobody to reconcile with, and lighting up a radio to look for them is asking the
-     * network a question with no possible answer. iOS gates the same call for a sharper
-     * reason — starting it is what raises the local-network permission prompt there.
-     */
-    fun startContactExchange() {
-        if (_state.value.friends.any { !it.publicKey.isNullOrBlank() }) contactExchange.start()
-    }
+    fun startContactExchange() = contacts.startContactExchange()
 
-    /** Called when the Exchange screen goes away — see [contactExchange]'s doc comment. */
-    fun stopContactExchange() = contactExchange.stop()
+    fun stopContactExchange() = contacts.stopContactExchange()
 
     override fun onCleared() {
         exchange.stop()
@@ -1387,88 +1395,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** My shareable identity card, or null until I've set my setlist.fm username. */
-    suspend fun myCardUri(): Uri? {
-        val me = _state.value.mySetlistFmUser.trim()
-        if (me.isEmpty()) return null
-        val user = runCatching { spotify.currentUser() }.getOrNull()
-        return Friend(
-            setlistfm = me,
-            name = user?.displayName?.ifBlank { null } ?: me,
-            spotifyId = user?.id,
-        ).toShareUri()
-    }
+    suspend fun myCardUri(): Uri? = contacts.myCardUri()
 
-    /**
-     * A card handed to me. Writes into an empty space; **asks before changing a contact
-     * I already hold** (#188).
-     *
-     * Every route in comes through here — a deep link, a BLE write, a pasted username —
-     * so the question is answered once rather than at each door.
-     */
-    fun addFriend(friend: Friend) {
-        viewModelScope.launch { addFriendNow(friend) }
-    }
+    fun addFriend(friend: Friend) = contacts.addFriend(friend)
 
-    private suspend fun addFriendNow(friend: Friend) {
-        when (val arrival = friendArrival(friend, _state.value.friends)) {
-            is FriendArrival.Unchanged -> Unit
-            is FriendArrival.New -> writeFriend(arrival.friend)
-            // A **Followed line** becoming a **Contact**. Written as silently as a new
-            // one: there was no key held, so nothing is being overwritten.
-            is FriendArrival.Promotion -> writeFriend(arrival.friend)
-            is FriendArrival.Conflict ->
-                _state.update { it.copy(friendConflict = arrival) }
-        }
-    }
+    fun confirmFriendOverwrite() = contacts.confirmFriendOverwrite()
 
-    fun confirmFriendOverwrite() {
-        val pending = _state.value.friendConflict ?: return
-        _state.update { it.copy(friendConflict = null) }
-        viewModelScope.launch { writeFriend(pending.incoming) }
-    }
+    fun dismissFriendOverwrite() = contacts.dismissFriendOverwrite()
 
-    fun dismissFriendOverwrite() = _state.update { it.copy(friendConflict = null) }
+    fun addFriendByUsername(username: String) = contacts.addFriendByUsername(username)
 
-    private suspend fun writeFriend(friend: Friend) {
-        // De-duped on the key, then the username (#405), and never dropping a key or a
-        // username a thinner card is silent about. See [withFriend].
-        val next = withFriend(_state.value.friends, friend)
-        settings.saveFriends(next)
-        _state.update { it.copy(friends = next) }
-    }
+    fun handleFriendLink(uri: Uri) = contacts.handleFriendLink(uri)
 
-    fun addFriendByUsername(username: String) {
-        val u = username.trim()
-        if (u.isNotEmpty()) addFriend(Friend(setlistfm = u))
-    }
-
-    fun handleFriendLink(uri: Uri) {
-        friendFromUri(uri)?.let { addFriend(it) }
-    }
-
-    fun removeFriend(friend: Friend) {
-        viewModelScope.launch {
-            // By Lane, not by username: two Contacts without an account share a blank one.
-            val next = _state.value.friends.filterNot { it.laneKey == friend.laneKey }
-            settings.saveFriends(next)
-            _state.update { it.copy(friends = next) }
-        }
-    }
-
-    /**
-     * A **Contact**'s **Nights**, off a **Reconcile** (#405): held under their Lane, on disk
-     * and on screen, so the Lane draws now and after a relaunch without asking anyone.
-     * [contactKey] is the key that verified; a Contact removed mid-session lands nothing.
-     */
-    private suspend fun landContactNights(contactKey: String, nights: List<FmSetlist>) {
-        val friend = _state.value.friends.firstOrNull { it.publicKey?.trim() == contactKey.trim() } ?: return
-        val key = friend.laneKey
-        timelines.mergeContactNights(key, nights)
-        _state.update {
-            it.copy(showsByFriend = it.showsByFriend + (key to landNights(it.showsByFriend[key], nights)))
-        }
-    }
+    fun removeFriend(friend: Friend) = contacts.removeFriend(friend)
 
     /**
      * Yes to a **Contact**'s offer (#405): their media is filed on my Night [key] and their
@@ -1497,319 +1436,35 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * "Same Night" to a *maybe* (#405): their Night [night] is joined to my Night [key].
-     * Mine alone — nothing is sent — and from here the Spine draws it **Joined** and what
-     * they send for it lands directly.
-     */
-    fun joinNight(night: String, key: String) = viewModelScope.launch {
-        timelines.joinNight(night, key)
-        val cache = timelines.load()
-        _state.update { it.copy(nightJoins = cache.spineJoins()) }
-    }
+    fun joinNight(night: String, key: String) = contacts.joinNight(night, key)
 
-    /** "Not the same" to a *maybe* (#405): the marker goes, and stays gone. Mine alone. */
-    fun dismissMaybe(night: String, key: String) = viewModelScope.launch {
-        timelines.dismissMaybe(night, key)
-        val cache = timelines.load()
-        _state.update { it.copy(nightsApart = cache.spineDismissals()) }
-    }
+    fun dismissMaybe(night: String, key: String) = contacts.dismissMaybe(night, key)
 
-    /**
-     * "Same night", then "Take it" (#580): my typed-by-hand Night adopts their setlist.fm
-     * entry, so both Nights answer to one id and meet without a join. Where the adoption
-     * can't happen (the Night already took an id) it falls back to [joinNight].
-     */
-    fun adoptMaybe(maybe: MaybeNight) = viewModelScope.launch {
-        if (!adoptSetlist(maybe.mine.id, maybe.theirs.id, fresh = null, notice = true)) {
-            joinNight(maybe.theirs.id, maybe.mine.id).join()
-        }
-    }
+    fun adoptMaybe(maybe: MaybeNight) = contacts.adoptMaybe(maybe)
 
-    /** Undo of [joinNight] (#580): the *maybe* is asked again. */
-    fun unjoinNight(night: String, key: String) {
-        viewModelScope.launch {
-            timelines.unjoinNight(night, key)
-            val cache = timelines.load()
-            _state.update { it.copy(nightJoins = cache.spineJoins()) }
-        }
-    }
+    fun unjoinNight(night: String, key: String) = contacts.unjoinNight(night, key)
 
-    /** Undo of [dismissMaybe] (#580): the *maybe* is asked again. */
-    fun undismissMaybe(night: String, key: String) {
-        viewModelScope.launch {
-            timelines.undismissMaybe(night, key)
-            val cache = timelines.load()
-            _state.update { it.copy(nightsApart = cache.spineDismissals()) }
-        }
-    }
+    fun undismissMaybe(night: String, key: String) = contacts.undismissMaybe(night, key)
 
-    /** Loads a friend's whole attended-concert timeline for the Connect screen. */
-    fun viewFriendTimeline(friend: Friend) {
-        // Nobody to ask about a Contact with no account: what the Reconcile brought is the
-        // whole of their Line, and it is already here (#405).
-        if (friend.setlistfm.isBlank()) {
-            _state.update {
-                it.copy(
-                    viewingFriend = friend,
-                    viewedFriendShows = it.showsByFriend[friend.laneKey].orEmpty(),
-                    viewedFriendLoading = false,
-                )
-            }
-            return
-        }
-        _state.update {
-            it.copy(viewingFriend = friend, viewedFriendShows = emptyList(), viewedFriendLoading = true)
-        }
-        viewModelScope.launch {
-            try {
-                // The same runaway guard the shared-concerts lookup uses, named once.
-                val shows = attendedConcerts(friend.setlistfm, maxPages = TimelineLogic.ATTENDED_PAGE_CAP)
-                _state.update { it.copy(viewedFriendShows = shows, viewedFriendLoading = false) }
-                // What this screen just learned is the **Line** too: the timelines view
-                // must never be behind it.
-                landLine(friend, shows)
-            } catch (e: Exception) {
-                _state.update {
-                    it.copy(
-                        viewedFriendLoading = false,
-                        error = e.message ?: "Could not load ${friend.name}'s shows",
-                        errorKind = errorKindOf(e),
-                        setlistFmSharedQuotaSpent =
-                            it.setlistFmSharedQuotaSpent || isSharedQuota(e),
-                    )
-                }
-            }
-        }
-    }
+    fun viewFriendTimeline(friend: Friend) = contacts.viewFriendTimeline(friend)
 
-    /** [shows] fresh from setlist.fm, held as [friend]'s **Line** on screen and on disk. */
-    private suspend fun landLine(friend: Friend, shows: List<FmSetlist>) {
-        val fetched = mapOf(friend.laneKey to shows)
-        _state.update { it.copy(showsByFriend = holdLanes(it.showsByFriend, fetched)) }
-        timelines.save(shows = fetched)
-    }
-
-    /**
-     * Asks setlist.fm for [friend]'s **Line** again, back to my oldest **Gig** or to the
-     * oldest one held, whichever is older, so the answer never cuts a **Line** short.
-     * A failure keeps the last good copy.
-     */
-    private fun refreshLine(friend: Friend) {
-        if (friend.setlistfm.isBlank()) return
-        val oldest = listOfNotNull(
-            _state.value.setlists.mapNotNull { it.localDate() }.minOrNull(),
-            _state.value.showsByFriend[friend.laneKey].orEmpty().mapNotNull { it.localDate() }.minOrNull(),
-        ).minOrNull()
-        viewModelScope.launch {
-            runCatching { attendedBackTo(friend.setlistfm, oldest) }.getOrNull()
-                ?.let { landLine(friend, it) }
-        }
-    }
-
-    /** Fetches attended concerts for one user across up to [maxPages] pages. */
-    private suspend fun attendedConcerts(userId: String, maxPages: Int): List<FmSetlist> {
-        val all = mutableListOf<FmSetlist>()
-        for (page in 1..maxPages) {
-            val resp = setlistFm.userAttended(userId, page)
-            all += resp.setlist
-            if (all.size >= resp.total || resp.setlist.isEmpty()) break
-        }
-        return all
-    }
-
-    /**
-     * A friend's attended shows, paged back far enough to cover my own line rather
-     * than to a fixed page count. setlist.fm returns newest first, so a flat cap is
-     * a *window*, not a sample: Carlitos2's first 60 shows spanned ten days, and
-     * every night we actually shared was older than his last fetched page — the
-     * lines could never meet however correct the drawing was.
-     *
-     * ponytail: [maxPages] is a runaway guard, not a policy. Nothing older than my
-     * own first gig can overlap, so that is where paging stops.
-     */
-    private suspend fun attendedBackTo(
-        userId: String,
-        oldestOfMine: LocalDate?,
-        maxPages: Int = 25,
-    ): List<FmSetlist> {
-        val all = mutableListOf<FmSetlist>()
-        for (page in 1..maxPages) {
-            val resp = setlistFm.userAttended(userId, page)
-            all += resp.setlist
-            if (all.size >= resp.total || resp.setlist.isEmpty()) break
-            val pageOldest = resp.setlist.mapNotNull { it.localDate() }.minOrNull()
-            if (oldestOfMine != null && pageOldest != null && pageOldest < oldestOfMine) break
-        }
-        return all
-    }
-
-    /**
-     * Loads the concerts both [friend] and I attended into [UiState.setlists], so
-     * the existing SetlistsScreen renders them and tapping one flows into the
-     * normal confirm → create-playlist path.
-     */
-    fun openSharedConcerts(friend: Friend) {
-        val me = _state.value.mySetlistFmUser.trim()
-        // Either of us without an account: the intersection is of what this phone already
-        // holds — my Spine and their Lane — rather than of two setlist.fm lists (#405).
-        if (friend.setlistfm.isBlank() || me.isEmpty()) {
-            val theirs = _state.value.showsByFriend[friend.laneKey].orEmpty().mapTo(HashSet()) { it.id }
-            _state.update {
-                it.copy(
-                    sharedWith = friend,
-                    source = SetlistSource.USER,
-                    setlistsTitle = "You & ${friend.name}",
-                    setlists = emptyList(),
-                    setlistsPage = 1,
-                    setlistsTotal = 0,
-                    setlistsLoading = true,
-                )
-            }
-            viewModelScope.launch {
-                val shared = timelines.load().mySpine(me).filter { it.id in theirs }
-                _state.update {
-                    it.copy(setlists = shared, setlistsTotal = shared.size, setlistsLoading = false)
-                }
-            }
-            return
-        }
-        _state.update {
-            it.copy(
-                sharedWith = friend,
-                source = SetlistSource.USER, // shared list mixes artists; show "date · artist"
-                setlistsTitle = "You & ${friend.name}",
-                setlists = emptyList(),
-                setlistsPage = 1,
-                setlistsTotal = 0,
-                setlistsLoading = true,
-            )
-        }
-        viewModelScope.launch {
-            try {
-                // The intersection and its paging cap are the logic layer's; see
-                // TimelineLogic.ATTENDED_PAGE_CAP for what raising it would cost.
-                val shared = logic.sharedConcerts(me, friend.setlistfm)
-                _state.update {
-                    // total == size so loadMoreSetlists() won't try to paginate this list.
-                    it.copy(setlists = shared, setlistsTotal = shared.size, setlistsLoading = false)
-                }
-            } catch (e: Exception) {
-                fail(e)
-            }
-        }
-    }
+    fun openSharedConcerts(friend: Friend) = contacts.openSharedConcerts(friend)
 
     // --- Exchange (meeting someone in person) + two-timeline comparison ---
 
-    /**
-     * My own card as a followed line, for the Nearby fast path. Blank username = nothing
-     * to give.
-     *
-     * No public key here: Nearby's endpoint name is capped at 131 bytes total
-     * (`NearbyNameLimitProbe.NEARBY_ENDPOINT_NAME_LIMIT`) with silent overflow, and a
-     * base64 ECDSA P-256 SubjectPublicKeyInfo alone is already ~124 of those. The key
-     * still reaches a Contact — over BLE's [myProbeCard] (ample GATT-read room) or a
-     * shared QR/deep link — both unconstrained by Nearby's advert-sized budget.
-     */
-    private fun myCard(): Friend? = _state.value.mySetlistFmUser.trim()
-        .ifBlank { null }
-        ?.let { Friend(setlistfm = it, name = it) }
+    fun saveMyCardName(name: String) = contacts.saveMyCardName(name)
 
-    /**
-     * My card for the radio: the public key #28 makes the identity, and a username only if
-     * I have one (#405). Without one it is named by [UiState.myCardName]; see
-     * [probeCardFor]. Only the radio carries this — a link cannot carry a key, so the QR
-     * and share link stay username-only.
-     */
-    private fun myProbeCard(): ProbeCard? = probeCardFor(
-        setlistfm = _state.value.mySetlistFmUser,
-        name = _state.value.myCardName,
-        publicKey = contactIdentityPublicKeyBase64(),
-    )
+    fun startExchange() = contacts.startExchange()
 
-    /** The name on a card with no username (#405). Restarts a running Exchange to hand it over. */
-    fun saveMyCardName(name: String) {
-        val trimmed = name.trim()
-        viewModelScope.launch {
-            settings.saveMyCardName(trimmed)
-            _state.update { it.copy(myCardName = trimmed) }
-            if (_state.value.discovering || _state.value.exchangePeers.isNotEmpty()) {
-                exchange.restart(myCard(), myProbeCard())
-            }
-        }
-    }
+    fun restartExchange() = contacts.restartExchange()
 
-    /**
-     * Opens the Exchange: start every radio in parallel and collect whoever turns up.
-     * People appear as they come into range, so the list is a live view of the room.
-     */
-    fun startExchange() {
-        // No username is not a reason to keep anyone off this screen. It only means
-        // there is no card to hand over, so the advertising radios stay quiet while
-        // scanning runs as usual — the room is still visible, and a card handed to me
-        // is still mine to take (#225's "you can take their card", now actually wired).
-        //
-        // This used to return early with `error` set. `error` is a failure channel and
-        // this screen hosts no snackbar, so the message surfaced on whatever screen the
-        // user opened next, reading as a fault on an unrelated page.
-        _state.update { it.copy(discovering = true, exchangePeers = emptyList(), connectingWith = null) }
-        exchange.start(myCard(), myProbeCard())
-    }
+    fun stopExchange() = contacts.stopExchange()
 
-    /** Pulled down on the exchange screen: drop everything and listen again. */
-    fun restartExchange() {
-        _state.update { it.copy(discovering = true, exchangePeers = emptyList()) }
-        exchange.restart(myCard(), myProbeCard())
-    }
+    fun exchangePermissions(): List<String> = contacts.exchangePermissions()
 
-    fun stopExchange() {
-        exchange.stop()
-        _state.update { it.copy(discovering = false, exchangePeers = emptyList(), connectingWith = null) }
-    }
+    fun connectWith(peer: ExchangePeer) = contacts.connectWith(peer)
 
-    fun exchangePermissions(): List<String> = exchange.requiredPermissions()
-
-    /**
-     * Bring a peer onto my timeline: the "row → Connecting with dizzi90 → connected"
-     * sequence. On the Nearby path the card is already in hand and the middle is
-     * zero-length; on BLE it connects and reads first. A BLE failure clears the
-     * connecting state and leaves the radios running, so the QR offer stays available
-     * rather than the tap landing on a dead end.
-     */
-    fun connectWith(peer: ExchangePeer) {
-        _state.update { it.copy(connectingWith = peer.name) }
-        exchange.connect(peer) { friend ->
-            if (friend == null) {
-                // Back to the live list — the radios never stopped, and the QR offer is
-                // already on screen. A dangling snackbar (this screen has no host) would
-                // only resurface on the next one.
-                _state.update { it.copy(connectingWith = null) }
-                return@connect
-            }
-            viewModelScope.launch { bringIn(friend) }
-        }
-    }
-
-    /**
-     * The landing an Exchange ends on, whichever side tapped: persist, say it happened,
-     * draw the line, and stop the radios — holding a card is the end of looking.
-     */
-    private suspend fun bringIn(friend: Friend) {
-        // Persist the friend before loading, or the load runs against the old list.
-        addFriendNow(friend)
-        // A card that would change someone I already hold has written nothing and left a
-        // question open (#188). Landing anyway would report a swap that did not happen —
-        // and stopping the radios mid-exchange is exactly what a hostile write wants.
-        if (_state.value.friendConflict != null) return
-        _state.update { it.copy(justConnected = true, connectingWith = null) }
-        loadFriendTimelines()
-        exchange.stop()
-        // A first **Contact** is the moment the gossip radio stops being pointless (#416).
-        syncGossip()
-    }
-
-    fun consumeJustConnected() = _state.update { it.copy(justConnected = false) }
+    fun consumeJustConnected() = contacts.consumeJustConnected()
 
     /**
      * Open or close the woven view. The one place that decides it, so a pinch, a card
@@ -1925,7 +1580,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { timelines.saveHiddenLines(hiddenAt) }
         // Switching a **Line** on is a reason to look: it may have been off for a while.
         if (lane !in hiddenAt) {
-            _state.value.friends.firstOrNull { it.laneKey == lane }?.let(::refreshLine)
+            _state.value.friends.firstOrNull { it.laneKey == lane }?.let(contacts::refreshLine)
         }
     }
 
@@ -1963,32 +1618,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Loads every known friend's attended shows for the woven (zoomed-out) view. */
-    fun loadFriendTimelines() {
-        val friends = _state.value.friends
-        if (friends.isEmpty()) return
-        val myOldest = _state.value.setlists.mapNotNull { it.localDate() }.minOrNull()
-        // Cached-and-complete is the common case, and refetching every lane on every
-        // zoom-out is the call volume the store exists to remove — but a lane cut off
-        // at 60 shows is not complete, however cached it is. See [laneNeedsFetch].
-        val stale = friends.filter { friend ->
-            laneNeedsFetch(friend, _state.value.showsByFriend[friend.laneKey], myOldest)
-        }
-        if (stale.isEmpty()) return
-        _state.update { it.copy(timelinesLoading = true) }
-        viewModelScope.launch {
-            // A failed fetch is left out entirely, so the friend keeps their last good
-            // lane; an empty answer is kept, so it is not asked for again (#405).
-            val loaded = stale.mapNotNull { friend ->
-                runCatching { attendedBackTo(friend.setlistfm, myOldest) }.getOrNull()
-                    ?.let { friend.setlistfm to it }
-            }.toMap()
-            _state.update {
-                it.copy(showsByFriend = holdLanes(it.showsByFriend, loaded), timelinesLoading = false)
-            }
-            timelines.save(shows = loaded)
-        }
-    }
+    fun loadFriendTimelines() = contacts.loadFriendTimelines()
 
     fun setArtistQuery(q: String) = _state.update { it.copy(artistQuery = q) }
     fun setUserQuery(q: String) = _state.update { it.copy(userQuery = q) }
