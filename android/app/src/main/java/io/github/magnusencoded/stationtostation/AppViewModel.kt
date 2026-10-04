@@ -171,7 +171,6 @@ import io.github.magnusencoded.stationtostation.data.matchSetlistFm
 import io.github.magnusencoded.stationtostation.data.spotify.SpotifyClient
 import io.github.magnusencoded.stationtostation.data.spotify.SpotifyTrack
 import io.github.magnusencoded.stationtostation.data.spotify.rankCandidates
-import io.github.magnusencoded.stationtostation.features.settings.SettingsController
 import java.io.Closeable
 import java.security.SecureRandom
 import java.util.UUID
@@ -796,7 +795,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         errorKindOf = { e -> errorKindOf(e) },
         isSharedQuota = { e -> isSharedQuota(e) },
         adoptSetlist = { gigId, setlistId, fresh, notice -> adoptSetlist(gigId, setlistId, fresh, notice) },
-        syncGossip = { syncGossip() },
+        syncGossip = { gossipController.sync() },
     )
 
     /**
@@ -813,12 +812,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
-    private val settingsController = SettingsController(
-        state = { _state.value },
-        update = { change -> _state.update(change) },
-        settings = settings,
-        scope = viewModelScope,
-    )
     private val gigController = GigController(
         state = { _state.value },
         update = { change -> _state.update(change) },
@@ -829,8 +822,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         gossip = gossip,
         scope = viewModelScope,
         setGigMedia = { id, media -> setGigMedia(id, media) },
-        syncGossip = { syncGossip() },
-        gossipAbout = { id -> gossipAbout(id) },
+        syncGossip = { gossipController.sync() },
+        gossipAbout = { id -> gossipController.gossipAbout(id) },
     )
     private val gigMedia = GigMediaController(
         state = { _state.value },
@@ -854,7 +847,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         fetchSetlist = { setlistFm.setlist(it) },
         saveHiddenLines = { timelines.saveHiddenLines(it) },
         resolveFestivalsFor = { mine, known -> logic.resolveFestivals(mine, known) },
-        refreshLine = ::refreshLine,
+        refreshLine = { friend -> contacts.refreshLine(friend) },
         writeLog = ::writeLog,
         fail = ::fail,
     )
@@ -865,11 +858,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         scope = viewModelScope,
         fail = { fail(it) },
     )
-
-
-
-
-
 
     private val handover = HandoverController(
         state = { _state.value },
@@ -882,7 +870,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         scope = viewModelScope,
         restoreTimelines = { restoreTimelines() },
     )
-
 
     private val playlist = PlaylistController(
         state = { _state.value },
@@ -906,7 +893,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         scope = viewModelScope,
         fail = ::fail,
         adoptSetlist = { gigId, setlistId, fresh, notice -> adoptSetlist(gigId, setlistId, fresh, notice) },
-        lookUpLocalGig = { gigId, manual -> lookUpLocalGig(gigId, manual) },
+        lookUpLocalGig = { gigId, manual -> setlists.lookUpLocalGig(gigId, manual) },
+    )
+
+    private val setlists = SetlistController(
+        state = { _state.value },
+        update = { change -> _state.update(change) },
+        setlistFm = setlistFm,
+        timelines = timelines,
+        setlistFmKey = { settings.setlistFmKey() },
+        sharedQuotaSpentAtValue = { settings.sharedQuotaSpentAtValue() },
+        gossipStoppedAt = { gossip.stoppedAt() },
+        scope = viewModelScope,
+        fail = ::fail,
+        consumeError = ::consumeError,
+        saveSettingsNow = ::saveSettingsNow,
+        saveMySetlistFmUser = ::saveMySetlistFmUser,
+        adoptSetlist = ::adoptSetlist,
+        lineArtists = { planning.lineArtists() },
     )
 
     init {
@@ -1258,23 +1262,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadFriendTimelines() = contacts.loadFriendTimelines()
 
-    private val setlists = SetlistController(
-        state = { _state.value },
-        update = { change -> _state.update(change) },
-        setlistFm = setlistFm,
-        timelines = timelines,
-        setlistFmKey = { settings.setlistFmKey() },
-        sharedQuotaSpentAtValue = { settings.sharedQuotaSpentAtValue() },
-        gossipStoppedAt = { gossip.stoppedAt() },
-        scope = viewModelScope,
-        fail = ::fail,
-        consumeError = ::consumeError,
-        saveSettingsNow = ::saveSettingsNow,
-        saveMySetlistFmUser = ::saveMySetlistFmUser,
-        adoptSetlist = ::adoptSetlist,
-        lineArtists = ::lineArtists,
-    )
-
     fun setArtistQuery(q: String) = setlists.setArtistQuery(q)
     fun setUserQuery(q: String) = setlists.setUserQuery(q)
     fun searchArtists() = setlists.searchArtists()
@@ -1396,7 +1383,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun setGigVerdict(setlistId: String, noteId: String, verdict: String?) =
         gigController.setGigVerdict(setlistId, noteId, verdict)
 
-
     fun adoptSetlistLink(gigId: String, linkOrId: String) = gigController.adoptSetlistLink(gigId, linkOrId)
 
     private suspend fun adoptSetlist(gigId: String, setlistId: String, fresh: FmSetlist?, notice: Boolean): Boolean =
@@ -1422,8 +1408,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun refreshGossip() = gossipController.refresh()
 
     fun selectGossipGig(gigId: String) = gossipController.selectGig(gigId)
-
-
 
     fun selectSetlist(setlist: FmSetlist) = playlist.selectSetlist(setlist)
     fun toggleIncluded(index: Int) = playlist.toggleIncluded(index)
