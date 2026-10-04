@@ -277,7 +277,7 @@ class SetlistController(
             } ?: return@withContext
             update { it.copy(attendanceByGig = it.attendanceByGig + (gigId to settled)) }
             val adopt = outcome as? LookupOutcome.Adopt ?: return@withContext
-            adoptSetlist(gigId, adopt.hit.id, fresh = adopt.hit, notice = true)
+            adoptSetlist(gigId, adopt.hit.id, adopt.hit, true)
         }
         return true
     }
@@ -365,7 +365,7 @@ class SetlistController(
         scope.launch {
             val settled = timelines.editSetlistFmLookup(gigId) { it.asking(emptyList()) }
             if (settled != null) update { it.copy(attendanceByGig = it.attendanceByGig + (gigId to settled)) }
-            if (!adoptSetlist(gigId, setlistId, fresh = null, notice = true)) {
+            if (!adoptSetlist(gigId, setlistId, null, true)) {
                 update { it.copy(errorKind = null, error = "That night already has a setlist.fm id.") }
             }
         }
