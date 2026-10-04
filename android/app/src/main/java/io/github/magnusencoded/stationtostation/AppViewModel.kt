@@ -79,6 +79,7 @@ import io.github.magnusencoded.stationtostation.data.sfmStamp
 import io.github.magnusencoded.stationtostation.data.sfmUserFromDescription
 import io.github.magnusencoded.stationtostation.data.spotifyPlaylistId
 import io.github.magnusencoded.stationtostation.data.toShareUri
+import io.github.magnusencoded.stationtostation.features.navigation.NavigationController
 import io.github.magnusencoded.stationtostation.ui.MaybeNight
 import io.github.magnusencoded.stationtostation.ui.TimelineNode
 import io.github.magnusencoded.stationtostation.ui.atVenue
@@ -857,6 +858,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         radio = { activeUntil -> GossipService.sync(getApplication<Application>(), activeUntil) },
         scope = viewModelScope,
     )
+    private val navigation = NavigationController(
+        state = { _state.value },
+        update = { change -> _state.update(change) },
+        scope = viewModelScope,
+        fetchSetlist = { setlistFm.setlist(it) },
+        saveHiddenLines = { timelines.saveHiddenLines(it) },
+        resolveFestivalsFor = { mine, known -> logic.resolveFestivals(mine, known) },
+        refreshLine = ::refreshLine,
+        writeLog = ::writeLog,
+        fail = ::fail,
+    )
+
 
 
 
@@ -1271,157 +1284,30 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun consumeJustConnected() = contacts.consumeJustConnected()
         gossipController.sync()
 
-    /**
-     * Open or close the woven view. The one place that decides it, so a pinch, a card
-     * swap and a key press cannot disagree about when there is anything to open onto.
-     */
-    fun setZoomedOut(on: Boolean) = _state.update {
-        if (on && it.friends.isEmpty()) it else it.copy(zoomedOut = on)
-    }
+    fun setZoomedOut(on: Boolean) = navigation.setZoomedOut(on)
 
-    /**
-     * What a parsed `station-to-station://` link asks for. Only records the intent:
-     * [UiState.linkedGig], [UiState.linkedDate], [UiState.addGigLink] and
-     * [UiState.linkScreen] are acted on by the timeline and the navigation, which are
-     * the only places that know where a row or a screen ended up. Pass-through links
-     * are the caller's; they never arrive here.
-     */
-    fun handleLink(intent: LinkIntent) {
-        when (intent) {
-            is LinkIntent.Open -> openScreen(intent.screen, intent.date)
-            is LinkIntent.OpenGig -> openGig(intent.id)
-            is LinkIntent.AddGig -> openAddGig(intent.artist, intent.venue, intent.date)
-            is LinkIntent.WriteToLog -> openGig(intent.gigId) {
-                writeLog(intent.gigId) { it.writing(intent.appends, intent.replacements) }
-            }
-            is LinkIntent.LegacyPlace -> {
-                if (intent.at != GigLink.SETLIST) setZoomedOut(intent.at == GigLink.WOVEN)
-                _state.update { it.copy(linkedGig = intent.gigId, linkedGigAs = intent.at) }
-            }
-            LinkIntent.LegacyMe -> openScreen(LinkScreen.TIMELINE, null)
-            is LinkIntent.LegacyFixture, is LinkIntent.PassThrough -> Unit
-        }
-    }
+    fun handleLink(intent: LinkIntent) = navigation.handleLink(intent)
 
-    private fun openScreen(screen: LinkScreen, date: String?) = _state.update {
-        val zoomedOut = when (screen) {
-            LinkScreen.TIMELINE -> false
-            LinkScreen.TIMELINES -> it.friends.isNotEmpty()
-            else -> it.zoomedOut
-        }
-        it.copy(linkScreen = screen, zoomedOut = zoomedOut, linkedDate = date?.let(LocalDate::parse))
-    }
+    fun linkGig(id: String, at: GigLink) = navigation.linkGig(id, at)
 
-    /**
-     * A **Gig** on my **Line** opens as it is. An unknown setlist.fm id is fetched and
-     * opened without being kept: joining it is a question the **Room** asks, and an
-     * invite never answers it. [then] runs once it is open. An id with nothing to fetch
-     * says so and goes nowhere.
-     */
-    private fun openGig(id: String, then: () -> Unit = {}) {
-        val land = {
-            _state.update { it.copy(linkScreen = LinkScreen.TIMELINE, linkedGig = id, linkedGigAs = GigLink.SETLIST) }
-            then()
-        }
-        val mine = _state.value.let { s -> s.setlists.any { it.id == id } || s.plannedGigs.any { it.id == id } }
-        when (planOpenGig(id, mine)) {
-            OpenGigPlan.OPEN -> land()
-            OpenGigPlan.FETCH_THEN_OPEN -> viewModelScope.launch {
-                try {
-                    openShow(setlistFm.setlist(id))
-                    land()
-                } catch (e: Exception) {
-                    fail(e)
-                }
-            }
-            OpenGigPlan.REFUSE -> _state.update {
-                it.copy(errorKind = null, error = "That doesn't look like a setlist.fm gig link.")
-            }
-        }
-    }
+    fun consumeLinkScreen() = navigation.consumeLinkScreen()
 
-    private fun openAddGig(artist: String?, venue: String?, date: String?) {
-        val day = date?.let(LocalDate::parse)
-        val link = AddGigLink(
-            artist = artist.orEmpty(),
-            venue = venue.orEmpty(),
-            date = day?.let(::fmDate).orEmpty(),
-        )
-        _state.update { it.copy(linkScreen = LinkScreen.TIMELINE, addGigLink = link) }
-    }
+    fun consumeLinkedDate() = navigation.consumeLinkedDate()
 
-    /** The **Gig** nearest a linked date, scrolled to by the timeline like any linked **Gig**. */
-    fun linkGig(id: String, at: GigLink) = _state.update { it.copy(linkedGig = id, linkedGigAs = at) }
+    fun consumeAddGigLink() = navigation.consumeAddGigLink()
 
-    fun consumeLinkScreen() = _state.update { it.copy(linkScreen = null) }
+    fun consumeGigLink() = navigation.consumeGigLink()
 
-    fun consumeLinkedDate() = _state.update { it.copy(linkedDate = null) }
+    fun toggleFestival(key: String) = navigation.toggleFestival(key)
 
-    fun consumeAddGigLink() = _state.update { it.copy(addGigLink = null) }
+    fun toggleLineHidden(lane: String) = navigation.toggleLineHidden(lane)
 
-    fun consumeGigLink() = _state.update { it.copy(linkedGig = null, linkedGigAs = null) }
+    fun openFestival(key: String) = navigation.openFestival(key)
 
-    /** Open or close a festival in place. A new set each time, so remember() sees it. */
-    fun toggleFestival(key: String) = _state.update {
-        it.copy(
-            openFestivals = if (key in it.openFestivals) it.openFestivals - key
-            else it.openFestivals + key,
-        )
-    }
+    fun knownGig(id: String): FmSetlist? = navigation.knownGig(id)
 
-    /**
-     * Hide or show one **Line** in the weave. The gesture is its own undo, so there is
-     * one entry point and no separate restore. A new map each time, so remember() sees
-     * it. Persisted with the toggle-off moment (#396), which the legend's recency
-     * order sorts by. Showing a **Line** also asks setlist.fm for its latest.
-     */
-    fun toggleLineHidden(lane: String) {
-        val hiddenAt = if (lane in _state.value.hiddenAt) {
-            _state.value.hiddenAt - lane
-        } else {
-            _state.value.hiddenAt + (lane to System.currentTimeMillis())
-        }
-        _state.update { it.copy(hiddenAt = hiddenAt) }
-        viewModelScope.launch { timelines.saveHiddenLines(hiddenAt) }
-        // Switching a **Line** on is a reason to look: it may have been off for a while.
-        if (lane !in hiddenAt) {
+    fun resolveFestivals() = navigation.resolveFestivals()
             _state.value.friends.firstOrNull { it.laneKey == lane }?.let(contacts::refreshLine)
-        }
-    }
-
-    fun openFestival(key: String) = _state.update {
-        it.copy(openFestivals = it.openFestivals + key)
-    }
-
-    /** The gig behind a link, wherever it is already loaded — mine or any lane's. */
-    fun knownGig(id: String): FmSetlist? =
-        _state.value.setlists.firstOrNull { it.id == id }
-            ?: _state.value.plannedGigs.firstOrNull { it.id == id }
-            ?: _state.value.showsByFriend.values.firstNotNullOfOrNull { shows ->
-                shows.firstOrNull { it.id == id }
-            }
-            ?: _state.value.selectedSetlist?.takeIf { it.id == id }
-
-    /**
-     * Asks setlist.fm whether the unidentified evenings on the timeline belong to a
-     * **Festival**. The rule itself — which evenings, what counts as already asked, and
-     * that the answers are stored — lives in the logic layer; this is the screen's
-     * caller of it.
-     */
-    fun resolveFestivals() {
-        val s = _state.value
-        viewModelScope.launch {
-            // Two passes rather than one concatenated list, so a night ahead and a
-            // night behind can never be read as one evening. The future lane grows its
-            // own Sections (#134) and they want identities too.
-            val found = logic.resolveFestivals(s.setlists, s.festivals)
-            val alsoAhead = logic.resolveFestivals(
-                plannedLane(s.plannedGigs, s.attendanceByGig),
-                found,
-            )
-            _state.update { it.copy(festivals = it.festivals + alsoAhead) }
-        }
-    }
 
     fun loadFriendTimelines() = contacts.loadFriendTimelines()
 
@@ -1459,21 +1345,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Matching ---
 
-    /** Opens a show for viewing (its real setlist) without the Spotify match/cover
-     *  machinery — that only starts when the user converts it to a playlist. */
-    fun openShow(setlist: FmSetlist) = _state.update { it.copy(selectedSetlist = setlist) }
+    fun openShow(setlist: FmSetlist) = navigation.openShow(setlist)
 
-    /**
-     * Enters the **Collection resolution** on this run of **Gigs** (#313). A state at
-     * the Line, not a route — there is nothing to pop, only a value to set back to
-     * null, which is what [closeCollectionWalk] and the reverse gesture both do.
-     */
-    fun openCollectionWalk(node: TimelineNode.Several) =
-        _state.update { it.copy(selectedCollection = node) }
+    fun openCollectionWalk(node: TimelineNode.Several) = navigation.openCollectionWalk(node)
 
-    /** Leaves the **Collection resolution**, landing back on the Line exactly where it
-     *  was left — nothing moved, so there is nowhere else it could land. */
-    fun closeCollectionWalk() = _state.update { it.copy(selectedCollection = null) }
+    fun closeCollectionWalk() = navigation.closeCollectionWalk()
 
     fun addPlannedGig(linkOrId: String) = planning.addPlannedGig(linkOrId)
     fun addGig(artist: String, venue: String, date: String) = planning.addGig(artist, venue, date)
