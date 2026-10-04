@@ -14,6 +14,8 @@
 [`docs/agents/device.md`](docs/agents/device.md) — every `station-to-station://` link, and
 the order to try them in. Use it before swiping over `adb` or `simctl`.
 
+Android feature state lives in `android/app/src/main/java/io/github/magnusencoded/stationtostation/features/<name>/`, one controller per feature; `AppViewModel` wires them.
+
 ## Writing comments
 
 Follow [`docs/agents/comments.md`](docs/agents/comments.md): separate rules for logic, plumbing and tests. The periodic comment review checks against them.
