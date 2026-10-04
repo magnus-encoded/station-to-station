@@ -54,6 +54,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -173,6 +175,7 @@ import io.github.magnusencoded.stationtostation.gigMenu
 import io.github.magnusencoded.stationtostation.nightKind
 import io.github.magnusencoded.stationtostation.AddGigLink
 import io.github.magnusencoded.stationtostation.AppViewModel
+import io.github.magnusencoded.stationtostation.UiState
 import io.github.magnusencoded.stationtostation.ErrorKind
 import io.github.magnusencoded.stationtostation.BuildConfig
 import io.github.magnusencoded.stationtostation.CoverCandidate
@@ -194,6 +197,8 @@ import io.github.magnusencoded.stationtostation.data.FriendArrival
 import io.github.magnusencoded.stationtostation.data.FutureRow
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredLog
+import io.github.magnusencoded.stationtostation.data.StoredPlaylist
+import io.github.magnusencoded.stationtostation.data.WovenSong
 import io.github.magnusencoded.stationtostation.data.isLocal
 import io.github.magnusencoded.stationtostation.data.StoredSetlistFmHit
 import io.github.magnusencoded.stationtostation.data.setlistfm.line
@@ -264,14 +269,14 @@ private val Amber = Color(0xFFE7B24C)
 private val AmberSoft = Color(0x29E7B24C)
 
 /** Amber with the light off: my own **Line** as a **Contact** sees it (#145). */
-private val Unlit = Color(0xFF7C7788)
-private val UnlitField = Color(0xFF1E1B26)
+internal val Unlit = Color(0xFF7C7788)
+internal val UnlitField = Color(0xFF1E1B26)
 private val SpotifyGreen = Color(0xFF1DB954)
 private val Slate = Color(0xFF6F809D) // the future / a connected-source, a cooler light
 private val Danger = Color(0xFFE08A8A)
 
-private val SlateSoft = Color(0x296F809D)
-private val CrossedSoft = Color(0x296FBF9C)
+internal val SlateSoft = Color(0x296F809D)
+internal val CrossedSoft = Color(0x296FBF9C)
 
 private val Serif = FontFamily.Serif
 
@@ -373,10 +378,10 @@ fun StationTimelineScreen(
         )
     }
     // Whether the legend's `+ N more` has been opened — where the reader left the
-    // disclosure, not a fact to remember across a launch (#396).
+    // disclosure, not a fact to remember across a launch.
     var legendExpanded by remember { mutableStateOf(false) }
 
-    // The *maybe* being compared from its merge row (#580), and the snackbar that
+    // The *maybe* being compared from its merge row, and the snackbar that
     // offers the answer back. The undo is ephemeral: it lives as long as the snackbar.
     var comparing by remember { mutableStateOf<MaybeNight?>(null) }
     val answers = remember { SnackbarHostState() }
@@ -413,36 +418,45 @@ fun StationTimelineScreen(
         )
     }
 
-    // Check-in (#33): opening the timeline takes one fix and compares it against
-    // what's already known. Foreground, one-shot, nothing scheduled.
-    val locationPermission = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) {
-        // Refusing is not a dead end and not an error: the offer just never appears,
-        // and the gig's own screen still has a check-in you can press by hand.
-        viewModel.offerCheckIn()
-    }
-    LaunchedEffect(state.plannedGigs) {
-        // The permission is only ever asked for on a night there is something to
-        // check into — never merely for opening the app.
-        if (!viewModel.checkInDue()) return@LaunchedEffect
-        if (viewModel.hasLocationPermission()) viewModel.offerCheckIn()
-        else locationPermission.launch(DeviceLocation.requiredPermissions())
-    }
-    state.checkInOffer?.let { gig ->
-        CheckInDialog(
-            gig = gig,
-            onCheckIn = { viewModel.checkIn(gig.id) },
-            onDismiss = { viewModel.dismissCheckInOffer() },
-        )
-    }
-    state.friendConflict?.let { conflict ->
-        FriendOverwriteDialog(
-            conflict = conflict,
-            onConfirm = { viewModel.confirmFriendOverwrite() },
-            onDismiss = { viewModel.dismissFriendOverwrite() },
-        )
-    }
+    CheckInSection(
+        plannedGigs = state.plannedGigs,
+        offer = state.checkInOffer,
+        conflict = state.friendConflict,
+        checkInDue = { viewModel.checkInDue() },
+        hasLocationPermission = { viewModel.hasLocationPermission() },
+        onOffer = { viewModel.offerCheckIn() },
+        onCheckIn = { viewModel.checkIn(it) },
+        onDismissOffer = { viewModel.dismissCheckInOffer() },
+        onConfirmOverwrite = { viewModel.confirmFriendOverwrite() },
+        onDismissOverwrite = { viewModel.dismissFriendOverwrite() },
+    )
+
+    val actions = TimelineActions(
+        onOpenEvent = onOpenEvent,
+        onOpenImport = onOpenImport,
+        onOpenNearby = onOpenNearby,
+        onOpenProgramme = onOpenProgramme,
+        onAddGig = { adding = true },
+        onCompare = { comparing = it },
+        menuFor = { menuFor(it) },
+        setZoomedOut = { viewModel.setZoomedOut(it) },
+        consumeJustConnected = { viewModel.consumeJustConnected() },
+        toggleContactLight = { viewModel.toggleContactLight() },
+        toggleLineHidden = { viewModel.toggleLineHidden(it) },
+        loadMoreSetlists = { viewModel.loadMoreSetlists() },
+        resolveFestivals = { viewModel.resolveFestivals() },
+        loadFriendTimelines = { viewModel.loadFriendTimelines() },
+        timelinesLoading = { viewModel.state.value.timelinesLoading },
+        consumeLinkedDate = { viewModel.consumeLinkedDate() },
+        linkGig = { id, at -> viewModel.linkGig(id, at) },
+        knownGig = { viewModel.knownGig(it) },
+        openShow = { viewModel.openShow(it) },
+        consumeGigLink = { viewModel.consumeGigLink() },
+        openFestival = { viewModel.openFestival(it) },
+        toggleFestival = { viewModel.toggleFestival(it) },
+        openCollectionWalk = { viewModel.openCollectionWalk(it) },
+        photoPreview = { viewModel.photoPreview(it) },
+    )
 
     Scaffold(
         containerColor = Ground,
@@ -458,30 +472,10 @@ fun StationTimelineScreen(
             }
         },
         topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Ground, titleContentColor = Muted),
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("◦ ", color = Amber, fontSize = 13.sp, modifier = Modifier.clearAndSetSemantics {})
-                        Text("Station to Station", fontFamily = Serif, fontSize = 16.sp, color = Muted, modifier = Modifier.asHeading())
-                    }
-                },
-                actions = {
-                    // Left/right axis is people: the way to others starts here.
-                    IconButton(onClick = onOpenConnect) {
-                        Icon(Icons.Filled.Person, contentDescription = "Connect with people", tint = Faint)
-                    }
-                    IconButton(onClick = onOpenProgramme) {
-                        Icon(
-                            Icons.Filled.Schedule,
-                            contentDescription = "Festival programme",
-                            tint = Faint,
-                        )
-                    }
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = Faint)
-                    }
-                },
+            TimelineTopBar(
+                onOpenConnect = onOpenConnect,
+                onOpenProgramme = onOpenProgramme,
+                onOpenSettings = onOpenSettings,
             )
         },
     ) { padding ->
@@ -538,624 +532,17 @@ fun StationTimelineScreen(
                         onAddGig = { adding = true },
                     )
 
-                else -> {
-                    val earliest = state.setlists.mapNotNull { it.year()?.toIntOrNull() }.minOrNull()
-                    val listState = rememberLazyListState()
-                    // Zooming out doesn't go anywhere: the strip beside my line opens and
-                    // the other timelines slide into it, at my scale, on my spine.
-                    // A card swap lands you here already zoomed out — you just went
-                    // looking for their line, so it should be on screen.
-                    val zoomedOut = state.zoomedOut
-                    LaunchedEffect(state.justConnected) {
-                        if (state.justConnected) {
-                            viewModel.setZoomedOut(true)
-                            viewModel.consumeJustConnected()
-                        }
-                    }
-                    // An immutable set, swapped out on each toggle: a mutable list here
-                    // is the same instance before and after, so remember() below could
-                    // never see it change and the rows never rebuilt.
-                    val expanded = state.openFestivals
-                    // The legend keeps the whole list — it has to offer a hidden person
-                    // back — and everything that draws reads the filtered one. #266.
-                    val allLanes = remember(state.friends) { state.friends.reversed() }
-                    val lanes = remember(allLanes, state.hiddenLines) {
-                        visibleLanes(allLanes, state.hiddenLines)
-                    }
-                    val colours = remember(allLanes, state.hiddenLines) {
-                        laneColours(allLanes, state.hiddenLines)
-                    }
-                    // Springy rather than timed: the other lines settle into place like
-                    // something physical arriving, instead of a panel sliding.
-                    val laneWidth by animateDpAsState(
-                        if (zoomedOut) stripWidth(lanes.size) else 0.dp,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioLowBouncy,
-                            stiffness = Spring.StiffnessLow,
-                        ),
-                        label = "lanes",
-                    )
-                    // Descending toward the past pulls the next page in before you hit
-                    // the bottom, so history keeps flowing without a button. Measured
-                    // against the rows actually laid out, not the raw show count: a
-                    // festival collapses many shows into one row, so 20 shows can be 3
-                    // rows that never scroll — and the old check never fired.
-                    val nearPast by remember {
-                        derivedStateOf {
-                            val info = listState.layoutInfo
-                            val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-                            last >= info.totalItemsCount - 3
-                        }
-                    }
-                    LaunchedEffect(nearPast, state.setlistsLoading, state.setlists.size) {
-                        if (nearPast && !state.setlistsLoading && state.setlists.size < state.setlistsTotal) {
-                            viewModel.loadMoreSetlists()
-                        }
-                    }
-                    // Pulling down at the top of the line opens a gap toward the future,
-                    // and the two ways in hang in that gap. How far you pull is what
-                    // picks one: the curtain used to latch open and grow two rows on the
-                    // timeline underneath it, which spent a continuous gesture on a
-                    // boolean and made the actions a consequence of reading a caption.
-                    val scope = rememberCoroutineScope()
-                    val pull = remember { Animatable(0f) }
-                    // 200dp of gap: enough travel to separate three detents by more than
-                    // a twitch, and enough drag that none is reached by an ordinary flick
-                    // at the top of the list.
-                    val pullMax = with(LocalDensity.current) { 200.dp.toPx() }
-                    val haptics = LocalHapticFeedback.current
-                    // What a door does, whichever way it was reached — the gesture's
-                    // release and the reader's custom action both call this, so a future
-                    // rewire of one door can't silently leave the other stale (#164).
-                    fun openDoor(door: PlanningDoor) {
-                        when (door) {
-                            PlanningDoor.Gig -> adding = true
-                            PlanningDoor.Programme -> onOpenProgramme()
-                            PlanningDoor.Import -> onOpenImport()
-                            PlanningDoor.None -> {}
-                        }
-                    }
-                    val pullNest = remember {
-                        object : NestedScrollConnection {
-                            /** Last detent crossed, so each one ticks once. */
-                            var lastArmed = PlanningDoor.None
-
-                            /** Move the gap by a raw drag delta, ticking on each detent. */
-                            fun drag(dy: Float) {
-                                scope.launch {
-                                    pull.snapTo((pull.value + dy * PullDamping).coerceIn(0f, pullMax))
-                                    // A detent you cannot feel is a threshold, and two
-                                    // outcomes separated by a bare distance are a coin
-                                    // flip in the hand.
-                                    val now = armedDoor(pull.value / pullMax)
-                                    if (now != lastArmed) {
-                                        lastArmed = now
-                                        if (now != PlanningDoor.None) {
-                                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        }
-                                    }
-                                }
-                            }
-
-                            override fun onPreScroll(
-                                available: Offset,
-                                source: NestedScrollSource,
-                            ): Offset {
-                                // Closing has to happen *before* the list sees the drag,
-                                // or the list eats it and the gap never comes back up.
-                                // See curtainTakes for why.
-                                if (source != NestedScrollSource.UserInput) return Offset.Zero
-                                val take = curtainTakes(available.y, pull.value)
-                                if (take == 0f) return Offset.Zero
-                                drag(take)
-                                return Offset(0f, take)
-                            }
-
-                            override fun onPostScroll(
-                                consumed: Offset,
-                                available: Offset,
-                                source: NestedScrollSource,
-                            ): Offset {
-                                // Opening: only the leftover downward scroll at the list's
-                                // own top edge reaches here, so this never steals an
-                                // ordinary scroll. Upward is handled in onPreScroll above.
-                                if (available.y <= 0f || source != NestedScrollSource.UserInput) return Offset.Zero
-                                drag(available.y)
-                                return Offset(0f, available.y)
-                            }
-
-                            override suspend fun onPreFling(available: Velocity): Velocity {
-                                // Release takes the lit door. Releasing with none lit
-                                // closes the gap, so a short pull stays cheap to abandon.
-                                openDoor(armedDoor(pull.value / pullMax))
-                                lastArmed = PlanningDoor.None
-                                pull.animateTo(0f)
-                                return Velocity.Zero
-                            }
-                        }
-                    }
-
-                    val timelineActions = listOf(
-                        CustomAccessibilityAction("Connect with someone nearby") {
-                            onOpenNearby(); true
-                        },
-                        CustomAccessibilityAction(
-                            if (state.contactLight) "Turn the contact light off"
-                            else "Turn the contact light on, to see your line as a contact sees it"
-                        ) { viewModel.toggleContactLight(); true },
-                        CustomAccessibilityAction(
-                            if (zoomedOut) "Close the other timelines"
-                            else "Open the other timelines beside yours"
-                        ) { viewModel.setZoomedOut(!zoomedOut); true },
-                        // The three doors live in the curtain, and a pull
-                        // depth is not a thing TalkBack can express — so
-                        // without these the only way into planning would
-                        // be a gesture the reader intercepts. Each label
-                        // matches the door's own text and calls openDoor,
-                        // the same function the gesture's release calls,
-                        // so the two paths cannot drift apart again (#164).
-                        CustomAccessibilityAction("Add a gig you're going to") {
-                            openDoor(PlanningDoor.Gig); true
-                        },
-                        CustomAccessibilityAction("Open the festival programme") {
-                            openDoor(PlanningDoor.Programme); true
-                        },
-                        CustomAccessibilityAction("Import your setlist.fm history") {
-                            openDoor(PlanningDoor.Import); true
-                        },
-                    )
-
-                    Column(Modifier.fillMaxSize()) {
-                        Text(
-                            buildString {
-                                append("${state.setlists.size} shows")
-                                if (earliest != null) append(" · since $earliest")
-                            },
-                            color = Faint,
-                            fontSize = 12.sp,
-                            modifier = Modifier
-                                .padding(start = 20.dp, top = 2.dp, bottom = 14.dp)
-                                // The first stop on the line for a screen reader, and so
-                                // where its moves live: TalkBack lands on a line of text,
-                                // not on the list under it (#164).
-                                .semantics { customActions = timelineActions },
-                        )
-                        // Whose line is whose, only while more than one is showing.
-                        // Scrolls sideways: the key is the one thing that grows without
-                        // limit as friends are added, and it must not push the line off.
-                        //
-                        // Also the filter: tapping a name hides that line and tapping it
-                        // again brings it back, so the control sits where the names
-                        // already are rather than on a screen of its own. Shown while
-                        // zoomed out even with everyone hidden — a name you cannot see
-                        // is a name you cannot restore (#266).
-                        if (zoomedOut || laneWidth > 0.dp) {
-                            // Grouped by recency of hiding, most recently toggled off
-                            // first (#396) — one order for the whole legend, so the
-                            // disclosure below just continues it.
-                            val colourByUsername = remember(allLanes) {
-                                allLanes.withIndex().associate { (i, f) -> f.laneKey to i }
-                            }
-                            val (head, rest) = remember(allLanes, state.hiddenAt) {
-                                legendSplit(allLanes, state.hiddenAt, LegendHeadSize)
-                            }
-                            Row(
-                                Modifier
-                                    .horizontalScroll(rememberScrollState())
-                                    .padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                LaneKey(Amber, "You")
-                                (if (legendExpanded) head + rest else head).forEach { friend ->
-                                    Spacer(Modifier.width(14.dp))
-                                    LaneKey(
-                                        // The unfiltered index, never the legend's
-                                        // re-ordered position — a Lane colour comes
-                                        // from `allLanes.enumerated()` (#396).
-                                        color = railColor(colourByUsername[friend.laneKey] ?: 0),
-                                        label = friend.name,
-                                        hidden = friend.laneKey in state.hiddenLines,
-                                        onToggle = { viewModel.toggleLineHidden(friend.laneKey) },
-                                    )
-                                }
-                                // A disclosure, never a truncation (#266): every name
-                                // above stays reachable, just not drawn until tapped.
-                                if (!legendExpanded && rest.isNotEmpty()) {
-                                    Spacer(Modifier.width(14.dp))
-                                    Text(
-                                        "+ ${rest.size} more",
-                                        color = Slate,
-                                        fontSize = 11.sp,
-                                        modifier = Modifier
-                                            .clickable { legendExpanded = true }
-                                            .padding(vertical = 6.dp),
-                                    )
-                                }
-                            }
-                        }
-                        PlanningPull(progress = { pull.value / pullMax }, heightPx = { pull.value })
-                        // Planned nights become Sections too, so adding one can create an
-                        // evening nothing has been asked about yet (#134).
-                        LaunchedEffect(state.setlists, state.plannedGigs) {
-                            viewModel.resolveFestivals()
-                        }
-                        LaunchedEffect(zoomedOut) { if (zoomedOut) viewModel.loadFriendTimelines() }
-                        val rows = remember(
-                            state.setlists, state.plannedGigs, state.attendanceByGig,
-                            state.festivals, lanes, state.showsByFriend, zoomedOut, expanded,
-                            state.nightJoins, state.nightsApart,
-                        ) {
-                            weaveTimelines(
-                                // Through `spineNights`, not `setlists` alone: a local gig
-                                // that stops being a plan — checked into, or committed off
-                                // a programme whose set has already finished — leaves the
-                                // future lane at once, and the spine only picked it up on
-                                // the next cold start. It landed nowhere in between.
-                                // Deduped on id there, so a night on both lists is one.
-                                mine = spineNights(
-                                    state.setlists, state.plannedGigs, state.attendanceByGig,
-                                ),
-                                festivals = state.festivals,
-                                friends = if (zoomedOut) lanes else emptyList(),
-                                theirs = if (zoomedOut) state.showsByFriend else emptyMap(),
-                                expanded = expanded,
-                                // What I said about a Contact's Night nothing else links
-                                // to mine (#405): joined draws Joined, apart draws nothing.
-                                joins = state.nightJoins,
-                                apart = state.nightsApart,
-                            )
-                        }
-                        LaunchedEffect(rows, lanes) { logWovenRows(rows, lanes, colours) }
-                        // Everything above today, in one date-ordered list — furthest
-                        // out first, the same descending order the attended rows use.
-                        // Hoisted out of the LazyColumn because the deep-link scroll
-                        // below counts it too, and the two must not drift.
-                        val future = remember(
-                            state.plannedGigs, state.attendanceByGig, state.festivals,
-                        ) {
-                            futureRows(
-                                tickets = state.plannedGigs,
-                                attendance = state.attendanceByGig,
-                                festivals = state.festivals,
-                            )
-                        }
-
-                        // A date is only a place once the rows exist. Friends' Lanes load
-                        // after zooming out, so it waits for them rather than landing on
-                        // the nearest Gig of a weave with nobody in it yet.
-                        LaunchedEffect(state.linkedDate, rows, future, state.timelinesLoading) {
-                            val date = state.linkedDate ?: return@LaunchedEffect
-                            if (zoomedOut) {
-                                viewModel.loadFriendTimelines()
-                                if (viewModel.state.value.timelinesLoading) return@LaunchedEffect
-                            }
-                            val dated = (rows.flatMap { it.shows + it.showsHereByFriends } +
-                                future.flatMap { it.node.shows })
-                                .mapNotNull { show -> show.localDate()?.let { show.id to it } }
-                            viewModel.consumeLinkedDate()
-                            nearestGig(dated, date)?.let {
-                                viewModel.linkGig(it, if (zoomedOut) GigLink.WOVEN else GigLink.SINGLE_LINE)
-                            }
-                        }
-
-                        // A station-to-station:// link names a gig, and only here can a
-                        // gig be turned into a place: one inside a collapsed festival
-                        // has no row of its own until the festival opens, so this may
-                        // take two passes — open it, let the rows rebuild, then scroll.
-                        LaunchedEffect(state.linkedGig, rows) {
-                            val gig = state.linkedGig ?: return@LaunchedEffect
-                            if (state.linkedGigAs == GigLink.SETLIST) {
-                                viewModel.knownGig(gig)?.let {
-                                    viewModel.openShow(it)
-                                    viewModel.consumeGigLink()
-                                    onOpenEvent()
-                                }
-                                return@LaunchedEffect
-                            }
-                            // A collapsed festival's own shows are only mine, so a night
-                            // of theirs absorbed into it would never be found and never
-                            // open the festival holding it.
-                            // Last, not first: an open festival lists the gig again as a
-                            // row of its own below its header, and that row is the place
-                            // the link actually means.
-                            val at = rows.indexOfLast { row ->
-                                row.shows.any { it.id == gig } ||
-                                    row.showsHereByFriends.any { it.id == gig }
-                            }
-                            if (at < 0) {
-                                val ahead = future.indexOfFirst { row -> row.node.shows.any { it.id == gig } }
-                                if (ahead < 0) return@LaunchedEffect
-                                listState.animateScrollToItem(1 + ahead)
-                                viewModel.consumeGigLink()
-                                return@LaunchedEffect
-                            }
-                            val row = rows[at]
-                            val insideClosedFestival =
-                                row.node is TimelineNode.Several && row.key !in expanded
-                            if (insideClosedFestival) {
-                                viewModel.openFestival(row.key)
-                                return@LaunchedEffect
-                            }
-                            // The rows don't start at item 0: the future prompt is, and
-                            // every gig I'm going to sits between it and them. Counted
-                            // off the same list the LazyColumn emits, so the two cannot
-                            // drift.
-                            // …and every merge row (#580) down to and including this one's.
-                            val merges = rows.take(at + 1).count { it.maybeAbove.isNotEmpty() }
-                            listState.animateScrollToItem(at + 1 + future.size + merges)
-                            viewModel.consumeGigLink()
-                        }
-
-                        LazyColumn(
-                            state = listState,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .nestedScroll(pullNest)
-                                // Swipe the timeline left to start connecting with someone
-                                // nearby — the "act on this level" gesture, people axis.
-                                .pointerInput(Unit) {
-                                    val threshold = 90.dp.toPx()
-                                    var dragX = 0f
-                                    detectHorizontalDragGestures(
-                                        onDragStart = { dragX = 0f },
-                                        onDragEnd = {
-                                            // Left is Exchange; right is the light switch,
-                                            // which is free here because there is nothing
-                                            // further out than my own Line (#145). A light
-                                            // is not a place, so the same flick returns.
-                                            if (dragX <= -threshold) onOpenNearby()
-                                            else if (dragX >= threshold) viewModel.toggleContactLight()
-                                        },
-                                        onHorizontalDrag = { _, delta -> dragX += delta },
-                                    )
-                                }
-                                // Pinch out to open the other timelines beside mine; pinch
-                                // back in to close them again. Nothing navigates.
-                                .pointerInput(state.friends) {
-                                    detectPinch(
-                                        onZoomOut = { viewModel.setZoomedOut(true) },
-                                        onZoomIn = { viewModel.setZoomedOut(false) },
-                                    )
-                                }
-                                // The same three moves, for anyone not making them with
-                                // their fingers. A flick and a pinch are the whole of how
-                                // this screen changes **Resolution**, and TalkBack sends
-                                // both to the reader instead — so without this the light
-                                // and the other lines are not merely awkward to reach,
-                                // they do not exist. The gestures above stay exactly as
-                                // they are; this is the same call from another door.
-                                //
-                                // Labels are verbs and say which way the toggle goes,
-                                // because the actions menu reads them out of context with
-                                // nothing on screen to disambiguate them.
-                                // Also on the header line above, where a reader's focus
-                                // can land — a list is not itself a stop for TalkBack.
-                                .semantics { customActions = timelineActions },
-                        ) {
-                            // The top of the line. Nothing sits here now but the lookup
-                            // notice: "↑ THE FUTURE" captioned a direction the layout
-                            // already states, and the add-rows that outlived it were the
-                            // curtain's doors printed a second time — the doors were
-                            // meant to *replace* them, not join them.
-                            item { FuturePrompt(loading = state.planningLoading) }
-                            // Everything above today, in one date-ordered list —
-                            // furthest out first, the same descending order the attended
-                            // rows below use. Planned gigs that share a venue and a night
-                            // are a Festival like any other, grouped by the same function
-                            // the attended rows use (#134).
-                            items(
-                                future,
-                                key = { row ->
-                                    when (val n = row.node) {
-                                        is TimelineNode.Concert -> "planned-${n.setlist.id}"
-                                        // Prefixed for the same reason the concert above
-                                        // it is: both lanes are items of one LazyColumn,
-                                        // and a Festival with a night still planned and a
-                                        // night already attended is a node in each. The
-                                        // bare identity key was used twice and the list
-                                        // threw.
-                                        is TimelineNode.Several -> "planned-${n.key}"
-                                    }
-                                },
-                            ) { row ->
-                                when (val node = row.node) {
-                                        is TimelineNode.Concert -> TimelineItem(
-                                            setlist = node.setlist,
-                                            highlight = false,
-                                            planned = true,
-                                            laneWidth = laneWidth,
-                                            menu = menuFor(node.setlist),
-                                            onClick = {
-                                                viewModel.openShow(node.setlist)
-                                                onOpenEvent()
-                                            },
-                                        )
-
-                                        // Opens in place, like every other node holding
-                                        // several nights. It has to open: collapsing two
-                                        // planned nights into one node with no way back
-                                        // in would take away the only handle each had.
-                                        is TimelineNode.Several -> {
-                                            val key = node.key
-                                            Column {
-                                                FestivalItem(
-                                                    festival = node,
-                                                    highlight = false,
-                                                    open = key in expanded,
-                                                    laneWidth = laneWidth,
-                                                    onClick = { viewModel.toggleFestival(key) },
-                                                )
-                                                if (key in expanded) {
-                                                    node.shows.forEach { gig ->
-                                                        TimelineItem(
-                                                            setlist = gig,
-                                                            highlight = false,
-                                                            planned = true,
-                                                            inside = true,
-                                                            laneWidth = laneWidth,
-                                                            menu = menuFor(gig),
-                                                            onClick = {
-                                                                viewModel.openShow(gig)
-                                                                onOpenEvent()
-                                                            },
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                            }
-                            rows.forEachIndexed { index, row ->
-                                // The merge row (#580): its own row, between my Night and the
-                                // Night of theirs the weave put right below it. The rails run
-                                // on through it; under the contact light it keeps its height
-                                // and loses its question, so flipping the switch moves nothing.
-                                val above = rows.getOrNull(index - 1)
-                                if (row.maybeAbove.isNotEmpty() && above != null) {
-                                    item(key = "maybe-${row.key}") {
-                                        MergeRow(
-                                            mine = above,
-                                            theirs = row,
-                                            lanes = lanes,
-                                            laneWidth = laneWidth,
-                                            colours = colours,
-                                            maybes = if (state.contactLight) emptyList() else row.maybeAbove,
-                                            onCompare = { comparing = it },
-                                        )
-                                    }
-                                }
-                                item(key = row.key) {
-                                    val isFirst = index == 0
-                                    val rails: @Composable () -> Unit =
-                                        { PeopleRails(row, rows.getOrNull(index + 1), lanes, laneWidth, colours) }
-                                    val nodeX = crossingX(row, lanes, laneWidth)
-                                    when (val node = row.node) {
-                                        is TimelineNode.Concert -> {
-                                            // Visuals only. A Note has no bytes and an empty
-                                            // `ref` (#170), and one drew a blank tile on the row.
-                                            val nightMedia = state.mediaBySetlist[node.setlist.id]
-                                                .orEmpty().filterNot { it.kind == StoredMedia.Kind.NOTE }
-                                            TimelineItem(
-                                                setlist = node.setlist,
-                                                highlight = isFirst && row.mine,
-                                                mine = row.mine,
-                                                menu = if (row.mine) menuFor(node.setlist) else null,
-                                                laneWidth = laneWidth,
-                                                inside = row.depth > 0,
-                                                nodeX = nodeX,
-                                                shared = row.shared && !state.contactLight,
-                                                unlit = state.contactLight,
-                                                rails = rails,
-                                                // Unfiltered on purpose. Filtering here removed a
-                                                // night's whole photo strip, so every row changed
-                                                // height and the line moved under you — the one
-                                                // thing a light switch must never do.
-                                                photos = nightMedia.map { Uri.parse(it.ref) },
-                                                // Which is why the answer rides alongside instead:
-                                                // the same thumbnails in the same places, lit one
-                                                // by one. The Room still holds the detail and the
-                                                // sharing decision; the timeline now at least says
-                                                // truthfully which nights are worth opening.
-                                                litPhotos = visibleToContacts(nightMedia)
-                                                    .map { Uri.parse(it.ref) }.toSet(),
-                                                loadPhotoPreview = viewModel::photoPreview,
-                                                // Off under the light, like the green: a
-                                                // generic contact view has no "we" to ask about.
-                                                // Only the maybes no merge row asks (#580): the
-                                                // rest have a row of their own right below.
-                                                maybeWith = if (state.contactLight) emptyList()
-                                                else row.maybeInWords.map { it.name },
-                                                joinedWith = if (state.contactLight) emptyList()
-                                                else row.joinedWith.map { it.name },
-                                                onClick = {
-                                                    viewModel.openShow(node.setlist)
-                                                    onOpenEvent()
-                                                },
-                                            )
-                                        }
-
-                                        // A festival opens where it stands rather than pushing
-                                        // you into a screen of its own.
-                                        is TimelineNode.Several -> FestivalItem(
-                                            festival = node,
-                                            highlight = isFirst,
-                                            open = row.key in expanded,
-                                            mine = row.mine,
-                                            laneWidth = laneWidth,
-                                            nodeX = nodeX,
-                                            sharedCount = row.sharedCount,
-                                            theirCount = row.theirsCount,
-                                            // Company has a colour of its own — a night two
-                                            // friends shared is nobody's lane colour either.
-                                            // …and the lane colour is the host's *stable* one,
-                                            // so hiding someone never repaints this (#266).
-                                            theirColor = if (row.others.size > 1) Crossed
-                                            else railColor(colours.getOrElse(nodeHost(row, lanes)) { 0 }),
-                                            unlit = state.contactLight,
-                                            rails = rails,
-                                            maybeWith = if (state.contactLight) emptyList()
-                                            else row.maybeInWords.map { it.name },
-                                            onClick = {
-                                                viewModel.toggleFestival(row.key)
-                                            },
-                                            // The non-gestural route to the Collection
-                                            // resolution (#313): the pinch is aimed by where
-                                            // the fingers land, and a reader with no fingers
-                                            // to aim needs the same node named instead. Calls
-                                            // the same function the (not yet built) pinch
-                                            // will call, so the two paths cannot drift.
-                                            onWalk = { viewModel.openCollectionWalk(node) },
-                                        )
-                                    }
-                                }
-                            }
-                            // The past edge: a quiet spinner while the next page flows in.
-                            if (state.setlistsLoading && state.setlists.isNotEmpty()) {
-                                item {
-                                    Row(
-                                        Modifier.fillMaxWidth().padding(16.dp),
-                                        horizontalArrangement = Arrangement.Center,
-                                    ) { CircularProgressIndicator(color = Amber, modifier = Modifier.size(22.dp)) }
-                                }
-                            }
-                        }
-                    }
-                }
+                else -> TimelineLine(
+                    state = state,
+                    legendExpanded = legendExpanded,
+                    onExpandLegend = { legendExpanded = true },
+                    actions = actions,
+                )
             }
-            // The light is on, and it says so across the whole width. Not a badge: a mode
-            // you can forget you are in would make withheld photographs read as data loss.
-            //
-            // Floated over the timeline rather than placed above it, because **flipping
-            // the switch must not move the line**. Lighting a corridor does not shorten
-            // it: everything here changes colour and opacity and nothing changes size or
-            // position, so the night you were looking at is still under your thumb.
             if (state.contactLight) {
-                Column(
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .background(UnlitField)
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
-                ) {
-                    Text(
-                        "AS YOUR CONTACTS SEE IT",
-                        color = Ink,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 1.5.sp,
-                        modifier = Modifier.asHeading(),
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "One view for everyone you have met in person — there are no per-contact " +
-                            "settings. Walk into a night to see what they see of it. Swipe right " +
-                            "again to come back.",
-                        color = Muted,
-                        fontSize = 11.sp,
-                    )
-                }
+                ContactLightBanner(Modifier.align(Alignment.BottomCenter))
             }
-            // The Collection resolution (#313). Entered from the Line and drawn over it,
+            // The Collection resolution. Entered from the Line and drawn over it,
             // not pushed and not routed: nothing here ever navigates away, so leaving —
             // the same reverse-pinch or back gesture that leaves any resolution — lands
             // you back on the Line at the same scroll position, because you never left
@@ -1182,515 +569,641 @@ fun StationTimelineScreen(
     }
 }
 
-/**
- * Top of the timeline — the future. Only ever a notice now: the ways in are the doors
- * inside the curtain, and printing them here too made the pull decorative.
- */
-@Composable
-private fun FuturePrompt(loading: Boolean) {
-    if (!loading) return
-    Text(
-        "Looking it up on setlist.fm…",
-        color = Faint,
-        fontSize = 12.sp,
-        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 2.dp, bottom = 14.dp).spokenOnChange(),
-    )
-}
+/** Everything the timeline's sections do to the world, so no section holds the [AppViewModel]. */
+private class TimelineActions(
+    val onOpenEvent: () -> Unit,
+    val onOpenImport: () -> Unit,
+    val onOpenNearby: () -> Unit,
+    val onOpenProgramme: () -> Unit,
+    val onAddGig: () -> Unit,
+    val onCompare: (MaybeNight) -> Unit,
+    val menuFor: (FmSetlist) -> GigMenuSpec?,
+    val setZoomedOut: (Boolean) -> Unit,
+    val consumeJustConnected: () -> Unit,
+    val toggleContactLight: () -> Unit,
+    val toggleLineHidden: (String) -> Unit,
+    val loadMoreSetlists: () -> Unit,
+    val resolveFestivals: () -> Unit,
+    val loadFriendTimelines: () -> Unit,
+    val timelinesLoading: () -> Boolean,
+    val consumeLinkedDate: () -> Unit,
+    val linkGig: (String, GigLink) -> Unit,
+    val knownGig: (String) -> FmSetlist?,
+    val openShow: (FmSetlist) -> Unit,
+    val consumeGigLink: () -> Unit,
+    val openFestival: (String) -> Unit,
+    val toggleFestival: (String) -> Unit,
+    val openCollectionWalk: (TimelineNode.Several) -> Unit,
+    val photoPreview: suspend (Uri) -> MediaThumb,
+)
 
-/**
- * One Admission drawn for a scanner (#441, story 9): [drawing] at a whole number of
- * pixels per module, as many as fit — [maxWidth] across, and for a matrix code
- * [matrixMax] down — so every bar and cell is the same width on screen. A linear code
- * fills the width it is given, [linearHeight] tall. Nearest-neighbour: the bitmap is
- * shown at its own pixel size, never scaled by the Image.
- */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AdmissionBarcode(
-    drawing: AdmissionDrawing,
-    maxWidth: Dp,
-    matrixMax: Dp,
-    linearHeight: Dp,
-    description: String,
+private fun TimelineTopBar(
+    onOpenConnect: () -> Unit,
+    onOpenProgramme: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
-    val density = LocalDensity.current
-    val bitmap = remember(drawing, maxWidth, matrixMax, linearHeight, density) {
-        with(density) {
-            val across = maxWidth.roundToPx() / drawing.width
-            val modulePx = when (drawing.shape) {
-                AdmissionShape.LINEAR -> across
-                AdmissionShape.MATRIX -> minOf(across, matrixMax.roundToPx() / drawing.height)
-            }.coerceAtLeast(1)
-            matrixBitmap(drawing.scaled(modulePx, linearHeight.roundToPx()))
-        }
-    }
-    Image(
-        bitmap = bitmap.asImageBitmap(),
-        contentDescription = description,
-        filterQuality = FilterQuality.None,
-        modifier = with(density) { Modifier.size(bitmap.width.toDp(), bitmap.height.toDp()) },
-    )
-}
-
-/** What the Room has for the Admission on show: still reading it back, its drawing, or nothing it can show. */
-private sealed interface AtTheDoor {
-    data object Checking : AtTheDoor
-    class Shown(val drawing: AdmissionDrawing) : AtTheDoor
-    /** No redraw, but the ticket file was kept for it (#568): that page is shown instead. */
-    class Original(val file: java.io.File) : AtTheDoor
-    data object CannotShow : AtTheDoor
-}
-
-/** The line said wherever an Admission cannot be redrawn: which one, and what to do instead. */
-private fun cannotShowLine(symbology: String, page: AdmissionPage? = null): String =
-    "${page?.label?.let { "Barcode $it" } ?: "This ticket's barcode"} (${zxingFormatName(symbology)}) " +
-        "can't be shown by the app. Bring the original PDF to the door."
-
-/** The prompt's line for an Admission that will be shown from its kept original (#568). */
-private fun keptOriginalLine(symbology: String, page: AdmissionPage? = null): String =
-    "${page?.label?.let { "Barcode $it" } ?: "This ticket's barcode"} (${zxingFormatName(symbology)}) " +
-        "can't be redrawn, so the app keeps this ticket and shows it at the door as it was sent."
-
-/**
- * The ticket at the door (#441): every **Admission** in its own symbology, one at a
- * time, with "1 of 3" and a way to step between them when there are several (story 5;
- * [AdmissionPage] holds the rules). Black on white, whatever the Room's ground: a
- * scanner reads contrast.
- *
- * What is drawn is [doorDrawing]'s: the Admission redrawn and read back as itself, the
- * same check the import ran, asked again here because nothing stored carries a verdict
- * and an Admission migrated from an old `ticketQr` was never checked at all. One that
- * does not read back is shown from the ticket file kept for it at import (#568,
- * [OriginalAtTheDoor]); with no file (a ticket imported before #568, a link, a
- * handover) it keeps its page and says so, in the prompt's words — never a guess, and
- * never its payload drawn as some other symbology.
- *
- * The card's look is unchanged from the QR it replaces; its redesign, brightness and a
- * full-screen view are #525's.
- */
-@Composable
-private fun TicketAtTheDoor(admissions: List<StoredAdmission>) {
-    if (admissions.isEmpty()) return
-    var index by remember(admissions) { mutableStateOf(0) }
-    val page = AdmissionPage.of(index, admissions.size)
-    val admission = admissions[page.index]
-    // Tagged with the Admission it is about: produceState keeps its last value when the
-    // key changes, so an untagged one would put the previous page's drawing under the
-    // new "2 of 3" until the next check ends.
-    val originals = TicketOriginals.of(LocalContext.current)
-    val verdict by produceState<DoorVerdict<StoredAdmission, AtTheDoor>?>(null, admission) {
-        val door = withContext(Dispatchers.Default) {
-            doorDrawing(admission)?.let { AtTheDoor.Shown(it) }
-                ?: originals.file(admission.original)?.let { AtTheDoor.Original(it) }
-                ?: AtTheDoor.CannotShow
-        }
-        value = DoorVerdict(admission, door)
-    }
-    val shown = verdict.forAdmission(admission) ?: AtTheDoor.Checking
-    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
-        // The card's own padding and border, inside the width the Room gives it.
-        val inner = maxWidth - 30.dp
-        when (val door = shown) {
-            is AtTheDoor.Shown -> Box(
-                Modifier
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Color.White)
-                    .border(1.dp, LineLit, RoundedCornerShape(14.dp))
-                    .padding(14.dp),
-            ) {
-                AdmissionBarcode(
-                    door.drawing,
-                    maxWidth = inner,
-                    matrixMax = 200.dp,
-                    linearHeight = 110.dp,
-                    description = "Your ticket's barcode${page.label?.let { ", $it" }.orEmpty()}. Hold it up to be scanned.",
-                )
+    TopAppBar(
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = Ground, titleContentColor = Muted),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("◦ ", color = Amber, fontSize = 13.sp, modifier = Modifier.clearAndSetSemantics {})
+                Text("Station to Station", fontFamily = Serif, fontSize = 16.sp, color = Muted, modifier = Modifier.asHeading())
             }
-            is AtTheDoor.Original -> OriginalAtTheDoor(door.file, admission.page, page.label, border = LineLit, caption = Muted) {
-                Text(
-                    cannotShowLine(admission.symbology, page),
-                    color = Muted,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(vertical = 6.dp),
-                )
-            }
-            AtTheDoor.CannotShow -> Text(
-                cannotShowLine(admission.symbology, page),
-                color = Muted,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(vertical = 6.dp),
-            )
-            AtTheDoor.Checking -> Unit
-        }
-    }
-    page.label?.let { label ->
-        Row(
-            Modifier.padding(top = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(18.dp),
-        ) {
-            Text(
-                "‹ previous",
-                color = if (page.hasPrevious) Amber else Faint,
-                fontSize = 13.sp,
-                modifier = Modifier.spokenAs("Previous")
-                    .clickable(enabled = page.hasPrevious) { index = page.previous().index }
-                    .padding(vertical = 6.dp),
-            )
-            Text(label, color = Ink, fontSize = 13.sp)
-            Text(
-                "next ›",
-                color = if (page.hasNext) Amber else Faint,
-                fontSize = 13.sp,
-                modifier = Modifier.spokenAs("Next")
-                    .clickable(enabled = page.hasNext) { index = page.next().index }
-                    .padding(vertical = 6.dp),
-            )
-        }
-    }
-    Spacer(Modifier.height(10.dp))
-}
-
-/**
- * The confirm prompt's Admissions, as they will be presented at the door (#441, story
- * 7): each one [Admission.redrawable] said reads back, drawn small by the same
- * [admissionDrawing] the Room uses; a plain line for each that did not (story 29); and,
- * for a ticket that read but carried no barcode at all, a line saying so (story 8).
- */
-@Composable
-private fun ConfirmAdmissions(parsed: ParsedTicket) {
-    val admissions = parsed.admissions
-    if (admissions.isEmpty()) {
-        if (!parsed.isEmpty) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "No barcode could be read off this ticket, so the app has nothing to show " +
-                    "at the door. Bring the original PDF.",
-                color = Muted,
-                fontSize = 11.sp,
-            )
-        }
-        return
-    }
-    Spacer(Modifier.height(8.dp))
-    Text(
-        if (admissions.size == 1) {
-            "The ticket's barcode, as it will be shown at the door. It's kept whatever you put above."
-        } else {
-            "The ticket's ${admissions.size} barcodes, as they will be shown at the door. They're kept whatever you put above."
         },
-        color = Faint,
-        fontSize = 11.sp,
-    )
-    val drawn = remember(admissions) {
-        admissions.mapIndexedNotNull { i, a ->
-            if (a.redrawable == true) admissionDrawing(a.symbology, a.payload)?.let { i to it } else null
-        }
-    }
-    if (drawn.isNotEmpty()) {
-        Spacer(Modifier.height(8.dp))
-        Row(
-            Modifier.horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            for ((i, drawing) in drawn) {
-                Box(Modifier.clip(RoundedCornerShape(8.dp)).background(Color.White).padding(6.dp)) {
-                    AdmissionBarcode(
-                        drawing,
-                        maxWidth = 220.dp,
-                        matrixMax = 96.dp,
-                        linearHeight = 48.dp,
-                        description = "Barcode ${i + 1} of ${admissions.size}, as it will be shown at the door",
-                    )
-                }
+        actions = {
+            // Left/right axis is people: the way to others starts here.
+            IconButton(onClick = onOpenConnect) {
+                Icon(Icons.Filled.Person, contentDescription = "Connect with people", tint = Faint)
             }
-        }
+            IconButton(onClick = onOpenProgramme) {
+                Icon(
+                    Icons.Filled.Schedule,
+                    contentDescription = "Festival programme",
+                    tint = Faint,
+                )
+            }
+            IconButton(onClick = onOpenSettings) {
+                Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = Faint)
+            }
+        },
+    )
+}
+
+/**
+ * Check-in: opening the timeline takes one fix and compares it against what's already
+ * known. Foreground, one-shot, nothing scheduled. Also hosts the friend-overwrite dialog.
+ */
+@Composable
+private fun CheckInSection(
+    plannedGigs: List<FmSetlist>,
+    offer: FmSetlist?,
+    conflict: FriendArrival.Conflict?,
+    checkInDue: () -> Boolean,
+    hasLocationPermission: () -> Boolean,
+    onOffer: () -> Unit,
+    onCheckIn: (String) -> Unit,
+    onDismissOffer: () -> Unit,
+    onConfirmOverwrite: () -> Unit,
+    onDismissOverwrite: () -> Unit,
+) {
+    val locationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        // Refusing is not a dead end and not an error: the offer just never appears,
+        // and the gig's own screen still has a check-in you can press by hand.
+        onOffer()
     }
-    // Not Faint: these are the lines in the dialog that change what to bring.
-    admissions.forEachIndexed { i, a ->
-        if (a.redrawable == true && drawn.any { it.first == i }) return@forEachIndexed
-        Spacer(Modifier.height(6.dp))
+    LaunchedEffect(plannedGigs) {
+        // The permission is only ever asked for on a night there is something to
+        // check into — never merely for opening the app.
+        if (!checkInDue()) return@LaunchedEffect
+        if (hasLocationPermission()) onOffer()
+        else locationPermission.launch(DeviceLocation.requiredPermissions())
+    }
+    offer?.let { gig ->
+        CheckInDialog(
+            gig = gig,
+            onCheckIn = { onCheckIn(gig.id) },
+            onDismiss = onDismissOffer,
+        )
+    }
+    conflict?.let {
+        FriendOverwriteDialog(
+            conflict = it,
+            onConfirm = onConfirmOverwrite,
+            onDismiss = onDismissOverwrite,
+        )
+    }
+}
+
+/**
+ * The light is on, and it says so across the whole width. Not a badge: a mode
+ * you can forget you are in would make withheld photographs read as data loss.
+ *
+ * Floated over the timeline rather than placed above it, because **flipping
+ * the switch must not move the line**. Lighting a corridor does not shorten
+ * it: everything here changes colour and opacity and nothing changes size or
+ * position, so the night you were looking at is still under your thumb.
+ */
+@Composable
+private fun ContactLightBanner(modifier: Modifier) {
+    Column(
+        modifier
+            .fillMaxWidth()
+            .background(UnlitField)
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+    ) {
         Text(
-            if (a.original != null) {
-                keptOriginalLine(a.symbology, AdmissionPage(i, admissions.size))
-            } else {
-                cannotShowLine(a.symbology, AdmissionPage(i, admissions.size))
-            },
+            "AS YOUR CONTACTS SEE IT",
+            color = Ink,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 1.5.sp,
+            modifier = Modifier.asHeading(),
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "One view for everyone you have met in person — there are no per-contact " +
+                "settings. Walk into a night to see what they see of it. Swipe right " +
+                "again to come back.",
             color = Muted,
             fontSize = 11.sp,
         )
     }
 }
 
+/** The pull-down gap above the Line: its nested-scroll connection and how far it is open. */
+private class PlanningPullGesture(
+    val nest: NestedScrollConnection,
+    val progress: () -> Float,
+    val heightPx: () -> Float,
+)
+
 /**
- * Add a **Gig**: who played or is playing, where, and when. One form for both, because
- * the input is the same and both put a **Gig** on my **Line**; the date decides the rule
- * underneath (see [nightKind]).
- *
- * **A night I was at** has no upstream record to collide with, so it is minted locally
- * and claimed attended. **A night I am going to** is minted locally too and claims
- * nothing, because setlist.fm's search index stops about a day out and a show weeks away
- * cannot be *found* by artist, venue or date; it moves onto the vendor id when setlist.fm
- * catches up.
- *
- * **The link path stays, demoted.** A setlist.fm link is strictly better when you have
- * it: it brings the real id, venue and date, and needs no adoption later.
- *
- * **The artist completes; the venue does not.** MusicBrainz has a `place` entity and
- * its coverage of small rooms is thin, so a completion box that fails most of the time
- * would teach people to ignore the one above it. A plain field that never guesses is
- * the honest version of a venue.
+ * Pulling down at the top of the line opens a gap toward the future,
+ * and the doors hang in that gap. How far you pull is what
+ * picks one: a continuous gesture, not a latched boolean.
+ * Release calls [onOpenDoor] with the lit door.
  */
 @Composable
-private fun AddGigDialog(
-    initial: AddGigLink?,
-    suggestions: List<MbArtist>,
-    onArtistTyped: (String) -> Unit,
-    onArtistPicked: () -> Unit,
-    onAdd: (artist: String, venue: String, date: String) -> Unit,
-    onAddByLink: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var artist by remember { mutableStateOf(initial?.artist.orEmpty()) }
-    var venue by remember { mutableStateOf(initial?.venue.orEmpty()) }
-    var date by remember { mutableStateOf(initial?.date.orEmpty()) }
-    var link by remember { mutableStateOf("") }
-    var pasting by remember { mutableStateOf(false) }
-    val kind = nightKind(parseFmDate(date), LocalDate.now())
+private fun rememberPlanningPull(onOpenDoor: (PlanningDoor) -> Unit): PlanningPullGesture {
+    val scope = rememberCoroutineScope()
+    val pull = remember { Animatable(0f) }
+    // 200dp of gap: enough travel to separate three detents by more than
+    // a twitch, and enough drag that none is reached by an ordinary flick
+    // at the top of the list.
+    val pullMax = with(LocalDensity.current) { 200.dp.toPx() }
+    val haptics = LocalHapticFeedback.current
+    val openDoor = onOpenDoor
+    return remember {
+        val nest = object : NestedScrollConnection {
+            /** Last detent crossed, so each one ticks once. */
+            var lastArmed = PlanningDoor.None
 
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            Modifier
-                .clip(RoundedCornerShape(16.dp))
-                .background(Raised)
-                .padding(20.dp),
-        ) {
-            Text("Add a gig", fontFamily = Serif, fontSize = 19.sp, color = Ink, modifier = Modifier.asHeading())
-            Spacer(Modifier.height(6.dp))
-            if (pasting) {
-                Text(
-                    "Paste the setlist.fm link for the show. It brings the real venue " +
-                        "and date with it.",
-                    color = Muted,
-                    fontSize = 12.sp,
-                )
-                Spacer(Modifier.height(14.dp))
-                StationField(link, { link = it }, "setlist.fm link", imeDone = true)
-            } else {
-                Text(
-                    when (kind) {
-                        NightKind.GOING_TO ->
-                            "A night ahead can't be searched for, so it lives on this phone " +
-                                "until setlist.fm catches up with it."
-                        NightKind.WAS_AT ->
-                            "No account needed. This night lives on this phone, and what was " +
-                                "played goes in its log afterwards."
-                    },
-                    color = Muted,
-                    fontSize = 12.sp,
-                )
-                Spacer(Modifier.height(14.dp))
-                StationField(artist, { artist = it; onArtistTyped(it) }, "who's playing")
-                ArtistSuggestions(suggestions) { artist = it; onArtistPicked() }
-                Spacer(Modifier.height(8.dp))
-                StationField(venue, { venue = it }, "venue (optional)")
-                Spacer(Modifier.height(8.dp))
-                StationField(date, { date = it }, "date (dd-MM-yyyy)", imeDone = true)
+            /** Move the gap by a raw drag delta, ticking on each detent. */
+            fun drag(dy: Float) {
+                scope.launch {
+                    pull.snapTo((pull.value + dy * PullDamping).coerceIn(0f, pullMax))
+                    // A detent you cannot feel is a threshold, and two
+                    // outcomes separated by a bare distance are a coin
+                    // flip in the hand.
+                    val now = armedDoor(pull.value / pullMax)
+                    if (now != lastArmed) {
+                        lastArmed = now
+                        if (now != PlanningDoor.None) {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                    }
+                }
             }
 
-            Spacer(Modifier.height(4.dp))
-            TextButton(onClick = { pasting = !pasting }) {
-                Text(
-                    if (pasting) "or type it in" else "or paste a setlist.fm link",
-                    color = Faint,
-                    fontSize = 12.sp,
-                )
+            override fun onPreScroll(
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                // Closing has to happen *before* the list sees the drag,
+                // or the list eats it and the gap never comes back up.
+                // See curtainTakes for why.
+                if (source != NestedScrollSource.UserInput) return Offset.Zero
+                val take = curtainTakes(available.y, pull.value)
+                if (take == 0f) return Offset.Zero
+                drag(take)
+                return Offset(0f, take)
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("Cancel", color = Faint) }
-                val ready =
-                    if (pasting) link.isNotBlank() else artist.isNotBlank() && date.isNotBlank()
-                TextButton(
-                    onClick = {
-                        if (pasting) onAddByLink(link) else onAdd(artist, venue, date)
-                    },
-                    enabled = ready,
-                ) { Text("Add", color = if (ready) Amber else Faint) }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                // Opening: only the leftover downward scroll at the list's
+                // own top edge reaches here, so this never steals an
+                // ordinary scroll. Upward is handled in onPreScroll above.
+                if (available.y <= 0f || source != NestedScrollSource.UserInput) return Offset.Zero
+                drag(available.y)
+                return Offset(0f, available.y)
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                // Release takes the lit door. Releasing with none lit
+                // closes the gap, so a short pull stays cheap to abandon.
+                openDoor(armedDoor(pull.value / pullMax))
+                lastArmed = PlanningDoor.None
+                pull.animateTo(0f)
+                return Velocity.Zero
             }
         }
+        PlanningPullGesture(nest, { pull.value / pullMax }, { pull.value })
     }
 }
 
 /**
- * What a shared PDF ticket turned into, put in front of a person before anything is
- * written (#411, clarified after #408 shipped). `routeTicket` (TicketParsing.kt)
- * only ever reaches here for a parse that is missing something or whose match is
- * uncertain — a complete, unambiguous parse skips this dialog entirely.
+ * Whose line is whose, only while more than one is showing.
+ * Scrolls sideways: the key is the one thing that grows without
+ * limit as friends are added, and it must not push the line off.
  *
- * Every field starts pre-filled with whatever the parse found and stays editable —
- * the same fields [AddGigDialog] uses, wearing a guess
- * instead of a blank. A [PendingTicket.parsed] that found nothing at all still opens
- * this dialog with three empty fields, which is what makes "couldn't read this
- * ticket" an honest state rather than a silent failure.
+ * Also the filter: tapping a name hides that line and tapping it
+ * again brings it back, so the control sits where the names
+ * already are rather than on a screen of its own. Shown while
+ * zoomed out even with everyone hidden — a name you cannot see
+ * is a name you cannot restore.
  */
 @Composable
-private fun TicketConfirmDialog(
-    pending: PendingTicket,
-    suggestions: List<MbArtist>,
-    onArtistTyped: (String) -> Unit,
-    onArtistPicked: () -> Unit,
-    onConfirm: (artist: String, venue: String, date: String, chosenSetlistId: String?) -> Unit,
-    onDismiss: () -> Unit,
+private fun TimelineLegend(
+    allLanes: List<Friend>,
+    hiddenAt: Map<String, Long>,
+    expanded: Boolean,
+    onExpand: () -> Unit,
+    onToggle: (String) -> Unit,
 ) {
-    var artist by remember { mutableStateOf(pending.parsed.artist.orEmpty()) }
-    var venue by remember { mutableStateOf(pending.parsed.venue.orEmpty()) }
-    var date by remember { mutableStateOf(pending.parsed.date.orEmpty()) }
-    // The setlist.fm hit ticked, null for "None of these" (#531). Hidden, and so
-    // answering nothing, once the artist or the date is edited away from the lookup.
-    var chosen by remember { mutableStateOf(pending.setlistFm?.preselectedId) }
-    val offered = pending.setlistFm?.takeIf { it.offeredFor(artist, date) }
-
-    // Only Discard drops the ticket. A stray tap outside or a back press would throw
-    // away a parsed ticket and its barcodes, which is worse than a prompt that stays.
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+    // Grouped by recency of hiding, most recently toggled off
+    // first — one order for the whole legend, so the
+    // disclosure below just continues it.
+    val colourByUsername = remember(allLanes) {
+        allLanes.withIndex().associate { (i, f) -> f.laneKey to i }
+    }
+    val (head, rest) = remember(allLanes, hiddenAt) {
+        legendSplit(allLanes, hiddenAt, LegendHeadSize)
+    }
+    Row(
+        Modifier
+            .horizontalScroll(rememberScrollState())
+            .padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(
-            Modifier
-                .clip(RoundedCornerShape(16.dp))
-                .background(Raised)
-                // Up to three candidates and "None of these" under the fields can
-                // outgrow a small screen with the keyboard up.
-                .verticalScroll(rememberScrollState())
-                .padding(20.dp),
-        ) {
-            Text("From the shared ticket", fontFamily = Serif, fontSize = 19.sp, color = Ink, modifier = Modifier.asHeading())
-            Spacer(Modifier.height(6.dp))
-            Text(
-                if (pending.parsed.isEmpty) {
-                    "Couldn't read anything off that PDF. Fill it in by hand, or discard it."
-                } else if (pending.possibleMatch != null) {
-                    "This looks like a night already on your line — check it before saving: " +
-                        "it is added to that night only if who's playing and the date match it."
-                } else {
-                    "Here's what the ticket seemed to say. Check it before it's added."
-                },
-                color = Muted,
-                fontSize = 12.sp,
+        LaneKey(Amber, "You")
+        (if (expanded) head + rest else head).forEach { friend ->
+            Spacer(Modifier.width(14.dp))
+            LaneKey(
+                // The unfiltered index, never the legend's
+                // re-ordered position — a Lane colour comes
+                // from `allLanes.enumerated()`.
+                color = railColor(colourByUsername[friend.laneKey] ?: 0),
+                label = friend.name,
+                hidden = friend.laneKey in hiddenAt.keys,
+                onToggle = { onToggle(friend.laneKey) },
             )
-            pending.possibleMatch?.let { match ->
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "Possible match: ${match.artist?.name.orEmpty()} — ${match.venueLine()} — ${match.eventDate.orEmpty()}",
-                    color = Slate,
-                    fontSize = 12.sp,
-                )
-            }
-            Spacer(Modifier.height(14.dp))
-            StationField(artist, { artist = it; onArtistTyped(it) }, "who's playing")
-            // Suggestions matter more here than anywhere else: the name in this field
-            // came off an OCR pass, so a near miss is the expected case, not a typo.
-            ArtistSuggestions(suggestions) { artist = it; onArtistPicked() }
-            Spacer(Modifier.height(8.dp))
-            StationField(venue, { venue = it }, "venue (optional)")
-            Spacer(Modifier.height(8.dp))
-            StationField(date, { date = it }, "date (dd-MM-yyyy)", imeDone = true)
-            offered?.let { fm ->
-                Spacer(Modifier.height(12.dp))
-                Text(POSSIBLE_MATCH_TITLE, color = Slate, fontSize = 12.sp)
-                Spacer(Modifier.height(4.dp))
-                SetlistFmChoices(
-                    rows = fm.candidates.map { c ->
-                        SetlistFmChoice(
-                            c.setlist.id,
-                            StoredSetlistFmHit.of(c).line(),
-                            setlistFmQuestion(pending.parsed.venue, fromTicket = true, candidate = c),
-                        )
-                    },
-                    selected = chosen,
-                    onSelect = { chosen = it },
-                )
-            }
-            ConfirmAdmissions(pending.parsed)
-            Spacer(Modifier.height(4.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("Discard", color = Faint) }
-                val ready = artist.isNotBlank() && date.isNotBlank()
-                TextButton(
-                    onClick = { onConfirm(artist, venue, date, if (offered != null) chosen else null) },
-                    enabled = ready,
-                ) { Text("Save", color = if (ready) Amber else Faint) }
-            }
+        }
+        // A disclosure, never a truncation: every name
+        // above stays reachable, just not drawn until tapped.
+        if (!expanded && rest.isNotEmpty()) {
+            Spacer(Modifier.width(14.dp))
+            Text(
+                "+ ${rest.size} more",
+                color = Slate,
+                fontSize = 11.sp,
+                modifier = Modifier
+                    .clickable(onClick = onExpand)
+                    .padding(vertical = 6.dp),
+            )
         }
     }
 }
 
 /**
- * MusicBrainz's artists for what is in a "who's playing" field, directly under it and
- * nowhere else. Capped at four rows: this is a prompt above a keyboard, and a list that
- * scrolls is a search result page pretending to be a hint.
+ * A date is only a place once the rows exist. Friends' Lanes load
+ * after zooming out, so it waits for them rather than landing on
+ * the nearest Gig of a weave with nobody in it yet.
  */
 @Composable
-private fun ArtistSuggestions(suggestions: List<MbArtist>, onPick: (String) -> Unit) {
-    suggestions.take(4).forEach { hit ->
+private fun LinkedDateScroll(
+    linkedDate: LocalDate?,
+    rows: List<WovenRow>,
+    future: List<FutureRow>,
+    timelinesLoading: Boolean,
+    zoomedOut: Boolean,
+    actions: TimelineActions,
+) {
+    LaunchedEffect(linkedDate, rows, future, timelinesLoading) {
+        val date = linkedDate ?: return@LaunchedEffect
+        if (zoomedOut) {
+            actions.loadFriendTimelines()
+            if (actions.timelinesLoading()) return@LaunchedEffect
+        }
+        val dated = (rows.flatMap { it.shows + it.showsHereByFriends } +
+            future.flatMap { it.node.shows })
+            .mapNotNull { show -> show.localDate()?.let { show.id to it } }
+        actions.consumeLinkedDate()
+        nearestGig(dated, date)?.let {
+            actions.linkGig(it, if (zoomedOut) GigLink.WOVEN else GigLink.SINGLE_LINE)
+        }
+    }
+}
+
+/**
+ * A station-to-station:// link names a gig, and only here can a
+ * gig be turned into a place: one inside a collapsed festival
+ * has no row of its own until the festival opens, so this may
+ * take two passes — open it, let the rows rebuild, then scroll.
+ */
+@Composable
+private fun LinkedGigScroll(
+    linkedGig: String?,
+    linkedGigAs: GigLink?,
+    rows: List<WovenRow>,
+    future: List<FutureRow>,
+    expanded: Set<String>,
+    listState: LazyListState,
+    actions: TimelineActions,
+) {
+    LaunchedEffect(linkedGig, rows) {
+        val gig = linkedGig ?: return@LaunchedEffect
+        if (linkedGigAs == GigLink.SETLIST) {
+            actions.knownGig(gig)?.let {
+                actions.openShow(it)
+                actions.consumeGigLink()
+                actions.onOpenEvent()
+            }
+            return@LaunchedEffect
+        }
+        // A collapsed festival's own shows are only mine, so a night
+        // of theirs absorbed into it would never be found and never
+        // open the festival holding it.
+        // Last, not first: an open festival lists the gig again as a
+        // row of its own below its header, and that row is the place
+        // the link actually means.
+        val at = rows.indexOfLast { row ->
+            row.shows.any { it.id == gig } ||
+                row.showsHereByFriends.any { it.id == gig }
+        }
+        if (at < 0) {
+            val ahead = future.indexOfFirst { row -> row.node.shows.any { it.id == gig } }
+            if (ahead < 0) return@LaunchedEffect
+            listState.animateScrollToItem(1 + ahead)
+            actions.consumeGigLink()
+            return@LaunchedEffect
+        }
+        val row = rows[at]
+        val insideClosedFestival =
+            row.node is TimelineNode.Several && row.key !in expanded
+        if (insideClosedFestival) {
+            actions.openFestival(row.key)
+            return@LaunchedEffect
+        }
+        // The rows don't start at item 0: the future prompt is, and
+        // every gig I'm going to sits between it and them. Counted
+        // off the same list the LazyColumn emits, so the two cannot
+        // drift.
+        // …and every merge row down to and including this one's.
+        val merges = rows.take(at + 1).count { it.maybeAbove.isNotEmpty() }
+        listState.animateScrollToItem(at + 1 + future.size + merges)
+        actions.consumeGigLink()
+    }
+}
+
+/** My Line, with the other timelines woven in beside it while zoomed out. */
+@Composable
+private fun TimelineLine(
+    state: UiState,
+    legendExpanded: Boolean,
+    onExpandLegend: () -> Unit,
+    actions: TimelineActions,
+) {
+    val earliest = state.setlists.mapNotNull { it.year()?.toIntOrNull() }.minOrNull()
+    val listState = rememberLazyListState()
+    // Zooming out doesn't go anywhere: the strip beside my line opens and
+    // the other timelines slide into it, at my scale, on my spine.
+    // A card swap lands you here already zoomed out — you just went
+    // looking for their line, so it should be on screen.
+    val zoomedOut = state.zoomedOut
+    LaunchedEffect(state.justConnected) {
+        if (state.justConnected) {
+            actions.setZoomedOut(true)
+            actions.consumeJustConnected()
+        }
+    }
+    // An immutable set, swapped out on each toggle: a mutable list here
+    // is the same instance before and after, so remember() below could
+    // never see it change and the rows never rebuilt.
+    val expanded = state.openFestivals
+    // The legend keeps the whole list — it has to offer a hidden person
+    // back — and everything that draws reads the filtered one.
+    val allLanes = remember(state.friends) { state.friends.reversed() }
+    val lanes = remember(allLanes, state.hiddenLines) {
+        visibleLanes(allLanes, state.hiddenLines)
+    }
+    val colours = remember(allLanes, state.hiddenLines) {
+        laneColours(allLanes, state.hiddenLines)
+    }
+    // Springy rather than timed: the other lines settle into place like
+    // something physical arriving, instead of a panel sliding.
+    val laneWidth by animateDpAsState(
+        if (zoomedOut) stripWidth(lanes.size) else 0.dp,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessLow,
+        ),
+        label = "lanes",
+    )
+    // Pulls the next page in before the bottom. Measured against the rows laid
+    // out, not the show count: a festival collapses many shows into one row.
+    val nearPast by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+            last >= info.totalItemsCount - 3
+        }
+    }
+    LaunchedEffect(nearPast, state.setlistsLoading, state.setlists.size) {
+        if (nearPast && !state.setlistsLoading && state.setlists.size < state.setlistsTotal) {
+            actions.loadMoreSetlists()
+        }
+    }
+    // What a door does, whichever way it was reached — the gesture's
+    // release and the reader's custom action both call this, so a future
+    // rewire of one door can't silently leave the other stale.
+    fun openDoor(door: PlanningDoor) {
+        when (door) {
+            PlanningDoor.Gig -> actions.onAddGig()
+            PlanningDoor.Programme -> actions.onOpenProgramme()
+            PlanningDoor.Import -> actions.onOpenImport()
+            PlanningDoor.None -> {}
+        }
+    }
+    val pull = rememberPlanningPull(::openDoor)
+
+    val timelineActions = listOf(
+        CustomAccessibilityAction("Connect with someone nearby") {
+            actions.onOpenNearby(); true
+        },
+        CustomAccessibilityAction(
+            if (state.contactLight) "Turn the contact light off"
+            else "Turn the contact light on, to see your line as a contact sees it"
+        ) { actions.toggleContactLight(); true },
+        CustomAccessibilityAction(
+            if (zoomedOut) "Close the other timelines"
+            else "Open the other timelines beside yours"
+        ) { actions.setZoomedOut(!zoomedOut); true },
+        // The three doors live in the curtain, and a pull
+        // depth is not a thing TalkBack can express — so
+        // without these the only way into planning would
+        // be a gesture the reader intercepts. Each label
+        // matches the door's own text and calls openDoor,
+        // the same function the gesture's release calls,
+        // so the two paths cannot drift apart.
+        CustomAccessibilityAction("Add a gig you're going to") {
+            openDoor(PlanningDoor.Gig); true
+        },
+        CustomAccessibilityAction("Open the festival programme") {
+            openDoor(PlanningDoor.Programme); true
+        },
+        CustomAccessibilityAction("Import your setlist.fm history") {
+            openDoor(PlanningDoor.Import); true
+        },
+    )
+
+    Column(Modifier.fillMaxSize()) {
         Text(
             buildString {
-                append(hit.name)
-                if (hit.disambiguation.isNotBlank()) append("  · ${hit.disambiguation}")
+                append("${state.setlists.size} shows")
+                if (earliest != null) append(" · since $earliest")
             },
-            color = Slate,
+            color = Faint,
             fontSize = 12.sp,
             modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onPick(hit.name) }
-                .padding(vertical = 6.dp),
+                .padding(start = 20.dp, top = 2.dp, bottom = 14.dp)
+                // The first stop on the line for a screen reader, and so
+                // where its moves live: TalkBack lands on a line of text,
+                // not on the list under it.
+                .semantics { customActions = timelineActions },
         )
-    }
-}
+        if (zoomedOut || laneWidth > 0.dp) {
+            TimelineLegend(
+                allLanes = allLanes,
+                hiddenAt = state.hiddenAt,
+                expanded = legendExpanded,
+                onExpand = onExpandLegend,
+                onToggle = actions.toggleLineHidden,
+            )
+        }
+        PlanningPull(progress = pull.progress, heightPx = pull.heightPx)
+        // Planned nights become Sections too, so adding one can create an
+        // evening nothing has been asked about yet.
+        LaunchedEffect(state.setlists, state.plannedGigs) {
+            actions.resolveFestivals()
+        }
+        LaunchedEffect(zoomedOut) { if (zoomedOut) actions.loadFriendTimelines() }
+        val rows = remember(
+            state.setlists, state.plannedGigs, state.attendanceByGig,
+            state.festivals, lanes, state.showsByFriend, zoomedOut, expanded,
+            state.nightJoins, state.nightsApart,
+        ) {
+            weaveTimelines(
+                // Through `spineNights`, not `setlists` alone: a local gig
+                // that stops being a plan — checked into, or committed off
+                // a programme whose set has already finished — leaves the
+                // future lane at once, and the spine only picked it up on
+                // the next cold start.
+                // Deduped on id there, so a night on both lists is one.
+                mine = spineNights(
+                    state.setlists, state.plannedGigs, state.attendanceByGig,
+                ),
+                festivals = state.festivals,
+                friends = if (zoomedOut) lanes else emptyList(),
+                theirs = if (zoomedOut) state.showsByFriend else emptyMap(),
+                expanded = expanded,
+                // What I said about a Contact's Night nothing else links
+                // to mine: joined draws Joined, apart draws nothing.
+                joins = state.nightJoins,
+                apart = state.nightsApart,
+            )
+        }
+        LaunchedEffect(rows, lanes) { logWovenRows(rows, lanes, colours) }
+        // Everything above today, in one date-ordered list — furthest
+        // out first, the same descending order the attended rows use.
+        // Hoisted out of the LazyColumn because the deep-link scroll
+        // below counts it too, and the two must not drift.
+        val future = remember(
+            state.plannedGigs, state.attendanceByGig, state.festivals,
+        ) {
+            futureRows(
+                tickets = state.plannedGigs,
+                attendance = state.attendanceByGig,
+                festivals = state.festivals,
+            )
+        }
 
-/** The heading of every setlist.fm "is it this one?" list, and the Gig screen's chip (#531). */
-private const val POSSIBLE_MATCH_TITLE = "Possible match on setlist.fm"
+        LinkedDateScroll(
+            linkedDate = state.linkedDate,
+            rows = rows,
+            future = future,
+            timelinesLoading = state.timelinesLoading,
+            zoomedOut = zoomedOut,
+            actions = actions,
+        )
+        LinkedGigScroll(
+            linkedGig = state.linkedGig,
+            linkedGigAs = state.linkedGigAs,
+            rows = rows,
+            future = future,
+            expanded = expanded,
+            listState = listState,
+            actions = actions,
+        )
 
-/**
- * One row of a setlist.fm list: the hit's [id] (null for "None of these"), its [line]
- * (who, where, when — always shown, so rows never read alike), and the
- * [setlistFmQuestion] under it where the room is in doubt.
- */
-private class SetlistFmChoice(val id: String?, val line: String, val question: String? = null)
-
-/**
- * setlist.fm hits as a single choice, with "None of these" always last (#531).
- * [selected] null is "None of these"; [picked] false ticks nothing yet.
- */
-@Composable
-private fun SetlistFmChoices(
-    rows: List<SetlistFmChoice>,
-    selected: String?,
-    onSelect: (String?) -> Unit,
-    picked: Boolean = true,
-) {
-    // A real radio group to TalkBack (#164): the RadioButton below takes no click of its
-    // own, so without `selectable` on the row nothing said which one was chosen.
-    Column(Modifier.selectableGroup()) {
-        (rows + SetlistFmChoice(null, "None of these")).forEach { row ->
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .selectable(selected = picked && selected == row.id, role = Role.RadioButton) {
-                        onSelect(row.id)
-                    }
-                    .padding(vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RadioButton(
-                    selected = picked && selected == row.id,
-                    onClick = null,
-                    colors = RadioButtonDefaults.colors(selectedColor = Amber, unselectedColor = Faint),
-                )
-                Spacer(Modifier.width(8.dp))
-                Column {
-                    Text(row.line, color = Ink, fontSize = 13.sp)
-                    row.question?.let { Text(it, color = Muted, fontSize = 11.sp) }
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .nestedScroll(pull.nest)
+                // Swipe the timeline left to start connecting with someone
+                // nearby — the "act on this level" gesture, people axis.
+                .pointerInput(Unit) {
+                    val threshold = 90.dp.toPx()
+                    var dragX = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { dragX = 0f },
+                        onDragEnd = {
+                            // Left is Exchange; right is the light switch,
+                            // which is free here because there is nothing
+                            // further out than my own Line. A light
+                            // is not a place, so the same flick returns.
+                            if (dragX <= -threshold) actions.onOpenNearby()
+                            else if (dragX >= threshold) actions.toggleContactLight()
+                        },
+                        onHorizontalDrag = { _, delta -> dragX += delta },
+                    )
+                }
+                // Pinch out to open the other timelines beside mine; pinch
+                // back in to close them again. Nothing navigates.
+                .pointerInput(state.friends) {
+                    detectPinch(
+                        onZoomOut = { actions.setZoomedOut(true) },
+                        onZoomIn = { actions.setZoomedOut(false) },
+                    )
+                }
+                // The same three moves, for anyone not making them with
+                // their fingers. A flick and a pinch are the whole of how
+                // this screen changes **Resolution**, and TalkBack sends
+                // both to the reader instead — so without this the light
+                // and the other lines are not merely awkward to reach,
+                // they do not exist. The gestures above stay exactly as
+                // they are; this is the same call from another door.
+                //
+                // Labels are verbs and say which way the toggle goes,
+                // because the actions menu reads them out of context with
+                // nothing on screen to disambiguate them.
+                // Also on the header line above, where a reader's focus
+                // can land — a list is not itself a stop for TalkBack.
+                .semantics { customActions = timelineActions },
+        ) {
+            // The top of the line. Nothing sits here now but the lookup
+            // notice: "↑ THE FUTURE" captioned a direction the layout
+            // already states, and the add-rows that outlived it were the
+            // curtain's doors printed a second time — the doors were
+            // meant to *replace* them, not join them.
+            item { FuturePrompt(loading = state.planningLoading) }
+            futureItems(future, expanded, laneWidth, actions)
+            wovenItems(rows, lanes, colours, laneWidth, expanded, state, actions)
+            // The past edge: a quiet spinner while the next page flows in.
+            if (state.setlistsLoading && state.setlists.isNotEmpty()) {
+                item {
+                    Row(
+                        Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.Center,
+                    ) { CircularProgressIndicator(color = Amber, modifier = Modifier.size(22.dp)) }
                 }
             }
         }
@@ -1698,275 +1211,191 @@ private fun SetlistFmChoices(
 }
 
 /**
- * The Gig screen's "Possible match on setlist.fm" chip, opened (#531): each hit a lookup
- * was not sure of, as a single choice, with [setlistFmQuestion] under a hit where the
- * room is in doubt. Confirm on a hit is "yes, this one"; on "None of these" it rejects
- * them all; "Not now" leaves the question waiting. [hits] is the stored snapshot,
- * fetched afresh where that was lost.
+ * Everything above today, in one date-ordered list — furthest out first, the same
+ * descending order the attended rows below use. Planned gigs that share a venue and a
+ * night are a Festival like any other, grouped by the same function the attended rows
+ * use.
  */
-@Composable
-private fun PossibleMatchDialog(
-    gigId: String,
-    yourVenue: String?,
-    fromTicket: Boolean,
-    pendingIds: List<String>,
-    hits: suspend () -> List<StoredSetlistFmHit>,
-    onPick: (String) -> Unit,
-    onNone: () -> Unit,
-    onDismiss: () -> Unit,
+private fun LazyListScope.futureItems(
+    future: List<FutureRow>,
+    expanded: Set<String>,
+    laneWidth: Dp,
+    actions: TimelineActions,
 ) {
-    val loaded by produceState<List<StoredSetlistFmHit>?>(null, gigId, pendingIds) { value = hits() }
-    // Nothing ticked until the person picks: Confirm stays off, so no tap adopts by accident.
-    var chosen by remember(gigId) { mutableStateOf<String?>(null) }
-    var picked by remember(gigId) { mutableStateOf(false) }
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            Modifier
-                .clip(RoundedCornerShape(16.dp))
-                .background(Raised)
-                .padding(20.dp),
-        ) {
-            Text(POSSIBLE_MATCH_TITLE, fontFamily = Serif, fontSize = 19.sp, color = Ink, modifier = Modifier.asHeading())
-            Spacer(Modifier.height(12.dp))
-            val shown = loaded
-            if (shown == null) {
-                CircularProgressIndicator(color = Amber, modifier = Modifier.align(Alignment.CenterHorizontally))
-            } else {
-                SetlistFmChoices(
-                    rows = shown.map { hit ->
-                        SetlistFmChoice(hit.id, hit.line(), setlistFmQuestion(yourVenue, fromTicket, hit))
-                    },
-                    selected = chosen,
-                    onSelect = { chosen = it; picked = true },
-                    picked = picked,
-                )
+    items(
+        future,
+        key = { row ->
+            when (val n = row.node) {
+                is TimelineNode.Concert -> "planned-${n.setlist.id}"
+                // Prefixed for the same reason the concert above
+                // it is: both lanes are items of one LazyColumn,
+                // and a Festival with a night still planned and a
+                // night already attended is a node in each. The
+                // bare identity key would be used twice and throw.
+                is TimelineNode.Several -> "planned-${n.key}"
             }
-            Spacer(Modifier.height(4.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("Not now", color = Faint) }
-                TextButton(
-                    onClick = { chosen?.let(onPick) ?: onNone() },
-                    enabled = picked,
-                ) { Text("Confirm", color = if (picked) Amber else Faint) }
-            }
-        }
-    }
-}
-
-/** Whose offer this is: the Contact's name, or "A Contact" when their key is not on my list. */
-private fun offerSender(offer: MediaOffer, friends: List<Friend>): String =
-    offer.media.firstNotNullOfOrNull { it.from }?.let { friends.nameOf(it) } ?: "A Contact"
-
-/** "Mia offered 3 photos", counted the way a person would say it. */
-private fun offerLine(offer: MediaOffer, sender: String): String {
-    val n = offer.media.size
-    val kinds = offer.media.map { it.kind }.toSet()
-    val what = when (kinds.singleOrNull()) {
-        StoredMedia.Kind.PHOTO -> if (n == 1) "a photo" else "$n photos"
-        StoredMedia.Kind.VIDEO -> if (n == 1) "a video" else "$n videos"
-        StoredMedia.Kind.NOTE -> if (n == 1) "a note" else "$n notes"
-        else -> "$n things"
-    }
-    return "$sender offered $what"
-}
-
-/**
- * A **Contact**'s offer, answered (#405). Their media is for a Night of theirs on this
- * date; saying yes files it here and joins the two, saying no leaves this Night exactly as
- * it was. "Not now" leaves the question waiting.
- */
-@Composable
-private fun MediaOfferDialog(
-    offer: MediaOffer,
-    sender: String,
-    onAccept: () -> Unit,
-    onDecline: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            Modifier
-                .clip(RoundedCornerShape(16.dp))
-                .background(Raised)
-                .padding(20.dp),
-        ) {
-            Text(offerLine(offer, sender), fontFamily = Serif, fontSize = 19.sp, color = Ink, modifier = Modifier.asHeading())
-            Spacer(Modifier.height(6.dp))
-            val theirs = listOf(offer.artist, offer.venue).filter { it.isNotBlank() }.joinToString(" at ")
-            Text(
-                (if (theirs.isNotBlank()) "From their night: $theirs. " else "") +
-                    "Accept puts them on this night, as the same night. Decline leaves it as it is.",
-                color = Muted,
-                fontSize = 13.sp,
-            )
-            Spacer(Modifier.height(4.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("Not now", color = Faint) }
-                TextButton(
-                    onClick = onDecline,
-                    modifier = Modifier.semantics { contentDescription = "Decline $sender's offer" },
-                ) { Text("Decline", color = Slate) }
-                TextButton(
-                    onClick = onAccept,
-                    modifier = Modifier.semantics { contentDescription = "Accept $sender's offer onto this night" },
-                ) { Text("Accept", color = Amber) }
-            }
-        }
-    }
-}
-
-/** "Maybe with Mia" — the *maybe*'s tag on a Night of mine (#405). */
-private fun maybeTagLine(maybe: MaybeNight): String =
-    "Maybe with ${maybe.friend.name.ifBlank { "a Contact" }}"
-
-/** What their Night says it was: "Mia logged Kvelertak at Rockefeller". */
-private fun maybeTheirNight(maybe: MaybeNight): String {
-    val who = maybe.friend.name.ifBlank { "A Contact" }
-    val what = listOfNotNull(
-        maybe.theirs.artist?.name?.takeIf { it.isNotBlank() },
-        maybe.theirs.venue?.name?.takeIf { it.isNotBlank() },
-    ).joinToString(" at ")
-    return if (what.isBlank()) "$who logged a night on this date" else "$who logged $what"
-}
-
-/**
- * "Are you here?" — the one thing a check-in asks. Shown only when a fix already
- * put the phone at the venue on the night, so it states what it thinks and offers
- * the two honest answers.
- */
-@Composable
-private fun CheckInDialog(gig: FmSetlist, onCheckIn: () -> Unit, onDismiss: () -> Unit) {
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            Modifier
-                .clip(RoundedCornerShape(16.dp))
-                .background(Raised)
-                .padding(20.dp),
-        ) {
-            Text("Are you here?", fontFamily = Serif, fontSize = 19.sp, color = Ink, modifier = Modifier.asHeading())
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "${gig.artist?.name ?: "This show"} at ${gig.venue?.name ?: "the venue"}, tonight.",
-                color = Muted,
-                fontSize = 13.sp,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Checking in records that you were at it — on this phone, nowhere else.",
-                color = Faint,
-                fontSize = 11.sp,
-            )
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("Not now", color = Faint) }
-                TextButton(onClick = onCheckIn) { Text("Check in", color = Amber) }
-            }
-        }
-    }
-}
-
-/**
- * The one question a handed-over card has to ask: it names someone I already hold, and
- * says something different about them (#188).
- *
- * Shown only for a change. A card for a stranger is written without asking, and the
- * same card twice asks nothing — a prompt that routinely means nothing is a prompt
- * nobody reads, and this one has to be read.
- *
- * It names **both** values rather than only the new one, because the question is not
- * "is this name plausible" but "did the person in front of you mean to change what you
- * already had". A card can be handed over by a radio nobody tapped.
- */
-@Composable
-private fun FriendOverwriteDialog(
-    conflict: FriendArrival.Conflict,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            Modifier
-                .clip(RoundedCornerShape(16.dp))
-                .background(Raised)
-                .padding(20.dp),
-        ) {
-            Text("Change this contact?", fontFamily = Serif, fontSize = 19.sp, color = Ink, modifier = Modifier.asHeading())
-            Spacer(Modifier.height(6.dp))
-            // A changed key is a changed phone, and that is how the question is asked:
-            // someone who bought a handset recognises it immediately, and someone who did
-            // not has just been shown an attack. Cryptography is not a thing to ask a
-            // person about. A first key never lands here — that is a promotion (#188).
-            val keyChanged = conflict.existing.publicKey != null &&
-                conflict.incoming.publicKey != null &&
-                conflict.existing.publicKey != conflict.incoming.publicKey
-            Text(
-                if (keyChanged) {
-                    "${conflict.existing.name}${conflict.existing.atUser} seems to " +
-                        "be on a different phone than last time you saw them. Confirm you " +
-                        "still want to share."
-                } else {
-                    "A card for ${conflict.existing.handle} says something different " +
-                        "from what you have."
+        },
+    ) { row ->
+        when (val node = row.node) {
+            is TimelineNode.Concert -> TimelineItem(
+                setlist = node.setlist,
+                highlight = false,
+                planned = true,
+                laneWidth = laneWidth,
+                menu = actions.menuFor(node.setlist),
+                onClick = {
+                    actions.openShow(node.setlist)
+                    actions.onOpenEvent()
                 },
-                color = Muted,
-                fontSize = 13.sp,
             )
-            Spacer(Modifier.height(10.dp))
-            Text("Now: ${conflict.existing.name}${conflict.existing.atUser}", color = Ink, fontSize = 13.sp)
-            Text("Card: ${conflict.incoming.name}${conflict.incoming.atUser}", color = Amber, fontSize = 13.sp)
-            Spacer(Modifier.height(10.dp))
-            // A card with a different setlist.fm username — or a first one — changes where
-            // their Line is read from (#405), so the reassurance only holds when it does not.
-            val sameUser = conflict.incoming.setlistfm.isBlank() ||
-                conflict.incoming.setlistfm.equals(conflict.existing.setlistfm, ignoreCase = true)
-            if (sameUser) {
-                Text(
-                    "Their timeline does not change either way — only the name you see " +
-                        "against it.",
-                    color = Faint,
-                    fontSize = 11.sp,
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("Keep mine", color = Faint) }
-                TextButton(onClick = onConfirm) { Text("Use the card", color = Amber) }
+
+            // Opens in place, like every other node holding
+            // several nights. It has to open: collapsing two
+            // planned nights into one node with no way back
+            // in would take away the only handle each had.
+            is TimelineNode.Several -> {
+                val key = node.key
+                Column {
+                    FestivalItem(
+                        festival = node,
+                        highlight = false,
+                        open = key in expanded,
+                        laneWidth = laneWidth,
+                        onClick = { actions.toggleFestival(key) },
+                    )
+                    if (key in expanded) {
+                        node.shows.forEach { gig ->
+                            TimelineItem(
+                                setlist = gig,
+                                highlight = false,
+                                planned = true,
+                                inside = true,
+                                laneWidth = laneWidth,
+                                menu = actions.menuFor(gig),
+                                onClick = {
+                                    actions.openShow(gig)
+                                    actions.onOpenEvent()
+                                },
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 }
 
-/**
- * The one question a delete has to ask: this night holds the only copy of
- * [photos] photographs, and they go with it.
- *
- * Shown only when that count is above zero. A picture that also lives in the
- * gallery is a pointer, and stopping someone to confirm a pointer teaches them
- * to tap through the dialog that mattered.
- */
-@Composable
-private fun DeleteNightDialog(photos: Int, onDelete: () -> Unit, onDismiss: () -> Unit) {
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            Modifier
-                .clip(RoundedCornerShape(16.dp))
-                .background(Raised)
-                .padding(20.dp),
-        ) {
-            Text("Delete this night?", fontFamily = Serif, fontSize = 19.sp, color = Ink, modifier = Modifier.asHeading())
-            Spacer(Modifier.height(6.dp))
-            Text(
-                if (photos == 1) "Its photograph is only stored here. Deleting the night deletes it."
-                else "Its $photos photographs are only stored here. Deleting the night deletes them.",
-                color = Muted,
-                fontSize = 13.sp,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text("There is no undo.", color = Faint, fontSize = 11.sp)
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("Keep it", color = Faint) }
-                TextButton(onClick = onDelete) { Text("Delete", color = Danger) }
+/** The attended rows: my Nights with the other timelines woven in, merge rows between. */
+private fun LazyListScope.wovenItems(
+    rows: List<WovenRow>,
+    lanes: List<Friend>,
+    colours: List<Int>,
+    laneWidth: Dp,
+    expanded: Set<String>,
+    state: UiState,
+    actions: TimelineActions,
+) {
+    rows.forEachIndexed { index, row ->
+        // The merge row: its own row, between my Night and the
+        // Night of theirs the weave put right below it. The rails run
+        // on through it; under the contact light it keeps its height
+        // and loses its question, so flipping the switch moves nothing.
+        val above = rows.getOrNull(index - 1)
+        if (row.maybeAbove.isNotEmpty() && above != null) {
+            item(key = "maybe-${row.key}") {
+                MergeRow(
+                    mine = above,
+                    theirs = row,
+                    lanes = lanes,
+                    laneWidth = laneWidth,
+                    colours = colours,
+                    maybes = if (state.contactLight) emptyList() else row.maybeAbove,
+                    onCompare = actions.onCompare,
+                )
+            }
+        }
+        item(key = row.key) {
+            val isFirst = index == 0
+            val rails: @Composable () -> Unit =
+                { PeopleRails(row, rows.getOrNull(index + 1), lanes, laneWidth, colours) }
+            val nodeX = crossingX(row, lanes, laneWidth)
+            when (val node = row.node) {
+                is TimelineNode.Concert -> {
+                    // Visuals only. A Note has no bytes and an empty
+                    // `ref`, and one would draw a blank tile on the row.
+                    val nightMedia = state.mediaBySetlist[node.setlist.id]
+                        .orEmpty().filterNot { it.kind == StoredMedia.Kind.NOTE }
+                    TimelineItem(
+                        setlist = node.setlist,
+                        highlight = isFirst && row.mine,
+                        mine = row.mine,
+                        menu = if (row.mine) actions.menuFor(node.setlist) else null,
+                        laneWidth = laneWidth,
+                        inside = row.depth > 0,
+                        nodeX = nodeX,
+                        shared = row.shared && !state.contactLight,
+                        unlit = state.contactLight,
+                        rails = rails,
+                        // Unfiltered on purpose. Filtering here removed a
+                        // night's whole photo strip, so every row changed
+                        // height and the line moved under you — the one
+                        // thing a light switch must never do.
+                        photos = nightMedia.map { Uri.parse(it.ref) },
+                        // Which is why the answer rides alongside instead:
+                        // the same thumbnails in the same places, lit one
+                        // by one. The Room still holds the detail and the
+                        // sharing decision; the timeline says
+                        // truthfully which nights are worth opening.
+                        litPhotos = visibleToContacts(nightMedia)
+                            .map { Uri.parse(it.ref) }.toSet(),
+                        loadPhotoPreview = actions.photoPreview,
+                        // Off under the light, like the green: a
+                        // generic contact view has no "we" to ask about.
+                        // Only the maybes no merge row asks: the
+                        // rest have a row of their own right below.
+                        maybeWith = if (state.contactLight) emptyList()
+                        else row.maybeInWords.map { it.name },
+                        joinedWith = if (state.contactLight) emptyList()
+                        else row.joinedWith.map { it.name },
+                        onClick = {
+                            actions.openShow(node.setlist)
+                            actions.onOpenEvent()
+                        },
+                    )
+                }
+
+                // A festival opens where it stands rather than pushing
+                // you into a screen of its own.
+                is TimelineNode.Several -> FestivalItem(
+                    festival = node,
+                    highlight = isFirst,
+                    open = row.key in expanded,
+                    mine = row.mine,
+                    laneWidth = laneWidth,
+                    nodeX = nodeX,
+                    sharedCount = row.sharedCount,
+                    theirCount = row.theirsCount,
+                    // Company has a colour of its own — a night two
+                    // friends shared is nobody's lane colour either.
+                    // …and the lane colour is the host's *stable* one,
+                    // so hiding someone never repaints this.
+                    theirColor = if (row.others.size > 1) Crossed
+                    else railColor(colours.getOrElse(nodeHost(row, lanes)) { 0 }),
+                    unlit = state.contactLight,
+                    rails = rails,
+                    maybeWith = if (state.contactLight) emptyList()
+                    else row.maybeInWords.map { it.name },
+                    onClick = {
+                        actions.toggleFestival(row.key)
+                    },
+                    // The non-gestural route to the Collection
+                    // resolution: the pinch is aimed by where
+                    // the fingers land, and a reader with no fingers
+                    // to aim needs the same node named instead. Calls
+                    // the same function the (not yet built) pinch
+                    // will call, so the two paths cannot drift.
+                    onWalk = { actions.openCollectionWalk(node) },
+                )
             }
         }
     }
@@ -1981,7 +1410,7 @@ private fun DeleteNightDialog(photos: Int, onDelete: () -> Unit, onDismiss: () -
  * front door as well as in the data model.
  */
 @Composable
-private fun EmptyTimeline(onAdd: () -> Unit, onAddGig: () -> Unit) {
+internal fun EmptyTimeline(onAdd: () -> Unit, onAddGig: () -> Unit) {
     Column(
         Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -2175,3538 +1604,5 @@ internal fun StationField(
             unfocusedLabelColor = Faint,
         ),
         modifier = Modifier.fillMaxWidth(),
-    )
-}
-
-/** One line of a **Gig**'s long-press menu. */
-internal class GigMenuEntry(val label: String, val danger: Boolean = false, val run: () -> Unit)
-
-/** A **Gig**'s long-press menu: where it is held, and what can be done. */
-internal class GigMenuSpec(val caption: String, val entries: List<GigMenuEntry>)
-
-@Composable
-internal fun TimelineItem(
-    setlist: FmSetlist,
-    highlight: Boolean,
-    onClick: () -> Unit,
-    mine: Boolean = true,
-    laneWidth: Dp = 0.dp,
-    inside: Boolean = false,
-    nodeX: Dp = SpineX,
-    shared: Boolean = false,
-    /**
-     * A night I hold a ticket for, not one I was at. Amber means mine-and-happened,
-     * so a planned node is drawn in the future's colour instead — at every
-     * resolution, since "did I go to this" must never depend on the zoom.
-     */
-    planned: Boolean = false,
-    /**
-     * Under the contact light (#145): the amber comes off, and with it the meeting
-     * green. Absence of colour asserts nothing new — the palette is committed, Slate
-     * already means an **Act** not yet seen and green already means a night shared —
-     * so desaturating is the honest signal that this is not the view of my own **Line**.
-     */
-    unlit: Boolean = false,
-    rails: @Composable () -> Unit = {},
-    photos: List<Uri> = emptyList(),
-    /**
-     * Which of [photos] a **Contact** actually sees, so the strip can say which under
-     * the light rather than dimming all of them alike. Empty off the light, where the
-     * question is not being asked and every thumbnail is drawn at full strength.
-     *
-     * Resolved by [visibleToContacts] at the call site and never re-derived here:
-     * ContactView.kt is explicit that a second implementation of this rule will
-     * eventually disagree with the first, and that it would disagree in the direction
-     * of showing someone less than they are being sent.
-     */
-    litPhotos: Set<Uri> = emptySet(),
-    loadPhotoPreview: suspend (Uri) -> MediaThumb = { MediaThumb(null) },
-    /**
-     * The **Contacts** who may have shared this Night (#405): out the same date under a
-     * Night nothing links to mine. A question, so it is said in words and never drawn as
-     * a **Crossing** — the node stays mine until I answer in the **Room**.
-     */
-    maybeWith: List<String> = emptyList(),
-    /** Whose Night I said was this one (#580): "With Mia" under the joined node. */
-    joinedWith: List<String> = emptyList(),
-    /** What a long press offers; null, and the row has no menu. */
-    menu: GigMenuSpec? = null,
-) {
-    val songCount = setlist.performed().size
-    val zoomedOut = laneWidth > 0.dp
-    var menuOpen by remember { mutableStateOf(false) }
-    Row(
-        Modifier.fillMaxWidth().height(IntrinsicSize.Min).combinedClickable(
-            onClick = onClick,
-            onLongClickLabel = if (menu == null) null else "More",
-            onLongClick = if (menu == null) null else ({ menuOpen = true }),
-        ),
-    ) {
-        if (menu != null) {
-            DropdownMenu(
-                expanded = menuOpen,
-                onDismissRequest = { menuOpen = false },
-                modifier = Modifier.background(Raised),
-            ) {
-                Text(
-                    menu.caption,
-                    color = Faint,
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-                menu.entries.forEach { entry ->
-                    DropdownMenuItem(
-                        text = { Text(entry.label, color = if (entry.danger) Danger else Ink) },
-                        onClick = { menuOpen = false; entry.run() },
-                    )
-                }
-            }
-        }
-        // My own spine, always at the same place. A show only someone else was at
-        // leaves it bare: the line runs on, the edge between my nodes just gets longer.
-        Box(Modifier.width(SpineWidth + laneWidth).fillMaxHeight()) {
-            rails()
-            // Zoomed out the lines are the canvas's job — it has friends' lanes to draw.
-            // A planned node is the exception: nobody is woven into a night that hasn't
-            // happened, so there is no canvas above it and the spine would break.
-            if (!zoomedOut || planned) {
-                Box(
-                    Modifier.padding(start = SpineX).width(2.dp).fillMaxHeight()
-                        .background(if (unlit) Unlit.copy(alpha = 0.35f) else Amber.copy(alpha = 0.3f)),
-                )
-            }
-            if (mine) {
-                val size = if (inside) 10.dp else 14.dp
-                Box(
-                    Modifier
-                        .padding(start = nodeX - size / 2 + 1.dp, top = 6.dp)
-                        .size(size)
-                        .clip(CircleShape)
-                        // Opaque interior so the spine stops at the rim instead of
-                        // running through the node. A ring over a transparent centre
-                        // let the line show straight through the circle.
-                        .background(Ground)
-                        .border(
-                            2.dp,
-                            // Amber is what "mine" looks like at every resolution; the
-                            // night our lines became one gets a colour of its own; and
-                            // a night that hasn't happened has not earned either.
-                            when {
-                                // A generic contact view has no "we", so a night marked
-                                // as shared would claim a relationship this view does
-                                // not have — per-contact meaning smuggled back in.
-                                unlit -> Unlit
-                                planned -> Slate
-                                shared -> Crossed
-                                highlight -> Amber
-                                else -> Amber.copy(alpha = 0.6f)
-                            },
-                            CircleShape,
-                        ),
-                ) {
-                    // The most-recent node keeps its soft amber glow — over the opaque
-                    // fill now, so it tints the interior without the line behind it.
-                    if (highlight && !shared && !unlit) {
-                        Box(Modifier.matchParentSize().background(AmberSoft))
-                    }
-                }
-            }
-        }
-        Column(Modifier.padding(start = if (inside) 14.dp else 0.dp, end = 18.dp, bottom = 22.dp)) {
-            Text(
-                setlist.readableDateShort() ?: "Unknown date",
-                color = Faint,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 1.0.sp,
-            )
-            Spacer(Modifier.height(3.dp))
-            Text(
-                setlist.artist?.name ?: "Unknown artist",
-                fontFamily = Serif,
-                fontSize = 17.sp,
-                color = if (mine) Ink else Muted,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(setlist.venueLine(), color = Muted, fontSize = 13.sp)
-            if (joinedWith.isNotEmpty()) {
-                Spacer(Modifier.height(3.dp))
-                Text("With ${joinedWith.joinToString(" and ")}", color = Crossed, fontSize = 12.sp)
-            }
-            if (maybeWith.isNotEmpty()) MaybeLine(maybeWith)
-            // The Reliver's own keepsakes of the night — under the artist, over the
-            // song count. Big enough to actually read as a photo; the facts still win
-            // by being text, and the full-size gallery on the gig screen is bigger still.
-            if (photos.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
-                // Opacity, not absence: the same three thumbnails in the same three
-                // places, so nothing above or below them moves.
-                //
-                // Per thumbnail, not per strip. Dimming the whole row was uniform, and
-                // uniform is the failure ContactView.kt names about absence — it cannot
-                // tell a night I shared nothing from a night I shared everything. A night
-                // with an empty vault came up as dark as a withheld one, which does not
-                // merely under-inform, it misreports. Count and slots are unchanged, so
-                // the reflow this dimming exists to avoid still cannot happen.
-                Row {
-                    photos.take(3).forEach { uri ->
-                        PhotoThumb(
-                            uri,
-                            size = 44.dp,
-                            loadPreview = loadPhotoPreview,
-                            modifier = Modifier.alpha(if (unlit && uri !in litPhotos) 0.35f else 1f),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                    }
-                }
-            }
-            Spacer(Modifier.height(7.dp))
-            Text(
-                when {
-                    planned -> plannedStatus(setlist.localDate(), songCount = songCount)
-                    songCount > 0 -> "$songCount songs"
-                    else -> "setlist not logged"
-                },
-                color = if (planned) Slate else Faint,
-                fontSize = 12.sp,
-            )
-        }
-    }
-}
-
-/**
- * The *maybe* on a row of the Spine (#405): "maybe with Mia". In the meeting's green,
- * because it is a meeting that might have been, but as words beside my node rather than
- * a line that bends to it — a line is a claim, and this is a question.
- */
-@Composable
-internal fun MaybeLine(names: List<String>) {
-    val who = names.joinToString(" and ")
-    Spacer(Modifier.height(3.dp))
-    Text(
-        "maybe with $who",
-        color = Crossed.copy(alpha = 0.85f),
-        fontSize = 12.sp,
-        modifier = Modifier.semantics {
-            contentDescription = "Maybe a night shared with $who. Open it to say whether it was."
-        },
-    )
-}
-
-@Composable
-private fun LaneKey(
-    color: Color,
-    label: String,
-    hidden: Boolean = false,
-    onToggle: (() -> Unit)? = null,
-) {
-    Row(
-        Modifier
-            .then(
-                // A real toggle rather than a tap handler, so a switch or keyboard user
-                // gets the control and TalkBack says which way it is before they use it.
-                if (onToggle == null) Modifier
-                else Modifier
-                    .toggleable(value = !hidden, role = Role.Switch) { onToggle() }
-                    .semantics { stateDescription = if (hidden) "hidden" else "shown" },
-            )
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // Hidden is said twice over: the swatch goes out and the name is struck
-        // through, so the state survives a colour the reader cannot discriminate.
-        Box(Modifier.width(3.dp).height(12.dp).background(if (hidden) Faint else color))
-        Spacer(Modifier.width(5.dp))
-        Text(
-            label,
-            color = if (hidden) Faint else Muted,
-            fontSize = 11.sp,
-            textDecoration = if (hidden) TextDecoration.LineThrough else null,
-        )
-    }
-}
-
-/**
- * One lane per friend, opening out to the right of my spine as you zoom out. Kept
- * close to the spine: the further out they sit, the harder a line has to swerve to
- * come and meet mine, and the swerve is what reads as an interruption.
- */
-internal val LaneStep = 20.dp
-
-/**
- * How wide the strip may grow. Past this the lanes tighten instead of pushing the
- * text off the phone, so the view survives more friends than fit at full spacing.
- */
-private val MaxStripWidth = 132.dp
-
-/**
- * The legend's `+ N more` disclosure never appears below this many names (#396): a
- * floor, not a cap — every active Lane is always in the head regardless.
- */
-private const val LegendHeadSize = 6
-
-/** Lane spacing for [count] friends: full step until the strip is full, then tighter. */
-internal fun laneStep(count: Int): Dp =
-    if (count <= 0) LaneStep else minOf(LaneStep, MaxStripWidth / count)
-
-/** The strip's width at [count] friends — never more than [MaxStripWidth]. */
-internal fun stripWidth(count: Int): Dp = laneStep(count) * count
-
-/** My own line. Not a lane: it is the fixed thing every lane is measured against. */
-internal const val Spine = -1
-
-/**
- * The **Lanes** actually drawn: everyone in lane order, minus the people tapped out of
- * the legend. [hidden] holds setlist.fm usernames, the same key the friends list itself
- * de-duplicates on.
- *
- * **The one place hiding is applied** (#266). Every consumer of the lane list — the
- * weave that builds the rows, [rowGeometry], [nodeHost], [crossingX] and the dump — is
- * handed this list, so none of them learns that filtering exists and none of them can
- * disagree about who is on screen. A hidden person is not in a row's other-attendees,
- * so they place no **Line**, count into no **Crossing**, and drop out of a **Festival**'s
- * **Together** and **Theirs** by construction rather than by a second subtraction.
- *
- * A reading aid and nothing else: it is not stored, nothing is sent, and it says
- * nothing about the relationship — a hidden **Contact**'s **Gig resolution**, media and
- * **Reconcile** are untouched, because none of them reads a lane list.
- */
-internal fun visibleLanes(lanes: List<Friend>, hidden: Set<String>): List<Friend> =
-    if (hidden.isEmpty()) lanes else laneColours(lanes, hidden).map(lanes::get)
-
-/**
- * The colour index each visible **Lane** keeps: its position in the *unfiltered* list.
- *
- * The one thing the seam above does not give for free. **Lane colour** is taken from an
- * index, and the drawn index re-packs when someone is hidden — so without this, hiding
- * one person repaints everyone outside them and a colour you have learned to read stops
- * meaning a person. Kept here rather than in the canvas so "hiding does not recolour
- * anyone" is assertable with no canvas and no device.
- */
-internal fun laneColours(lanes: List<Friend>, hidden: Set<String>): List<Int> =
-    lanes.indices.filterNot { lanes[it].laneKey in hidden }
-
-/**
- * One order for the whole lane legend: most recently toggled off first, and any
- * active (currently shown) Lane ahead of every hidden one (#396). [hiddenAt] is
- * toggle-off time by setlist.fm username; a username absent from it is active.
- *
- * One sort key, not an active list and a hidden list stitched together — which is
- * what makes [legendSplit]'s head simply the front of this order rather than a
- * second rule.
- */
-internal fun legendOrder(lanes: List<Friend>, hiddenAt: Map<String, Long>): List<Friend> =
-    lanes.sortedWith(compareByDescending { hiddenAt[it.laneKey] ?: Long.MAX_VALUE })
-
-/**
- * Where the legend's `+ N more` disclosure takes over (#396). The head holds every
- * active Lane — never cut, because losing the group you are actually comparing is
- * the bug this exists to fix — plus the most recently hidden ones, up to [headSize].
- * [headSize] is a floor, not a cap: more active Lanes than that only grow the head.
- *
- * `rest` is a disclosure, never a truncation (#266): every name [legendOrder] puts
- * there is still in it, in the same order, just not drawn until it is opened.
- */
-internal fun legendSplit(
-    lanes: List<Friend>,
-    hiddenAt: Map<String, Long>,
-    headSize: Int,
-): Pair<List<Friend>, List<Friend>> {
-    val ordered = legendOrder(lanes, hiddenAt)
-    val activeCount = lanes.count { it.laneKey !in hiddenAt }
-    val count = maxOf(headSize, activeCount)
-    return ordered.take(count) to ordered.drop(count)
-}
-
-/**
- * A line index in points. [Spine] is -1, so lane 0 sits one step out from my spine.
- *
- * Which line is a whole number — the only honest float in this area is *where in
- * points*, which is this function's result and the strip's openness in [crossingX].
- */
-internal fun laneXf(offset: Int, step: Dp) = SpineX + step * (offset + 1)
-
-/**
- * Which lines were at a row: [Spine] for me, plus a lane index per friend present.
- *
- * The single which-line primitive. Everything else in this section is a question
- * asked of this list — the node's host is its minimum, presence is membership, and
- * company is its size — so the merge rule is written once and cannot drift out of
- * step with the canvas that draws it (#69).
- */
-internal fun linesAt(row: WovenRow, lanes: List<Friend>): List<Int> = buildList {
-    if (row.mine) add(Spine)
-    lanes.forEachIndexed { i, f ->
-        if (row.others.any { it.laneKey == f.laneKey }) add(i)
-    }
-}
-
-/**
- * Which line a row's node sits on. Lines that share a node become one line, so a
- * night has exactly one node — mine when I was there (my line never moves to meet
- * anyone), otherwise the innermost lane among the friends who were, which the
- * others come to. Returns [Spine] or a lane index.
- *
- * The innermost line *is* the minimum: [Spine] is -1 and so sorts below every lane
- * index, and `row.mine` is what puts it in the set. That equivalence used to be
- * something to verify by reading two implementations against each other.
- */
-internal fun nodeHost(row: WovenRow, lanes: List<Friend>): Int =
-    linesAt(row, lanes).minOrNull() ?: Spine
-
-/**
- * Where a line is drawn at a row: on the node if it was there, otherwise its own lane.
- * [line] is [Spine] for mine or a lane index for a friend's. The line-index-keyed twin
- * of [hostLane], and the one the canvas asks.
- */
-internal fun lineOffset(row: WovenRow?, line: Int, lanes: List<Friend>): Int {
-    if (row == null) return line
-    return if (linesAt(row, lanes).contains(line)) nodeHost(row, lanes) else line
-}
-
-/**
- * Which line [friend] is drawn on at [row]: the node's host if they were there,
- * otherwise their own lane. This is the whole merge rule — asking it per friend is
- * what makes A parting on the row B joins two independent answers instead of one
- * shared boolean. Replaces `merged()`, whose Boolean could only ever mean "with me".
- *
- * Resolves the friend to a lane index and hands the same rule to [lineOffset]: one
- * rule, two key types, one implementation. `indexOfFirst` returns -1 for someone with
- * no lane, which is [Spine] — deliberately not lane 0, which belongs to a real friend.
- */
-internal fun hostLane(row: WovenRow?, friend: Friend, lanes: List<Friend>): Int =
-    lineOffset(row, lanes.indexOfFirst { it.laneKey == friend.laneKey }, lanes)
-
-/**
- * Where a row's node sits. My line never moves — a night we shared happens *on* my
- * line, and theirs comes to meet it. Putting the node between the two made both
- * timelines leave their own path to attend it.
- */
-internal fun crossingX(
-    row: WovenRow,
-    lanes: List<Friend>,
-    laneWidth: Dp,
-): Dp {
-    val offset = nodeHost(row, lanes)
-    if (laneWidth <= 0.dp || offset == Spine) return SpineX
-    val step = laneStep(lanes.size)
-    // The lanes are still sliding out while the strip opens; keep the node with them.
-    val open = (laneWidth / stripWidth(lanes.size)).coerceIn(0f, 1f)
-    return SpineX + (laneXf(offset, step) - SpineX) * open
-}
-
-/**
- * The height the dump computes its geometry at. A real row's height is only known once
- * it has been laid out, and it varies with the text in it — but the only number that
- * depends on it is the tail bend, and at any height a row with a line of text on it
- * actually reaches, the bend is already clamped to [EdgeBend]. So this stands in for
- * "a row of ordinary height" rather than pretending to measure one.
- */
-private val DumpRowHeight = 96.dp
-
-/**
- * What a **Node** is, in the log's own vocabulary. The three are a real distinction —
- * a **Section** claims one evening in one room, a **Festival** claims an identity — and
- * a dump that flattened them would hide exactly the bug #166 fixed.
- */
-private fun nodeKind(node: TimelineNode): String = when (node) {
-    is TimelineNode.Concert -> "gig"
-    is TimelineNode.Section -> "section"
-    is TimelineNode.Festival -> "festival"
-}
-
-/**
- * The woven spine as facts rather than pixels: `adb logcat -s Woven`.
- *
- * Every rule in this file is visual, and the only way to check one has been to read
- * a screenshot — which is slow and, at least once, wrong: three lines converging was
- * read off an image as a merge that the data said never happened. A row's model, the
- * lane each person is drawn on, *and the geometry actually stroked* are all computable
- * here, so they can be asserted on instead of squinted at. Debug builds only.
- *
- * The geometry printed is the same [rowGeometry] value the canvas draws from, at a
- * fully open strip — so a picture that looks wrong converts into a failing test by
- * copying numbers out of this log.
- */
-internal fun logWovenRows(
-    rows: List<WovenRow>,
-    lanes: List<Friend>,
-    colours: List<Int> = emptyList(),
-) {
-    if (!BuildConfig.DEBUG) return
-    val laneWidth = stripWidth(lanes.size)
-    Log.d(
-        "Woven",
-        "--- ${rows.size} rows, lanes=${lanes.map { it.laneKey }}, " +
-            "geometry in dp at laneWidth=${laneWidth.value} rowHeight=${DumpRowHeight.value} ---",
-    )
-    rows.forEachIndexed { i, row ->
-        val where = lanes.joinToString(" ") { f ->
-            val lane = hostLane(row, f, lanes)
-            "${f.laneKey}@${if (lane == Spine) "spine" else "lane$lane"}"
-        }
-        Log.d(
-            "Woven",
-            "${row.date} d${row.depth} ${if (row.mine) "mine" else "theirs"} " +
-                "node=${nodeKind(row.node)} " +
-                "with=[${row.others.joinToString(",") { it.laneKey }}] " +
-                "together=${row.sharedCount} theirs=${row.theirsCount} " +
-                "here=${row.showsHereByFriends.size} " +
-                "host=${nodeHost(row, lanes)} $where key=${row.key}",
-        )
-        rowGeometry(row, rows.getOrNull(i + 1), lanes, laneWidth, DumpRowHeight, colours).forEach { d ->
-            Log.d(
-                "Woven",
-                "    ${lineLabel(d.line, lanes)} x=${d.x.value}→${d.toX.value} " +
-                    "node=(${d.nodeY.value},r${d.nodeR.value}) bend=${d.bendLen.value} " +
-                    "${if (d.present) "here" else "past"} " +
-                    "body=${d.people}p/${d.width.value}dp/${d.colour} " +
-                    "ahead=${d.peopleAhead}p/${d.widthAhead.value}dp/${d.colourAhead}",
-            )
-        }
-    }
-}
-
-/** A role resolved against the palette. The only thing the canvas gets to decide. */
-private fun LineColour.paint(): Color = when (this) {
-    LineColour.Meeting -> Crossed
-    is LineColour.Mine -> Amber.copy(alpha = if (present) 0.85f else 0.4f)
-    is LineColour.Rail -> railColor(colourIndex)
-    LineColour.Absent -> LineCol
-}
-
-/**
- * Strokes what [rowGeometry] says. Every number arrives already computed in points;
- * the only thing this does with geometry is convert it to pixels. A rule that lived
- * here could not be asserted, so none does — changing how a **Line** looks must not be
- * able to move where it goes (#116).
- */
-@Composable
-internal fun PeopleRails(
-    row: WovenRow,
-    next: WovenRow?,
-    friends: List<Friend>,
-    laneWidth: Dp,
-    colours: List<Int> = emptyList(),
-) {
-    if (laneWidth <= 0.dp || friends.isEmpty()) return
-    Canvas(Modifier.fillMaxSize()) {
-        val h = size.height
-        val drawn = rowGeometry(row, next, friends, laneWidth, h.toDp(), colours)
-        val ring = Stroke(width = 2.dp.toPx())
-        val nodeAt = nodeHost(row, friends)
-
-        drawn.forEach { d ->
-            val x = d.x.toPx()
-            val toX = d.toX.toPx()
-            val nodeY = d.nodeY.toPx()
-            val gap = d.nodeR.toPx()
-            val bendLen = d.bendLen.toPx()
-            val body = d.colour.paint()
-            val bodyStroke = Stroke(width = d.width.toPx())
-
-            if (nodeY - gap > 0f) {
-                val approach = Path().apply {
-                    moveTo(x, 0f)
-                    lineTo(x, nodeY - gap)
-                }
-                drawPath(approach, body, style = bodyStroke)
-            }
-
-            val trunk = Path().apply {
-                moveTo(x, nodeY + gap)
-                lineTo(x, h - bendLen)
-            }
-            drawPath(trunk, body, style = bodyStroke)
-
-            val tail = Path().apply {
-                moveTo(x, h - bendLen)
-                if (toX == x) lineTo(x, h)
-                else cubicTo(x, h - bendLen * 0.45f, toX, h - bendLen * 0.55f, toX, h)
-            }
-            drawPath(tail, d.colourAhead.paint(), style = Stroke(width = d.widthAhead.toPx()))
-
-            // One node per night, drawn once by the innermost line that was there.
-            // My own rows and festivals draw their own, so this only fills the gap
-            // for a gig of theirs.
-            val drawsNode = d.present && !row.mine && row.node !is TimelineNode.Several &&
-                d.line == nodeAt
-            if (drawsNode) {
-                // The role this line already carries, not a second colour decision:
-                // company here *is* people > 1, and the lane's colour is its stable
-                // one, which a drawn index stops being once anyone is hidden (#266).
-                drawCircle(
-                    d.colour.paint(),
-                    6.dp.toPx(),
-                    Offset(x, nodeY),
-                    style = ring,
-                )
-            }
-        }
-    }
-}
-
-/**
- * A **Contact**'s **Lane colour**, the one their rail carries: the lane order is the
- * friends list reversed, and a colour is kept by the unfiltered index (#266).
- */
-internal fun laneColourOf(friend: Friend, friends: List<Friend>): Color =
-    railColor(friends.reversed().indexOfFirst { it.laneKey == friend.laneKey }.coerceAtLeast(0))
-
-/**
- * The merge row (#580): its own row between my Night ([mine]) and the Night of theirs
- * the weave put right below it ([theirs]). Every **Line** runs straight on through it,
- * at the x and in the colour the edge between the two rows already has — the tails of
- * [mine] finished their bend above — and a dashed link runs from my node down to theirs.
- * A link is a question, not a **Crossing**, so it is dashed and in no one's colour.
- *
- * With no [maybes] (the contact light) the row keeps its height and draws the rails
- * alone, so flipping the switch moves nothing.
- */
-@Composable
-private fun MergeRow(
-    mine: WovenRow,
-    theirs: WovenRow,
-    lanes: List<Friend>,
-    laneWidth: Dp,
-    colours: List<Int>,
-    maybes: List<MaybeNight>,
-    onCompare: (MaybeNight) -> Unit,
-) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 60.dp).height(IntrinsicSize.Min)) {
-        Box(Modifier.width(SpineWidth + laneWidth).fillMaxHeight()) {
-            Canvas(Modifier.fillMaxSize()) {
-                val h = size.height
-                val drawn = rowGeometry(mine, theirs, lanes, laneWidth, h.toDp(), colours)
-                drawn.forEach { d ->
-                    val x = d.toX.toPx()
-                    drawLine(d.colourAhead.paint(), Offset(x, 0f), Offset(x, h), strokeWidth = d.widthAhead.toPx())
-                }
-                if (maybes.isNotEmpty()) {
-                    val from = SpineLineX.toPx()
-                    val host = nodeHost(theirs, lanes)
-                    val to = drawn.firstOrNull { it.line == host }?.toX?.toPx() ?: from
-                    val link = Path().apply {
-                        moveTo(from, 0f)
-                        cubicTo(from, h * 0.5f, to, h * 0.5f, to, h)
-                    }
-                    drawPath(
-                        link,
-                        Ink.copy(alpha = 0.7f),
-                        style = Stroke(
-                            width = 1.5.dp.toPx(),
-                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 4.dp.toPx())),
-                        ),
-                    )
-                }
-            }
-        }
-        Column(
-            Modifier.padding(end = 18.dp, top = 8.dp, bottom = 8.dp).align(Alignment.CenterVertically),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            maybes.forEach { maybe -> MaybePill(maybe, onClick = { onCompare(maybe) }) }
-        }
-    }
-}
-
-/** "Same night as Mia's? Compare" — the merge row's one control (#580). */
-@Composable
-private fun MaybePill(maybe: MaybeNight, onClick: () -> Unit) {
-    val label = maybeMergeLabel(maybe)
-    Row(
-        Modifier
-            .heightIn(min = 48.dp)
-            .clip(RoundedCornerShape(22.dp))
-            .background(Raised)
-            .drawBehind {
-                val w = 1.dp.toPx()
-                drawRoundRect(
-                    Muted,
-                    topLeft = Offset(w / 2, w / 2),
-                    size = androidx.compose.ui.geometry.Size(size.width - w, size.height - w),
-                    cornerRadius = CornerRadius(22.dp.toPx() - w / 2),
-                    style = Stroke(width = w, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx()))),
-                )
-            }
-            .clickable(role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = label }
-            .padding(start = 14.dp, end = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text(maybePill(maybe), color = Ink, fontSize = 14.sp, modifier = Modifier.weight(1f, fill = false).clearAndSetSemantics {})
-        Text("Compare", color = Amber, fontSize = 14.sp, modifier = Modifier.clearAndSetSemantics {})
-    }
-}
-
-/**
- * The *maybe*, compared (#580): my Night and theirs side by side — Artist, Date, Venue,
- * City, From — with the rows that disagree lit, and read out row by row with
- * "differs" said, never only shown. Then the one line that says what "Same night"
- * keeps, and the three answers. Nothing is chosen field by field.
- *
- * The one sheet for both places the question is asked: the merge row on the Spine,
- * and the **Room**, where going to share media from a *maybe* Night asks it first
- * ([sharing], story 22 of #405) — which is why the reason is said out loud there.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun MaybeCompareSheet(
-    maybe: MaybeNight,
-    theirColour: Color,
-    sharing: Boolean,
-    onSame: (adopt: Boolean) -> Unit,
-    onApart: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val whose = maybeWhose(maybe)
-    // "Same night" on a Night of mine typed by hand, against theirs from setlist.fm,
-    // asks one more thing: take their entry? Asked, because taking it can't be undone.
-    var adopting by remember(maybe) { mutableStateOf(false) }
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = Raised,
-        contentColor = Ink,
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-        dragHandle = {
-            Box(
-                Modifier.padding(top = 12.dp).size(width = 36.dp, height = 4.dp)
-                    .clip(RoundedCornerShape(2.dp)).background(LineCol),
-            )
-        },
-    ) {
-        Column(
-            Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
-                .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            if (adopting) {
-                Text(
-                    maybeAdoptQuestion(maybe),
-                    fontFamily = Serif,
-                    fontSize = 22.sp,
-                    color = Ink,
-                    modifier = Modifier.asHeading(),
-                )
-                Text(maybeAdoptLine(maybe), color = Muted, fontSize = 14.sp, lineHeight = 20.sp)
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { onSame(true) },
-                        colors = ButtonDefaults.buttonColors(containerColor = Amber, contentColor = Ground),
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                    ) { Text("Take it", fontWeight = FontWeight.SemiBold, fontSize = 15.sp) }
-                    OutlinedButton(
-                        onClick = { onSame(false) },
-                        border = BorderStroke(1.dp, LineLit),
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                    ) { Text("Keep mine", color = Ink, fontSize = 15.sp) }
-                }
-            } else {
-                Text(
-                    "Were you both at this night?",
-                    fontFamily = Serif,
-                    fontSize = 22.sp,
-                    color = Ink,
-                    modifier = Modifier.asHeading(),
-                )
-                Column {
-                    // The column heads are said in every row below, so a reader moving row
-                    // by row never has to remember which side is whose.
-                    Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).clearAndSetSemantics {}) {
-                        Spacer(Modifier.width(64.dp))
-                        Text("Yours", color = Amber, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f).padding(end = 8.dp))
-                        Text(whose, color = theirColour, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    }
-                    compareMaybe(maybe).forEach { field ->
-                        val value = if (field.differs) Amber else Ink
-                        Box(Modifier.fillMaxWidth().height(1.dp).background(LineCol))
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .background(if (field.differs) AmberSoft else Color.Transparent)
-                                .clearAndSetSemantics { contentDescription = maybeFieldSpoken(maybe, field) }
-                                .padding(vertical = 10.dp, horizontal = if (field.differs) 6.dp else 0.dp),
-                        ) {
-                            Text(field.label, color = Muted, fontSize = 14.sp, modifier = Modifier.width(if (field.differs) 58.dp else 64.dp))
-                            Text(field.yours, color = value, fontSize = 14.sp, modifier = Modifier.weight(1f).padding(end = 8.dp))
-                            Text(field.theirs, color = value, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                        }
-                    }
-                }
-                Text(
-                    sameNightLine(maybe) +
-                        if (sharing) " You're sharing from this night, so it's worth knowing first." else "",
-                    color = Muted,
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp,
-                )
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { if (maybeAdoptable(maybe)) adopting = true else onSame(false) },
-                        colors = ButtonDefaults.buttonColors(containerColor = Amber, contentColor = Ground),
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                    ) { Text("Same night", fontWeight = FontWeight.SemiBold, fontSize = 15.sp) }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = onApart,
-                            border = BorderStroke(1.dp, LineLit),
-                            modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                        ) { Text("Not the same", color = Ink, fontSize = 15.sp) }
-                        TextButton(
-                            onClick = onDismiss,
-                            modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                        ) { Text("Not now", color = Muted, fontSize = 15.sp) }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// --- Event view: a single night, its real setlist as a spine ---
-
-internal sealed interface EventRow {
-    data object Encore : EventRow
-
-    /**
-     * [number] is null for a tape track. It played in the room, so it stays on the
-     * line — but it is not one of the songs the band performed, and numbering it
-     * pushed every song after it out by one against the setlist on setlist.fm.
-     */
-    data class SongItem(val number: Int?, val song: FmSong) : EventRow
-}
-
-internal fun FmSetlist.eventRows(): List<EventRow> = buildList {
-    var n = 0
-    sets?.set.orEmpty().forEach { set ->
-        if (set.encore != null) add(EventRow.Encore)
-        // A nameless entry is setlist.fm's placeholder for a song nobody could
-        // identify; it has nothing to show and must not take a number either.
-        set.song.filter { it.name.isNotBlank() }.forEach { song ->
-            add(EventRow.SongItem(if (song.tape) null else ++n, song))
-        }
-    }
-}
-
-/** A gig photo or video frame, decoded lazily and cached by its own [uri] key. */
-@Composable
-private fun PhotoThumb(uri: Uri, size: Dp, loadPreview: suspend (Uri) -> MediaThumb, modifier: Modifier = Modifier) {
-    var thumb by remember(uri) { mutableStateOf(MediaThumb(null)) }
-    LaunchedEffect(uri) { thumb = loadPreview(uri) }
-    Box(modifier.size(size).clip(RoundedCornerShape(6.dp)).background(Raised2)) {
-        thumb.bitmap?.let {
-            Image(
-                it.asImageBitmap(),
-                contentDescription = "Your photo from this show",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
-        if (thumb.isVideo) {
-            Icon(
-                Icons.Filled.PlayArrow,
-                contentDescription = "Video",
-                tint = Color.White,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(size / 3)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.4f)),
-            )
-        }
-    }
-}
-
-/**
- * The **Collection resolution**'s portrait face (#313 story 5): every **Gig** in the
- * run's media, combined into one place, so a three-day festival reads as one weekend
- * instead of a per-night crawl. Not a screen of its own — drawn over the **Line** in
- * portrait the same way [io.github.magnusencoded.stationtostation.ui.flyover.CollectionFlyoverScreen]
- * is drawn over it in landscape, so leaving is the same state change either way.
- *
- * **Follows the Room's own grammar rather than inventing a second media surface**:
- * [GigMediaBands] is the component the **Gig resolution**'s portrait face already
- * draws media in, called here with the run's combined list. It is read-only — a run
- * has no single **Gig** to attach into or arrange within — so arranging and adding are
- * never offered; `editable = false` and every mutating callback is a no-op.
- */
-@Composable
-internal fun CollectionMediaScreen(viewModel: AppViewModel, node: TimelineNode.Several, onBack: () -> Unit) {
-    val state by viewModel.state.collectAsStateWithLifecycle()
-
-    // The platform back affordance leaves the resolution, the same as the landscape
-    // face and for the same reason (#313): this rung was entered by a gesture or a
-    // non-gestural action alike, and the system's own way out must always work.
-    BackHandler(onBack = onBack)
-
-    val gigs = remember(
-        node, state.mediaBySetlist, state.logsByGig, state.festivals,
-        state.showsByFriend, state.attendanceByGig, state.witnessedGigs, state.contactLight,
-    ) {
-        collectionFlyoverGigs(
-            node = node,
-            mediaBySetlist = state.mediaBySetlist,
-            logsByGig = state.logsByGig,
-            festivals = state.festivals,
-            showsByFriend = state.showsByFriend,
-            attendanceByGig = state.attendanceByGig,
-            witnessedGigs = state.witnessedGigs,
-            contactLight = state.contactLight,
-        )
-    }
-    val media = remember(gigs) { collectionMedia(gigs) }
-    val billboard = remember(node) { collectionBillboard(node) }
-
-    var viewerUri by remember { mutableStateOf<Uri?>(null) }
-
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(Ground)
-            .swipeRightToBack(onBack = onBack)
-            .verticalScroll(rememberScrollState())
-            .padding(top = 20.dp, bottom = 40.dp),
-    ) {
-        Text(
-            billboard.title,
-            color = Ink,
-            fontFamily = Serif,
-            fontSize = 24.sp,
-            modifier = Modifier.padding(horizontal = 20.dp).asHeading(),
-        )
-        if (billboard.where.isNotBlank()) {
-            Spacer(Modifier.height(4.dp))
-            Text(
-                billboard.where,
-                color = Muted,
-                fontSize = 13.sp,
-                modifier = Modifier.padding(horizontal = 20.dp),
-            )
-        }
-        Spacer(Modifier.height(18.dp))
-        GigMediaBands(
-            media = media,
-            loadPreview = viewModel::photoPreview,
-            arranging = false,
-            contactLight = state.contactLight,
-            editable = false,
-            senderName = { key -> state.friends.nameOf(key) },
-            onArrange = {},
-            onAdd = {},
-            onOpen = { uri -> viewerUri = uri },
-            onRemove = {},
-            onMove = { _, _, _ -> },
-        )
-    }
-
-    viewerUri?.let { uri ->
-        MediaViewerDialog(
-            uri = uri,
-            isVideo = viewModel.isVideo(uri),
-            loadPhoto = viewModel::fullPhoto,
-            onDismiss = { viewerUri = null },
-        )
-    }
-}
-
-/**
- * A night's **Media**, in its two bands (#162).
- *
- * **Position is the bit.** The upper band is what a **Contact** can see, the lower is
- * what only I can, and which band a photograph sits in *is* its **Personal** bit.
- * **Amber** edges mine in *both* bands, because Amber means mine and never
- * held-back; the cooler light edges **Received media**, which sits to the right of my
- * own and cannot be dragged at all — its disposition is not mine to set.
- *
- * **The handle teaches itself.** At rest it is a two-way arrow, which says only that
- * it moves. Drag it and the band you are over answers with the whole sentence, so you
- * learn both halves of the model before spending anything — the drag is reversible
- * right up to the release. Down is the vault, deliberately: it is the easier reach,
- * and the direction an unfamiliar thumb drifts must be the one that shares nothing.
- *
- * Long-press a photograph to arrange. [arranging] is owned by the **Room** rather
- * than by this composable, which is what lets a tap anywhere that is not an [x] leave
- * it again.
- */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun GigMediaBands(
-    media: List<StoredMedia>,
-    loadPreview: suspend (Uri) -> MediaThumb,
-    arranging: Boolean,
-    contactLight: Boolean,
-    /**
-     * Whether this night is mine to change (#327). Distinct from [contactLight], which
-     * is a *preview* of someone else's view of my own night — this is someone else's
-     * night. Both suppress editing and they are not the same question, so the room may
-     * be read-only for either reason.
-     */
-    editable: Boolean,
-    senderName: (String) -> String?,
-    onArrange: () -> Unit,
-    onAdd: (Band) -> Unit,
-    onOpen: (Uri) -> Unit,
-    onRemove: (StoredMedia) -> Unit,
-    onMove: (String, Band, Int) -> Unit,
-    /** Leaves arrange mode — what a tap anywhere else in the Room does. */
-    onDoneArranging: () -> Unit = {},
-) {
-    // Two splits of the same night, and the difference between them is the whole of
-    // #50's wiring. [all] is every item and answers *who is in the commons* — a
-    // **Note** in the shared band makes me a contributor exactly as a photograph
-    // does. [bands] is the visual run only and answers *what the strip draws*: the
-    // strip's index maths is tile-strided, and a full-width prose row is not a tile.
-    //
-    // MediaBands itself stays kind-blind, which is the claim this feature rests on.
-    val all = bandsOf(media)
-    val bands = bandsOf(media.filterNot { it.kind == StoredMedia.Kind.NOTE })
-    val density = LocalDensity.current
-    val strideX = with(density) { (GigPhotoSize + ItemGap).toPx() }
-    val padStart = with(density) { 20.dp.toPx() }
-
-    val sharedScroll = rememberScrollState()
-    val vaultScroll = rememberScrollState()
-    // Each strip's rectangle in root coordinates, so a drop lands in the band the
-    // finger is actually over. Guessing it from the sign of the vertical travel put
-    // the shared band 44dp from a vault photograph, which is inside the vault's own
-    // row — the one direction that must be hard to hit by accident was the cheapest.
-    val strips = remember { mutableStateMapOf<Band, Rect>() }
-
-    var over by remember { mutableStateOf<Band?>(null) }
-    var dragId by remember { mutableStateOf<String?>(null) }
-    var dragFrom by remember { mutableStateOf(Band.SHARED) }
-    var dragTo by remember { mutableStateOf<Band?>(null) }
-    var dragIndex by remember { mutableStateOf(0) }
-
-    fun listOf(band: Band) = if (band == Band.SHARED) bands.shared else bands.vault
-    fun scrollOf(band: Band) = if (band == Band.SHARED) sharedScroll else vaultScroll
-
-    fun bandUnder(p: Offset): Band {
-        strips.forEach { (band, r) -> if (p.y >= r.top && p.y <= r.bottom) return band }
-        val shared = strips[Band.SHARED] ?: return dragFrom
-        val vault = strips[Band.VAULT] ?: return dragFrom
-        return if (abs(p.y - shared.center.y) <= abs(p.y - vault.center.y)) Band.SHARED else Band.VAULT
-    }
-
-    /**
-     * Where in [band] the finger is, counted over that band *without* the item being
-     * carried — which is the list [moveMedia] inserts into, so the slot that opens is
-     * the position the photograph actually takes.
-     */
-    fun indexUnder(band: Band, p: Offset): Int {
-        val r = strips[band] ?: return 0
-        val x = p.x - r.left + scrollOf(band).value - padStart
-        val room = listOf(band).size - if (band == dragFrom) 1 else 0
-        return ((x + strideX / 2f) / strideX).toInt().coerceIn(0, room.coerceAtLeast(0))
-    }
-
-    // What letting go would do to the shared band, asked the same way by both
-    // gestures — see [releaseHint]. Nothing here special-cases the direction.
-    val hint = when {
-        dragId != null && dragTo != null -> hintForMoving(media, dragId!!, dragTo!!)
-        over != null -> hintForAdding(media, over!!)
-        else -> ReleaseHint.NONE
-    }
-    val promised = if (dragId != null) dragTo else over
-
-    val startDrag = { band: Band, p: Offset ->
-        val r = strips[band]
-        val at = if (r == null) -1 else ((p.x - r.left + scrollOf(band).value - padStart) / strideX).toInt()
-        val item = listOf(band).getOrNull(at)
-        if (item != null) {
-            dragId = item.id
-            dragFrom = band
-            dragTo = band
-            dragIndex = at
-        }
-    }
-    val moveDrag = { p: Offset ->
-        if (dragId != null) {
-            val band = bandUnder(p)
-            dragTo = band
-            dragIndex = indexUnder(band, p)
-        }
-    }
-    val endDrag = {
-        dragId?.let { onMove(it, dragTo ?: dragFrom, dragIndex) }
-        dragId = null
-        dragTo = null
-    }
-
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            MediaBand(
-                band = Band.SHARED,
-                label = "Shared",
-                mine = bands.shared,
-                received = bands.received,
-                // What the band *would* hold, not what changes: the outline is a
-                // statement about the collection, so a band already crossed keeps
-                // saying so while you hover over it (#268). Off the whole night, not
-                // the strip — a **Contact** who sent only a **Note** is still someone
-                // I shared the night with.
-                crossed = when {
-                    promised != Band.SHARED -> all.crossed
-                    hint == ReleaseHint.GAINED -> true
-                    hint == ReleaseHint.LOST -> false
-                    else -> all.crossed
-                },
-                say = when {
-                    promised != Band.SHARED -> null
-                    hint == ReleaseHint.GAINED -> {
-                        val who = all.received.mapNotNull { it.from }.distinct()
-                            .mapNotNull(senderName)
-                        // Named where the name is known. There is no join from a
-                        // sender's key to a Contact's name yet, so this degrades
-                        // rather than inventing one.
-                        val subject = when (who.size) {
-                            0 -> "someone else is"
-                            1 -> who.single() + " is"
-                            else -> who.joinToString(" and ") + " are"
-                        }
-                        "$subject already here — let go and it becomes a night you shared"
-                    }
-                    hint == ReleaseHint.LOST -> "let go and this stops being a night you shared"
-                    else -> null
-                },
-                offering = over == Band.SHARED,
-                offerText = "Share a picture or video",
-                arranging = arranging,
-                draggingId = dragId,
-                slotAt = if (dragTo == Band.SHARED) dragIndex else null,
-                scroll = sharedScroll,
-                loadPreview = loadPreview,
-                onBounds = { strips[Band.SHARED] = it },
-                onOpen = onOpen,
-                onRemove = onRemove,
-                onArrange = onArrange,
-                onDoneArranging = onDoneArranging,
-                onDragStart = { startDrag(Band.SHARED, it) },
-                onDragAt = moveDrag,
-                onDrop = endDrag,
-                // The drag's two outcomes, for a reader that cannot drag. Only where
-                // the vault is drawn: under the contact light it is not there to land in.
-                moveAcrossLabel = if (editable && !contactLight) "Move to the vault" else null,
-                onMoveAcross = { onMove(it.id, Band.VAULT, 0) },
-            )
-            // Under the contact light the room holds what a Contact can see, and they
-            // cannot see the vault at all — so it is absent rather than drawn empty,
-            // which would have it claim "nothing held back" over a full vault.
-            if (!contactLight) {
-                MediaBand(
-                    band = Band.VAULT,
-                    label = "In the vault",
-                    mine = bands.vault,
-                    received = emptyList(),
-                    crossed = false,
-                    say = null,
-                    offering = over == Band.VAULT,
-                    offerText = "Add a picture or video just for you",
-                    arranging = arranging,
-                    draggingId = dragId,
-                    slotAt = if (dragTo == Band.VAULT) dragIndex else null,
-                    scroll = vaultScroll,
-                    loadPreview = loadPreview,
-                    onBounds = { strips[Band.VAULT] = it },
-                    onOpen = onOpen,
-                    onRemove = onRemove,
-                    onArrange = onArrange,
-                    onDoneArranging = onDoneArranging,
-                    onDragStart = { startDrag(Band.VAULT, it) },
-                    onDragAt = moveDrag,
-                    onDrop = endDrag,
-                    moveAcrossLabel = if (editable) "Share it" else null,
-                    onMoveAcross = { onMove(it.id, Band.SHARED, 0) },
-                )
-            }
-        }
-        if (editable) {
-            Spacer(Modifier.width(10.dp))
-            AttachHandle(
-                // The travel is the distance to the bands themselves, so the handle
-                // stops where the thing it is pointing at is rather than at a number
-                // (#268). Measured off the same rects the drop test uses.
-                travel = { at ->
-                    val up = strips[Band.SHARED]?.let { it.center.y - at } ?: -160f
-                    val down = strips[Band.VAULT]?.let { it.center.y - at } ?: 160f
-                    up.coerceAtMost(0f)..down.coerceAtLeast(0f)
-                },
-                onOver = { over = it },
-                onRelease = { band -> over = null; band?.let(onAdd) },
-                onAdd = onAdd,
-            )
-            Spacer(Modifier.width(4.dp))
-        }
-    }
-}
-
-/**
- * The two-way arrow, and the only control that adds.
- *
- * It carries no state during the drag on purpose: a thumb is on top of it for the
- * whole gesture, so anything it said would be said where nobody can read it. The
- * bands answer instead. A tap does nothing, which reads as the wrong gesture rather
- * than as a broken app — a plus that ignored a tap would read as the second.
- *
- * Half a tile wide and a full tile tall: it is a rail the thumb runs along, not a
- * button, and at tile-square it read as a missing photograph (#268). [travel] answers
- * how far it may run given where it is resting — the band centres, so it arrives at
- * the thing it is pointing at instead of stopping at an arbitrary 160px.
- */
-@Composable
-private fun AttachHandle(
-    travel: (restingCentreY: Float) -> ClosedFloatingPointRange<Float>,
-    onOver: (Band?) -> Unit,
-    onRelease: (Band?) -> Unit,
-    onAdd: (Band) -> Unit,
-) {
-    val commit = with(LocalDensity.current) { 14.dp.toPx() }
-    var offsetY by remember { mutableStateOf(0f) }
-    var chosen by remember { mutableStateOf<Band?>(null) }
-    // Read off the *outer* box, which never moves — measuring the offset one would
-    // fold the drag back into its own limits.
-    var restingY by remember { mutableStateOf(0f) }
-
-    Box(
-        Modifier
-            .onGloballyPositioned { restingY = it.boundsInRoot().center.y }
-            .offset { IntOffset(0, offsetY.roundToInt()) }
-            .width(GigPhotoSize / 2)
-            .height(GigPhotoSize)
-            .clip(RoundedCornerShape(10.dp))
-            .background(Raised2)
-            // Never Amber, and never anything else either: the doc above is the rule
-            // and this line was the exception to it, left over from #162 — before
-            // #268 settled that amber is the vault's and an upward drag must not
-            // reach for it. A handle that lit amber on the way *up* said the one
-            // thing the colour is not allowed to say, under a thumb, where nobody
-            // could read it anyway. The bands answer.
-            .border(1.dp, LineLit, RoundedCornerShape(10.dp))
-            .pointerInput(Unit) {
-                detectDragGestures(
-                    onDrag = { change, amount ->
-                        change.consume()
-                        offsetY = (offsetY + amount.y).coerceIn(travel(restingY))
-                        chosen = when {
-                            offsetY < -commit -> Band.SHARED
-                            offsetY > commit -> Band.VAULT
-                            else -> null
-                        }
-                        onOver(chosen)
-                    },
-                    onDragEnd = {
-                        onRelease(chosen)
-                        offsetY = 0f
-                        chosen = null
-                    },
-                    onDragCancel = {
-                        onRelease(null)
-                        offsetY = 0f
-                        chosen = null
-                    },
-                )
-            }
-            // The drag is the only way in, and TalkBack sends a drag to the reader — so
-            // the handle names itself and offers both ends of its travel as actions, with
-            // the same sentences the bands light up with (#164). Cleared rather than
-            // merged so the arrow glyph is not read out as "up down arrow".
-            .clearAndSetSemantics {
-                contentDescription = "Add a picture or video"
-                customActions = listOf(
-                    CustomAccessibilityAction("Share a picture or video") { onAdd(Band.SHARED); true },
-                    CustomAccessibilityAction("Add a picture or video just for you") { onAdd(Band.VAULT); true },
-                )
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            "↕",
-            color = Muted,
-            fontSize = 26.sp,
-        )
-    }
-}
-
-/**
- * What a band outlines itself in, media and prose alike (#268).
- *
- * Three colours for three facts, and no colour carries two: **Amber** is the vault
- * and means *only I can see this*, **Slate** is a shared band holding only mine, and
- * **Crossed** is a shared band more than one of us is in. The upward gesture can
- * therefore never light amber, which is the whole point — the direction that spends
- * something must not be drawn in the colour of the direction that spends nothing.
- */
-private fun bandAccent(band: Band, crossed: Boolean): Color = when {
-    band == Band.VAULT -> Amber
-    crossed -> Crossed
-    else -> Slate
-}
-
-/** The same three, at the alpha the offer overlay washes the strip with. */
-private fun bandWash(band: Band, crossed: Boolean): Color = when {
-    band == Band.VAULT -> AmberSoft
-    crossed -> CrossedSoft
-    else -> SlateSoft
-}
-
-/**
- * One band: my own media, then **Received media**, then whatever the gesture in
- * progress is promising.
- *
- * [say] and [offerText] are drawn *over* the strip and never displace it — a state
- * change here is colour, never geometry, which is the rule the contact light
- * established. The landing slot is a real slot in the row, so the photographs open a
- * gap where the one you are carrying will go.
- */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun MediaBand(
-    band: Band,
-    label: String,
-    mine: List<StoredMedia>,
-    received: List<StoredMedia>,
-    crossed: Boolean,
-    say: String?,
-    offering: Boolean,
-    offerText: String,
-    arranging: Boolean,
-    draggingId: String?,
-    slotAt: Int?,
-    scroll: ScrollState,
-    loadPreview: suspend (Uri) -> MediaThumb,
-    onBounds: (Rect) -> Unit,
-    onOpen: (Uri) -> Unit,
-    onRemove: (StoredMedia) -> Unit,
-    onArrange: () -> Unit,
-    onDoneArranging: () -> Unit,
-    onDragStart: (Offset) -> Unit,
-    onDragAt: (Offset) -> Unit,
-    onDrop: () -> Unit,
-    /**
-     * The drag across to the other band, as an action a screen reader can reach (#164).
-     * Null where the drag itself is not on offer.
-     */
-    moveAcrossLabel: String? = null,
-    onMoveAcross: (StoredMedia) -> Unit = {},
-) {
-    // The band's own colour, and the only thing the offer overlay recolours with.
-    // **Amber is the vault's**, in both states: it means private here and nothing
-    // else, so an upward drag must never reach for it (#268). The shared band answers
-    // Slate while it would hold only mine, and **Crossed** once letting go means more
-    // than one of us is in it.
-    val accent = bandAccent(band, crossed)
-    val wash = bandWash(band, crossed)
-    val tilePx = with(LocalDensity.current) { (GigPhotoSize + ItemGap).toPx() }
-    // The gesture lives on the strip, never on a tile. A tile leaves the composition
-    // the moment it is picked up — that is how the gap opens — and a pointerInput on
-    // a detached node has its coroutine cancelled, so onDragEnd would never arrive
-    // and the drop would silently never commit.
-    var here by remember { mutableStateOf<LayoutCoordinates?>(null) }
-
-    // The strip follows the landing slot rather than the finger. ponytail: this is
-    // the whole of "I cannot drag to a position I cannot see" — a free-running edge
-    // scroll is more code and the same outcome.
-    LaunchedEffect(slotAt) {
-        val at = slotAt ?: return@LaunchedEffect
-        val left = (at * tilePx).toInt()
-        val right = left + tilePx.toInt()
-        when {
-            left < scroll.value -> scroll.animateScrollTo(left)
-            right > scroll.value + scroll.viewportSize ->
-                scroll.animateScrollTo((right - scroll.viewportSize).coerceAtLeast(0))
-        }
-    }
-
-    Column {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, bottom = 5.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            Text(
-                label,
-                color = if (say != null) {
-                    if (crossed) Crossed else Muted
-                } else {
-                    Faint
-                },
-                fontSize = 10.sp,
-            )
-            if (say != null) {
-                Spacer(Modifier.width(8.dp))
-                Text(say, color = if (crossed) Crossed else Muted, fontSize = 10.sp)
-            }
-        }
-        // One frame, and the gesture changes *it* rather than adding a second. Two
-        // outlines around one band is what this looked like when the armed state drew
-        // its own: they do not even share a rect, because the strip's own border sits
-        // inside the scroll container and travels with the content (#268).
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp)
-                .border(
-                    if (offering) 2.dp else 1.dp,
-                    accent,
-                    RoundedCornerShape(6.dp),
-                ),
-        ) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .onGloballyPositioned {
-                        here = it
-                        onBounds(it.boundsInRoot())
-                    }
-                    .horizontalScroll(scroll)
-                    .pointerInput(arranging, band, mine.size) {
-                        if (!arranging) return@pointerInput
-                        detectDragGestures(
-                            onDragStart = { at -> here?.let { onDragStart(it.localToRoot(at)) } },
-                            onDrag = { change, _ ->
-                                change.consume()
-                                here?.let { onDragAt(it.localToRoot(change.position)) }
-                            },
-                            onDragEnd = onDrop,
-                            onDragCancel = onDrop,
-                        )
-                    }
-                    // Content padding: it is inside the scroll, so the first tile
-                    // starts clear of the edge and scrolls away under it — and
-                    // [indexUnder] counts from it. The frame is on the Box outside,
-                    // which is the rect that stays still.
-                    .padding(horizontal = 20.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // Counted over the band without the carried item, so the gap opens
-                // exactly where [moveMedia] will put it.
-                var placed = 0
-                mine.forEach { item ->
-                    if (item.id == draggingId) return@forEach
-                    if (slotAt == placed) LandingSlot(accent, wash)
-                    MediaTile(
-                        item = item,
-                        arranging = arranging,
-                        loadPreview = loadPreview,
-                        onOpen = onOpen,
-                        onRemove = onRemove,
-                        onArrange = onArrange,
-                        onDoneArranging = onDoneArranging,
-                        moveAcrossLabel = moveAcrossLabel,
-                        onMoveAcross = { onMoveAcross(item) },
-                    )
-                    Spacer(Modifier.width(ItemGap))
-                    placed++
-                }
-                if (slotAt != null && slotAt >= placed) LandingSlot(accent, wash)
-                received.forEach { item ->
-                    MediaTile(
-                        item = item,
-                        arranging = arranging,
-                        loadPreview = loadPreview,
-                        onOpen = onOpen,
-                        onRemove = onRemove,
-                        onArrange = onArrange,
-                        onDoneArranging = onDoneArranging,
-                    )
-                    Spacer(Modifier.width(ItemGap))
-                }
-                if (mine.none { it.id != draggingId } && received.isEmpty() && slotAt == null) {
-                    // Rendered empty rather than hidden: a band nobody can see is a
-                    // gesture nobody can find on a fresh install.
-                    Box(Modifier.height(GigPhotoSize), contentAlignment = Alignment.CenterStart) {
-                        Text(
-                            if (label == "Shared") "Nothing shared yet" else "Nothing held back",
-                            color = Faint,
-                            fontSize = 11.sp,
-                        )
-                    }
-                }
-            }
-            if (offering) {
-                Box(
-                    Modifier
-                        .matchParentSize()
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(wash),
-                    contentAlignment = Alignment.Center,
-                ) { Text(offerText, color = Ink, fontSize = 12.sp) }
-            }
-        }
-    }
-}
-
-/**
- * The night's prose, both bands of it, drawn below the setlist (#50).
- *
- * **Below the set, not beside the photographs.** Analysis happens after the show —
- * the Journalist writes when the lights are up and the Reliver reads after they have
- * been through the night again — so the write-line sits at the end of the room rather
- * than in the middle of it, where it would interrupt the scroll through the material
- * with a demand for a sentence.
- *
- * **Shared above vault, always**, which is the same order the **Bands** are drawn in
- * and the same claim: up is what my **Audience** reads, down is what reaches nobody.
- * The prose leaves the band frames but not the model — a long-press still lifts a note
- * between them, and [MediaBands] still never learns that any of this is text.
- */
-@Composable
-private fun GigNotes(
-    media: List<StoredMedia>,
-    /** The night's own facts, already composed. Empty when the record knows nothing. */
-    preamble: String,
-    senderName: (String) -> String?,
-    /**
-     * Still needed on its own: the vault row is *absent* under the light rather than
-     * merely read-only, because a **Contact** cannot see the vault and an empty row
-     * drawn there would claim nothing is held back over a vault that holds something.
-     */
-    contactLight: Boolean,
-    /** Whether this night is mine to write on, and not under the light (#327). */
-    editable: Boolean,
-    onWrite: (Band, String) -> Unit,
-    onVerdict: (String, String?) -> Unit,
-    onMove: (String, Band, Int) -> Unit,
-) {
-    val noteBands = bandsOf(media.filter { it.kind == StoredMedia.Kind.NOTE })
-    Column {
-        BandNotes(
-            band = Band.SHARED,
-            mine = noteBands.shared.firstOrNull(),
-            received = noteBands.received,
-            // The prose's own crossing, not the night's: this outline is a statement
-            // about what is written here (#268).
-            crossed = noteBands.crossed,
-            // Once per night, over whichever note is uppermost. The same sentence
-            // twice is noise, and it is a fact about the night rather than about
-            // either band.
-            preamble = if (noteBands.shared.isNotEmpty()) preamble else "",
-            senderName = senderName,
-            editable = editable,
-            onWrite = { onWrite(Band.SHARED, it) },
-            onVerdict = { v -> noteBands.shared.firstOrNull()?.let { onVerdict(it.id, v) } },
-            onLift = { id -> onMove(id, Band.VAULT, 0) },
-        )
-        // Absent under the contact light for the reason the vault strip is: a Contact
-        // cannot see the vault, and an empty row drawn there would claim nothing is
-        // held back over a vault that holds something.
-        if (!contactLight) {
-            BandNotes(
-                band = Band.VAULT,
-                mine = noteBands.vault.firstOrNull(),
-                // Nothing arrives here. A **Contact**'s note is something they put in
-                // the commons; there is no path by which one lands in my vault.
-                received = emptyList(),
-                crossed = false,
-                preamble = if (noteBands.shared.isEmpty()) preamble else "",
-                senderName = senderName,
-                // Was `true`: the vault is only ever mine, which is true of the *band*
-                // and says nothing about whose *night* this is (#327).
-                editable = editable,
-                onWrite = { onWrite(Band.VAULT, it) },
-                onVerdict = { v -> noteBands.vault.firstOrNull()?.let { onVerdict(it.id, v) } },
-                // Publishing a draft. The upward move earns the green promise for
-                // free, because [hintForMoving] never asked what kind of item it was
-                // holding.
-                onLift = { id -> onMove(id, Band.SHARED, 0) },
-            )
-        }
-    }
-}
-
-/**
- * One band's prose: my **Note**, then any **Received** ones (#50).
- *
- * **Position is the bit here too.** There is no switch and no badge — a note in the
- * lower band reaches nobody, a note in the upper one reaches my **Audience**, and
- * moving it is the act that changes its mind. Which write-line you tapped is which
- * question you answered, so nothing has to ask a second time.
- *
- * The empty line renders on a night nothing was written about, for the same reason
- * the empty vault strip does: a surface nobody can see is a surface nobody finds.
- *
- * **The write-line stays on top, and everything written sits under it** — mine, then
- * anyone else's. It reads backwards for a second and then stops: you come here to
- * write, and reading what a **Contact** said *after* saying your own piece is the
- * order that keeps the sentence yours (#268).
- */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun BandNotes(
-    band: Band,
-    mine: StoredMedia?,
-    received: List<StoredMedia>,
-    /** More than one of us in this band's prose — see [bandAccent]. */
-    crossed: Boolean,
-    /** The night's own facts. Rendered, never stored — see [preamble]. */
-    preamble: String,
-    senderName: (String) -> String?,
-    editable: Boolean,
-    onWrite: (String) -> Unit,
-    onVerdict: (String?) -> Unit,
-    onLift: (String) -> Unit,
-) {
-    var editing by remember(mine?.id, band) { mutableStateOf(false) }
-    var draft by remember(mine?.id, band) { mutableStateOf(mine?.text.orEmpty()) }
-    var expanded by remember(mine?.id) { mutableStateOf(false) }
-    // The tap that opens the field is the tap that means "I am writing now" — asking
-    // for a second one to raise the keyboard is the whole cost of capture doubled, on
-    // the surface ADR-0012 says has to be one-handed and cheap.
-    val focus = remember { FocusRequester() }
-    LaunchedEffect(editing) { if (editing) focus.requestFocus() }
-
-    // A **Contact** looking at a night nobody wrote about gets no frame around the
-    // nothing. The write-line is what the empty frame is *for*, and there isn't one.
-    if (!editable && mine == null && received.isEmpty()) return
-
-    val accent = bandAccent(band, crossed)
-    // One frame for the whole band, thickening while it is being written in — the
-    // same language the strips use, and for the same reason: a second outline around
-    // the field inside this one is two boundaries drawn for one boundary. It was
-    // Amber besides, which on a shared note is the colour of the other answer (#268).
-    Column(
-        Modifier
-            .padding(start = 20.dp, end = 20.dp, top = 6.dp)
-            .border(if (editing) 2.dp else 1.dp, accent, RoundedCornerShape(6.dp))
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-    ) {
-        // Always first, whether it opens the field or reopens it over what is
-        // already there. Everything written lands underneath.
-        if (editable && !editing) {
-            Text(
-                when {
-                    mine != null -> "Edit"
-                    band == Band.SHARED -> "Write something to share"
-                    else -> "Write something just for you"
-                },
-                color = if (mine != null) accent else Faint,
-                fontSize = 12.sp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { draft = mine?.text.orEmpty(); editing = true }
-                    .padding(vertical = 6.dp),
-            )
-        }
-        when {
-            editing -> {
-                // One field, no toolbar. The phone is the wrong surface for long form
-                // (ADR-0012) and the answer is to keep the room visible around it,
-                // not to grow an editor.
-                //
-                // Tall enough to invite several sentences, though: a one-line box asks
-                // for a caption, and the thing being asked for is what the night was
-                // like. The floor is the invitation; the field grows past it as it
-                // fills, and nothing truncates what gets typed.
-                BasicTextField(
-                    value = draft,
-                    onValueChange = { draft = it },
-                    textStyle = LocalTextStyle.current.copy(color = Ink, fontSize = 13.sp),
-                    cursorBrush = SolidColor(Amber),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 108.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        // No border of its own: the band's frame is the boundary, and
-                        // the darker ground is enough to say "type here".
-                        .background(UnlitField)
-                        .padding(10.dp)
-                        .focusRequester(focus),
-                )
-                Row(Modifier.padding(top = 6.dp)) {
-                    Text(
-                        "done",
-                        color = Amber,
-                        fontSize = 12.sp,
-                        modifier = Modifier
-                            .clickable { onWrite(draft); editing = false }
-                            .padding(vertical = 4.dp, horizontal = 2.dp),
-                    )
-                    Spacer(Modifier.width(16.dp))
-                    Text(
-                        "discard",
-                        color = Faint,
-                        fontSize = 12.sp,
-                        modifier = Modifier
-                            .clickable { draft = mine?.text.orEmpty(); editing = false }
-                            .padding(vertical = 4.dp, horizontal = 2.dp),
-                    )
-                }
-            }
-
-            mine != null -> {
-                if (preamble.isNotEmpty()) {
-                    // Not editable, and drawn apart from the typed text: nothing
-                    // generated may be mistaken for something I said.
-                    Text(preamble, color = Faint, fontSize = 11.sp)
-                    Spacer(Modifier.height(3.dp))
-                }
-                Text(
-                    mine.text,
-                    color = Ink,
-                    fontSize = 13.sp,
-                    maxLines = if (expanded) Int.MAX_VALUE else 3,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        // A long-press lifts the note into the other band. The same
-                        // act as dragging a photograph across, minus the index —
-                        // one note per band means there is no position to choose.
-                        .combinedClickable(
-                            onClickLabel = if (expanded) "Show less" else "Show all",
-                            onClick = { expanded = !expanded },
-                            // Named for the reader's actions menu, where a bare "long
-                            // press" says nothing about which way the note goes (#164).
-                            onLongClickLabel = if (!editable) null
-                            else if (band == Band.SHARED) "Move to the vault" else "Share it",
-                            onLongClick = { if (editable) onLift(mine.id) },
-                        ),
-                )
-                // Editing is the line above now, so this row is the verdict alone.
-                if (editable) {
-                    Box(Modifier.padding(top = 5.dp)) {
-                        VerdictThumbs(mine.verdict, onVerdict)
-                    }
-                }
-            }
-        }
-
-        received.forEach { note ->
-            Spacer(Modifier.height(8.dp))
-            Text(
-                // A name where the key resolves to one, and never an invented name:
-                // the same degradation the green promise makes.
-                senderName(note.from.orEmpty()) ?: "Someone else",
-                color = Slate,
-                fontSize = 11.sp,
-            )
-            Text(note.text, color = Slate, fontSize = 13.sp)
-            if (note.verdict != null) {
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    verdictGlyph(note.verdict),
-                    color = Slate,
-                    fontSize = 13.sp,
-                    // Not "thumbs up sign" (#164).
-                    modifier = Modifier.spokenAs(verdictWords(note.verdict)),
-                )
-            }
-        }
-    }
-}
-
-/**
- * Down, up, up twice — and unset, which is reachable by tapping the one that is set.
- *
- * Choosing one takes the others away: the row is a question while it is open and an
- * answer once it is closed, and three glyphs left standing beside the chosen one read
- * as three unmade choices (#268). Tapping what is left reopens the question.
- */
-@Composable
-private fun VerdictThumbs(current: String?, onVerdict: (String?) -> Unit) {
-    Row {
-        listOf(
-            StoredMedia.Verdict.DOWN,
-            StoredMedia.Verdict.UP,
-            StoredMedia.Verdict.DOUBLE_UP,
-        ).filter { current == null || current == it }.forEach { v ->
-            val selected = current == v
-            Text(
-                verdictGlyph(v),
-                color = if (selected) Amber else Faint,
-                fontSize = 15.sp,
-                modifier = Modifier
-                    .clickable { onVerdict(if (selected) null else v) }
-                    .semantics {
-                        contentDescription = verdictLabel(v)
-                        this.selected = selected
-                        role = Role.Button
-                    }
-                    .padding(end = 10.dp, top = 2.dp, bottom = 2.dp),
-            )
-        }
-    }
-}
-
-internal fun verdictGlyph(verdict: String?): String = when (verdict) {
-    StoredMedia.Verdict.DOWN -> "👎"
-    StoredMedia.Verdict.UP -> "👍"
-    StoredMedia.Verdict.DOUBLE_UP -> "👍👍"
-    else -> ""
-}
-
-/** A verdict someone else gave, in words — the glyph means nothing read aloud. */
-private fun verdictWords(verdict: String?): String = when (verdict) {
-    StoredMedia.Verdict.DOWN -> "rated down"
-    StoredMedia.Verdict.UP -> "rated up"
-    StoredMedia.Verdict.DOUBLE_UP -> "rated up twice"
-    else -> ""
-}
-
-private fun verdictLabel(verdict: String?): String = when (verdict) {
-    StoredMedia.Verdict.DOWN -> "Rate down"
-    StoredMedia.Verdict.UP -> "Rate up"
-    StoredMedia.Verdict.DOUBLE_UP -> "Rate up twice"
-    else -> "Rate"
-}
-
-/**
- * Where the photograph will land, opened as a real gap in the row.
- *
- * In the band's own colour, not Amber: it appears mid-drag, and a drag *upward* that
- * lights amber is saying "private" about the thing you are about to share (#268).
- */
-@Composable
-private fun LandingSlot(accent: Color, wash: Color) {
-    Box(
-        Modifier
-            .size(GigPhotoSize)
-            .clip(RoundedCornerShape(10.dp))
-            .background(wash)
-            .border(1.dp, accent, RoundedCornerShape(10.dp)),
-    )
-    Spacer(Modifier.width(ItemGap))
-}
-
-/**
- * One photograph. **Amber** if it is mine, the cooler light if it was given to me.
- *
- * Carries no drag gesture of its own — the strip owns that (see [MediaBand]). Tap and
- * long-press only, and only while not arranging, so a press that begins a drag is not
- * competing with a click.
- */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun MediaTile(
-    item: StoredMedia,
-    arranging: Boolean,
-    loadPreview: suspend (Uri) -> MediaThumb,
-    onOpen: (Uri) -> Unit,
-    onRemove: (StoredMedia) -> Unit,
-    onArrange: () -> Unit,
-    onDoneArranging: () -> Unit = {},
-    moveAcrossLabel: String? = null,
-    onMoveAcross: () -> Unit = {},
-) {
-    val uri = remember(item.ref) { Uri.parse(item.ref) }
-
-    Box(
-        Modifier
-            .clip(RoundedCornerShape(10.dp))
-            .border(
-                1.5.dp,
-                if (item.from == null) Amber else Slate,
-                RoundedCornerShape(10.dp),
-            )
-            .then(
-                if (!arranging) {
-                    Modifier.combinedClickable(
-                        onClickLabel = "Open",
-                        onClick = { onOpen(uri) },
-                        onLongClickLabel = "Arrange",
-                        onLongClick = onArrange,
-                    )
-                } else {
-                    Modifier
-                },
-            )
-            // Moving between bands is a drag in arrange mode, which a screen reader
-            // cannot make; the same move is offered on the tile itself (#164).
-            .then(
-                if (moveAcrossLabel != null) {
-                    Modifier.semantics {
-                        customActions = listOf(
-                            CustomAccessibilityAction(moveAcrossLabel) { onMoveAcross(); true },
-                        )
-                    }
-                } else {
-                    Modifier
-                },
-            ),
-    ) {
-        PhotoThumb(uri, size = GigPhotoSize, loadPreview = loadPreview)
-        if (arranging) {
-            Box(
-                Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(3.dp)
-                    // The visible chip stays 20dp, but the tap target itself is
-                    // padded out to the 48dp minimum so it's actually reachable.
-                    .minimumInteractiveComponentSize()
-                    .clickable { onRemove(item) }
-                    // Arrange mode is left by tapping anywhere else, which TalkBack never
-                    // sends. The x is where a reader's focus is while arranging (#164).
-                    .semantics {
-                        customActions = listOf(
-                            CustomAccessibilityAction("Done arranging") { onDoneArranging(); true },
-                        )
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(
-                    Modifier
-                        .size(20.dp)
-                        .clip(CircleShape)
-                        .background(Danger),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Icons.Filled.Close,
-                        contentDescription = "Remove",
-                        tint = Color.White,
-                        modifier = Modifier.size(13.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** Big enough to actually look like a keepsake, not a chip. */
-private val GigPhotoSize = 108.dp
-private val ItemGap = 10.dp
-
-/**
- * The same same-night gallery search [CoverPicker] does for a playlist cover,
- * offered as one-tap adds to the gig's keepsakes instead of a single chosen cover.
- */
-@Composable
-private fun GigPhotoSuggestions(
-    candidates: List<CoverCandidate>,
-    loading: Boolean,
-    searched: Boolean,
-    permissionGranted: Boolean,
-    already: List<Uri>,
-    onRequestPermission: () -> Unit,
-    onAdd: (Uri) -> Unit,
-) {
-    val offered = remember(candidates, already) { candidates.filter { it.uri !in already } }
-    when {
-        !permissionGranted -> TextButton(onClick = onRequestPermission, contentPadding = PaddingValues(vertical = 2.dp)) {
-            Text("Suggest photos from that night", color = Muted, fontSize = 12.sp)
-        }
-        loading -> Text("Looking through your gallery…", color = Faint, fontSize = 12.sp, modifier = Modifier.spokenOnChange())
-        offered.isEmpty() -> if (searched) {
-            Text("No more photos from that night in your gallery.", color = Faint, fontSize = 12.sp, modifier = Modifier.spokenOnChange())
-        }
-        else -> Column {
-            Text("From that night — tap to add", color = Faint, fontSize = 11.sp, modifier = Modifier.spokenOnChange())
-            Spacer(Modifier.height(4.dp))
-            Row(Modifier.horizontalScroll(rememberScrollState())) {
-                offered.forEach { candidate ->
-                    Box(
-                        Modifier
-                            .size(56.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Raised2)
-                            .clickable { onAdd(candidate.uri) },
-                    ) {
-                        candidate.preview?.let {
-                            Image(
-                                it.asImageBitmap(),
-                                contentDescription = "Suggested photo from that night",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        }
-                    }
-                    Spacer(Modifier.width(6.dp))
-                }
-            }
-        }
-    }
-}
-
-/** A share-sheet intent carrying a gig-invite deep link a contact's app can open. */
-private fun gigInviteChooser(setlist: FmSetlist): Intent {
-    val label = listOfNotNull(setlist.artist?.name, setlist.venue?.name, setlist.readableDate())
-        .joinToString(" · ")
-    val send = Intent(Intent.ACTION_SEND).apply {
-        type = "text/plain"
-        putExtra(Intent.EXTRA_TEXT, "Come to this with me — $label\n${gigInviteUri(setlist.id)}")
-    }
-    return Intent.createChooser(send, "Invite a friend")
-}
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
-@Composable
-fun StationEventScreen(
-    viewModel: AppViewModel,
-    onBack: () -> Unit,
-    onConvert: () -> Unit,
-    onOpenSettings: () -> Unit = {},
-) {
-    val state by viewModel.state.collectAsStateWithLifecycle()
-    val setlist = state.selectedSetlist
-    val context = LocalContext.current
-    // A night I'm going to, not one I was at. Everything this screen says about a
-    // setlist has to change: there is no setlist to be missing yet.
-    //
-    // The claim decides this, not `gigPlanned` membership (#127) — see [isPlanned].
-    val planned = setlist != null && isPlanned(state.attendanceByGig[setlist.id]?.provenance)
-    // Read off state rather than asked of the view model, so checking in redraws
-    // this screen instead of leaving the button sitting there.
-    val checkedIn = setlist != null &&
-        state.attendanceByGig[setlist.id]?.provenance == StoredAttendance.Provenance.CHECKED_IN
-    val made = setlist?.let { state.playlistsBySetlist[it.id] }.orEmpty()
-    val heldMedia = setlist?.let { state.mediaBySetlist[it.id] }.orEmpty()
-    // Under the contact light the room holds what a Contact can see, through the one
-    // rule that also builds their manifest (#145). Withheld items never come back as
-    // content here — only as a count, and only when asked for.
-    val gigMedia = if (state.contactLight) visibleToContacts(heldMedia) else heldMedia
-    val withheld = if (state.contactLight) withheldFromContacts(heldMedia) else emptyList()
-    // A **Note** has no bytes and an empty [StoredMedia.ref], so every path that
-    // resolves a reference has to be handed the visual run instead of the night.
-    // Split once, here, rather than guarded at each of the six call sites below.
-    val gigVisuals = gigMedia.filterNot { it.kind == StoredMedia.Kind.NOTE }
-    val gigPhotos = gigVisuals.map { Uri.parse(it.ref) }
-    // The night's own facts, for the **Preamble** over a **Note** (#50). Derived on
-    // every composition and never stored: **Reconcile** has no time bound, so who the
-    // record knows was here changes, and a frozen sentence would be the app putting
-    // words in my mouth about an evening it has since learned more about.
-    val alsoThere = setlist?.let { s ->
-        state.friends.filter { f ->
-            f.laneKey.isNotBlank() && state.showsByFriend[f.laneKey].orEmpty().any { it.id == s.id }
-        }.map { it.name }
-    }.orEmpty()
-    val gigPreamble = preamble(
-        people = alsoThere,
-        venue = setlist?.venue?.name,
-        songCount = setlist?.performed()?.size ?: 0,
-    )
-    // Whether this night is one of my own, through the one rule (#327). A **Contact**'s
-    // night is reachable from the timeline exactly like mine — it has to be — and every
-    // control that *changes* it has to ask this first, because attaching to their night
-    // acquires it: the **Gig** becomes a record here and their Shared media for it
-    // routes to me on the next **Reconcile**.
-    val mineNight = setlist != null && isMyNight(
-        setlist.id,
-        state.attendanceByGig[setlist.id],
-        state.setlists,
-        state.plannedGigs,
-    )
-    // The two reasons the room is read-only, folded once. They are different questions —
-    // the light previews someone else's view of *my* night, this is *their* night — and
-    // either one is enough.
-    val editable = mineNight && !state.contactLight
-    // Arranging belongs to the Room, not to the strip: that is the whole of "a tap
-    // anywhere that is not an [x] leaves it".
-    var arranging by remember(setlist?.id) { mutableStateOf(false) }
-    // Which band the handle was released over, held across the picker's round trip —
-    // the answer is given by the gesture and the picker cannot carry it.
-    var attachTo by remember { mutableStateOf(Band.VAULT) }
-    // The Reliver picks straight from the system photo (and video) picker — no
-    // gallery permission needed for that path, unlike the suggestions below.
-    val photoPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickMultipleVisualMedia()
-    ) { uris -> if (uris.isNotEmpty()) setlist?.let { viewModel.addPickedGigPhotos(it.id, uris, attachTo) } }
-    // Gallery access is only ever asked for after the "suggest" tap, so opening
-    // a gig never triggers a permission prompt on its own.
-    val gigSuggestPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { viewModel.loadGigPhotoSuggestions() }
-    // Silent when permission isn't there yet — same guard as the prompt above,
-    // so a gig already granted access just re-searches without another tap.
-    LaunchedEffect(setlist?.id) { viewModel.loadGigPhotoSuggestions() }
-    // The disambiguation's answer, either way. It runs from this screen and until
-    // now landed nowhere: "found them, songs are from X" was written into state and
-    // no screen but Friends renders a notice, so the one gesture whose whole point
-    // is to tell you *which* band you got told you nothing — and a dead end, which
-    // deliberately leaves the old pool alone, was indistinguishable from success.
-    // Toast because that is already how this screen answers publish and calendar.
-    LaunchedEffect(state.notice) {
-        state.notice?.let {
-            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
-            viewModel.consumeNotice()
-        }
-    }
-    // A toast cannot be tapped, so the one error with a way out of it gets a dialog
-    // instead: refreshing this setlist spent the last of the shared key, and a free key
-    // of your own is the fix (#457).
-    var sharedQuotaNudge by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(state.error) {
-        state.error?.let {
-            if (state.errorKind == ErrorKind.SETLISTFM_SHARED_QUOTA) {
-                sharedQuotaNudge = it
-            } else {
-                Toast.makeText(context, it, Toast.LENGTH_LONG).show()
-            }
-            viewModel.consumeError()
-        }
-    }
-    sharedQuotaNudge?.let { message ->
-        AlertDialog(
-            onDismissRequest = { sharedQuotaNudge = null },
-            text = { Text(message) },
-            confirmButton = {
-                TextButton(onClick = {
-                    sharedQuotaNudge = null
-                    onOpenSettings()
-                }) { Text(ADD_OWN_KEY_ACTION) }
-            },
-            dismissButton = {
-                TextButton(onClick = { sharedQuotaNudge = null }) { Text("Not now") }
-            },
-        )
-    }
-    var viewerUri by remember { mutableStateOf<Uri?>(null) }
-    // Where the viewer should open — set when a stamped song on the spine is tapped,
-    // so the recording lands on that song instead of at the top of the night.
-    var viewerStartMs by remember { mutableStateOf(NOT_STAMPED) }
-    // The night's full recording: the first video among the keepsakes. Photos and
-    // one-song clips sit alongside it and are not treated as the recording.
-    // Kind comes off the record now (#97), not from asking the ContentResolver —
-    // a reference that has died still knows what it was.
-    val recordingMedia = gigVisuals.firstOrNull { it.kind == StoredMedia.Kind.VIDEO }
-    val recording = recordingMedia?.let { Uri.parse(it.ref) }
-
-    // The planned-gig leaf, staged like the Spotify convert (#55): the swipe adds the
-    // gig to the calendar, then — once the event exists and its link is showing —
-    // graduates to inviting a friend, which repeats forever. The event's URI is both
-    // the "already added" flag and the thing the link opens.
-    val scope = rememberCoroutineScope()
-    val calendarEventUri = setlist?.let { state.calendarEventByGig[it.id] }
-    val added = calendarEventUri != null
-    // Only in the plan-ahead window does the swipe do the calendar/invite dance. PAST
-    // keeps the setlist.fm crumb, DAY_OF is the check-in — both left to the fall-through
-    // below, exactly as they behaved before, so the swipe never contradicts the hint.
-    // --- The Historian's half: my own Log of this night, and where it goes ---------
-    //
-    // A Log makes sense the moment I am known to have been there — a check-in, or a
-    // night this app minted itself, which only ever happens by someone standing in
-    // front of the stage tapping an Act. It stays available *forever* after that:
-    // remembering a song three days later must cost nothing, so nothing below removes
-    // the editor. The clock only decides which action leads.
-    val log = setlist?.let { state.logsByGig[it.id] } ?: StoredLog()
-    // What there is to convert: setlist.fm's songs, or a **Log** I said was complete.
-    // A night I checked into never reaches the convert branch below — `canLog` claims
-    // the bottom bar first — so this has to be offered there too, or the one night the
-    // app itself is the record of is the one night that cannot become a playlist.
-    val convertible = setlist != null &&
-        (setlist.performed().isNotEmpty() || (log.closed && log.named().isNotEmpty()))
-    val localGig = setlist != null && setlist.isLocal()
-    val canLog = setlist != null && (checkedIn || localGig)
-    /**
-     * This night's **Presence row**, hoisted because the bottom bar has two branches and a
-     * checked-in night can arrive in either — `canLog` claims the bar first, and the plan-ahead
-     * branch still draws it for a night checked into without a **Log** to keep. One definition
-     * so the two can never say different things about the same night.
-     */
-    val presenceRow: @Composable () -> Unit = {
-        if (setlist != null) GossipPresenceRow(
-            eligibleUntil = state.gossipEligibleUntil[setlist.id],
-            active = state.gossipActiveGig == setlist.id,
-            stopped = setlist.id in state.gossipStoppedGigs,
-            friends = state.friends,
-            onSelect = { viewModel.selectGossipGig(setlist.id) },
-            onExpiry = { viewModel.refreshGossip() },
-        )
-    }
-    // Whose catalogue to offer when correcting an entry: the night's own setlist.fm
-    // record. Hoisted above the Log editor because the pull-to-refresh curtain
-    // (below) needs the same answer.
-    val catalogueArtist = setlist?.artist?.mbid?.ifBlank { null }
-    val catalogue = catalogueArtist?.let { state.catalogueByArtist[it] }.orEmpty()
-    val catalogueLoading = catalogueArtist != null && state.catalogueFetching == catalogueArtist
-    // Which of my **Log**'s entries has its correction panel open, if any. One at a
-    // time: this is a room you are standing in, not a list of forms. It lives here
-    // rather than in the editor because the entries themselves are on the spine now.
-    var correctingLog by remember(setlist?.id) { mutableStateOf<Int?>(null) }
-    // The state of this **Gig**, as known — one value, decided once (#129). Everything
-    // on this screen is a rendering of this link's state, and before this each part
-    // worked it out again from a different subset and they disagreed.
-    val gigAsKnown = GigAsKnown(
-        window = setlist?.localDate()?.let { nightWindow(it) },
-        provenance = if (checkedIn) StoredAttendance.Provenance.CHECKED_IN else null,
-        // An editor nobody has typed in is not a **Log**. `log` above defaults to an
-        // empty one so there is always something to render; the decision needs the
-        // difference between "never started" and "started and still open".
-        log = log.takeIf { it.songs.isNotEmpty() || it.closed },
-        setlistId = setlist?.id?.takeUnless { localGig },
-        songCount = setlist?.performed()?.size ?: 0,
-        calendarEvent = calendarEventUri,
-        admissionCount = setlist?.let { state.attendanceByGig[it.id]?.admissions?.size } ?: 0,
-    )
-    // The phase and the curtain come off the same value as the offers, so they cannot
-    // disagree. The alcove is still not dispatched from — the swipe's action order is
-    // a separate, deliberately deferred change (#129).
-    val offers = gigOffers(gigAsKnown, LocalDateTime.now())
-    val leaf = offers.phase
-    // What pulling the curtain down asks for, decided by the same fold that draws the
-    // chip — never the same request on a night three weeks away, a night being stood
-    // at, and a night from 1992. The dispatch itself (`curtainAction`) is pure and
-    // tested; only the plumbing it names lives here.
-    //
-    // A local Gig is asked of setlist.fm first, whatever the curtain says (#531): the
-    // pull is how a person says "is it there yet?". The curtain's own action then runs
-    // as it always has, less the setlist refresh the lookup already was.
-    val onPullToRefresh: () -> Unit = {
-        val local = setlist?.isLocal() == true
-        if (local) viewModel.refreshSelectedSetlist()
-        when (curtainAction(offers.curtain)) {
-            CurtainAction.FETCH_CATALOGUE -> catalogueArtist?.let(viewModel::fetchCatalogue)
-            CurtainAction.FETCH_SETLIST -> if (!local) viewModel.refreshSelectedSetlist()
-            CurtainAction.NONE -> {}
-        }
-    }
-    // **Publish**: explicit, labelled, and never a side effect of anything else. The
-    // clipboard is the entire channel — setlist.fm's form takes no prefill parameters
-    // and its Text Field editor takes a whole ordered set in one paste — so the copy
-    // and the door open together, announced, on a tap that says it will.
-    //
-    // The songs are one of five things the form wants, and the other four were crossing
-    // the app switch in the Historian's memory because this screen is gone the moment
-    // the browser is up. `postFiling` parks all five in the notification shade, which is
-    // the one surface still in reach of Chrome. Songs stay on the clipboard as well —
-    // the shade is an upgrade to the handoff, never a gate on it, so a denied
-    // notification permission leaves this behaving exactly as it always did.
-    val publish: () -> Unit = publish@{
-        val s = setlist ?: return@publish
-        val clip = context.getSystemService(ClipboardManager::class.java)
-        clip?.setPrimaryClip(ClipData.newPlainText("setlist", setlistPaste(log)))
-        postFiling(context, s, log)
-        Toast.makeText(
-            context,
-            if (log.songs.isEmpty()) "Nothing logged yet — the gig itself is still worth adding."
-            else "${log.songs.size} songs copied. The rest is in your notifications.",
-            Toast.LENGTH_LONG,
-        ).show()
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(setlistEditEntry(s))))
-    }
-    // Asked for on the way to publishing, never on launch, and the answer does not
-    // gate anything: whichever way it goes, `publish` runs straight after.
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { publish() }
-    val onPublish: () -> Unit = {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
-            == PackageManager.PERMISSION_GRANTED
-        ) {
-            publish()
-        } else {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }
-    var adopting by remember { mutableStateOf(false) }
-    var deleting by remember { mutableStateOf(false) }
-    var askingMatch by remember { mutableStateOf(false) }
-    // Which **Contact**'s offer is being answered, by their Night id (#405).
-    var answeringOffer by remember { mutableStateOf<String?>(null) }
-    // The *maybes* on this Night (#405): a Contact out the same date under a Night
-    // nothing links to mine. The same rule the Spine's weave draws them by, asked of
-    // this one Night, so the Room and the Line cannot disagree about which are open.
-    val maybes = remember(
-        setlist?.id, planned, state.setlists, state.plannedGigs, state.attendanceByGig,
-        state.friends, state.showsByFriend, state.festivals, state.nightJoins, state.nightsApart,
-    ) {
-        val here = setlist
-        if (here == null || planned) emptyList()
-        else maybeNights(
-            mine = spineNights(state.setlists, state.plannedGigs, state.attendanceByGig),
-            friends = state.friends,
-            theirs = state.showsByFriend,
-            festivals = state.festivals,
-            joins = state.nightJoins,
-            apart = state.nightsApart,
-        ).filter { it.mine.id == here.id }
-    }
-    // Which maybe is being asked, and — when the question came from going to share
-    // media (story 22) — the band to carry on into once it is answered.
-    var askingMaybe by remember { mutableStateOf<MaybeNight?>(null) }
-    var shareAfterMaybe by remember { mutableStateOf<Band?>(null) }
-    // A drag up out of the vault is sharing too, so it asks the same one question —
-    // after the move, which has already happened by the time the finger lifts.
-    fun moveAndAsk(key: String, id: String, band: Band, index: Int) {
-        val wasKept = state.mediaBySetlist[key].orEmpty().any { it.id == id && it.personal }
-        viewModel.moveGigMedia(key, id, band, index)
-        if (band == Band.SHARED && wasKept) maybes.firstOrNull()?.let { askingMaybe = it }
-    }
-
-    val plannedTimeState = if (planned) setlist?.localDate()?.let { gigTimeState(LocalDateTime.now(), it) } else null
-    val planAhead = planned &&
-        plannedTimeState != GigTimeState.PAST && plannedTimeState != GigTimeState.DAY_OF
-    // The insert is a couple of binder calls, so it runs off the main thread; success
-    // persists the returned URI, and every failure (no writable calendar, provider
-    // refusal) degrades to a toast with no link and no stage advance.
-    val addToCalendar: () -> Unit = add@{
-        val s = setlist ?: return@add
-        scope.launch {
-            val uri = withContext(Dispatchers.IO) { insertCalendarEvent(context.contentResolver, s) }
-            if (uri != null) viewModel.markCalendarAdded(s.id, uri.toString())
-            else Toast.makeText(context, "Couldn't add this to your calendar.", Toast.LENGTH_SHORT).show()
-        }
-    }
-    val calendarPermission = arrayOf(Manifest.permission.WRITE_CALENDAR, Manifest.permission.READ_CALENDAR)
-    // A denied permission is the graceful-degrade path: a toast, and the swipe stays on
-    // "add to calendar" because no event was made.
-    val calendarPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { grants ->
-        if (grants.values.all { it }) addToCalendar()
-        else Toast.makeText(context, "Calendar access is needed to add this show.", Toast.LENGTH_SHORT).show()
-    }
-    val onAddToCalendar: () -> Unit = {
-        if (calendarPermission.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
-            addToCalendar()
-        } else {
-            calendarPermissionLauncher.launch(calendarPermission)
-        }
-    }
-    // The invite is unchanged from the button it replaces: the gig-invite deep link out
-    // through the OS share sheet. Repeatable — an invite is per-person.
-    val onInvite: () -> Unit = { setlist?.let { context.startActivity(gigInviteChooser(it)) } }
-
-    val maybeAnswers = remember { SnackbarHostState() }
-    fun recordAnswer(maybe: MaybeNight, same: Boolean, adopt: Boolean = false) {
-        if (adopt) { viewModel.adoptMaybe(maybe); return }
-        val write = if (same) viewModel.joinNight(maybe.theirs.id, maybe.mine.id)
-            else viewModel.dismissMaybe(maybe.theirs.id, maybe.mine.id)
-        scope.launch {
-            write.join()
-            maybeAnswers.currentSnackbarData?.dismiss()
-            if (maybeAnswers.showSnackbar(maybeAnswered(maybe, same), "Undo",
-                    duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed) {
-                if (same) viewModel.unjoinNight(maybe.theirs.id, maybe.mine.id)
-                else viewModel.undismissMaybe(maybe.theirs.id, maybe.mine.id)
-            }
-        }
-    }
-
-    Scaffold(
-        containerColor = Ground,
-        snackbarHost = { SnackbarHost(maybeAnswers) },
-        topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Ground, titleContentColor = Faint),
-                title = { Text(setlist?.year() ?: "", color = Faint, fontSize = 12.sp, letterSpacing = 1.5.sp) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Faint)
-                    }
-                },
-            )
-        },
-        bottomBar = {
-            if (canLog && setlist != null) {
-                // A night I was at that this app is the record of. Capture is the leaf,
-                // always — the chip in the header is the permanent door to setlist.fm,
-                // so nothing here has to become a handoff when the night ends. The clock
-                // only changes the wording: prompting while you are there, quiet
-                // correction afterwards.
-                Column(
-                    Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    // Above the **Log** prompt, because standing somewhere comes before
-                    // writing anything down — and because this is the bar a night that was
-                    // checked into actually gets.
-                    if (checkedIn) presenceRow()
-                    Text(
-                        when (leaf) {
-                            // "above" was true when the editor sat over the set. The
-                            // entries are the set now and the way in is under it (#268).
-                            GigLeaf.CAPTURE -> "noting the set — add what they play below"
-                            else -> "your log · add anything you remember below"
-                        },
-                        color = Faint,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(vertical = 4.dp),
-                    )
-                    Text(
-                        "‹ copy the set and open setlist.fm",
-                        color = Amber,
-                        fontSize = 13.sp,
-                        modifier = Modifier.spokenAs("Copy the set and open setlist.fm").clickable(onClick = onPublish).padding(vertical = 6.dp),
-                    )
-                    // A set I said was complete is a set, so it converts. Offered here
-                    // rather than only in the branch below, which a checked-in night
-                    // never reaches.
-                    if (convertible) {
-                        Text(
-                            "make a playlist of this set",
-                            color = Slate,
-                            fontSize = 13.sp,
-                            modifier = Modifier
-                                .clickable { viewModel.selectSetlist(setlist); onConvert() }
-                                .padding(vertical = 6.dp),
-                        )
-                    }
-                    if (localGig) {
-                        Text(
-                            "it's on setlist.fm now — paste the link",
-                            color = Slate,
-                            fontSize = 13.sp,
-                            modifier = Modifier
-                                .clickable { adopting = true }
-                                .padding(vertical = 6.dp),
-                        )
-                        // Reachable from the night itself, on purpose: deletion must
-                        // not depend on anything else still existing.
-                        Text(
-                            "delete this night",
-                            color = Danger,
-                            fontSize = 13.sp,
-                            modifier = Modifier
-                                .clickable {
-                                    if (viewModel.photosLostByDeleting(setlist.id) > 0) deleting = true
-                                    else { viewModel.deleteGig(setlist.id); onBack() }
-                                }
-                                .padding(vertical = 6.dp),
-                        )
-                    }
-                }
-            } else if (planned && setlist != null) {
-                // What a planned gig lets you do follows the clock (#55): plan it while
-                // it's still ahead, check in on the night, nudge setlist.fm once it's
-                // over. An unparseable date can't be placed on that line, so it falls
-                // to the plan-ahead actions rather than losing them.
-                val timeState = setlist.localDate()?.let { gigTimeState(LocalDateTime.now(), it) }
-                Column(
-                    Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    // The ticket's own barcodes (#441), every Admission in its own
-                    // symbology — see TicketAtTheDoor. Gone the moment checked in (see
-                    // `checkedIn` below) and never drawn at all when there is no ticket
-                    // to show. Worth showing on this gig's own page as soon as a ticket
-                    // is attached, not held back until the day-of check-in window the
-                    // way the offer to check in is.
-                    val admissions = state.attendanceByGig[setlist.id]?.admissions.orEmpty()
-                    // The manual check-in, and the only one there is when location was
-                    // refused or the venue couldn't be geocoded. Same night window as
-                    // the ambient offer; no location involved at all.
-                    if (canCheckInManually(setlist, LocalDateTime.now())) {
-                        if (checkedIn) {
-                            presenceRow()
-                        } else {
-                            if (offers.room.showTicket) TicketAtTheDoor(admissions)
-                            Text(
-                                "I'm here — check in",
-                                color = Amber,
-                                fontSize = 13.sp,
-                                modifier = Modifier
-                                    .clickable { viewModel.checkIn(setlist.id) }
-                                    .padding(vertical = 6.dp),
-                            )
-                        }
-                    } else if (!checkedIn) {
-                        // Outside the check-in window: no "I'm here" offer yet, but
-                        // still worth showing that the ticket's barcode was captured.
-                        TicketAtTheDoor(admissions)
-                    }
-                    when (timeState) {
-                        // Over: adding a setlist is a past action, so the setlist.fm
-                        // crumb belongs here and only here.
-                        GigTimeState.PAST -> setlist.url?.let { url ->
-                            Text(
-                                "‹ swipe to open this show on setlist.fm",
-                                color = Slate,
-                                fontSize = 13.sp,
-                                modifier = Modifier.spokenAs("Open this show on setlist.fm")
-                                    .clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
-                                    .padding(vertical = 6.dp),
-                            )
-                        }
-                        // The night itself: maps and check-in (#33), handled above. No
-                        // crumb, no plan-ahead buttons.
-                        GigTimeState.DAY_OF -> {}
-                        // Still ahead (or an undated gig): the swipe is the action, in two
-                        // stages. The hint names what the next swipe does — the same
-                        // grammar as the Spotify convert, where the made-playlist link
-                        // persists and the hint moves on to "make another".
-                        else -> {
-                            if (calendarEventUri != null) {
-                                // The created event, as a persisted tappable link — the
-                                // mirror of a made-playlist row. Opens the event with
-                                // ACTION_VIEW on the URI the insert handed back.
-                                Row(
-                                    Modifier
-                                        .clickable {
-                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(calendarEventUri)))
-                                        }
-                                        .padding(vertical = 6.dp, horizontal = 20.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Box(Modifier.size(7.dp).clip(CircleShape).background(Slate))
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Open the calendar event ↗", color = Slate, fontSize = 14.sp)
-                                }
-                                Spacer(Modifier.height(2.dp))
-                                // Graduated: the swipe now invites, and keeps inviting.
-                                Text(
-                                    "‹ swipe to invite a friend",
-                                    color = Slate,
-                                    fontSize = 13.sp,
-                                    modifier = Modifier.spokenAs("Invite a friend").clickable(onClick = onInvite).padding(vertical = 6.dp),
-                                )
-                            } else {
-                                Text(
-                                    "‹ swipe to add to calendar",
-                                    color = Slate,
-                                    fontSize = 13.sp,
-                                    modifier = Modifier.spokenAs("Add to calendar").clickable(onClick = onAddToCalendar).padding(vertical = 6.dp),
-                                )
-                            }
-                        }
-                    }
-                    Text(
-                        "I'm not going",
-                        color = Danger,
-                        fontSize = 13.sp,
-                        modifier = Modifier
-                            .clickable { viewModel.removePlannedGig(setlist.id); onBack() }
-                            .padding(vertical = 6.dp),
-                    )
-                }
-            } else if (setlist != null && setlist.performed().isEmpty() && setlist.url != null) {
-                // The Historian's crumb: nothing to convert here, but a nudge toward
-                // fixing the gap at the source is better than nothing.
-                Column(
-                    Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        "‹ swipe to open this setlist on setlist.fm",
-                        color = Amber,
-                        fontSize = 13.sp,
-                        modifier = Modifier.spokenAs("Open this setlist on setlist.fm")
-                            .clickable {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(setlist.url)))
-                            }
-                            .padding(vertical = 6.dp),
-                    )
-                }
-            } else if (setlist != null && setlist.performed().isNotEmpty()) {
-                // A quiet, tappable hint rather than a big CTA — the same action the
-                // swipe fires, kept visible so it's discoverable and reachable without
-                // the gesture.
-                val convert = {
-                    viewModel.selectSetlist(setlist)
-                    onConvert()
-                }
-                Column(
-                    Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    // Once a night has a playlist, opening it is the primary offer and
-                    // making another is the aside — converting twice is the rare case.
-                    if (made.isNotEmpty()) {
-                        made.forEach { playlist ->
-                            Row(
-                                Modifier
-                                    // Long-press drops the link — for when the playlist
-                                    // itself was deleted on Spotify and this pointer is
-                                    // just dead weight left behind.
-                                    .combinedClickable(
-                                        onClick = {
-                                            context.startActivity(
-                                                Intent(Intent.ACTION_VIEW, Uri.parse(playlist.url)),
-                                            )
-                                        },
-                                        onLongClickLabel = "Forget this playlist link",
-                                        onLongClick = { viewModel.removePlaylist(setlist.id, playlist.url) },
-                                    )
-                                    .padding(vertical = 6.dp, horizontal = 20.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Box(Modifier.size(7.dp).clip(CircleShape).background(SpotifyGreen))
-                                Spacer(Modifier.width(8.dp))
-                                // One playlist needs no naming; several have to be told
-                                // apart, because the one you sent is a particular one.
-                                Text(
-                                    if (made.size == 1) "Open the playlist ↗"
-                                    else "${playlist.name.ifBlank { "Playlist" }} ↗",
-                                    color = SpotifyGreen,
-                                    fontSize = 14.sp,
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            "‹ swipe to make another",
-                            color = Faint,
-                            fontSize = 12.sp,
-                            modifier = Modifier.spokenAs("Make another playlist").clickable(onClick = convert).padding(vertical = 4.dp),
-                        )
-                    } else {
-                        Text(
-                            "‹ swipe to open as a Spotify playlist",
-                            color = Amber,
-                            fontSize = 13.sp,
-                            modifier = Modifier.spokenAs("Open as a Spotify playlist").clickable(onClick = convert).padding(vertical = 6.dp),
-                        )
-                    }
-                }
-            }
-        },
-    ) { padding ->
-        if (setlist == null) {
-            Box(Modifier.padding(padding).fillMaxSize()) {
-                Text("No show selected.", color = Muted, modifier = Modifier.align(Alignment.Center))
-            }
-            return@Scaffold
-        }
-        if (adopting) {
-            AdoptSetlistDialog(
-                onAdopt = { link -> viewModel.adoptSetlistLink(setlist.id, link); adopting = false },
-                onDismiss = { adopting = false },
-            )
-        }
-        val lookup = state.attendanceByGig[setlist.id]?.setlistFmLookup
-        if (askingMatch && setlist.isLocal() && lookup?.possibleMatchPending == true) {
-            PossibleMatchDialog(
-                gigId = setlist.id,
-                yourVenue = setlist.venue?.name,
-                fromTicket = state.attendanceByGig[setlist.id]?.admissions.orEmpty().isNotEmpty(),
-                pendingIds = lookup.pendingHitIds,
-                hits = { viewModel.setlistFmChipHits(setlist.id) },
-                onPick = { hitId -> viewModel.acceptSetlistFmMatch(setlist.id, hitId); askingMatch = false },
-                onNone = { viewModel.rejectSetlistFmMatches(setlist.id); askingMatch = false },
-                onDismiss = { askingMatch = false },
-            )
-        }
-        val answering = answeringOffer?.let { night -> state.mediaOffers[night]?.let { night to it } }
-        if (answering != null && answering.second.media.isNotEmpty()) {
-            val (night, offer) = answering
-            MediaOfferDialog(
-                offer = offer,
-                sender = offerSender(offer, state.friends),
-                onAccept = { viewModel.acceptMediaOffer(night, setlist.id); answeringOffer = null },
-                onDecline = { viewModel.declineMediaOffer(night); answeringOffer = null },
-                onDismiss = { answeringOffer = null },
-            )
-        }
-        askingMaybe?.let { maybe ->
-            val done = {
-                askingMaybe = null
-                shareAfterMaybe?.let { band ->
-                    shareAfterMaybe = null
-                    attachTo = band
-                    photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
-                }
-                Unit
-            }
-            // The same comparison the merge row opens (#580), so the question reads the
-            // same wherever it is asked.
-            MaybeCompareSheet(
-                maybe = maybe,
-                theirColour = laneColourOf(maybe.friend, state.friends),
-                sharing = shareAfterMaybe != null,
-                onSame = { adopt -> recordAnswer(maybe, true, adopt); done() },
-                onApart = { recordAnswer(maybe, false); done() },
-                onDismiss = done,
-            )
-        }
-        if (deleting) {
-            DeleteNightDialog(
-                photos = viewModel.photosLostByDeleting(setlist.id),
-                onDelete = { deleting = false; viewModel.deleteGig(setlist.id); onBack() },
-                onDismiss = { deleting = false },
-            )
-        }
-        val rows = setlist.eventRows()
-        // One list, not two (#268). setlist.fm's record and my **Log** are two
-        // descriptions of the same night, and printing them one under the other made
-        // the reader do the alignment in their head. Woven, a song both hold is a
-        // single line that says so — and neither record is changed by the other,
-        // which is still the rule: this decides reading order and nothing else.
-        val woven = remember(rows, log.songs) {
-            weaveSetlist(rows.map { (it as? EventRow.SongItem)?.song?.name }, log.songs)
-        }
-        val canConvert = convertible
-        val offsets = viewModel.songOffsets(recordingMedia?.id, setlist.songs().size)
-        // Offsets are indexed over every song, tape included; row.number skips tape,
-        // so it can't be used to look one up. -1 for the rows that aren't songs.
-        val songIndexByRow = remember(rows) {
-            buildList {
-                var i = 0
-                rows.forEach { add(if (it is EventRow.SongItem) i++ else -1) }
-            }
-        }
-        // Pull down to re-fetch: you log the night here, go type the songs in on
-        // setlist.fm, and come back to a screen that still says there's no setlist.
-        PullToRefreshBox(
-            isRefreshing = state.setlistsLoading ||
-                (catalogueArtist != null && state.catalogueFetching == catalogueArtist),
-            onRefresh = onPullToRefresh,
-            modifier = Modifier.padding(padding).fillMaxSize(),
-        ) {
-            LazyColumn(
-                Modifier
-                    .fillMaxSize()
-                    // No imePadding here, deliberately: the Scaffold already insets for
-                    // the keyboard, and a second one shrinks the viewport past where
-                    // the list draws — the note field kept its layout and lost its
-                    // bottom border, its "done" and the vault's write-line under it.
-                    // Arranging is the Room's mode, so the whole Room dismisses it —
-                    // every tap that is not an [x] on a thumbnail, not merely a tap on
-                    // the strip that opened it (#162). Registered before the swipe so
-                    // it never eats a horizontal gesture.
-                    .pointerInput(arranging) {
-                        if (arranging) detectTapGestures(onTap = { arranging = false })
-                    }
-                    // Swipe-left is THE action gesture; swipe-right is always back, the
-                    // way out of any pushed screen. What left does depends on the gig:
-                    // a plan-ahead gig adds it to the calendar, then invites once added
-                    // (#55); a past night converts to a playlist, or opens on setlist.fm
-                    // when there's nothing to convert. PAST/DAY_OF planned gigs fall
-                    // through to that same open-on-setlist.fm, matching their crumb.
-                    // Registered even with nothing to convert, or a show with no logged
-                    // setlist would be the one screen you can't swipe out of.
-                    .pointerInput(setlist.id, canConvert, planAhead, added, canLog, leaf) {
-                        val threshold = 110.dp.toPx()
-                        var dragX = 0f
-                        detectHorizontalDragGestures(
-                            onDragStart = { dragX = 0f },
-                            onDragEnd = {
-                                when {
-                                    dragX >= threshold -> onBack()
-                                    dragX > -threshold -> {}
-                                    // A night I logged: the swipe is the labelled
-                                    // publish, matching the "‹ copy the set and open
-                                    // setlist.fm" hint under it — this file's rule is
-                                    // that the swipe never contradicts the hint. Not
-                                    // gated on the clock: a gesture that silently does
-                                    // nothing for half the night is a dead gesture, and
-                                    // this one publishes nothing by itself anyway — it
-                                    // fills the clipboard and opens their form.
-                                    canLog -> onPublish()
-                                    planAhead && !added -> onAddToCalendar()
-                                    planAhead && added -> onInvite()
-                                    canConvert -> {
-                                        viewModel.selectSetlist(setlist)
-                                        onConvert()
-                                    }
-                                    else -> setlist.url?.let {
-                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it)))
-                                    }
-                                }
-                            },
-                            onHorizontalDrag = { _, delta -> dragX += delta },
-                        )
-                    },
-            ) {
-                item {
-                    Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 14.dp)) {
-                        Text(setlist.artist?.name ?: "Unknown artist", fontFamily = Serif, fontSize = 27.sp, color = Ink, modifier = Modifier.asHeading())
-                        Spacer(Modifier.height(5.dp))
-                        Text(
-                            listOfNotNull(setlist.venueLine(), setlist.readableDate()).joinToString(" · "),
-                            color = Muted,
-                            fontSize = 13.sp,
-                        )
-                        Spacer(Modifier.height(11.dp))
-                        Row {
-                            // Once the night has passed the record has the last word:
-                            // "no setlist yet" is a fact about what is stored, so a Gig
-                            // holding fifteen songs cannot print it and one holding none
-                            // keeps printing it (#127).
-                            EventTag(
-                                gigStatus(planned, setlist.localDate(), setlist.performed().size),
-                                color = if (planned) Slate else Muted,
-                            )
-                            setlist.tour?.name?.let {
-                                Spacer(Modifier.width(6.dp))
-                                EventTag(it)
-                            }
-                            // The rule this row now follows: a chip that names an
-                            // **external record** opens it; a chip stating a local fact
-                            // (song count, tour, "checked in") does not. That is what
-                            // makes the setlist.fm chip below learnable rather than a
-                            // special case — and it was already true of this one, which
-                            // has always named a Spotify URL and done nothing with it.
-                            if (made.isNotEmpty()) {
-                                Spacer(Modifier.width(6.dp))
-                                EventTag(
-                                    if (made.size == 1) "playlist ↗" else "${made.size} playlists ↗",
-                                    color = SpotifyGreen,
-                                    onClick = {
-                                        context.startActivity(
-                                            Intent(Intent.ACTION_VIEW, Uri.parse(made.first().url)),
-                                        )
-                                    },
-                                )
-                            }
-                            // How the app came to believe I was here. A check-in is
-                            // stronger evidence than setlist.fm's retroactive flag; the
-                            // redundant "planned" chip is gone — "you're going"/countdown
-                            // above already says all a planned-and-not-checked-in night can.
-                            // A badge marks the exceptional. "Checked in" is earned;
-                            // the tag that used to sit beside it labelled the *default*
-                            // — nearly every attended gig — and so said nothing. Gone.
-                            // Self-assertion and evidence are two different claims and read
-                            // as two chips (#442, story 4). A witness is another phone that
-                            // was checked in to this same night signing for mine, so it is
-                            // strictly more than "checked in" and says so on the same chip
-                            // rather than beside it — one claim, at its actual strength.
-                            // `state.witnessedGigs` is the same expression the Walk reads
-                            // (GigFlyover), so the two surfaces cannot disagree about a night.
-                            if (checkedIn) {
-                                Spacer(Modifier.width(6.dp))
-                                EventTag(
-                                    if (setlist.id in state.witnessedGigs) "checked in · witnessed"
-                                    else "checked in",
-                                    color = Amber,
-                                )
-                            }
-                            // The setlist.fm id, rendered. Not a button bolted on beside
-                            // the data — it *is* `StoredGig.setlistId`, and its absence
-                            // is #34's stub condition showing itself. That id is the
-                            // correspondence key between people, so this chip is the
-                            // joint where my record meets everyone else's.
-                            Spacer(Modifier.width(6.dp))
-                            if (setlist.url != null) {
-                                EventTag(
-                                    // The glyph is the tell. Nothing in this row has
-                                    // ever answered a tap, so a chip that does cannot
-                                    // rely on anyone trying it.
-                                    "${setlist.id} ↗",
-                                    color = Slate,
-                                    // The canonical setlist page, never a constructed
-                                    // edit url: this one is always valid, needs no login,
-                                    // and editing is one click away on their own site.
-                                    onClick = {
-                                        context.startActivity(
-                                            Intent(Intent.ACTION_VIEW, Uri.parse(setlist.url)),
-                                        )
-                                    },
-                                    label = "Link to this setlist on setlist.fm",
-                                )
-                            } else {
-                                // **Local**: a true property of the record — it exists on
-                                // this phone only, and cannot be a **Crossing** until it
-                                // has an id. Not "self-reported", which describes how
-                                // nearly every claim here was made and so marks nothing.
-                                //
-                                // Deliberately inert. `/edit` shows a signed-out user a
-                                // sign-in wall, and #34 is explicit that a dead-end link
-                                // is worse than no crumb — so the absence is stated and
-                                // the labelled action below is the door.
-                                EventTag("local", color = Faint)
-                            }
-                        }
-                        // A lookup found something but was not sure (#531): the question
-                        // waits here, on the night, until it is answered. Dismissing the
-                        // dialog leaves it waiting; the automatic checks pause meanwhile.
-                        if (setlist.isLocal() &&
-                            state.attendanceByGig[setlist.id]?.setlistFmLookup?.possibleMatchPending == true
-                        ) {
-                            Spacer(Modifier.height(8.dp))
-                            EventTag(
-                                POSSIBLE_MATCH_TITLE,
-                                color = Amber,
-                                onClick = { askingMatch = true },
-                            )
-                        }
-                        // A **Contact** sent media for a Night of theirs on this date that
-                        // I have not joined (#405). Offered, never filed: it waits here, on
-                        // the Night it might be, until I say yes or no.
-                        if (!planned) {
-                            state.mediaOffers.waitingOn(setlist.eventDate).forEach { (night, offer) ->
-                                val line = offerLine(offer, offerSender(offer, state.friends))
-                                Spacer(Modifier.height(8.dp))
-                                EventTag(
-                                    line,
-                                    color = Slate,
-                                    onClick = { answeringOffer = night },
-                                    label = "$line. Opens accept or decline.",
-                                )
-                            }
-                        }
-                        // A **Contact** was out this date under a Night nothing links to
-                        // this one (#405): a *maybe*. It waits here costing nothing, and is
-                        // asked outright only when I go to share media from this Night.
-                        maybes.forEach { maybe ->
-                            val line = maybeTagLine(maybe)
-                            Spacer(Modifier.height(8.dp))
-                            EventTag(
-                                line,
-                                color = Crossed,
-                                onClick = { askingMaybe = maybe },
-                                label = "$line. ${maybeTheirNight(maybe)}. Opens same night or not.",
-                            )
-                        }
-                        // Nothing can be pinned to a night nobody has been to yet — the
-                        // slot comes back once the gig is checked into or no longer planned.
-                        if (showsMediaBlock(planned, checkedIn)) {
-                            // The review, where the sharing decision is actually made:
-                            // one night at a time (#145). At the timeline the lit and
-                            // unlit versions look almost identical; the difference is
-                            // visible here, which is the right place for it.
-                            if (state.contactLight) {
-                                Spacer(Modifier.height(12.dp))
-                                Text(
-                                    when {
-                                        gigMedia.isEmpty() && withheld.isEmpty() ->
-                                            "Nothing to see on this night. They see that you were here."
-                                        gigMedia.isEmpty() ->
-                                            "They see none of the ${withheld.size} here. They see that you were here."
-                                        else ->
-                                            "They see ${gigMedia.size} of ${gigMedia.size + withheld.size} here."
-                                    },
-                                    color = Muted,
-                                    fontSize = 12.sp,
-                                )
-                                if (withheld.isNotEmpty()) {
-                                    Text(
-                                        if (state.showWithheld) "hide what you are keeping back"
-                                        else "show the ${withheld.size} you are keeping back",
-                                        color = Slate,
-                                        fontSize = 12.sp,
-                                        modifier = Modifier
-                                            .clickable { viewModel.setShowWithheld(!state.showWithheld) }
-                                            .padding(vertical = 8.dp),
-                                    )
-                                }
-                                // Placeholders, never content: the question this answers
-                                // is "how much am I keeping back", and re-rendering the
-                                // photographs would answer a different one.
-                                if (state.showWithheld) {
-                                    Row(Modifier.padding(bottom = 6.dp)) {
-                                        withheld.forEach { _ ->
-                                            Box(
-                                                Modifier
-                                                    .padding(end = 6.dp)
-                                                    .size(44.dp)
-                                                    .clip(RoundedCornerShape(6.dp))
-                                                    .background(UnlitField)
-                                                    .border(1.dp, LineCol, RoundedCornerShape(6.dp)),
-                                            )
-                                        }
-                                    }
-                                }
-                                // Stopping is a drag down into the vault, one photograph
-                                // at a time (#162), so there is no button here — and
-                                // there must not be one: nothing retrieves what already
-                                // left, and no control may look as though it does.
-                            }
-                            Spacer(Modifier.height(12.dp))
-                            GigMediaBands(
-                                media = gigMedia,
-                                loadPreview = viewModel::photoPreview,
-                                // Remove and the drag both hang off arrange mode, so
-                                // withholding it is the whole of gating them.
-                                arranging = arranging && editable,
-                                // The light shows what they see, so the vault band and
-                                // the handle are absent under it rather than drawn over
-                                // a filtered list they could only misreport.
-                                contactLight = state.contactLight,
-                                editable = editable,
-                                // A sender is a public key (#28) and a Contact's name
-                                // lives on the friends list under a setlist.fm handle.
-                                // Nothing joins the two yet, so the promise degrades to
-                                // "someone else" rather than inventing a name.
-                                senderName = { key -> state.friends.nameOf(key) },
-                                onArrange = { arranging = true },
-                                onDoneArranging = { arranging = false },
-                                onAdd = { band ->
-                                    // Going to share from a *maybe* Night asks the one
-                                    // question, once, now (#405 story 22) — and then
-                                    // carries on into the picker whatever the answer.
-                                    val ask = maybes.firstOrNull()
-                                    if (band == Band.SHARED && ask != null) {
-                                        shareAfterMaybe = band
-                                        askingMaybe = ask
-                                    } else {
-                                        attachTo = band
-                                        photoPicker.launch(
-                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
-                                        )
-                                    }
-                                },
-                                // Opens in the in-app viewer below rather than handing the uri to
-                                // whatever app the phone picks: an external app can fail to read
-                                // it (permission scoped to us, or the phone's own quirks) and
-                                // leave the user staring at a viewer with nothing in it.
-                                onOpen = { uri -> viewerUri = uri },
-                                onRemove = { item -> viewModel.removeGigPhoto(setlist.id, Uri.parse(item.ref)) },
-                                onMove = { id, band, index -> moveAndAsk(setlist.id, id, band, index) },
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            GigPhotoSuggestions(
-                                candidates = state.gigPhotoSuggestions,
-                                loading = state.gigPhotoSuggestionsLoading,
-                                searched = state.gigPhotoSuggestionsSearched,
-                                permissionGranted = state.gigPhotoSuggestionsPermissionGranted,
-                                already = gigPhotos,
-                                onRequestPermission = {
-                                    gigSuggestPermissionLauncher.launch(PhotoRepository.requiredPermissions())
-                                },
-                                // A suggestion has no gesture behind it, so it takes the
-                                // safe band. Moving it up is one drag.
-                                onAdd = { uri -> viewModel.addGigPhotos(setlist.id, listOf(uri), Band.VAULT) },
-                            )
-                        }
-                    }
-                }
-                if (!mineNight) item {
-                    val going = nightKind(setlist.localDate(), LocalDate.now()) == NightKind.GOING_TO
-                    TextButton(
-                        onClick = { viewModel.joinGig(setlist) },
-                        modifier = Modifier.padding(horizontal = 12.dp),
-                    ) {
-                        Text(if (going) "I am going too" else "I was there too", color = Amber)
-                    }
-                }
-                val gossipFacts = state.publicGossip.project(setOf(setlist.id))
-                    .filter { it.author !in state.publicGossip.localAuthors }
-                val contactNames = io.github.magnusencoded.stationtostation.data.gossip.contactNamesOf(state.friends)
-                // Who was here, and it stays (#498). Asked under every id this night has been
-                // known by — adopting a setlist.fm id must not split the record or count the
-                // same device under both halves of it.
-                val seenWith = state.publicGossip.seenWith(
-                    state.gossipGigAliases[setlist.id] ?: setOf(setlist.id), contactNames)
-                if (!seenWith.isEmpty) item {
-                    Text(seenWithLine(seenWith), color = Slate,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
-                }
-                val gossipRows = io.github.magnusencoded.stationtostation.data.gossip.weaveGossip(
-                    woven.map { line -> line.logged?.let { log.songs[it] }
-                        ?: (line.published?.let { rows[it] } as? EventRow.SongItem)?.song?.name }, gossipFacts)
-                if (gossipRows.isEmpty() && !canLog) {
-                    item {
-                        Text(
-                            // A night that hasn't happened has no setlist missing from
-                            // it — nothing has been played yet, and saying "not logged"
-                            // would blame setlist.fm for a gap that isn't one.
-                            if (planned) "This show hasn't happened yet."
-                            else "This show has no setlist on setlist.fm yet.",
-                            color = Muted,
-                            fontSize = 14.sp,
-                            modifier = Modifier.padding(20.dp),
-                        )
-                    }
-                }
-                itemsIndexed(gossipRows) { _, gossipRow ->
-                    gossipRow.facts.forEach { fact ->
-                        val name = state.publicGossip.attributedName(fact.author, contactNames) ?: "Nearby listener"
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("$name · gossip, experimental", color = Slate, fontSize = 11.sp, modifier = Modifier.weight(1f))
-                            TextButton(onClick = { viewModel.blockGossip(fact.author) }) { Text("Block") }
-                        }
-                    }
-                    if (gossipRow.base == null) {
-                        Text(gossipRow.text?.ifBlank { "a song they couldn't name" }.orEmpty(), color = Ink,
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
-                    } else {
-                    val line = woven[gossipRow.base]
-
-                    // Mine is an index into the **Log**, and the × and the correction
-                    // panel act on it there — the published row beside it is never
-                    // touched by either.
-                    val logAt = line.logged?.takeIf { canLog }
-                    val remembered = line.logged?.let { log.rememberedAt(it) }
-                    val remove = logAt?.let { j ->
-                        { correctingLog = null; viewModel.removeFromLog(setlist.id, j) }
-                    }
-                    when (val row = line.published?.let { rows[it] }) {
-                        is EventRow.Encore -> EncoreLabel()
-                        is EventRow.SongItem -> {
-                            val at = offsets.getOrElse(songIndexByRow[line.published!!]) { NOT_STAMPED }
-                            SongRow(
-                                number = row.number,
-                                song = row.song,
-                                offsetMs = at,
-                                mine = line.both,
-                                remembered = remembered,
-                                onRemoveLog = remove,
-                                // Only a stamped song knows where it is in the recording;
-                                // the rest are inert until someone marks them.
-                                onClick = if (at > NOT_STAMPED && recording != null) {
-                                    { viewerStartMs = at; viewerUri = recording }
-                                } else null,
-                            )
-                        }
-                        // Only mine. A **Gap** offers no correction: "one I couldn't
-                        // name" is an acknowledged fact, not an invitation to guess.
-                        null -> {
-                            val j = line.logged!!
-                            val title = log.songs[j]
-                            LoggedRow(
-                                title = title,
-                                // Only when nothing was published: then my Log is the
-                                // record of this night and its order is the set's.
-                                number = (j + 1).takeIf { rows.isEmpty() },
-                                remembered = remembered,
-                                onCorrect = if (canLog && title.isNotBlank()) {
-                                    { correctingLog = if (correctingLog == j) null else j }
-                                } else null,
-                                onRemove = remove,
-                            )
-                            if (correctingLog == j) {
-                                LaunchedEffect(j) { catalogueArtist?.let(viewModel::fetchCatalogue) }
-                                val written = log.rememberedAt(j) ?: title
-                                CorrectEntry(
-                                    written = written,
-                                    // Both sources, played first and recorded after,
-                                    // ranked as one list. A song they played tonight
-                                    // and have recorded appears once.
-                                    candidates = rankTitles(
-                                        written,
-                                        catalogue.distinctBy { it.lowercase() },
-                                    ),
-                                    canRestore = log.rememberedAt(j) != null,
-                                    loading = catalogueLoading,
-                                    onPick = {
-                                        correctingLog = null
-                                        viewModel.correctLogEntry(setlist.id, j, it)
-                                    },
-                                    onRestore = {
-                                        correctingLog = null
-                                        viewModel.restoreLogEntry(setlist.id, j)
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
-                }
-                // My own Log, and it is never taken away. A partial capture you can no
-                // longer correct from inside the app is the exact trap this feature is
-                // built to avoid, so this renders on a night's page forever after.
-                //
-                // **Under the set, not above it.** The entries themselves are on the
-                // spine now (#268), so what is left here is the way in — what to add
-                // and whether the set is complete — and a way in belongs below the
-                // thing it adds to. It also puts the field next to the end of the
-                // list, which is where a song lands when you tap it in.
-                if (canLog) {
-                    item {
-                        Spacer(Modifier.height(6.dp))
-                        LogEditor(
-                            candidates = catalogue,
-                            // Naming which artist a wrong match came from was the
-                            // Bill's own act-search feature (#93), which went with it —
-                            // this pool is the night's own MusicBrainz catalogue, not a
-                            // namesake match to distrust.
-                            poolArtist = "",
-                            log = log,
-                            // Only once I have written something down. An untouched log
-                            // beside an imported setlist is not a divergence, it is a
-                            // log I have not started — and "setlist.fm has 18, yours has
-                            // 0" the instant you check in is noise, not information.
-                            published = setlist.performed().size
-                                .takeIf { setlist.url != null && log.songs.isNotEmpty() },
-                            onAdd = { viewModel.addToLog(setlist.id, it) },
-                            onClosed = { viewModel.setLogClosed(setlist.id, it) },
-                        )
-                        Spacer(Modifier.height(10.dp))
-                    }
-                }
-                // Last of the night's own material, and after the set on purpose: the
-                // sentence is written once the songs have been read back, which is
-                // what "analysis happens after the show" means as a layout. Still
-                // above the **Alcove**, which is the room's fixture rather than the
-                // night's record.
-                item {
-                    Spacer(Modifier.height(14.dp))
-                    GigNotes(
-                        media = gigMedia,
-                        preamble = gigPreamble,
-                        senderName = { key -> state.friends.nameOf(key) },
-                        contactLight = state.contactLight,
-                        editable = editable,
-                        onWrite = { band, text -> viewModel.setGigNote(setlist.id, band, text) },
-                        onVerdict = { id, v -> viewModel.setGigVerdict(setlist.id, id, v) },
-                        onMove = { id, band, index -> moveAndAsk(setlist.id, id, band, index) },
-                    )
-                }
-                item { Spacer(Modifier.height(96.dp)) }
-            }
-        }
-    }
-
-    viewerUri?.let { uri ->
-        // Only the night's own recording carries the setlist — a short clip of one
-        // song is still just a keepsake, and a song list under it would be noise.
-        val songs = if (setlist != null && uri == recording) setlist.songs() else emptyList()
-        MediaViewerDialog(
-            uri = uri,
-            isVideo = viewModel.isVideo(uri),
-            loadPhoto = viewModel::fullPhoto,
-            onDismiss = { viewerUri = null; viewerStartMs = NOT_STAMPED },
-            songs = songs,
-            // The stamps belong to *this* recording, not to the night — a night with
-            // two videos has two answers, and before #97 the second had nowhere to go.
-            offsets = viewModel.songOffsets(recordingMedia?.id, songs.size),
-            startAtMs = viewerStartMs,
-            onStamp = { index, atMs ->
-                recordingMedia?.let { viewModel.stampSong(it.id, index, atMs, songs.size) }
-            },
-        )
-    }
-}
-
-/**
- * A tap on a keepsake opens it here rather than in an external app — a photo enlarged,
- * a video played back — since a picker/FileProvider uri handed to whatever app the phone
- * chooses can fail to actually load it there.
- *
- * When the keepsake is a whole night's recording, the setlist rides along underneath it:
- * play, and tap a song as it starts to record where it sits in the video. Nothing is
- * inferred — one tap stamps one song — because the recording and the setlist do not
- * always hold the same songs.
- */
-@Composable
-private fun MediaViewerDialog(
-    uri: Uri,
-    isVideo: Boolean,
-    loadPhoto: suspend (Uri) -> Bitmap?,
-    onDismiss: () -> Unit,
-    songs: List<FmSong> = emptyList(),
-    offsets: List<Long> = emptyList(),
-    startAtMs: Long = NOT_STAMPED,
-    onStamp: (Int, Long) -> Unit = { _, _ -> },
-) {
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Box(Modifier.fillMaxSize().background(Color.Black)) {
-            if (isVideo && songs.isNotEmpty()) {
-                var player by remember(uri) { mutableStateOf<VideoView?>(null) }
-                Column(Modifier.fillMaxSize()) {
-                    AndroidView(
-                        modifier = Modifier.fillMaxWidth().weight(0.45f),
-                        factory = { ctx ->
-                            VideoView(ctx).apply {
-                                setMediaController(MediaController(ctx).also { it.setAnchorView(this) })
-                                setVideoURI(uri)
-                                setOnPreparedListener {
-                                    if (startAtMs > NOT_STAMPED) seekTo(startAtMs.toInt())
-                                    it.start()
-                                }
-                                player = this
-                            }
-                        },
-                    )
-                    Text(
-                        "Tap a song as it starts. Long-press to clear.",
-                        color = Faint,
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(start = 20.dp, top = 10.dp, bottom = 6.dp),
-                    )
-                    LazyColumn(Modifier.weight(0.55f)) {
-                        itemsIndexed(songs) { index, song ->
-                            StampRow(
-                                number = index + 1,
-                                song = song,
-                                offsetMs = offsets.getOrElse(index) { NOT_STAMPED },
-                                // A stamped song is a place to jump to; an unstamped one
-                                // is a place to mark. Same row, told apart by whether it
-                                // already knows where it lives.
-                                onTap = {
-                                    val at = offsets.getOrElse(index) { NOT_STAMPED }
-                                    if (at > NOT_STAMPED) player?.seekTo(at.toInt())
-                                    else player?.let { onStamp(index, it.currentPosition.toLong()) }
-                                },
-                                onLongPress = { onStamp(index, NOT_STAMPED) },
-                            )
-                        }
-                        item { Spacer(Modifier.height(24.dp)) }
-                    }
-                }
-            } else if (isVideo) {
-                AndroidView(
-                    modifier = Modifier.fillMaxSize(),
-                    factory = { ctx ->
-                        VideoView(ctx).apply {
-                            setMediaController(MediaController(ctx).also { it.setAnchorView(this) })
-                            setVideoURI(uri)
-                            setOnPreparedListener { it.start() }
-                        }
-                    },
-                )
-            } else {
-                var bitmap by remember(uri) { mutableStateOf<Bitmap?>(null) }
-                LaunchedEffect(uri) { bitmap = loadPhoto(uri) }
-                bitmap?.let {
-                    Image(
-                        it.asImageBitmap(),
-                        contentDescription = "Your photo from this show",
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize().clickable(onClick = onDismiss),
-                    )
-                } ?: CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
-            }
-            IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)) {
-                Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
-            }
-        }
-    }
-}
-
-/** mm:ss, or h:mm:ss once a recording runs past the hour — a full gig usually does. */
-internal fun formatOffset(ms: Long): String {
-    val total = ms / 1000
-    val h = total / 3600
-    return if (h > 0) "%d:%02d:%02d".format(h, (total % 3600) / 60, total % 60)
-    else "%d:%02d".format(total / 60, total % 60)
-}
-
-/** One song inside the recording viewer: tap to stamp or to jump, long-press to clear. */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun StampRow(
-    number: Int,
-    song: FmSong,
-    offsetMs: Long,
-    onTap: () -> Unit,
-    onLongPress: () -> Unit,
-) {
-    val stamped = offsetMs > NOT_STAMPED
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                onClickLabel = if (stamped) "Jump to it" else "Stamp it here",
-                onClick = onTap,
-                onLongClickLabel = if (stamped) "Clear the stamp" else null,
-                onLongClick = { if (stamped) onLongPress() },
-            )
-            .padding(horizontal = 20.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text("$number", color = Faint, fontSize = 11.sp, modifier = Modifier.width(24.dp))
-        Text(
-            song.name,
-            color = if (stamped) Ink else Muted,
-            fontSize = 15.sp,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            if (stamped) formatOffset(offsetMs) else "–",
-            color = if (stamped) Amber else Faint,
-            fontSize = 13.sp,
-            // An en dash is read out as "en dash"; say what it means (#164).
-            modifier = if (stamped) Modifier else Modifier.spokenAs("not stamped"),
-        )
-    }
-}
-
-/**
- * One song on the night's spine.
- *
- * [mine] is the overlap: this song is in setlist.fm's record *and* in my **Log**, and
- * the two records agreeing is the strongest thing a line here can say. It is drawn as
- * the ring going **Amber** — mine, the same as everywhere else — rather than as a
- * second copy of the song further down the screen (#268).
- */
-@Composable
-private fun SongRow(
-    number: Int?,
-    song: FmSong,
-    offsetMs: Long = NOT_STAMPED,
-    mine: Boolean = false,
-    /** The words I wrote before a title replaced them, where there were any. */
-    remembered: String? = null,
-    /** Drops my **Log** entry, leaving setlist.fm's row where it was. */
-    onRemoveLog: (() -> Unit)? = null,
-    onClick: (() -> Unit)? = null,
-) {
-    val cover = song.cover?.name
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .height(IntrinsicSize.Min)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            // One stop per song, and the amber ring said in words: it is the only thing
-            // that tells a song my Log also holds from one it does not (#164).
-            .semantics(mergeDescendants = true) { if (mine) stateDescription = "in your log" }
-            .padding(end = 20.dp),
-        verticalAlignment = Alignment.Top,
-    ) {
-        Box(Modifier.width(50.dp).fillMaxHeight()) {
-            Box(Modifier.align(Alignment.TopCenter).width(2.dp).fillMaxHeight().background(LineCol))
-            // A tape track sits on the line as a bare dot: it happened, it isn't
-            // numbered, and it doesn't pretend to be part of the set.
-            val size = if (number == null) 8.dp else 18.dp
-            Box(
-                Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = if (number == null) 7.dp else 2.dp)
-                    .size(size)
-                    .clip(CircleShape)
-                    // The page's own colour, not [Raised]: the line has to pass
-                    // *underneath* the number, and a lighter disc reads as the line
-                    // showing through it (#268).
-                    .background(Ground)
-                    .border(1.5.dp, if (mine) Amber else LineLit, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (number != null) Text(
-                    number.toString(),
-                    color = if (mine) Amber else Faint,
-                    fontSize = 10.sp,
-                    // Default font padding pads above the ascent, so a centred digit
-                    // sits high in a circle this small. Dropping it is not enough on
-                    // its own — the line box still carries the font's leading, and
-                    // pinning lineHeight to the glyph size only moved the baseline.
-                    // Trim both ends and centre what is left, which is the one
-                    // arrangement where Center means the digit's centre (#268).
-                    lineHeight = 10.sp,
-                    textAlign = TextAlign.Center,
-                    style = LocalTextStyle.current.copy(
-                        platformStyle = PlatformTextStyle(includeFontPadding = false),
-                        lineHeightStyle = LineHeightStyle(
-                            alignment = LineHeightStyle.Alignment.Center,
-                            trim = LineHeightStyle.Trim.Both,
-                        ),
-                    ),
-                )
-            }
-        }
-        Column(Modifier.weight(1f).padding(top = 1.dp, bottom = 15.dp)) {
-            Text(song.name, color = if (number == null) Muted else Ink, fontSize = 15.sp)
-            val note = cover?.let { "$it cover" } ?: "tape".takeIf { song.tape }
-            if (note != null) Text(note, color = Faint, fontSize = 11.sp)
-            // What I wrote in the dark, under the title the record settled on. Kept
-            // for the reason it is always kept: it is often *the* memory (#126).
-            if (remembered != null) Text("\"$remembered\"", color = Faint, fontSize = 12.sp)
-        }
-        // Where this song sits in the night's recording, once someone has marked it.
-        if (offsetMs > NOT_STAMPED) {
-            Text(
-                formatOffset(offsetMs),
-                color = Amber,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-        }
-        if (onRemoveLog != null) RemoveLogEntry(onRemoveLog)
-    }
-}
-
-/**
- * What a screen reader says for a hint whose printed words are for a thumb (#164).
- *
- * The "‹ swipe to …" crumbs name the gesture and are tappable too; TalkBack takes the
- * swipe for itself, so it hears the action and not the gesture — and not the ‹, either.
- */
-private fun Modifier.spokenAs(label: String): Modifier = semantics { contentDescription = label }
-
-/**
- * The × that takes one entry out of my **Log**.
- *
- * It never touches setlist.fm's row — on a line both records hold, removing mine
- * leaves the published song exactly where it was and only puts the ring out.
- */
-@Composable
-private fun RemoveLogEntry(onRemove: () -> Unit) {
-    Text(
-        "×",
-        color = Faint,
-        fontSize = 20.sp,
-        modifier = Modifier
-            .clickable(onClick = onRemove)
-            .semantics { contentDescription = "Remove from your log" }
-            .padding(horizontal = 10.dp),
-    )
-}
-
-/**
- * A song only my **Log** has: I wrote it down and setlist.fm's record does not hold it
- * — either because nobody has published it or because nobody else caught it (#268).
- *
- * **A number is a position in a record.** Where setlist.fm has a set, the numbers are
- * its numbers and mine gets a bare dot instead — the same mark a tape track gets, and
- * for the same reason: it happened, it is on the line, and it is not one of the
- * numbered songs. Where there is no published set my **Log** *is* the record of the
- * night, so [number] is its own position and the running order reads back.
- */
-@Composable
-private fun LoggedRow(
-    title: String,
-    number: Int?,
-    remembered: String?,
-    onCorrect: (() -> Unit)?,
-    onRemove: (() -> Unit)?,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .height(IntrinsicSize.Min)
-            .then(if (onCorrect != null) Modifier.clickable(onClickLabel = "Correct the title", onClick = onCorrect) else Modifier)
-            .semantics(mergeDescendants = true) { stateDescription = "in your log" }
-            .padding(end = 20.dp),
-        verticalAlignment = Alignment.Top,
-    ) {
-        Box(Modifier.width(50.dp).fillMaxHeight()) {
-            Box(Modifier.align(Alignment.TopCenter).width(2.dp).fillMaxHeight().background(LineCol))
-            Box(
-                Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = if (number == null) 7.dp else 2.dp)
-                    .size(if (number == null) 8.dp else 18.dp)
-                    .clip(CircleShape)
-                    .background(if (number == null && title.isNotBlank()) Amber else Ground)
-                    .border(1.5.dp, Amber, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (number != null) Text(
-                    number.toString(),
-                    color = Amber,
-                    fontSize = 10.sp,
-                    lineHeight = 10.sp,
-                    textAlign = TextAlign.Center,
-                    // The same trimming SongRow needs, and for the same reason (#268).
-                    style = LocalTextStyle.current.copy(
-                        platformStyle = PlatformTextStyle(includeFontPadding = false),
-                        lineHeightStyle = LineHeightStyle(
-                            alignment = LineHeightStyle.Alignment.Center,
-                            trim = LineHeightStyle.Trim.Both,
-                        ),
-                    ),
-                )
-            }
-        }
-        Column(Modifier.weight(1f).padding(top = 1.dp, bottom = 15.dp)) {
-            // A **Gap** is a song that was played and could not be named. It is in the
-            // record on purpose: an acknowledged hole is a true fact, and the same
-            // song silently absent is the record lying about what it knows.
-            Text(
-                title.ifBlank { "— one I couldn't name —" },
-                color = if (title.isBlank()) Faint else Ink,
-                fontSize = 15.sp,
-            )
-            if (remembered != null) Text("\"$remembered\"", color = Faint, fontSize = 12.sp)
-        }
-        if (onRemove != null) RemoveLogEntry(onRemove)
-    }
-}
-
-@Composable
-private fun EncoreLabel() {
-    Text(
-        "— ENCORE —",
-        color = Amber,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.SemiBold,
-        letterSpacing = 2.sp,
-        modifier = Modifier
-            .padding(start = 50.dp, top = 4.dp, bottom = 14.dp)
-            .semantics { contentDescription = "Encore"; heading() },
-    )
-}
-
-@Composable
-private fun EventTag(
-    text: String,
-    color: Color = Muted,
-    onClick: (() -> Unit)? = null,
-    // What a reader should hear when the visible text is a bare identifier or a
-    // glyph. Sighted readers get the id because the id is the record; TalkBack
-    // reading it out loud says nothing about what a tap will do.
-    label: String? = null,
-) {
-    Text(
-        text,
-        color = color,
-        fontSize = 11.sp,
-        modifier = Modifier
-            .then(if (label != null) Modifier.semantics { contentDescription = label } else Modifier)
-            .clip(RoundedCornerShape(20.dp))
-            .background(Raised2)
-            .border(1.dp, Color(0xFF2A2338), RoundedCornerShape(20.dp))
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 9.dp, vertical = 4.dp),
     )
 }

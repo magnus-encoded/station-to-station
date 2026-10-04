@@ -17,3 +17,7 @@ the order to try them in. Use it before swiping over `adb` or `simctl`.
 ## Writing comments
 
 Follow [`docs/agents/comments.md`](docs/agents/comments.md): separate rules for logic, plumbing and tests. The periodic comment review checks against them.
+
+## Where feature state lives
+
+Feature state lives in `features/<name>/`: a controller taking `state`, `update`, its `data/` dependencies and a `CoroutineScope`, wired in `AppViewModel`. Controller tests reuse `FakeState`.

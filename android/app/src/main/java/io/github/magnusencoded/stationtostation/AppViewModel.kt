@@ -1,13 +1,21 @@
 package io.github.magnusencoded.stationtostation
 
 import android.app.Application
+import io.github.magnusencoded.stationtostation.features.planning.PlanningController
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.magnusencoded.stationtostation.features.settings.SettingsController
+import io.github.magnusencoded.stationtostation.features.settings.asSettingsStore
+import io.github.magnusencoded.stationtostation.features.settings.asSpotifyLogin
 import io.github.magnusencoded.stationtostation.data.Band
+import io.github.magnusencoded.stationtostation.features.contacts.ContactsController
+import io.github.magnusencoded.stationtostation.features.setlists.SetlistController
+import io.github.magnusencoded.stationtostation.features.gig.GigController
+import io.github.magnusencoded.stationtostation.features.gig.GigMediaController
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.FriendArrival
 import io.github.magnusencoded.stationtostation.data.friendArrival
@@ -27,7 +35,6 @@ import io.github.magnusencoded.stationtostation.data.ProgrammeAct
 import io.github.magnusencoded.stationtostation.data.StoredProgramme
 import io.github.magnusencoded.stationtostation.data.programmeDays
 import io.github.magnusencoded.stationtostation.data.clashfinder.ClashfinderClient
-import io.github.magnusencoded.stationtostation.data.clashfinder.clashfinderUrl
 import io.github.magnusencoded.stationtostation.data.SettingsRepository
 import io.github.magnusencoded.stationtostation.data.StoredAdmission
 import io.github.magnusencoded.stationtostation.data.TicketOriginals
@@ -69,10 +76,12 @@ import io.github.magnusencoded.stationtostation.data.TimelineCache
 import io.github.magnusencoded.stationtostation.data.TimelineStore
 import io.github.magnusencoded.stationtostation.data.friendFromUri
 import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
+import io.github.magnusencoded.stationtostation.features.playlist.PlaylistController
 import io.github.magnusencoded.stationtostation.data.sfmStamp
 import io.github.magnusencoded.stationtostation.data.sfmUserFromDescription
 import io.github.magnusencoded.stationtostation.data.spotifyPlaylistId
 import io.github.magnusencoded.stationtostation.data.toShareUri
+import io.github.magnusencoded.stationtostation.features.navigation.NavigationController
 import io.github.magnusencoded.stationtostation.ui.MaybeNight
 import io.github.magnusencoded.stationtostation.ui.TimelineNode
 import io.github.magnusencoded.stationtostation.ui.atVenue
@@ -81,6 +90,7 @@ import io.github.magnusencoded.stationtostation.ui.checkInCandidate
 import io.github.magnusencoded.stationtostation.ui.venueMapsQuery
 import io.github.magnusencoded.stationtostation.ble.ProbeCard
 import io.github.magnusencoded.stationtostation.data.AccountsMove
+import io.github.magnusencoded.stationtostation.features.handover.HandoverController
 import io.github.magnusencoded.stationtostation.data.AccountsPayload
 import io.github.magnusencoded.stationtostation.data.CATEGORY_ACCOUNTS
 import io.github.magnusencoded.stationtostation.data.Credentials
@@ -117,6 +127,7 @@ import io.github.magnusencoded.stationtostation.data.gossip.contactKeysOf
 import io.github.magnusencoded.stationtostation.data.gossip.contactNamesOf
 import io.github.magnusencoded.stationtostation.data.gossip.gossipExpiry
 import io.github.magnusencoded.stationtostation.data.gossip.GossipService
+import io.github.magnusencoded.stationtostation.features.gossip.GossipController
 import io.github.magnusencoded.stationtostation.data.gossip.GossipStore
 import io.github.magnusencoded.stationtostation.data.gossip.gigDatesOf
 import io.github.magnusencoded.stationtostation.data.gossip.gossipGigTonight
@@ -568,6 +579,13 @@ fun UiState.queuingTicket(ticket: PendingTicket): UiState = copy(pendingTickets 
 fun UiState.answeringTicket(id: String): UiState = copy(pendingTickets = pendingTickets.filterNot { it.id == id })
 
 /**
+ * Furthest-future first, which is the same order the attended rows below already
+ * use: up is always later, and a planned gig is not an exception to that.
+ */
+internal fun sortedPlanned(gigs: List<FmSetlist>): List<FmSetlist> =
+    gigs.sortedByDescending { it.localDate() }
+
+/**
  * The state after a local **Gig** took [setlistId] (#515): everything the screens read by
  * gig id, moved from [localId] to the new one in one step.
  *
@@ -693,11 +711,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         /** setlist.fm's page size for attended lists — used to resume a cached spine. */
         private const val SETLISTS_PER_PAGE = 20
 
-        /** How long a shared ticket's import waits on setlist.fm before reading it as no match (#531). */
-        private const val TICKET_LOOKUP_TIMEOUT_MS = 5_000L
-
-        /** The automatic checks' longest sleep: a night coming due is noticed within this (#531). */
-        private const val LOOKUP_CHECK_CAP_MS = 5 * 60_000L
     }
 
     val settings = SettingsRepository(application)
@@ -717,21 +730,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      */
     val clashfinder = ClashfinderClient { settings.clashfinderAuth() }
 
-    /**
-     * Hand one clashfinder document to the browser, which the host does still answer.
-     *
-     * The address carries the account's credentials because the data needs them, so this
-     * puts the public key in the browser's history — accepted only because it is the one
-     * route to the file while the app itself is refused, and it is the user's own key on
-     * their own phone.
-     */
-    suspend fun openClashfinderInBrowser(context: Context, path: String) {
-        val auth = settings.clashfinderAuth() ?: return
-        context.startActivity(
-            Intent(Intent.ACTION_VIEW, Uri.parse(clashfinderUrl(path, auth)))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        )
-    }
+    suspend fun openClashfinderInBrowser(context: Context, path: String) =
+        settingsController.openClashfinderInBrowser(context, path)
 
     /**
      * The Timeline's sequence and rules (ADR-0001), with the device half handed in
@@ -752,7 +752,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * no background service, no extra permission, and no advertising on the network for
      * as long as the app merely happens to be open.
      */
-    private val contactExchange = ContactExchange(
+    private val contactExchange: ContactExchange = ContactExchange(
         context = application,
         scope = viewModelScope,
         photos = photos,
@@ -760,10 +760,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         manifest = {
             val cache = timelines.load()
             val me = settings.mySetlistFmUser.first().orEmpty()
-            hashedManifest(contactManifest(cache, contactIdentityPublicKeyBase64(), me), cache)
+            handover.hashedManifest(contactManifest(cache, contactIdentityPublicKeyBase64(), me), cache)
         },
         mine = { timelines.load() },
-        gallery = { galleryForMatching(timelines.load()) },
+        gallery = { handover.galleryForMatching(timelines.load()) },
         onLanded = { landing -> timelines.mergeContactMedia(landing) },
         lanesByKey = {
             val shows = timelines.load().shows
@@ -771,13 +771,31 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 f.publicKey?.let { key -> shows[f.laneKey]?.let { key to it } }
             }.toMap()
         },
-        onNights = { key, nights -> landContactNights(key, nights) },
+        onNights = { key, nights -> contacts.landContactNights(key, nights) },
         myNights = { timelines.load().mySpine(settings.mySetlistFmUser.first().orEmpty()) },
         onOffers = { offers ->
             timelines.holdMediaOffers(offers)
             val held = timelines.load().mediaOffers
             _state.update { it.copy(mediaOffers = held) }
         },
+    )
+
+    private val contacts: ContactsController = ContactsController(
+        state = { _state.value },
+        update = { change -> _state.update(change) },
+        settings = settings,
+        timelines = timelines,
+        spotify = spotify,
+        setlistFm = setlistFm,
+        logic = logic,
+        exchange = exchange,
+        contactExchange = contactExchange,
+        scope = viewModelScope,
+        fail = { e -> fail(e) },
+        errorKindOf = { e -> errorKindOf(e) },
+        isSharedQuota = { e -> isSharedQuota(e) },
+        adoptSetlist = { gigId, setlistId, fresh, notice -> adoptSetlist(gigId, setlistId, fresh, notice) },
+        syncGossip = { gossipController.sync() },
     )
 
     /**
@@ -794,10 +812,106 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
-    private var matchJob: Job? = null
+    private val gigController = GigController(
+        state = { _state.value },
+        update = { change -> _state.update(change) },
+        timelines = timelines,
+        photos = photos,
+        where = where,
+        setlistFm = setlistFm,
+        gossip = gossip,
+        scope = viewModelScope,
+        setGigMedia = { id, media -> setGigMedia(id, media) },
+        syncGossip = { gossipController.sync() },
+        gossipAbout = { id -> gossipController.gossipAbout(id) },
+    )
+    private val gigMedia = GigMediaController(
+        state = { _state.value },
+        update = { f -> _state.update(f) },
+        timelines = timelines,
+        photos = photos,
+        scope = viewModelScope,
+    )
+    private val gossipController = GossipController(
+        state = { _state.value },
+        update = { edit -> _state.update(edit) },
+        gossip = gossip,
+        timelines = timelines,
+        radio = { activeUntil -> GossipService.sync(getApplication<Application>(), activeUntil) },
+        scope = viewModelScope,
+    )
+    private val navigation = NavigationController(
+        state = { _state.value },
+        update = { change -> _state.update(change) },
+        scope = viewModelScope,
+        fetchSetlist = { setlistFm.setlist(it) },
+        saveHiddenLines = { timelines.saveHiddenLines(it) },
+        resolveFestivalsFor = { mine, known -> logic.resolveFestivals(mine, known) },
+        refreshLine = { friend -> contacts.refreshLine(friend) },
+        writeLog = ::writeLog,
+        fail = ::fail,
+    )
+    private val settingsController = SettingsController(
+        update = { transform -> _state.update(transform) },
+        settings = settings.asSettingsStore(),
+        spotify = spotify.asSpotifyLogin(),
+        scope = viewModelScope,
+        fail = { fail(it) },
+    )
 
-    /** The in-flight artist lookup, so a new keystroke cancels the last one. */
-    private var artistSearch: Job? = null
+    private val handover = HandoverController(
+        state = { _state.value },
+        update = { change -> _state.update(change) },
+        application = application,
+        settings = settings,
+        spotify = spotify,
+        photos = photos,
+        timelines = timelines,
+        scope = viewModelScope,
+        restoreTimelines = { restoreTimelines() },
+    )
+
+    private val playlist = PlaylistController(
+        state = { _state.value },
+        update = { transform -> _state.update(transform) },
+        spotify = spotify,
+        photos = photos,
+        timelines = timelines,
+        scope = viewModelScope,
+        fail = ::fail,
+        addFriend = ::addFriend,
+    )
+
+    private val planning: PlanningController = PlanningController(
+        state = { _state.value },
+        update = { f -> _state.update(f) },
+        timelines = timelines,
+        setlistFm = setlistFm,
+        musicBrainz = musicBrainz,
+        ticketOriginals = ticketOriginals,
+        application = getApplication(),
+        scope = viewModelScope,
+        fail = ::fail,
+        adoptSetlist = { gigId, setlistId, fresh, notice -> adoptSetlist(gigId, setlistId, fresh, notice) },
+        lookUpLocalGig = { gigId, manual -> setlists.lookUpLocalGig(gigId, manual) },
+    )
+
+    private val setlists: SetlistController = SetlistController(
+        state = { _state.value },
+        update = { change -> _state.update(change) },
+        setlistFm = setlistFm,
+        timelines = timelines,
+        setlistFmKey = { settings.setlistFmKey() },
+        sharedQuotaSpentAtValue = { settings.sharedQuotaSpentAtValue() },
+        gossipStoppedAt = { gossip.stoppedAt() },
+        scope = viewModelScope,
+        fail = ::fail,
+        consumeError = ::consumeError,
+        saveSettingsNow = ::saveSettingsNow,
+        saveMySetlistFmUser = ::saveMySetlistFmUser,
+        adoptSetlist = ::adoptSetlist,
+        lineArtists = { planning.lineArtists() },
+    )
 
     init {
         viewModelScope.launch {
@@ -833,7 +947,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             restoreTimelines()
             // After the timeline is back, because the only reason the radio runs is a Gig
             // on this timeline that is still in participation.
-            syncGossip()
+            gossipController.sync()
         }
         // Witnessed check-in is the one gossip answer the screens ask for. Read from the
         // store rather than pushed at the moment of witnessing, so a phone that was closed
@@ -880,23 +994,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         // #87: the peer tapped, not me — their card arrived over the write characteristic.
         // Same landing as a tap, so one tap brings both people in.
-        exchange.onFriendReceived = { friend -> viewModelScope.launch { bringIn(friend) } }
+        exchange.onFriendReceived = { friend -> viewModelScope.launch { contacts.bringIn(friend) } }
     }
 
-    /**
-     * Called when the Exchange screen appears — see [contactExchange]'s doc comment.
-     *
-     * Only once there is a **Contact** with a key to search for: a first-time user has
-     * nobody to reconcile with, and lighting up a radio to look for them is asking the
-     * network a question with no possible answer. iOS gates the same call for a sharper
-     * reason — starting it is what raises the local-network permission prompt there.
-     */
-    fun startContactExchange() {
-        if (_state.value.friends.any { !it.publicKey.isNullOrBlank() }) contactExchange.start()
-    }
+    fun startContactExchange() = contacts.startContactExchange()
 
-    /** Called when the Exchange screen goes away — see [contactExchange]'s doc comment. */
-    fun stopContactExchange() = contactExchange.stop()
+    fun stopContactExchange() = contacts.stopContactExchange()
 
     override fun onCleared() {
         exchange.stop()
@@ -931,7 +1034,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 // night has one, its own where it doesn't.
                 playlistsBySetlist = it.playlistsBySetlist + cached.playlists(),
                 mediaBySetlist = it.mediaBySetlist + cached.media(),
-                plannedGigs = sortedPlanned(cached.planned()),
+                plannedGigs = planning.sortedPlanned(cached.planned()),
                 logsByGig = it.logsByGig + cached.logs(),
                 catalogueByArtist = it.catalogueByArtist + cached.catalogueByArtist,
                 attendanceByGig = it.attendanceByGig + cached.attendance(),
@@ -995,11 +1098,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    /** Records that the splash was passed, so it never shows again. */
-    fun markOnboarded() {
-        _state.update { it.copy(onboarded = true) }
-        viewModelScope.launch { settings.setOnboarded() }
-    }
+    fun markOnboarded() = settingsController.markOnboarded()
 
     fun consumeError() = _state.update { it.copy(error = null, errorKind = null) }
     fun consumeNotice() = _state.update { it.copy(notice = null) }
@@ -1025,357 +1124,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun isSharedQuota(e: Throwable): Boolean =
         e is SetlistFmRateLimited && e.sharedKey
 
-    fun saveSettings(apiKey: String, clientId: String) {
-        viewModelScope.launch { saveSettingsNow(apiKey, clientId) }
-    }
+    fun saveSettings(apiKey: String, clientId: String) =
+        settingsController.saveSettings(apiKey, clientId)
 
-    suspend fun saveSettingsNow(apiKey: String, clientId: String) {
-        settings.saveSetlistFmApiKey(apiKey)
-        settings.saveSpotifyClientId(clientId)
-        _state.update {
-            it.copy(
-                setlistFmApiKey = apiKey.trim(),
-                spotifyClientId = clientId.trim(),
-                spotifyLoginReady = settings.spotifyClientIdValue() != null,
-                setlistFmReady = settings.setlistFmApiKeyValue() != null,
-                setlistFmSharedQuotaSpent = settings.sharedQuotaSpentNow(),
-            )
-        }
-    }
+    suspend fun saveSettingsNow(apiKey: String, clientId: String) =
+        settingsController.saveSettingsNow(apiKey, clientId)
 
-    /**
-     * The clashfinder account. Saved as its own gesture rather than folded into
-     * [saveSettings], because it is two fields that only mean anything together.
-     */
-    fun saveClashfinderCredentials(user: String, privateKey: String) {
-        viewModelScope.launch {
-            settings.saveClashfinderCredentials(user, privateKey)
-            _state.update {
-                it.copy(
-                    clashfinderUser = user.trim(),
-                    clashfinderPrivateKey = privateKey.trim(),
-                    clashfinderReady = settings.clashfinderAuth() != null,
-                )
-            }
-        }
-    }
+    fun saveClashfinderCredentials(user: String, privateKey: String) =
+        settingsController.saveClashfinderCredentials(user, privateKey)
 
-    suspend fun buildSpotifyAuthUri(): Uri = spotify.buildAuthorizationUri()
+    suspend fun buildSpotifyAuthUri(): Uri = settingsController.buildSpotifyAuthUri()
 
-    fun handleAuthRedirect(uri: Uri) {
-        val code = uri.getQueryParameter("code")
-        val authError = uri.getQueryParameter("error")
-        viewModelScope.launch {
-            try {
-                when {
-                    code != null -> {
-                        spotify.exchangeCodeForTokens(code)
-                        _state.update {
-                            it.copy(spotifyConnected = true, grantedScope = settings.grantedScope())
-                        }
-                    }
-                    authError != null ->
-                        _state.update { it.copy(errorKind = null, error = "Spotify login failed: $authError") }
-                }
-            } catch (e: Exception) {
-                fail(e)
-            }
-        }
-    }
+    fun handleAuthRedirect(uri: Uri) = settingsController.handleAuthRedirect(uri)
 
-    fun disconnectSpotify() {
-        viewModelScope.launch {
-            settings.clearSpotifyAuth()
-            _state.update { it.copy(spotifyConnected = false, grantedScope = null) }
-        }
-    }
+    fun disconnectSpotify() = settingsController.disconnectSpotify()
 
-    // --- Device handover, accounts step (#143) --------------------------------------
-    //
-    // What connects `HandoverWire`'s tested wire primitives (#259) to real storage.
-    // Both functions take an already-authenticated `Socket` — the TLS handshake and
-    // `proveLinkKey`/`verifyLinkKey` challenge (`HandoverWire.kt`) already passed —
-    // because establishing that socket between two real devices is the transport
-    // bring-up #142 owns, not this step. Deliberately not unit-testable at this layer
-    // for the same reason `AndroidKeyStoreCert`/`HandoverDebugHarness` are not: real
-    // sockets. The protocol sequencing they call is already covered by
-    // `HandoverWireTest`, and the gating decision they call ([mayClearCredentials]) is
-    // already covered by `AccountsTest`.
-
-    /**
-     * Receiving device's half. Stores whatever arrives — durably, via [settings] —
-     * *before* acking, because the source's clear is gated on the ack having meant
-     * something real. Returns null only if the connection dropped before any accounts
-     * frame arrived; a genuinely declined row still arrives as identities-only, not as
-     * null.
-     */
     suspend fun receiveHandoverAccounts(socket: Socket): AccountsPayload? =
-        withContext(Dispatchers.IO) {
-            val payload = readAccountsStep(socket) ?: return@withContext null
+        handover.receiveHandoverAccounts(socket)
 
-            payload.identities.setlistFmUser?.let { settings.saveMySetlistFmUser(it) }
-            val token = payload.credentials.spotifyRefreshToken
-            if (!token.isNullOrBlank()) {
-                settings.saveHandoverCredentials(token, payload.credentials.spotifyScope)
-            }
-            writeAccountsAck(socket)
-
-            _state.update {
-                it.copy(
-                    mySetlistFmUser = payload.identities.setlistFmUser ?: it.mySetlistFmUser,
-                    spotifyConnected = it.spotifyConnected || !token.isNullOrBlank(),
-                    grantedScope = payload.credentials.spotifyScope ?: it.grantedScope,
-                )
-            }
-            payload
-        }
-
-    /**
-     * Sending device's half — the phone being replaced. Sends [payload], then signs out
-     * *here* only if the receiver's ack genuinely arrives ([mayClearCredentials]): a
-     * dropped connection after the send must never clear a credential that may exist
-     * nowhere else. This is the one call site of a handover-triggered
-     * [SettingsRepository.clearSpotifyAuth] — manual sign-out ([disconnectSpotify]) does
-     * not go through it and is untouched.
-     */
     suspend fun sendHandoverAccounts(socket: Socket, payload: AccountsPayload): AccountsMove =
-        withContext(Dispatchers.IO) {
-            writeAccountsStep(socket, payload)
-            val step = if (readAccountsAck(socket)) AccountsMove.ACKNOWLEDGED else AccountsMove.SENT
-            // The payload, not the step, decides whether there is anything to let go of:
-            // an identities-only frame (the accounts row unticked, #143 story 11) travels
-            // and is acked exactly like a full one, and signing out on that ack would move
-            // an account nobody asked to move.
-            if (mayClearCredentials(step) && !payload.credentials.spotifyRefreshToken.isNullOrBlank()) {
-                settings.clearSpotifyAuth()
-                _state.update { it.copy(spotifyConnected = false, grantedScope = null) }
-            }
-            step
-        }
+        handover.sendHandoverAccounts(socket, payload)
 
-    // --- Device handover, the session itself (#142) ----------------------------------
-    //
-    // The two ends of one transfer, each a single job holding a single socket. Everything
-    // decidable inside them lives in `HandoverSession.kt` and is tested over a loopback
-    // pair; what is here is the device half — a real certificate from `AndroidKeyStore`, a
-    // real TLS socket, the real gallery and the real store.
+    fun offerHandover(allow: Set<String>) = handover.offerHandover(allow)
 
-    private var handoverJob: Job? = null
+    fun joinHandover(uri: Uri) = handover.joinHandover(uri)
 
-    /** Closed by [cancelHandover]. A blocking socket read cannot be interrupted by a flag,
-     * so cancelling is closing the socket out from under it — see `HandoverSession`. */
-    @Volatile private var handoverCloseables: List<Closeable> = emptyList()
+    fun cancelHandover() = handover.cancelHandover()
 
-    private fun handoverUi(update: (HandoverUi) -> HandoverUi) =
-        _state.update { it.copy(handover = update(it.handover)) }
-
-    /**
-     * The old phone. Generates a session identity, listens, and puts the invite on screen
-     * as a QR: where to connect, the fingerprint to pin, and the link key that proves the
-     * other phone read *this* screen. Serves exactly one joining device and then stops.
-     *
-     * [allow] is the tick list, applied to the manifest at construction — see
-     * [deviceManifest]. Nothing outside it reaches the wire.
-     */
-    fun offerHandover(allow: Set<String>) {
-        // Not just a cancel: the previous session may be parked on a blocking accept, and
-        // overwriting `handoverCloseables` below would drop the only reference to it.
-        endHandover()
-        handoverUi { HandoverUi(role = HandoverRole.SOURCE) }
-        val sessionId = UUID.randomUUID().toString().take(8)
-        handoverJob = viewModelScope.launch(Dispatchers.IO) {
-            try {
-                // Asked before anything is bound: there is nothing to put in the QR
-                // without it, and a socket opened first would be one the throw below
-                // leaves bound with nothing holding a reference to close it.
-                val host = localLinkAddress(getApplication())
-                    ?: throw IllegalStateException("this phone is not on a network to hand over across")
-                val (cert, keyStore) = generateHandoverIdentity(sessionId)
-                val linkKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
-                val server = sslServerContext(keyStore, CharArray(0), handoverAlias(sessionId))
-                    .serverSocketFactory.createServerSocket(0)
-                handoverCloseables = listOf(server)
-                handoverUi {
-                    it.copy(
-                        inviteUri = HandoverInvite(host, server.localPort, certFingerprint(cert), linkKey).toUri(),
-                    )
-                }
-                server.use { listening ->
-                    val socket = listening.accept()
-                    handoverCloseables = listOf(server, socket)
-                    socket.use { live ->
-                        val cache = timelines.load()
-                        val manifest = hashedManifest(deviceManifest(cache, allow, myIdentities()), cache)
-                        val payload = accountsPayload(allow)
-                        val refById = cache.gigMedia.values.flatten().associate { it.id to it.ref }
-                        val receipt = runHandoverSource(
-                            socket = live,
-                            linkKey = linkKey,
-                            allow = allow,
-                            manifest = manifest,
-                            accounts = { s -> sendHandoverAccounts(s, payload) },
-                            mediaSource = { id -> refById[id]?.let { photos.mediaSource(it) } },
-                            onProgress = { p -> handoverUi { it.copy(progress = p) } },
-                        )
-                        handoverUi {
-                            if (receipt == null) it.copy(error = "That phone could not prove it read this code.")
-                            else it.copy(receipt = receipt)
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                handoverUi { it.copy(error = it.error ?: handoverTrouble(e)) }
-            } finally {
-                handoverCloseables = emptyList()
-                runCatching { forgetHandoverIdentity(sessionId) }
-            }
-        }
-    }
-
-    /**
-     * The new phone, arriving from the QR's deep link. Connects, pinning the exact
-     * certificate the code named, and takes whatever the old phone approved.
-     *
-     * A link that is not a handover invite is simply not one: null, no error, nothing
-     * started — [MainActivity] hands every `station-to-station://handover` link here and
-     * a malformed one is indistinguishable from a mistyped anything else.
-     */
-    fun joinHandover(uri: Uri) {
-        val invite = parseHandoverInvite(uri.toString()) ?: return
-        endHandover()
-        handoverUi { HandoverUi(role = HandoverRole.RECEIVER) }
-        handoverJob = viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val socket = sslClientContext(invite.fingerprint).socketFactory
-                    .createSocket(invite.host, invite.port)
-                handoverCloseables = listOf(socket)
-                socket.use { live ->
-                    val cache = timelines.load()
-                    val receipt = runHandoverReceiver(
-                        socket = live,
-                        linkKey = invite.linkKey,
-                        accounts = { s -> receiveHandoverAccounts(s) },
-                        mine = cache,
-                        gallery = galleryForMatching(cache),
-                        receivedFile = { id, kind -> photos.receivedMediaFile(id, kind) },
-                        refForReceivedFile = photos::fileProviderRef,
-                        apply = { replan -> timelines.applyHandover(replan) },
-                        onProgress = { p -> handoverUi { it.copy(progress = p) } },
-                    )
-                    handoverUi {
-                        if (receipt == null) it.copy(error = "That transfer did not verify, so nothing was written.")
-                        else it.copy(receipt = receipt)
-                    }
-                }
-                restoreTimelines()
-            } catch (e: Exception) {
-                handoverUi { it.copy(error = it.error ?: handoverTrouble(e)) }
-            } finally {
-                handoverCloseables = emptyList()
-            }
-        }
-    }
-
-    /**
-     * The one way a handover session ends: **close, then cancel**.
-     *
-     * That order is the whole of it. A blocking `accept()` or socket read cannot be
-     * interrupted by cancelling the job — the coroutine is parked in a native call — so a
-     * cancel on its own leaves a bound port, an IO thread and an un-forgotten
-     * `AndroidKeyStore` identity behind, and leaves a phone that already read the QR able
-     * to complete the whole transfer against a screen nobody is looking at. Closing the
-     * socket is what makes the parked read throw and the coroutine's own `finally` run.
-     */
-    private fun endHandover() {
-        handoverCloseables.forEach { runCatching { it.close() } }
-        handoverCloseables = emptyList()
-        handoverJob?.cancel()
-        handoverJob = null
-    }
-
-    /** Starting is not a commitment (#142 story 15). What already arrived stays. */
-    fun cancelHandover() {
-        endHandover()
-        handoverUi {
-            if (it.receipt != null) it else it.copy(
-                progress = it.progress.copy(phase = HandoverPhase.FAILED),
-                error = "Stopped. Anything that had already arrived is on this phone.",
-            )
-        }
-    }
-
-    /**
-     * Leaves the handover screen's state behind, once it has been read — and takes the
-     * session with it, because this is also what a *back gesture* off the screen calls
-     * (see `HandoverScreen`'s `DisposableEffect`). Leaving the screen with a listener
-     * still up would mean a transfer completing behind it.
-     */
-    fun dismissHandover() {
-        endHandover()
-        handoverUi { HandoverUi() }
-    }
-
-    /** A dropped wifi, a refused certificate and a closed socket all read the same from
-     * here, and naming the exception at the user is not information. */
-    private fun handoverTrouble(e: Exception): String = when (e) {
-        is CancellationException -> throw e
-        else -> "The connection to the other phone failed."
-    }
-
-    /**
-     * The bytes and content hash of everything a manifest offers, filled in from real
-     * storage — the one part of building a manifest that has to read files, which is why
-     * the pure builders ([deviceManifest], [contactManifest]) leave both at their defaults.
-     *
-     * Shared by both far ends on purpose: a Contact's offer and my own other phone's are
-     * the same shape, and hashing them two different ways is how the same photograph ends
-     * up looking like two different files.
-     */
-    private suspend fun hashedManifest(bare: HandoverManifest, cache: TimelineCache): HandoverManifest =
-        bare.copy(media = bare.media.map { item ->
-            val ref = cache.gigMedia[item.gigId]?.firstOrNull { it.id == item.id }?.ref
-            val uri = ref?.takeIf { it.isNotBlank() }?.let { Uri.parse(it) } ?: return@map item
-            item.copy(hash = photos.mediaHash(uri) ?: "", bytes = runCatching {
-                getApplication<Application>().contentResolver
-                    .openAssetFileDescriptor(uri, "r")?.use { it.length } ?: 0L
-            }.getOrDefault(0L))
-        })
-
-    /**
-     * My own gallery, narrowed to the nights I have records of, hashed — the candidates an
-     * incoming offer is matched against so that a photograph already on this phone is
-     * never sent over the wire a second time.
-     */
-    private suspend fun galleryForMatching(cache: TimelineCache): List<GalleryItem> =
-        cache.gigs.values.mapNotNull { it.date.takeIf { d -> d.isNotBlank() } }
-            .distinct()
-            // No cap: photosFrom's default limit=20 is sized for cover-photo picking,
-            // not for reconcile matching — truncating here would send bytes the peer
-            // already has locally just because they fell past position 20.
-            .flatMap { d -> parseFmDate(d)?.let { photos.photosFrom(it, limit = Int.MAX_VALUE) }.orEmpty() }
-            .distinctBy { it.uri }
-            .mapNotNull { p -> photos.mediaHash(p.uri)?.let { GalleryItem(ref = p.uri.toString(), hash = it) } }
-
-    private suspend fun myIdentities(): Identities {
-        val user = runCatching { spotify.currentUser() }.getOrNull()
-        return Identities(
-            setlistFmUser = _state.value.mySetlistFmUser.trim().ifBlank { null },
-            spotifyAccount = user?.id,
-        )
-    }
-
-    /** Credentials only when the row was ticked; identities travel either way (#143). */
-    private suspend fun accountsPayload(allow: Set<String>): AccountsPayload {
-        val identities = myIdentities()
-        if (CATEGORY_ACCOUNTS !in allow) return identitiesOnly(identities)
-        return AccountsPayload(
-            identities = identities,
-            credentials = Credentials(
-                spotifyRefreshToken = settings.refreshTokenValue(),
-                spotifyScope = settings.grantedScope(),
-            ),
-        )
-    }
+    fun dismissHandover() = handover.dismissHandover()
 
     // --- Friends (peer-to-peer) ---
 
@@ -1387,88 +1163,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** My shareable identity card, or null until I've set my setlist.fm username. */
-    suspend fun myCardUri(): Uri? {
-        val me = _state.value.mySetlistFmUser.trim()
-        if (me.isEmpty()) return null
-        val user = runCatching { spotify.currentUser() }.getOrNull()
-        return Friend(
-            setlistfm = me,
-            name = user?.displayName?.ifBlank { null } ?: me,
-            spotifyId = user?.id,
-        ).toShareUri()
-    }
+    suspend fun myCardUri(): Uri? = contacts.myCardUri()
 
-    /**
-     * A card handed to me. Writes into an empty space; **asks before changing a contact
-     * I already hold** (#188).
-     *
-     * Every route in comes through here — a deep link, a BLE write, a pasted username —
-     * so the question is answered once rather than at each door.
-     */
-    fun addFriend(friend: Friend) {
-        viewModelScope.launch { addFriendNow(friend) }
-    }
+    fun addFriend(friend: Friend) = contacts.addFriend(friend)
 
-    private suspend fun addFriendNow(friend: Friend) {
-        when (val arrival = friendArrival(friend, _state.value.friends)) {
-            is FriendArrival.Unchanged -> Unit
-            is FriendArrival.New -> writeFriend(arrival.friend)
-            // A **Followed line** becoming a **Contact**. Written as silently as a new
-            // one: there was no key held, so nothing is being overwritten.
-            is FriendArrival.Promotion -> writeFriend(arrival.friend)
-            is FriendArrival.Conflict ->
-                _state.update { it.copy(friendConflict = arrival) }
-        }
-    }
+    fun confirmFriendOverwrite() = contacts.confirmFriendOverwrite()
 
-    fun confirmFriendOverwrite() {
-        val pending = _state.value.friendConflict ?: return
-        _state.update { it.copy(friendConflict = null) }
-        viewModelScope.launch { writeFriend(pending.incoming) }
-    }
+    fun dismissFriendOverwrite() = contacts.dismissFriendOverwrite()
 
-    fun dismissFriendOverwrite() = _state.update { it.copy(friendConflict = null) }
+    fun addFriendByUsername(username: String) = contacts.addFriendByUsername(username)
 
-    private suspend fun writeFriend(friend: Friend) {
-        // De-duped on the key, then the username (#405), and never dropping a key or a
-        // username a thinner card is silent about. See [withFriend].
-        val next = withFriend(_state.value.friends, friend)
-        settings.saveFriends(next)
-        _state.update { it.copy(friends = next) }
-    }
+    fun handleFriendLink(uri: Uri) = contacts.handleFriendLink(uri)
 
-    fun addFriendByUsername(username: String) {
-        val u = username.trim()
-        if (u.isNotEmpty()) addFriend(Friend(setlistfm = u))
-    }
-
-    fun handleFriendLink(uri: Uri) {
-        friendFromUri(uri)?.let { addFriend(it) }
-    }
-
-    fun removeFriend(friend: Friend) {
-        viewModelScope.launch {
-            // By Lane, not by username: two Contacts without an account share a blank one.
-            val next = _state.value.friends.filterNot { it.laneKey == friend.laneKey }
-            settings.saveFriends(next)
-            _state.update { it.copy(friends = next) }
-        }
-    }
-
-    /**
-     * A **Contact**'s **Nights**, off a **Reconcile** (#405): held under their Lane, on disk
-     * and on screen, so the Lane draws now and after a relaunch without asking anyone.
-     * [contactKey] is the key that verified; a Contact removed mid-session lands nothing.
-     */
-    private suspend fun landContactNights(contactKey: String, nights: List<FmSetlist>) {
-        val friend = _state.value.friends.firstOrNull { it.publicKey?.trim() == contactKey.trim() } ?: return
-        val key = friend.laneKey
-        timelines.mergeContactNights(key, nights)
-        _state.update {
-            it.copy(showsByFriend = it.showsByFriend + (key to landNights(it.showsByFriend[key], nights)))
-        }
-    }
+    fun removeFriend(friend: Friend) = contacts.removeFriend(friend)
 
     /**
      * Yes to a **Contact**'s offer (#405): their media is filed on my Night [key] and their
@@ -1497,1614 +1204,127 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * "Same Night" to a *maybe* (#405): their Night [night] is joined to my Night [key].
-     * Mine alone — nothing is sent — and from here the Spine draws it **Joined** and what
-     * they send for it lands directly.
-     */
-    fun joinNight(night: String, key: String) = viewModelScope.launch {
-        timelines.joinNight(night, key)
-        val cache = timelines.load()
-        _state.update { it.copy(nightJoins = cache.spineJoins()) }
-    }
+    fun joinNight(night: String, key: String) = contacts.joinNight(night, key)
 
-    /** "Not the same" to a *maybe* (#405): the marker goes, and stays gone. Mine alone. */
-    fun dismissMaybe(night: String, key: String) = viewModelScope.launch {
-        timelines.dismissMaybe(night, key)
-        val cache = timelines.load()
-        _state.update { it.copy(nightsApart = cache.spineDismissals()) }
-    }
+    fun dismissMaybe(night: String, key: String) = contacts.dismissMaybe(night, key)
 
-    /**
-     * "Same night", then "Take it" (#580): my typed-by-hand Night adopts their setlist.fm
-     * entry, so both Nights answer to one id and meet without a join. Where the adoption
-     * can't happen (the Night already took an id) it falls back to [joinNight].
-     */
-    fun adoptMaybe(maybe: MaybeNight) = viewModelScope.launch {
-        if (!adoptSetlist(maybe.mine.id, maybe.theirs.id, fresh = null, notice = true)) {
-            joinNight(maybe.theirs.id, maybe.mine.id).join()
-        }
-    }
+    fun adoptMaybe(maybe: MaybeNight) = contacts.adoptMaybe(maybe)
 
-    /** Undo of [joinNight] (#580): the *maybe* is asked again. */
-    fun unjoinNight(night: String, key: String) {
-        viewModelScope.launch {
-            timelines.unjoinNight(night, key)
-            val cache = timelines.load()
-            _state.update { it.copy(nightJoins = cache.spineJoins()) }
-        }
-    }
+    fun unjoinNight(night: String, key: String) = contacts.unjoinNight(night, key)
 
-    /** Undo of [dismissMaybe] (#580): the *maybe* is asked again. */
-    fun undismissMaybe(night: String, key: String) {
-        viewModelScope.launch {
-            timelines.undismissMaybe(night, key)
-            val cache = timelines.load()
-            _state.update { it.copy(nightsApart = cache.spineDismissals()) }
-        }
-    }
+    fun undismissMaybe(night: String, key: String) = contacts.undismissMaybe(night, key)
 
-    /** Loads a friend's whole attended-concert timeline for the Connect screen. */
-    fun viewFriendTimeline(friend: Friend) {
-        // Nobody to ask about a Contact with no account: what the Reconcile brought is the
-        // whole of their Line, and it is already here (#405).
-        if (friend.setlistfm.isBlank()) {
-            _state.update {
-                it.copy(
-                    viewingFriend = friend,
-                    viewedFriendShows = it.showsByFriend[friend.laneKey].orEmpty(),
-                    viewedFriendLoading = false,
-                )
-            }
-            return
-        }
-        _state.update {
-            it.copy(viewingFriend = friend, viewedFriendShows = emptyList(), viewedFriendLoading = true)
-        }
-        viewModelScope.launch {
-            try {
-                // The same runaway guard the shared-concerts lookup uses, named once.
-                val shows = attendedConcerts(friend.setlistfm, maxPages = TimelineLogic.ATTENDED_PAGE_CAP)
-                _state.update { it.copy(viewedFriendShows = shows, viewedFriendLoading = false) }
-                // What this screen just learned is the **Line** too: the timelines view
-                // must never be behind it.
-                landLine(friend, shows)
-            } catch (e: Exception) {
-                _state.update {
-                    it.copy(
-                        viewedFriendLoading = false,
-                        error = e.message ?: "Could not load ${friend.name}'s shows",
-                        errorKind = errorKindOf(e),
-                        setlistFmSharedQuotaSpent =
-                            it.setlistFmSharedQuotaSpent || isSharedQuota(e),
-                    )
-                }
-            }
-        }
-    }
+    fun viewFriendTimeline(friend: Friend) = contacts.viewFriendTimeline(friend)
 
-    /** [shows] fresh from setlist.fm, held as [friend]'s **Line** on screen and on disk. */
-    private suspend fun landLine(friend: Friend, shows: List<FmSetlist>) {
-        val fetched = mapOf(friend.laneKey to shows)
-        _state.update { it.copy(showsByFriend = holdLanes(it.showsByFriend, fetched)) }
-        timelines.save(shows = fetched)
-    }
-
-    /**
-     * Asks setlist.fm for [friend]'s **Line** again, back to my oldest **Gig** or to the
-     * oldest one held, whichever is older, so the answer never cuts a **Line** short.
-     * A failure keeps the last good copy.
-     */
-    private fun refreshLine(friend: Friend) {
-        if (friend.setlistfm.isBlank()) return
-        val oldest = listOfNotNull(
-            _state.value.setlists.mapNotNull { it.localDate() }.minOrNull(),
-            _state.value.showsByFriend[friend.laneKey].orEmpty().mapNotNull { it.localDate() }.minOrNull(),
-        ).minOrNull()
-        viewModelScope.launch {
-            runCatching { attendedBackTo(friend.setlistfm, oldest) }.getOrNull()
-                ?.let { landLine(friend, it) }
-        }
-    }
-
-    /** Fetches attended concerts for one user across up to [maxPages] pages. */
-    private suspend fun attendedConcerts(userId: String, maxPages: Int): List<FmSetlist> {
-        val all = mutableListOf<FmSetlist>()
-        for (page in 1..maxPages) {
-            val resp = setlistFm.userAttended(userId, page)
-            all += resp.setlist
-            if (all.size >= resp.total || resp.setlist.isEmpty()) break
-        }
-        return all
-    }
-
-    /**
-     * A friend's attended shows, paged back far enough to cover my own line rather
-     * than to a fixed page count. setlist.fm returns newest first, so a flat cap is
-     * a *window*, not a sample: Carlitos2's first 60 shows spanned ten days, and
-     * every night we actually shared was older than his last fetched page — the
-     * lines could never meet however correct the drawing was.
-     *
-     * ponytail: [maxPages] is a runaway guard, not a policy. Nothing older than my
-     * own first gig can overlap, so that is where paging stops.
-     */
-    private suspend fun attendedBackTo(
-        userId: String,
-        oldestOfMine: LocalDate?,
-        maxPages: Int = 25,
-    ): List<FmSetlist> {
-        val all = mutableListOf<FmSetlist>()
-        for (page in 1..maxPages) {
-            val resp = setlistFm.userAttended(userId, page)
-            all += resp.setlist
-            if (all.size >= resp.total || resp.setlist.isEmpty()) break
-            val pageOldest = resp.setlist.mapNotNull { it.localDate() }.minOrNull()
-            if (oldestOfMine != null && pageOldest != null && pageOldest < oldestOfMine) break
-        }
-        return all
-    }
-
-    /**
-     * Loads the concerts both [friend] and I attended into [UiState.setlists], so
-     * the existing SetlistsScreen renders them and tapping one flows into the
-     * normal confirm → create-playlist path.
-     */
-    fun openSharedConcerts(friend: Friend) {
-        val me = _state.value.mySetlistFmUser.trim()
-        // Either of us without an account: the intersection is of what this phone already
-        // holds — my Spine and their Lane — rather than of two setlist.fm lists (#405).
-        if (friend.setlistfm.isBlank() || me.isEmpty()) {
-            val theirs = _state.value.showsByFriend[friend.laneKey].orEmpty().mapTo(HashSet()) { it.id }
-            _state.update {
-                it.copy(
-                    sharedWith = friend,
-                    source = SetlistSource.USER,
-                    setlistsTitle = "You & ${friend.name}",
-                    setlists = emptyList(),
-                    setlistsPage = 1,
-                    setlistsTotal = 0,
-                    setlistsLoading = true,
-                )
-            }
-            viewModelScope.launch {
-                val shared = timelines.load().mySpine(me).filter { it.id in theirs }
-                _state.update {
-                    it.copy(setlists = shared, setlistsTotal = shared.size, setlistsLoading = false)
-                }
-            }
-            return
-        }
-        _state.update {
-            it.copy(
-                sharedWith = friend,
-                source = SetlistSource.USER, // shared list mixes artists; show "date · artist"
-                setlistsTitle = "You & ${friend.name}",
-                setlists = emptyList(),
-                setlistsPage = 1,
-                setlistsTotal = 0,
-                setlistsLoading = true,
-            )
-        }
-        viewModelScope.launch {
-            try {
-                // The intersection and its paging cap are the logic layer's; see
-                // TimelineLogic.ATTENDED_PAGE_CAP for what raising it would cost.
-                val shared = logic.sharedConcerts(me, friend.setlistfm)
-                _state.update {
-                    // total == size so loadMoreSetlists() won't try to paginate this list.
-                    it.copy(setlists = shared, setlistsTotal = shared.size, setlistsLoading = false)
-                }
-            } catch (e: Exception) {
-                fail(e)
-            }
-        }
-    }
+    fun openSharedConcerts(friend: Friend) = contacts.openSharedConcerts(friend)
 
     // --- Exchange (meeting someone in person) + two-timeline comparison ---
 
-    /**
-     * My own card as a followed line, for the Nearby fast path. Blank username = nothing
-     * to give.
-     *
-     * No public key here: Nearby's endpoint name is capped at 131 bytes total
-     * (`NearbyNameLimitProbe.NEARBY_ENDPOINT_NAME_LIMIT`) with silent overflow, and a
-     * base64 ECDSA P-256 SubjectPublicKeyInfo alone is already ~124 of those. The key
-     * still reaches a Contact — over BLE's [myProbeCard] (ample GATT-read room) or a
-     * shared QR/deep link — both unconstrained by Nearby's advert-sized budget.
-     */
-    private fun myCard(): Friend? = _state.value.mySetlistFmUser.trim()
-        .ifBlank { null }
-        ?.let { Friend(setlistfm = it, name = it) }
+    fun saveMyCardName(name: String) = contacts.saveMyCardName(name)
 
-    /**
-     * My card for the radio: the public key #28 makes the identity, and a username only if
-     * I have one (#405). Without one it is named by [UiState.myCardName]; see
-     * [probeCardFor]. Only the radio carries this — a link cannot carry a key, so the QR
-     * and share link stay username-only.
-     */
-    private fun myProbeCard(): ProbeCard? = probeCardFor(
-        setlistfm = _state.value.mySetlistFmUser,
-        name = _state.value.myCardName,
-        publicKey = contactIdentityPublicKeyBase64(),
-    )
+    fun startExchange() = contacts.startExchange()
 
-    /** The name on a card with no username (#405). Restarts a running Exchange to hand it over. */
-    fun saveMyCardName(name: String) {
-        val trimmed = name.trim()
-        viewModelScope.launch {
-            settings.saveMyCardName(trimmed)
-            _state.update { it.copy(myCardName = trimmed) }
-            if (_state.value.discovering || _state.value.exchangePeers.isNotEmpty()) {
-                exchange.restart(myCard(), myProbeCard())
-            }
-        }
-    }
+    fun restartExchange() = contacts.restartExchange()
 
-    /**
-     * Opens the Exchange: start every radio in parallel and collect whoever turns up.
-     * People appear as they come into range, so the list is a live view of the room.
-     */
-    fun startExchange() {
-        // No username is not a reason to keep anyone off this screen. It only means
-        // there is no card to hand over, so the advertising radios stay quiet while
-        // scanning runs as usual — the room is still visible, and a card handed to me
-        // is still mine to take (#225's "you can take their card", now actually wired).
-        //
-        // This used to return early with `error` set. `error` is a failure channel and
-        // this screen hosts no snackbar, so the message surfaced on whatever screen the
-        // user opened next, reading as a fault on an unrelated page.
-        _state.update { it.copy(discovering = true, exchangePeers = emptyList(), connectingWith = null) }
-        exchange.start(myCard(), myProbeCard())
-    }
+    fun stopExchange() = contacts.stopExchange()
 
-    /** Pulled down on the exchange screen: drop everything and listen again. */
-    fun restartExchange() {
-        _state.update { it.copy(discovering = true, exchangePeers = emptyList()) }
-        exchange.restart(myCard(), myProbeCard())
-    }
+    fun exchangePermissions(): List<String> = contacts.exchangePermissions()
 
-    fun stopExchange() {
-        exchange.stop()
-        _state.update { it.copy(discovering = false, exchangePeers = emptyList(), connectingWith = null) }
-    }
+    fun connectWith(peer: ExchangePeer) = contacts.connectWith(peer)
 
-    fun exchangePermissions(): List<String> = exchange.requiredPermissions()
+    fun consumeJustConnected() = contacts.consumeJustConnected()
 
-    /**
-     * Bring a peer onto my timeline: the "row → Connecting with dizzi90 → connected"
-     * sequence. On the Nearby path the card is already in hand and the middle is
-     * zero-length; on BLE it connects and reads first. A BLE failure clears the
-     * connecting state and leaves the radios running, so the QR offer stays available
-     * rather than the tap landing on a dead end.
-     */
-    fun connectWith(peer: ExchangePeer) {
-        _state.update { it.copy(connectingWith = peer.name) }
-        exchange.connect(peer) { friend ->
-            if (friend == null) {
-                // Back to the live list — the radios never stopped, and the QR offer is
-                // already on screen. A dangling snackbar (this screen has no host) would
-                // only resurface on the next one.
-                _state.update { it.copy(connectingWith = null) }
-                return@connect
-            }
-            viewModelScope.launch { bringIn(friend) }
-        }
-    }
+    fun setZoomedOut(on: Boolean) = navigation.setZoomedOut(on)
 
-    /**
-     * The landing an Exchange ends on, whichever side tapped: persist, say it happened,
-     * draw the line, and stop the radios — holding a card is the end of looking.
-     */
-    private suspend fun bringIn(friend: Friend) {
-        // Persist the friend before loading, or the load runs against the old list.
-        addFriendNow(friend)
-        // A card that would change someone I already hold has written nothing and left a
-        // question open (#188). Landing anyway would report a swap that did not happen —
-        // and stopping the radios mid-exchange is exactly what a hostile write wants.
-        if (_state.value.friendConflict != null) return
-        _state.update { it.copy(justConnected = true, connectingWith = null) }
-        loadFriendTimelines()
-        exchange.stop()
-        // A first **Contact** is the moment the gossip radio stops being pointless (#416).
-        syncGossip()
-    }
+    fun handleLink(intent: LinkIntent) = navigation.handleLink(intent)
 
-    fun consumeJustConnected() = _state.update { it.copy(justConnected = false) }
+    fun linkGig(id: String, at: GigLink) = navigation.linkGig(id, at)
 
-    /**
-     * Open or close the woven view. The one place that decides it, so a pinch, a card
-     * swap and a key press cannot disagree about when there is anything to open onto.
-     */
-    fun setZoomedOut(on: Boolean) = _state.update {
-        if (on && it.friends.isEmpty()) it else it.copy(zoomedOut = on)
-    }
+    fun consumeLinkScreen() = navigation.consumeLinkScreen()
 
-    /**
-     * What a parsed `station-to-station://` link asks for. Only records the intent:
-     * [UiState.linkedGig], [UiState.linkedDate], [UiState.addGigLink] and
-     * [UiState.linkScreen] are acted on by the timeline and the navigation, which are
-     * the only places that know where a row or a screen ended up. Pass-through links
-     * are the caller's; they never arrive here.
-     */
-    fun handleLink(intent: LinkIntent) {
-        when (intent) {
-            is LinkIntent.Open -> openScreen(intent.screen, intent.date)
-            is LinkIntent.OpenGig -> openGig(intent.id)
-            is LinkIntent.AddGig -> openAddGig(intent.artist, intent.venue, intent.date)
-            is LinkIntent.WriteToLog -> openGig(intent.gigId) {
-                writeLog(intent.gigId) { it.writing(intent.appends, intent.replacements) }
-            }
-            is LinkIntent.LegacyPlace -> {
-                if (intent.at != GigLink.SETLIST) setZoomedOut(intent.at == GigLink.WOVEN)
-                _state.update { it.copy(linkedGig = intent.gigId, linkedGigAs = intent.at) }
-            }
-            LinkIntent.LegacyMe -> openScreen(LinkScreen.TIMELINE, null)
-            is LinkIntent.LegacyFixture, is LinkIntent.PassThrough -> Unit
-        }
-    }
+    fun consumeLinkedDate() = navigation.consumeLinkedDate()
 
-    private fun openScreen(screen: LinkScreen, date: String?) = _state.update {
-        val zoomedOut = when (screen) {
-            LinkScreen.TIMELINE -> false
-            LinkScreen.TIMELINES -> it.friends.isNotEmpty()
-            else -> it.zoomedOut
-        }
-        it.copy(linkScreen = screen, zoomedOut = zoomedOut, linkedDate = date?.let(LocalDate::parse))
-    }
+    fun consumeAddGigLink() = navigation.consumeAddGigLink()
 
-    /**
-     * A **Gig** on my **Line** opens as it is. An unknown setlist.fm id is fetched and
-     * opened without being kept: joining it is a question the **Room** asks, and an
-     * invite never answers it. [then] runs once it is open. An id with nothing to fetch
-     * says so and goes nowhere.
-     */
-    private fun openGig(id: String, then: () -> Unit = {}) {
-        val land = {
-            _state.update { it.copy(linkScreen = LinkScreen.TIMELINE, linkedGig = id, linkedGigAs = GigLink.SETLIST) }
-            then()
-        }
-        val mine = _state.value.let { s -> s.setlists.any { it.id == id } || s.plannedGigs.any { it.id == id } }
-        when (planOpenGig(id, mine)) {
-            OpenGigPlan.OPEN -> land()
-            OpenGigPlan.FETCH_THEN_OPEN -> viewModelScope.launch {
-                try {
-                    openShow(setlistFm.setlist(id))
-                    land()
-                } catch (e: Exception) {
-                    fail(e)
-                }
-            }
-            OpenGigPlan.REFUSE -> _state.update {
-                it.copy(errorKind = null, error = "That doesn't look like a setlist.fm gig link.")
-            }
-        }
-    }
+    fun consumeGigLink() = navigation.consumeGigLink()
 
-    private fun openAddGig(artist: String?, venue: String?, date: String?) {
-        val day = date?.let(LocalDate::parse)
-        val link = AddGigLink(
-            artist = artist.orEmpty(),
-            venue = venue.orEmpty(),
-            date = day?.let(::fmDate).orEmpty(),
-        )
-        _state.update { it.copy(linkScreen = LinkScreen.TIMELINE, addGigLink = link) }
-    }
+    fun toggleFestival(key: String) = navigation.toggleFestival(key)
 
-    /** The **Gig** nearest a linked date, scrolled to by the timeline like any linked **Gig**. */
-    fun linkGig(id: String, at: GigLink) = _state.update { it.copy(linkedGig = id, linkedGigAs = at) }
+    fun toggleLineHidden(lane: String) = navigation.toggleLineHidden(lane)
 
-    fun consumeLinkScreen() = _state.update { it.copy(linkScreen = null) }
+    fun openFestival(key: String) = navigation.openFestival(key)
 
-    fun consumeLinkedDate() = _state.update { it.copy(linkedDate = null) }
+    fun knownGig(id: String): FmSetlist? = navigation.knownGig(id)
 
-    fun consumeAddGigLink() = _state.update { it.copy(addGigLink = null) }
+    fun resolveFestivals() = navigation.resolveFestivals()
 
-    fun consumeGigLink() = _state.update { it.copy(linkedGig = null, linkedGigAs = null) }
+    fun loadFriendTimelines() = contacts.loadFriendTimelines()
 
-    /** Open or close a festival in place. A new set each time, so remember() sees it. */
-    fun toggleFestival(key: String) = _state.update {
-        it.copy(
-            openFestivals = if (key in it.openFestivals) it.openFestivals - key
-            else it.openFestivals + key,
-        )
-    }
-
-    /**
-     * Hide or show one **Line** in the weave. The gesture is its own undo, so there is
-     * one entry point and no separate restore. A new map each time, so remember() sees
-     * it. Persisted with the toggle-off moment (#396), which the legend's recency
-     * order sorts by. Showing a **Line** also asks setlist.fm for its latest.
-     */
-    fun toggleLineHidden(lane: String) {
-        val hiddenAt = if (lane in _state.value.hiddenAt) {
-            _state.value.hiddenAt - lane
-        } else {
-            _state.value.hiddenAt + (lane to System.currentTimeMillis())
-        }
-        _state.update { it.copy(hiddenAt = hiddenAt) }
-        viewModelScope.launch { timelines.saveHiddenLines(hiddenAt) }
-        // Switching a **Line** on is a reason to look: it may have been off for a while.
-        if (lane !in hiddenAt) {
-            _state.value.friends.firstOrNull { it.laneKey == lane }?.let(::refreshLine)
-        }
-    }
-
-    fun openFestival(key: String) = _state.update {
-        it.copy(openFestivals = it.openFestivals + key)
-    }
-
-    /** The gig behind a link, wherever it is already loaded — mine or any lane's. */
-    fun knownGig(id: String): FmSetlist? =
-        _state.value.setlists.firstOrNull { it.id == id }
-            ?: _state.value.plannedGigs.firstOrNull { it.id == id }
-            ?: _state.value.showsByFriend.values.firstNotNullOfOrNull { shows ->
-                shows.firstOrNull { it.id == id }
-            }
-            ?: _state.value.selectedSetlist?.takeIf { it.id == id }
-
-    /**
-     * Asks setlist.fm whether the unidentified evenings on the timeline belong to a
-     * **Festival**. The rule itself — which evenings, what counts as already asked, and
-     * that the answers are stored — lives in the logic layer; this is the screen's
-     * caller of it.
-     */
-    fun resolveFestivals() {
-        val s = _state.value
-        viewModelScope.launch {
-            // Two passes rather than one concatenated list, so a night ahead and a
-            // night behind can never be read as one evening. The future lane grows its
-            // own Sections (#134) and they want identities too.
-            val found = logic.resolveFestivals(s.setlists, s.festivals)
-            val alsoAhead = logic.resolveFestivals(
-                plannedLane(s.plannedGigs, s.attendanceByGig),
-                found,
-            )
-            _state.update { it.copy(festivals = it.festivals + alsoAhead) }
-        }
-    }
-
-    /** Loads every known friend's attended shows for the woven (zoomed-out) view. */
-    fun loadFriendTimelines() {
-        val friends = _state.value.friends
-        if (friends.isEmpty()) return
-        val myOldest = _state.value.setlists.mapNotNull { it.localDate() }.minOrNull()
-        // Cached-and-complete is the common case, and refetching every lane on every
-        // zoom-out is the call volume the store exists to remove — but a lane cut off
-        // at 60 shows is not complete, however cached it is. See [laneNeedsFetch].
-        val stale = friends.filter { friend ->
-            laneNeedsFetch(friend, _state.value.showsByFriend[friend.laneKey], myOldest)
-        }
-        if (stale.isEmpty()) return
-        _state.update { it.copy(timelinesLoading = true) }
-        viewModelScope.launch {
-            // A failed fetch is left out entirely, so the friend keeps their last good
-            // lane; an empty answer is kept, so it is not asked for again (#405).
-            val loaded = stale.mapNotNull { friend ->
-                runCatching { attendedBackTo(friend.setlistfm, myOldest) }.getOrNull()
-                    ?.let { friend.setlistfm to it }
-            }.toMap()
-            _state.update {
-                it.copy(showsByFriend = holdLanes(it.showsByFriend, loaded), timelinesLoading = false)
-            }
-            timelines.save(shows = loaded)
-        }
-    }
-
-    fun setArtistQuery(q: String) = _state.update { it.copy(artistQuery = q) }
-    fun setUserQuery(q: String) = _state.update { it.copy(userQuery = q) }
-
-    fun searchArtists() {
-        val query = _state.value.artistQuery.trim()
-        if (query.isEmpty()) return
-        viewModelScope.launch {
-            _state.update { it.copy(searchLoading = true) }
-            try {
-                val result = setlistFm.searchArtists(query)
-                _state.update { it.copy(artistResults = result.artist, searchLoading = false) }
-            } catch (e: Exception) {
-                fail(e)
-            }
-        }
-    }
-
-    /** Loads setlists for an artist. Returns immediately; UI navigates and observes state. */
-    fun openArtist(artist: FmArtist) {
-        _state.update {
-            it.copy(
-                source = SetlistSource.ARTIST,
-                setlistsTitle = artist.name,
-                setlists = emptyList(),
-                setlistsPage = 1,
-                setlistsTotal = 0,
-                setlistsLoading = true,
-            )
-        }
-        viewModelScope.launch {
-            try {
-                val result = setlistFm.artistSetlists(artist.mbid)
-                _state.update {
-                    it.copy(setlists = result.setlist, setlistsTotal = result.total, setlistsLoading = false)
-                }
-            } catch (e: Exception) {
-                fail(e)
-            }
-        }
-    }
-
-    /**
-     * Timeline import: persists a just-entered API key first (so the fetch sees
-     * it — saveSettings alone is fire-and-forget and would race), then loads the
-     * user's attended concerts. [apiKey] is null when a key is already available.
-     */
-    fun importAttended(username: String, apiKey: String?) {
-        viewModelScope.launch {
-            consumeError()
-            if (!apiKey.isNullOrBlank()) saveSettingsNow(apiKey.trim(), _state.value.spotifyClientId)
-            setUserQuery(username)
-            openUserAttended()
-        }
-    }
-
-    fun openUserAttended() {
-        val userId = _state.value.userQuery.trim()
-        if (userId.isEmpty()) return
-        // "My concerts" is your own username; adopt it as the identity used to stamp
-        // playlists and find shared concerts — but never clobber an explicit choice.
-        if (_state.value.mySetlistFmUser.isBlank()) saveMySetlistFmUser(userId)
-        _state.update {
-            it.copy(
-                source = SetlistSource.USER,
-                setlistsTitle = "Attended by $userId",
-                setlists = emptyList(),
-                setlistsPage = 1,
-                setlistsTotal = 0,
-                setlistsLoading = true,
-            )
-        }
-        viewModelScope.launch {
-            try {
-                val result = setlistFm.userAttended(userId)
-                _state.update {
-                    it.copy(setlists = result.setlist, setlistsTotal = result.total, setlistsLoading = false)
-                }
-                timelines.save(
-                    shows = mapOf(userId to result.setlist),
-                    attendedTotals = mapOf(userId to result.total),
-                )
-            } catch (e: Exception) {
-                fail(e)
-            }
-        }
-    }
-
-    /**
-     * Re-fetches the open show from setlist.fm. The one thing that changes under
-     * you here is the setlist itself — you log a night, go and type the songs in
-     * on the site, come back. Refreshes in place: the cached spine keeps its
-     * order and every other night untouched.
-     */
-    fun refreshSelectedSetlist() {
-        val open = _state.value.selectedSetlist ?: return
-        // A local Gig's id is this app's, not setlist.fm's — asking them for it is a
-        // guaranteed 404. A pull on one asks setlist.fm whether the night is there yet
-        // instead (#531), by artist and day, the way the automatic checks do.
-        if (open.isLocal()) {
-            refreshLocalGig(open.id)
-            return
-        }
-        if (_state.value.setlistsLoading) return
-        _state.update { it.copy(setlistsLoading = true) }
-        viewModelScope.launch {
-            try {
-                val fresh = setlistFm.setlist(open.id)
-                val setlists = _state.value.setlists.map { if (it.id == fresh.id) fresh else it }
-                // A gig I'm going to lives in its own list, so refreshing one has to
-                // write back there — otherwise the night's setlist appears on screen
-                // and is gone again on the next launch. Provenance is untouched:
-                // songs landing is setlist.fm filling a record in, not evidence I went.
-                val wasPlanned = _state.value.plannedGigs.any { it.id == fresh.id }
-                _state.update {
-                    it.copy(
-                        setlists = setlists,
-                        plannedGigs = if (wasPlanned) {
-                            it.plannedGigs.map { g -> if (g.id == fresh.id) fresh else g }
-                        } else {
-                            it.plannedGigs
-                        },
-                        selectedSetlist = fresh,
-                        setlistsLoading = false,
-                    )
-                }
-                if (wasPlanned) timelines.savePlanned(fresh)
-                val user = _state.value.userQuery.trim()
-                if (user.isNotEmpty()) timelines.save(shows = mapOf(user to setlists))
-            } catch (e: Exception) {
-                // A refresh is optional freshness, never a fatal operation: the night
-                // is already on screen from cache, with its artist, venue and date.
-                // `fail` sets the global error, and doing that here tore the screen up
-                // mid-gesture — the pull's own fling was still running, which is how a
-                // 404 on a 1985 setlist came back as "measure is called on a
-                // deactivated node". A notice says what happened and changes nothing.
-                //
-                // The id and code are logged because this only ever fails in the field,
-                // on someone else's phone, where there is no other way to find out
-                // which night and which status it was.
-                android.util.Log.w("StationToStation", "refresh failed for setlist ${open.id}: ${e.message}")
-                _state.update {
-                    it.copy(
-                        setlistsLoading = false,
-                        notice = "setlist.fm didn't have that one just now — showing what's saved.",
-                    )
-                }
-            }
-        }
-    }
-
-    /**
-     * A pull on local Gig [gigId] (#531): one lookup now, whatever the schedule says,
-     * unless the last one went out under a minute ago — then nothing is sent or
-     * stamped, and the notice says the checks carry on.
-     */
-    private fun refreshLocalGig(gigId: String) {
-        if (_state.value.setlistsLoading) return
-        val last = _state.value.attendanceByGig[gigId]?.setlistFmLookup?.lastLookupAt
-        val now = Instant.now()
-        if (manualSetlistFmLookup(last?.let(Instant::ofEpochMilli), now) == ManualLookup.FRICTION) {
-            _state.update { it.copy(notice = LOOKUP_FRICTION_MESSAGE) }
-            return
-        }
-        _state.update { it.copy(setlistsLoading = true) }
-        viewModelScope.launch {
-            try {
-                lookUpLocalGig(gigId, manual = true)
-            } finally {
-                _state.update { it.copy(setlistsLoading = false) }
-            }
-        }
-    }
-
-    /**
-     * One setlist.fm lookup for local Gig [gigId] (#531): `search/setlists` by its artist
-     * and day, no venue, held to the night by [setlistFmLookupOutcome]. A sure hit is
-     * adopted with the "Adopted" notice; a doubtful one becomes the "Possible match"
-     * chip; nothing only stamps. [manual] is a pull, which says so when setlist.fm
-     * refuses or fails; the automatic checks say nothing.
-     *
-     * False when setlist.fm refused for its quota, which stops a batch of checks.
-     */
-    private suspend fun lookUpLocalGig(gigId: String, manual: Boolean): Boolean {
-        val gig = timelines.load().gigs[gigId] ?: return true
-        if (gig.setlistId != null || gig.artist.isBlank() || parseFmDate(gig.date) == null) return true
-        val at = System.currentTimeMillis()
-        val hits = try {
-            setlistFm.searchSetlists(gig.artist, gig.date).setlist
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            // The request went out (or was refused on the quota): stamped either way,
-            // so the schedule does not ask again at once.
-            withContext(NonCancellable) { timelines.editSetlistFmLookup(gigId) { it.lookedUp(at) } }
-                ?.let { settled -> _state.update { it.copy(attendanceByGig = it.attendanceByGig + (gigId to settled)) } }
-            android.util.Log.w("StationToStation", "setlist.fm lookup failed for gig $gigId: ${e.message}")
-            if (e is SetlistFmRateLimited) {
-                if (manual) fail(e)
-                return false
-            }
-            if (manual) {
-                _state.update { it.copy(notice = "setlist.fm didn't have that one just now — showing what's saved.") }
-            }
-            return true
-        }
-        // From here the store is written and the night may move to its new id: all of
-        // it, or none of it, whatever stops the checks meanwhile.
-        withContext<Unit>(NonCancellable) {
-            val ticket = ParsedTicket(artist = gig.artist, venue = gig.venue, date = gig.date)
-            var outcome: LookupOutcome? = null
-            val settled = timelines.editSetlistFmLookup(gigId) { had ->
-                val next = setlistFmLookupOutcome(ticket, hits, lineArtists(), had, at)
-                outcome = next
-                // A sure hit settles any question a chip was still asking.
-                if (next is LookupOutcome.Adopt) next.next.asking(emptyList()) else next.next
-            } ?: return@withContext
-            _state.update { it.copy(attendanceByGig = it.attendanceByGig + (gigId to settled)) }
-            val adopt = outcome as? LookupOutcome.Adopt ?: return@withContext
-            adoptSetlist(gigId, adopt.hit.id, fresh = adopt.hit, notice = true)
-        }
-        return true
-    }
-
-    private var lookupChecks: Job? = null
-
-    /**
-     * The automatic setlist.fm checks (#531), while the app is in the foreground: at
-     * launch, on coming back, and on a timer. Each pass plans every local Gig with
-     * [setlistFmLookupPlan], looks up the ones due one at a time, and sleeps until the
-     * next is due, five minutes at most. Nothing at all without a setlist.fm key.
-     * Called from the root composable's start; [stopLookupChecks] on its stop.
-     */
-    fun startLookupChecks() {
-        if (lookupChecks?.isActive == true) return
-        lookupChecks = viewModelScope.launch {
-            while (true) {
-                val due = lookupPlan()
-                for (gigId in due?.dueNow.orEmpty()) {
-                    if (!lookUpLocalGig(gigId, manual = false)) break
-                }
-                val next = lookupPlan()
-                val now = System.currentTimeMillis()
-                val sleep = when {
-                    next == null -> LOOKUP_CHECK_CAP_MS
-                    next.dueNow.isNotEmpty() -> LOOKUP_CHECK_CAP_MS
-                    else -> next.nextWakeAt?.toEpochMilli()?.minus(now)
-                        ?.coerceIn(1_000L, LOOKUP_CHECK_CAP_MS) ?: LOOKUP_CHECK_CAP_MS
-                }
-                delay(sleep)
-            }
-        }
-    }
-
-    /** The app left the foreground: no lookups until [startLookupChecks] again. */
-    fun stopLookupChecks() {
-        lookupChecks?.cancel()
-        lookupChecks = null
-    }
-
-    /**
-     * What the automatic checks do next, from the store: every local Gig with a claim on
-     * it (planned or attended) and an artist to search by. Null without a setlist.fm key.
-     */
-    private suspend fun lookupPlan(): LookupPlan? {
-        val key = settings.setlistFmKey() ?: return null
-        val cache = timelines.load()
-        val ends = gossipParticipationEnds(timelines, gossip.stoppedAt())
-        val gigs = cache.gigs.values
-            .filter { it.setlistId == null && it.artist.isNotBlank() && parseFmDate(it.date) != null }
-            .mapNotNull { gig ->
-                val attendance = cache.gigAttendance[gig.id] ?: return@mapNotNull null
-                LookupGig(
-                    id = gig.id,
-                    date = gig.date,
-                    local = true,
-                    lookup = attendance.setlistFmLookup,
-                    participationUntil = ends[gig.id]?.takeIf { it > 0L }?.let(Instant::ofEpochMilli),
-                )
-            }
-        return setlistFmLookupPlan(
-            gigs = gigs,
-            now = Instant.now(),
-            zone = ZoneId.systemDefault(),
-            sharedKey = key.shared,
-            sharedQuotaSpentAt = settings.sharedQuotaSpentAtValue(),
-        )
-    }
-
-    /**
-     * The hits local Gig [gigId]'s "Possible match on setlist.fm" chip asks about, best
-     * first: the stored snapshot, or — where that was lost but ids are still pending —
-     * each fetched from setlist.fm afresh. Empty when nothing is pending.
-     */
-    suspend fun setlistFmChipHits(gigId: String): List<StoredSetlistFmHit> {
-        val lookup = _state.value.attendanceByGig[gigId]?.setlistFmLookup ?: return emptyList()
-        if (!lookup.possibleMatchPending) return emptyList()
-        return lookup.chipHits().ifEmpty {
-            lookup.pendingHitIds.mapNotNull { id -> runCatching { setlistFm.setlist(id) }.getOrNull()?.asStoredHit() }
-        }
-    }
-
-    /** The chip's "Yes": the question is settled and local Gig [gigId] takes hit [setlistId]. */
-    fun acceptSetlistFmMatch(gigId: String, setlistId: String) {
-        viewModelScope.launch {
-            val settled = timelines.editSetlistFmLookup(gigId) { it.asking(emptyList()) }
-            if (settled != null) _state.update { it.copy(attendanceByGig = it.attendanceByGig + (gigId to settled)) }
-            if (!adoptSetlist(gigId, setlistId, fresh = null, notice = true)) {
-                _state.update { it.copy(errorKind = null, error = "That night already has a setlist.fm id.") }
-            }
-        }
-    }
-
-    /** The chip's "None of these": every hit it asked about is not this night, and the checks resume. */
-    fun rejectSetlistFmMatches(gigId: String) {
-        viewModelScope.launch {
-            val settled = timelines.editSetlistFmLookup(gigId) { it.rejectingPending() } ?: return@launch
-            _state.update { it.copy(attendanceByGig = it.attendanceByGig + (gigId to settled)) }
-        }
-    }
-
-    fun loadMoreSetlists() {
-        val s = _state.value
-        if (s.setlistsLoading || s.setlists.size >= s.setlistsTotal) return
-        val nextPage = s.setlistsPage + 1
-        _state.update { it.copy(setlistsLoading = true) }
-        viewModelScope.launch {
-            try {
-                val result = when (s.source) {
-                    SetlistSource.USER -> setlistFm.userAttended(s.userQuery.trim(), nextPage)
-                    SetlistSource.ARTIST -> {
-                        val mbid = s.setlists.firstOrNull()?.artist?.mbid
-                            ?: throw IllegalStateException("No artist context")
-                        setlistFm.artistSetlists(mbid, nextPage)
-                    }
-                }
-                _state.update {
-                    it.copy(
-                        // By id: resuming a cached spine refetches its last, part-full
-                        // page, and a duplicate row would collide on the LazyColumn key.
-                        setlists = (it.setlists + result.setlist).distinctBy { s -> s.id },
-                        setlistsPage = nextPage,
-                        setlistsTotal = result.total,
-                        setlistsLoading = false,
-                    )
-                }
-                // Store the accumulated spine, or scrolling back through history
-                // pays for those pages again on the next launch.
-                if (s.source == SetlistSource.USER) {
-                    val user = s.userQuery.trim()
-                    timelines.save(
-                        shows = mapOf(user to _state.value.setlists),
-                        attendedTotals = mapOf(user to result.total),
-                    )
-                }
-            } catch (e: Exception) {
-                fail(e)
-            }
-        }
-    }
+    fun setArtistQuery(q: String) = setlists.setArtistQuery(q)
+    fun setUserQuery(q: String) = setlists.setUserQuery(q)
+    fun searchArtists() = setlists.searchArtists()
+    fun openArtist(artist: FmArtist) = setlists.openArtist(artist)
+    fun importAttended(username: String, apiKey: String?) = setlists.importAttended(username, apiKey)
+    fun openUserAttended() = setlists.openUserAttended()
+    fun refreshSelectedSetlist() = setlists.refreshSelectedSetlist()
+    fun startLookupChecks() = setlists.startLookupChecks()
+    fun stopLookupChecks() = setlists.stopLookupChecks()
+    suspend fun setlistFmChipHits(gigId: String): List<StoredSetlistFmHit> = setlists.setlistFmChipHits(gigId)
+    fun acceptSetlistFmMatch(gigId: String, setlistId: String) = setlists.acceptSetlistFmMatch(gigId, setlistId)
+    fun rejectSetlistFmMatches(gigId: String) = setlists.rejectSetlistFmMatches(gigId)
+    fun loadMoreSetlists() = setlists.loadMoreSetlists()
 
     // --- Matching ---
 
-    /** Opens a show for viewing (its real setlist) without the Spotify match/cover
-     *  machinery — that only starts when the user converts it to a playlist. */
-    fun openShow(setlist: FmSetlist) = _state.update { it.copy(selectedSetlist = setlist) }
+    fun openShow(setlist: FmSetlist) = navigation.openShow(setlist)
 
-    /**
-     * Enters the **Collection resolution** on this run of **Gigs** (#313). A state at
-     * the Line, not a route — there is nothing to pop, only a value to set back to
-     * null, which is what [closeCollectionWalk] and the reverse gesture both do.
-     */
-    fun openCollectionWalk(node: TimelineNode.Several) =
-        _state.update { it.copy(selectedCollection = node) }
+    fun openCollectionWalk(node: TimelineNode.Several) = navigation.openCollectionWalk(node)
 
-    /** Leaves the **Collection resolution**, landing back on the Line exactly where it
-     *  was left — nothing moved, so there is nowhere else it could land. */
-    fun closeCollectionWalk() = _state.update { it.copy(selectedCollection = null) }
+    fun closeCollectionWalk() = navigation.closeCollectionWalk()
 
-    // --- Gigs I'm going to ---
-
-    /**
-     * Furthest-future first, which is the same order the attended rows below already
-     * use: up is always later, and a planned gig is not an exception to that.
-     */
-    private fun sortedPlanned(gigs: List<FmSetlist>): List<FmSetlist> =
-        gigs.sortedByDescending { it.localDate() }
-
-    /**
-     * Adds a gig I'm going to, from whatever was pasted off setlist.fm — the page
-     * url or the bare id.
-     *
-     * Fetched by id, never searched. setlist.fm's search index stops about a day
-     * out (see #29), so a show weeks away cannot be found by artist, venue or date;
-     * it can only be asked for by the id sitting in the url of the page the user
-     * was on when they pressed "I'll be there".
-     */
-    fun addPlannedGig(linkOrId: String) {
-        val id = parseSetlistId(linkOrId)
-        if (id == null) {
-            _state.update { it.copy(errorKind = null, error = "That doesn't look like a setlist.fm gig link.") }
-            return
-        }
-        if (_state.value.plannedGigs.any { it.id == id }) return
-        _state.update { it.copy(planningLoading = true) }
-        viewModelScope.launch {
-            try {
-                planFmGig(setlistFm.setlist(id))
-                _state.update { it.copy(planningLoading = false) }
-            } catch (e: Exception) {
-                _state.update { it.copy(planningLoading = false) }
-                fail(e)
-            }
-        }
-    }
-
-    /**
-     * A setlist.fm night onto the plan, as setlist.fm has it: [addPlannedGig]'s write,
-     * shared with a ticket whose lookup found its night (#531).
-     */
-    private suspend fun planFmGig(hit: FmSetlist) {
-        // Saved before the state update, not after, because the claim the lane
-        // filters on comes back from the save. The old order left this path
-        // with the same hole as the typed-in one.
-        val attendance = timelines.savePlanned(hit)
-        _state.update {
-            it.copy(
-                plannedGigs = sortedPlanned(it.plannedGigs.filterNot { g -> g.id == hit.id } + hit),
-                attendanceByGig = it.attendanceByGig + (hit.id to attendance),
-            )
-        }
-    }
-
-    /**
-     * The one add form's write. The date decides the rule underneath: a night before
-     * today is one I was at ([addLocalGig]), any other is one I am going to
-     * ([addPlannedGigByHand]).
-     */
-    fun addGig(artist: String, venue: String, date: String) {
-        val night = parseFmDate(date)
-        if (artist.isBlank() || night == null) {
-            _state.update { it.copy(errorKind = null, error = "A night needs who played and a date as dd-MM-yyyy.") }
-            return
-        }
-        when (nightKind(night, LocalDate.now())) {
-            NightKind.GOING_TO -> addPlannedGigByHand(artist, venue, date)
-            NightKind.WAS_AT -> addLocalGig(artist, venue, date)
-        }
-    }
-
-    /**
-     * Joins a **Contact**'s **Gig**: it goes onto my **Line** under the same id, so
-     * holding it on both **Lines** makes the **Crossing** and nothing else has to be
-     * said. The date decides the claim, as it does for the add form: a night before
-     * today is one I was there, attended; any other is one I am going to, planned and
-     * claiming nothing.
-     *
-     * Joining answers no **Maybe**. A **Maybe** is joined only by my "same night", so a
-     * hand-logged night of mine on this date stays a question, and is now asked against
-     * a night I hold.
-     */
-    fun joinGig(gig: FmSetlist) {
-        val kind = nightKind(gig.localDate(), LocalDate.now())
-        viewModelScope.launch {
-            var attendance = timelines.savePlanned(gig)
-            if (kind == NightKind.WAS_AT) {
-                attendance = StoredAttendance(provenance = StoredAttendance.Provenance.ATTENDED)
-                timelines.saveAttendance(gig.id, attendance)
-            }
-            _state.update {
-                it.copy(
-                    plannedGigs = sortedPlanned(it.plannedGigs.filterNot { g -> g.id == gig.id } + gig),
-                    attendanceByGig = it.attendanceByGig + (gig.id to attendance),
-                )
-            }
-        }
-    }
-
-    /**
-     * A gig I'm going to, typed in: who is playing, where, and when.
-     *
-     * **The objection that kept this a paste box is obsolete.** `AddPlannedGigDialog`
-     * defended taking only a setlist.fm link on two grounds. The first still holds —
-     * setlist.fm's search index stops about a day out (#29), so a future gig cannot be
-     * *found*. The second, that typing the details in "would invent a second record for
-     * a gig setlist.fm already has", is no longer true: `createLocalGig` mints local
-     * **Gig**s for nights setlist.fm has never heard of, and `adoptSetlistId` moves one
-     * onto the vendor id when setlist.fm catches up, with every photo, offset, calendar
-     * link and playlist intact.
-     *
-     * **No attendance is written**, which is the whole difference from [addLocalGig].
-     * `savePlanned` records `PLANNED` for a gig with no claim on it, and a night I have
-     * not been to yet has no claim to make. Writing `ATTENDED` here would be the app
-     * asserting I was somewhere I have not been.
-     */
-    fun addPlannedGigByHand(artist: String, venue: String, date: String) {
-        val night = parseFmDate(date)
-        if (artist.isBlank() || night == null) {
-            _state.update { it.copy(errorKind = null, error = "A night needs who is playing and a date as dd-MM-yyyy.") }
-            return
-        }
-        viewModelScope.launch {
-            val gigId = timelines.createLocalGig(fmDate(night), artist.trim(), venue.trim())
-            val gig = localGigSetlist(gigId, artist.trim(), night, venue.trim(), city = "")
-            // The claim goes into state as well as onto disk. `plannedLane` filters on
-            // it, so a gig added without it was written correctly and then drawn by
-            // nothing — the night appeared only after a restart, which reads as Add
-            // having done nothing at all.
-            val attendance = timelines.savePlanned(gig)
-            _state.update {
-                it.copy(
-                    plannedGigs = sortedPlanned(it.plannedGigs + gig),
-                    attendanceByGig = it.attendanceByGig + (gig.id to attendance),
-                    artistSuggestions = emptyList(),
-                )
-            }
-        }
-    }
-
-    /**
-     * A PDF shared into the app via the system share sheet (#411) — MainActivity's
-     * `handleTicketIntent` is the sibling of `handleAuthIntent` that reaches this.
-     *
-     * `PdfTicketExtractor.onDevice` reads every page twice — its own text layer and
-     * ML Kit's OCR of one rasterization, which zxing reads for barcodes too — and
-     * `parseTicket` (through `parseTicketFields`) and `routeTicket` decide what that
-     * adds up to (#526). Per #411's clarified spec, only a complete,
-     * unambiguous parse acts on its own — [TicketRouting.AlreadyKnown] merges into
-     * the gig it matched, [TicketRouting.NewPlannedGig] takes the same
-     * local-planned-gig path [addPlannedGigByHand] does. Anything else becomes
-     * [PendingTicket] for a person to confirm; see [confirmPendingTicket].
-     */
-    fun handleSharedTicketPdf(uri: Uri) {
-        viewModelScope.launch {
-            val parsed = parseTicket(uri, PdfTicketExtractor.onDevice(getApplication()))
-            routeParsedTicket(parsed) {
-                getApplication<Application>().contentResolver.openInputStream(uri)
-                    ?.use { ticketOriginals.keep(it, "pdf") }
-            }
-        }
-    }
-
-    /**
-     * A ticketing provider's own confirmation page, linked straight into the app
-     * rather than shared as a PDF for this app to OCR — `station-to-station://ticket
-     * ?artist=…&venue=…&date=…&qr=…`, meant to be embeddable in a page the provider
-     * already controls the same way any other "open in app" link is. `artist`,
-     * `venue` and `date` are the plain fields; `date` is read through the same
-     * [findDate] every PDF ticket's text is, so a provider can send whatever
-     * reasonably-dated shape they already format dates in rather than being made to
-     * learn this app's own dd-MM-yyyy. `qr` is the barcode's own decoded payload
-     * (plain text, not base64) — optional, since a page may not have it at hand. It
-     * becomes the same Admission shape the PDF path stores (#441): the text's UTF-8
-     * bytes, symbology `qr` (the parameter's own name for it), page 0, uncorroborated —
-     * a link has no printed text to check it against.
-     *
-     * Reuses [routeTicket] exactly as the PDF path does: a complete, unambiguous
-     * parse acts on its own, anything less is shown to the person to confirm. A link
-     * a provider gets wrong (a typo'd date, a missing artist) fails exactly the same
-     * safe way an unreadable PDF does — never a silent add.
-     */
-    fun handleTicketLink(uri: Uri) {
-        val artist = uri.getQueryParameter("artist")?.trim()?.ifBlank { null }
-        val venue = uri.getQueryParameter("venue")?.trim()?.ifBlank { null }
-        val date = uri.getQueryParameter("date")?.trim()?.ifBlank { null }?.let { findDate(it) }
-        val admissions = listOfNotNull(
-            uri.getQueryParameter("qr")?.trim()?.ifBlank { null }
-                ?.let { Admission(payload = it.toByteArray(Charsets.UTF_8), symbology = QR_SYMBOLOGY) },
-        )
-        val parsed = ParsedTicket(admissions = admissions, artist = artist, venue = venue, date = date)
-        viewModelScope.launch { routeParsedTicket(parsed) }
-    }
-
-    /**
-     * [handleSharedTicketPdf] and [handleTicketLink]'s shared decision, once each has its own [ParsedTicket].
-     *
-     * Every Admission is redrawn in its own symbology and read back first (#441, story
-     * 29), whichever path it came in by: [routeTicket] adds nothing without asking whose
-     * barcode the app could not show, and the prompt says which one. One zxing decode
-     * each, off the main thread.
-     *
-     * Where one does not redraw, [keepOriginal] copies the shared file in (#568) and
-     * every such Admission names it: the Room shows that file in its place, so the
-     * ticket needs no prompt for it. Null for a path with no file (a link).
-     */
-    private suspend fun routeParsedTicket(read: ParsedTicket, keepOriginal: (() -> String?)? = null) {
-        val parsed = withContext(Dispatchers.IO) {
-            val checked = read.checkedForRedraw()
-            if (keepOriginal != null && checked.needsOriginal) {
-                checked.keepingOriginal(runCatching { keepOriginal() }.getOrNull())
-            } else {
-                checked
-            }
-        }
-        val known = _state.value.setlists + _state.value.plannedGigs
-        val routing = routeTicket(parsed, known)
-        // setlist.fm is asked before anything is written or asked (#531): by artist and
-        // day, never venue. A night already known needs no search here; a local one is
-        // looked up once its Admissions are on it.
-        val artist = parsed.artist?.trim()?.ifEmpty { null }
-        val date = parsed.date?.takeIf { parseFmDate(it) != null }
-        val search = if (routing !is TicketRouting.AlreadyKnown && artist != null && date != null) {
-            ticketSearch(parsed, artist, date)
-        } else {
-            null
-        }
-        val knownIds = known.filterNot { it.isLocal() }.map { it.id }.toSet()
-        when (val landing = ticketImport(routing, search?.match, knownIds)) {
-            is TicketImport.Attach -> attachAdmissions(landing.gigId, parsed.admissions)
-            is TicketImport.AttachThenLookUp -> {
-                attachAdmissions(landing.gigId, parsed.admissions)
-                lookUpLocalGig(landing.gigId, manual = false)
-            }
-            is TicketImport.MintFromSetlistFm -> {
-                planFmGig(landing.hit)
-                attachAdmissions(landing.hit.id, parsed.admissions)
-            }
-            TicketImport.MintLocal -> {
-                val new = routing as? TicketRouting.NewPlannedGig ?: return
-                val night = parseFmDate(new.date) ?: return
-                val gigId = addParsedPlannedGig(new.artist, new.venue, night, new.admissions)
-                if (search != null) stampLookup(gigId, TicketSetlistFmAnswer(null, emptyList(), search.at))
-            }
-            is TicketImport.Prompt -> {
-                val (ticket, possibleMatch) = when (routing) {
-                    is TicketRouting.NeedsConfirmation -> routing.parsed to routing.possibleMatch
-                    else -> parsed to null
-                }
-                val offered = search?.let {
-                    TicketSetlistFm(landing.candidates, landing.preselectedId, artist.orEmpty(), date.orEmpty(), it.at)
-                }
-                _state.update { it.queuingTicket(PendingTicket(ticket, possibleMatch, setlistFm = offered)) }
-            }
-        }
-    }
-
-    /** One import lookup: what it came to (null where it failed) and when it went out. */
-    private class TicketSearch(val match: SetlistFmMatch?, val at: Long)
-
-    /**
-     * setlist.fm's `search/setlists` for a shared ticket's [artist] and [date], held to
-     * [parsed] by the matcher. The person is waiting on the import, so it gets a few
-     * seconds and no more; a failure, a refusal or a timeout reads as no match (#531).
-     */
-    private suspend fun ticketSearch(parsed: ParsedTicket, artist: String, date: String): TicketSearch {
-        val at = System.currentTimeMillis()
-        // Raced rather than wrapped: the client's blocking call does not hear a
-        // timeout, so the import stops waiting on it instead.
-        val request = viewModelScope.async { setlistFm.searchSetlists(artist, date).setlist }
-        val hits = try {
-            withTimeoutOrNull(TICKET_LOOKUP_TIMEOUT_MS) { request.await() }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            android.util.Log.w("StationToStation", "ticket lookup failed: ${e.message}")
-            null
-        } finally {
-            if (!request.isCompleted) request.cancel()
-        }
-        val match = hits?.let { matchSetlistFm(parsed.copy(artist = artist, date = date), it, lineArtists()) }
-        return TicketSearch(match, at)
-    }
-
-    /** The artists already on my **Line**, for the matcher's artist check: one per MusicBrainz id. */
-    private fun lineArtists(): List<FmArtist> =
-        (_state.value.setlists + _state.value.plannedGigs)
-            .mapNotNull { it.artist }
-            .filter { it.mbid.isNotBlank() }
-            .distinctBy { it.mbid }
-
-    /** [answer] onto local Gig [gigId]'s stored lookup; nothing for a setlist.fm night or an empty answer. */
-    private suspend fun stampLookup(gigId: String, answer: TicketSetlistFmAnswer) {
-        if (!answer.recordsAnything) return
-        val gig = timelines.load().gigs[gigId] ?: return
-        if (gig.setlistId != null) return
-        val settled = timelines.editSetlistFmLookup(gigId) { answer.applyTo(it) } ?: return
-        _state.update { it.copy(attendanceByGig = it.attendanceByGig + (gigId to settled)) }
-    }
-
-    /**
-     * The confirm dialog's Save — [handleSharedTicketPdf]'s pending guess, corrected
-     * or filled in by hand, then routed the same way a complete auto-parse would be:
-     * matched if it turns out to be a night already known, otherwise a new planned
-     * gig. The Admissions travel from the original parse regardless of what the person
-     * edited — they are preserved even when the text half of the ticket needed fixing
-     * by hand (#441, story 16).
-     *
-     * The match is checked *again* on the confirmed values rather than trusted from
-     * routing, as iOS's `confirmTicket` does. [PendingTicket.possibleMatch] was found
-     * for what the parse read; a person who corrected the artist or the date has said
-     * it is some other night, and a partial parse that matched nothing may, once
-     * filled in, name a night that was already there.
-     */
-    fun confirmPendingTicket(
-        id: String,
-        artist: String,
-        venue: String,
-        date: String,
-        chosenSetlistId: String? = null,
-    ) {
-        val pending = _state.value.pendingTickets.firstOrNull { it.id == id } ?: return
-        val night = parseFmDate(date)
-        if (artist.isBlank() || night == null) {
-            _state.update { it.copy(errorKind = null, error = "A night needs who is playing and a date as dd-MM-yyyy.") }
-            return
-        }
-        // What the setlist.fm list above "None of these" comes to (#531). An edited
-        // artist or date hid the list, so it neither chooses nor rejects anything.
-        val answer = pending.setlistFm?.answer(artist, date, chosenSetlistId) ?: TicketSetlistFmAnswer.UNASKED
-        viewModelScope.launch {
-            val known = _state.value.setlists + _state.value.plannedGigs
-            val confirmed = pending.confirmedAs(artist, venue, night, known)
-            val hit = answer.chosen
-            if (hit != null) {
-                val onLine = known.firstOrNull { it.id == hit.id }
-                val localNight = (confirmed as? ConfirmedTicket.Attach)?.gigId
-                    ?.let { gigId -> known.firstOrNull { it.id == gigId && it.isLocal() } }
-                when {
-                    onLine != null -> attachAdmissions(hit.id, pending.parsed.admissions)
-                    // The night is already here as a local Gig: it takes the hit's id.
-                    localNight != null -> {
-                        attachAdmissions(localNight.id, pending.parsed.admissions)
-                        adoptSetlist(localNight.id, hit.id, fresh = hit, notice = true)
-                    }
-                    else -> {
-                        planFmGig(hit)
-                        attachAdmissions(hit.id, pending.parsed.admissions)
-                    }
-                }
-            } else {
-                val gigId = when (confirmed) {
-                    is ConfirmedTicket.Attach -> confirmed.gigId.also { attachAdmissions(it, confirmed.admissions) }
-                    is ConfirmedTicket.Mint ->
-                        addParsedPlannedGig(confirmed.artist, confirmed.venue, confirmed.night, confirmed.admissions)
-                }
-                // "None of these": every hit offered is not this night, and the lookup counts.
-                stampLookup(gigId, answer)
-            }
-            _state.update { it.answeringTicket(id) }
-        }
-    }
-
-    /** The confirm dialog's Discard — the guess is dropped, nothing is written, and no file is kept for it (#568). */
-    fun dismissPendingTicket(id: String) {
-        _state.value.pendingTickets.firstOrNull { it.id == id }?.parsed?.originals?.forEach(ticketOriginals::forget)
-        _state.update { it.answeringTicket(id) }
-    }
-
-    /** [addPlannedGigByHand]'s write, shared by both ticket paths above. */
-    private suspend fun addParsedPlannedGig(
-        artist: String,
-        venue: String,
-        night: LocalDate,
-        admissions: List<Admission>,
-    ): String {
-        val gigId = timelines.createLocalGig(fmDate(night), artist, venue)
-        val gig = localGigSetlist(gigId, artist, night, venue, city = "")
-        val attendance = timelines.savePlanned(gig)
-        _state.update {
-            it.copy(
-                plannedGigs = sortedPlanned(it.plannedGigs + gig),
-                attendanceByGig = it.attendanceByGig + (gig.id to attendance),
-            )
-        }
-        attachAdmissions(gig.id, admissions)
-        return gigId
-    }
-
-    /**
-     * Every Admission onto the night, appended (#441). No-op when there is none to
-     * keep — most confirmations and most matches.
-     */
-    private suspend fun attachAdmissions(gigId: String, admissions: List<Admission>) {
-        if (admissions.isEmpty()) return
-        val attendance = timelines.attachAdmissions(gigId, admissions.map(StoredAdmission::of))
-        // The same ticket shared twice keeps its first file; the second copy is named by nothing.
-        val named = attendance.admissions.mapNotNull { it.original }.toSet()
-        admissions.mapNotNull { it.original }.filterNot { it in named }.toSet().forEach(ticketOriginals::forget)
-        _state.update { it.copy(attendanceByGig = it.attendanceByGig + (gigId to attendance)) }
-    }
-
-    /**
-     * Spellings for the artist name being typed, from MusicBrainz.
-     *
-     * Debounced rather than rate-limited: MusicBrainz asks for no more than a request a
-     * second, and a search-as-you-type field would otherwise send one per keystroke.
-     * Cancelling the previous job is also what keeps the answers in order — without it a
-     * slow reply for "ka" can land after a fast one for "kaizers" and replace it.
-     *
-     * Failures are swallowed to an empty list on purpose. This is a prompt; a person who
-     * is offline can still type the name, and an error snackbar for a suggestion that
-     * did not arrive would be nagging about a service they did not ask to use.
-     */
-    fun suggestArtists(query: String) {
-        artistSearch?.cancel()
-        if (query.isBlank()) {
-            _state.update { it.copy(artistSuggestions = emptyList()) }
-            return
-        }
-        artistSearch = viewModelScope.launch {
-            delay(350)
-            val hits = runCatching { musicBrainz.searchArtists(query) }.getOrDefault(emptyList())
-            _state.update { it.copy(artistSuggestions = hits) }
-        }
-    }
-
-    /** The typed name was replaced by a picked one, so the list has done its job. */
-    fun clearArtistSuggestions() {
-        artistSearch?.cancel()
-        _state.update { it.copy(artistSuggestions = emptyList()) }
-    }
-
-    /**
-     * A night entered by hand — the zero-account floor's one door (#225).
-     *
-     * Nothing here is new machinery. `createLocalGig` has minted **Gig**s with no
-     * setlist.fm id since the **Bill** shipped, and `localGigSetlist` has been
-     * dressing them as an `FmSetlist` for every screen to draw. The floor was
-     * always real; what was missing was a way onto it, because both affordances on
-     * the empty spine led to setlist.fm.
-     *
-     * **Attendance is ATTENDED, never CHECKED_IN.** Typing a night in is a claim
-     * about the past made now; a check-in is a claim the phone corroborated at the
-     * venue on the night. Recording the two as the same thing would make the
-     * provenance the Room shows a lie, which is the one thing this path must not do.
-     *
-     * A blank venue stays blank rather than becoming "": an unknown room is not a
-     * place two gigs have in common, and `localGigSetlist` is careful about that.
-     */
-    fun addLocalGig(artist: String, venue: String, date: String) {
-        val night = parseFmDate(date)
-        if (artist.isBlank() || night == null) {
-            _state.update { it.copy(errorKind = null, error = "A night needs who played and a date as dd-MM-yyyy.") }
-            return
-        }
-        viewModelScope.launch {
-            val gigId = timelines.createLocalGig(fmDate(night), artist.trim(), venue.trim())
-            val gig = localGigSetlist(gigId, artist.trim(), night, venue.trim(), city = "")
-            val attendance = StoredAttendance(provenance = StoredAttendance.Provenance.ATTENDED)
-            timelines.savePlanned(gig)
-            timelines.saveAttendance(gigId, attendance)
-            _state.update {
-                it.copy(
-                    plannedGigs = sortedPlanned(it.plannedGigs + gig),
-                    attendanceByGig = it.attendanceByGig + (gigId to attendance),
-                )
-            }
-        }
-    }
-
-    /**
-     * A calendar event was just created for a gig; remember its URI. Presence of the
-     * URI is what flips the swipe from "add to calendar" to "invite a friend" and
-     * makes the tappable link appear, so this is what graduates the leaf. Persisted
-     * so both survive a cold start.
-     */
-    fun markCalendarAdded(gigId: String, eventUri: String) {
-        _state.update { it.copy(calendarEventByGig = it.calendarEventByGig + (gigId to eventUri)) }
-        viewModelScope.launch { timelines.markCalendarAdded(gigId, eventUri) }
-    }
-
-    /**
-     * **Departures committed: a diff applied to the Line, not an import.**
-     *
-     * Adds mint a **Gig** claimed `planned` — a programme is a plan, and it must never
-     * be counted as a show I have seen. Each carries the act's stage as its room and the
-     * **Festival**'s id, so `groupIntoFestivals` groups it by declared identity and never
-     * has to infer a festival from nights and venues: the **Festival** exists because
-     * somebody picked it.
-     *
-     * **An act already on the Line is adopted, never duplicated.** That is the bug that
-     * started this work — two stores with different date formats that did not check each
-     * other — and it is fixed here by matching on the night and the artist across the
-     * whole line before minting anything.
-     *
-     * Removes delete only a **Gig** this app minted. A night setlist.fm knows about is
-     * evidence of something that happened; deselecting a plan must not be able to erase
-     * it, and `deleteGig` refuses one carrying media in any case.
-     */
+    fun addPlannedGig(linkOrId: String) = planning.addPlannedGig(linkOrId)
+    fun addGig(artist: String, venue: String, date: String) = planning.addGig(artist, venue, date)
+    fun joinGig(gig: FmSetlist) = planning.joinGig(gig)
+    fun addPlannedGigByHand(artist: String, venue: String, date: String) = planning.addPlannedGigByHand(artist, venue, date)
+    fun handleSharedTicketPdf(uri: Uri) = planning.handleSharedTicketPdf(uri)
+    fun handleTicketLink(uri: Uri) = planning.handleTicketLink(uri)
+    fun confirmPendingTicket(id: String, artist: String, venue: String, date: String, chosenSetlistId: String? = null) =
+        planning.confirmPendingTicket(id, artist, venue, date, chosenSetlistId)
+    fun dismissPendingTicket(id: String) = planning.dismissPendingTicket(id)
+    fun suggestArtists(query: String) = planning.suggestArtists(query)
+    fun clearArtistSuggestions() = planning.clearArtistSuggestions()
+    fun addLocalGig(artist: String, venue: String, date: String) = planning.addLocalGig(artist, venue, date)
+    fun markCalendarAdded(gigId: String, eventUri: String) = planning.markCalendarAdded(gigId, eventUri)
     fun commitProgramme(
         programme: StoredProgramme,
         diff: ProgrammeDiff,
         picked: Set<String>,
         now: LocalDateTime = LocalDateTime.now(),
-    ) {
-        if (diff.isEmpty) return
-        viewModelScope.launch {
-            val played = playedActs(programme.acts, now)
-            val festivalId = programmeFestivalId(programme)
-            val days = programmeDays(programme.acts)
-            val festival = StoredFestival(
-                id = festivalId,
-                name = programme.name.trim().ifBlank { programme.id },
-                rangeFrom = days.firstOrNull()?.let { fmDate(it) },
-                rangeTo = days.lastOrNull()?.let { fmDate(it) },
-                // Authored: I picked this festival. An upstream scrape must not overwrite
-                // a name I chose off its own programme — see `mergedWith`.
-                source = StoredFestival.FestivalSource.AUTHORED,
-            )
+    ) = planning.commitProgramme(programme, diff, picked, now)
 
-            val minted = mutableListOf<FmSetlist>()
-            val attendances = mutableMapOf<String, StoredAttendance>()
-            val membership = mutableMapOf<String, String>()
-            // Everything picked, not only what is new: an act already on the line from
-            // setlist.fm is exactly the one that has to be *gathered* into the festival
-            // rather than minted a second time, and it never appears in the diff because
-            // it was on the line before the programme was opened.
-            val taking = programme.acts.filter { actKey(it) in picked }.distinctBy { actKey(it) }
-            for (act in taking) {
-                val night = runCatching { LocalDate.parse(act.date) }.getOrNull() ?: continue
-                val artist = act.artist.trim()
-                if (artist.isBlank()) continue
-                val existing = onLine(night, artist, act.mbid)
-                val gigId = existing?.id
-                    ?: timelines.createLocalGig(fmDate(night), artist, act.stage)
-                if (existing == null) {
-                    val gig = localGigSetlist(gigId, artist, night, venue = act.stage, city = "")
-                    val claim = timelines.savePlanned(gig)
-                    // A set that has already finished is a night I was at, not a night I
-                    // am going to — see `playedActs`. Only ever upgrades: `savePlanned`
-                    // hands back a claim that already exists, and a check-in outranks
-                    // this one.
-                    attendances[gigId] =
-                        if (actKey(act) in played &&
-                            claim.provenance == StoredAttendance.Provenance.PLANNED
-                        ) {
-                            claim.withProvenance(StoredAttendance.Provenance.ATTENDED)
-                                .also { timelines.saveAttendance(gigId, it) }
-                        } else {
-                            claim
-                        }
-                    minted += gig
-                }
-                membership[gigId] = festivalId
-            }
+    fun standing(gigId: String): GigStanding = gigController.standing(gigId)
 
-            val dropped = mutableSetOf<String>()
-            for (key in diff.remove) {
-                val night = runCatching { LocalDate.parse(key.substringBefore('|')) }.getOrNull() ?: continue
-                val gig = onLine(night, key.substringAfter('|'))?.takeIf { it.isLocal() } ?: continue
-                if (timelines.deleteGig(gig.id)) dropped += gig.id
-            }
+    fun photosLostByDeleting(gigId: String): Int = gigController.photosLostByDeleting(gigId)
 
-            timelines.save(festivals = mapOf(festivalId to festival), festivalIdByShow = membership)
-            _state.update {
-                it.copy(
-                    plannedGigs = sortedPlanned(it.plannedGigs.filterNot { g -> g.id in dropped } + minted),
-                    setlists = it.setlists.filterNot { g -> g.id in dropped },
-                    attendanceByGig = (it.attendanceByGig + attendances) - dropped,
-                    festivals = it.festivals + Festivals(
-                        byId = mapOf(festivalId to festival),
-                        idByShow = membership,
-                    ),
-                )
-            }
-        }
-    }
-
-    /**
-     * The **Gig** already on my line for this night and this artist, if there is one.
-     *
-     * On the same terms [matchAct] uses in the other direction: the MusicBrainz id where
-     * both sides have one, and [nameKey] otherwise, because the two sources spell the
-     * same artist differently often enough that an exact compare mints duplicates.
-     */
-    private fun onLine(night: LocalDate, artist: String, mbid: String = ""): FmSetlist? =
-        (_state.value.plannedGigs + _state.value.setlists).firstOrNull { gig ->
-            gig.localDate() == night &&
-                (mbid.isNotBlank() && gig.artist?.mbid == mbid ||
-                    nameKey(gig.artist?.name.orEmpty()) == nameKey(artist))
-        }
-
-    /**
-     * How many photographs a delete would destroy — the ones this app holds the
-     * only copy of. Zero means every picture on the night also lives in the
-     * gallery, so removing the night costs nothing that cannot be found again.
-     *
-     * The screen asks this to decide whether to stop and ask.
-     */
-    /**
-     * Where the **Gig** is held. Read from the raw attended list under my own key, never from
-     * [UiState.setlists]: that one also carries the nights I attended here, which is what
-     * this has to tell apart.
-     */
-    fun standing(gigId: String): GigStanding = _state.value.let { s ->
-        gigStanding(
-            gigId,
-            s.plannedGigs.map { it.id },
-            s.showsByFriend[s.mySetlistFmUser.trim()].orEmpty().map { it.id },
-        )
-    }
-
-    fun photosLostByDeleting(gigId: String): Int =
-        _state.value.mediaBySetlist[gigId].orEmpty().count { photos.ownsBytes(it.ref) }
-
-    /**
-     * A night deleted from its own screen.
-     *
-     * Takes the media with it, because someone reading the night's own screen can see
-     * what is on it. The screen is responsible for asking first when
-     * [photosLostByDeleting] says bytes would go — a pointer into the gallery is not
-     * worth a dialog, the only copy of a photograph is.
-     *
-     * Any **Gig** that is that this phone holds a record of can go, its setlist.fm id or not. One held only
-     * by my setlist.fm attended list has no delete; see [gigMenu].
-     */
-    fun deleteGig(gigId: String) {
-        val media = _state.value.mediaBySetlist[gigId].orEmpty()
-        val me = _state.value.mySetlistFmUser.trim()
-        _state.update {
-            it.copy(
-                plannedGigs = it.plannedGigs.filterNot { g -> g.id == gigId },
-                setlists = it.setlists.filterNot { g -> g.id == gigId },
-                // The cached copy of my attended list goes too, or the night comes back as
-                // soon as the Spine is read again. Setlist.fm itself is not touched.
-                showsByFriend = it.showsByFriend + (me to it.showsByFriend[me].orEmpty().filterNot { g -> g.id == gigId }),
-                attendanceByGig = it.attendanceByGig - gigId,
-                logsByGig = it.logsByGig - gigId,
-                mediaBySetlist = it.mediaBySetlist - gigId,
-                playlistsBySetlist = it.playlistsBySetlist - gigId,
-                calendarEventByGig = it.calendarEventByGig - gigId,
-                selectedSetlist = null,
-            )
-        }
-        viewModelScope.launch {
-            if (timelines.deleteGig(gigId, withMedia = true, anyId = true, attendedLane = me)) {
-                media.forEach { photos.deleteOwnedBytes(it.id, it.ref) }
-            }
-        }
-    }
+    fun deleteGig(gigId: String) = gigController.deleteGig(gigId)
 
     // --- The Log: what I saw, as opposed to what setlist.fm publishes ---
 
-    fun blockGossip(author: String) {
-        viewModelScope.launch {
-            gossip.updatePublic(System.currentTimeMillis()) { it.blocked.add(it.recognition[author] ?: author) }
-        }
-    }
+    fun blockGossip(author: String) = gossipController.block(author)
 
-    fun logFor(gigId: String): StoredLog = _state.value.logsByGig[gigId] ?: StoredLog()
+    fun logFor(gigId: String): StoredLog = gigController.logFor(gigId)
 
-    /**
-     * Edits my **Log** of a night. Asserted, never derived: the candidate pool is a
-     * prompt and only a tap is a claim, so a song I *think* they played never becomes
-     * a song they played by inaction.
-     *
-     * Editing songs never touches [StoredLog.closed]. Adding a song days later is
-     * ordinary — the **Log** is the app's own record and stays editable forever —
-     * and saying "that was the whole set" is a separate, deliberate sentence.
-     *
-     * Four edits rather than one "here is the new list", because a **Log** now carries
-     * a **Remembered Line** beside each entry (#126) and a whole-list replacement
-     * cannot say whether the third entry was deleted or renamed. The intent is what
-     * keeps the two lists parallel, and [StoredLog] is the one place that does it.
-     */
-    fun addToLog(gigId: String, song: String) = writeLog(gigId) { it.adding(song) }
+    fun addToLog(gigId: String, song: String) = gigController.addToLog(gigId, song)
 
-    fun removeFromLog(gigId: String, index: Int) = writeLog(gigId) { it.removingAt(index) }
+    fun removeFromLog(gigId: String, index: Int) = gigController.removeFromLog(gigId, index)
 
-    /**
-     * A title replaces what was written, and what was written is kept beneath it. The
-     * candidate was ranked, never chosen: only this tap decides.
-     */
-    fun correctLogEntry(gigId: String, index: Int, title: String) =
-        writeLog(gigId) { it.correctingAt(index, title) }
+    fun correctLogEntry(gigId: String, index: Int, title: String) = gigController.correctLogEntry(gigId, index, title)
 
-    /** The way back. A wrong correction must not be a one-way door. */
-    fun restoreLogEntry(gigId: String, index: Int) = writeLog(gigId) { it.restoringAt(index) }
+    fun restoreLogEntry(gigId: String, index: Int) = gigController.restoreLogEntry(gigId, index)
 
-    /**
-     * The only thing that may **Close** a **Log**, and it is a person saying so. Not
-     * publishing, not a refetch, not a song count: setlist.fm has nowhere to keep
-     * this bit, so it never leaves the device and nothing coming back can set it.
-     */
-    fun setLogClosed(gigId: String, closed: Boolean) = writeLog(gigId) { it.completing(closed) }
+    fun setLogClosed(gigId: String, closed: Boolean) = gigController.setLogClosed(gigId, closed)
 
-    private fun writeLog(gigId: String, edit: (StoredLog) -> StoredLog) {
-        val before = logFor(gigId)
-        val updated = edit(before)
-        _state.update { it.copy(logsByGig = it.logsByGig + (gigId to updated)) }
-        viewModelScope.launch {
-            timelines.saveLog(gigId, updated)
-            withContext(Dispatchers.IO) { publishLog(gigId, before, updated) }
-            syncGossip()
-        }
-    }
-
-    private suspend fun publishLog(gigId: String, before: StoredLog, after: StoredLog) {
-        val now = System.currentTimeMillis()
-        val cache = timelines.load()
-        val local = cache.gigs[gigId] ?: cache.gigForSetlist(gigId) ?: return
-        val date = runCatching { LocalDate.parse(local.date, java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy")) }.getOrNull() ?: return
-        val expiry = gossipExpiry(date)
-        val until = io.github.magnusencoded.stationtostation.data.gossip.gossipParticipationUntil(
-            cache.attendance()[gigId]?.checkedInAt, after.closed, after.completedAt, expiry, gossip.stoppedAt())
-        if (until == null || now >= until.toEpochMilli()) return
-        val changes = io.github.magnusencoded.stationtostation.data.gossip.gossipLogChanges(before, after)
-        if (changes.isEmpty()) return
-        runCatching {
-            val scope = gossip.authorScope(local.id)
-            val identity = GigIdentity(scope)
-            gossip.updatePublic(now) { state ->
-                val author = identity.publicKey()
-                val previous = state.facts.values.filter { it.author == author }
-                val former = previous.flatMap { it.formerIds + it.gigId }.distinct().filter { it != gigId }
-                // Monotone revision time makes rapid successive Done actions deterministic.
-                val revision = maxOf(now, (previous.maxOfOrNull { it.createdAt } ?: 0) + 1)
-                changes.forEach { (line, text) ->
-                    GossipEnvelope(gigId = gigId, formerIds = former, scope = scope,
-                        author = author, createdAt = revision, expiresAt = expiry.toEpochMilli(),
-                        kind = "log", line = line, text = text, attribution = identity.attribution())
-                        .signed(identity::sign)?.let { state.receive(it, "", now, local = true) }
-                }
-            }
-        }
-    }
+    private fun writeLog(gigId: String, edit: (StoredLog) -> StoredLog) = gigController.writeLog(gigId, edit)
 
     /**
      * The light switch, at the outermost rung of my own **Line** (#145).
@@ -3149,534 +1369,49 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * Moves one of my photographs into [band] at [index] — the drag between bands, and
-     * the reorder within one, which are the same operation (#162).
-     *
-     * A move between bands *is* the change to its **Personal** bit; there is no separate
-     * gesture and no night-level grant above it. **Received media** is refused by
-     * [moveMedia] rather than here: whose disposition it is belongs with the rule, not
-     * with the caller.
-     */
-    fun moveGigMedia(setlistId: String, mediaId: String, band: Band, index: Int) = setGigMedia(
-        setlistId,
-        moveMedia(_state.value.mediaBySetlist[setlistId].orEmpty(), mediaId, band, index),
-    )
+    fun moveGigMedia(setlistId: String, mediaId: String, band: Band, index: Int) =
+        gigMedia.moveGigMedia(setlistId, mediaId, band, index)
 
-    /**
-     * Write, edit or clear my **Note** in one **Band** (#50).
-     *
-     * At most one of mine per band, so this is an upsert keyed by band rather than by
-     * id: the write-line the finger landed on already said which one it means. Two
-     * notes in a band would need arranging, arranging would need the handle, and the
-     * thing being served is one opinion about one night.
-     *
-     * **Emptying it removes it.** A note with nothing in it is not something anyone
-     * wrote, and leaving an empty record behind would make the shared band claim a
-     * contributor who said nothing — which would turn a night green over blank text.
-     */
-    fun setGigNote(setlistId: String, band: Band, text: String) {
-        val had = _state.value.mediaBySetlist[setlistId].orEmpty()
-        val personal = band == Band.VAULT
-        val mine = had.firstOrNull {
-            it.kind == StoredMedia.Kind.NOTE && it.from == null && it.personal == personal
-        }
-        val written = text.trim()
-        setGigMedia(
-            setlistId,
-            when {
-                mine != null && written.isEmpty() -> had.filterNot { it.id == mine.id }
-                mine != null -> had.map { if (it.id == mine.id) it.copy(text = written) else it }
-                written.isEmpty() -> had
-                else -> had + StoredMedia(
-                    id = java.util.UUID.randomUUID().toString(),
-                    kind = StoredMedia.Kind.NOTE,
-                    // When it was written. It is what sorts received notes, and a note
-                    // has no camera to ask for anything better.
-                    capturedAt = System.currentTimeMillis(),
-                    personal = personal,
-                    text = written,
-                )
-            },
-        )
-    }
+    fun setGigNote(setlistId: String, band: Band, text: String) = gigController.setGigNote(setlistId, band, text)
 
-    /**
-     * Set or unset the **Verdict** on one of my **Notes**.
-     *
-     * Tapping the one already set passes null, because unset has to stay reachable —
-     * it is a real state, and a night I have stopped having an opinion about must not
-     * be stuck wearing the one I had.
-     */
-    fun setGigVerdict(setlistId: String, noteId: String, verdict: String?) {
-        val had = _state.value.mediaBySetlist[setlistId].orEmpty()
-        // Mine only. A received note's verdict is its sender's statement and is not
-        // mine to edit, the same way their photograph is not mine to reposition.
-        if (had.none { it.id == noteId && it.from == null }) return
-        setGigMedia(setlistId, had.map { if (it.id == noteId) it.copy(verdict = verdict) else it })
-    }
+    fun setGigVerdict(setlistId: String, noteId: String, verdict: String?) =
+        gigController.setGigVerdict(setlistId, noteId, verdict)
 
+    fun adoptSetlistLink(gigId: String, linkOrId: String) = gigController.adoptSetlistLink(gigId, linkOrId)
 
-    /**
-     * The night is now on setlist.fm — someone typed it in, possibly not me. The
-     * local **Gig** takes their id and stops being a stub, which is the whole payoff
-     * #34 names: only then can it be a **Crossing**.
-     *
-     * A pasted link rather than a search by artist+date. #34 sketched the search, but
-     * the moment this is used is the moment you are looking at the page you just
-     * created, so its url is in your hand and matching heuristics are a way to be
-     * wrong about which night you meant.
-     */
-    fun adoptSetlistLink(gigId: String, linkOrId: String) {
-        val setlistId = parseSetlistId(linkOrId)
-        if (setlistId == null) {
-            _state.update { it.copy(errorKind = null, error = "That doesn't look like a setlist.fm link.") }
-            return
-        }
-        viewModelScope.launch {
-            if (!adoptSetlist(gigId, setlistId, fresh = null, notice = true)) {
-                _state.update { it.copy(errorKind = null, error = "That night already has a setlist.fm id.") }
-            }
-        }
-    }
+    private suspend fun adoptSetlist(gigId: String, setlistId: String, fresh: FmSetlist?, notice: Boolean): Boolean =
+        gigController.adoptSetlist(gigId, setlistId, fresh, notice)
 
-    /**
-     * Local **Gig** [gigId] takes setlist.fm's [setlistId]: [adoptSetlistLink]'s pasted
-     * link, a search hit the person picked, or one the automatic checks were sure of
-     * (#531). [fresh] is the record already in hand from a search, which saves asking
-     * setlist.fm for it again; null fetches it. [notice] shows "Adopted". False where
-     * the night already had an id, or is gone, and nothing was changed.
-     */
-    private suspend fun adoptSetlist(gigId: String, setlistId: String, fresh: FmSetlist?, notice: Boolean): Boolean {
-        val before = timelines.load()
-        val original = before.gigs[gigId]
-        val now = System.currentTimeMillis()
-        val until = if (original?.setlistId == null)
-            gossipParticipationEnds(timelines, gossip.stoppedAt())[gigId] ?: 0L else 0L
-        if (!timelines.adoptSetlistId(gigId, setlistId)) return false
-        // Before anything else can read the night under its new id: a Log edit landing
-        // between the store's move and this one saved an empty Log over the real one.
-        _state.update { it.adopting(gigId, setlistId) }
-        gossip.rememberAdoption(gigId, setlistId)
-        if (now < until && original != null) {
-            val scope = gossip.authorScope(original.id)
-            val identity = GigIdentity(scope)
-            val update = GossipEnvelope(
-                gigId = setlistId, formerIds = listOf(gigId), scope = scope,
-                author = identity.publicKey(), createdAt = now, expiresAt = until,
-                kind = "update", attribution = identity.attribution(),
-            ).signed(identity::sign)
-            if (update != null) gossip.updatePublic(now) { it.receive(update, "", now, local = true) }
-        }
-        // A night adopted after participation ended sends nothing, but its old witnessed
-        // claim still decorates the same local record under the newly displayed ID.
-        if (notice) _state.update { it.copy(notice = "Adopted — this night is on setlist.fm now.") }
-        // The real record replaces the stub: it has the url, the songs whoever
-        // typed them in logged, and an id friends' lines can meet at.
-        val record = fresh?.takeIf { it.id == setlistId }
-            ?: runCatching { setlistFm.setlist(setlistId) }.getOrNull()
-        record?.let { real ->
-            timelines.savePlanned(real)
-            _state.update {
-                it.copy(
-                    plannedGigs = sortedPlanned(it.plannedGigs.filterNot { g -> g.id == setlistId } + real),
-                    selectedSetlist = if (it.selectedSetlist?.id == setlistId) real else it.selectedSetlist,
-                )
-            }
-        }
-        return true
-    }
+    fun removePlannedGig(gigId: String) = gigController.removePlannedGig(gigId)
 
-    /** Forgets a gig I'm not going to after all. */
-    fun removePlannedGig(gigId: String) {
-        _state.update { it.copy(plannedGigs = it.plannedGigs.filterNot { g -> g.id == gigId }) }
-        viewModelScope.launch { timelines.removePlanned(gigId) }
-    }
+    fun checkInDue(now: LocalDateTime = LocalDateTime.now()): Boolean = gigController.checkInDue(now)
 
-    /**
-     * True if any gig I know about could be checked into right now on the calendar
-     * alone. Cheap and pure — it is what decides whether asking for the location
-     * permission is warranted at all, so the prompt only ever appears on a night
-     * there is actually something to check into.
-     */
-    fun checkInDue(now: LocalDateTime = LocalDateTime.now()): Boolean =
-        _state.value.plannedGigs.any { gig ->
-            canCheckInManually(gig, now) && !isCheckedIn(gig.id)
-        }
+    fun hasLocationPermission(): Boolean = gigController.hasLocationPermission()
 
-    fun hasLocationPermission(): Boolean = where.hasPermission()
+    fun isCheckedIn(gigId: String): Boolean = gigController.isCheckedIn(gigId)
 
-    fun isCheckedIn(gigId: String): Boolean =
-        _state.value.attendanceByGig[gigId]?.provenance == StoredAttendance.Provenance.CHECKED_IN
+    fun offerCheckIn() = gigController.offerCheckIn()
 
-    /**
-     * One fix, once, when the timeline is opened: if it puts me at a gig I'm going
-     * to tonight, offer to check in. Every failure along the way — permission
-     * refused, no fix, no coordinates for the venue, too far away — is silently no
-     * offer. Nothing here is retried, scheduled or run in the background.
-     *
-     * ponytail: linear over the planned gigs, geocoding only the one that passes
-     * the city gate. You have a ticket for a handful of nights, not thousands.
-     */
-    fun offerCheckIn() {
-        if (askedToCheckIn) return
-        askedToCheckIn = true
-        viewModelScope.launch {
-            val now = LocalDateTime.now()
-            val fix = where.currentFix() ?: return@launch
-            val candidates = _state.value.plannedGigs.filterNot { isCheckedIn(it.id) }
-            val gig = checkInCandidate(candidates, now, fix) ?: return@launch
-            val venue = venueCoords(gig) ?: return@launch
-            if (!atVenue(fix, venue)) return@launch
-            _state.update { it.copy(checkInOffer = gig) }
-        }
-    }
+    fun dismissCheckInOffer() = gigController.dismissCheckInOffer()
 
-    /** One-shot per launch: dismissing an offer must not make it reappear. */
-    private var askedToCheckIn = false
+    fun checkIn(gigId: String) = gigController.checkIn(gigId)
 
-    fun dismissCheckInOffer() = _state.update { it.copy(checkInOffer = null) }
+    fun refreshGossip() = gossipController.refresh()
 
-    /**
-     * The venue's coordinates, geocoded once and kept on the attendance record —
-     * the same cache #29 reserved the fields for. Null for a venue the geocoder
-     * can't place, which costs this gig its prompt and nothing else.
-     */
-    private suspend fun venueCoords(gig: FmSetlist): Pair<Double, Double>? {
-        _state.value.attendanceByGig[gig.id]?.let { stored ->
-            val lat = stored.venueLat
-            val lon = stored.venueLon
-            if (lat != null && lon != null) return lat to lon
-        }
-        val query = venueMapsQuery(gig.venue?.name, gig.venue?.city?.name) ?: return null
-        val found = where.geocodeVenue(
-            listOfNotNull(query, gig.venue?.city?.country?.name).joinToString(", "),
-        ) ?: return null
-        updateAttendance(gig.id) { it.copy(venueLat = found.first, venueLon = found.second) }
-        return found
-    }
+    fun selectGossipGig(gigId: String) = gossipController.selectGig(gigId)
 
-    /**
-     * I am here. Sets the provenance the whole issue exists for, with the moment it
-     * happened — evidence of a different strength than setlist.fm's retroactive
-     * flag, not a competing record. Not a gate on anything: the peer-attested badge
-     * (#30) decorates this entry later, it doesn't replace it.
-     */
-    fun checkIn(gigId: String) {
-        _state.update { it.copy(checkInOffer = null) }
-        val saved = updateAttendance(gigId) {
-            it.copy(
-                provenance = StoredAttendance.Provenance.CHECKED_IN,
-                checkedInAt = System.currentTimeMillis(),
-            )
-        }
-        viewModelScope.launch {
-            saved.join()
-            withContext(Dispatchers.IO) { runCatching { gossipAbout(gigId) } }
-            syncGossip()
-        }
-    }
-
-    /**
-     * Author this phone's own check-in as a public **Envelope** and start carrying it (#416).
-     *
-     * It goes into the same store, and through the same
-     * [receive][io.github.magnusencoded.stationtostation.data.gossip.PublicGossipState.receive],
-     * that an envelope arriving off the radio does — `local = true` marking only that the
-     * transport did not vouch for the sender, because there was no transport. There is no
-     * second authoring path to keep working, and no way for a check-in this device made to
-     * be shaped differently from one it relays.
-     *
-     * **The author is a temporary **Gig** key, not this device's **Contact** identity.** The
-     * scope is bound to the *local* **Gig** rather than its external id, so a setlist.fm id
-     * arriving later does not rotate who the night's entries were written by; the durable
-     * Contact key appears nowhere on the wire, only inside the masked attribution proof.
-     *
-     * Quietly does nothing where there is nothing to do: a **Gig** with no date to expire
-     * against, no local **Gig** to bind a scope to, or a signer that refuses. A check-in is a
-     * fact about this timeline first; whether anyone hears about it is secondary, and an
-     * error about the secondary thing would be noise on a night out.
-     */
-    private suspend fun gossipAbout(gigId: String) {
-        val cache = timelines.load()
-        val localGig = cache.gigs[gigId] ?: cache.gigForSetlist(gigId) ?: return
-        val gigDate = runCatching { LocalDate.parse(localGig.date,
-            java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy")) }.getOrNull() ?: return
-        val scope = gossip.authorScope(localGig.id)
-        val identity = GigIdentity(scope)
-        // The same night-end ceiling a relay would have capped the claim at, so this device
-        // asks for exactly as long as a stranger carrying for it would have allowed.
-        val createdAt = Instant.now()
-        val public = GossipEnvelope(
-            gigId = gigId, scope = scope, author = identity.publicKey(),
-            createdAt = createdAt.toEpochMilli(), expiresAt = gossipExpiry(gigDate).toEpochMilli(),
-            kind = "request",
-            attribution = identity.attribution(),
-        ).signed(identity::sign)
-        if (public != null) {
-            val now = System.currentTimeMillis()
-            gossip.updatePublic(now) { it.receive(public, "", now, local = true) }
-        }
-    }
-
-    /**
-     * Bring the gossip radio into line with the one reason it may run: a **Gig** on this
-     * timeline that has been checked in to and whose participation has not ended (#448).
-     *
-     * Called from every place that answer can change: a launch, a check-in, a **Log** edit
-     * that completes or reopens the set, a stop. The decision itself is
-     * [gossipRelayShouldRun][io.github.magnusencoded.stationtostation.data.gossip.gossipRelayShouldRun],
-     * which is where it is argued and where a reviewer should push back on it.
-     */
-    private suspend fun syncGossip() {
-        val stoppedAt = gossip.stoppedAt()
-        GossipService.sync(
-            context = getApplication<Application>(),
-            activeUntil = io.github.magnusencoded.stationtostation.data.gossip.gossipActiveUntil(timelines, stoppedAt),
-        )
-        // What the **Presence rows** draw, read at the same moment as what the radio is told —
-        // two answers a moment apart would light a bullet for a night the service has just
-        // stopped transmitting for.
-        val cache = timelines.load()
-        val active = gossipActiveGigId(timelines, stoppedAt, gossip.selectedGigId(), System.currentTimeMillis())
-        val eligible = gossipParticipationEnds(timelines)
-        val running = gossipParticipationEnds(timelines, stoppedAt)
-        _state.update {
-            it.copy(
-                gossipEligibleUntil = eligible,
-                gossipActiveGig = active?.let(cache::keyOf),
-                gossipStoppedGigs = gossipStoppedGigs(eligible, running),
-            )
-        }
-    }
-
-    /**
-     * Stand at this **Gig**: the tap on a **Presence row** (#500).
-     *
-     * [gigId] is the id the **Room** holds, which is the adopted one where the night has one;
-     * the selection is stored under the local id, because that is the only id for a night that
-     * cannot change under the device.
-     *
-     * It mints no **Check-in** and touches no attendance — choosing which night you are standing
-     * at is not a claim to have been at it, and the claim was already made by checking in. It
-     * does clear a stop, and that is the only thing that clears one: a dim bullet means "could
-     * be gossiping, isn't", and tapping it is the explicit Resume the story asks for, where
-     * reopening a **Log** deliberately still is not.
-     */
-    /**
-     * Re-read what the **Presence rows** draw, on the **Room**'s own clock.
-     *
-     * The deadlines are the only thing on this screen that changes without anybody doing
-     * anything, and a night's grace running out has to take its bullet with it while somebody is
-     * looking at the row — including handing the amber to whichever night is next. Same call as
-     * every other input, so the service hears about it too.
-     */
-    fun refreshGossip() { viewModelScope.launch { syncGossip() } }
-
-    fun selectGossipGig(gigId: String) {
-        viewModelScope.launch {
-            val local = timelines.load().gigs.values.firstOrNull { it.id == gigId || it.setlistId == gigId }
-                ?: return@launch
-            gossip.selectGig(local.id)
-            if (gossip.stoppedAt() > 0) gossip.resumeParticipation()
-            syncGossip()
-        }
-    }
-
-    /** Writes one gig's attendance to state and disk together, never one without the other. */
-    private fun updateAttendance(gigId: String, edit: (StoredAttendance) -> StoredAttendance): Job {
-        val updated = edit(_state.value.attendanceByGig[gigId] ?: StoredAttendance())
-        _state.update { it.copy(attendanceByGig = it.attendanceByGig + (gigId to updated)) }
-        return viewModelScope.launch { timelines.saveAttendance(gigId, updated) }
-    }
-
-    fun selectSetlist(setlist: FmSetlist) {
-        matchJob?.cancel()
-        val artistName = setlist.artist?.name ?: ""
-        // A closed **Log** is a setlist. #121 put it plainly — "the app is the source
-        // of truth about what was observed and setlist.fm is a publication target" —
-        // so a night whose set I said was complete converts like any other, whether or
-        // not their record has caught up. Only when *closed*: an open Log is a night
-        // still in progress, and offering to make a playlist of the first four songs
-        // while the band is still on is not the same gesture.
-        //
-        // setlist.fm still wins where it has songs. It has the covers and the tape
-        // markers, which a typed title cannot carry.
-        val songs = setlist.songs().filter { it.name.isNotBlank() }.ifEmpty {
-            _state.value.logsByGig[setlist.id]
-                ?.takeIf { it.closed }
-                ?.named()
-                ?.map { FmSong(name = it) }
-                .orEmpty()
-        }
-        val matches = songs
-            .map { song ->
-                SongMatch(
-                    song = song,
-                    searchArtist = song.cover?.name ?: artistName,
-                    // Tape songs are intro/outro recordings, not performed live; excluded by default.
-                    included = !song.tape,
-                )
-            }
-        // Year – Artist – Where. The rule itself is the logic layer's, asserted by
-        // the same cases on both platforms — it is the one that drifted before.
-        val defaultName = TimelineLogic.playlistName(
-            setlist, _state.value.setlists, _state.value.festivals,
-        )
-        _state.update {
-            it.copy(
-                selectedSetlist = setlist,
-                matches = matches,
-                matching = true,
-                playlistName = defaultName,
-                createdPlaylistUrl = null,
-                // A different show means different photos.
-                coverCandidates = emptyList(),
-                selectedCoverUri = null,
-                coverSearched = false,
-                coverUploadError = null,
-            )
-        }
-        loadCoverCandidates()
-        matchJob = viewModelScope.launch {
-            matches.forEachIndexed { index, match ->
-                val (candidates, error) = findCandidates(match.song.name, match.searchArtist)
-                updateMatch(index) {
-                    it.copy(
-                        loading = false,
-                        candidates = candidates,
-                        selected = candidates.firstOrNull(),
-                        included = it.included && candidates.isNotEmpty(),
-                        error = error,
-                    )
-                }
-                // Stay polite with the Spotify search API.
-                delay(120)
-            }
-            _state.update { it.copy(matching = false) }
-        }
-    }
-
-    private suspend fun findCandidates(track: String, artist: String): Pair<List<SpotifyTrack>, String?> {
-        return try {
-            // Ten rather than the default five: ranking can only choose from what it
-            // is handed, and the studio cut often sits under a run of live versions.
-            // Same number of requests either way.
-            var results = spotify.searchTracks("track:\"$track\" artist:\"$artist\"", limit = 10)
-            if (results.isEmpty()) {
-                results = spotify.searchTracks("$track $artist", limit = 10)
-            }
-            // Best-first rather than Spotify-first: the auto-selection above takes the
-            // head of this list, and the picker lists them in this order too.
-            rankCandidates(results, track, artist) to null
-        } catch (e: Exception) {
-            emptyList<SpotifyTrack>() to (e.message ?: "Search failed")
-        }
-    }
-
-    private fun updateMatch(index: Int, transform: (SongMatch) -> SongMatch) {
-        _state.update { s ->
-            if (index !in s.matches.indices) s
-            else s.copy(matches = s.matches.mapIndexed { i, m -> if (i == index) transform(m) else m })
-        }
-    }
-
-    fun toggleIncluded(index: Int) = updateMatch(index) { it.copy(included = !it.included) }
-
-    fun chooseCandidate(index: Int, track: SpotifyTrack) =
-        updateMatch(index) { it.copy(selected = track, included = true) }
-
-    fun setPlaylistName(name: String) = _state.update { it.copy(playlistName = name) }
-    fun setPlaylistPublic(public: Boolean) = _state.update { it.copy(playlistPublic = public) }
-
-    /**
-     * Discovers a friend from a Spotify playlist link they shared: reads the playlist's
-     * description, and if it carries a setlist.fm stamp, adds the owner as a friend.
-     */
-    fun discoverFriendFromPlaylist(link: String) {
-        val id = spotifyPlaylistId(link)
-        if (id == null) {
-            _state.update { it.copy(errorKind = null, error = "That doesn't look like a Spotify playlist link.") }
-            return
-        }
-        viewModelScope.launch {
-            try {
-                val playlist = spotify.getPlaylist(id)
-                val username = sfmUserFromDescription(playlist.description)
-                val ownerId = playlist.owner?.id
-                val me = runCatching { spotify.currentUser().id }.getOrNull()
-                when {
-                    username == null -> _state.update {
-                        it.copy(
-                            error = "That playlist wasn't made with this app, so there's no setlist.fm user to add.",
-                            errorKind = null,
-                        )
-                    }
-                    ownerId != null && ownerId == me -> _state.update {
-                        it.copy(notice = "That's your own playlist.")
-                    }
-                    else -> {
-                        addFriend(
-                            Friend(
-                                setlistfm = username,
-                                name = playlist.owner?.displayName?.ifBlank { null } ?: username,
-                                spotifyId = ownerId,
-                            )
-                        )
-                        _state.update { it.copy(notice = "Added @$username as a friend.") }
-                    }
-                }
-            } catch (e: Exception) {
-                fail(e)
-            }
-        }
-    }
-
-    /**
-     * Offers the gig's own keepsakes first — already chosen for this night, so
-     * they need no permission and no re-asking — then the gallery's same-night
-     * match once that permission is granted. The gallery half is silent when
-     * missing: the confirm screen asks for it instead, so a prompt only ever
-     * follows a tap.
-     */
-    fun loadCoverCandidates() {
-        val setlist = _state.value.selectedSetlist ?: return
-        val date = setlist.localDate() ?: return
-        val granted = photos.hasPermission()
-        _state.update { it.copy(coverPermissionGranted = granted) }
-        viewModelScope.launch {
-            _state.update { it.copy(coverLoading = true) }
-            val pinned = _state.value.mediaBySetlist[setlist.id].orEmpty().map { Uri.parse(it.ref) }
-            val gallery = if (granted) photos.photosFrom(date).map { it.uri } else emptyList()
-            val candidates = (pinned + gallery).distinct().map { CoverCandidate(it, photos.preview(it)) }
-            _state.update {
-                it.copy(
-                    coverCandidates = candidates,
-                    coverLoading = false,
-                    coverSearched = true,
-                    // The first photo is the suggestion, so it is the cover
-                    // until the picker is swiped somewhere else.
-                    selectedCoverUri = candidates.firstOrNull()?.uri,
-                )
-            }
-        }
-    }
-
-    /**
-     * The cover the picker has landed on, or null for Spotify's own collage.
-     * Called on every settled swipe, so an unchanged value is left alone rather
-     * than published as new state.
-     */
-    fun setCover(uri: Uri?) = _state.update {
-        // A different cover means the frame scrubbed out of the last one is moot.
-        if (it.selectedCoverUri == uri) it
-        else it.copy(selectedCoverUri = uri, selectedCoverFrameMs = 0L)
-    }
-
-    /** Where the scrubber landed on the chosen clip — the frame that becomes the cover. */
-    fun setCoverFrame(atMs: Long) = _state.update {
-        if (it.selectedCoverFrameMs == atMs) it else it.copy(selectedCoverFrameMs = atMs)
-    }
+    fun selectSetlist(setlist: FmSetlist) = playlist.selectSetlist(setlist)
+    fun toggleIncluded(index: Int) = playlist.toggleIncluded(index)
+    fun chooseCandidate(index: Int, track: SpotifyTrack) = playlist.chooseCandidate(index, track)
+    fun setPlaylistName(name: String) = playlist.setPlaylistName(name)
+    fun setPlaylistPublic(public: Boolean) = playlist.setPlaylistPublic(public)
+    fun discoverFriendFromPlaylist(link: String) = playlist.discoverFriendFromPlaylist(link)
+    fun loadCoverCandidates() = playlist.loadCoverCandidates()
+    fun setCover(uri: Uri?) = playlist.setCover(uri)
+    fun setCoverFrame(atMs: Long) = playlist.setCoverFrame(atMs)
+    fun researchSong(index: Int, query: String) = playlist.researchSong(index, query)
+    fun createPlaylist() = playlist.createPlaylist()
+    fun removePlaylist(setlistId: String, url: String) = playlist.removePlaylist(setlistId, url)
 
     fun isVideoCover(uri: Uri): Boolean = photos.isVideo(uri)
 
@@ -3684,336 +1419,30 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     suspend fun videoFrameAt(uri: Uri, atMs: Long): Bitmap? = photos.videoFrameAt(uri, atMs)
 
-    /**
-     * The Reliver's own pictures pinned to a gig, chosen freely from the system photo
-     * picker rather than matched by date — this is "my picture of that night", not the
-     * same-night search [loadCoverCandidates] does for a playlist cover.
-     */
-    fun addGigPhotos(setlistId: String, uris: List<Uri>, band: Band = Band.VAULT) {
-        viewModelScope.launch {
-            val had = _state.value.mediaBySetlist[setlistId].orEmpty()
-            val wanted = uris.filterNot { u -> had.any { it.ref == u.toString() } }
-            attach(setlistId, had, wanted.map { it to it }, band)
-        }
-    }
+    fun addGigPhotos(setlistId: String, uris: List<Uri>, band: Band = Band.VAULT) =
+        gigMedia.addGigPhotos(setlistId, uris, band)
 
-    /**
-     * Same as [addGigPhotos], but for uris fresh out of the system photo picker: those
-     * only grant read access for the running process, so they're copied into our own
-     * storage first — otherwise the keepsake goes blank the next time the app launches.
-     *
-     * Kind and capture time are read off the *picked* uri, before the copy: that is
-     * the one moment the gallery is guaranteed to answer, which is the whole premise
-     * of #97. The copy is what the record points at afterwards.
-     */
-    fun addPickedGigPhotos(setlistId: String, uris: List<Uri>, band: Band = Band.VAULT) {
-        viewModelScope.launch {
-            val had = _state.value.mediaBySetlist[setlistId].orEmpty()
-            attach(
-                setlistId,
-                had,
-                uris.mapNotNull { picked -> photos.persistCopy(picked)?.let { it to picked } },
-                band,
-            )
-        }
-    }
+    fun addPickedGigPhotos(setlistId: String, uris: List<Uri>, band: Band = Band.VAULT) =
+        gigMedia.addPickedGigPhotos(setlistId, uris, band)
 
-    /**
-     * Attaches [wanted] — each a `stored reference to read the facts from` pair,
-     * which differ when the app has just copied the picked item into its own
-     * storage. Generates both thumbnail tiers first, and drops anything whose
-     * durable copy could not be written: an item with no floor under it is a
-     * keepsake that will silently empty later, so a failure is said out loud here
-     * rather than discovered in 2035.
-     *
-     * ponytail: sequential, which is the bounded queue — twenty photos at once is
-     * the normal case, and one at a time on the IO dispatcher keeps the app
-     * responsive without a scheduler. Widen it if attaching a night's worth ever
-     * feels slow.
-     */
-    private suspend fun attach(
-        setlistId: String,
-        had: List<StoredMedia>,
-        wanted: List<Pair<Uri, Uri>>,
-        band: Band,
-    ) {
-        val fresh = mutableListOf<StoredMedia>()
-        var failed = 0
-        for ((ref, from) in wanted) {
-            val id = java.util.UUID.randomUUID().toString()
-            if (!photos.generateThumbnails(id, from)) {
-                failed++
-                continue
-            }
-            fresh += StoredMedia(
-                id = id,
-                kind = if (photos.isVideo(from)) StoredMedia.Kind.VIDEO else StoredMedia.Kind.PHOTO,
-                ref = ref.toString(),
-                capturedAt = photos.capturedAtMs(from),
-                // The band the handle was released over *is* the answer. There is no
-                // default path into this: every caller names one (#162).
-                personal = band == Band.VAULT,
-            )
-        }
-        // Normalised through the bands so a fresh item lands at the end of its own
-        // run rather than after somebody else's media.
-        if (fresh.isNotEmpty()) setGigMedia(setlistId, bandsOf(had + fresh).let { it.shared + it.received + it.vault })
-        if (failed > 0) {
-            _state.update {
-                it.copy(
-                    error = "Couldn't read ${if (failed == 1) "that one" else "$failed of those"} — not attached.",
-                    errorKind = null,
-                )
-            }
-        }
-    }
+    fun removeGigPhoto(setlistId: String, uri: Uri) = gigMedia.removeGigPhoto(setlistId, uri)
 
-    fun removeGigPhoto(setlistId: String, uri: Uri) {
-        val had = _state.value.mediaBySetlist[setlistId].orEmpty()
-        val (gone, kept) = had.partition { it.ref == uri.toString() }
-        setGigMedia(setlistId, kept)
-        // Removing means removing: the derived copies this app owns go with it.
-        viewModelScope.launch { gone.forEach { photos.deleteThumbnails(it.id) } }
-    }
+    fun songOffsets(mediaId: String?, songCount: Int): List<Long> = gigMedia.songOffsets(mediaId, songCount)
 
-    /** Drops a playlist link the app made — for when the playlist itself was deleted
-     *  on Spotify, so the pointer to it here is now just dead weight. */
-    fun removePlaylist(setlistId: String, url: String) {
-        _state.update {
-            it.copy(
-                playlistsBySetlist = it.playlistsBySetlist +
-                    (setlistId to it.playlistsBySetlist[setlistId].orEmpty().filterNot { p -> p.url == url }),
-            )
-        }
-        viewModelScope.launch { timelines.removePlaylist(setlistId, url) }
-    }
+    fun stampSong(mediaId: String, index: Int, atMs: Long, songCount: Int) =
+        gigMedia.stampSong(mediaId, index, atMs, songCount)
 
-    /**
-     * Where each song of [setlistId] starts in its recording, padded/trimmed to
-     * [songCount]. Sized on read rather than trusted from disk: the setlist can be
-     * edited on setlist.fm after a night was stamped, and a stored list of the old
-     * length would otherwise shift every song's time by one.
-     */
-    fun songOffsets(mediaId: String?, songCount: Int): List<Long> {
-        val stored = mediaId?.let { id ->
-            _state.value.mediaBySetlist.values.firstNotNullOfOrNull { media ->
-                media.firstOrNull { it.id == id }
-            }
-        }?.songOffsets.orEmpty()
-        return List(songCount) { stored.getOrElse(it) { NOT_STAMPED } }
-    }
+    fun loadGigPhotoSuggestions() = gigMedia.loadGigPhotoSuggestions()
 
-    /**
-     * Records that song [index] starts at [atMs] in the night's recording, or clears
-     * it with [NOT_STAMPED].
-     *
-     * Only this one song moves. The recording and the setlist need not hold the same
-     * songs — a clip setlist.fm left out sits in the gap between two stamps — so
-     * nothing may be inferred about its neighbours from one stamp.
-     */
-    fun stampSong(mediaId: String, index: Int, atMs: Long, songCount: Int) {
-        val offsets = songOffsets(mediaId, songCount).toMutableList()
-        if (index !in offsets.indices) return
-        offsets[index] = atMs
-        _state.update {
-            it.copy(
-                mediaBySetlist = it.mediaBySetlist.mapValues { (_, media) ->
-                    media.map { m -> if (m.id == mediaId) m.copy(songOffsets = offsets) else m }
-                },
-            )
-        }
-        viewModelScope.launch { timelines.saveSongOffsets(mediaId, offsets) }
-    }
+    suspend fun photoPreview(uri: Uri): MediaThumb = gigMedia.photoPreview(uri)
 
+    fun isVideo(uri: Uri): Boolean = gigMedia.isVideo(uri)
+
+    suspend fun fullPhoto(uri: Uri): Bitmap? = gigMedia.fullPhoto(uri)
 
     private fun setGigMedia(setlistId: String, media: List<StoredMedia>) {
         _state.update { it.copy(mediaBySetlist = it.mediaBySetlist + (setlistId to media)) }
         viewModelScope.launch { timelines.saveMedia(setlistId, media) }
     }
 
-    /**
-     * Same same-night gallery search [loadCoverCandidates] does for a playlist cover,
-     * offered here as one-tap adds to the gig's keepsakes instead of a single chosen
-     * cover. Silent when permission is missing, for the same reason: the prompt only
-     * ever follows a tap, never just opening the gig.
-     */
-    fun loadGigPhotoSuggestions() {
-        val date = _state.value.selectedSetlist?.localDate() ?: return
-        val granted = photos.hasPermission()
-        _state.update { it.copy(gigPhotoSuggestionsPermissionGranted = granted) }
-        if (!granted) return
-        viewModelScope.launch {
-            _state.update { it.copy(gigPhotoSuggestionsLoading = true) }
-            val found = photos.photosFrom(date)
-            val candidates = found.map { CoverCandidate(it.uri, photos.preview(it.uri)) }
-            _state.update {
-                it.copy(
-                    gigPhotoSuggestions = candidates,
-                    gigPhotoSuggestionsLoading = false,
-                    gigPhotoSuggestionsSearched = true,
-                )
-            }
-        }
-    }
-
-    /**
-     * The grid picture for a gig keepsake.
-     *
-     * The **durable floor** first (#98): the copy the app owns is the thing still
-     * here when the gallery reference is not, and reading a 30–60 KB JPEG is also
-     * why the strip draws instantly rather than decoding a 12 MP original per cell.
-     * The source is the fallback only for media attached before thumbnails existed.
-     */
-    suspend fun photoPreview(uri: Uri): MediaThumb {
-        val record = mediaFor(uri)
-        val bitmap = record?.let { photos.gridThumbnail(it.id) } ?: photos.preview(uri, sizePx = 320)
-        return MediaThumb(bitmap, record?.kind?.let { it == StoredMedia.Kind.VIDEO } ?: photos.isVideo(uri))
-    }
-
-    private fun mediaFor(uri: Uri): StoredMedia? =
-        _state.value.mediaBySetlist.values.firstNotNullOfOrNull { media ->
-            media.firstOrNull { it.ref == uri.toString() }
-        }
-
-    /** Whether a gig keepsake is a video clip rather than a photo — cheap metadata
-     *  lookup, checked before opening the in-app viewer so it knows which to show. */
-    fun isVideo(uri: Uri): Boolean = photos.isVideo(uri)
-
-    /** A bigger decode of the same photo, for the in-app viewer rather than the
-     *  strip's thumbnail. */
-    suspend fun fullPhoto(uri: Uri): Bitmap? {
-        val record = mediaFor(uri)
-        // Cache tier, then the source, then the floor. The cache tier is already
-        // full-screen quality and costs one small local read; the grid tier at the
-        // end is what makes a lost original degrade to *slightly soft* rather than
-        // to nothing. Absent cache is a normal state — nothing here depends on it.
-        return record?.let { photos.cachedFullThumbnail(it.id) }
-            ?: photos.preview(uri, sizePx = 1600)
-            ?: record?.let { photos.gridThumbnail(it.id) }
-    }
-
-    /** Manual re-search for one song with a user-provided query. */
-    fun researchSong(index: Int, query: String) {
-        if (query.isBlank()) return
-        updateMatch(index) { it.copy(loading = true, error = null) }
-        viewModelScope.launch {
-            try {
-                val found = spotify.searchTracks(query.trim(), limit = 10)
-                updateMatch(index) {
-                    // Ranked like the automatic search, or searching by hand would be
-                    // the one path that still hands you Spotify's karaoke rendition.
-                    // The query is the user's, but which recording we mean is still
-                    // this song by this artist.
-                    val results = rankCandidates(found, it.song.name, it.searchArtist)
-                    it.copy(
-                        loading = false,
-                        candidates = results,
-                        selected = results.firstOrNull() ?: it.selected,
-                        error = if (results.isEmpty()) "No results for \"$query\"" else null,
-                    )
-                }
-            } catch (e: Exception) {
-                updateMatch(index) { it.copy(loading = false, error = e.message ?: "Search failed") }
-            }
-        }
-    }
-
-    // --- Playlist creation ---
-
-    fun createPlaylist() {
-        val s = _state.value
-        val tracks = s.matches.filter { it.included && it.selected != null }.mapNotNull { it.selected }
-        if (tracks.isEmpty()) {
-            _state.update { it.copy(errorKind = null, error = "No songs selected") }
-            return
-        }
-        val name = s.playlistName.ifBlank { "Setlist" }
-        _state.update { it.copy(creatingPlaylist = true) }
-        viewModelScope.launch {
-            try {
-                // Unknown scope means the login predates scope tracking — the
-                // remedy is the same as a missing scope: a fresh login.
-                if (spotify.hasPlaylistScopes() != true) {
-                    throw IllegalStateException(
-                        "Your Spotify login is missing playlist permissions. " +
-                            "Log out in Settings, then log in again and approve " +
-                            "the playlist access on the Spotify page that opens."
-                    )
-                }
-                val setlist = s.selectedSetlist
-                // Stamp the creator so a friend's app can discover the mapping from a shared
-                // link. Appended after the 300-char clamp so truncation can't cut it off.
-                val stamp = s.mySetlistFmUser.trim().takeIf { it.isNotEmpty() }
-                    ?.let { " " + sfmStamp(it) } ?: ""
-                val description = buildString {
-                    append("Live at ").append(setlist?.venueLine() ?: "an unknown venue")
-                    // The name carries only the year, so the full date lives here.
-                    setlist?.readableDate()?.let { append(", ").append(it) }
-                    append(".")
-                    setlist?.tour?.name?.let { append(" ").append(it).append(".") }
-                    append(" From setlist.fm")
-                    setlist?.url?.let { append(": ").append(it) }
-                }.take(300 - stamp.length) + stamp
-                val playlist = spotify.createPlaylist(name, description, s.playlistPublic)
-                val result = try {
-                    spotify.addTracks(playlist.id, tracks.map { it.uri })
-                } catch (e: Exception) {
-                    // The playlist exists at this point, so say so rather than
-                    // leaving the user with a bare failure and a stray playlist.
-                    throw IllegalStateException(
-                        "Playlist \"$name\" was created but the songs could not be added. " +
-                            "${e.message}",
-                        e,
-                    )
-                }
-                // The songs are the point, so a cover that will not upload is
-                // reported next to the success rather than thrown over it.
-                val coverError = s.selectedCoverUri?.let {
-                    uploadCover(playlist.id, it, s.selectedCoverFrameMs)
-                }
-                // Fall back to the canonical URL rather than dropping the link:
-                // externalUrls is Spotify's to omit, the id is ours to keep.
-                val url = playlist.externalUrls["spotify"]
-                    ?: "https://open.spotify.com/playlist/${playlist.id}"
-                val made = StoredPlaylist(url = url, name = name, trackCount = result.added)
-                val night = setlist?.id?.takeIf { it.isNotBlank() }
-                _state.update {
-                    it.copy(
-                        creatingPlaylist = false,
-                        createdPlaylistUrl = url,
-                        createdPlaylistName = name,
-                        createdTrackCount = result.added,
-                        createdRefusedCount = result.refused.size,
-                        coverUploadError = coverError,
-                        // Appended: converting this night again must not orphan a
-                        // link already sent to someone.
-                        playlistsBySetlist =
-                            if (night == null) it.playlistsBySetlist
-                            else it.playlistsBySetlist +
-                                (night to (it.playlistsBySetlist[night].orEmpty() + made)),
-                    )
-                }
-                // So the night still points at it on the next launch.
-                if (night != null) timelines.save(playlists = mapOf(night to made))
-            } catch (e: Exception) {
-                fail(e)
-            }
-        }
-    }
-
-    /** Returns null on success, or the reason the cover did not make it. */
-    private suspend fun uploadCover(playlistId: String, uri: Uri, frameMs: Long = 0L): String? {
-        if (!spotify.hasImageUploadScope()) {
-            return "The cover needs a permission your Spotify login predates. " +
-                "Log out in Settings and log in again to enable playlist covers."
-        }
-        val jpeg = photos.coverJpeg(uri, frameMs)
-            ?: return "That photo could not be prepared as a cover."
-        return try {
-            spotify.uploadCover(playlistId, jpeg)
-            null
-        } catch (e: Exception) {
-            "The cover could not be uploaded. ${e.message}"
-        }
-    }
 }
