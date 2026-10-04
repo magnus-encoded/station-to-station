@@ -160,6 +160,7 @@ import io.github.magnusencoded.stationtostation.data.matchSetlistFm
 import io.github.magnusencoded.stationtostation.data.spotify.SpotifyClient
 import io.github.magnusencoded.stationtostation.data.spotify.SpotifyTrack
 import io.github.magnusencoded.stationtostation.data.spotify.rankCandidates
+import io.github.magnusencoded.stationtostation.features.settings.SettingsController
 import java.io.Closeable
 import java.security.SecureRandom
 import java.util.UUID
@@ -794,6 +795,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
+    private val settingsController = SettingsController(
+        state = { _state.value },
+        update = { change -> _state.update(change) },
+        settings = settings,
+        scope = viewModelScope,
+    )
+
     private var matchJob: Job? = null
 
     /** The in-flight artist lookup, so a new keystroke cancels the last one. */
@@ -995,11 +1003,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    /** Records that the splash was passed, so it never shows again. */
-    fun markOnboarded() {
-        _state.update { it.copy(onboarded = true) }
-        viewModelScope.launch { settings.setOnboarded() }
-    }
+    fun markOnboarded() = settingsController.markOnboarded()
 
     fun consumeError() = _state.update { it.copy(error = null, errorKind = null) }
     fun consumeNotice() = _state.update { it.copy(notice = null) }
