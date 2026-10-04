@@ -333,6 +333,17 @@ enum RowOwnership: String {
     case mine, theirs, together
 }
 
+/// Whether `node` and `other` hold the same record: one identity, or one Gig under one id
+/// (or a Night I joined to it). The first half of `hosts`, asked on its own so the weave can
+/// prefer it over a mere shared evening.
+private func holdsSameRecord(_ node: TimelineNode, _ other: TimelineNode,
+                             joins: [String: String]) -> Bool {
+    if sameIdentity(node, other) { return true }
+    return node.shows.contains { a in
+        other.shows.contains { b in a.id == b.id || joins[b.id] == a.id || joins[a.id] == b.id }
+    }
+}
+
 /// Whether `other`'s node belongs on this one rather than beside it — the same three
 /// facts the grouping seam uses, read across two **Lines** instead of down one, so a
 /// **Crossing** is decided by exactly what makes a **Node**:
@@ -357,12 +368,7 @@ private func hosts(
     joins: [String: String] = [:],
     mineHost: Bool = false
 ) -> Bool {
-    if sameIdentity(node, other) { return true }
-    for a in node.shows {
-        for b in other.shows where a.id == b.id || joins[b.id] == a.id || joins[a.id] == b.id {
-            return true
-        }
-    }
+    if holdsSameRecord(node, other, joins: joins) { return true }
     guard sameEvening(node, other) else { return false }
     if !mineHost { return true }
     return node.shows.contains { a in
@@ -698,7 +704,13 @@ func weaveTimelines(
         if shows.isEmpty { continue }
         for node in groupIntoFestivals(shows, festivals) {
             let host: Int
+            // The same record before the same evening: a Festival of mine sharing this
+            // evening's venue would otherwise take a Gig of theirs that one of my own
+            // Gigs holds under its very id, drawing it Together on the Festival and
+            // mine-only on the Gig.
             if let existing = hostNodes.indices.first(where: { i in
+                holdsSameRecord(hostNodes[i], node, joins: joins)
+            }) ?? hostNodes.indices.first(where: { i in
                 hosts(hostNodes[i], node, festivals: festivals, joins: joins, mineHost: i < myNodes.count)
             }) {
                 host = existing
