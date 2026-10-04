@@ -155,19 +155,21 @@ final class SetlistFmClient {
         try await decoder.decode(FmSetlist.self, from: get("setlist/\(setlistId)", params: [:]))
     }
 
-    /// Someone's Attended list, paged back through their history.
+    /// Nights per page of an Attended list, as setlist.fm serves it.
+    static let pageSize = 20
+
+    /// Someone's whole Attended list, every page of it.
     ///
-    /// setlist.fm returns newest first, so a flat page cap is a *window*, not a
-    /// sample: a friend's first 60 shows can span ten days, and every night we
-    /// actually shared would be older than the last fetched page — the lines
-    /// could never meet however correct the drawing was. `backTo` is normally my
-    /// own oldest gig, since nothing older than that can overlap.
+    /// setlist.fm returns newest first, so any page cap is a *window*, not a sample:
+    /// a friend's first 60 shows can span ten days. Stopping at my own oldest gig was
+    /// the same window by another name — looking at a friend's Line, all of it is of
+    /// interest, not just the stretch beside mine. How far back to *draw* is the
+    /// view's business; the data is all held.
     ///
-    /// ponytail: `maxPages` is a runaway guard, not a policy.
+    /// ponytail: `maxPages` is a runaway guard (2,000 Nights), not a policy.
     func attendedShows(
         _ userId: String,
-        backTo: Date? = nil,
-        maxPages: Int = 25
+        maxPages: Int = 100
     ) async throws -> (shows: [FmSetlist], total: Int) {
         var all: [FmSetlist] = []
         var total = 0
@@ -176,8 +178,6 @@ final class SetlistFmClient {
             all += resp.setlist
             total = resp.total
             if all.count >= resp.total || resp.setlist.isEmpty { break }
-            if let backTo, let pageOldest = resp.setlist.compactMap({ $0.localDate() }).min(),
-               pageOldest < backTo { break }
         }
         return (all, total)
     }

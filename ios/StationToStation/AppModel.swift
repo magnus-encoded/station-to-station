@@ -1157,17 +1157,12 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Asks setlist.fm for `friend`'s **Line** again, back to my oldest **Gig** or to the
-    /// oldest one held, whichever is older, so the answer never cuts a **Line** short.
-    /// A failure keeps the last good copy. Android's `refreshLine`.
+    /// Asks setlist.fm for `friend`'s whole **Line** again. A failure keeps the last
+    /// good copy. Android's `refreshLine`.
     private func refreshLine(_ friend: Friend) {
         if friend.setlistfm.nilIfBlank == nil { return }
-        let oldest = [
-            state.timelineShows.compactMap { $0.localDate() }.min(),
-            (state.showsByFriend[friend.laneKey] ?? []).compactMap { $0.localDate() }.min(),
-        ].compactMap { $0 }.min()
         Task {
-            guard let shows = try? await setlistFm.attendedShows(friend.setlistfm, backTo: oldest).shows
+            guard let shows = try? await setlistFm.attendedShows(friend.setlistfm).shows
             else { return }
             let fetched = [friend.laneKey: shows]
             state.showsByFriend = holdLanes(state.showsByFriend, fetched)
@@ -1194,7 +1189,7 @@ final class AppModel: ObservableObject {
     }
 
     /// Fetches whichever Followed Lanes `laneNeedsFetch` says need it (nothing
-    /// held, or not back to my own oldest Gig) and holds what comes back, empty
+    /// held, or maybe cut short at a page) and holds what comes back, empty
     /// or not. Called when the strip opens — a cached-and-complete Lane costs
     /// nothing here. One friend's failure keeps their last good Lane and never
     /// blocks the others. Ported term for term from Android's
@@ -1202,10 +1197,7 @@ final class AppModel: ObservableObject {
     func loadFriendTimelines() {
         let friends = state.friends
         if friends.isEmpty { return }
-        let myOldest = state.timelineShows.compactMap { $0.localDate() }.min()
-        let stale = friends.filter {
-            laneNeedsFetch($0, held: state.showsByFriend[$0.laneKey], myOldest: myOldest)
-        }
+        let stale = friends.filter { laneNeedsFetch($0, held: state.showsByFriend[$0.laneKey]) }
         if stale.isEmpty { return }
         state.lanesLoading = true
         Task {
@@ -1213,7 +1205,7 @@ final class AppModel: ObservableObject {
             // Lane; an empty answer is kept, so it is not asked for again (#405).
             var loaded: [String: [FmSetlist]] = [:]
             for friend in stale {
-                let shows = try? await setlistFm.attendedShows(friend.setlistfm, backTo: myOldest).shows
+                let shows = try? await setlistFm.attendedShows(friend.setlistfm).shows
                 if let shows { loaded[friend.setlistfm] = shows }
             }
             state.showsByFriend = holdLanes(state.showsByFriend, loaded)

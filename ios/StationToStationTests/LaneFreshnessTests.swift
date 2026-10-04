@@ -22,7 +22,6 @@ final class LaneFreshnessTests: XCTestCase {
         let name: String
         let username: String
         let held: [String]?
-        let myOldest: String?
         let fetch: Bool
     }
 
@@ -42,16 +41,9 @@ final class LaneFreshnessTests: XCTestCase {
         let cases = try JSONDecoder().decode(Cases.self, from: data).cases
         XCTAssertFalse(cases.isEmpty, "fixtures/lane-freshness/cases.json is empty")
         for c in cases {
-            let mine: Date?
-            if let text = c.myOldest {
-                mine = try XCTUnwrap(parseFmDate(text), "\(c.name): bad myOldest")
-            } else {
-                mine = nil
-            }
             let got = laneNeedsFetch(
                 Friend(setlistfm: c.username),
-                held: c.held?.map { night($0) },
-                myOldest: mine
+                held: c.held?.map { night($0) }
             )
             XCTAssertEqual(got, c.fetch, c.name)
         }
@@ -59,20 +51,18 @@ final class LaneFreshnessTests: XCTestCase {
     }
 
     private let ozzy = Friend(setlistfm: "ozzy")
-    private let myOldest = parseFmDate("25-06-2019")
-
     func testAContactWithNoNightsIsNotFetchedOnASecondPass() {
         var held: [String: [FmSetlist]] = [:]
-        XCTAssertTrue(laneNeedsFetch(ozzy, held: held[ozzy.setlistfm], myOldest: myOldest), "first pass")
+        XCTAssertTrue(laneNeedsFetch(ozzy, held: held[ozzy.setlistfm]), "first pass")
         // setlist.fm answers: a real user with no attended shows.
         held = holdLanes(held, [ozzy.setlistfm: []])
-        XCTAssertFalse(laneNeedsFetch(ozzy, held: held[ozzy.setlistfm], myOldest: myOldest), "second pass")
+        XCTAssertFalse(laneNeedsFetch(ozzy, held: held[ozzy.setlistfm]), "second pass")
     }
 
     func testAFailedFetchIsAskedAgainOnTheNextPass() {
         // A failure is left out of what landed, so nothing is held for them yet.
         let held = holdLanes([:], [:])
-        XCTAssertTrue(laneNeedsFetch(ozzy, held: held[ozzy.setlistfm], myOldest: myOldest))
+        XCTAssertTrue(laneNeedsFetch(ozzy, held: held[ozzy.setlistfm]))
     }
 
     func testAnEmptyAnswerKeepsALaneThatHadNights() {
@@ -89,7 +79,7 @@ final class LaneFreshnessTests: XCTestCase {
         let held = holdLanes(had, [ozzy.setlistfm: [night("20-06-2019")]])
         XCTAssertEqual(held[ozzy.setlistfm]?.map(\.id), ["n-20-06-2019"])
         XCTAssertEqual(held["magnus"]?.map(\.id), ["n-01-01-2026"])
-        XCTAssertFalse(laneNeedsFetch(ozzy, held: held[ozzy.setlistfm], myOldest: myOldest))
+        XCTAssertFalse(laneNeedsFetch(ozzy, held: held[ozzy.setlistfm]))
     }
 
     /// A Night they logged by hand reached me on the Reconcile (#405). setlist.fm has
@@ -111,7 +101,7 @@ final class LaneFreshnessTests: XCTestCase {
         logged.url = nil
         let held = [dio.laneKey: landNights(nil, [logged])]
 
-        XCTAssertFalse(laneNeedsFetch(dio, held: held[dio.laneKey], myOldest: myOldest))
+        XCTAssertFalse(laneNeedsFetch(dio, held: held[dio.laneKey]))
         XCTAssertEqual(["local-2"], held[dio.laneKey]?.map(\.id))
     }
 }

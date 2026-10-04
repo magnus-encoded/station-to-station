@@ -360,7 +360,7 @@ class ContactReconcileTest {
         val lane = landNights(null, contactReconcilePlan(TimelineCache(), offer, verified = true).nights)
 
         assertEquals(listOf("local-1"), lane.map { it.id })
-        assertFalse(laneNeedsFetch(dio, lane, LocalDate.of(2019, 6, 25)))
+        assertFalse(laneNeedsFetch(dio, lane))
     }
 
     // --- Media a Contact sends is offered, never filed (#405) ---

@@ -30,7 +30,6 @@ import io.github.magnusencoded.stationtostation.data.spotify.SpotifyClient
 import io.github.magnusencoded.stationtostation.data.toShareUri
 import io.github.magnusencoded.stationtostation.data.withFriend
 import io.github.magnusencoded.stationtostation.ui.MaybeNight
-import java.time.LocalDate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -232,19 +231,11 @@ class ContactsController(
         timelines.save(shows = fetched)
     }
 
-    /**
-     * Asks setlist.fm for [friend]'s **Line** again, back to my oldest **Gig** or to the
-     * oldest one held, whichever is older, so the answer never cuts a **Line** short.
-     * A failure keeps the last good copy.
-     */
+    /** Asks setlist.fm for [friend]'s whole **Line** again. A failure keeps the last good copy. */
     internal fun refreshLine(friend: Friend) {
         if (friend.setlistfm.isBlank()) return
-        val oldest = listOfNotNull(
-            state().setlists.mapNotNull { it.localDate() }.minOrNull(),
-            state().showsByFriend[friend.laneKey].orEmpty().mapNotNull { it.localDate() }.minOrNull(),
-        ).minOrNull()
         scope.launch {
-            runCatching { attendedBackTo(friend.setlistfm, oldest) }.getOrNull()
+            runCatching { attendedWhole(friend.setlistfm) }.getOrNull()
                 ?.let { landLine(friend, it) }
         }
     }
@@ -261,30 +252,17 @@ class ContactsController(
     }
 
     /**
-     * A friend's attended shows, paged back far enough to cover my own line rather
-     * than to a fixed page count. setlist.fm returns newest first, so a flat cap is
-     * a *window*, not a sample: Carlitos2's first 60 shows spanned ten days, and
-     * every night we actually shared was older than his last fetched page — the
-     * lines could never meet however correct the drawing was.
+     * A friend's whole attended list, every page of it. setlist.fm returns newest
+     * first, so any page cap is a *window*, not a sample: Carlitos2's first 60 shows
+     * spanned ten days. Stopping at my own oldest gig was the same window by another
+     * name — looking at a friend's Line, all of it is of interest, not just the
+     * stretch beside mine. How far back to *draw* is the view's business; the data
+     * is all held.
      *
-     * ponytail: [maxPages] is a runaway guard, not a policy. Nothing older than my
-     * own first gig can overlap, so that is where paging stops.
+     * ponytail: [maxPages] is a runaway guard (2,000 Nights), not a policy.
      */
-    private suspend fun attendedBackTo(
-        userId: String,
-        oldestOfMine: LocalDate?,
-        maxPages: Int = 25,
-    ): List<FmSetlist> {
-        val all = mutableListOf<FmSetlist>()
-        for (page in 1..maxPages) {
-            val resp = setlistFm.userAttended(userId, page)
-            all += resp.setlist
-            if (all.size >= resp.total || resp.setlist.isEmpty()) break
-            val pageOldest = resp.setlist.mapNotNull { it.localDate() }.minOrNull()
-            if (oldestOfMine != null && pageOldest != null && pageOldest < oldestOfMine) break
-        }
-        return all
-    }
+    private suspend fun attendedWhole(userId: String, maxPages: Int = 100): List<FmSetlist> =
+        attendedConcerts(userId, maxPages)
 
     /**
      * Loads the concerts both [friend] and I attended into [UiState.setlists], so
@@ -452,12 +430,11 @@ class ContactsController(
     fun loadFriendTimelines() {
         val friends = state().friends
         if (friends.isEmpty()) return
-        val myOldest = state().setlists.mapNotNull { it.localDate() }.minOrNull()
         // Cached-and-complete is the common case, and refetching every lane on every
         // zoom-out is the call volume the store exists to remove — but a lane cut off
-        // at 60 shows is not complete, however cached it is. See [laneNeedsFetch].
+        // at a page is not complete, however cached it is. See [laneNeedsFetch].
         val stale = friends.filter { friend ->
-            laneNeedsFetch(friend, state().showsByFriend[friend.laneKey], myOldest)
+            laneNeedsFetch(friend, state().showsByFriend[friend.laneKey])
         }
         if (stale.isEmpty()) return
         update { it.copy(timelinesLoading = true) }
@@ -465,7 +442,7 @@ class ContactsController(
             // A failed fetch is left out entirely, so the friend keeps their last good
             // lane; an empty answer is kept, so it is not asked for again.
             val loaded = stale.mapNotNull { friend ->
-                runCatching { attendedBackTo(friend.setlistfm, myOldest) }.getOrNull()
+                runCatching { attendedWhole(friend.setlistfm) }.getOrNull()
                     ?.let { friend.setlistfm to it }
             }.toMap()
             update {
