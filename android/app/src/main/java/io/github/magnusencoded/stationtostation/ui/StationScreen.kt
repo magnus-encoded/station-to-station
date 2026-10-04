@@ -54,6 +54,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -98,6 +100,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
@@ -173,6 +176,7 @@ import io.github.magnusencoded.stationtostation.gigMenu
 import io.github.magnusencoded.stationtostation.nightKind
 import io.github.magnusencoded.stationtostation.AddGigLink
 import io.github.magnusencoded.stationtostation.AppViewModel
+import io.github.magnusencoded.stationtostation.UiState
 import io.github.magnusencoded.stationtostation.ErrorKind
 import io.github.magnusencoded.stationtostation.BuildConfig
 import io.github.magnusencoded.stationtostation.CoverCandidate
@@ -413,36 +417,45 @@ fun StationTimelineScreen(
         )
     }
 
-    // Check-in (#33): opening the timeline takes one fix and compares it against
-    // what's already known. Foreground, one-shot, nothing scheduled.
-    val locationPermission = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) {
-        // Refusing is not a dead end and not an error: the offer just never appears,
-        // and the gig's own screen still has a check-in you can press by hand.
-        viewModel.offerCheckIn()
-    }
-    LaunchedEffect(state.plannedGigs) {
-        // The permission is only ever asked for on a night there is something to
-        // check into — never merely for opening the app.
-        if (!viewModel.checkInDue()) return@LaunchedEffect
-        if (viewModel.hasLocationPermission()) viewModel.offerCheckIn()
-        else locationPermission.launch(DeviceLocation.requiredPermissions())
-    }
-    state.checkInOffer?.let { gig ->
-        CheckInDialog(
-            gig = gig,
-            onCheckIn = { viewModel.checkIn(gig.id) },
-            onDismiss = { viewModel.dismissCheckInOffer() },
-        )
-    }
-    state.friendConflict?.let { conflict ->
-        FriendOverwriteDialog(
-            conflict = conflict,
-            onConfirm = { viewModel.confirmFriendOverwrite() },
-            onDismiss = { viewModel.dismissFriendOverwrite() },
-        )
-    }
+    CheckInSection(
+        plannedGigs = state.plannedGigs,
+        offer = state.checkInOffer,
+        conflict = state.friendConflict,
+        checkInDue = { viewModel.checkInDue() },
+        hasLocationPermission = { viewModel.hasLocationPermission() },
+        onOffer = { viewModel.offerCheckIn() },
+        onCheckIn = { viewModel.checkIn(it) },
+        onDismissOffer = { viewModel.dismissCheckInOffer() },
+        onConfirmOverwrite = { viewModel.confirmFriendOverwrite() },
+        onDismissOverwrite = { viewModel.dismissFriendOverwrite() },
+    )
+
+    val actions = TimelineActions(
+        onOpenEvent = onOpenEvent,
+        onOpenImport = onOpenImport,
+        onOpenNearby = onOpenNearby,
+        onOpenProgramme = onOpenProgramme,
+        onAddGig = { adding = true },
+        onCompare = { comparing = it },
+        menuFor = { menuFor(it) },
+        setZoomedOut = { viewModel.setZoomedOut(it) },
+        consumeJustConnected = { viewModel.consumeJustConnected() },
+        toggleContactLight = { viewModel.toggleContactLight() },
+        toggleLineHidden = { viewModel.toggleLineHidden(it) },
+        loadMoreSetlists = { viewModel.loadMoreSetlists() },
+        resolveFestivals = { viewModel.resolveFestivals() },
+        loadFriendTimelines = { viewModel.loadFriendTimelines() },
+        timelinesLoading = { viewModel.state.value.timelinesLoading },
+        consumeLinkedDate = { viewModel.consumeLinkedDate() },
+        linkGig = { id, at -> viewModel.linkGig(id, at) },
+        knownGig = { viewModel.knownGig(it) },
+        openShow = { viewModel.openShow(it) },
+        consumeGigLink = { viewModel.consumeGigLink() },
+        openFestival = { viewModel.openFestival(it) },
+        toggleFestival = { viewModel.toggleFestival(it) },
+        openCollectionWalk = { viewModel.openCollectionWalk(it) },
+        photoPreview = { viewModel.photoPreview(it) },
+    )
 
     Scaffold(
         containerColor = Ground,
@@ -458,30 +471,10 @@ fun StationTimelineScreen(
             }
         },
         topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Ground, titleContentColor = Muted),
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("◦ ", color = Amber, fontSize = 13.sp, modifier = Modifier.clearAndSetSemantics {})
-                        Text("Station to Station", fontFamily = Serif, fontSize = 16.sp, color = Muted, modifier = Modifier.asHeading())
-                    }
-                },
-                actions = {
-                    // Left/right axis is people: the way to others starts here.
-                    IconButton(onClick = onOpenConnect) {
-                        Icon(Icons.Filled.Person, contentDescription = "Connect with people", tint = Faint)
-                    }
-                    IconButton(onClick = onOpenProgramme) {
-                        Icon(
-                            Icons.Filled.Schedule,
-                            contentDescription = "Festival programme",
-                            tint = Faint,
-                        )
-                    }
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = Faint)
-                    }
-                },
+            TimelineTopBar(
+                onOpenConnect = onOpenConnect,
+                onOpenProgramme = onOpenProgramme,
+                onOpenSettings = onOpenSettings,
             )
         },
     ) { padding ->
@@ -538,622 +531,15 @@ fun StationTimelineScreen(
                         onAddGig = { adding = true },
                     )
 
-                else -> {
-                    val earliest = state.setlists.mapNotNull { it.year()?.toIntOrNull() }.minOrNull()
-                    val listState = rememberLazyListState()
-                    // Zooming out doesn't go anywhere: the strip beside my line opens and
-                    // the other timelines slide into it, at my scale, on my spine.
-                    // A card swap lands you here already zoomed out — you just went
-                    // looking for their line, so it should be on screen.
-                    val zoomedOut = state.zoomedOut
-                    LaunchedEffect(state.justConnected) {
-                        if (state.justConnected) {
-                            viewModel.setZoomedOut(true)
-                            viewModel.consumeJustConnected()
-                        }
-                    }
-                    // An immutable set, swapped out on each toggle: a mutable list here
-                    // is the same instance before and after, so remember() below could
-                    // never see it change and the rows never rebuilt.
-                    val expanded = state.openFestivals
-                    // The legend keeps the whole list — it has to offer a hidden person
-                    // back — and everything that draws reads the filtered one. #266.
-                    val allLanes = remember(state.friends) { state.friends.reversed() }
-                    val lanes = remember(allLanes, state.hiddenLines) {
-                        visibleLanes(allLanes, state.hiddenLines)
-                    }
-                    val colours = remember(allLanes, state.hiddenLines) {
-                        laneColours(allLanes, state.hiddenLines)
-                    }
-                    // Springy rather than timed: the other lines settle into place like
-                    // something physical arriving, instead of a panel sliding.
-                    val laneWidth by animateDpAsState(
-                        if (zoomedOut) stripWidth(lanes.size) else 0.dp,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioLowBouncy,
-                            stiffness = Spring.StiffnessLow,
-                        ),
-                        label = "lanes",
-                    )
-                    // Descending toward the past pulls the next page in before you hit
-                    // the bottom, so history keeps flowing without a button. Measured
-                    // against the rows actually laid out, not the raw show count: a
-                    // festival collapses many shows into one row, so 20 shows can be 3
-                    // rows that never scroll — and the old check never fired.
-                    val nearPast by remember {
-                        derivedStateOf {
-                            val info = listState.layoutInfo
-                            val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-                            last >= info.totalItemsCount - 3
-                        }
-                    }
-                    LaunchedEffect(nearPast, state.setlistsLoading, state.setlists.size) {
-                        if (nearPast && !state.setlistsLoading && state.setlists.size < state.setlistsTotal) {
-                            viewModel.loadMoreSetlists()
-                        }
-                    }
-                    // Pulling down at the top of the line opens a gap toward the future,
-                    // and the two ways in hang in that gap. How far you pull is what
-                    // picks one: the curtain used to latch open and grow two rows on the
-                    // timeline underneath it, which spent a continuous gesture on a
-                    // boolean and made the actions a consequence of reading a caption.
-                    val scope = rememberCoroutineScope()
-                    val pull = remember { Animatable(0f) }
-                    // 200dp of gap: enough travel to separate three detents by more than
-                    // a twitch, and enough drag that none is reached by an ordinary flick
-                    // at the top of the list.
-                    val pullMax = with(LocalDensity.current) { 200.dp.toPx() }
-                    val haptics = LocalHapticFeedback.current
-                    // What a door does, whichever way it was reached — the gesture's
-                    // release and the reader's custom action both call this, so a future
-                    // rewire of one door can't silently leave the other stale (#164).
-                    fun openDoor(door: PlanningDoor) {
-                        when (door) {
-                            PlanningDoor.Gig -> adding = true
-                            PlanningDoor.Programme -> onOpenProgramme()
-                            PlanningDoor.Import -> onOpenImport()
-                            PlanningDoor.None -> {}
-                        }
-                    }
-                    val pullNest = remember {
-                        object : NestedScrollConnection {
-                            /** Last detent crossed, so each one ticks once. */
-                            var lastArmed = PlanningDoor.None
-
-                            /** Move the gap by a raw drag delta, ticking on each detent. */
-                            fun drag(dy: Float) {
-                                scope.launch {
-                                    pull.snapTo((pull.value + dy * PullDamping).coerceIn(0f, pullMax))
-                                    // A detent you cannot feel is a threshold, and two
-                                    // outcomes separated by a bare distance are a coin
-                                    // flip in the hand.
-                                    val now = armedDoor(pull.value / pullMax)
-                                    if (now != lastArmed) {
-                                        lastArmed = now
-                                        if (now != PlanningDoor.None) {
-                                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        }
-                                    }
-                                }
-                            }
-
-                            override fun onPreScroll(
-                                available: Offset,
-                                source: NestedScrollSource,
-                            ): Offset {
-                                // Closing has to happen *before* the list sees the drag,
-                                // or the list eats it and the gap never comes back up.
-                                // See curtainTakes for why.
-                                if (source != NestedScrollSource.UserInput) return Offset.Zero
-                                val take = curtainTakes(available.y, pull.value)
-                                if (take == 0f) return Offset.Zero
-                                drag(take)
-                                return Offset(0f, take)
-                            }
-
-                            override fun onPostScroll(
-                                consumed: Offset,
-                                available: Offset,
-                                source: NestedScrollSource,
-                            ): Offset {
-                                // Opening: only the leftover downward scroll at the list's
-                                // own top edge reaches here, so this never steals an
-                                // ordinary scroll. Upward is handled in onPreScroll above.
-                                if (available.y <= 0f || source != NestedScrollSource.UserInput) return Offset.Zero
-                                drag(available.y)
-                                return Offset(0f, available.y)
-                            }
-
-                            override suspend fun onPreFling(available: Velocity): Velocity {
-                                // Release takes the lit door. Releasing with none lit
-                                // closes the gap, so a short pull stays cheap to abandon.
-                                openDoor(armedDoor(pull.value / pullMax))
-                                lastArmed = PlanningDoor.None
-                                pull.animateTo(0f)
-                                return Velocity.Zero
-                            }
-                        }
-                    }
-
-                    val timelineActions = listOf(
-                        CustomAccessibilityAction("Connect with someone nearby") {
-                            onOpenNearby(); true
-                        },
-                        CustomAccessibilityAction(
-                            if (state.contactLight) "Turn the contact light off"
-                            else "Turn the contact light on, to see your line as a contact sees it"
-                        ) { viewModel.toggleContactLight(); true },
-                        CustomAccessibilityAction(
-                            if (zoomedOut) "Close the other timelines"
-                            else "Open the other timelines beside yours"
-                        ) { viewModel.setZoomedOut(!zoomedOut); true },
-                        // The three doors live in the curtain, and a pull
-                        // depth is not a thing TalkBack can express — so
-                        // without these the only way into planning would
-                        // be a gesture the reader intercepts. Each label
-                        // matches the door's own text and calls openDoor,
-                        // the same function the gesture's release calls,
-                        // so the two paths cannot drift apart again (#164).
-                        CustomAccessibilityAction("Add a gig you're going to") {
-                            openDoor(PlanningDoor.Gig); true
-                        },
-                        CustomAccessibilityAction("Open the festival programme") {
-                            openDoor(PlanningDoor.Programme); true
-                        },
-                        CustomAccessibilityAction("Import your setlist.fm history") {
-                            openDoor(PlanningDoor.Import); true
-                        },
-                    )
-
-                    Column(Modifier.fillMaxSize()) {
-                        Text(
-                            buildString {
-                                append("${state.setlists.size} shows")
-                                if (earliest != null) append(" · since $earliest")
-                            },
-                            color = Faint,
-                            fontSize = 12.sp,
-                            modifier = Modifier
-                                .padding(start = 20.dp, top = 2.dp, bottom = 14.dp)
-                                // The first stop on the line for a screen reader, and so
-                                // where its moves live: TalkBack lands on a line of text,
-                                // not on the list under it (#164).
-                                .semantics { customActions = timelineActions },
-                        )
-                        // Whose line is whose, only while more than one is showing.
-                        // Scrolls sideways: the key is the one thing that grows without
-                        // limit as friends are added, and it must not push the line off.
-                        //
-                        // Also the filter: tapping a name hides that line and tapping it
-                        // again brings it back, so the control sits where the names
-                        // already are rather than on a screen of its own. Shown while
-                        // zoomed out even with everyone hidden — a name you cannot see
-                        // is a name you cannot restore (#266).
-                        if (zoomedOut || laneWidth > 0.dp) {
-                            // Grouped by recency of hiding, most recently toggled off
-                            // first (#396) — one order for the whole legend, so the
-                            // disclosure below just continues it.
-                            val colourByUsername = remember(allLanes) {
-                                allLanes.withIndex().associate { (i, f) -> f.laneKey to i }
-                            }
-                            val (head, rest) = remember(allLanes, state.hiddenAt) {
-                                legendSplit(allLanes, state.hiddenAt, LegendHeadSize)
-                            }
-                            Row(
-                                Modifier
-                                    .horizontalScroll(rememberScrollState())
-                                    .padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                LaneKey(Amber, "You")
-                                (if (legendExpanded) head + rest else head).forEach { friend ->
-                                    Spacer(Modifier.width(14.dp))
-                                    LaneKey(
-                                        // The unfiltered index, never the legend's
-                                        // re-ordered position — a Lane colour comes
-                                        // from `allLanes.enumerated()` (#396).
-                                        color = railColor(colourByUsername[friend.laneKey] ?: 0),
-                                        label = friend.name,
-                                        hidden = friend.laneKey in state.hiddenLines,
-                                        onToggle = { viewModel.toggleLineHidden(friend.laneKey) },
-                                    )
-                                }
-                                // A disclosure, never a truncation (#266): every name
-                                // above stays reachable, just not drawn until tapped.
-                                if (!legendExpanded && rest.isNotEmpty()) {
-                                    Spacer(Modifier.width(14.dp))
-                                    Text(
-                                        "+ ${rest.size} more",
-                                        color = Slate,
-                                        fontSize = 11.sp,
-                                        modifier = Modifier
-                                            .clickable { legendExpanded = true }
-                                            .padding(vertical = 6.dp),
-                                    )
-                                }
-                            }
-                        }
-                        PlanningPull(progress = { pull.value / pullMax }, heightPx = { pull.value })
-                        // Planned nights become Sections too, so adding one can create an
-                        // evening nothing has been asked about yet (#134).
-                        LaunchedEffect(state.setlists, state.plannedGigs) {
-                            viewModel.resolveFestivals()
-                        }
-                        LaunchedEffect(zoomedOut) { if (zoomedOut) viewModel.loadFriendTimelines() }
-                        val rows = remember(
-                            state.setlists, state.plannedGigs, state.attendanceByGig,
-                            state.festivals, lanes, state.showsByFriend, zoomedOut, expanded,
-                            state.nightJoins, state.nightsApart,
-                        ) {
-                            weaveTimelines(
-                                // Through `spineNights`, not `setlists` alone: a local gig
-                                // that stops being a plan — checked into, or committed off
-                                // a programme whose set has already finished — leaves the
-                                // future lane at once, and the spine only picked it up on
-                                // the next cold start. It landed nowhere in between.
-                                // Deduped on id there, so a night on both lists is one.
-                                mine = spineNights(
-                                    state.setlists, state.plannedGigs, state.attendanceByGig,
-                                ),
-                                festivals = state.festivals,
-                                friends = if (zoomedOut) lanes else emptyList(),
-                                theirs = if (zoomedOut) state.showsByFriend else emptyMap(),
-                                expanded = expanded,
-                                // What I said about a Contact's Night nothing else links
-                                // to mine (#405): joined draws Joined, apart draws nothing.
-                                joins = state.nightJoins,
-                                apart = state.nightsApart,
-                            )
-                        }
-                        LaunchedEffect(rows, lanes) { logWovenRows(rows, lanes, colours) }
-                        // Everything above today, in one date-ordered list — furthest
-                        // out first, the same descending order the attended rows use.
-                        // Hoisted out of the LazyColumn because the deep-link scroll
-                        // below counts it too, and the two must not drift.
-                        val future = remember(
-                            state.plannedGigs, state.attendanceByGig, state.festivals,
-                        ) {
-                            futureRows(
-                                tickets = state.plannedGigs,
-                                attendance = state.attendanceByGig,
-                                festivals = state.festivals,
-                            )
-                        }
-
-                        // A date is only a place once the rows exist. Friends' Lanes load
-                        // after zooming out, so it waits for them rather than landing on
-                        // the nearest Gig of a weave with nobody in it yet.
-                        LaunchedEffect(state.linkedDate, rows, future, state.timelinesLoading) {
-                            val date = state.linkedDate ?: return@LaunchedEffect
-                            if (zoomedOut) {
-                                viewModel.loadFriendTimelines()
-                                if (viewModel.state.value.timelinesLoading) return@LaunchedEffect
-                            }
-                            val dated = (rows.flatMap { it.shows + it.showsHereByFriends } +
-                                future.flatMap { it.node.shows })
-                                .mapNotNull { show -> show.localDate()?.let { show.id to it } }
-                            viewModel.consumeLinkedDate()
-                            nearestGig(dated, date)?.let {
-                                viewModel.linkGig(it, if (zoomedOut) GigLink.WOVEN else GigLink.SINGLE_LINE)
-                            }
-                        }
-
-                        // A station-to-station:// link names a gig, and only here can a
-                        // gig be turned into a place: one inside a collapsed festival
-                        // has no row of its own until the festival opens, so this may
-                        // take two passes — open it, let the rows rebuild, then scroll.
-                        LaunchedEffect(state.linkedGig, rows) {
-                            val gig = state.linkedGig ?: return@LaunchedEffect
-                            if (state.linkedGigAs == GigLink.SETLIST) {
-                                viewModel.knownGig(gig)?.let {
-                                    viewModel.openShow(it)
-                                    viewModel.consumeGigLink()
-                                    onOpenEvent()
-                                }
-                                return@LaunchedEffect
-                            }
-                            // A collapsed festival's own shows are only mine, so a night
-                            // of theirs absorbed into it would never be found and never
-                            // open the festival holding it.
-                            // Last, not first: an open festival lists the gig again as a
-                            // row of its own below its header, and that row is the place
-                            // the link actually means.
-                            val at = rows.indexOfLast { row ->
-                                row.shows.any { it.id == gig } ||
-                                    row.showsHereByFriends.any { it.id == gig }
-                            }
-                            if (at < 0) {
-                                val ahead = future.indexOfFirst { row -> row.node.shows.any { it.id == gig } }
-                                if (ahead < 0) return@LaunchedEffect
-                                listState.animateScrollToItem(1 + ahead)
-                                viewModel.consumeGigLink()
-                                return@LaunchedEffect
-                            }
-                            val row = rows[at]
-                            val insideClosedFestival =
-                                row.node is TimelineNode.Several && row.key !in expanded
-                            if (insideClosedFestival) {
-                                viewModel.openFestival(row.key)
-                                return@LaunchedEffect
-                            }
-                            // The rows don't start at item 0: the future prompt is, and
-                            // every gig I'm going to sits between it and them. Counted
-                            // off the same list the LazyColumn emits, so the two cannot
-                            // drift.
-                            // …and every merge row (#580) down to and including this one's.
-                            val merges = rows.take(at + 1).count { it.maybeAbove.isNotEmpty() }
-                            listState.animateScrollToItem(at + 1 + future.size + merges)
-                            viewModel.consumeGigLink()
-                        }
-
-                        LazyColumn(
-                            state = listState,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .nestedScroll(pullNest)
-                                // Swipe the timeline left to start connecting with someone
-                                // nearby — the "act on this level" gesture, people axis.
-                                .pointerInput(Unit) {
-                                    val threshold = 90.dp.toPx()
-                                    var dragX = 0f
-                                    detectHorizontalDragGestures(
-                                        onDragStart = { dragX = 0f },
-                                        onDragEnd = {
-                                            // Left is Exchange; right is the light switch,
-                                            // which is free here because there is nothing
-                                            // further out than my own Line (#145). A light
-                                            // is not a place, so the same flick returns.
-                                            if (dragX <= -threshold) onOpenNearby()
-                                            else if (dragX >= threshold) viewModel.toggleContactLight()
-                                        },
-                                        onHorizontalDrag = { _, delta -> dragX += delta },
-                                    )
-                                }
-                                // Pinch out to open the other timelines beside mine; pinch
-                                // back in to close them again. Nothing navigates.
-                                .pointerInput(state.friends) {
-                                    detectPinch(
-                                        onZoomOut = { viewModel.setZoomedOut(true) },
-                                        onZoomIn = { viewModel.setZoomedOut(false) },
-                                    )
-                                }
-                                // The same three moves, for anyone not making them with
-                                // their fingers. A flick and a pinch are the whole of how
-                                // this screen changes **Resolution**, and TalkBack sends
-                                // both to the reader instead — so without this the light
-                                // and the other lines are not merely awkward to reach,
-                                // they do not exist. The gestures above stay exactly as
-                                // they are; this is the same call from another door.
-                                //
-                                // Labels are verbs and say which way the toggle goes,
-                                // because the actions menu reads them out of context with
-                                // nothing on screen to disambiguate them.
-                                // Also on the header line above, where a reader's focus
-                                // can land — a list is not itself a stop for TalkBack.
-                                .semantics { customActions = timelineActions },
-                        ) {
-                            // The top of the line. Nothing sits here now but the lookup
-                            // notice: "↑ THE FUTURE" captioned a direction the layout
-                            // already states, and the add-rows that outlived it were the
-                            // curtain's doors printed a second time — the doors were
-                            // meant to *replace* them, not join them.
-                            item { FuturePrompt(loading = state.planningLoading) }
-                            // Everything above today, in one date-ordered list —
-                            // furthest out first, the same descending order the attended
-                            // rows below use. Planned gigs that share a venue and a night
-                            // are a Festival like any other, grouped by the same function
-                            // the attended rows use (#134).
-                            items(
-                                future,
-                                key = { row ->
-                                    when (val n = row.node) {
-                                        is TimelineNode.Concert -> "planned-${n.setlist.id}"
-                                        // Prefixed for the same reason the concert above
-                                        // it is: both lanes are items of one LazyColumn,
-                                        // and a Festival with a night still planned and a
-                                        // night already attended is a node in each. The
-                                        // bare identity key was used twice and the list
-                                        // threw.
-                                        is TimelineNode.Several -> "planned-${n.key}"
-                                    }
-                                },
-                            ) { row ->
-                                when (val node = row.node) {
-                                        is TimelineNode.Concert -> TimelineItem(
-                                            setlist = node.setlist,
-                                            highlight = false,
-                                            planned = true,
-                                            laneWidth = laneWidth,
-                                            menu = menuFor(node.setlist),
-                                            onClick = {
-                                                viewModel.openShow(node.setlist)
-                                                onOpenEvent()
-                                            },
-                                        )
-
-                                        // Opens in place, like every other node holding
-                                        // several nights. It has to open: collapsing two
-                                        // planned nights into one node with no way back
-                                        // in would take away the only handle each had.
-                                        is TimelineNode.Several -> {
-                                            val key = node.key
-                                            Column {
-                                                FestivalItem(
-                                                    festival = node,
-                                                    highlight = false,
-                                                    open = key in expanded,
-                                                    laneWidth = laneWidth,
-                                                    onClick = { viewModel.toggleFestival(key) },
-                                                )
-                                                if (key in expanded) {
-                                                    node.shows.forEach { gig ->
-                                                        TimelineItem(
-                                                            setlist = gig,
-                                                            highlight = false,
-                                                            planned = true,
-                                                            inside = true,
-                                                            laneWidth = laneWidth,
-                                                            menu = menuFor(gig),
-                                                            onClick = {
-                                                                viewModel.openShow(gig)
-                                                                onOpenEvent()
-                                                            },
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                            }
-                            rows.forEachIndexed { index, row ->
-                                // The merge row (#580): its own row, between my Night and the
-                                // Night of theirs the weave put right below it. The rails run
-                                // on through it; under the contact light it keeps its height
-                                // and loses its question, so flipping the switch moves nothing.
-                                val above = rows.getOrNull(index - 1)
-                                if (row.maybeAbove.isNotEmpty() && above != null) {
-                                    item(key = "maybe-${row.key}") {
-                                        MergeRow(
-                                            mine = above,
-                                            theirs = row,
-                                            lanes = lanes,
-                                            laneWidth = laneWidth,
-                                            colours = colours,
-                                            maybes = if (state.contactLight) emptyList() else row.maybeAbove,
-                                            onCompare = { comparing = it },
-                                        )
-                                    }
-                                }
-                                item(key = row.key) {
-                                    val isFirst = index == 0
-                                    val rails: @Composable () -> Unit =
-                                        { PeopleRails(row, rows.getOrNull(index + 1), lanes, laneWidth, colours) }
-                                    val nodeX = crossingX(row, lanes, laneWidth)
-                                    when (val node = row.node) {
-                                        is TimelineNode.Concert -> {
-                                            // Visuals only. A Note has no bytes and an empty
-                                            // `ref` (#170), and one drew a blank tile on the row.
-                                            val nightMedia = state.mediaBySetlist[node.setlist.id]
-                                                .orEmpty().filterNot { it.kind == StoredMedia.Kind.NOTE }
-                                            TimelineItem(
-                                                setlist = node.setlist,
-                                                highlight = isFirst && row.mine,
-                                                mine = row.mine,
-                                                menu = if (row.mine) menuFor(node.setlist) else null,
-                                                laneWidth = laneWidth,
-                                                inside = row.depth > 0,
-                                                nodeX = nodeX,
-                                                shared = row.shared && !state.contactLight,
-                                                unlit = state.contactLight,
-                                                rails = rails,
-                                                // Unfiltered on purpose. Filtering here removed a
-                                                // night's whole photo strip, so every row changed
-                                                // height and the line moved under you — the one
-                                                // thing a light switch must never do.
-                                                photos = nightMedia.map { Uri.parse(it.ref) },
-                                                // Which is why the answer rides alongside instead:
-                                                // the same thumbnails in the same places, lit one
-                                                // by one. The Room still holds the detail and the
-                                                // sharing decision; the timeline now at least says
-                                                // truthfully which nights are worth opening.
-                                                litPhotos = visibleToContacts(nightMedia)
-                                                    .map { Uri.parse(it.ref) }.toSet(),
-                                                loadPhotoPreview = viewModel::photoPreview,
-                                                // Off under the light, like the green: a
-                                                // generic contact view has no "we" to ask about.
-                                                // Only the maybes no merge row asks (#580): the
-                                                // rest have a row of their own right below.
-                                                maybeWith = if (state.contactLight) emptyList()
-                                                else row.maybeInWords.map { it.name },
-                                                joinedWith = if (state.contactLight) emptyList()
-                                                else row.joinedWith.map { it.name },
-                                                onClick = {
-                                                    viewModel.openShow(node.setlist)
-                                                    onOpenEvent()
-                                                },
-                                            )
-                                        }
-
-                                        // A festival opens where it stands rather than pushing
-                                        // you into a screen of its own.
-                                        is TimelineNode.Several -> FestivalItem(
-                                            festival = node,
-                                            highlight = isFirst,
-                                            open = row.key in expanded,
-                                            mine = row.mine,
-                                            laneWidth = laneWidth,
-                                            nodeX = nodeX,
-                                            sharedCount = row.sharedCount,
-                                            theirCount = row.theirsCount,
-                                            // Company has a colour of its own — a night two
-                                            // friends shared is nobody's lane colour either.
-                                            // …and the lane colour is the host's *stable* one,
-                                            // so hiding someone never repaints this (#266).
-                                            theirColor = if (row.others.size > 1) Crossed
-                                            else railColor(colours.getOrElse(nodeHost(row, lanes)) { 0 }),
-                                            unlit = state.contactLight,
-                                            rails = rails,
-                                            maybeWith = if (state.contactLight) emptyList()
-                                            else row.maybeInWords.map { it.name },
-                                            onClick = {
-                                                viewModel.toggleFestival(row.key)
-                                            },
-                                            // The non-gestural route to the Collection
-                                            // resolution (#313): the pinch is aimed by where
-                                            // the fingers land, and a reader with no fingers
-                                            // to aim needs the same node named instead. Calls
-                                            // the same function the (not yet built) pinch
-                                            // will call, so the two paths cannot drift.
-                                            onWalk = { viewModel.openCollectionWalk(node) },
-                                        )
-                                    }
-                                }
-                            }
-                            // The past edge: a quiet spinner while the next page flows in.
-                            if (state.setlistsLoading && state.setlists.isNotEmpty()) {
-                                item {
-                                    Row(
-                                        Modifier.fillMaxWidth().padding(16.dp),
-                                        horizontalArrangement = Arrangement.Center,
-                                    ) { CircularProgressIndicator(color = Amber, modifier = Modifier.size(22.dp)) }
-                                }
-                            }
-                        }
-                    }
-                }
+                else -> TimelineLine(
+                    state = state,
+                    legendExpanded = legendExpanded,
+                    onExpandLegend = { legendExpanded = true },
+                    actions = actions,
+                )
             }
-            // The light is on, and it says so across the whole width. Not a badge: a mode
-            // you can forget you are in would make withheld photographs read as data loss.
-            //
-            // Floated over the timeline rather than placed above it, because **flipping
-            // the switch must not move the line**. Lighting a corridor does not shorten
-            // it: everything here changes colour and opacity and nothing changes size or
-            // position, so the night you were looking at is still under your thumb.
             if (state.contactLight) {
-                Column(
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .background(UnlitField)
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
-                ) {
-                    Text(
-                        "AS YOUR CONTACTS SEE IT",
-                        color = Ink,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 1.5.sp,
-                        modifier = Modifier.asHeading(),
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "One view for everyone you have met in person — there are no per-contact " +
-                            "settings. Walk into a night to see what they see of it. Swipe right " +
-                            "again to come back.",
-                        color = Muted,
-                        fontSize = 11.sp,
-                    )
-                }
+                ContactLightBanner(Modifier.align(Alignment.BottomCenter))
             }
             // The Collection resolution (#313). Entered from the Line and drawn over it,
             // not pushed and not routed: nothing here ever navigates away, so leaving —
@@ -1177,6 +563,844 @@ fun StationTimelineScreen(
                         onBack = { viewModel.closeCollectionWalk() },
                     )
                 }
+            }
+        }
+    }
+}
+
+/** Everything the timeline's sections do to the world, so no section holds the [AppViewModel]. */
+private class TimelineActions(
+    val onOpenEvent: () -> Unit,
+    val onOpenImport: () -> Unit,
+    val onOpenNearby: () -> Unit,
+    val onOpenProgramme: () -> Unit,
+    val onAddGig: () -> Unit,
+    val onCompare: (MaybeNight) -> Unit,
+    val menuFor: (FmSetlist) -> GigMenuSpec?,
+    val setZoomedOut: (Boolean) -> Unit,
+    val consumeJustConnected: () -> Unit,
+    val toggleContactLight: () -> Unit,
+    val toggleLineHidden: (String) -> Unit,
+    val loadMoreSetlists: () -> Unit,
+    val resolveFestivals: () -> Unit,
+    val loadFriendTimelines: () -> Unit,
+    val timelinesLoading: () -> Boolean,
+    val consumeLinkedDate: () -> Unit,
+    val linkGig: (String, GigLink) -> Unit,
+    val knownGig: (String) -> FmSetlist?,
+    val openShow: (FmSetlist) -> Unit,
+    val consumeGigLink: () -> Unit,
+    val openFestival: (String) -> Unit,
+    val toggleFestival: (String) -> Unit,
+    val openCollectionWalk: (TimelineNode.Several) -> Unit,
+    val photoPreview: suspend (Uri) -> MediaThumb,
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TimelineTopBar(
+    onOpenConnect: () -> Unit,
+    onOpenProgramme: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    TopAppBar(
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = Ground, titleContentColor = Muted),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("◦ ", color = Amber, fontSize = 13.sp, modifier = Modifier.clearAndSetSemantics {})
+                Text("Station to Station", fontFamily = Serif, fontSize = 16.sp, color = Muted, modifier = Modifier.asHeading())
+            }
+        },
+        actions = {
+            // Left/right axis is people: the way to others starts here.
+            IconButton(onClick = onOpenConnect) {
+                Icon(Icons.Filled.Person, contentDescription = "Connect with people", tint = Faint)
+            }
+            IconButton(onClick = onOpenProgramme) {
+                Icon(
+                    Icons.Filled.Schedule,
+                    contentDescription = "Festival programme",
+                    tint = Faint,
+                )
+            }
+            IconButton(onClick = onOpenSettings) {
+                Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = Faint)
+            }
+        },
+    )
+}
+
+/**
+ * Check-in: opening the timeline takes one fix and compares it against what's already
+ * known. Foreground, one-shot, nothing scheduled. Also hosts the friend-overwrite dialog.
+ */
+@Composable
+private fun CheckInSection(
+    plannedGigs: List<FmSetlist>,
+    offer: FmSetlist?,
+    conflict: FriendArrival.Conflict?,
+    checkInDue: () -> Boolean,
+    hasLocationPermission: () -> Boolean,
+    onOffer: () -> Unit,
+    onCheckIn: (String) -> Unit,
+    onDismissOffer: () -> Unit,
+    onConfirmOverwrite: () -> Unit,
+    onDismissOverwrite: () -> Unit,
+) {
+    val locationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        // Refusing is not a dead end and not an error: the offer just never appears,
+        // and the gig's own screen still has a check-in you can press by hand.
+        onOffer()
+    }
+    LaunchedEffect(plannedGigs) {
+        // The permission is only ever asked for on a night there is something to
+        // check into — never merely for opening the app.
+        if (!checkInDue()) return@LaunchedEffect
+        if (hasLocationPermission()) onOffer()
+        else locationPermission.launch(DeviceLocation.requiredPermissions())
+    }
+    offer?.let { gig ->
+        CheckInDialog(
+            gig = gig,
+            onCheckIn = { onCheckIn(gig.id) },
+            onDismiss = onDismissOffer,
+        )
+    }
+    conflict?.let {
+        FriendOverwriteDialog(
+            conflict = it,
+            onConfirm = onConfirmOverwrite,
+            onDismiss = onDismissOverwrite,
+        )
+    }
+}
+
+/**
+ * The light is on, and it says so across the whole width. Not a badge: a mode
+ * you can forget you are in would make withheld photographs read as data loss.
+ *
+ * Floated over the timeline rather than placed above it, because **flipping
+ * the switch must not move the line**. Lighting a corridor does not shorten
+ * it: everything here changes colour and opacity and nothing changes size or
+ * position, so the night you were looking at is still under your thumb.
+ */
+@Composable
+private fun ContactLightBanner(modifier: Modifier) {
+    Column(
+        modifier
+            .fillMaxWidth()
+            .background(UnlitField)
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+    ) {
+        Text(
+            "AS YOUR CONTACTS SEE IT",
+            color = Ink,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 1.5.sp,
+            modifier = Modifier.asHeading(),
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "One view for everyone you have met in person — there are no per-contact " +
+                "settings. Walk into a night to see what they see of it. Swipe right " +
+                "again to come back.",
+            color = Muted,
+            fontSize = 11.sp,
+        )
+    }
+}
+
+/** The pull-down gap above the Line: its nested-scroll connection and how far it is open. */
+private class PlanningPullGesture(
+    val nest: NestedScrollConnection,
+    val progress: () -> Float,
+    val heightPx: () -> Float,
+)
+
+/**
+ * Pulling down at the top of the line opens a gap toward the future,
+ * and the two ways in hang in that gap. How far you pull is what
+ * picks one: the curtain used to latch open and grow two rows on the
+ * timeline underneath it, which spent a continuous gesture on a
+ * boolean and made the actions a consequence of reading a caption.
+ * Release calls [onOpenDoor] with the lit door.
+ */
+@Composable
+private fun rememberPlanningPull(onOpenDoor: (PlanningDoor) -> Unit): PlanningPullGesture {
+    val scope = rememberCoroutineScope()
+    val pull = remember { Animatable(0f) }
+    // 200dp of gap: enough travel to separate three detents by more than
+    // a twitch, and enough drag that none is reached by an ordinary flick
+    // at the top of the list.
+    val pullMax = with(LocalDensity.current) { 200.dp.toPx() }
+    val haptics = LocalHapticFeedback.current
+    val openDoor by rememberUpdatedState(onOpenDoor)
+    return remember {
+        val nest = object : NestedScrollConnection {
+            /** Last detent crossed, so each one ticks once. */
+            var lastArmed = PlanningDoor.None
+
+            /** Move the gap by a raw drag delta, ticking on each detent. */
+            fun drag(dy: Float) {
+                scope.launch {
+                    pull.snapTo((pull.value + dy * PullDamping).coerceIn(0f, pullMax))
+                    // A detent you cannot feel is a threshold, and two
+                    // outcomes separated by a bare distance are a coin
+                    // flip in the hand.
+                    val now = armedDoor(pull.value / pullMax)
+                    if (now != lastArmed) {
+                        lastArmed = now
+                        if (now != PlanningDoor.None) {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                    }
+                }
+            }
+
+            override fun onPreScroll(
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                // Closing has to happen *before* the list sees the drag,
+                // or the list eats it and the gap never comes back up.
+                // See curtainTakes for why.
+                if (source != NestedScrollSource.UserInput) return Offset.Zero
+                val take = curtainTakes(available.y, pull.value)
+                if (take == 0f) return Offset.Zero
+                drag(take)
+                return Offset(0f, take)
+            }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                // Opening: only the leftover downward scroll at the list's
+                // own top edge reaches here, so this never steals an
+                // ordinary scroll. Upward is handled in onPreScroll above.
+                if (available.y <= 0f || source != NestedScrollSource.UserInput) return Offset.Zero
+                drag(available.y)
+                return Offset(0f, available.y)
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                // Release takes the lit door. Releasing with none lit
+                // closes the gap, so a short pull stays cheap to abandon.
+                openDoor(armedDoor(pull.value / pullMax))
+                lastArmed = PlanningDoor.None
+                pull.animateTo(0f)
+                return Velocity.Zero
+            }
+        }
+        PlanningPullGesture(nest, { pull.value / pullMax }, { pull.value })
+    }
+}
+
+/**
+ * Whose line is whose, only while more than one is showing.
+ * Scrolls sideways: the key is the one thing that grows without
+ * limit as friends are added, and it must not push the line off.
+ *
+ * Also the filter: tapping a name hides that line and tapping it
+ * again brings it back, so the control sits where the names
+ * already are rather than on a screen of its own. Shown while
+ * zoomed out even with everyone hidden — a name you cannot see
+ * is a name you cannot restore (#266).
+ */
+@Composable
+private fun TimelineLegend(
+    allLanes: List<Friend>,
+    hiddenAt: Map<String, Long>,
+    expanded: Boolean,
+    onExpand: () -> Unit,
+    onToggle: (String) -> Unit,
+) {
+    // Grouped by recency of hiding, most recently toggled off
+    // first (#396) — one order for the whole legend, so the
+    // disclosure below just continues it.
+    val colourByUsername = remember(allLanes) {
+        allLanes.withIndex().associate { (i, f) -> f.laneKey to i }
+    }
+    val (head, rest) = remember(allLanes, hiddenAt) {
+        legendSplit(allLanes, hiddenAt, LegendHeadSize)
+    }
+    Row(
+        Modifier
+            .horizontalScroll(rememberScrollState())
+            .padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        LaneKey(Amber, "You")
+        (if (expanded) head + rest else head).forEach { friend ->
+            Spacer(Modifier.width(14.dp))
+            LaneKey(
+                // The unfiltered index, never the legend's
+                // re-ordered position — a Lane colour comes
+                // from `allLanes.enumerated()` (#396).
+                color = railColor(colourByUsername[friend.laneKey] ?: 0),
+                label = friend.name,
+                hidden = friend.laneKey in hiddenAt.keys,
+                onToggle = { onToggle(friend.laneKey) },
+            )
+        }
+        // A disclosure, never a truncation (#266): every name
+        // above stays reachable, just not drawn until tapped.
+        if (!expanded && rest.isNotEmpty()) {
+            Spacer(Modifier.width(14.dp))
+            Text(
+                "+ ${rest.size} more",
+                color = Slate,
+                fontSize = 11.sp,
+                modifier = Modifier
+                    .clickable(onClick = onExpand)
+                    .padding(vertical = 6.dp),
+            )
+        }
+    }
+}
+
+/**
+ * A date is only a place once the rows exist. Friends' Lanes load
+ * after zooming out, so it waits for them rather than landing on
+ * the nearest Gig of a weave with nobody in it yet.
+ */
+@Composable
+private fun LinkedDateScroll(
+    linkedDate: LocalDate?,
+    rows: List<WovenRow>,
+    future: List<FutureRow>,
+    timelinesLoading: Boolean,
+    zoomedOut: Boolean,
+    actions: TimelineActions,
+) {
+    LaunchedEffect(linkedDate, rows, future, timelinesLoading) {
+        val date = linkedDate ?: return@LaunchedEffect
+        if (zoomedOut) {
+            actions.loadFriendTimelines()
+            if (actions.timelinesLoading()) return@LaunchedEffect
+        }
+        val dated = (rows.flatMap { it.shows + it.showsHereByFriends } +
+            future.flatMap { it.node.shows })
+            .mapNotNull { show -> show.localDate()?.let { show.id to it } }
+        actions.consumeLinkedDate()
+        nearestGig(dated, date)?.let {
+            actions.linkGig(it, if (zoomedOut) GigLink.WOVEN else GigLink.SINGLE_LINE)
+        }
+    }
+}
+
+/**
+ * A station-to-station:// link names a gig, and only here can a
+ * gig be turned into a place: one inside a collapsed festival
+ * has no row of its own until the festival opens, so this may
+ * take two passes — open it, let the rows rebuild, then scroll.
+ */
+@Composable
+private fun LinkedGigScroll(
+    linkedGig: String?,
+    linkedGigAs: GigLink?,
+    rows: List<WovenRow>,
+    future: List<FutureRow>,
+    expanded: Set<String>,
+    listState: LazyListState,
+    actions: TimelineActions,
+) {
+    LaunchedEffect(linkedGig, rows) {
+        val gig = linkedGig ?: return@LaunchedEffect
+        if (linkedGigAs == GigLink.SETLIST) {
+            actions.knownGig(gig)?.let {
+                actions.openShow(it)
+                actions.consumeGigLink()
+                actions.onOpenEvent()
+            }
+            return@LaunchedEffect
+        }
+        // A collapsed festival's own shows are only mine, so a night
+        // of theirs absorbed into it would never be found and never
+        // open the festival holding it.
+        // Last, not first: an open festival lists the gig again as a
+        // row of its own below its header, and that row is the place
+        // the link actually means.
+        val at = rows.indexOfLast { row ->
+            row.shows.any { it.id == gig } ||
+                row.showsHereByFriends.any { it.id == gig }
+        }
+        if (at < 0) {
+            val ahead = future.indexOfFirst { row -> row.node.shows.any { it.id == gig } }
+            if (ahead < 0) return@LaunchedEffect
+            listState.animateScrollToItem(1 + ahead)
+            actions.consumeGigLink()
+            return@LaunchedEffect
+        }
+        val row = rows[at]
+        val insideClosedFestival =
+            row.node is TimelineNode.Several && row.key !in expanded
+        if (insideClosedFestival) {
+            actions.openFestival(row.key)
+            return@LaunchedEffect
+        }
+        // The rows don't start at item 0: the future prompt is, and
+        // every gig I'm going to sits between it and them. Counted
+        // off the same list the LazyColumn emits, so the two cannot
+        // drift.
+        // …and every merge row (#580) down to and including this one's.
+        val merges = rows.take(at + 1).count { it.maybeAbove.isNotEmpty() }
+        listState.animateScrollToItem(at + 1 + future.size + merges)
+        actions.consumeGigLink()
+    }
+}
+
+/** My Line, with the other timelines woven in beside it while zoomed out. */
+@Composable
+private fun TimelineLine(
+    state: UiState,
+    legendExpanded: Boolean,
+    onExpandLegend: () -> Unit,
+    actions: TimelineActions,
+) {
+    val earliest = state.setlists.mapNotNull { it.year()?.toIntOrNull() }.minOrNull()
+    val listState = rememberLazyListState()
+    // Zooming out doesn't go anywhere: the strip beside my line opens and
+    // the other timelines slide into it, at my scale, on my spine.
+    // A card swap lands you here already zoomed out — you just went
+    // looking for their line, so it should be on screen.
+    val zoomedOut = state.zoomedOut
+    LaunchedEffect(state.justConnected) {
+        if (state.justConnected) {
+            actions.setZoomedOut(true)
+            actions.consumeJustConnected()
+        }
+    }
+    // An immutable set, swapped out on each toggle: a mutable list here
+    // is the same instance before and after, so remember() below could
+    // never see it change and the rows never rebuilt.
+    val expanded = state.openFestivals
+    // The legend keeps the whole list — it has to offer a hidden person
+    // back — and everything that draws reads the filtered one. #266.
+    val allLanes = remember(state.friends) { state.friends.reversed() }
+    val lanes = remember(allLanes, state.hiddenLines) {
+        visibleLanes(allLanes, state.hiddenLines)
+    }
+    val colours = remember(allLanes, state.hiddenLines) {
+        laneColours(allLanes, state.hiddenLines)
+    }
+    // Springy rather than timed: the other lines settle into place like
+    // something physical arriving, instead of a panel sliding.
+    val laneWidth by animateDpAsState(
+        if (zoomedOut) stripWidth(lanes.size) else 0.dp,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessLow,
+        ),
+        label = "lanes",
+    )
+    // Descending toward the past pulls the next page in before you hit
+    // the bottom, so history keeps flowing without a button. Measured
+    // against the rows actually laid out, not the raw show count: a
+    // festival collapses many shows into one row, so 20 shows can be 3
+    // rows that never scroll — and the old check never fired.
+    val nearPast by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+            last >= info.totalItemsCount - 3
+        }
+    }
+    LaunchedEffect(nearPast, state.setlistsLoading, state.setlists.size) {
+        if (nearPast && !state.setlistsLoading && state.setlists.size < state.setlistsTotal) {
+            actions.loadMoreSetlists()
+        }
+    }
+    // What a door does, whichever way it was reached — the gesture's
+    // release and the reader's custom action both call this, so a future
+    // rewire of one door can't silently leave the other stale (#164).
+    fun openDoor(door: PlanningDoor) {
+        when (door) {
+            PlanningDoor.Gig -> actions.onAddGig()
+            PlanningDoor.Programme -> actions.onOpenProgramme()
+            PlanningDoor.Import -> actions.onOpenImport()
+            PlanningDoor.None -> {}
+        }
+    }
+    val pull = rememberPlanningPull(::openDoor)
+
+    val timelineActions = listOf(
+        CustomAccessibilityAction("Connect with someone nearby") {
+            actions.onOpenNearby(); true
+        },
+        CustomAccessibilityAction(
+            if (state.contactLight) "Turn the contact light off"
+            else "Turn the contact light on, to see your line as a contact sees it"
+        ) { actions.toggleContactLight(); true },
+        CustomAccessibilityAction(
+            if (zoomedOut) "Close the other timelines"
+            else "Open the other timelines beside yours"
+        ) { actions.setZoomedOut(!zoomedOut); true },
+        // The three doors live in the curtain, and a pull
+        // depth is not a thing TalkBack can express — so
+        // without these the only way into planning would
+        // be a gesture the reader intercepts. Each label
+        // matches the door's own text and calls openDoor,
+        // the same function the gesture's release calls,
+        // so the two paths cannot drift apart again (#164).
+        CustomAccessibilityAction("Add a gig you're going to") {
+            openDoor(PlanningDoor.Gig); true
+        },
+        CustomAccessibilityAction("Open the festival programme") {
+            openDoor(PlanningDoor.Programme); true
+        },
+        CustomAccessibilityAction("Import your setlist.fm history") {
+            openDoor(PlanningDoor.Import); true
+        },
+    )
+
+    Column(Modifier.fillMaxSize()) {
+        Text(
+            buildString {
+                append("${state.setlists.size} shows")
+                if (earliest != null) append(" · since $earliest")
+            },
+            color = Faint,
+            fontSize = 12.sp,
+            modifier = Modifier
+                .padding(start = 20.dp, top = 2.dp, bottom = 14.dp)
+                // The first stop on the line for a screen reader, and so
+                // where its moves live: TalkBack lands on a line of text,
+                // not on the list under it (#164).
+                .semantics { customActions = timelineActions },
+        )
+        if (zoomedOut || laneWidth > 0.dp) {
+            TimelineLegend(
+                allLanes = allLanes,
+                hiddenAt = state.hiddenAt,
+                expanded = legendExpanded,
+                onExpand = onExpandLegend,
+                onToggle = actions.toggleLineHidden,
+            )
+        }
+        PlanningPull(progress = pull.progress, heightPx = pull.heightPx)
+        // Planned nights become Sections too, so adding one can create an
+        // evening nothing has been asked about yet (#134).
+        LaunchedEffect(state.setlists, state.plannedGigs) {
+            actions.resolveFestivals()
+        }
+        LaunchedEffect(zoomedOut) { if (zoomedOut) actions.loadFriendTimelines() }
+        val rows = remember(
+            state.setlists, state.plannedGigs, state.attendanceByGig,
+            state.festivals, lanes, state.showsByFriend, zoomedOut, expanded,
+            state.nightJoins, state.nightsApart,
+        ) {
+            weaveTimelines(
+                // Through `spineNights`, not `setlists` alone: a local gig
+                // that stops being a plan — checked into, or committed off
+                // a programme whose set has already finished — leaves the
+                // future lane at once, and the spine only picked it up on
+                // the next cold start. It landed nowhere in between.
+                // Deduped on id there, so a night on both lists is one.
+                mine = spineNights(
+                    state.setlists, state.plannedGigs, state.attendanceByGig,
+                ),
+                festivals = state.festivals,
+                friends = if (zoomedOut) lanes else emptyList(),
+                theirs = if (zoomedOut) state.showsByFriend else emptyMap(),
+                expanded = expanded,
+                // What I said about a Contact's Night nothing else links
+                // to mine (#405): joined draws Joined, apart draws nothing.
+                joins = state.nightJoins,
+                apart = state.nightsApart,
+            )
+        }
+        LaunchedEffect(rows, lanes) { logWovenRows(rows, lanes, colours) }
+        // Everything above today, in one date-ordered list — furthest
+        // out first, the same descending order the attended rows use.
+        // Hoisted out of the LazyColumn because the deep-link scroll
+        // below counts it too, and the two must not drift.
+        val future = remember(
+            state.plannedGigs, state.attendanceByGig, state.festivals,
+        ) {
+            futureRows(
+                tickets = state.plannedGigs,
+                attendance = state.attendanceByGig,
+                festivals = state.festivals,
+            )
+        }
+
+        LinkedDateScroll(
+            linkedDate = state.linkedDate,
+            rows = rows,
+            future = future,
+            timelinesLoading = state.timelinesLoading,
+            zoomedOut = zoomedOut,
+            actions = actions,
+        )
+        LinkedGigScroll(
+            linkedGig = state.linkedGig,
+            linkedGigAs = state.linkedGigAs,
+            rows = rows,
+            future = future,
+            expanded = expanded,
+            listState = listState,
+            actions = actions,
+        )
+
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .nestedScroll(pull.nest)
+                // Swipe the timeline left to start connecting with someone
+                // nearby — the "act on this level" gesture, people axis.
+                .pointerInput(Unit) {
+                    val threshold = 90.dp.toPx()
+                    var dragX = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { dragX = 0f },
+                        onDragEnd = {
+                            // Left is Exchange; right is the light switch,
+                            // which is free here because there is nothing
+                            // further out than my own Line (#145). A light
+                            // is not a place, so the same flick returns.
+                            if (dragX <= -threshold) actions.onOpenNearby()
+                            else if (dragX >= threshold) actions.toggleContactLight()
+                        },
+                        onHorizontalDrag = { _, delta -> dragX += delta },
+                    )
+                }
+                // Pinch out to open the other timelines beside mine; pinch
+                // back in to close them again. Nothing navigates.
+                .pointerInput(state.friends) {
+                    detectPinch(
+                        onZoomOut = { actions.setZoomedOut(true) },
+                        onZoomIn = { actions.setZoomedOut(false) },
+                    )
+                }
+                // The same three moves, for anyone not making them with
+                // their fingers. A flick and a pinch are the whole of how
+                // this screen changes **Resolution**, and TalkBack sends
+                // both to the reader instead — so without this the light
+                // and the other lines are not merely awkward to reach,
+                // they do not exist. The gestures above stay exactly as
+                // they are; this is the same call from another door.
+                //
+                // Labels are verbs and say which way the toggle goes,
+                // because the actions menu reads them out of context with
+                // nothing on screen to disambiguate them.
+                // Also on the header line above, where a reader's focus
+                // can land — a list is not itself a stop for TalkBack.
+                .semantics { customActions = timelineActions },
+        ) {
+            // The top of the line. Nothing sits here now but the lookup
+            // notice: "↑ THE FUTURE" captioned a direction the layout
+            // already states, and the add-rows that outlived it were the
+            // curtain's doors printed a second time — the doors were
+            // meant to *replace* them, not join them.
+            item { FuturePrompt(loading = state.planningLoading) }
+            futureItems(future, expanded, laneWidth, actions)
+            wovenItems(rows, lanes, colours, laneWidth, expanded, state, actions)
+            // The past edge: a quiet spinner while the next page flows in.
+            if (state.setlistsLoading && state.setlists.isNotEmpty()) {
+                item {
+                    Row(
+                        Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.Center,
+                    ) { CircularProgressIndicator(color = Amber, modifier = Modifier.size(22.dp)) }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Everything above today, in one date-ordered list — furthest out first, the same
+ * descending order the attended rows below use. Planned gigs that share a venue and a
+ * night are a Festival like any other, grouped by the same function the attended rows
+ * use (#134).
+ */
+private fun LazyListScope.futureItems(
+    future: List<FutureRow>,
+    expanded: Set<String>,
+    laneWidth: Dp,
+    actions: TimelineActions,
+) {
+    items(
+        future,
+        key = { row ->
+            when (val n = row.node) {
+                is TimelineNode.Concert -> "planned-${n.setlist.id}"
+                // Prefixed for the same reason the concert above
+                // it is: both lanes are items of one LazyColumn,
+                // and a Festival with a night still planned and a
+                // night already attended is a node in each. The
+                // bare identity key was used twice and the list
+                // threw.
+                is TimelineNode.Several -> "planned-${n.key}"
+            }
+        },
+    ) { row ->
+        when (val node = row.node) {
+            is TimelineNode.Concert -> TimelineItem(
+                setlist = node.setlist,
+                highlight = false,
+                planned = true,
+                laneWidth = laneWidth,
+                menu = actions.menuFor(node.setlist),
+                onClick = {
+                    actions.openShow(node.setlist)
+                    actions.onOpenEvent()
+                },
+            )
+
+            // Opens in place, like every other node holding
+            // several nights. It has to open: collapsing two
+            // planned nights into one node with no way back
+            // in would take away the only handle each had.
+            is TimelineNode.Several -> {
+                val key = node.key
+                Column {
+                    FestivalItem(
+                        festival = node,
+                        highlight = false,
+                        open = key in expanded,
+                        laneWidth = laneWidth,
+                        onClick = { actions.toggleFestival(key) },
+                    )
+                    if (key in expanded) {
+                        node.shows.forEach { gig ->
+                            TimelineItem(
+                                setlist = gig,
+                                highlight = false,
+                                planned = true,
+                                inside = true,
+                                laneWidth = laneWidth,
+                                menu = actions.menuFor(gig),
+                                onClick = {
+                                    actions.openShow(gig)
+                                    actions.onOpenEvent()
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** The attended rows: my Nights with the other timelines woven in, merge rows between. */
+private fun LazyListScope.wovenItems(
+    rows: List<WovenRow>,
+    lanes: List<Friend>,
+    colours: List<Int>,
+    laneWidth: Dp,
+    expanded: Set<String>,
+    state: UiState,
+    actions: TimelineActions,
+) {
+    rows.forEachIndexed { index, row ->
+        // The merge row (#580): its own row, between my Night and the
+        // Night of theirs the weave put right below it. The rails run
+        // on through it; under the contact light it keeps its height
+        // and loses its question, so flipping the switch moves nothing.
+        val above = rows.getOrNull(index - 1)
+        if (row.maybeAbove.isNotEmpty() && above != null) {
+            item(key = "maybe-${row.key}") {
+                MergeRow(
+                    mine = above,
+                    theirs = row,
+                    lanes = lanes,
+                    laneWidth = laneWidth,
+                    colours = colours,
+                    maybes = if (state.contactLight) emptyList() else row.maybeAbove,
+                    onCompare = actions.onCompare,
+                )
+            }
+        }
+        item(key = row.key) {
+            val isFirst = index == 0
+            val rails: @Composable () -> Unit =
+                { PeopleRails(row, rows.getOrNull(index + 1), lanes, laneWidth, colours) }
+            val nodeX = crossingX(row, lanes, laneWidth)
+            when (val node = row.node) {
+                is TimelineNode.Concert -> {
+                    // Visuals only. A Note has no bytes and an empty
+                    // `ref` (#170), and one drew a blank tile on the row.
+                    val nightMedia = state.mediaBySetlist[node.setlist.id]
+                        .orEmpty().filterNot { it.kind == StoredMedia.Kind.NOTE }
+                    TimelineItem(
+                        setlist = node.setlist,
+                        highlight = isFirst && row.mine,
+                        mine = row.mine,
+                        menu = if (row.mine) actions.menuFor(node.setlist) else null,
+                        laneWidth = laneWidth,
+                        inside = row.depth > 0,
+                        nodeX = nodeX,
+                        shared = row.shared && !state.contactLight,
+                        unlit = state.contactLight,
+                        rails = rails,
+                        // Unfiltered on purpose. Filtering here removed a
+                        // night's whole photo strip, so every row changed
+                        // height and the line moved under you — the one
+                        // thing a light switch must never do.
+                        photos = nightMedia.map { Uri.parse(it.ref) },
+                        // Which is why the answer rides alongside instead:
+                        // the same thumbnails in the same places, lit one
+                        // by one. The Room still holds the detail and the
+                        // sharing decision; the timeline now at least says
+                        // truthfully which nights are worth opening.
+                        litPhotos = visibleToContacts(nightMedia)
+                            .map { Uri.parse(it.ref) }.toSet(),
+                        loadPhotoPreview = actions.photoPreview,
+                        // Off under the light, like the green: a
+                        // generic contact view has no "we" to ask about.
+                        // Only the maybes no merge row asks (#580): the
+                        // rest have a row of their own right below.
+                        maybeWith = if (state.contactLight) emptyList()
+                        else row.maybeInWords.map { it.name },
+                        joinedWith = if (state.contactLight) emptyList()
+                        else row.joinedWith.map { it.name },
+                        onClick = {
+                            actions.openShow(node.setlist)
+                            actions.onOpenEvent()
+                        },
+                    )
+                }
+
+                // A festival opens where it stands rather than pushing
+                // you into a screen of its own.
+                is TimelineNode.Several -> FestivalItem(
+                    festival = node,
+                    highlight = isFirst,
+                    open = row.key in expanded,
+                    mine = row.mine,
+                    laneWidth = laneWidth,
+                    nodeX = nodeX,
+                    sharedCount = row.sharedCount,
+                    theirCount = row.theirsCount,
+                    // Company has a colour of its own — a night two
+                    // friends shared is nobody's lane colour either.
+                    // …and the lane colour is the host's *stable* one,
+                    // so hiding someone never repaints this (#266).
+                    theirColor = if (row.others.size > 1) Crossed
+                    else railColor(colours.getOrElse(nodeHost(row, lanes)) { 0 }),
+                    unlit = state.contactLight,
+                    rails = rails,
+                    maybeWith = if (state.contactLight) emptyList()
+                    else row.maybeInWords.map { it.name },
+                    onClick = {
+                        actions.toggleFestival(row.key)
+                    },
+                    // The non-gestural route to the Collection
+                    // resolution (#313): the pinch is aimed by where
+                    // the fingers land, and a reader with no fingers
+                    // to aim needs the same node named instead. Calls
+                    // the same function the (not yet built) pinch
+                    // will call, so the two paths cannot drift.
+                    onWalk = { actions.openCollectionWalk(node) },
+                )
             }
         }
     }
