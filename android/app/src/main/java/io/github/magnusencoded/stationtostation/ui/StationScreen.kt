@@ -4931,8 +4931,7 @@ private fun EventBottomBar(
             if (checkedIn) presenceRow()
             Text(
                 when (leaf) {
-                    // "above" was true when the editor sat over the set. The
-                    // entries are the set now and the way in is under it (#268).
+                    // The entries are the set; the way in is under it.
                     GigLeaf.CAPTURE -> "noting the set — add what they play below"
                     else -> "your log · add anything you remember below"
                 },
@@ -4981,7 +4980,7 @@ private fun EventBottomBar(
             }
         }
     } else if (planned && setlist != null) {
-        // What a planned gig lets you do follows the clock (#55): plan it while
+        // What a planned gig lets you do follows the clock: plan it while
         // it's still ahead, check in on the night, nudge setlist.fm once it's
         // over. An unparseable date can't be placed on that line, so it falls
         // to the plan-ahead actions rather than losing them.
@@ -4990,7 +4989,7 @@ private fun EventBottomBar(
             Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // The ticket's own barcodes (#441), every Admission in its own
+            // The ticket's own barcodes, every Admission in its own
             // symbology — see TicketAtTheDoor. Gone the moment checked in (see
             // `checkedIn` below) and never drawn at all when there is no ticket
             // to show. Worth showing on this gig's own page as soon as a ticket
@@ -5031,7 +5030,7 @@ private fun EventBottomBar(
                             .padding(vertical = 6.dp),
                     )
                 }
-                // The night itself: maps and check-in (#33), handled above. No
+                // The night itself: maps and check-in, handled above. No
                 // crumb, no plan-ahead buttons.
                 GigTimeState.DAY_OF -> {}
                 // Still ahead (or an undated gig): the swipe is the action, in two
@@ -5174,7 +5173,7 @@ private fun EventChipRow(
         // Once the night has passed the record has the last word:
         // "no setlist yet" is a fact about what is stored, so a Gig
         // holding fifteen songs cannot print it and one holding none
-        // keeps printing it (#127).
+        // keeps printing it.
         EventTag(
             gigStatus(planned, setlist.localDate(), setlist.performed().size),
             color = if (planned) Slate else Muted,
@@ -5183,12 +5182,11 @@ private fun EventChipRow(
             Spacer(Modifier.width(6.dp))
             EventTag(it)
         }
-        // The rule this row now follows: a chip that names an
+        // The rule this row follows: a chip that names an
         // **external record** opens it; a chip stating a local fact
         // (song count, tour, "checked in") does not. That is what
         // makes the setlist.fm chip below learnable rather than a
-        // special case — and it was already true of this one, which
-        // has always named a Spotify URL and done nothing with it.
+        // special case.
         if (made.isNotEmpty()) {
             Spacer(Modifier.width(6.dp))
             EventTag(
@@ -5202,14 +5200,11 @@ private fun EventChipRow(
             )
         }
         // How the app came to believe I was here. A check-in is
-        // stronger evidence than setlist.fm's retroactive flag; the
-        // redundant "planned" chip is gone — "you're going"/countdown
-        // above already says all a planned-and-not-checked-in night can.
-        // A badge marks the exceptional. "Checked in" is earned;
-        // the tag that used to sit beside it labelled the *default*
-        // — nearly every attended gig — and so said nothing. Gone.
+        // stronger evidence than setlist.fm's retroactive flag. A badge
+        // marks the exceptional, so only "checked in" earns one; the default
+        // (nearly every attended gig) would say nothing.
         // Self-assertion and evidence are two different claims and read
-        // as two chips (#442, story 4). A witness is another phone that
+        // as two chips. A witness is another phone that
         // was checked in to this same night signing for mine, so it is
         // strictly more than "checked in" and says so on the same chip
         // rather than beside it — one claim, at its actual strength.
@@ -5225,15 +5220,15 @@ private fun EventChipRow(
         }
         // The setlist.fm id, rendered. Not a button bolted on beside
         // the data — it *is* `StoredGig.setlistId`, and its absence
-        // is #34's stub condition showing itself. That id is the
+        // is the stub condition showing itself. That id is the
         // correspondence key between people, so this chip is the
         // joint where my record meets everyone else's.
         Spacer(Modifier.width(6.dp))
         if (setlist.url != null) {
             EventTag(
-                // The glyph is the tell. Nothing in this row has
-                // ever answered a tap, so a chip that does cannot
-                // rely on anyone trying it.
+                // The glyph is the tell. No other chip in this row
+                // answers a tap, so one that does cannot rely on anyone
+                // trying it.
                 "${setlist.id} ↗",
                 color = Slate,
                 // The canonical setlist page, never a constructed
@@ -5253,7 +5248,7 @@ private fun EventChipRow(
             // nearly every claim here was made and so marks nothing.
             //
             // Deliberately inert. `/edit` shows a signed-out user a
-            // sign-in wall, and #34 is explicit that a dead-end link
+            // sign-in wall, and a dead-end link
             // is worse than no crumb — so the absence is stated and
             // the labelled action below is the door.
             EventTag("local", color = Faint)
@@ -5287,7 +5282,7 @@ private fun EventMedia(
     onAddSuggestion: (Uri) -> Unit,
 ) {
     // The review, where the sharing decision is actually made:
-    // one night at a time (#145). At the timeline the lit and
+    // one night at a time. At the timeline the lit and
     // unlit versions look almost identical; the difference is
     // visible here, which is the right place for it.
     if (contactLight) {
@@ -5333,7 +5328,7 @@ private fun EventMedia(
             }
         }
         // Stopping is a drag down into the vault, one photograph
-        // at a time (#162), so there is no button here — and
+        // at a time, so there is no button here — and
         // there must not be one: nothing retrieves what already
         // left, and no control may look as though it does.
     }
@@ -5349,7 +5344,7 @@ private fun EventMedia(
         // a filtered list they could only misreport.
         contactLight = contactLight,
         editable = editable,
-        // A sender is a public key (#28) and a Contact's name
+        // A sender is a public key and a Contact's name
         // lives on the friends list under a setlist.fm handle.
         // Nothing joins the two yet, so the promise degrades to
         // "someone else" rather than inventing a name.
@@ -5406,7 +5401,7 @@ private fun LazyListScope.setlistRows(
     val gossipFacts = publicGossip.project(setOf(setlist.id))
         .filter { it.author !in publicGossip.localAuthors }
     val contactNames = io.github.magnusencoded.stationtostation.data.gossip.contactNamesOf(friends)
-    // Who was here, and it stays (#498). Asked under every id this night has been
+    // Who was here, and it stays. Asked under every id this night has been
     // known by — adopting a setlist.fm id must not split the record or count the
     // same device under both halves of it.
     val seenWith = publicGossip.seenWith(gigAliases, contactNames)
