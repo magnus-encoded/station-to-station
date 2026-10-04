@@ -69,6 +69,7 @@ import io.github.magnusencoded.stationtostation.data.TimelineCache
 import io.github.magnusencoded.stationtostation.data.TimelineStore
 import io.github.magnusencoded.stationtostation.data.friendFromUri
 import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
+import io.github.magnusencoded.stationtostation.features.playlist.PlaylistController
 import io.github.magnusencoded.stationtostation.data.sfmStamp
 import io.github.magnusencoded.stationtostation.data.sfmUserFromDescription
 import io.github.magnusencoded.stationtostation.data.spotifyPlaylistId
@@ -794,7 +795,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
-    private var matchJob: Job? = null
+    private val playlist = PlaylistController(
+        state = { _state.value },
+        update = { transform -> _state.update(transform) },
+        spotify = spotify,
+        photos = photos,
+        timelines = timelines,
+        scope = viewModelScope,
+        fail = ::fail,
+        addFriend = ::addFriend,
+    )
 
     /** The in-flight artist lookup, so a new keystroke cancels the last one. */
     private var artistSearch: Job? = null
@@ -3490,193 +3500,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return viewModelScope.launch { timelines.saveAttendance(gigId, updated) }
     }
 
-    fun selectSetlist(setlist: FmSetlist) {
-        matchJob?.cancel()
-        val artistName = setlist.artist?.name ?: ""
-        // A closed **Log** is a setlist. #121 put it plainly — "the app is the source
-        // of truth about what was observed and setlist.fm is a publication target" —
-        // so a night whose set I said was complete converts like any other, whether or
-        // not their record has caught up. Only when *closed*: an open Log is a night
-        // still in progress, and offering to make a playlist of the first four songs
-        // while the band is still on is not the same gesture.
-        //
-        // setlist.fm still wins where it has songs. It has the covers and the tape
-        // markers, which a typed title cannot carry.
-        val songs = setlist.songs().filter { it.name.isNotBlank() }.ifEmpty {
-            _state.value.logsByGig[setlist.id]
-                ?.takeIf { it.closed }
-                ?.named()
-                ?.map { FmSong(name = it) }
-                .orEmpty()
-        }
-        val matches = songs
-            .map { song ->
-                SongMatch(
-                    song = song,
-                    searchArtist = song.cover?.name ?: artistName,
-                    // Tape songs are intro/outro recordings, not performed live; excluded by default.
-                    included = !song.tape,
-                )
-            }
-        // Year – Artist – Where. The rule itself is the logic layer's, asserted by
-        // the same cases on both platforms — it is the one that drifted before.
-        val defaultName = TimelineLogic.playlistName(
-            setlist, _state.value.setlists, _state.value.festivals,
-        )
-        _state.update {
-            it.copy(
-                selectedSetlist = setlist,
-                matches = matches,
-                matching = true,
-                playlistName = defaultName,
-                createdPlaylistUrl = null,
-                // A different show means different photos.
-                coverCandidates = emptyList(),
-                selectedCoverUri = null,
-                coverSearched = false,
-                coverUploadError = null,
-            )
-        }
-        loadCoverCandidates()
-        matchJob = viewModelScope.launch {
-            matches.forEachIndexed { index, match ->
-                val (candidates, error) = findCandidates(match.song.name, match.searchArtist)
-                updateMatch(index) {
-                    it.copy(
-                        loading = false,
-                        candidates = candidates,
-                        selected = candidates.firstOrNull(),
-                        included = it.included && candidates.isNotEmpty(),
-                        error = error,
-                    )
-                }
-                // Stay polite with the Spotify search API.
-                delay(120)
-            }
-            _state.update { it.copy(matching = false) }
-        }
-    }
-
-    private suspend fun findCandidates(track: String, artist: String): Pair<List<SpotifyTrack>, String?> {
-        return try {
-            // Ten rather than the default five: ranking can only choose from what it
-            // is handed, and the studio cut often sits under a run of live versions.
-            // Same number of requests either way.
-            var results = spotify.searchTracks("track:\"$track\" artist:\"$artist\"", limit = 10)
-            if (results.isEmpty()) {
-                results = spotify.searchTracks("$track $artist", limit = 10)
-            }
-            // Best-first rather than Spotify-first: the auto-selection above takes the
-            // head of this list, and the picker lists them in this order too.
-            rankCandidates(results, track, artist) to null
-        } catch (e: Exception) {
-            emptyList<SpotifyTrack>() to (e.message ?: "Search failed")
-        }
-    }
-
-    private fun updateMatch(index: Int, transform: (SongMatch) -> SongMatch) {
-        _state.update { s ->
-            if (index !in s.matches.indices) s
-            else s.copy(matches = s.matches.mapIndexed { i, m -> if (i == index) transform(m) else m })
-        }
-    }
-
-    fun toggleIncluded(index: Int) = updateMatch(index) { it.copy(included = !it.included) }
-
-    fun chooseCandidate(index: Int, track: SpotifyTrack) =
-        updateMatch(index) { it.copy(selected = track, included = true) }
-
-    fun setPlaylistName(name: String) = _state.update { it.copy(playlistName = name) }
-    fun setPlaylistPublic(public: Boolean) = _state.update { it.copy(playlistPublic = public) }
-
-    /**
-     * Discovers a friend from a Spotify playlist link they shared: reads the playlist's
-     * description, and if it carries a setlist.fm stamp, adds the owner as a friend.
-     */
-    fun discoverFriendFromPlaylist(link: String) {
-        val id = spotifyPlaylistId(link)
-        if (id == null) {
-            _state.update { it.copy(errorKind = null, error = "That doesn't look like a Spotify playlist link.") }
-            return
-        }
-        viewModelScope.launch {
-            try {
-                val playlist = spotify.getPlaylist(id)
-                val username = sfmUserFromDescription(playlist.description)
-                val ownerId = playlist.owner?.id
-                val me = runCatching { spotify.currentUser().id }.getOrNull()
-                when {
-                    username == null -> _state.update {
-                        it.copy(
-                            error = "That playlist wasn't made with this app, so there's no setlist.fm user to add.",
-                            errorKind = null,
-                        )
-                    }
-                    ownerId != null && ownerId == me -> _state.update {
-                        it.copy(notice = "That's your own playlist.")
-                    }
-                    else -> {
-                        addFriend(
-                            Friend(
-                                setlistfm = username,
-                                name = playlist.owner?.displayName?.ifBlank { null } ?: username,
-                                spotifyId = ownerId,
-                            )
-                        )
-                        _state.update { it.copy(notice = "Added @$username as a friend.") }
-                    }
-                }
-            } catch (e: Exception) {
-                fail(e)
-            }
-        }
-    }
-
-    /**
-     * Offers the gig's own keepsakes first — already chosen for this night, so
-     * they need no permission and no re-asking — then the gallery's same-night
-     * match once that permission is granted. The gallery half is silent when
-     * missing: the confirm screen asks for it instead, so a prompt only ever
-     * follows a tap.
-     */
-    fun loadCoverCandidates() {
-        val setlist = _state.value.selectedSetlist ?: return
-        val date = setlist.localDate() ?: return
-        val granted = photos.hasPermission()
-        _state.update { it.copy(coverPermissionGranted = granted) }
-        viewModelScope.launch {
-            _state.update { it.copy(coverLoading = true) }
-            val pinned = _state.value.mediaBySetlist[setlist.id].orEmpty().map { Uri.parse(it.ref) }
-            val gallery = if (granted) photos.photosFrom(date).map { it.uri } else emptyList()
-            val candidates = (pinned + gallery).distinct().map { CoverCandidate(it, photos.preview(it)) }
-            _state.update {
-                it.copy(
-                    coverCandidates = candidates,
-                    coverLoading = false,
-                    coverSearched = true,
-                    // The first photo is the suggestion, so it is the cover
-                    // until the picker is swiped somewhere else.
-                    selectedCoverUri = candidates.firstOrNull()?.uri,
-                )
-            }
-        }
-    }
-
-    /**
-     * The cover the picker has landed on, or null for Spotify's own collage.
-     * Called on every settled swipe, so an unchanged value is left alone rather
-     * than published as new state.
-     */
-    fun setCover(uri: Uri?) = _state.update {
-        // A different cover means the frame scrubbed out of the last one is moot.
-        if (it.selectedCoverUri == uri) it
-        else it.copy(selectedCoverUri = uri, selectedCoverFrameMs = 0L)
-    }
-
-    /** Where the scrubber landed on the chosen clip — the frame that becomes the cover. */
-    fun setCoverFrame(atMs: Long) = _state.update {
-        if (it.selectedCoverFrameMs == atMs) it else it.copy(selectedCoverFrameMs = atMs)
-    }
+    fun selectSetlist(setlist: FmSetlist) = playlist.selectSetlist(setlist)
+    fun toggleIncluded(index: Int) = playlist.toggleIncluded(index)
+    fun chooseCandidate(index: Int, track: SpotifyTrack) = playlist.chooseCandidate(index, track)
+    fun setPlaylistName(name: String) = playlist.setPlaylistName(name)
+    fun setPlaylistPublic(public: Boolean) = playlist.setPlaylistPublic(public)
+    fun discoverFriendFromPlaylist(link: String) = playlist.discoverFriendFromPlaylist(link)
+    fun loadCoverCandidates() = playlist.loadCoverCandidates()
+    fun setCover(uri: Uri?) = playlist.setCover(uri)
+    fun setCoverFrame(atMs: Long) = playlist.setCoverFrame(atMs)
+    fun researchSong(index: Int, query: String) = playlist.researchSong(index, query)
+    fun createPlaylist() = playlist.createPlaylist()
+    fun removePlaylist(setlistId: String, url: String) = playlist.removePlaylist(setlistId, url)
 
     fun isVideoCover(uri: Uri): Boolean = photos.isVideo(uri)
 
@@ -3774,18 +3609,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         setGigMedia(setlistId, kept)
         // Removing means removing: the derived copies this app owns go with it.
         viewModelScope.launch { gone.forEach { photos.deleteThumbnails(it.id) } }
-    }
-
-    /** Drops a playlist link the app made — for when the playlist itself was deleted
-     *  on Spotify, so the pointer to it here is now just dead weight. */
-    fun removePlaylist(setlistId: String, url: String) {
-        _state.update {
-            it.copy(
-                playlistsBySetlist = it.playlistsBySetlist +
-                    (setlistId to it.playlistsBySetlist[setlistId].orEmpty().filterNot { p -> p.url == url }),
-            )
-        }
-        viewModelScope.launch { timelines.removePlaylist(setlistId, url) }
     }
 
     /**
@@ -3890,130 +3713,5 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return record?.let { photos.cachedFullThumbnail(it.id) }
             ?: photos.preview(uri, sizePx = 1600)
             ?: record?.let { photos.gridThumbnail(it.id) }
-    }
-
-    /** Manual re-search for one song with a user-provided query. */
-    fun researchSong(index: Int, query: String) {
-        if (query.isBlank()) return
-        updateMatch(index) { it.copy(loading = true, error = null) }
-        viewModelScope.launch {
-            try {
-                val found = spotify.searchTracks(query.trim(), limit = 10)
-                updateMatch(index) {
-                    // Ranked like the automatic search, or searching by hand would be
-                    // the one path that still hands you Spotify's karaoke rendition.
-                    // The query is the user's, but which recording we mean is still
-                    // this song by this artist.
-                    val results = rankCandidates(found, it.song.name, it.searchArtist)
-                    it.copy(
-                        loading = false,
-                        candidates = results,
-                        selected = results.firstOrNull() ?: it.selected,
-                        error = if (results.isEmpty()) "No results for \"$query\"" else null,
-                    )
-                }
-            } catch (e: Exception) {
-                updateMatch(index) { it.copy(loading = false, error = e.message ?: "Search failed") }
-            }
-        }
-    }
-
-    // --- Playlist creation ---
-
-    fun createPlaylist() {
-        val s = _state.value
-        val tracks = s.matches.filter { it.included && it.selected != null }.mapNotNull { it.selected }
-        if (tracks.isEmpty()) {
-            _state.update { it.copy(errorKind = null, error = "No songs selected") }
-            return
-        }
-        val name = s.playlistName.ifBlank { "Setlist" }
-        _state.update { it.copy(creatingPlaylist = true) }
-        viewModelScope.launch {
-            try {
-                // Unknown scope means the login predates scope tracking — the
-                // remedy is the same as a missing scope: a fresh login.
-                if (spotify.hasPlaylistScopes() != true) {
-                    throw IllegalStateException(
-                        "Your Spotify login is missing playlist permissions. " +
-                            "Log out in Settings, then log in again and approve " +
-                            "the playlist access on the Spotify page that opens."
-                    )
-                }
-                val setlist = s.selectedSetlist
-                // Stamp the creator so a friend's app can discover the mapping from a shared
-                // link. Appended after the 300-char clamp so truncation can't cut it off.
-                val stamp = s.mySetlistFmUser.trim().takeIf { it.isNotEmpty() }
-                    ?.let { " " + sfmStamp(it) } ?: ""
-                val description = buildString {
-                    append("Live at ").append(setlist?.venueLine() ?: "an unknown venue")
-                    // The name carries only the year, so the full date lives here.
-                    setlist?.readableDate()?.let { append(", ").append(it) }
-                    append(".")
-                    setlist?.tour?.name?.let { append(" ").append(it).append(".") }
-                    append(" From setlist.fm")
-                    setlist?.url?.let { append(": ").append(it) }
-                }.take(300 - stamp.length) + stamp
-                val playlist = spotify.createPlaylist(name, description, s.playlistPublic)
-                val result = try {
-                    spotify.addTracks(playlist.id, tracks.map { it.uri })
-                } catch (e: Exception) {
-                    // The playlist exists at this point, so say so rather than
-                    // leaving the user with a bare failure and a stray playlist.
-                    throw IllegalStateException(
-                        "Playlist \"$name\" was created but the songs could not be added. " +
-                            "${e.message}",
-                        e,
-                    )
-                }
-                // The songs are the point, so a cover that will not upload is
-                // reported next to the success rather than thrown over it.
-                val coverError = s.selectedCoverUri?.let {
-                    uploadCover(playlist.id, it, s.selectedCoverFrameMs)
-                }
-                // Fall back to the canonical URL rather than dropping the link:
-                // externalUrls is Spotify's to omit, the id is ours to keep.
-                val url = playlist.externalUrls["spotify"]
-                    ?: "https://open.spotify.com/playlist/${playlist.id}"
-                val made = StoredPlaylist(url = url, name = name, trackCount = result.added)
-                val night = setlist?.id?.takeIf { it.isNotBlank() }
-                _state.update {
-                    it.copy(
-                        creatingPlaylist = false,
-                        createdPlaylistUrl = url,
-                        createdPlaylistName = name,
-                        createdTrackCount = result.added,
-                        createdRefusedCount = result.refused.size,
-                        coverUploadError = coverError,
-                        // Appended: converting this night again must not orphan a
-                        // link already sent to someone.
-                        playlistsBySetlist =
-                            if (night == null) it.playlistsBySetlist
-                            else it.playlistsBySetlist +
-                                (night to (it.playlistsBySetlist[night].orEmpty() + made)),
-                    )
-                }
-                // So the night still points at it on the next launch.
-                if (night != null) timelines.save(playlists = mapOf(night to made))
-            } catch (e: Exception) {
-                fail(e)
-            }
-        }
-    }
-
-    /** Returns null on success, or the reason the cover did not make it. */
-    private suspend fun uploadCover(playlistId: String, uri: Uri, frameMs: Long = 0L): String? {
-        if (!spotify.hasImageUploadScope()) {
-            return "The cover needs a permission your Spotify login predates. " +
-                "Log out in Settings and log in again to enable playlist covers."
-        }
-        val jpeg = photos.coverJpeg(uri, frameMs)
-            ?: return "That photo could not be prepared as a cover."
-        return try {
-            spotify.uploadCover(playlistId, jpeg)
-            null
-        } catch (e: Exception) {
-            "The cover could not be uploaded. ${e.message}"
-        }
     }
 }
