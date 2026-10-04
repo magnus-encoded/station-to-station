@@ -77,13 +77,16 @@ class SettingsController(
     suspend fun saveSettingsNow(apiKey: String, clientId: String) {
         settings.saveSetlistFmApiKey(apiKey)
         settings.saveSpotifyClientId(clientId)
+        val loginReady = settings.spotifyClientIdValue() != null
+        val setlistFmReady = settings.setlistFmApiKeyValue() != null
+        val quotaSpent = settings.sharedQuotaSpentNow()
         update {
             it.copy(
                 setlistFmApiKey = apiKey.trim(),
                 spotifyClientId = clientId.trim(),
-                spotifyLoginReady = settings.spotifyClientIdValue() != null,
-                setlistFmReady = settings.setlistFmApiKeyValue() != null,
-                setlistFmSharedQuotaSpent = settings.sharedQuotaSpentNow(),
+                spotifyLoginReady = loginReady,
+                setlistFmReady = setlistFmReady,
+                setlistFmSharedQuotaSpent = quotaSpent,
             )
         }
     }
@@ -95,11 +98,12 @@ class SettingsController(
     fun saveClashfinderCredentials(user: String, privateKey: String) {
         scope.launch {
             settings.saveClashfinderCredentials(user, privateKey)
+            val ready = settings.clashfinderAuth() != null
             update {
                 it.copy(
                     clashfinderUser = user.trim(),
                     clashfinderPrivateKey = privateKey.trim(),
-                    clashfinderReady = settings.clashfinderAuth() != null,
+                    clashfinderReady = ready,
                 )
             }
         }
@@ -115,9 +119,8 @@ class SettingsController(
                 when {
                     code != null -> {
                         spotify.exchangeCodeForTokens(code)
-                        update {
-                            it.copy(spotifyConnected = true, grantedScope = settings.grantedScope())
-                        }
+                        val granted = settings.grantedScope()
+                        update { it.copy(spotifyConnected = true, grantedScope = granted) }
                     }
                     authError != null ->
                         update { it.copy(errorKind = null, error = "Spotify login failed: $authError") }
