@@ -16,7 +16,7 @@ so, before any feature, and the fuller account has a **Privacy.** paragraph.
 Every version listed under "What has changed" in the
 [privacy policy](docs/privacy-policy.md#what-has-changed) is checked for this.
 
-## 1.11.1 — 2026-10-05
+## 1.12.0 — 2026-10-05
 
 <!-- play -->
 Syncing with a contact on the same WiFi works again: it could fail after the Exchange screen had been opened before, so hand-added gigs never reached them. Both phones need the Exchange screen open while they sync. A contact's whole setlist.fm history now shows beside yours, not just the stretch since your own first gig, and a gig you share no longer appears twice beside a festival that evening. A gig you added by hand and then delete leaves your contacts' phones at the next sync.
