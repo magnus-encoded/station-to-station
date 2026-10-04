@@ -18,12 +18,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalDate
 import java.time.LocalDateTime
 
-/**
- * Planned **Gigs**, shared tickets and **Departures**' commit: everything that puts a night
- * onto the **Line** ahead of, or without, setlist.fm.
- *
- * What is not extracted yet arrives as a function: [fail], [adoptSetlist], [lookUpLocalGig].
- */
+/** Planned **Gigs**, shared tickets and **Departures**' commit: what puts a night on the **Line** ahead of, or without, setlist.fm. */
 class PlanningController(
     private val state: () -> UiState,
     private val update: ((UiState) -> UiState) -> Unit,
@@ -39,7 +34,7 @@ class PlanningController(
 ) {
 
     companion object {
-        /** How long a shared ticket's import waits on setlist.fm before reading it as no match (#531). */
+        /** How long a shared ticket's import waits on setlist.fm before reading it as no match. */
         private const val TICKET_LOOKUP_TIMEOUT_MS = 5_000L
     }
 
@@ -58,7 +53,7 @@ class PlanningController(
      * url or the bare id.
      *
      * Fetched by id, never searched. setlist.fm's search index stops about a day
-     * out (see #29), so a show weeks away cannot be found by artist, venue or date;
+     * out, so a show weeks away cannot be found by artist, venue or date;
      * it can only be asked for by the id sitting in the url of the page the user
      * was on when they pressed "I'll be there".
      */
@@ -83,12 +78,10 @@ class PlanningController(
 
     /**
      * A setlist.fm night onto the plan, as setlist.fm has it: [addPlannedGig]'s write,
-     * shared with a ticket whose lookup found its night (#531).
+     * shared with a ticket whose lookup found its night.
      */
     private suspend fun planFmGig(hit: FmSetlist) {
-        // Saved before the state update, not after, because the claim the lane
-        // filters on comes back from the save. The old order left this path
-        // with the same hole as the typed-in one.
+        // Saved before the state update: the claim the lane filters on comes back from the save.
         val attendance = timelines.savePlanned(hit)
         update {
             it.copy(
@@ -123,7 +116,7 @@ class PlanningController(
      * claiming nothing.
      *
      * Joining answers no **Maybe**. A **Maybe** is joined only by my "same night", so a
-     * hand-logged night of mine on this date stays a question, and is now asked against
+     * hand-logged night of mine on this date stays a question, asked against
      * a night I hold.
      */
     fun joinGig(gig: FmSetlist) {
@@ -146,14 +139,10 @@ class PlanningController(
     /**
      * A gig I'm going to, typed in: who is playing, where, and when.
      *
-     * **The objection that kept this a paste box is obsolete.** `AddPlannedGigDialog`
-     * defended taking only a setlist.fm link on two grounds. The first still holds —
-     * setlist.fm's search index stops about a day out (#29), so a future gig cannot be
-     * *found*. The second, that typing the details in "would invent a second record for
-     * a gig setlist.fm already has", is no longer true: `createLocalGig` mints local
-     * **Gig**s for nights setlist.fm has never heard of, and `adoptSetlistId` moves one
-     * onto the vendor id when setlist.fm catches up, with every photo, offset, calendar
-     * link and playlist intact.
+     * A typed-in night is no duplicate of setlist.fm's: `adoptSetlistId` moves a local
+     * **Gig** onto the vendor id when setlist.fm catches up, keeping its photos, offsets,
+     * calendar link and playlist. setlist.fm's search index stops about a day out, so a
+     * future gig cannot be found, only typed.
      *
      * **No attendance is written**, which is the whole difference from [addLocalGig].
      * `savePlanned` records `PLANNED` for a gig with no claim on it, and a night I have
@@ -185,13 +174,13 @@ class PlanningController(
     }
 
     /**
-     * A PDF shared into the app via the system share sheet (#411) — MainActivity's
+     * A PDF shared into the app via the system share sheet — MainActivity's
      * `handleTicketIntent` is the sibling of `handleAuthIntent` that reaches this.
      *
      * `PdfTicketExtractor.onDevice` reads every page twice — its own text layer and
      * ML Kit's OCR of one rasterization, which zxing reads for barcodes too — and
      * `parseTicket` (through `parseTicketFields`) and `routeTicket` decide what that
-     * adds up to (#526). Per #411's clarified spec, only a complete,
+     * adds up to. Only a complete,
      * unambiguous parse acts on its own — [TicketRouting.AlreadyKnown] merges into
      * the gig it matched, [TicketRouting.NewPlannedGig] takes the same
      * local-planned-gig path [addPlannedGigByHand] does. Anything else becomes
@@ -217,7 +206,7 @@ class PlanningController(
      * reasonably-dated shape they already format dates in rather than being made to
      * learn this app's own dd-MM-yyyy. `qr` is the barcode's own decoded payload
      * (plain text, not base64) — optional, since a page may not have it at hand. It
-     * becomes the same Admission shape the PDF path stores (#441): the text's UTF-8
+     * becomes the same Admission shape the PDF path stores: the text's UTF-8
      * bytes, symbology `qr` (the parameter's own name for it), page 0, uncorroborated —
      * a link has no printed text to check it against.
      *
@@ -241,12 +230,12 @@ class PlanningController(
     /**
      * [handleSharedTicketPdf] and [handleTicketLink]'s shared decision, once each has its own [ParsedTicket].
      *
-     * Every Admission is redrawn in its own symbology and read back first (#441, story
-     * 29), whichever path it came in by: [routeTicket] adds nothing without asking whose
+     * Every Admission is redrawn in its own symbology and read back first,
+     * whichever path it came in by: [routeTicket] adds nothing without asking whose
      * barcode the app could not show, and the prompt says which one. One zxing decode
      * each, off the main thread.
      *
-     * Where one does not redraw, [keepOriginal] copies the shared file in (#568) and
+     * Where one does not redraw, [keepOriginal] copies the shared file in and
      * every such Admission names it: the Room shows that file in its place, so the
      * ticket needs no prompt for it. Null for a path with no file (a link).
      */
@@ -261,7 +250,7 @@ class PlanningController(
         }
         val known = state().setlists + state().plannedGigs
         val routing = routeTicket(parsed, known)
-        // setlist.fm is asked before anything is written or asked (#531): by artist and
+        // setlist.fm is asked before anything is written or asked: by artist and
         // day, never venue. A night already known needs no search here; a local one is
         // looked up once its Admissions are on it.
         val artist = parsed.artist?.trim()?.ifEmpty { null }
@@ -307,7 +296,7 @@ class PlanningController(
     /**
      * setlist.fm's `search/setlists` for a shared ticket's [artist] and [date], held to
      * [parsed] by the matcher. The person is waiting on the import, so it gets a few
-     * seconds and no more; a failure, a refusal or a timeout reads as no match (#531).
+     * seconds and no more; a failure, a refusal or a timeout reads as no match.
      */
     private suspend fun ticketSearch(parsed: ParsedTicket, artist: String, date: String): TicketSearch {
         val at = System.currentTimeMillis()
@@ -350,7 +339,7 @@ class PlanningController(
      * matched if it turns out to be a night already known, otherwise a new planned
      * gig. The Admissions travel from the original parse regardless of what the person
      * edited — they are preserved even when the text half of the ticket needed fixing
-     * by hand (#441, story 16).
+     * by hand.
      *
      * The match is checked *again* on the confirmed values rather than trusted from
      * routing, as iOS's `confirmTicket` does. [PendingTicket.possibleMatch] was found
@@ -371,7 +360,7 @@ class PlanningController(
             update { it.copy(errorKind = null, error = "A night needs who is playing and a date as dd-MM-yyyy.") }
             return
         }
-        // What the setlist.fm list above "None of these" comes to (#531). An edited
+        // What the setlist.fm list above "None of these" comes to. An edited
         // artist or date hid the list, so it neither chooses nor rejects anything.
         val answer = pending.setlistFm?.answer(artist, date, chosenSetlistId) ?: TicketSetlistFmAnswer.UNASKED
         scope.launch {
@@ -407,7 +396,7 @@ class PlanningController(
         }
     }
 
-    /** The confirm dialog's Discard — the guess is dropped, nothing is written, and no file is kept for it (#568). */
+    /** The confirm dialog's Discard — the guess is dropped, nothing is written, and no file is kept for it. */
     fun dismissPendingTicket(id: String) {
         state().pendingTickets.firstOrNull { it.id == id }?.parsed?.originals?.forEach(ticketOriginals::forget)
         update { it.answeringTicket(id) }
@@ -434,7 +423,7 @@ class PlanningController(
     }
 
     /**
-     * Every Admission onto the night, appended (#441). No-op when there is none to
+     * Every Admission onto the night, appended. No-op when there is none to
      * keep — most confirmations and most matches.
      */
     private suspend fun attachAdmissions(gigId: String, admissions: List<Admission>) {
@@ -478,13 +467,7 @@ class PlanningController(
     }
 
     /**
-     * A night entered by hand — the zero-account floor's one door (#225).
-     *
-     * Nothing here is new machinery. `createLocalGig` has minted **Gig**s with no
-     * setlist.fm id since the **Bill** shipped, and `localGigSetlist` has been
-     * dressing them as an `FmSetlist` for every screen to draw. The floor was
-     * always real; what was missing was a way onto it, because both affordances on
-     * the empty spine led to setlist.fm.
+     * A night entered by hand — the zero-account floor's one door.
      *
      * **Attendance is ATTENDED, never CHECKED_IN.** Typing a night in is a claim
      * about the past made now; a check-in is a claim the phone corroborated at the
