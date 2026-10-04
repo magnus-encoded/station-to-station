@@ -772,7 +772,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 f.publicKey?.let { key -> shows[f.laneKey]?.let { key to it } }
             }.toMap()
         },
-        onNights = { key, nights -> landContactNights(key, nights) },
+        onNights = { key, nights -> contacts.landContactNights(key, nights) },
         myNights = { timelines.load().mySpine(settings.mySetlistFmUser.first().orEmpty()) },
         onOffers = { offers ->
             timelines.holdMediaOffers(offers)
