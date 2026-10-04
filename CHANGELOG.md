@@ -19,8 +19,24 @@ Every version listed under "What has changed" in the
 ## 1.12.0 — 2026-10-05
 
 <!-- play -->
-Syncing with a contact on the same WiFi works again: it could fail after the Exchange screen had been opened before, so hand-added gigs never reached them. Both phones need the Exchange screen open while they sync. A contact's whole setlist.fm history now shows beside yours, not just the stretch since your own first gig, and a gig you share no longer appears twice beside a festival that evening. A gig you added by hand and then delete leaves your contacts' phones at the next sync.
+Take a gig back: delete one you added by hand and it leaves your contacts' phones at the next sync. One "Add a gig" form, where the date decides whether you were there or are going, and a contact's gig offers "I was there too". Long-press a gig on the timeline to delete it or open it on setlist.fm. Syncing with a contact on the same WiFi works again (both phones need the Exchange screen open), and their whole setlist.fm history now shows beside yours.
 <!-- /play -->
+
+**Taking a gig back.** A gig you added by hand and later delete, or no longer
+mark as attended, now leaves your line on a Contact's phone the next time you
+sync, the way unticking "I was there" on setlist.fm does. Photos you had sent
+them for it go too, unless they had already said it was their night as well —
+then the photos are on their own gig and stay there. It is not a recall: what
+they saw before the sync, they saw.
+
+**One way to add a gig.** There is now a single "Add a gig" form, wherever you
+start from. The date decides what it is: a night before today is one you were
+at, a later one is a gig you are going to. A Contact's gig offers "I was there
+too" or "I am going too", so you can join it rather than type it in again.
+
+**Long-press on the timeline.** Holding a gig opens a menu: delete it, or open
+it on setlist.fm. Deleting asks first when the gig has photos, and takes the
+whole night away, not just part of it.
 
 **Syncing with a Contact, fixed.** On Android, every visit to the Exchange
 screen left something behind that could answer the next phone it found with a
@@ -29,26 +45,16 @@ tried again. It now starts clean each time and retries a phone it could not
 reach. To be clear about when syncing happens: the two phones sync while both
 have the Exchange screen open on the same WiFi, not in the background.
 
-**Checking in to a gig you added by hand.** A gig you typed in yourself had no
-"I'm here — check in" on Android, so it stayed planned — and a planned gig is
-never sent to a Contact. It can now be checked into on the night like any other.
-
-**Taking a gig back.** A gig you added by hand and later delete, or no longer
-mark as attended, now leaves your line on a Contact's phone the next time you
-sync, the way unticking "I was there" on setlist.fm does. Photos you had sent
-them for it go too, unless they had already said it was their night as well —
-then the photos are on their own gig and stay there.
-
 **A Contact's whole history.** Their line used to stop at your own oldest gig,
 so someone who had just started saw only a page of a friend's years. All of it
-is now fetched and kept.
+is now fetched and kept, and switching a line on in the legend brings it up to
+date.
 
-**One gig, one row.** A gig you both went to, on an evening one of you also had
-a festival at the same venue, could be drawn twice: shared under the festival
-and yours-only on its own row. It is now one row.
-
-**iOS.** The app no longer hangs on a black screen at launch, and a gig's page
-shows its setlist.fm id as a link, as on Android.
+**Fixes.** A gig you typed in yourself could not be checked into on Android, so
+it stayed planned and never reached a Contact; it now has "I'm here — check in"
+on the night. A gig you both went to, on an evening one of you also had a
+festival at the same venue, is one row instead of two. On iOS the app no longer
+hangs on a black screen at launch, and a gig's page links its setlist.fm id.
 
 ## 1.11.0 — 2026-09-28
 
