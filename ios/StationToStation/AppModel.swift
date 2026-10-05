@@ -284,7 +284,7 @@ struct HandoverUi {
 }
 
 @MainActor
-final class AppModel: ObservableObject {
+final class AppModel: ObservableObject, StateHost {
 
     @Published var state = UiState()
     /// Ephemeral, never persisted or sent. Shared by the Spine and Room comparison.
@@ -1273,7 +1273,7 @@ final class AppModel: ObservableObject {
 
     /// The one place a thrown thing becomes an error on screen — and, for a spent shared
     /// setlist.fm quota, an error with something to do about it.
-    private func fail(_ error: Error) {
+    func fail(_ error: Error) {
         state.error = userMessage(error)
         state.errorKind = errorKind(of: error)
         if isSharedQuota(error) { state.setlistFmSharedQuotaSpent = true }
