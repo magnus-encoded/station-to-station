@@ -1,0 +1,987 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "happy-path",
+      "row": "Happy path",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "calendarAdded", "expect": {"step": "S11", "commands": ["showCoachMark(maps)"]}},
+        {"event": "mapsOpened", "expect": {"step": "S12", "commands": ["advanceDemoClock(doors)", "showCoachMark(ticket)"]}},
+        {"event": "ticketShown", "expect": {"step": "S13", "commands": ["showCoachMark(checkIn)"]}},
+        {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
+        {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
+        {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
+        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
+        {"event": "setlistFilled", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
+        {"event": "returnedFromPhotos", "expect": {"step": "S18", "commands": []}},
+        {"event": "mediaAdded", "expect": {"step": "S19", "commands": ["deliverFriendSelfie", "advanceDemoClock(after)", "showCoachMark(spotify)"]}},
+        {"event": "spotifyExported", "expect": {"step": "S20", "commands": ["purgeDemoWorld", "markTourFinished"]}}
+      ],
+      "expected": {"visitedSteps": ["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11", "S12", "S13", "S14", "S15", "S16", "S17", "S18", "S19", "S20"], "finished": true, "spotifyExported": true}
+    },
+    {
+      "id": "offline-start",
+      "row": "Offline start",
+      "online": false,
+      "checks": [
+        {"event": "started", "expect": {"step": null, "commands": [], "finished": false}}
+      ]
+    },
+    {
+      "id": "skip-s1",
+      "row": "Skip at Sn",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
+      ],
+      "expected": {"playlistExportedBySkip": false}
+    },
+    {
+      "id": "skip-s2",
+      "row": "Skip at Sn",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
+      ],
+      "expected": {"playlistExportedBySkip": false}
+    },
+    {
+      "id": "skip-s3",
+      "row": "Skip at Sn",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
+      ],
+      "expected": {"playlistExportedBySkip": false}
+    },
+    {
+      "id": "skip-s4",
+      "row": "Skip at Sn",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
+      ],
+      "expected": {"playlistExportedBySkip": false}
+    },
+    {
+      "id": "skip-s5",
+      "row": "Skip at Sn",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
+      ],
+      "expected": {"playlistExportedBySkip": false}
+    },
+    {
+      "id": "skip-s6",
+      "row": "Skip at Sn",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
+      ],
+      "expected": {"playlistExportedBySkip": false}
+    },
+    {
+      "id": "skip-s7",
+      "row": "Skip at Sn",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
+      ],
+      "expected": {"playlistExportedBySkip": false}
+    },
+    {
+      "id": "skip-s8",
+      "row": "Skip at Sn",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
+      ],
+      "expected": {"playlistExportedBySkip": false}
+    },
+    {
+      "id": "skip-s9",
+      "row": "Skip at Sn",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
+      ],
+      "expected": {"playlistExportedBySkip": false}
+    },
+    {
+      "id": "skip-s10",
+      "row": "Skip at Sn",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
+      ],
+      "expected": {"playlistExportedBySkip": false}
+    },
+    {
+      "id": "skip-s11",
+      "row": "Skip at Sn",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "calendarAdded", "expect": {"step": "S11", "commands": ["showCoachMark(maps)"]}},
+        {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
+      ],
+      "expected": {"playlistExportedBySkip": false}
+    },
+    {
+      "id": "skip-s12",
+      "row": "Skip at Sn",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "calendarAdded", "expect": {"step": "S11", "commands": ["showCoachMark(maps)"]}},
+        {"event": "mapsOpened", "expect": {"step": "S12", "commands": ["advanceDemoClock(doors)", "showCoachMark(ticket)"]}},
+        {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
+      ],
+      "expected": {"playlistExportedBySkip": false}
+    },
+    {
+      "id": "skip-s13",
+      "row": "Skip at Sn",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "calendarAdded", "expect": {"step": "S11", "commands": ["showCoachMark(maps)"]}},
+        {"event": "mapsOpened", "expect": {"step": "S12", "commands": ["advanceDemoClock(doors)", "showCoachMark(ticket)"]}},
+        {"event": "ticketShown", "expect": {"step": "S13", "commands": ["showCoachMark(checkIn)"]}},
+        {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
+      ],
+      "expected": {"playlistExportedBySkip": false}
+    },
+    {
+      "id": "skip-s14",
+      "row": "Skip at Sn",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "calendarAdded", "expect": {"step": "S11", "commands": ["showCoachMark(maps)"]}},
+        {"event": "mapsOpened", "expect": {"step": "S12", "commands": ["advanceDemoClock(doors)", "showCoachMark(ticket)"]}},
+        {"event": "ticketShown", "expect": {"step": "S13", "commands": ["showCoachMark(checkIn)"]}},
+        {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
+        {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
+      ],
+      "expected": {"playlistExportedBySkip": false}
+    },
+    {
+      "id": "skip-s15",
+      "row": "Skip at Sn",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "calendarAdded", "expect": {"step": "S11", "commands": ["showCoachMark(maps)"]}},
+        {"event": "mapsOpened", "expect": {"step": "S12", "commands": ["advanceDemoClock(doors)", "showCoachMark(ticket)"]}},
+        {"event": "ticketShown", "expect": {"step": "S13", "commands": ["showCoachMark(checkIn)"]}},
+        {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
+        {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
+        {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
+      ],
+      "expected": {"playlistExportedBySkip": false}
+    },
+    {
+      "id": "skip-s16",
+      "row": "Skip at Sn",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "calendarAdded", "expect": {"step": "S11", "commands": ["showCoachMark(maps)"]}},
+        {"event": "mapsOpened", "expect": {"step": "S12", "commands": ["advanceDemoClock(doors)", "showCoachMark(ticket)"]}},
+        {"event": "ticketShown", "expect": {"step": "S13", "commands": ["showCoachMark(checkIn)"]}},
+        {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
+        {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
+        {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
+        {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
+      ],
+      "expected": {"playlistExportedBySkip": false}
+    },
+    {
+      "id": "skip-s17",
+      "row": "Skip at Sn",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "calendarAdded", "expect": {"step": "S11", "commands": ["showCoachMark(maps)"]}},
+        {"event": "mapsOpened", "expect": {"step": "S12", "commands": ["advanceDemoClock(doors)", "showCoachMark(ticket)"]}},
+        {"event": "ticketShown", "expect": {"step": "S13", "commands": ["showCoachMark(checkIn)"]}},
+        {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
+        {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
+        {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
+        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
+        {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
+      ],
+      "expected": {"playlistExportedBySkip": false}
+    },
+    {
+      "id": "skip-s18",
+      "row": "Skip at Sn",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "calendarAdded", "expect": {"step": "S11", "commands": ["showCoachMark(maps)"]}},
+        {"event": "mapsOpened", "expect": {"step": "S12", "commands": ["advanceDemoClock(doors)", "showCoachMark(ticket)"]}},
+        {"event": "ticketShown", "expect": {"step": "S13", "commands": ["showCoachMark(checkIn)"]}},
+        {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
+        {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
+        {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
+        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
+        {"event": "setlistFilled", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
+        {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
+      ],
+      "expected": {"playlistExportedBySkip": false}
+    },
+    {
+      "id": "skip-s19",
+      "row": "Skip at Sn",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "calendarAdded", "expect": {"step": "S11", "commands": ["showCoachMark(maps)"]}},
+        {"event": "mapsOpened", "expect": {"step": "S12", "commands": ["advanceDemoClock(doors)", "showCoachMark(ticket)"]}},
+        {"event": "ticketShown", "expect": {"step": "S13", "commands": ["showCoachMark(checkIn)"]}},
+        {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
+        {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
+        {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
+        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
+        {"event": "setlistFilled", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
+        {"event": "returnedFromPhotos", "expect": {"step": "S18", "commands": []}},
+        {"event": "mediaAdded", "expect": {"step": "S19", "commands": ["deliverFriendSelfie", "advanceDemoClock(after)", "showCoachMark(spotify)"]}},
+        {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
+      ],
+      "expected": {"playlistExportedBySkip": false}
+    },
+    {
+      "id": "skip-s20",
+      "row": "Skip at Sn",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "calendarAdded", "expect": {"step": "S11", "commands": ["showCoachMark(maps)"]}},
+        {"event": "mapsOpened", "expect": {"step": "S12", "commands": ["advanceDemoClock(doors)", "showCoachMark(ticket)"]}},
+        {"event": "ticketShown", "expect": {"step": "S13", "commands": ["showCoachMark(checkIn)"]}},
+        {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
+        {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
+        {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
+        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
+        {"event": "setlistFilled", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
+        {"event": "returnedFromPhotos", "expect": {"step": "S18", "commands": []}},
+        {"event": "mediaAdded", "expect": {"step": "S19", "commands": ["deliverFriendSelfie", "advanceDemoClock(after)", "showCoachMark(spotify)"]}},
+        {"event": "spotifyExported", "expect": {"step": "S20", "commands": ["purgeDemoWorld", "markTourFinished"]}},
+        {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
+      ],
+      "expected": {"playlistExportedBySkip": false}
+    },
+    {
+      "id": "resume-s1",
+      "row": "Resume",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "restart", "expect": {"step": "S1", "commands": []}},
+        {"event": "resumed", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}}
+      ]
+    },
+    {
+      "id": "resume-s2",
+      "row": "Resume",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "restart", "expect": {"step": "S2", "commands": []}},
+        {"event": "resumed", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}}
+      ]
+    },
+    {
+      "id": "resume-s3",
+      "row": "Resume",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "restart", "expect": {"step": "S3", "commands": []}},
+        {"event": "resumed", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}}
+      ]
+    },
+    {
+      "id": "resume-s4",
+      "row": "Resume",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "restart", "expect": {"step": "S4", "commands": []}},
+        {"event": "resumed", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}}
+      ]
+    },
+    {
+      "id": "resume-s5",
+      "row": "Resume",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "restart", "expect": {"step": "S5", "commands": []}},
+        {"event": "resumed", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}}
+      ]
+    },
+    {
+      "id": "resume-s6",
+      "row": "Resume",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "restart", "expect": {"step": "S6", "commands": []}},
+        {"event": "resumed", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}}
+      ]
+    },
+    {
+      "id": "resume-s7",
+      "row": "Resume",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "restart", "expect": {"step": "S7", "commands": []}},
+        {"event": "resumed", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}}
+      ]
+    },
+    {
+      "id": "resume-s8",
+      "row": "Resume",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "restart", "expect": {"step": "S8", "commands": []}},
+        {"event": "resumed", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}}
+      ]
+    },
+    {
+      "id": "resume-s9",
+      "row": "Resume",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "restart", "expect": {"step": "S9", "commands": []}},
+        {"event": "resumed", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}}
+      ]
+    },
+    {
+      "id": "resume-s10",
+      "row": "Resume",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "restart", "expect": {"step": "S10", "commands": []}},
+        {"event": "resumed", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}}
+      ]
+    },
+    {
+      "id": "resume-s11",
+      "row": "Resume",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "calendarAdded", "expect": {"step": "S11", "commands": ["showCoachMark(maps)"]}},
+        {"event": "restart", "expect": {"step": "S11", "commands": []}},
+        {"event": "resumed", "expect": {"step": "S11", "commands": ["showCoachMark(maps)"]}}
+      ]
+    },
+    {
+      "id": "resume-s12",
+      "row": "Resume",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "calendarAdded", "expect": {"step": "S11", "commands": ["showCoachMark(maps)"]}},
+        {"event": "mapsOpened", "expect": {"step": "S12", "commands": ["advanceDemoClock(doors)", "showCoachMark(ticket)"]}},
+        {"event": "restart", "expect": {"step": "S12", "commands": []}},
+        {"event": "resumed", "expect": {"step": "S12", "commands": ["advanceDemoClock(doors)", "showCoachMark(ticket)"]}}
+      ]
+    },
+    {
+      "id": "resume-s13",
+      "row": "Resume",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "calendarAdded", "expect": {"step": "S11", "commands": ["showCoachMark(maps)"]}},
+        {"event": "mapsOpened", "expect": {"step": "S12", "commands": ["advanceDemoClock(doors)", "showCoachMark(ticket)"]}},
+        {"event": "ticketShown", "expect": {"step": "S13", "commands": ["showCoachMark(checkIn)"]}},
+        {"event": "restart", "expect": {"step": "S13", "commands": []}},
+        {"event": "resumed", "expect": {"step": "S13", "commands": ["showCoachMark(checkIn)"]}}
+      ]
+    },
+    {
+      "id": "resume-s14",
+      "row": "Resume",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "calendarAdded", "expect": {"step": "S11", "commands": ["showCoachMark(maps)"]}},
+        {"event": "mapsOpened", "expect": {"step": "S12", "commands": ["advanceDemoClock(doors)", "showCoachMark(ticket)"]}},
+        {"event": "ticketShown", "expect": {"step": "S13", "commands": ["showCoachMark(checkIn)"]}},
+        {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
+        {"event": "restart", "expect": {"step": "S14", "commands": []}},
+        {"event": "resumed", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}}
+      ]
+    },
+    {
+      "id": "resume-s15",
+      "row": "Resume",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "calendarAdded", "expect": {"step": "S11", "commands": ["showCoachMark(maps)"]}},
+        {"event": "mapsOpened", "expect": {"step": "S12", "commands": ["advanceDemoClock(doors)", "showCoachMark(ticket)"]}},
+        {"event": "ticketShown", "expect": {"step": "S13", "commands": ["showCoachMark(checkIn)"]}},
+        {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
+        {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
+        {"event": "restart", "expect": {"step": "S15", "commands": []}},
+        {"event": "resumed", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}}
+      ]
+    },
+    {
+      "id": "resume-s16",
+      "row": "Resume",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "calendarAdded", "expect": {"step": "S11", "commands": ["showCoachMark(maps)"]}},
+        {"event": "mapsOpened", "expect": {"step": "S12", "commands": ["advanceDemoClock(doors)", "showCoachMark(ticket)"]}},
+        {"event": "ticketShown", "expect": {"step": "S13", "commands": ["showCoachMark(checkIn)"]}},
+        {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
+        {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
+        {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
+        {"event": "restart", "expect": {"step": "S16", "commands": []}},
+        {"event": "resumed", "expect": {"step": "S16", "commands": ["showCoachMark(gossip)"]}}
+      ]
+    },
+    {
+      "id": "resume-s17",
+      "row": "Resume",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "calendarAdded", "expect": {"step": "S11", "commands": ["showCoachMark(maps)"]}},
+        {"event": "mapsOpened", "expect": {"step": "S12", "commands": ["advanceDemoClock(doors)", "showCoachMark(ticket)"]}},
+        {"event": "ticketShown", "expect": {"step": "S13", "commands": ["showCoachMark(checkIn)"]}},
+        {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
+        {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
+        {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
+        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
+        {"event": "restart", "expect": {"step": "S17", "commands": []}},
+        {"event": "resumed", "expect": {"step": "S17", "commands": ["fillSetlist"]}}
+      ]
+    },
+    {
+      "id": "resume-s18",
+      "row": "Resume",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "calendarAdded", "expect": {"step": "S11", "commands": ["showCoachMark(maps)"]}},
+        {"event": "mapsOpened", "expect": {"step": "S12", "commands": ["advanceDemoClock(doors)", "showCoachMark(ticket)"]}},
+        {"event": "ticketShown", "expect": {"step": "S13", "commands": ["showCoachMark(checkIn)"]}},
+        {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
+        {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
+        {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
+        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
+        {"event": "setlistFilled", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
+        {"event": "restart", "expect": {"step": "S18", "commands": []}},
+        {"event": "resumed", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}}
+      ]
+    },
+    {
+      "id": "resume-s19",
+      "row": "Resume",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "calendarAdded", "expect": {"step": "S11", "commands": ["showCoachMark(maps)"]}},
+        {"event": "mapsOpened", "expect": {"step": "S12", "commands": ["advanceDemoClock(doors)", "showCoachMark(ticket)"]}},
+        {"event": "ticketShown", "expect": {"step": "S13", "commands": ["showCoachMark(checkIn)"]}},
+        {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
+        {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
+        {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
+        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
+        {"event": "setlistFilled", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
+        {"event": "returnedFromPhotos", "expect": {"step": "S18", "commands": []}},
+        {"event": "mediaAdded", "expect": {"step": "S19", "commands": ["deliverFriendSelfie", "advanceDemoClock(after)", "showCoachMark(spotify)"]}},
+        {"event": "restart", "expect": {"step": "S19", "commands": []}},
+        {"event": "resumed", "expect": {"step": "S19", "commands": ["advanceDemoClock(after)", "showCoachMark(spotify)"]}}
+      ]
+    },
+    {
+      "id": "resume-s3-effect-complete",
+      "row": "Resume",
+      "initial": {"step": "S3", "completedEffects": ["lookUpBand"]},
+      "checks": [
+        {"event": "resumed", "expect": {"step": "S3", "commands": ["showCoachMark(band)"]}}
+      ]
+    },
+    {
+      "id": "resume-s9-effect-complete",
+      "row": "Resume",
+      "initial": {"step": "S9", "completedEffects": ["importDemoTicket"]},
+      "checks": [
+        {"event": "resumed", "expect": {"step": "S9", "commands": []}}
+      ]
+    },
+    {
+      "id": "replay",
+      "row": "Replay",
+      "initial": {"finished": true},
+      "checks": [
+        {"event": "replayRequested", "expect": {"step": "S1", "commands": ["showCoachMark(line)"], "freshDemoWorld": true, "finished": false}}
+      ]
+    },
+    {
+      "id": "spotify-declined",
+      "row": "Spotify declined",
+      "checks": [
+        {"event": "started", "expect": {"step": "S1", "commands": ["showCoachMark(line)"]}},
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": ["showCoachMark(curtain)"]}},
+        {"event": "curtainPulled", "expect": {"step": "S3", "commands": ["showCoachMark(band)", "lookUpBand"]}},
+        {"event": "bandPicked", "expect": {"step": "S4", "commands": ["showCoachMark(addGig)"]}},
+        {"event": "gigAdded", "expect": {"step": "S5", "commands": ["showCoachMark(openRoom)"]}},
+        {"event": "roomOpened", "expect": {"step": "S6", "commands": ["showCoachMark(swipeBack)"]}},
+        {"event": "swipedBack", "expect": {"step": "S7", "commands": ["showCoachMark(exchange)"]}},
+        {"event": "contactExchanged", "expect": {"step": "S8", "commands": ["showCoachMark(pinchOut)"]}},
+        {"event": "pinchedOut", "expect": {"step": "S9", "commands": ["importDemoTicket(at: venue)"]}},
+        {"event": "ticketImported", "expect": {"step": "S10", "commands": ["advanceDemoClock(approaching)", "showCoachMark(calendar)"]}},
+        {"event": "calendarAdded", "expect": {"step": "S11", "commands": ["showCoachMark(maps)"]}},
+        {"event": "mapsOpened", "expect": {"step": "S12", "commands": ["advanceDemoClock(doors)", "showCoachMark(ticket)"]}},
+        {"event": "ticketShown", "expect": {"step": "S13", "commands": ["showCoachMark(checkIn)"]}},
+        {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
+        {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
+        {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
+        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
+        {"event": "setlistFilled", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
+        {"event": "returnedFromPhotos", "expect": {"step": "S18", "commands": []}},
+        {"event": "mediaAdded", "expect": {"step": "S19", "commands": ["deliverFriendSelfie", "advanceDemoClock(after)", "showCoachMark(spotify)"]}},
+        {"event": "spotifyDeclined", "expect": {"step": "S20", "commands": ["purgeDemoWorld", "markTourFinished"], "finished": true, "pendingSpotifyRetry": true}}
+      ]
+    },
+    {
+      "id": "spotify-retry",
+      "row": "Spotify retry",
+      "initial": {"finished": true, "pendingSpotifyRetry": true},
+      "checks": [
+        {"event": "spotifyExported", "expect": {"step": null, "commands": [], "pendingSpotifyRetry": false}}
+      ]
+    },
+    {
+      "id": "fill-setlistFm",
+      "row": "Fill: setlist.fm hit",
+      "initial": {"step": "S17"},
+      "input": {"enteredSongs": ["Song 1", "Song 2"], "setlistFmSongs": ["Song 1", "Song 2", "Song 3", "Song 4", "Song 5", "Song 6", "Song 7", "Song 8", "Song 9", "Song 10"], "musicBrainzSongs": ["Song 1", "Song 2", "Song 3", "Song 4", "Song 5", "Song 6", "Song 7", "Song 8", "Song 9", "Song 10"]},
+      "checks": [
+        {"event": "setlistFilled", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}}
+      ],
+      "expected": {"source": "setlistFm", "addedSongs": ["Song 3", "Song 4", "Song 5", "Song 6", "Song 7", "Song 8", "Song 9", "Song 10"], "totalSongs": 10}
+    },
+    {
+      "id": "fill-musicBrainz",
+      "row": "Fill: fallback",
+      "initial": {"step": "S17"},
+      "input": {"enteredSongs": ["Song 1", "Song 2"], "setlistFmSongs": [], "musicBrainzSongs": ["Song 1", "Song 2", "Song 3", "Song 4", "Song 5", "Song 6", "Song 7", "Song 8", "Song 9", "Song 10"]},
+      "checks": [
+        {"event": "setlistFilled", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}}
+      ],
+      "expected": {"source": "musicBrainz", "addedSongs": ["Song 3", "Song 4", "Song 5", "Song 6", "Song 7", "Song 8", "Song 9", "Song 10"], "totalSongs": 10}
+    },
+    {
+      "id": "out-of-order-s1",
+      "row": "Out-of-order event",
+      "initial": {"step": "S1"},
+      "checks": [
+        {"event": "curtainPulled", "expect": {"step": "S1", "commands": [], "unchanged": true}}
+      ]
+    },
+    {
+      "id": "out-of-order-s2",
+      "row": "Out-of-order event",
+      "initial": {"step": "S2"},
+      "checks": [
+        {"event": "acknowledged", "expect": {"step": "S2", "commands": [], "unchanged": true}}
+      ]
+    },
+    {
+      "id": "out-of-order-s3",
+      "row": "Out-of-order event",
+      "initial": {"step": "S3"},
+      "checks": [
+        {"event": "acknowledged", "expect": {"step": "S3", "commands": [], "unchanged": true}}
+      ]
+    },
+    {
+      "id": "out-of-order-s4",
+      "row": "Out-of-order event",
+      "initial": {"step": "S4"},
+      "checks": [
+        {"event": "acknowledged", "expect": {"step": "S4", "commands": [], "unchanged": true}}
+      ]
+    },
+    {
+      "id": "out-of-order-s5",
+      "row": "Out-of-order event",
+      "initial": {"step": "S5"},
+      "checks": [
+        {"event": "acknowledged", "expect": {"step": "S5", "commands": [], "unchanged": true}}
+      ]
+    },
+    {
+      "id": "out-of-order-s6",
+      "row": "Out-of-order event",
+      "initial": {"step": "S6"},
+      "checks": [
+        {"event": "acknowledged", "expect": {"step": "S6", "commands": [], "unchanged": true}}
+      ]
+    },
+    {
+      "id": "out-of-order-s7",
+      "row": "Out-of-order event",
+      "initial": {"step": "S7"},
+      "checks": [
+        {"event": "acknowledged", "expect": {"step": "S7", "commands": [], "unchanged": true}}
+      ]
+    },
+    {
+      "id": "out-of-order-s8",
+      "row": "Out-of-order event",
+      "initial": {"step": "S8"},
+      "checks": [
+        {"event": "acknowledged", "expect": {"step": "S8", "commands": [], "unchanged": true}}
+      ]
+    },
+    {
+      "id": "out-of-order-s9",
+      "row": "Out-of-order event",
+      "initial": {"step": "S9"},
+      "checks": [
+        {"event": "acknowledged", "expect": {"step": "S9", "commands": [], "unchanged": true}}
+      ]
+    },
+    {
+      "id": "out-of-order-s10",
+      "row": "Out-of-order event",
+      "initial": {"step": "S10"},
+      "checks": [
+        {"event": "acknowledged", "expect": {"step": "S10", "commands": [], "unchanged": true}}
+      ]
+    },
+    {
+      "id": "out-of-order-s11",
+      "row": "Out-of-order event",
+      "initial": {"step": "S11"},
+      "checks": [
+        {"event": "acknowledged", "expect": {"step": "S11", "commands": [], "unchanged": true}}
+      ]
+    },
+    {
+      "id": "out-of-order-s12",
+      "row": "Out-of-order event",
+      "initial": {"step": "S12"},
+      "checks": [
+        {"event": "acknowledged", "expect": {"step": "S12", "commands": [], "unchanged": true}}
+      ]
+    },
+    {
+      "id": "out-of-order-s13",
+      "row": "Out-of-order event",
+      "initial": {"step": "S13"},
+      "checks": [
+        {"event": "acknowledged", "expect": {"step": "S13", "commands": [], "unchanged": true}}
+      ]
+    },
+    {
+      "id": "out-of-order-s14",
+      "row": "Out-of-order event",
+      "initial": {"step": "S14"},
+      "checks": [
+        {"event": "acknowledged", "expect": {"step": "S14", "commands": [], "unchanged": true}}
+      ]
+    },
+    {
+      "id": "out-of-order-s15",
+      "row": "Out-of-order event",
+      "initial": {"step": "S15"},
+      "checks": [
+        {"event": "acknowledged", "expect": {"step": "S15", "commands": [], "unchanged": true}}
+      ]
+    },
+    {
+      "id": "out-of-order-s16",
+      "row": "Out-of-order event",
+      "initial": {"step": "S16"},
+      "checks": [
+        {"event": "acknowledged", "expect": {"step": "S16", "commands": [], "unchanged": true}}
+      ]
+    },
+    {
+      "id": "out-of-order-s17",
+      "row": "Out-of-order event",
+      "initial": {"step": "S17"},
+      "checks": [
+        {"event": "acknowledged", "expect": {"step": "S17", "commands": [], "unchanged": true}}
+      ]
+    },
+    {
+      "id": "out-of-order-s18",
+      "row": "Out-of-order event",
+      "initial": {"step": "S18"},
+      "checks": [
+        {"event": "acknowledged", "expect": {"step": "S18", "commands": [], "unchanged": true}}
+      ]
+    },
+    {
+      "id": "out-of-order-s19",
+      "row": "Out-of-order event",
+      "initial": {"step": "S19"},
+      "checks": [
+        {"event": "acknowledged", "expect": {"step": "S19", "commands": [], "unchanged": true}}
+      ]
+    }
+  ]
+}
