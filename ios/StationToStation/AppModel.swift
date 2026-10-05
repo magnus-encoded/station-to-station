@@ -1656,7 +1656,7 @@ final class AppModel: ObservableObject, StateHost {
 
     /// The receiving half of the accounts step. Stored *before* the ack goes back, which
     /// is what the source's own sign-out is gated on — see `HandoverExchange.join`.
-    private func storeHandoverAccounts(_ payload: AccountsPayload) async {
+    func storeHandoverAccounts(_ payload: AccountsPayload) async {
         if let user = payload.identities.setlistFmUser?.nilIfBlank {
             settings.saveMySetlistFmUser(user)
             state.mySetlistFmUser = user
