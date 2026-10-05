@@ -17,7 +17,7 @@ struct FriendsView: View {
                     .font(.caption).foregroundStyle(.secondary)
                 HStack {
                     TextField("setlist.fm username", text: Binding(
-                        get: { s.mySetlistFmUser }, set: model.saveMySetlistFmUser))
+                        get: { s.mySetlistFmUser }, set: model.settingsController.saveMySetlistFmUser))
                         .textFieldStyle(.roundedBorder)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)

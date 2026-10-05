@@ -297,6 +297,7 @@ final class AppModel: ObservableObject, StateHost {
         recordSharedQuotaSpent: { [settings] instant in settings.recordSharedQuotaSpent(at: instant) }
     )
     private lazy var spotify = SpotifyClient(settings)
+    private(set) lazy var settingsController = SettingsController(host: self, settings: settings, spotify: spotify)
     private let musicBrainz = MusicBrainzClient()
     /// The in-flight suggestion lookup, held so the next keystroke can cancel it.
     private var artistSearch: Task<Void, Never>?
@@ -329,7 +330,7 @@ final class AppModel: ObservableObject, StateHost {
         musicBrainz: musicBrainz,
         timelines: timelines,
         settings: settings,
-        saveMySetlistFmUser: { [unowned self] in saveMySetlistFmUser($0) },
+        saveMySetlistFmUser: { [unowned self] in settingsController.saveMySetlistFmUser($0) },
         adoptSetlist: { [unowned self] in await gig.adoptSetlist(gigId: $0, setlistId: $1, fresh: $2, notice: $3) },
         storeAttendance: { [unowned self] in gig.storeAttendance($0, $1) },
         lineArtists: { [unowned self] in lineArtists() }
@@ -1056,24 +1057,6 @@ final class AppModel: ObservableObject, StateHost {
         (error as? SetlistFmRateLimited)?.sharedKey == true
     }
 
-    // --- Settings ---
-
-    func saveSettings(apiKey: String, clientId: String) {
-        settings.saveSetlistFmApiKey(apiKey)
-        settings.saveSpotifyClientId(clientId)
-        state.setlistFmApiKey = apiKey.trimmingCharacters(in: .whitespaces)
-        state.spotifyClientId = clientId.trimmingCharacters(in: .whitespaces)
-        state.spotifyLoginReady = settings.spotifyClientIdValue != nil
-        state.setlistFmReady = settings.setlistFmApiKeyValue != nil
-        state.setlistFmSharedQuotaSpent = settings.setlistFmSharedQuotaSpentNow
-    }
-
-    func saveClashfinderAccount(user: String, privateKey: String) {
-        settings.saveClashfinderAccount(user: user, privateKey: privateKey)
-        state.clashfinderUser = user.trimmingCharacters(in: .whitespaces)
-        state.clashfinderPrivateKey = privateKey.trimmingCharacters(in: .whitespaces)
-    }
-
     /// `nil` until both halves of a clashfinder account are on the phone — see
     /// `Clashfinder.swift` on why there is no bundled fallback here.
     var clashfinderAuth: ClashfinderAuth? {
@@ -1084,42 +1067,7 @@ final class AppModel: ObservableObject, StateHost {
         )
     }
 
-    func loginSpotify() {
-        Task {
-            do {
-                try await spotify.login()
-                state.spotifyConnected = true
-                state.grantedScope = settings.grantedScope
-            } catch {
-                fail(error)
-            }
-        }
-    }
-
-    /// The first-run door has been passed — by either button.
-    ///
-    /// A login that failed still counts: the door was opened deliberately, and making
-    /// someone answer the same splash again because Spotify was unreachable would
-    /// punish them for a network they do not control. Settings has the login for a
-    /// second attempt.
-    func markOnboarded() {
-        settings.setOnboarded()
-        state.onboarded = true
-    }
-
-    func disconnectSpotify() {
-        settings.clearSpotifyAuth()
-        state.spotifyConnected = false
-        state.grantedScope = nil
-    }
-
     // --- Friends (peer-to-peer) ---
-
-    func saveMySetlistFmUser(_ username: String) {
-        let trimmed = username.trimmingCharacters(in: .whitespaces)
-        settings.saveMySetlistFmUser(trimmed)
-        state.mySetlistFmUser = trimmed
-    }
 
     /// My shareable identity card, or nil until I've set my setlist.fm username.
     func myCardURL() async -> URL? {
