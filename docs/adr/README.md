@@ -20,7 +20,7 @@ Issues elsewhere may be edited freely; this rule is for `docs/adr/` only.
 
 | | Decision | Status |
 | --- | --- | --- |
-| [0001](0001-logic-layer-above-plumbing.md) | Shared logic above per-platform plumbing | accepted |
+| [0001](0001-logic-layer-above-plumbing.md) | Shared logic above per-platform plumbing | accepted; **the set of features is logic** (amended 2026-10-05) |
 | [0002](0002-time-at-the-resolution-known.md) | A night is dated at the resolution it is known | accepted |
 | [0003](0003-no-backend-for-the-social-layer.md) | No backend for the social layer | accepted |
 | [0004](0004-best-effort-enrichment.md) | Best-effort enrichment, and the scoped invariant | accepted |
