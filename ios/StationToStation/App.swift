@@ -115,7 +115,7 @@ struct StationToStationApp: App {
                     // truncated or hand-typed link would land the reader on the *source*
                     // side's tick list, this phone offering to hand itself over.
                     guard parseHandoverInvite(url.absoluteString) != nil else { return }
-                    model.joinHandover(url)
+                    model.handover.joinHandover(url)
                     nav.popToRoot()
                     nav.push(.handover)
                 case .passThrough:
