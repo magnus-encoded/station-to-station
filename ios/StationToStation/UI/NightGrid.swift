@@ -345,7 +345,7 @@ struct NightGrid: View {
                 .font(.system(size: 12)).foregroundStyle(muted)
                 .padding(.horizontal, 24)
             Button {
-                model.setShowWithheld(!model.state.showWithheld)
+                model.navigation.setShowWithheld(!model.state.showWithheld)
             } label: {
                 Text(model.state.showWithheld
                      ? "hide the \(withheld.count) you are keeping back"

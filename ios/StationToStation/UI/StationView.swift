@@ -230,7 +230,7 @@ struct StationView: View {
                 .onEnded { _ in
                     guard let f = dragFraction else { return }
                     withAnimation(.spring()) {
-                        model.setZoomedOut(f > 0.5)
+                        model.navigation.setZoomedOut(f > 0.5)
                         dragFraction = nil
                     }
                 }
@@ -245,7 +245,7 @@ struct StationView: View {
         // `_ =` because `withAnimation` is generic over its closure's result: left
         // implicit it infers `Bool` from the return and clashes with the `() -> Void`
         // the gesture takes.
-        .swipeRight { _ = withAnimation(.easeInOut(duration: 0.2)) { model.backOutOfFestivals() } }
+        .swipeRight { _ = withAnimation(.easeInOut(duration: 0.2)) { model.navigation.backOutOfFestivals() } }
         // The same two moves for VoiceOver, which takes the flick and the pinch for
         // itself. A gesture is the whole of how this screen changes Resolution, so
         // without these the other lines are not awkward to reach — they are absent.
@@ -256,7 +256,7 @@ struct StationView: View {
             named: model.state.zoomedOut ? "Close the other timelines" : "Open the other timelines beside yours"
         ) {
             guard !lanes.isEmpty else { return }
-            withAnimation(.spring()) { model.setZoomedOut(!model.state.zoomedOut) }
+            withAnimation(.spring()) { model.navigation.setZoomedOut(!model.state.zoomedOut) }
         }
         .onAppear {
             model.loadTimeline()
@@ -377,7 +377,7 @@ struct StationView: View {
                         // Brightness carries one extra meaning only: brighter = most recent.
                         highlight: i == 0,
                         onTap: {
-                            if row.node.isSeveral { withAnimation(.easeInOut(duration: 0.2)) { model.toggleFestival(row.key) } }
+                            if row.node.isSeveral { withAnimation(.easeInOut(duration: 0.2)) { model.navigation.toggleFestival(row.key) } }
                             else if case .concert(let show) = row.node { openGig(show) }
                         }
                     )
@@ -425,7 +425,7 @@ struct StationView: View {
                         ForEach(legendExpanded ? head + rest : head, id: \.laneKey) { f in
                             laneKey(laneColor(colourOf[f.laneKey] ?? 0), f.name,
                                     hidden: model.state.hiddenLines.contains(f.laneKey)) {
-                                model.toggleLineHidden(f.laneKey)
+                                model.navigation.toggleLineHidden(f.laneKey)
                             }
                         }
                         // A disclosure, never a truncation (#266): every name above
@@ -532,7 +532,7 @@ struct StationView: View {
         let open = model.state.expandedFestivals.contains(key)
         VStack(alignment: .leading, spacing: 3) {
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) { model.toggleFestival(key) }
+                withAnimation(.easeInOut(duration: 0.2)) { model.navigation.toggleFestival(key) }
             } label: {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(node.isIdentified ? "FESTIVAL" : eveningKicker(node.shows))
@@ -636,7 +636,7 @@ struct StationView: View {
             r.shows.contains { $0.id == gig } || r.showsHereByFriends.contains { $0.id == gig }
         }) {
             if row.node.isSeveral && !model.state.expandedFestivals.contains(row.key) {
-                model.toggleFestival(row.key)
+                model.navigation.toggleFestival(row.key)
                 return
             }
             model.state.linkedGig = nil

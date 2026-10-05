@@ -128,20 +128,20 @@ struct StationToStationApp: App {
                     case .open(.settings, _): nav.push(.settings)
                     case .open(.programme, _): nav.push(.programme)
                     case .open(let screen, let date):
-                        model.openTimeline(zoomedOut: screen == .timelines, date: date)
+                        model.navigation.openTimeline(zoomedOut: screen == .timelines, date: date)
                     case .openGig(let id):
-                        model.openGig(id) { nav.push(.gig) }
+                        model.navigation.openGig(id) { nav.push(.gig) }
                     case .addGig(let artist, let venue, let date):
-                        model.openAddGig(artist: artist, venue: venue, date: date)
+                        model.navigation.openAddGig(artist: artist, venue: venue, date: date)
                     case .writeToLog(let id, let appends, let replacements):
-                        model.openGig(id) {
+                        model.navigation.openGig(id) {
                             nav.push(.gig)
                             model.writeToLog(appends: appends, replacements: replacements)
                         }
                     case .legacyPlace(let id, let at):
-                        model.openPlace(id, as: at) { nav.push(.gig) }
+                        model.navigation.openPlace(id, as: at) { nav.push(.gig) }
                     case .me:
-                        model.setZoomedOut(false)
+                        model.navigation.setZoomedOut(false)
                     case .fixture(let name, let open):
                         model.loadFixture(name, open: open)
                     case .passThrough:
