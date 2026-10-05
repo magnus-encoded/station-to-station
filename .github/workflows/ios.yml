@@ -5,10 +5,10 @@ on:
   # and there is no local Xcode to build against, so a branch that can't reach CI
   # can't be checked at all.
   push:
-    paths: [ "ios/**", ".github/workflows/ios.yml" ]
+    paths: [ "ios/**", "fixtures/**", ".github/workflows/ios.yml" ]
   pull_request:
     branches: [ "main" ]
-    paths: [ "ios/**", ".github/workflows/ios.yml" ]
+    paths: [ "ios/**", "fixtures/**", ".github/workflows/ios.yml" ]
   # A release published by hand builds the iOS side for it. Not load-bearing:
   # android-release.yml creates its release with GITHUB_TOKEN, and GitHub will
   # not start a workflow from an event a workflow token raised — so a *tagged*
