@@ -238,6 +238,16 @@ nobody — so the durable key it used to need never has to cross at all.
 | **Verdict** | Thumb down, thumb up, or thumb up twice, carried by the **Note** it was written on. Three values and unset, and unset is real. **Never aggregated** — not averaged, not ranked, not compared across people; a score that could be would be the merit primitive ADR-0011 defers. | rating, score, stars, five-star, review |
 | **Preamble** | The sentence rendered above a **Note** from facts the record already holds — who else was there, the venue, the set. Composed at read time, **never stored, never typed, never sent**: **Reconcile** has no time bound, so who was there changes, and a frozen sentence would be the app putting words in my mouth. Every clause is droppable and a night that knows nothing gets none. | header, generated text, template, auto-caption |
 
+## Learning the app
+
+| Term | Definition | Aliases to avoid |
+| ---- | ---------- | ---------------- |
+| **Tour** | The first-run coach marks over the real app, led by a **Virtual friend**: the person performs the gestures and flows at a fake **Gig**. Skippable, resumable and replayable from Settings; ends with a real public Spotify playlist. | tutorial, onboarding flow |
+| **Demo world** | The throwaway records the **Tour** creates, all demo-tagged and using real app paths. Purged on skip or completion, including its calendar event; the Spotify playlist, photo library and granted permissions survive. | sandbox, sample timeline |
+| **Virtual friend** | The **Tour**'s fixed concert-going character, with a drawn avatar. Its **Exchange**, **Gossip** and selfie arrive locally; nothing is broadcast to nearby phones. Name, design and writing are human-owned. | bot, demo contact |
+| **Context hint** | A one-off explanation shown when a less basic feature first becomes relevant. Each is shown once, suppressed during the **Tour**, and still available after skipping it. | coach mark, tooltip |
+| **Demo clock** | The **Tour**'s supplied time, advanced by the script as the story needs it so the demo **Gig** passes through its lifecycle without waiting. Passed where real paths take `now`. | fake system clock, time travel |
+
 ## Relationships
 
 - A **Line** belongs to exactly one person and occupies one **Spine** or **Lane**.
