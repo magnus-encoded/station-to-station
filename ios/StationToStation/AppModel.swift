@@ -330,14 +330,21 @@ final class AppModel: ObservableObject, StateHost {
         timelines: timelines,
         settings: settings,
         saveMySetlistFmUser: { [unowned self] in saveMySetlistFmUser($0) },
-        adoptSetlist: { [unowned self] in await adoptSetlist(gigId: $0, setlistId: $1, fresh: $2, notice: $3) },
-        storeAttendance: { [unowned self] in storeAttendance($0, $1) },
+        adoptSetlist: { [unowned self] in await gig.adoptSetlist(gigId: $0, setlistId: $1, fresh: $2, notice: $3) },
+        storeAttendance: { [unowned self] in gig.storeAttendance($0, $1) },
         lineArtists: { [unowned self] in lineArtists() }
     )
 
+    private(set) lazy var gig = GigController(
+        host: self,
+        timelines: timelines,
+        setlistFm: setlistFm,
+        location: location,
+        sortedPlanned: { [unowned self] in sortedPlanned($0) },
+        gossip: gossip
+    )
+
     private var matchTask: Task<Void, Never>?
-    /// One-shot per launch: dismissing an offer must not make it reappear (#174).
-    private var askedToCheckIn = false
 
     lazy var handover = HandoverController(host: self, settings: settings, timelines: timelines, spotify: spotify,
                                            loadTimeline: { [unowned self] in self.loadTimeline() })
@@ -375,7 +382,7 @@ final class AppModel: ObservableObject, StateHost {
         // Refusing the location prompt is not a dead end and not an error: the
         // ambient offer just never appears, and the gig's own screen still has
         // a check-in you can press by hand.
-        location.onAuthorizationChanged = { [weak self] in self?.offerCheckIn() }
+        location.onAuthorizationChanged = { [weak self] in self?.gig.offerCheckIn() }
 
         // The cold-launch half of the inbox drain; the foreground half is in
         // `App.swift`. A launch that goes straight to active may never register as a
@@ -453,57 +460,6 @@ final class AppModel: ObservableObject, StateHost {
         state.nightsApart = cache.spineDismissals()
         state.playlistsBySetlist = cache.playlists()
         state.hiddenAt = cache.hiddenLines
-    }
-
-    /// How many pictures a delete would destroy — the ones this app holds the last
-    /// copy of. Zero means every keepsake on the night is still in the library too,
-    /// so removing the night costs nothing that cannot be found again.
-    ///
-    /// The sheet asks this to decide *what to say*, not whether to ask. Android asks
-    /// only when bytes would go; iOS asks always, because the **Log** goes either way
-    /// and a written record is not a pointer into anything.
-    func photosLostByDeleting(_ gigId: String) -> Int {
-        (state.mediaBySetlist[gigId] ?? [])
-            .filter { PhotoLibrary.holdsOnlyCopy(mediaId: $0.id, ref: $0.ref) }
-            .count
-    }
-
-    /// Where the **Gig** is held. Read from the raw attended list under my own key, never from
-    /// `timelineShows`: that one also carries the nights I attended here, which is what this
-    /// has to tell apart.
-    func standing(_ gigId: String) -> GigStanding {
-        gigStanding(
-            gigId,
-            held: state.plannedGigs.map(\.id),
-            attendedOnSetlistFm: (state.showsByFriend[state.mySetlistFmUser.trimmingCharacters(in: .whitespaces)] ?? []).map(\.id))
-    }
-
-    /// A night deleted from its own screen.
-    ///
-    /// Unlike the mistap undo this takes the media with it, because someone reading
-    /// the night's own screen can see what is on it.
-    ///
-    /// Any **Gig** this phone holds a record of can go, its setlist.fm id or not. One held only
-    /// by my setlist.fm attended list has no delete; see `gigMenu`.
-    func deleteGig(_ gigId: String) {
-        let media = state.mediaBySetlist[gigId] ?? []
-        let me = state.mySetlistFmUser.trimmingCharacters(in: .whitespaces)
-        state.plannedGigs.removeAll { $0.id == gigId }
-        state.timelineShows.removeAll { $0.id == gigId }
-        // The cached copy of my attended list goes too, or the night comes back as soon as
-        // the Spine is read again. Setlist.fm itself is not touched.
-        state.showsByFriend[me] = (state.showsByFriend[me] ?? []).filter { $0.id != gigId }
-        state.attendanceByGig[gigId] = nil
-        state.mediaBySetlist[gigId] = nil
-        state.calendarEventByGig[gigId] = nil
-        if state.selectedSetlist?.id == gigId {
-            state.selectedSetlist = nil
-            state.gigLog = StoredLog()
-        }
-        Task {
-            guard await timelines.deleteGig(gigId, withMedia: true, anyId: true, attendedLane: me) else { return }
-            for item in media { PhotoLibrary.deleteThumbnails(item.id) }
-        }
     }
 
     /// Spellings for a name being typed into one of the by-hand doors (#350).
@@ -786,7 +742,7 @@ final class AppModel: ObservableObject, StateHost {
                 } else if let local = landing, local.isLocal {
                     // The night is already here as a local Gig: it takes the hit's id.
                     await attachAdmissions(gigId: local.id, confirmed.admissions)
-                    await adoptSetlist(gigId: local.id, setlistId: hit.id, fresh: hit, notice: true)
+                    await self.gig.adoptSetlist(gigId: local.id, setlistId: hit.id, fresh: hit, notice: true)
                 } else {
                     await planFmGig(hit)
                     await attachAdmissions(gigId: hit.id, confirmed.admissions)
@@ -890,7 +846,7 @@ final class AppModel: ObservableObject, StateHost {
                 let artist = act.artist.trimmingCharacters(in: .whitespaces)
                 guard !artist.isEmpty else { continue }
                 let gigId: String
-                if let existing = onLine(nightIso: act.date, artist: artist, mbid: act.mbid) {
+                if let existing = self.gig.onLine(nightIso: act.date, artist: artist, mbid: act.mbid) {
                     gigId = existing.id
                 } else {
                     let fmDay = fmActDate(act.date)
@@ -920,7 +876,7 @@ final class AppModel: ObservableObject, StateHost {
                 guard parts.count == 2 else { continue }
                 // The artist half is already a `nameKey` fold; `onLine` folds its
                 // own query the same way, matching apples to apples.
-                guard let gig = onLine(nightIso: String(parts[0]), artist: String(parts[1])), gig.isLocal else { continue }
+                guard let gig = self.gig.onLine(nightIso: String(parts[0]), artist: String(parts[1])), gig.isLocal else { continue }
                 if await timelines.deleteGig(gig.id) { dropped.insert(gig.id) }
             }
 
@@ -933,75 +889,6 @@ final class AppModel: ObservableObject, StateHost {
             // may have joined it this instant rather than at the next cold start.
             loadTimeline()
         }
-    }
-
-    /// The **Gig** already on my line for this night and this artist, if there is
-    /// one. `nightIso` is `yyyy-MM-dd`, as `ProgrammeAct.date` gives it — the query
-    /// half of `nameKey` is folded the same way `diff.remove`'s keys already are.
-    private func onLine(nightIso: String, artist: String, mbid: String = "") -> FmSetlist? {
-        guard let night = parseISODateUTC(nightIso) else { return nil }
-        let key = nameKey(artist)
-        return (state.timelineShows + state.plannedGigs).first { gig in
-            guard gig.localDate() == night else { return false }
-            if !mbid.isEmpty, let gigMbid = gig.artist?.mbid, gigMbid == mbid { return true }
-            return nameKey(gig.artist?.name ?? "") == key
-        }
-    }
-
-    /// A night this app minted, now catalogued on setlist.fm, takes their id.
-    ///
-    /// A pasted link rather than a search by artist and date. #34 sketched the search,
-    /// but the moment this is used is the moment you are looking at the page you just
-    /// created, so its url is in your hand — and matching heuristics are a way to be
-    /// wrong about which night you meant.
-    func adoptSetlistLink(gigId: String, linkOrId: String) {
-        guard let setlistId = parseSetlistId(linkOrId) else {
-            state.error = "That doesn't look like a setlist.fm link."
-            state.errorKind = nil
-            return
-        }
-        Task {
-            if !(await adoptSetlist(gigId: gigId, setlistId: setlistId, fresh: nil, notice: true)) {
-                state.error = "That night already has a setlist.fm id."
-                state.errorKind = nil
-            }
-        }
-    }
-
-    /// Local **Gig** `gigId` takes setlist.fm's `setlistId`: `adoptSetlistLink`'s pasted
-    /// link, a search hit the person picked, or one the automatic checks were sure of
-    /// (#531). `fresh` is the record already in hand from a search, which saves asking
-    /// setlist.fm for it again; nil fetches it. `notice` shows "Adopted". False where the
-    /// night already had an id, or is gone, and nothing was changed.
-    @discardableResult
-    private func adoptSetlist(gigId: String, setlistId: String, fresh: FmSetlist?, notice: Bool) async -> Bool {
-        // Read before the adoption, because afterwards the night answers to the new id and
-        // the deadline that decides whether the radio is still running would be keyed by it.
-        // A night that already had an id is not an adoption, and authors nothing.
-        let before = await timelines.load()
-        let until = before.gigs[gigId]?.setlistId == nil
-            ? gossipParticipationEnds(cache: before, stoppedAt: GossipTransport.shared.stoppedAt)[gigId] ?? 0
-            : 0
-        guard await timelines.adoptSetlistId(gigId: gigId, setlistId: setlistId) else { return false }
-        await GossipChannel.shared.adoptedGigId(gigId: setlistId, formerGigId: gigId,
-                                               localGigId: gigId, until: until)
-        // Whether or not anything was authored, the night now answers to a second id
-        // and the mark has to follow it.
-        await gossip.refreshWitnessed(state.publicGossip)
-        if notice { state.notice = "Adopted — this night is on setlist.fm now." }
-        // The real record replaces the stub: it has the url, the songs whoever typed
-        // them in logged, and an id friends' lines can meet at.
-        let record: FmSetlist?
-        if let fresh, fresh.id == setlistId {
-            record = fresh
-        } else {
-            record = try? await setlistFm.setlist(setlistId)
-        }
-        guard let real = record else { return true }
-        state.attendanceByGig[real.id] = await timelines.savePlanned(real)
-        state.plannedGigs = sortedPlanned(state.plannedGigs.filter { $0.id != gigId && $0.id != real.id } + [real])
-        if state.selectedSetlist?.id == gigId { state.selectedSetlist = real }
-        return true
     }
 
     func addPlannedGig(_ linkOrId: String) {
@@ -1029,13 +916,6 @@ final class AppModel: ObservableObject, StateHost {
     private func planFmGig(_ hit: FmSetlist) async {
         state.attendanceByGig[hit.id] = await timelines.savePlanned(hit)
         state.plannedGigs = sortedPlanned(state.plannedGigs.filter { $0.id != hit.id } + [hit])
-    }
-
-    /// Forgets a gig I'm not going to after all.
-    func removePlannedGig(_ gigId: String) {
-        state.plannedGigs = state.plannedGigs.filter { $0.id != gigId }
-        state.attendanceByGig[gigId] = nil
-        Task { await timelines.removePlanned(setlistId: gigId) }
     }
 
     /// A calendar event was just made for a planned gig; remember its identifier.
@@ -1367,7 +1247,7 @@ final class AppModel: ObservableObject, StateHost {
     /// adoption says "Adopted" itself. Where it can't happen it falls back to a join.
     func adoptMaybe(_ maybe: MaybeNight) async {
         maybeUndo = nil
-        if !(await adoptSetlist(gigId: maybe.mine.id, setlistId: maybe.theirs.id, fresh: nil, notice: true)) {
+        if !(await self.gig.adoptSetlist(gigId: maybe.mine.id, setlistId: maybe.theirs.id, fresh: nil, notice: true)) {
             await answerMaybe(maybe, same: true)
         }
     }
@@ -1512,11 +1392,6 @@ final class AppModel: ObservableObject, StateHost {
             markSelectedOwnership(show, attendance: attendance)
             loadTimeline()
         }
-    }
-
-    /// `write-to-log`: the same path typing into the Log takes, once the **Gig** is open.
-    func writeToLog(appends: [String], replacements: [Int: String]) {
-        writeLog { $0.writing(appends: appends, replacements: replacements) }
     }
 
     func removeFriend(_ friend: Friend) {
@@ -1681,173 +1556,6 @@ final class AppModel: ObservableObject, StateHost {
         )
     }
 
-    // --- Check-in (#174) ---
-
-    /// True if any gig I know about could be checked into right now on the
-    /// calendar alone. Cheap and pure — it is what decides whether asking for
-    /// the location permission is warranted at all, so the prompt only ever
-    /// appears on a night there is actually something to check into.
-    func checkInDue(now: Date = Date()) async -> Bool {
-        let cache = await timelines.load()
-        let attendance = cache.attendance()
-        return cache.planned().contains { gig in
-            canCheckInManually(gig: gig, now: now) && attendance[gig.id]?.provenance != "checked_in"
-        }
-    }
-
-    func hasLocationPermission() -> Bool { location.hasPermission }
-
-    func requestLocationPermission() { location.requestPermission() }
-
-    /// One fix, once, when the timeline is opened: if it puts me at a gig I'm
-    /// going to tonight, offer to check in. Every failure along the way —
-    /// permission refused, no fix, no coordinates for the venue, too far away —
-    /// is silently no offer. Nothing here is retried, scheduled or run in the
-    /// background.
-    ///
-    /// ponytail: linear over the planned gigs, geocoding only the one that
-    /// passes the city gate. You have a ticket for a handful of nights, not
-    /// thousands.
-    func offerCheckIn() {
-        if askedToCheckIn { return }
-        askedToCheckIn = true
-        Task {
-            guard let fix = await location.currentFix() else { return }
-            let cache = await timelines.load()
-            let attendance = cache.attendance()
-            let candidates = cache.planned().filter { attendance[$0.id]?.provenance != "checked_in" }
-            guard let gig = checkInCandidate(gigs: candidates, now: Date(), where: fix) else { return }
-            guard let venue = await venueCoords(gig, cache: cache) else { return }
-            guard atVenue(where: fix, venue: venue) else { return }
-            state.checkInOffer = gig
-        }
-    }
-
-    func dismissCheckInOffer() { state.checkInOffer = nil }
-
-    /// The venue's coordinates, geocoded once and kept on the attendance record
-    /// — the same fields #29/#174 reserved for it on Android. Nil for a venue
-    /// the geocoder can't place, which costs this gig its prompt and nothing else.
-    private func venueCoords(_ gig: FmSetlist, cache: TimelineCache) async -> (lat: Double, lon: Double)? {
-        if let stored = cache.attendance()[gig.id], let lat = stored.venueLat, let lon = stored.venueLon {
-            return (lat, lon)
-        }
-        guard let query = venueMapsQuery(venueName: gig.venue?.name, city: gig.venue?.city?.name)
-        else { return nil }
-        guard let found = await location.geocodeVenue(
-            [query, gig.venue?.city?.country?.name].compactMap { $0 }.joined(separator: ", ")
-        ) else { return nil }
-        // Only the coordinates, onto the record as it is after the geocode: `cache` was
-        // read before it, and saving a record built from that would put back its old
-        // Admissions and claim over a ticket attached or a check-in made meanwhile (the
-        // #441 review). Android's `updateAttendance { it.copy(…) }`.
-        let settled = await timelines.updateAttendance(setlistId: gig.id) {
-            $0.venueLat = found.lat
-            $0.venueLon = found.lon
-        }
-        state.attendanceByGig[gig.id] = settled
-        if state.selectedSetlist?.id == gig.id { state.selectedAttendance = settled }
-        return found
-    }
-
-    /// I am here. Sets the provenance the whole issue exists for, with the
-    /// moment it happened — evidence of a different strength than setlist.fm's
-    /// retroactive flag, not a competing record.
-    func checkIn(_ gigId: String) {
-        state.checkInOffer = nil
-        Task {
-            // Only the claim changes. The ticket's Admissions and the venue's coordinates
-            // are carried across the check-in by editing the record in place, read and
-            // written under one lock — Android's `updateAttendance { it.copy(…) }` (#412).
-            let checkedInAt = Int64(Date().timeIntervalSince1970 * 1000)
-            let attendance = await timelines.updateAttendance(setlistId: gigId) {
-                $0.provenance = "checked_in"
-                $0.checkedInAt = checkedInAt
-            }
-            // The claim goes into state as well as onto disk: the night has just stopped
-            // being a plan, and the lane it leaves is drawn from this map.
-            state.attendanceByGig[gigId] = attendance
-            if state.selectedSetlist?.id == gigId { state.selectedAttendance = attendance }
-            // And into the gossip channel, signed, to be carried by whoever this phone meets
-            // between now and the end of this night (#417). Nothing is promised by this: see
-            // `GossipTransport` on what iOS background delivery actually is.
-            let gigDate = knownNights.first { $0.id == gigId }?.eventDate
-            let cache = await timelines.load()
-            guard let localGig = cache.gigs[gigId] ?? cache.gigForSetlist(gigId) else { return }
-            _ = await GossipChannel.shared.checkedIn(gigId: gigId, localGigId: localGig.id, gigDate: gigDate)
-            gossip.contactsChanged()
-        }
-    }
-
-    /// Write, edit or clear my Note in one Band (#50, porting Android's
-    /// `setGigNote`).
-    ///
-    /// At most one of mine per band, so this is an upsert keyed by band rather
-    /// than by id: the write-line the finger landed on already said which one
-    /// it means. Two notes in a band would need arranging, arranging would
-    /// need the handle, and the thing being served is one opinion about one
-    /// night.
-    ///
-    /// Emptying it removes it. A note with nothing in it is not something
-    /// anyone wrote, and leaving an empty record behind would make the shared
-    /// band claim a contributor who said nothing — which would turn a night
-    /// green over blank text.
-    func setGigNote(_ band: Band, text: String) {
-        guard let setlist = state.selectedSetlist else { return }
-        let had = state.gigMedia
-        let personal = band == .vault
-        let mine = had.first { $0.kind == StoredMedia.Kind.note && $0.from == nil && $0.personal == personal }
-        let written = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let media: [StoredMedia]
-        if let mine, written.isEmpty {
-            media = had.filter { $0.id != mine.id }
-        } else if let mine {
-            media = had.map { item in
-                guard item.id == mine.id else { return item }
-                var m = item
-                m.text = written
-                return m
-            }
-        } else if written.isEmpty {
-            media = had
-        } else {
-            media = had + [StoredMedia(
-                id: UUID().uuidString.lowercased(),
-                kind: StoredMedia.Kind.note,
-                // When it was written. It is what sorts received notes, and a
-                // note has no camera to ask for anything better.
-                capturedAt: Int64(Date().timeIntervalSince1970 * 1000),
-                personal: personal,
-                text: written
-            )]
-        }
-        state.mediaBySetlist[setlist.id] = media
-        Task { await timelines.saveMedia(setlistId: setlist.id, media: media) }
-    }
-
-    /// Set or unset the Verdict on one of my Notes (porting Android's
-    /// `setGigVerdict`).
-    ///
-    /// Tapping the one already set passes nil, because unset has to stay
-    /// reachable — it is a real state, and a night I have stopped having an
-    /// opinion about must not be stuck wearing the one I had.
-    func setGigVerdict(_ noteId: String, verdict: String?) {
-        guard let setlist = state.selectedSetlist else { return }
-        let had = state.gigMedia
-        // Mine only. A received note's verdict is its sender's statement and
-        // is not mine to edit, the same way their photograph is not mine to
-        // reposition.
-        guard had.contains(where: { $0.id == noteId && $0.from == nil }) else { return }
-        let media = had.map { item -> StoredMedia in
-            guard item.id == noteId else { return item }
-            var m = item
-            m.verdict = verdict
-            return m
-        }
-        state.mediaBySetlist[setlist.id] = media
-        Task { await timelines.saveMedia(setlistId: setlist.id, media: media) }
-    }
-
     // --- Cover art (#178) ---
 
     /// Offers the gig's own keepsakes first — already chosen for this night, so
@@ -1967,53 +1675,6 @@ final class AppModel: ObservableObject, StateHost {
         var seen = Set<String>()
         return knownNights.compactMap(\.artist)
             .filter { !$0.mbid.trimmingCharacters(in: .whitespaces).isEmpty && seen.insert($0.mbid).inserted }
-    }
-
-    /// A lookup's settled record into state, for the chip and the open night.
-    private func storeAttendance(_ gigId: String, _ settled: StoredAttendance) {
-        state.attendanceByGig[gigId] = settled
-        if state.selectedSetlist?.id == gigId { state.selectedAttendance = settled }
-    }
-
-    // --- The Log: what I saw, as opposed to what setlist.fm publishes (#169) ---
-
-    /// Asserted, never derived: a song I *think* they played never becomes a song
-    /// they played by inaction, so this is a tap, not a diff against a candidate
-    /// pool. Editing songs never touches `closed` — "that was the whole set" is a
-    /// separate, deliberate sentence.
-    func addToLog(_ song: String) { writeLog { $0.adding(song) } }
-
-    func removeFromLog(_ index: Int) { writeLog { $0.removingAt(index) } }
-
-    /// A title replaces entry `index`, and what was written moves beneath it (#126).
-    func correctLogEntry(_ index: Int, title: String) { writeLog { $0.correctingAt(index, title: title) } }
-
-    /// The way back. A wrong correction must not be a one-way door.
-    func restoreLogEntry(_ index: Int) { writeLog { $0.restoringAt(index) } }
-
-    /// The only thing that may **Close** a **Log**, and it is a person saying so.
-    /// setlist.fm has nowhere to keep this bit, so it never leaves the device.
-    func setLogClosed(_ closed: Bool) {
-        writeLog { $0.completing(closed) }
-    }
-
-    private func writeLog(_ edit: (StoredLog) -> StoredLog) {
-        guard let setlist = state.selectedSetlist else { return }
-        let before = state.gigLog
-        let updated = edit(before)
-        state.gigLog = updated
-        Task {
-            await timelines.saveLog(setlistId: setlist.id, log: updated)
-            let cache = await timelines.load()
-            if let local = cache.gigs[setlist.id] ?? cache.gigForSetlist(setlist.id),
-               let date = setlist.eventDate, let end = gossipExpiry(gigDate: date),
-               let until = gossipParticipationUntil(checkedInAt: cache.attendance()[setlist.id]?.checkedInAt,
-                    closed: updated.closed, completedAt: updated.completedAt, nightEnd: end, stoppedAt: GossipTransport.shared.stoppedAt), Date() < until {
-                await GossipChannel.shared.publishLog(gigId: setlist.id, localGigId: local.id,
-                    expiry: end, changes: gossipLogChanges(before: before, after: updated))
-            }
-            gossip.contactsChanged()
-        }
     }
 
     private func findCandidates(_ track: String, _ artist: String) async -> ([SpotifyTrack], String?) {

@@ -288,18 +288,18 @@ struct StationView: View {
         // scheduled. The permission is only ever asked for on a night there is
         // something to check into — never merely for opening the app.
         .task {
-            guard await model.checkInDue() else { return }
-            if model.hasLocationPermission() { model.offerCheckIn() }
-            else { model.requestLocationPermission() }
+            guard await model.gig.checkInDue() else { return }
+            if model.gig.hasLocationPermission() { model.gig.offerCheckIn() }
+            else { model.gig.requestLocationPermission() }
         }
         .sheet(item: Binding(
             get: { model.state.checkInOffer },
-            set: { if $0 == nil { model.dismissCheckInOffer() } }
+            set: { if $0 == nil { model.gig.dismissCheckInOffer() } }
         )) { gig in
             CheckInDialog(
                 gig: gig,
-                onCheckIn: { model.checkIn(gig.id) },
-                onDismiss: { model.dismissCheckInOffer() }
+                onCheckIn: { model.gig.checkIn(gig.id) },
+                onDismiss: { model.gig.dismissCheckInOffer() }
             )
             .presentationDetents([.fraction(0.3)])
         }
@@ -573,7 +573,7 @@ struct StationView: View {
     /// A **Gig**'s long-press menu: where it is held, then what can be done. `gigMenu` decides.
     @ViewBuilder
     private func gigContextMenu(_ gig: FmSetlist) -> some View {
-        let standing = model.standing(gig.id)
+        let standing = model.gig.standing(gig.id)
         let items = gigMenu(standing, hasPage: gig.url != nil)
         if !items.isEmpty {
             Section(standing.caption) {
@@ -585,8 +585,8 @@ struct StationView: View {
                         }
                     case .delete:
                         Button("Delete gig", role: .destructive) {
-                            if model.photosLostByDeleting(gig.id) > 0 { deleteAsked = gig }
-                            else { model.deleteGig(gig.id) }
+                            if model.gig.photosLostByDeleting(gig.id) > 0 { deleteAsked = gig }
+                            else { model.gig.deleteGig(gig.id) }
                         }
                     }
                 }

@@ -4,22 +4,33 @@ import XCTest
 @MainActor
 final class GigControllerTests: XCTestCase {
 
-    private var model: AppModel!
+    private var fake: FakeState!
     private var store: TimelineStore!
+    private var gig: GigController!
+    private var gossip: GossipController!
 
     override func setUp() async throws {
-        model = AppModel()
-        store = TimelineStore()
+        fake = FakeState()
+        store = TimelineStore(file: URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("gig-\(UUID().uuidString).json"))
+        gossip = GossipController(host: fake, timelines: store)
+        gig = GigController(
+            host: fake,
+            timelines: store,
+            setlistFm: SetlistFmClient(keySource: { nil }),
+            location: DeviceLocation(),
+            sortedPlanned: { $0 },
+            gossip: gossip
+        )
     }
 
-    // Ids are fresh per test: the store under test is shared with whatever else has run.
-    private func gig(date: String = "13-08-2026") -> FmSetlist {
+    private func aNight(date: String = "13-08-2026") -> FmSetlist {
         FmSetlist(id: "gig-\(UUID().uuidString.lowercased())", eventDate: date, artist: FmArtist(name: "A Band"))
     }
 
     private func planned(_ gig: FmSetlist) async {
-        model.state.attendanceByGig[gig.id] = await store.savePlanned(gig)
-        model.state.plannedGigs.append(gig)
+        fake.state.attendanceByGig[gig.id] = await store.savePlanned(gig)
+        fake.state.plannedGigs.append(gig)
     }
 
     private func eventually(_ what: String, _ condition: () async -> Bool) async {
@@ -31,118 +42,118 @@ final class GigControllerTests: XCTestCase {
     }
 
     func testDeletingAGigClearsItsStateAtOnceAndTheStoreAfter() async {
-        let night = gig()
+        let night = aNight()
         await planned(night)
-        model.state.selectedSetlist = night
-        model.state.gigLog = StoredLog(songs: ["Opener"])
-        model.state.calendarEventByGig[night.id] = "event"
+        fake.state.selectedSetlist = night
+        fake.state.gigLog = StoredLog(songs: ["Opener"])
+        fake.state.calendarEventByGig[night.id] = "event"
 
-        model.deleteGig(night.id)
+        gig.deleteGig(night.id)
 
-        XCTAssertFalse(model.state.plannedGigs.contains { $0.id == night.id })
-        XCTAssertNil(model.state.attendanceByGig[night.id])
-        XCTAssertNil(model.state.calendarEventByGig[night.id])
-        XCTAssertNil(model.state.selectedSetlist)
-        XCTAssertEqual(model.state.gigLog, StoredLog())
+        XCTAssertFalse(fake.state.plannedGigs.contains { $0.id == night.id })
+        XCTAssertNil(fake.state.attendanceByGig[night.id])
+        XCTAssertNil(fake.state.calendarEventByGig[night.id])
+        XCTAssertNil(fake.state.selectedSetlist)
+        XCTAssertEqual(fake.state.gigLog, StoredLog())
         await eventually("the store forgets it") {
             !(await store.load().planned().contains { $0.id == night.id })
         }
     }
 
     func testForgettingAPlanDropsItFromStateAndStore() async {
-        let night = gig()
+        let night = aNight()
         await planned(night)
 
-        model.removePlannedGig(night.id)
+        gig.removePlannedGig(night.id)
 
-        XCTAssertFalse(model.state.plannedGigs.contains { $0.id == night.id })
-        XCTAssertNil(model.state.attendanceByGig[night.id])
+        XCTAssertFalse(fake.state.plannedGigs.contains { $0.id == night.id })
+        XCTAssertNil(fake.state.attendanceByGig[night.id])
         await eventually("the store forgets it") {
             !(await store.load().planned().contains { $0.id == night.id })
         }
     }
 
     func testCheckingInClearsTheOfferAndLandsTheClaimOnTheOpenGig() async {
-        let night = gig()
+        let night = aNight()
         await planned(night)
-        model.state.checkInOffer = night
-        model.state.selectedSetlist = night
+        fake.state.checkInOffer = night
+        fake.state.selectedSetlist = night
 
-        model.checkIn(night.id)
+        gig.checkIn(night.id)
 
-        XCTAssertNil(model.state.checkInOffer)
+        XCTAssertNil(fake.state.checkInOffer)
         await eventually("the claim is checked in") {
-            model.state.attendanceByGig[night.id]?.provenance == "checked_in"
+            fake.state.attendanceByGig[night.id]?.provenance == "checked_in"
         }
-        XCTAssertEqual(model.state.selectedAttendance?.provenance, "checked_in")
-        XCTAssertNotNil(model.state.selectedAttendance?.checkedInAt)
+        XCTAssertEqual(fake.state.selectedAttendance?.provenance, "checked_in")
+        XCTAssertNotNil(fake.state.selectedAttendance?.checkedInAt)
         let stored = await store.load().attendance()[night.id]
         XCTAssertEqual(stored?.provenance, "checked_in")
     }
 
     func testCheckInIsDueOnTheNightOfAPlannedGig() async {
-        let night = gig(date: "13-08-2026")
+        let night = aNight(date: "13-08-2026")
         await planned(night)
         var evening = DateComponents()
         evening.year = 2026; evening.month = 8; evening.day = 13; evening.hour = 21
         let now = Calendar.current.date(from: evening)!
 
-        let due = await model.checkInDue(now: now)
+        let due = await gig.checkInDue(now: now)
 
         XCTAssertTrue(due)
     }
 
     func testAPastedLinkThatIsNotASetlistIsRefused() {
-        model.adoptSetlistLink(gigId: "whatever", linkOrId: "not a link")
+        gig.adoptSetlistLink(gigId: "whatever", linkOrId: "not a link")
 
-        XCTAssertEqual(model.state.error, "That doesn't look like a setlist.fm link.")
+        XCTAssertEqual(fake.state.error, "That doesn't look like a setlist.fm link.")
     }
 
     func testANightThatAlreadyHasASetlistFmIdDoesNotTakeAnother() async {
         let local = await store.createLocalGig(date: "13-08-2026", artist: "A Band", venue: "")
         await store.adoptSetlistId(gigId: local, setlistId: "1a2b3c4d")
 
-        model.adoptSetlistLink(gigId: local, linkOrId: "5e6f7a8b")
+        gig.adoptSetlistLink(gigId: local, linkOrId: "5e6f7a8b")
 
         await eventually("the refusal is shown") {
-            model.state.error == "That night already has a setlist.fm id."
+            fake.state.error == "That night already has a setlist.fm id."
         }
     }
 
     func testTheLogIsWrittenToStateAndStoreForTheOpenGig() async {
-        let night = gig()
-        model.state.selectedSetlist = night
+        let night = aNight()
+        fake.state.selectedSetlist = night
 
-        model.addToLog("Opener")
-        model.addToLog("Closer")
-        model.correctLogEntry(1, title: "Encore")
-        model.setLogClosed(true)
+        gig.addToLog("Opener")
+        gig.addToLog("Closer")
+        gig.correctLogEntry(1, title: "Encore")
+        gig.setLogClosed(true)
 
-        XCTAssertEqual(model.state.gigLog.songs, ["Opener", "Encore"])
-        XCTAssertTrue(model.state.gigLog.closed)
+        XCTAssertEqual(fake.state.gigLog.songs, ["Opener", "Encore"])
+        XCTAssertTrue(fake.state.gigLog.closed)
         await eventually("the store holds the Log") {
-            await store.log(setlistId: night.id) == model.state.gigLog
+            await store.log(setlistId: night.id) == fake.state.gigLog
         }
     }
 
     func testWithNoGigOpenTheLogIsNotTouched() {
-        model.addToLog("Opener")
+        gig.addToLog("Opener")
 
-        XCTAssertEqual(model.state.gigLog, StoredLog())
+        XCTAssertEqual(fake.state.gigLog, StoredLog())
     }
 
     func testANoteIsWrittenThenEmptiedAway() {
-        let night = gig()
-        model.state.selectedSetlist = night
+        let night = aNight()
+        fake.state.selectedSetlist = night
 
-        model.setGigNote(.shared, text: "  Loud  ")
-        let note = model.state.mediaBySetlist[night.id]?.first
+        gig.setGigNote(.shared, text: "  Loud  ")
+        let note = fake.state.mediaBySetlist[night.id]?.first
         XCTAssertEqual(note?.text, "Loud")
 
-        model.setGigVerdict(note!.id, verdict: "up")
-        XCTAssertEqual(model.state.mediaBySetlist[night.id]?.first?.verdict, "up")
+        gig.setGigVerdict(note!.id, verdict: "up")
+        XCTAssertEqual(fake.state.mediaBySetlist[night.id]?.first?.verdict, "up")
 
-        model.setGigNote(.shared, text: " ")
-        XCTAssertEqual(model.state.mediaBySetlist[night.id], [])
+        gig.setGigNote(.shared, text: " ")
+        XCTAssertEqual(fake.state.mediaBySetlist[night.id], [])
     }
 }

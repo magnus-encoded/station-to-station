@@ -136,7 +136,7 @@ struct StationToStationApp: App {
                     case .writeToLog(let id, let appends, let replacements):
                         model.navigation.openGig(id) {
                             nav.push(.gig)
-                            model.writeToLog(appends: appends, replacements: replacements)
+                            model.gig.writeToLog(appends: appends, replacements: replacements)
                         }
                     case .legacyPlace(let id, let at):
                         model.navigation.openPlace(id, as: at) { nav.push(.gig) }
