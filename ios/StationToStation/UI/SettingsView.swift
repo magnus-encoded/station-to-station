@@ -735,7 +735,7 @@ private struct ServiceControls: View {
                     : stopped ? "Resume gossip" : "Gossip is off until your next check-in",
                 enabled: s.gossipActiveUntil != nil || stopped
             ) {
-                if s.gossipActiveUntil != nil { model.stopGossip() } else { model.resumeGossip() }
+                if s.gossipActiveUntil != nil { model.gossip.stopGossip() } else { model.gossip.resumeGossip() }
             }
             .padding(.top, 4)
 

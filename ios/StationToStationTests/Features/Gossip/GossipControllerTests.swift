@@ -4,20 +4,22 @@ import XCTest
 @MainActor
 final class GossipControllerTests: XCTestCase {
 
+    private var file: URL!
     private var store: TimelineStore!
-    private var model: AppModel!
+    private var host: FakeState!
+    private var gossip: GossipController!
 
     override func setUp() async throws {
-        // The AppModel reads the default timeline file, so the test writes there.
-        try? FileManager.default.removeItem(at: TimelineStore.defaultFile)
+        file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         UserDefaults.standard.removeObject(forKey: "gossip.selectedGigId")
         GossipTransport.shared.resumeParticipation()
-        store = TimelineStore()
-        model = AppModel()
+        store = TimelineStore(file: file)
+        host = FakeState()
+        gossip = GossipController(host: host, timelines: store)
     }
 
     override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: TimelineStore.defaultFile)
+        try? FileManager.default.removeItem(at: file)
         UserDefaults.standard.removeObject(forKey: "gossip.selectedGigId")
         GossipTransport.shared.resumeParticipation()
     }
@@ -41,38 +43,38 @@ final class GossipControllerTests: XCTestCase {
     func testStoppingEndsTonightsParticipationAndResumingBringsItBack() async {
         let gigId = await checkedInTonight()
 
-        model.resumeGossip()
-        await eventually { self.model.state.gossipActiveUntil != nil }
-        XCTAssertEqual(model.state.gossipActiveGig, gigId)
-        XCTAssertEqual(model.state.gossipStoppedGigs, [])
+        gossip.resumeGossip()
+        await eventually { self.host.state.gossipActiveUntil != nil }
+        XCTAssertEqual(host.state.gossipActiveGig, gigId)
+        XCTAssertEqual(host.state.gossipStoppedGigs, [])
 
-        model.stopGossip()
+        gossip.stopGossip()
         XCTAssertGreaterThan(GossipTransport.shared.stoppedAt, 0)
-        await eventually { self.model.state.gossipActiveUntil == nil }
-        XCTAssertNil(model.state.gossipActiveGig)
-        XCTAssertEqual(model.state.gossipStoppedGigs, [gigId])
+        await eventually { self.host.state.gossipActiveUntil == nil }
+        XCTAssertNil(host.state.gossipActiveGig)
+        XCTAssertEqual(host.state.gossipStoppedGigs, [gigId])
 
-        model.resumeGossip()
+        gossip.resumeGossip()
         XCTAssertEqual(GossipTransport.shared.stoppedAt, 0)
-        await eventually { self.model.state.gossipActiveUntil != nil }
-        XCTAssertEqual(model.state.gossipActiveGig, gigId)
+        await eventually { self.host.state.gossipActiveUntil != nil }
+        XCTAssertEqual(host.state.gossipActiveGig, gigId)
     }
 
     func testChoosingAGigStandsAtItByItsLocalIdAndClearsAStop() async {
         let gigId = await checkedInTonight()
-        model.stopGossip()
+        gossip.stopGossip()
 
-        model.selectGossipGig(gigId)
+        gossip.selectGossipGig(gigId)
         await eventually { GossipTransport.shared.selectedGigId == gigId }
         XCTAssertEqual(GossipTransport.shared.stoppedAt, 0)
-        await eventually { self.model.state.gossipActiveGig == gigId }
-        XCTAssertNotNil(model.state.gossipActiveUntil)
+        await eventually { self.host.state.gossipActiveGig == gigId }
+        XCTAssertNotNil(host.state.gossipActiveUntil)
     }
 
     func testChoosingAGigThisPhoneDoesNotKnowChangesNothing() async {
-        model.stopGossip()
+        gossip.stopGossip()
 
-        model.selectGossipGig("unknown")
+        gossip.selectGossipGig("unknown")
         try? await Task.sleep(nanoseconds: 300_000_000)
         XCTAssertNil(GossipTransport.shared.selectedGigId)
         XCTAssertGreaterThan(GossipTransport.shared.stoppedAt, 0)
@@ -81,8 +83,8 @@ final class GossipControllerTests: XCTestCase {
     func testRefreshingPresenceRereadsWhatTheRowsDraw() async {
         let gigId = await checkedInTonight()
 
-        model.refreshGossipPresence()
-        await eventually { self.model.state.gossipActiveGig == gigId }
-        XCTAssertNotNil(model.state.gossipEligibleUntil[gigId])
+        gossip.refreshGossipPresence()
+        await eventually { self.host.state.gossipActiveGig == gigId }
+        XCTAssertNotNil(host.state.gossipEligibleUntil[gigId])
     }
 }

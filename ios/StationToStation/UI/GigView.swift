@@ -229,7 +229,7 @@ struct GigView: View {
         // move while nobody is looking — a night whose grace lapsed in a pocket hands the amber
         // to the next one — and the row's own clock only runs for a **Room** that was already
         // open when it happened.
-        .task { model.refreshGossipPresence() }
+        .task { model.gossip.refreshGossipPresence() }
         .toolbar {
             // Only for a night this app minted. A night that already has a setlist.fm
             // page has nothing to adopt, and offering it there would be an invitation
@@ -519,8 +519,8 @@ struct GigView: View {
                         (model.state.gossipGigAliases[show.id] ?? [show.id]).contains($0)
                     } ?? false,
                     stopped: model.state.gossipStoppedGigs.contains(show.id),
-                    onSelect: { model.selectGossipGig(show.id) },
-                    onExpiry: { model.refreshGossipPresence() })
+                    onSelect: { model.gossip.selectGossipGig(show.id) },
+                    onExpiry: { model.gossip.refreshGossipPresence() })
             } else {
                 // The fold decides only whether to show the ticket, exactly as Android's
                 // does; `TicketAtTheDoor` draws every Admission in its own symbology,
@@ -640,7 +640,7 @@ struct GigView: View {
         return HStack {
             Text("\(name) · gossip, experimental").font(.system(size: 11)).foregroundStyle(muted)
             Spacer()
-            Button("Block") { model.blockGossip(fact.author) }.font(.system(size: 11))
+            Button("Block") { model.gossip.blockGossip(fact.author) }.font(.system(size: 11))
                 // Every row's Block reads alike without whose it is (#164).
                 .accessibilityLabel("Block \(name)")
         }.padding(.horizontal, 24)
