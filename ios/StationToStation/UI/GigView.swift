@@ -219,7 +219,7 @@ struct GigView: View {
                 // and a night from 1992. Pull-to-refresh is the platform's own
                 // answer to this and ships accessible (ADR-0017).
                 .refreshable {
-                    if let curtain = offers?.curtain { await model.pullCurtain(curtain) }
+                    if let curtain = offers?.curtain { await model.setlists.pullCurtain(curtain) }
                 }
             } else {
                 Text("No gig selected.").foregroundStyle(muted)
@@ -304,11 +304,11 @@ struct GigView: View {
                     yourVenue: show.venue?.name,
                     fromTicket: !(model.state.attendanceByGig[show.id]?.admissions.isEmpty ?? true),
                     onPick: { hitId in
-                        model.acceptSetlistFmMatch(gigId: show.id, setlistId: hitId)
+                        model.setlists.acceptSetlistFmMatch(gigId: show.id, setlistId: hitId)
                         askingMatch = false
                     },
                     onNone: {
-                        model.rejectSetlistFmMatches(gigId: show.id)
+                        model.setlists.rejectSetlistFmMatches(gigId: show.id)
                         askingMatch = false
                     },
                     onDismiss: { askingMatch = false }

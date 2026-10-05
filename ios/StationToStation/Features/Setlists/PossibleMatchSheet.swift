@@ -63,6 +63,6 @@ struct PossibleMatchSheet: View {
         }
         .presentationDetents([.medium, .large])
         .preferredColorScheme(.dark)
-        .task(id: gigId) { hits = await model.setlistFmChipHits(gigId: gigId) }
+        .task(id: gigId) { hits = await model.setlists.setlistFmChipHits(gigId: gigId) }
     }
 }
