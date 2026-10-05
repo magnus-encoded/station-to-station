@@ -89,7 +89,7 @@ struct NightNotes: View {
                 onVerdict: { v in if let id = bands.shared.first?.id { model.setGigVerdict(id, verdict: v) } },
                 // Withdrawing: the same move a photograph makes, through the
                 // same function. One note per band, so there is no index.
-                onLift: { id in model.moveMedia(id, to: .vault) }
+                onLift: { id in model.gigMedia.moveMedia(id, to: .vault) }
             )
             // Absent under the contact light for the reason the vault strip
             // is: a Contact cannot see the vault, and an empty row drawn
@@ -116,7 +116,7 @@ struct NightNotes: View {
                     // promise for free, because `hintForMoving` never asked
                     // what kind of item it was holding.
                     onLift: { id in
-                        model.moveMedia(id, to: .shared)
+                        model.gigMedia.moveMedia(id, to: .shared)
                         // Publishing from a *maybe* Night asks the one question (#405).
                         if let ask = model.maybesOnSelected().first { askingMaybe = ask }
                     }

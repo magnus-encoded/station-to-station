@@ -137,7 +137,7 @@ struct NightGrid: View {
         }
         .padding(.vertical, 16)
         .sheet(item: $pickingBand) { band in
-            MediaPicker { model.attachMedia(assetIds: $0, to: band) }.ignoresSafeArea()
+            MediaPicker { model.gigMedia.attachMedia(assetIds: $0, to: band) }.ignoresSafeArea()
         }
         .modifier(MaybeNightAlert(asking: $askingMaybe, sharing: true) {
             // Whichever way it was answered — or not — a share that asked it carries on:
@@ -154,9 +154,9 @@ struct NightGrid: View {
             MediaWindow(
                 media: media,
                 songs: songs,
-                offsets: model.songOffsets(mediaId: media.id, songCount: songs.count),
+                offsets: model.gigMedia.songOffsets(mediaId: media.id, songCount: songs.count),
                 onStamp: { index, atMs in
-                    model.stampSong(mediaId: media.id, index: index, atMs: atMs,
+                    model.gigMedia.stampSong(mediaId: media.id, index: index, atMs: atMs,
                                     songCount: songs.count)
                 },
                 onDismiss: { opened = nil })
@@ -263,7 +263,7 @@ struct NightGrid: View {
                   mine: media.from == nil)
             .contextMenu {
                 if editable {
-                    Button("Remove", role: .destructive) { model.removeMedia(media) }
+                    Button("Remove", role: .destructive) { model.gigMedia.removeMedia(media) }
                 }
             }
             // Received media never drags: its disposition is not mine to set. Nor does
@@ -283,7 +283,7 @@ struct NightGrid: View {
                 ? (band == .shared ? "Move to the vault" : "Share it") : nil) {
                 move(media.id, to: band == .shared ? .vault : .shared)
             }
-            .accessibilityAction(ifNamed: editable ? "Remove" : nil) { model.removeMedia(media) }
+            .accessibilityAction(ifNamed: editable ? "Remove" : nil) { model.gigMedia.removeMedia(media) }
     }
 
     private func drop(_ providers: [NSItemProvider], into band: Band) -> Bool {
@@ -317,7 +317,7 @@ struct NightGrid: View {
     /// `moveAndAsk`.
     private func move(_ id: String, to band: Band) {
         let wasKept = model.state.gigMedia.contains { $0.id == id && $0.personal }
-        model.moveMedia(id, to: band)
+        model.gigMedia.moveMedia(id, to: band)
         if band == .shared, wasKept, let ask = model.maybesOnSelected().first { askingMaybe = ask }
     }
 
@@ -382,7 +382,7 @@ struct NightGrid: View {
                 HStack(spacing: 6) {
                     ForEach(model.state.gigMediaSuggestions, id: \.self) { assetId in
                         Button {
-                            model.attachMedia(assetIds: [assetId], to: .shared)
+                            model.gigMedia.attachMedia(assetIds: [assetId], to: .shared)
                             // Straight into the shared band is sharing, so it asks too (#405).
                             if let ask = model.maybesOnSelected().first { askingMaybe = ask }
                         } label: {

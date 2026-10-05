@@ -6,97 +6,129 @@ final class GigMediaControllerTests: XCTestCase {
 
     private let night = FmSetlist(id: "gigmedia-night", eventDate: "13-08-2026", artist: FmArtist(name: "A Band"))
 
+    private var storeFile: URL!
+
+    override func setUp() {
+        super.setUp()
+        storeFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("gigmedia-\(UUID().uuidString).json")
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: storeFile)
+        super.tearDown()
+    }
+
     private func media(_ id: String, personal: Bool = false, offsets: [Int64] = []) -> StoredMedia {
         var m = StoredMedia(id: id, kind: StoredMedia.Kind.photo, ref: "ref-\(id)", personal: personal)
         m.songOffsets = offsets
         return m
     }
 
-    private func subject(_ nightMedia: [StoredMedia] = []) -> AppModel {
-        let model = AppModel()
-        model.state.selectedSetlist = night
-        model.state.mediaBySetlist = [night.id: nightMedia]
-        return model
+    private func subject(
+        _ nightMedia: [StoredMedia] = [],
+        markSelectedOwnership: @escaping (FmSetlist, StoredAttendance?) -> Void = { _, _ in }
+    ) -> (GigMediaController, FakeState) {
+        let fake = FakeState()
+        fake.state.selectedSetlist = night
+        fake.state.mediaBySetlist = [night.id: nightMedia]
+        let controller = GigMediaController(host: fake, timelines: TimelineStore(file: storeFile),
+                                            markSelectedOwnership: markSelectedOwnership)
+        return (controller, fake)
     }
 
     func testSongOffsetsArePaddedAndTruncatedToTheSetlistAsItIsNow() {
-        let model = subject([media("a", offsets: [10, 20, 30])])
+        let (gigMedia, _) = subject([media("a", offsets: [10, 20, 30])])
 
-        XCTAssertEqual(model.songOffsets(mediaId: "a", songCount: 2), [10, 20])
-        XCTAssertEqual(model.songOffsets(mediaId: "a", songCount: 4), [10, 20, 30, notStamped])
-        XCTAssertEqual(model.songOffsets(mediaId: nil, songCount: 2), [notStamped, notStamped])
+        XCTAssertEqual(gigMedia.songOffsets(mediaId: "a", songCount: 2), [10, 20])
+        XCTAssertEqual(gigMedia.songOffsets(mediaId: "a", songCount: 4), [10, 20, 30, notStamped])
+        XCTAssertEqual(gigMedia.songOffsets(mediaId: nil, songCount: 2), [notStamped, notStamped])
     }
 
     func testStampingASongMovesOnlyThatSong() {
-        let model = subject([media("a", offsets: [10, 20, 30])])
+        let (gigMedia, fake) = subject([media("a", offsets: [10, 20, 30])])
 
-        model.stampSong(mediaId: "a", index: 1, atMs: 25, songCount: 3)
+        gigMedia.stampSong(mediaId: "a", index: 1, atMs: 25, songCount: 3)
 
-        XCTAssertEqual(model.state.mediaBySetlist[night.id]?.first?.songOffsets, [10, 25, 30])
+        XCTAssertEqual(fake.state.mediaBySetlist[night.id]?.first?.songOffsets, [10, 25, 30])
     }
 
     func testAStampPastTheEndOfTheSetlistIsIgnored() {
-        let model = subject([media("a", offsets: [10])])
+        let (gigMedia, fake) = subject([media("a", offsets: [10])])
 
-        model.stampSong(mediaId: "a", index: 5, atMs: 25, songCount: 1)
+        gigMedia.stampSong(mediaId: "a", index: 5, atMs: 25, songCount: 1)
 
-        XCTAssertEqual(model.state.mediaBySetlist[night.id]?.first?.songOffsets, [10])
+        XCTAssertEqual(fake.state.mediaBySetlist[night.id]?.first?.songOffsets, [10])
     }
 
     func testMovingIntoTheVaultLandsAtTheEndOfItsRun() {
-        let model = subject([media("a"), media("b"), media("v", personal: true)])
+        let (gigMedia, fake) = subject([media("a"), media("b"), media("v", personal: true)])
 
-        model.moveMedia("a", to: .vault)
+        gigMedia.moveMedia("a", to: .vault)
 
-        let moved = model.state.mediaBySetlist[night.id] ?? []
+        let moved = fake.state.mediaBySetlist[night.id] ?? []
         XCTAssertEqual(moved.map(\.id), ["b", "v", "a"])
         XCTAssertEqual(moved.map(\.personal), [false, true, true])
     }
 
     func testRemovingDropsTheItemAtOnce() {
-        let model = subject([media("a"), media("b")])
+        let (gigMedia, fake) = subject([media("a"), media("b")])
 
-        model.removeMedia(media("a"))
+        gigMedia.removeMedia(media("a"))
 
-        XCTAssertEqual(model.state.mediaBySetlist[night.id]?.map(\.id), ["b"])
+        XCTAssertEqual(fake.state.mediaBySetlist[night.id]?.map(\.id), ["b"])
     }
 
     func testNothingChangesWithoutAnOpenNight() {
-        let model = subject([media("a")])
-        model.state.selectedSetlist = nil
+        let (gigMedia, fake) = subject([media("a")])
+        fake.state.selectedSetlist = nil
 
-        model.moveMedia("a", to: .vault)
-        model.removeMedia(media("a"))
-        model.attachMedia(assetIds: ["x"], to: .shared)
+        gigMedia.moveMedia("a", to: .vault)
+        gigMedia.removeMedia(media("a"))
+        gigMedia.attachMedia(assetIds: ["x"], to: .shared)
 
-        XCTAssertEqual(model.state.mediaBySetlist[night.id]?.map(\.id), ["a"])
-        XCTAssertNil(model.state.error)
+        XCTAssertEqual(fake.state.mediaBySetlist[night.id]?.map(\.id), ["a"])
+        XCTAssertNil(fake.state.error)
     }
 
     func testAttachingOnlyWhatIsAlreadyAttachedDoesNothing() async throws {
-        let model = subject([media("a")])
+        let (gigMedia, fake) = subject([media("a")])
 
-        model.attachMedia(assetIds: ["ref-a"], to: .shared)
+        gigMedia.attachMedia(assetIds: ["ref-a"], to: .shared)
         try await Task.sleep(nanoseconds: 200_000_000)
 
-        XCTAssertEqual(model.state.mediaBySetlist[night.id]?.map(\.id), ["a"])
-        XCTAssertNil(model.state.error)
+        XCTAssertEqual(fake.state.mediaBySetlist[night.id]?.map(\.id), ["a"])
+        XCTAssertNil(fake.state.error)
     }
 
     func testOpeningANightClearsItsSuggestionsAndAttendanceThenReadsTheStore() async throws {
-        let model = subject()
-        model.state.selectedSetlist = nil
-        model.state.gigMediaSuggestions = ["stale"]
-        model.state.selectedAttendance = StoredAttendance()
+        var owned: [String] = []
+        let (gigMedia, fake) = subject(markSelectedOwnership: { setlist, _ in owned.append(setlist.id) })
+        await TimelineStore(file: storeFile).saveMedia(setlistId: night.id, media: [media("a")])
+        fake.state.gigMediaSuggestions = ["stale"]
+        fake.state.selectedAttendance = StoredAttendance()
 
-        model.selectSetlist(night)
+        gigMedia.loadGigMedia(night)
 
-        XCTAssertEqual(model.state.gigMediaSuggestions, [])
-        XCTAssertNil(model.state.selectedAttendance)
-        let stored = await TimelineStore().load().media()
-        for _ in 0..<50 where model.state.mediaBySetlist != stored {
+        XCTAssertEqual(fake.state.gigMediaSuggestions, [])
+        XCTAssertNil(fake.state.selectedAttendance)
+        for _ in 0..<50 where owned.isEmpty {
             try await Task.sleep(nanoseconds: 20_000_000)
         }
-        XCTAssertEqual(model.state.mediaBySetlist, stored)
+        XCTAssertEqual(fake.state.mediaBySetlist[night.id]?.map(\.id), ["a"])
+        XCTAssertEqual(owned, [night.id])
+    }
+
+    func testANightClosedBeforeTheStoreAnswersIsLeftAlone() async throws {
+        var owned: [String] = []
+        let (gigMedia, fake) = subject(markSelectedOwnership: { setlist, _ in owned.append(setlist.id) })
+        await TimelineStore(file: storeFile).saveMedia(setlistId: night.id, media: [media("a")])
+
+        gigMedia.loadGigMedia(night)
+        fake.state.selectedSetlist = nil
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertEqual(fake.state.mediaBySetlist[night.id]?.map(\.id), [])
+        XCTAssertEqual(owned, [])
     }
 }

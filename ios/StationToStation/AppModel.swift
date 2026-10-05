@@ -301,6 +301,10 @@ final class AppModel: ObservableObject, StateHost {
     /// The in-flight suggestion lookup, held so the next keystroke can cancel it.
     private var artistSearch: Task<Void, Never>?
     private let timelines = TimelineStore()
+    private(set) lazy var gigMedia = GigMediaController(
+        host: self, timelines: timelines,
+        markSelectedOwnership: { [unowned self] in self.markSelectedOwnership($0, attendance: $1) }
+    )
     /// The device half of the Timeline (ADR-0001): the store, the client, the
     /// bundle. Held as the concrete type because seeding a fixture is an iOS-only
     /// entry point that the shared logic layer only ever *reads* the result of.
@@ -315,7 +319,7 @@ final class AppModel: ObservableObject, StateHost {
         fetchSetlist: { [unowned self] id in try await setlistFm.setlist(id) },
         identifyFestivals: { [unowned self] mine, known in await logic.resolveFestivals(mine: mine, known: known) },
         refreshLine: { [unowned self] friend in refreshLine(friend) },
-        loadGigMedia: { [unowned self] show in loadGigMedia(show) }
+        loadGigMedia: { [unowned self] show in gigMedia.loadGigMedia(show) }
     )
 
     private(set) lazy var setlists = SetlistsController(
@@ -1688,7 +1692,7 @@ final class AppModel: ObservableObject, StateHost {
         // claim. Starting at the answer the lists give rather than at `false` is what
         // keeps a night that is plainly mine from drawing itself read-only for a frame.
         markSelectedOwnership(setlist, attendance: nil)
-        loadGigMedia(setlist)
+        gigMedia.loadGigMedia(setlist)
         state.gigLog = StoredLog()
         Task {
             let log = await timelines.log(setlistId: setlist.id)
@@ -1738,23 +1742,6 @@ final class AppModel: ObservableObject, StateHost {
             mine: state.timelineShows,
             planned: state.plannedGigs
         )
-    }
-
-    private func loadGigMedia(_ setlist: FmSetlist) {
-        state.gigMediaSuggestions = []
-        state.selectedAttendance = nil
-        Task {
-            let cache = await timelines.load()
-            guard state.selectedSetlist?.id == setlist.id else { return }
-            // The whole map: opening any night is also the cheapest moment to refresh
-            // what the Timeline behind it is drawing.
-            state.mediaBySetlist = cache.media()
-            state.mediaOffers = cache.mediaOffers
-            state.playlistsBySetlist = cache.playlists()
-            state.selectedAttendance = cache.attendance()[setlist.id]
-            markSelectedOwnership(setlist, attendance: state.selectedAttendance)
-            refreshSuggestions(setlist)
-        }
     }
 
     // --- Check-in (#174) ---
@@ -1852,120 +1839,6 @@ final class AppModel: ObservableObject, StateHost {
             guard let localGig = cache.gigs[gigId] ?? cache.gigForSetlist(gigId) else { return }
             _ = await GossipChannel.shared.checkedIn(gigId: gigId, localGigId: localGig.id, gigDate: gigDate)
             gossipContactsChanged()
-        }
-    }
-
-    // --- The recording as an index (#27) ---
-
-    /// Where each song sits in a recording, as long as the setlist is now.
-    ///
-    /// Padded and truncated to `songCount` rather than returned as stored: the setlist
-    /// can be edited on setlist.fm after a night was stamped, and a stored list of the
-    /// old length would otherwise shift every song's time by one.
-    func songOffsets(mediaId: String?, songCount: Int) -> [Int64] {
-        let stored = mediaId.flatMap { id in
-            state.mediaBySetlist.values.compactMap { $0.first { $0.id == id } }.first
-        }?.songOffsets ?? []
-        return (0..<max(songCount, 0)).map { stored.indices.contains($0) ? stored[$0] : notStamped }
-    }
-
-    /// Records that song `index` starts at `atMs` in the night's recording, or clears
-    /// it with `notStamped`.
-    ///
-    /// Only this one song moves. The recording and the setlist need not hold the same
-    /// songs — a clip setlist.fm left out sits in the gap between two stamps — so
-    /// nothing may be inferred about its neighbours from one stamp.
-    func stampSong(mediaId: String, index: Int, atMs: Int64, songCount: Int) {
-        var offsets = songOffsets(mediaId: mediaId, songCount: songCount)
-        guard offsets.indices.contains(index) else { return }
-        offsets[index] = atMs
-        for (gigId, media) in state.mediaBySetlist where media.contains(where: { $0.id == mediaId }) {
-            state.mediaBySetlist[gigId] = media.map {
-                var m = $0
-                if m.id == mediaId { m.songOffsets = offsets }
-                return m
-            }
-        }
-        Task { await timelines.saveSongOffsets(mediaId: mediaId, offsets: offsets) }
-    }
-
-    private func refreshSuggestions(_ setlist: FmSetlist) {
-        // Silent without permission: the picker is what asks, so a prompt only
-        // ever follows a tap.
-        guard PhotoLibrary.isAuthorized,
-              let date = setlist.eventDate,
-              let window = photoWindow(gigDate: date)
-        else { state.gigMediaSuggestions = []; return }
-        let attached = Set(state.gigMedia.map(\.ref))
-        Task {
-            let found = await Task.detached { PhotoLibrary.assetsFromNight(window) }.value
-            guard state.selectedSetlist?.id == setlist.id else { return }
-            state.gigMediaSuggestions = found.filter { !attached.contains($0) }
-        }
-    }
-
-    /// **Attach**: the picked assets become this night's, with both thumbnail
-    /// tiers written before the record exists. Anything whose bytes could not be
-    /// read is *not* attached and says so — a record with nothing behind it is the
-    /// failure #98 exists to prevent.
-    ///
-    /// **Attach asks once** (#171, porting Android's `AttachHandle`): `band` is
-    /// the answer to "shared or vault", named by whichever control the gesture
-    /// landed on. There is no default path into this — every caller names one.
-    func attachMedia(assetIds: [String], to band: Band = .shared) {
-        guard let setlist = state.selectedSetlist else { return }
-        let had = state.gigMedia
-        let wanted = assetIds.filter { id in !had.contains { $0.ref == id } }
-        guard !wanted.isEmpty else { return }
-        Task {
-            let (fetched, failed) = await PhotoLibrary.attach(assetIds: wanted)
-            if !fetched.isEmpty {
-                let fresh = fetched.map { item -> StoredMedia in
-                    var m = item
-                    m.personal = (band == .vault)
-                    return m
-                }
-                // Normalised through the bands so a fresh item lands at the end of
-                // its own run rather than after somebody else's media.
-                let split = bandsOf(had + fresh)
-                let media = split.shared + split.received + split.vault
-                state.mediaBySetlist[setlist.id] = media
-                await timelines.saveMedia(setlistId: setlist.id, media: media)
-                refreshSuggestions(setlist)
-            }
-            if failed > 0 {
-                state.error = failed == 1
-                    ? "Couldn't read that one — not attached."
-                    : "Couldn't read \(failed) of those — not attached."
-            }
-        }
-    }
-
-    /// Moves one of my items into `band`, at the end of its run — the drag
-    /// between bands, and what letting go of it there means (#171, porting
-    /// Android's `moveGigMedia`).
-    ///
-    /// A move between bands *is* the change to its **Personal** bit; there is no
-    /// separate gesture and no night-level grant above it. **Received media** is
-    /// refused by `moveMedia` rather than here: whose disposition it is belongs
-    /// with the rule, not with the caller.
-    func moveMedia(_ mediaId: String, to band: Band) {
-        guard let setlist = state.selectedSetlist else { return }
-        let target = band == .shared ? bandsOf(state.gigMedia).shared.count : bandsOf(state.gigMedia).vault.count
-        let media = StationToStation.moveMedia(state.gigMedia, id: mediaId, to: band, index: target)
-        state.mediaBySetlist[setlist.id] = media
-        Task { await timelines.saveMedia(setlistId: setlist.id, media: media) }
-    }
-
-    /// Removing means removing: the record goes, and so do the bytes it owned.
-    func removeMedia(_ media: StoredMedia) {
-        guard let setlist = state.selectedSetlist else { return }
-        let kept = state.gigMedia.filter { $0.id != media.id }
-        state.mediaBySetlist[setlist.id] = kept
-        Task {
-            await timelines.saveMedia(setlistId: setlist.id, media: kept)
-            PhotoLibrary.deleteThumbnails(media.id)
-            refreshSuggestions(setlist)
         }
     }
 
