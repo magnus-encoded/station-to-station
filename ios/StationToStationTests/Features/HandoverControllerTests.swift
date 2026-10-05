@@ -4,82 +4,89 @@ import XCTest
 @MainActor
 final class HandoverControllerTests: XCTestCase {
 
-    private var model: AppModel!
+    private var fake: FakeState!
+    private var settings: Settings!
+    private var handover: HandoverController!
     private var savedUser: String?
 
     override func setUp() async throws {
-        model = AppModel()
-        savedUser = model.settings.mySetlistFmUser
+        fake = FakeState()
+        settings = Settings()
+        handover = HandoverController(host: fake, settings: settings, timelines: TimelineStore(),
+                                      spotify: SpotifyClient(settings), loadTimeline: {})
+        savedUser = settings.mySetlistFmUser
     }
 
     override func tearDown() async throws {
-        model.settings.saveMySetlistFmUser(savedUser ?? "")
-        model = nil
+        settings.saveMySetlistFmUser(savedUser ?? "")
+        handover = nil
+        settings = nil
+        fake = nil
     }
 
     func testStoppingBeforeAnOutcomeSaysWhatArrivedWasKept() {
-        model.state.handover = HandoverUi(role: .receiver)
+        fake.state.handover = HandoverUi(role: .receiver)
 
-        model.cancelHandover()
+        handover.cancelHandover()
 
-        XCTAssertEqual(model.state.handover.error, "The transfer was stopped. What arrived was kept.")
-        XCTAssertEqual(model.state.handover.role, .receiver)
+        XCTAssertEqual(fake.state.handover.error, "The transfer was stopped. What arrived was kept.")
+        XCTAssertEqual(fake.state.handover.role, .receiver)
     }
 
     func testStoppingAfterAReceiptLeavesTheReceiptAlone() {
         var receipt = HandoverReceipt()
         receipt.landed = 3
-        model.state.handover = HandoverUi(role: .source, receipt: receipt)
+        fake.state.handover = HandoverUi(role: .source, receipt: receipt)
 
-        model.cancelHandover()
+        handover.cancelHandover()
 
-        XCTAssertNil(model.state.handover.error)
-        XCTAssertEqual(model.state.handover.receipt?.landed, 3)
+        XCTAssertNil(fake.state.handover.error)
+        XCTAssertEqual(fake.state.handover.receipt?.landed, 3)
     }
 
     func testStoppingAfterAnErrorKeepsThatError() {
-        model.state.handover = HandoverUi(role: .source, error: "The other phone went away.")
+        fake.state.handover = HandoverUi(role: .source, error: "The other phone went away.")
 
-        model.cancelHandover()
+        handover.cancelHandover()
 
-        XCTAssertEqual(model.state.handover.error, "The other phone went away.")
+        XCTAssertEqual(fake.state.handover.error, "The other phone went away.")
     }
 
     func testLeavingTheScreenClearsTheHandover() {
-        model.state.handover = HandoverUi(role: .source, inviteUri: "station-to-station://handover",
+        fake.state.handover = HandoverUi(role: .source, inviteUri: "station-to-station://handover",
                                           receipt: HandoverReceipt(), error: "gone")
 
-        model.dismissHandover()
+        handover.dismissHandover()
 
-        XCTAssertNil(model.state.handover.role)
-        XCTAssertNil(model.state.handover.inviteUri)
-        XCTAssertNil(model.state.handover.receipt)
-        XCTAssertNil(model.state.handover.error)
+        XCTAssertNil(fake.state.handover.role)
+        XCTAssertNil(fake.state.handover.inviteUri)
+        XCTAssertNil(fake.state.handover.receipt)
+        XCTAssertNil(fake.state.handover.error)
     }
 
     func testALinkThatIsNotAnInviteStartsNothing() {
-        model.joinHandover(URL(string: "https://example.com/not-an-invite")!)
+        handover.joinHandover(URL(string: "https://example.com/not-an-invite")!)
 
-        XCTAssertNil(model.state.handover.role)
+        XCTAssertNil(fake.state.handover.role)
     }
 
     func testArrivingIdentitiesBecomeMySetlistFmUser() async {
-        model.state.spotifyConnected = false
+        fake.state.spotifyConnected = false
 
-        await model.storeHandoverAccounts(identitiesOnly(Identities(setlistFmUser: "wandering-owl")))
+        await handover.storeHandoverAccounts(identitiesOnly(Identities(setlistFmUser: "wandering-owl")))
 
-        XCTAssertEqual(model.state.mySetlistFmUser, "wandering-owl")
-        XCTAssertEqual(model.settings.mySetlistFmUser, "wandering-owl")
-        XCTAssertFalse(model.state.spotifyConnected)
+        XCTAssertEqual(fake.state.mySetlistFmUser, "wandering-owl")
+        XCTAssertEqual(settings.mySetlistFmUser, "wandering-owl")
+        XCTAssertFalse(fake.state.spotifyConnected)
     }
 
     func testAPayloadWithNothingInItChangesNothing() async {
-        model.state.mySetlistFmUser = "already-here"
-        model.state.spotifyConnected = false
+        fake.state.mySetlistFmUser = "already-here"
+        fake.state.spotifyConnected = false
 
-        await model.storeHandoverAccounts(AccountsPayload())
+        await handover.storeHandoverAccounts(AccountsPayload())
 
-        XCTAssertEqual(model.state.mySetlistFmUser, "already-here")
-        XCTAssertFalse(model.state.spotifyConnected)
+        XCTAssertEqual(fake.state.mySetlistFmUser, "already-here")
+        XCTAssertFalse(fake.state.spotifyConnected)
     }
 }

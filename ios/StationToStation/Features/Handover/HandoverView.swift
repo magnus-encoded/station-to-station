@@ -72,7 +72,7 @@ struct HandoverView: View {
         .background(ground.ignoresSafeArea())
         .navigationTitle("Move to a new phone")
         .navigationBarTitleDisplayMode(.inline)
-        .onDisappear { model.dismissHandover() }
+        .onDisappear { model.handover.dismissHandover() }
     }
 
     // MARK: - Before
@@ -107,7 +107,7 @@ struct HandoverView: View {
             }
 
             Button {
-                model.offerHandover(allow)
+                model.handover.offerHandover(allow)
             } label: {
                 // The verb names what happens on *this* device, which is the surprising
                 // part — the records are copied and nothing is removed, while the
@@ -147,7 +147,7 @@ struct HandoverView: View {
 
             progress(handover.progress)
 
-            Button("Stop", role: .destructive) { model.cancelHandover() }
+            Button("Stop", role: .destructive) { model.handover.cancelHandover() }
                 .buttonStyle(.bordered)
         }
     }
