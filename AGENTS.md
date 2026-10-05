@@ -21,3 +21,7 @@ Follow [`docs/agents/comments.md`](docs/agents/comments.md): separate rules for 
 ## Where feature state lives
 
 Feature state lives in `features/<name>/`: a controller taking `state`, `update`, its `data/` dependencies and a `CoroutineScope`, wired in `AppViewModel`. Controller tests reuse `FakeState`.
+
+On iOS the same features live in `ios/StationToStation/Features/<Name>/` over the `StateHost`
+seam; [`docs/agents/ios-features.md`](docs/agents/ios-features.md) has the pattern and where
+each `AppModel` method goes.
