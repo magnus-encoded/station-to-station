@@ -111,7 +111,8 @@ final class ContactsControllerTests: XCTestCase {
         let m = maybe(mine: mine, theirs: id("theirs"))
         await contacts.answerMaybe(maybe(mine: id("mine"), theirs: id("theirs")), same: false)
         await contacts.adoptMaybe(m)
-        XCTAssertEqual(m.theirs.id, (await timelines.load()).gigs[mine]?.setlistId)
+        let adopted = await timelines.load().gigs[mine]?.setlistId
+        XCTAssertEqual(m.theirs.id, adopted)
         XCTAssertNil(fake.state.nightJoins[m.theirs.id])
         XCTAssertNil(contacts.maybeUndo)
     }
