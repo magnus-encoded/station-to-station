@@ -37,8 +37,8 @@ struct SplashView: View {
                     // Ordered this way on purpose: the login opens a sheet, and the
                     // door is counted as passed either way — a network that is down is
                     // not a reason to be asked the same question twice.
-                    model.loginSpotify()
-                    model.markOnboarded()
+                    model.settingsController.loginSpotify()
+                    model.settingsController.markOnboarded()
                 } label: {
                     Text("Log in with Spotify").font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.white)
@@ -46,7 +46,7 @@ struct SplashView: View {
                         .background(spotifyGreen, in: RoundedRectangle(cornerRadius: 22))
                 }
                 Spacer().frame(height: 4)
-                Button { model.markOnboarded() } label: {
+                Button { model.settingsController.markOnboarded() } label: {
                     Text("Skip — just show me setlists")
                         .font(.system(size: 15)).foregroundStyle(muted)
                         .frame(maxWidth: .infinity).padding(.vertical, 12)
