@@ -309,11 +309,11 @@ final class AppModel: ObservableObject, StateHost {
         loadTimeline: { [unowned self] in loadTimeline() },
         markSelectedOwnership: { [unowned self] in self.playlist.markSelectedOwnership($0, attendance: $1) }
     )
-    private(set) lazy var gigMedia = GigMediaController(
+    private(set) lazy var gigMedia: GigMediaController = GigMediaController(
         host: self, timelines: timelines,
         markSelectedOwnership: { [unowned self] in self.playlist.markSelectedOwnership($0, attendance: $1) }
     )
-    private(set) lazy var playlist = PlaylistController(
+    private(set) lazy var playlist: PlaylistController = PlaylistController(
         host: self, spotify: spotify, timelines: timelines,
         loadGigMedia: { [unowned self] in self.gigMedia.loadGigMedia($0) },
         loadGigLog: { [unowned self] setlist in
