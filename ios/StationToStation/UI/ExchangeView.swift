@@ -237,7 +237,7 @@ struct ExchangeView: View {
         model.addFriend(friend)
         guard model.state.friendConflict == nil else { return }
         announce("\(friend.name)'s line joins yours")
-        model.setZoomedOut(true)
+        model.navigation.setZoomedOut(true)
         nav.popToRoot()
     }
 

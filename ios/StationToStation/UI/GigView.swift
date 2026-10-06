@@ -256,7 +256,7 @@ struct GigView: View {
             // choice here). VoiceOver gets the same verb-phrased label Android's
             // custom action uses rather than the symbol's own name.
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button { model.toggleContactLight() } label: {
+                Button { model.navigation.toggleContactLight() } label: {
                     Image(systemName: model.state.contactLight ? "lightswitch.on" : "lightswitch.off")
                 }
                 .tint(model.state.contactLight ? amber : faint)
@@ -341,7 +341,7 @@ struct GigView: View {
         .accessibilityAction(named: model.state.contactLight
             ? "Turn the contact light off"
             : "Turn the contact light on, see this night as a Contact does") {
-            model.toggleContactLight()
+            model.navigation.toggleContactLight()
         }
         // Back is a chevron with no label, and the swipe that also does it is a
         // gesture VoiceOver consumes.

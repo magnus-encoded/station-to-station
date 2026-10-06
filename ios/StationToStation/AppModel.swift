@@ -309,6 +309,14 @@ final class AppModel: ObservableObject, StateHost {
     /// above is handed in rather than constructed inside it.
     private lazy var logic = TimelineLogic(plumbing: plumbing)
     private lazy var location = DeviceLocation()
+    private(set) lazy var navigation = NavigationController(
+        host: self,
+        timelines: timelines,
+        fetchSetlist: { [unowned self] id in try await setlistFm.setlist(id) },
+        identifyFestivals: { [unowned self] mine, known in await logic.resolveFestivals(mine: mine, known: known) },
+        refreshLine: { [unowned self] friend in refreshLine(friend) },
+        loadGigMedia: { [unowned self] show in loadGigMedia(show) }
+    )
 
     private var matchTask: Task<Void, Never>?
     /// One-shot per launch: dismissing an offer must not make it reappear (#174).
@@ -1116,47 +1124,11 @@ final class AppModel: ObservableObject, StateHost {
                 state.timelineShows = shows
                 state.timelineLoading = false
                 await timelines.save(shows: [me: shows], attendedTotals: [me: total])
-                resolveFestivals()
+                navigation.resolveFestivals()
             } catch {
                 state.timelineLoading = false
                 fail(error)
             }
-        }
-    }
-
-    /// Asks which **Festival**, if any, the unidentified evenings currently on the
-    /// timeline belong to. The rule itself (which evenings are candidates, that "no
-    /// festival" is a real answer worth keeping, and that the answers are stored)
-    /// lives in the logic layer; this is the after-a-fresh-import caller of it.
-    func resolveFestivals() {
-        let mine = state.timelineShows
-        let ahead = plannedLane(state.plannedGigs, state.attendanceByGig)
-        let known = state.festivals
-        Task {
-            // Two passes rather than one concatenated list, so a night ahead and a night
-            // behind can never be read as one evening. The future lane grows its own
-            // Sections (#134) and they want identities too — and it is `plannedLane` here
-            // for the reason that function exists: the resolver and the lane have to be
-            // looking at the same list.
-            let found = await logic.resolveFestivals(mine: mine, known: known)
-            let alsoAhead = await logic.resolveFestivals(mine: ahead, known: found)
-            if alsoAhead == known { return }
-            state.festivals = alsoAhead
-        }
-    }
-
-    /// Tap a name in the legend to take their **Line** off the strip, tap it again to
-    /// bring it back. Nothing is sent and nothing says anything about the
-    /// relationship — but the toggle and its moment are persisted (#396), which is
-    /// what lets the legend's recency order survive a launch.
-    /// Showing a **Line** also asks setlist.fm for its latest: it may have been off for a while.
-    func toggleLineHidden(_ lane: String) {
-        let showing = state.hiddenAt[lane] != nil
-        if showing { state.hiddenAt[lane] = nil }
-        else { state.hiddenAt[lane] = Int64(Date().timeIntervalSince1970 * 1000) }
-        Task { await timelines.saveHiddenLines(state.hiddenAt) }
-        if showing, let friend = state.friends.first(where: { $0.laneKey == lane }) {
-            refreshLine(friend)
         }
     }
 
@@ -1171,24 +1143,6 @@ final class AppModel: ObservableObject, StateHost {
             state.showsByFriend = holdLanes(state.showsByFriend, fetched)
             await timelines.save(shows: fetched)
         }
-    }
-
-    /// Pinch out to open the friends' Lanes beside my Spine, pinch in to close
-    /// them. Nothing navigates — the same one Timeline, at a different Resolution.
-    func setZoomedOut(_ v: Bool) {
-        if v && state.friends.isEmpty { return }
-        state.zoomedOut = v
-    }
-
-    /// Flip the light switch: my own Line, as a Contact sees it. Always comes on
-    /// faithful — withheld items stay hidden until asked for again.
-    func toggleContactLight() {
-        state.contactLight.toggle()
-        state.showWithheld = false
-    }
-
-    func setShowWithheld(_ v: Bool) {
-        state.showWithheld = v
     }
 
     /// Fetches whichever Followed Lanes `laneNeedsFetch` says need it (nothing
@@ -1248,30 +1202,6 @@ final class AppModel: ObservableObject, StateHost {
         state.expandedFestivals = open
             ? Set(rows.filter { $0.node.isSeveral }.map(\.key))
             : []
-    }
-
-    /// A Festival uncollapses in place — it never pushes a screen.
-    func toggleFestival(_ key: String) {
-        if state.expandedFestivals.contains(key) {
-            state.expandedFestivals.remove(key)
-        } else {
-            state.expandedFestivals.insert(key)
-        }
-    }
-
-    /// **Back out** of **Festival resolution** (#176). A Festival is uncollapsed in
-    /// place and is never a screen, so there is no stack entry to pop — but it is
-    /// still a rung, and **Back out** has no per-screen exception. Every uncollapsed
-    /// Festival is at that one rung, so one swipe collapses all of them: that *is*
-    /// one rung **Outer**, not several.
-    ///
-    /// False means nothing was open, and the Timeline is then at its outermost rung
-    /// — where **Pinch**, not **Back out**, is the gesture.
-    @discardableResult
-    func backOutOfFestivals() -> Bool {
-        if state.expandedFestivals.isEmpty { return false }
-        state.expandedFestivals.removeAll()
-        return true
     }
 
     /// The one place a thrown thing becomes an error on screen — and, for a spent shared
@@ -1607,28 +1537,6 @@ final class AppModel: ObservableObject, StateHost {
         if let friend = friendFromURL(url) { addFriend(friend) }
     }
 
-    /// A **Gig** a link names. On my **Line** it opens as it is; an unknown setlist.fm id
-    /// is fetched and opened without being kept: joining it is a question the **Room**
-    /// asks, and an invite never answers it. An id with nothing to fetch says so. A failed
-    /// fetch reports nothing: an invite for a night setlist.fm cannot serve is a dead
-    /// link, and a banner would be telling the reader about the sender's problem.
-    func openGig(_ id: String, onOpen: @escaping () -> Void) {
-        let known = state.timelineShows.first(where: { $0.id == id })
-            ?? state.plannedGigs.first(where: { $0.id == id })
-        switch planOpenGig(id, onMyLine: known != nil) {
-        case .open:
-            open(known!, onOpen)
-        case .refuse:
-            state.error = "That doesn't look like a setlist.fm gig link."
-            state.errorKind = nil
-        case .fetchThenOpen:
-            Task {
-                guard let fetched = try? await setlistFm.setlist(id) else { return }
-                open(fetched, onOpen)
-            }
-        }
-    }
-
     /// Joins a **Contact**'s **Gig**: it goes onto my **Line** under the same id, so holding
     /// it on both **Lines** makes the **Crossing** and nothing else has to be said. The date
     /// decides the claim, as it does for the add form: a night before today is one I was
@@ -1651,34 +1559,6 @@ final class AppModel: ObservableObject, StateHost {
             markSelectedOwnership(show, attendance: attendance)
             loadTimeline()
         }
-    }
-
-    private func open(_ show: FmSetlist, _ onOpen: () -> Void) {
-        state.selectedSetlist = show
-        loadGigMedia(show)
-        onOpen()
-    }
-
-    /// `timeline` and `timelines`: the Resolution, and a date to scroll to if there is one.
-    func openTimeline(zoomedOut: Bool, date: String?) {
-        setZoomedOut(zoomedOut)
-        state.linkedDate = date
-    }
-
-    /// A place link: the **Gig** on its own, or my **Line** or the weave scrolled to it.
-    func openPlace(_ id: String, as at: GigLink, onOpen: @escaping () -> Void) {
-        if at == .setlist { openGig(id, onOpen: onOpen); return }
-        setZoomedOut(at == .woven)
-        state.linkedGig = id
-        state.linkedGigAs = at
-    }
-
-    func openAddGig(artist: String?, venue: String?, date: String?) {
-        state.addGigLink = AddGigLink(
-            artist: artist ?? "",
-            venue: venue ?? "",
-            date: date.map { $0.split(separator: "-").reversed().joined(separator: "-") } ?? ""
-        )
     }
 
     /// `write-to-log`: the same path typing into the Log takes, once the **Gig** is open.
