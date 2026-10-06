@@ -4,11 +4,22 @@ import XCTest
 @MainActor
 final class SetlistsControllerTests: XCTestCase {
 
+    private var savedUser: String?
+
+    override func setUp() {
+        super.setUp()
+        savedUser = Settings().mySetlistFmUser
+    }
+
+    override func tearDown() {
+        Settings().saveMySetlistFmUser(savedUser ?? "")
+        super.tearDown()
+    }
+
     private let fmNight = FmSetlist(id: "fm1", eventDate: "01-06-2024",
                                     artist: FmArtist(mbid: "mb1", name: "Someone"),
                                     url: "https://www.setlist.fm/fm1")
 
-    private var savedUsers: [String] = []
 
     private func controller(
         _ host: FakeState,
@@ -28,16 +39,17 @@ final class SetlistsControllerTests: XCTestCase {
         )
         let file = FileManager.default.temporaryDirectory
             .appendingPathComponent("setlists-\(UUID().uuidString).json")
+        let store = TimelineStore(file: file)
+        let settings = Settings()
         return SetlistsController(
             host: host,
             setlistFm: client,
             musicBrainz: MusicBrainzClient(),
-            timelines: TimelineStore(file: file),
-            settings: Settings(),
-            saveMySetlistFmUser: { [unowned self] in savedUsers.append($0) },
-            adoptSetlist: { _, _, _, _ in true },
-            storeAttendance: { gigId, settled in host.state.attendanceByGig[gigId] = settled },
-            lineArtists: { [] }
+            timelines: store,
+            settings: settings,
+            settingsController: SettingsController(host: host, settings: settings, spotify: SpotifyClient(settings)),
+            gig: GigController(host: host, timelines: store, setlistFm: client, location: DeviceLocation(),
+                               gossip: GossipController(host: host, timelines: store))
         )
     }
 
@@ -92,7 +104,7 @@ final class SetlistsControllerTests: XCTestCase {
         let setlists = controller(host, body: #"{"total":1,"setlist":[{"id":"a"}]}"#)
         setlists.setUserQuery(" me ")
         setlists.openUserAttended()
-        XCTAssertEqual(["me"], savedUsers)
+        XCTAssertEqual("me", host.state.mySetlistFmUser)
         XCTAssertEqual("Attended by me", host.state.setlistsTitle)
         XCTAssertEqual(.user, host.state.source)
         await settle { !host.state.setlistsLoading }
@@ -106,7 +118,7 @@ final class SetlistsControllerTests: XCTestCase {
         let setlists = controller(host)
         setlists.setUserQuery("someone")
         setlists.openUserAttended()
-        XCTAssertTrue(savedUsers.isEmpty)
+        XCTAssertEqual("chosen", host.state.mySetlistFmUser)
     }
 
     func testTheNextPageIsAppended() async {

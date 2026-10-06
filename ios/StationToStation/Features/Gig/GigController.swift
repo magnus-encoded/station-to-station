@@ -5,12 +5,11 @@ import Foundation
 @MainActor
 final class GigController {
 
-    private unowned let host: StateHost
+    private let host: StateHost
     private let timelines: TimelineStore
     private let setlistFm: SetlistFmClient
     private let location: DeviceLocation
-    private let sortedPlanned: ([FmSetlist]) -> [FmSetlist]
-    private unowned let gossip: GossipController
+    private let gossip: GossipController
 
     /// One-shot per launch: dismissing an offer must not make it reappear (#174).
     private var askedToCheckIn = false
@@ -20,18 +19,14 @@ final class GigController {
         timelines: TimelineStore,
         setlistFm: SetlistFmClient,
         location: DeviceLocation,
-        sortedPlanned: @escaping ([FmSetlist]) -> [FmSetlist],
         gossip: GossipController
     ) {
         self.host = host
         self.timelines = timelines
         self.setlistFm = setlistFm
         self.location = location
-        self.sortedPlanned = sortedPlanned
         self.gossip = gossip
     }
-
-    private var knownNights: [FmSetlist] { host.state.timelineShows + host.state.plannedGigs }
 
     /// How many pictures a delete would destroy — the ones this app holds the last
     /// copy of. Zero means every keepsake on the night is still in the library too,
@@ -241,7 +236,7 @@ final class GigController {
             // Only the claim changes. The ticket's Admissions and the venue's coordinates
             // are carried across the check-in by editing the record in place, read and
             // written under one lock — Android's `updateAttendance { it.copy(…) }` (#412).
-            let checkedInAt = Int64(Date().timeIntervalSince1970 * 1000)
+            let checkedInAt = epochMs(Date())
             let attendance = await timelines.updateAttendance(setlistId: gigId) {
                 $0.provenance = "checked_in"
                 $0.checkedInAt = checkedInAt
@@ -253,7 +248,7 @@ final class GigController {
             // And into the gossip channel, signed, to be carried by whoever this phone meets
             // between now and the end of this night (#417). Nothing is promised by this: see
             // `GossipTransport` on what iOS background delivery actually is.
-            let gigDate = knownNights.first { $0.id == gigId }?.eventDate
+            let gigDate = host.state.knownNights.first { $0.id == gigId }?.eventDate
             let cache = await timelines.load()
             guard let localGig = cache.gigs[gigId] ?? cache.gigForSetlist(gigId) else { return }
             _ = await GossipChannel.shared.checkedIn(gigId: gigId, localGigId: localGig.id, gigDate: gigDate)
@@ -298,7 +293,7 @@ final class GigController {
                 kind: StoredMedia.Kind.note,
                 // When it was written. It is what sorts received notes, and a
                 // note has no camera to ask for anything better.
-                capturedAt: Int64(Date().timeIntervalSince1970 * 1000),
+                capturedAt: epochMs(Date()),
                 personal: personal,
                 text: written
             )]

@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 final class PlaylistController {
-    private unowned let host: StateHost
+    private let host: StateHost
     private let spotify: SpotifyClient
     private let timelines: TimelineStore
     private let loadGigMedia: (FmSetlist) -> Void

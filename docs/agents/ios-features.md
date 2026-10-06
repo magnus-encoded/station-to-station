@@ -29,11 +29,14 @@ The seam is `StateHost` (`Features/StateHost.swift`):
 
 A controller is a `@MainActor final class` that takes:
 
-- `unowned let host: StateHost`, and writes `host.state.x = …` exactly where `AppModel`
+- `let host: StateHost` (held strongly: AppModel lives as long as the app, and a Task that
+  outlives a test's host keeps it alive instead of crashing on it), and writes `host.state.x = …` exactly where `AppModel`
   wrote `state.x = …`, so a moved method stays almost byte-identical;
 - its `Data/` dependencies (clients, stores, `Settings`);
-- other controllers as `unowned` references, or as injected closures while the other
-  feature is not extracted yet.
+- other controllers as direct (strong) references. A closure is left only where a direct
+  reference would make the lazy wiring in `AppModel` cyclic, or the callee is `AppModel` itself.
+  Pure reads of `UiState` shared by several features (`knownNights`, `lineArtists`,
+  `sortedPlanned`) live in `Features/Planning/Line.swift`.
 
 `AppModel` owns every controller (`let contacts: ContactsController`, …) and keeps only:
 composition, `fail` and error handling (`consumeError`, `consumeNotice`), and the

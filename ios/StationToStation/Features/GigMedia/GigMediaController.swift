@@ -4,7 +4,7 @@ import Foundation
 /// stamps on a recording, and the library's suggestions from that night.
 @MainActor
 final class GigMediaController {
-    unowned let host: StateHost
+    let host: StateHost
     private let timelines: TimelineStore
     /// Playlist's, reached through `AppModel` until that feature is a controller.
     private let markSelectedOwnership: (FmSetlist, StoredAttendance?) -> Void

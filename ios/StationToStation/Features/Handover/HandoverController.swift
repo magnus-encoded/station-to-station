@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 final class HandoverController {
-    unowned let host: StateHost
+    let host: StateHost
     private let settings: Settings
     private let timelines: TimelineStore
     private let spotify: SpotifyClient

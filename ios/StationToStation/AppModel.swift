@@ -344,16 +344,14 @@ final class AppModel: ObservableObject, StateHost {
         loadGigMedia: { [unowned self] show in gigMedia.loadGigMedia(show) }
     )
 
-    private(set) lazy var setlists = SetlistsController(
+    private(set) lazy var setlists: SetlistsController = SetlistsController(
         host: self,
         setlistFm: setlistFm,
         musicBrainz: musicBrainz,
         timelines: timelines,
         settings: settings,
-        saveMySetlistFmUser: { [unowned self] in settingsController.saveMySetlistFmUser($0) },
-        adoptSetlist: { [unowned self] in await gig.adoptSetlist(gigId: $0, setlistId: $1, fresh: $2, notice: $3) },
-        storeAttendance: { [unowned self] in gig.storeAttendance($0, $1) },
-        lineArtists: { [unowned self] in planning.lineArtists() }
+        settingsController: settingsController,
+        gig: gig
     )
 
     private(set) lazy var gig: GigController = GigController(
@@ -361,7 +359,6 @@ final class AppModel: ObservableObject, StateHost {
         timelines: timelines,
         setlistFm: setlistFm,
         location: location,
-        sortedPlanned: { [unowned self] in planning.sortedPlanned($0) },
         gossip: gossip
     )
 
@@ -376,13 +373,11 @@ final class AppModel: ObservableObject, StateHost {
     }()
     private var contactsChanges: AnyCancellable?
 
-    private(set) lazy var tickets = TicketsController(
+    private(set) lazy var tickets: TicketsController = TicketsController(
         host: self,
         timelines: timelines,
         setlistFm: setlistFm,
-        mintPlannedGig: { [unowned self] in await planning.mintPlannedGig(artist: $0, venue: $1, night: $2) },
-        planFmGig: { [unowned self] in await planning.planFmGig($0) },
-        lineArtists: { [unowned self] in planning.lineArtists() },
+        planning: planning,
         setlists: setlists,
         gig: gig
     )

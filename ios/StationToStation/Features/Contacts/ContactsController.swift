@@ -9,14 +9,14 @@ final class ContactsController: ObservableObject {
     /// Ephemeral, never persisted or sent. Shared by the Spine and Room comparison.
     @Published var maybeUndo: MaybeAnswer?
 
-    private unowned let host: StateHost
+    private let host: StateHost
     private let settings: Settings
     private let timelines: TimelineStore
     private let setlistFm: SetlistFmClient
     private let spotify: SpotifyClient
     private let logic: TimelineLogic
-    private unowned let gossip: GossipController
-    private unowned let gig: GigController
+    private let gossip: GossipController
+    private let gig: GigController
 
     init(host: StateHost, settings: Settings, timelines: TimelineStore,
          setlistFm: SetlistFmClient, spotify: SpotifyClient, logic: TimelineLogic,

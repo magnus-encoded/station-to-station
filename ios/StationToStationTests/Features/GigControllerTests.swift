@@ -19,7 +19,6 @@ final class GigControllerTests: XCTestCase {
             timelines: store,
             setlistFm: SetlistFmClient(keySource: { nil }),
             location: DeviceLocation(),
-            sortedPlanned: { $0 },
             gossip: gossip
         )
     }

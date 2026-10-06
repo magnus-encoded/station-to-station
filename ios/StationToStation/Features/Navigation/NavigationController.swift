@@ -4,7 +4,7 @@ import Foundation
 /// **Festivals** are shown, and the Contact light.
 @MainActor
 final class NavigationController {
-    unowned let host: StateHost
+    let host: StateHost
     private let timelines: TimelineStore
     private let fetchSetlist: (String) async throws -> FmSetlist
     private let identifyFestivals: ([FmSetlist], Festivals) async -> Festivals

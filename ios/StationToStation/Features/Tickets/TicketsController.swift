@@ -5,29 +5,23 @@ import Foundation
 @MainActor
 final class TicketsController {
 
-    private unowned let host: StateHost
+    private let host: StateHost
     private let timelines: TimelineStore
     private let setlistFm: SetlistFmClient
-    private let mintPlannedGig: (_ artist: String, _ venue: String, _ night: Date) async -> String
-    private let planFmGig: (FmSetlist) async -> Void
-    private let lineArtists: () -> [FmArtist]
-    private unowned let setlists: SetlistsController
-    private unowned let gig: GigController
+    private let planning: PlanningController
+    private let setlists: SetlistsController
+    private let gig: GigController
 
     init(host: StateHost,
          timelines: TimelineStore,
          setlistFm: SetlistFmClient,
-         mintPlannedGig: @escaping (_ artist: String, _ venue: String, _ night: Date) async -> String,
-         planFmGig: @escaping (FmSetlist) async -> Void,
-         lineArtists: @escaping () -> [FmArtist],
+         planning: PlanningController,
          setlists: SetlistsController,
          gig: GigController) {
         self.host = host
         self.timelines = timelines
         self.setlistFm = setlistFm
-        self.mintPlannedGig = mintPlannedGig
-        self.planFmGig = planFmGig
-        self.lineArtists = lineArtists
+        self.planning = planning
         self.setlists = setlists
         self.gig = gig
     }
@@ -110,7 +104,7 @@ final class TicketsController {
             host.state.notice = "That night is already on your line."
             await setlists.lookUpLocalGig(gigId, manual: false)
         case .mintFromSetlistFm(let hit):
-            await planFmGig(hit)
+            await planning.planFmGig(hit)
             await attachAdmissions(gigId: hit.id, ticket.admissions)
         case .mintLocal:
             guard case .add(let complete) = route else { return false }
@@ -141,10 +135,6 @@ final class TicketsController {
         return false
     }
 
-    /// The nights a **Ticket** is matched against: everything on the **Line**, plans
-    /// above today included. A ticket for a night already planned by hand is the same
-    /// night, not a second one.
-    private var knownNights: [FmSetlist] { host.state.timelineShows + host.state.plannedGigs }
 
     /// Every **Admission** onto the night's attendance record, appended, and into state
     /// with it (#412, #441). No-op when there is none to keep — most confirmations and
@@ -172,7 +162,7 @@ final class TicketsController {
     @discardableResult
     private func put(_ ticket: Ticket) async -> String? {
         guard let artist = ticket.artist, let night = ticket.date else { return nil }
-        let gigId = await mintPlannedGig(artist, ticket.venue ?? "", night)
+        let gigId = await planning.mintPlannedGig(artist: artist, venue: ticket.venue ?? "", night: night)
         await attachAdmissions(gigId: gigId, ticket.admissions)
         return gigId
     }
@@ -209,7 +199,7 @@ final class TicketsController {
         let answer = draft.setlistFm?.answer(artist: artist, date: date, chosenId: chosenSetlistId)
             ?? .unasked
         Task {
-            let known = knownNights
+            let known = host.state.knownNights
             let landing = knownNight(confirmed, among: known)
             if let hit = answer.chosen {
                 if known.contains(where: { $0.id == hit.id }) {
@@ -220,7 +210,7 @@ final class TicketsController {
                     await attachAdmissions(gigId: local.id, confirmed.admissions)
                     await gig.adoptSetlist(gigId: local.id, setlistId: hit.id, fresh: hit, notice: true)
                 } else {
-                    await planFmGig(hit)
+                    await planning.planFmGig(hit)
                     await attachAdmissions(gigId: hit.id, confirmed.admissions)
                 }
             } else {
@@ -266,7 +256,7 @@ final class TicketsController {
     /// Raced rather than awaited: the client's retries sleep through a cancellation, so
     /// the import stops waiting on the request instead, and the timer then cancels it.
     private func ticketSearch(_ ticket: Ticket, artist: String, date: String) async -> TicketSearch {
-        let at = Int64(Date().timeIntervalSince1970 * 1000)
+        let at = epochMs(Date())
         let client = setlistFm
         let timeout = Self.ticketLookupTimeout
         let hits: [FmSetlist]? = await withCheckedContinuation { continuation in
@@ -284,7 +274,7 @@ final class TicketsController {
         }
         var asked = ticket
         asked.artist = artist
-        let match = hits.map { matchSetlistFm(asked, hits: $0, lineArtists: lineArtists()) }
+        let match = hits.map { matchSetlistFm(asked, hits: $0, lineArtists: host.state.lineArtists) }
         return TicketSearch(match: match, at: at)
     }
 }
