@@ -107,7 +107,7 @@ struct StationToStationApp: App {
                 case nil:
                     return
                 case .passThrough(.friend, _):
-                    model.handleFriendLink(url)
+                    model.contacts.handleFriendLink(url)
                 case .passThrough(.handover, _):
                     // The old phone's code: the address, the certificate to pin and the
                     // key for the transfer, which is why any camera can open it and only
@@ -222,10 +222,10 @@ private struct BannersModifier: ViewModifier {
             // what VoiceOver announces.
             .alert("Change this contact?", isPresented: Binding(
                 get: { model.state.friendConflict != nil },
-                set: { if !$0 { model.dismissFriendOverwrite() } }
+                set: { if !$0 { model.contacts.dismissFriendOverwrite() } }
             ), presenting: model.state.friendConflict) { _ in
-                Button("Keep mine", role: .cancel) { model.dismissFriendOverwrite() }
-                Button("Use the card") { model.confirmFriendOverwrite() }
+                Button("Keep mine", role: .cancel) { model.contacts.dismissFriendOverwrite() }
+                Button("Use the card") { model.contacts.confirmFriendOverwrite() }
             } message: { conflict in
                 Text(conflict.message)
             }

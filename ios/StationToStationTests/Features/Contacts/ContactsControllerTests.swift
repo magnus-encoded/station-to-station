@@ -4,19 +4,41 @@ import XCTest
 @MainActor
 final class ContactsControllerTests: XCTestCase {
 
-    private var model: AppModel!
+    private var fake: FakeState!
+    private var contacts: ContactsController!
+    private var file: URL!
+    private var timelines: TimelineStore!
+    // Held here: the controller keeps them unowned.
+    private var gossip: GossipController!
+    private var gig: GigController!
 
     override func setUp() async throws {
-        model = AppModel()
-        for friend in model.state.friends { model.removeFriend(friend) }
+        fake = FakeState()
+        file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("timelines-\(UUID().uuidString).json")
+        let settings = Settings()
+        timelines = TimelineStore(file: file)
+        let setlistFm = SetlistFmClient(keySource: { nil })
+        gossip = GossipController(host: fake, timelines: timelines)
+        gig = GigController(host: fake, timelines: timelines, setlistFm: setlistFm,
+                            location: DeviceLocation(), sortedPlanned: { $0 }, gossip: gossip)
+        contacts = ContactsController(
+            host: fake, settings: settings, timelines: timelines,
+            setlistFm: setlistFm, spotify: SpotifyClient(settings),
+            logic: TimelineLogic(plumbing: DeviceTimelinePlumbing(store: timelines, client: setlistFm)),
+            gossip: gossip, gig: gig)
+        settings.saveFriends([])
     }
 
     override func tearDown() async throws {
-        for friend in model.state.friends { model.removeFriend(friend) }
-        model = nil
+        Settings().saveFriends([])
+        try? FileManager.default.removeItem(at: file)
+        contacts = nil
+        gig = nil
+        gossip = nil
+        fake = nil
     }
 
-    // Ids unique per run: the store is shared with whatever ran before.
     private func id(_ name: String) -> String { "\(name)-\(UUID().uuidString)" }
 
     private func night(_ id: String) -> FmSetlist {
@@ -33,111 +55,122 @@ final class ContactsControllerTests: XCTestCase {
 
     func testJoiningANightShowsTheJoinOnceWritten() async {
         let mine = id("mine"), theirs = id("theirs")
-        await model.joinNight(theirs, key: mine)
-        XCTAssertEqual(mine, model.state.nightJoins[theirs])
+        await contacts.joinNight(theirs, key: mine)
+        XCTAssertEqual(mine, fake.state.nightJoins[theirs])
     }
 
     func testDismissingAMaybeKeepsTheNightsApart() async {
         let mine = id("mine"), theirs = id("theirs")
-        await model.dismissMaybe(theirs, key: mine)
-        XCTAssertEqual([mine], model.state.nightsApart[theirs])
+        await contacts.dismissMaybe(theirs, key: mine)
+        XCTAssertEqual([mine], fake.state.nightsApart[theirs])
     }
 
     func testAnsweringAMaybeOffersUndoForThatAnswer() async {
         let m = maybe(mine: id("mine"), theirs: id("theirs"))
-        await model.answerMaybe(m, same: true)
-        XCTAssertEqual(m.mine.id, model.state.nightJoins[m.theirs.id])
-        XCTAssertEqual(m, model.maybeUndo?.maybe)
-        XCTAssertEqual(true, model.maybeUndo?.same)
+        await contacts.answerMaybe(m, same: true)
+        XCTAssertEqual(m.mine.id, fake.state.nightJoins[m.theirs.id])
+        XCTAssertEqual(m, contacts.maybeUndo?.maybe)
+        XCTAssertEqual(true, contacts.maybeUndo?.same)
     }
 
     func testUndoingAJoinBringsTheMaybeBack() async {
         let m = maybe(mine: id("mine"), theirs: id("theirs"))
-        await model.answerMaybe(m, same: true)
-        await model.undoMaybe(model.maybeUndo!)
-        XCTAssertNil(model.state.nightJoins[m.theirs.id])
-        XCTAssertNil(model.maybeUndo)
+        await contacts.answerMaybe(m, same: true)
+        await contacts.undoMaybe(contacts.maybeUndo!)
+        XCTAssertNil(fake.state.nightJoins[m.theirs.id])
+        XCTAssertNil(contacts.maybeUndo)
     }
 
     func testUndoingADismissalBringsTheMaybeBack() async {
         let m = maybe(mine: id("mine"), theirs: id("theirs"))
-        await model.answerMaybe(m, same: false)
-        await model.undoMaybe(model.maybeUndo!)
-        XCTAssertTrue(model.state.nightsApart[m.theirs.id]?.isEmpty ?? true)
-        XCTAssertNil(model.maybeUndo)
+        await contacts.answerMaybe(m, same: false)
+        await contacts.undoMaybe(contacts.maybeUndo!)
+        XCTAssertTrue(fake.state.nightsApart[m.theirs.id]?.isEmpty ?? true)
+        XCTAssertNil(contacts.maybeUndo)
     }
 
     func testAnUndoForAnEarlierAnswerDoesNothing() async {
         let m = maybe(mine: id("mine"), theirs: id("theirs"))
-        await model.answerMaybe(m, same: true)
-        let earlier = model.maybeUndo!
-        await model.answerMaybe(maybe(mine: id("mine"), theirs: id("theirs")), same: true)
-        await model.undoMaybe(earlier)
-        XCTAssertEqual(m.mine.id, model.state.nightJoins[m.theirs.id])
-        XCTAssertNotNil(model.maybeUndo)
+        await contacts.answerMaybe(m, same: true)
+        let earlier = contacts.maybeUndo!
+        await contacts.answerMaybe(maybe(mine: id("mine"), theirs: id("theirs")), same: true)
+        await contacts.undoMaybe(earlier)
+        XCTAssertEqual(m.mine.id, fake.state.nightJoins[m.theirs.id])
+        XCTAssertNotNil(contacts.maybeUndo)
     }
 
     func testAMaybeThatCannotBeAdoptedIsJoinedInstead() async {
         let m = maybe(mine: id("mine"), theirs: id("theirs"))
-        await model.adoptMaybe(m)
-        XCTAssertEqual(m.mine.id, model.state.nightJoins[m.theirs.id])
-        XCTAssertEqual(true, model.maybeUndo?.same)
+        await contacts.adoptMaybe(m)
+        XCTAssertEqual(m.mine.id, fake.state.nightJoins[m.theirs.id])
+        XCTAssertEqual(true, contacts.maybeUndo?.same)
+    }
+
+    func testAnAdoptedMaybeIsNeitherJoinedNorUndoable() async {
+        let mine = await timelines.createLocalGig(date: "25-06-2026", artist: "Kvelertak", venue: "Rockefeller")
+        let m = maybe(mine: mine, theirs: id("theirs"))
+        await contacts.answerMaybe(maybe(mine: id("mine"), theirs: id("theirs")), same: false)
+        await contacts.adoptMaybe(m)
+        XCTAssertEqual(m.theirs.id, (await timelines.load()).gigs[mine]?.setlistId)
+        XCTAssertNil(fake.state.nightJoins[m.theirs.id])
+        XCTAssertNil(contacts.maybeUndo)
     }
 
     func testHeldOffersReachTheScreen() async {
         let theirs = id("theirs")
-        await model.holdMediaOffers([theirs: MediaOffer(date: "2026-06-25", artist: "Kvelertak")])
-        XCTAssertEqual("Kvelertak", model.state.mediaOffers[theirs]?.artist)
+        await contacts.holdMediaOffers([theirs: MediaOffer(date: "2026-06-25", artist: "Kvelertak")])
+        XCTAssertEqual("Kvelertak", fake.state.mediaOffers[theirs]?.artist)
     }
 
-    func testDecliningAnOfferIsWrittenThenShown() async {
+    func testADeclinedOfferKeepsOnlyWhatWasDeclined() async {
         let theirs = id("theirs")
-        await model.holdMediaOffers([theirs: MediaOffer(date: "2026-06-25", artist: "Kvelertak")])
-        let before = model.state.mediaOffers[theirs]
-        model.declineMediaOffer(theirs)
-        await settled { model.state.mediaOffers[theirs] != before }
-        XCTAssertNotEqual(before, model.state.mediaOffers[theirs])
+        let photo = StoredMedia(id: "m-1", kind: StoredMedia.Kind.photo, ref: "r-1")
+        await contacts.holdMediaOffers([theirs: MediaOffer(date: "2026-06-25", media: [photo])])
+        contacts.declineMediaOffer(theirs)
+        await settled { fake.state.mediaOffers[theirs]?.media.isEmpty == true }
+        XCTAssertEqual([], fake.state.mediaOffers[theirs]?.media.map(\.id))
+        XCTAssertEqual(["m-1"], fake.state.mediaOffers[theirs]?.declined)
     }
 
     func testAContactsNightsLandUnderTheirLane() async {
         let key = id("k")
-        model.addFriend(Friend(setlistfm: "", name: "Lemmy", publicKey: key))
-        let lane = model.state.friends.first!.laneKey
+        contacts.addFriend(Friend(setlistfm: "", name: "Lemmy", publicKey: key))
+        let lane = fake.state.friends.first!.laneKey
         let theirs = id("theirs")
-        await model.landContactNights(" \(key) ", [night(theirs)])
-        XCTAssertEqual([theirs], model.state.showsByFriend[lane]?.map(\.id))
+        await contacts.landContactNights(" \(key) ", [night(theirs)])
+        XCTAssertEqual([theirs], fake.state.showsByFriend[lane]?.map(\.id))
     }
 
     func testNightsFromAKeyNoContactHoldsLandNothing() async {
-        let before = model.state.showsByFriend
-        await model.landContactNights(id("stranger"), [night(id("theirs"))])
-        XCTAssertEqual(before.mapValues { $0.map(\.id) }, model.state.showsByFriend.mapValues { $0.map(\.id) })
+        let before = fake.state.showsByFriend
+        await contacts.landContactNights(id("stranger"), [night(id("theirs"))])
+        XCTAssertEqual(before.mapValues { $0.map(\.id) }, fake.state.showsByFriend.mapValues { $0.map(\.id) })
     }
 
     func testAChangedKeyAsksBeforeOverwriting() {
-        model.addFriend(Friend(setlistfm: "ozzy", publicKey: "k1"))
-        model.addFriend(Friend(setlistfm: "ozzy", publicKey: "k2"))
-        XCTAssertEqual("k2", model.state.friendConflict?.incoming.publicKey)
-        model.confirmFriendOverwrite()
-        XCTAssertNil(model.state.friendConflict)
-        XCTAssertEqual("k2", model.state.friends.first?.publicKey)
+        contacts.addFriend(Friend(setlistfm: "ozzy", publicKey: "k1"))
+        contacts.addFriend(Friend(setlistfm: "ozzy", publicKey: "k2"))
+        XCTAssertEqual("k2", fake.state.friendConflict?.incoming.publicKey)
+        contacts.confirmFriendOverwrite()
+        XCTAssertNil(fake.state.friendConflict)
+        XCTAssertEqual("k2", fake.state.friends.first?.publicKey)
     }
 
     func testRemovingAContactKeepsTheOthers() {
-        model.addFriend(Friend(setlistfm: "ozzy"))
-        model.addFriend(Friend(setlistfm: "lemmy"))
-        model.removeFriend(Friend(setlistfm: "ozzy"))
-        XCTAssertEqual(["lemmy"], model.state.friends.map(\.setlistfm))
+        contacts.addFriend(Friend(setlistfm: "ozzy"))
+        contacts.addFriend(Friend(setlistfm: "lemmy"))
+        contacts.removeFriend(Friend(setlistfm: "ozzy"))
+        XCTAssertEqual(["lemmy"], fake.state.friends.map(\.setlistfm))
     }
 
     func testSharedConcertsWithAnAccountlessContactAreTheNightsThisPhoneHolds() async {
         let friend = Friend(setlistfm: "", name: "Lemmy", publicKey: id("k"))
-        model.openSharedConcerts(friend)
-        XCTAssertEqual("You & Lemmy", model.state.setlistsTitle)
-        XCTAssertTrue(model.state.setlistsLoading)
-        await settled { !model.state.setlistsLoading }
-        XCTAssertFalse(model.state.setlistsLoading)
-        XCTAssertEqual([], model.state.setlists.map(\.id))
-        XCTAssertEqual(friend.laneKey, model.state.sharedWith?.laneKey)
+        contacts.openSharedConcerts(friend)
+        XCTAssertEqual("You & Lemmy", fake.state.setlistsTitle)
+        XCTAssertTrue(fake.state.setlistsLoading)
+        await settled { !fake.state.setlistsLoading }
+        XCTAssertFalse(fake.state.setlistsLoading)
+        XCTAssertEqual([], fake.state.setlists.map(\.id))
+        XCTAssertEqual(friend.laneKey, fake.state.sharedWith?.laneKey)
     }
 }

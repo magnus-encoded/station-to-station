@@ -45,7 +45,7 @@ final class FriendsLogicTests: XCTestCase {
         model.navigation.setZoomedOut(true)
         XCTAssertFalse(model.state.zoomedOut)
 
-        model.addFriend(Friend(setlistfm: "alice"))
+        model.contacts.addFriend(Friend(setlistfm: "alice"))
         model.navigation.setZoomedOut(true)
         XCTAssertTrue(model.state.zoomedOut)
     }
