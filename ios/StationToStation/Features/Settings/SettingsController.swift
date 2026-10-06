@@ -10,7 +10,7 @@ extension SpotifyClient: SpotifyLogin {}
 /// Service accounts, the Spotify login, my setlist.fm user, and the first-run door.
 @MainActor
 final class SettingsController {
-    private unowned let host: StateHost
+    private let host: StateHost
     private let settings: Settings
     private let spotify: SpotifyLogin
 

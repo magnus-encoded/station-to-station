@@ -4,12 +4,12 @@ import Foundation
 /// and committing a **Programme**.
 @MainActor
 final class PlanningController {
-    unowned let host: StateHost
+    let host: StateHost
     private let timelines: TimelineStore
     private let setlistFm: SetlistFmClient
     private let musicBrainz: MusicBrainzClient
-    private unowned let gig: GigController
-    private unowned let gossip: GossipController
+    private let gig: GigController
+    private let gossip: GossipController
     private let loadTimeline: () -> Void
     private let markSelectedOwnership: (FmSetlist, StoredAttendance?) -> Void
     /// The in-flight suggestion lookup, held so the next keystroke can cancel it.
@@ -37,9 +37,6 @@ final class PlanningController {
 
     /// Furthest-future first — the same descending order the attended rows below
     /// already use: up is always later, and a planned gig is not an exception to that.
-    func sortedPlanned(_ gigs: [FmSetlist]) -> [FmSetlist] {
-        gigs.sorted { ($0.localDate() ?? .distantPast) > ($1.localDate() ?? .distantPast) }
-    }
 
     /// The future edge, from disk (#175). Called alongside the Spine at launch, and
     /// again by every write below so the timeline never shows stale plans.
@@ -346,13 +343,5 @@ final class PlanningController {
             markSelectedOwnership(show, attendance)
             loadTimeline()
         }
-    }
-
-    /// The artists already on my **Line**, for the matcher's artist check: one per
-    /// MusicBrainz id.
-    func lineArtists() -> [FmArtist] {
-        var seen = Set<String>()
-        return (host.state.timelineShows + host.state.plannedGigs).compactMap(\.artist)
-            .filter { !$0.mbid.trimmingCharacters(in: .whitespaces).isEmpty && seen.insert($0.mbid).inserted }
     }
 }

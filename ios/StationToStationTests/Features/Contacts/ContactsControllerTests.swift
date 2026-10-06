@@ -8,7 +8,6 @@ final class ContactsControllerTests: XCTestCase {
     private var contacts: ContactsController!
     private var file: URL!
     private var timelines: TimelineStore!
-    // Held here: the controller keeps them unowned.
     private var gossip: GossipController!
     private var gig: GigController!
 
@@ -21,7 +20,7 @@ final class ContactsControllerTests: XCTestCase {
         let setlistFm = SetlistFmClient(keySource: { nil })
         gossip = GossipController(host: fake, timelines: timelines)
         gig = GigController(host: fake, timelines: timelines, setlistFm: setlistFm,
-                            location: DeviceLocation(), sortedPlanned: { $0 }, gossip: gossip)
+                            location: DeviceLocation(), gossip: gossip)
         contacts = ContactsController(
             host: fake, settings: settings, timelines: timelines,
             setlistFm: setlistFm, spotify: SpotifyClient(settings),
@@ -33,8 +32,11 @@ final class ContactsControllerTests: XCTestCase {
     override func tearDown() async throws {
         Settings().saveFriends([])
         try? FileManager.default.removeItem(at: file)
-        // Not released here: a Contact change starts a Gossip task that can still be
-        // running, and it reaches the host and controllers through unowned references.
+        contacts = nil
+        gig = nil
+        gossip = nil
+        timelines = nil
+        fake = nil
     }
 
     private func id(_ name: String) -> String { "\(name)-\(UUID().uuidString)" }

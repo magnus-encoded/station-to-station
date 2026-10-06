@@ -22,7 +22,7 @@ final class PlanningControllerTests: XCTestCase {
         let setlistFm = SetlistFmClient(keySource: { nil })
         gossip = GossipController(host: fake, timelines: store)
         gig = GigController(host: fake, timelines: store, setlistFm: setlistFm,
-                            location: DeviceLocation(), sortedPlanned: { $0 }, gossip: gossip)
+                            location: DeviceLocation(), gossip: gossip)
         model = PlanningController(
             host: fake,
             timelines: store,

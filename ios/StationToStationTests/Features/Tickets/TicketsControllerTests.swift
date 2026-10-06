@@ -5,37 +5,28 @@ import XCTest
 final class TicketsControllerTests: XCTestCase {
 
     private var fake: FakeState!
-    private var minted: [(artist: String, venue: String, night: Date)] = []
-    // Held here: the Tickets controller keeps these unowned, as AppModel's are.
-    private var gossip: GossipController!
-    private var gig: GigController!
-    private var setlists: SetlistsController!
 
     private func controller() -> TicketsController {
         fake = FakeState()
-        minted = []
         let store = TimelineStore(file: FileManager.default.temporaryDirectory
             .appendingPathComponent("tickets-\(UUID().uuidString).json"))
         let client = SetlistFmClient(keySource: { nil })
-        gossip = GossipController(host: fake, timelines: store)
-        gig = GigController(host: fake, timelines: store, setlistFm: client, location: DeviceLocation(),
-                            sortedPlanned: { $0 }, gossip: gossip)
-        setlists = SetlistsController(host: fake, setlistFm: client, musicBrainz: MusicBrainzClient(),
-                                      timelines: store, settings: Settings(),
-                                      saveMySetlistFmUser: { _ in },
-                                      adoptSetlist: { _, _, _, _ in true },
-                                      storeAttendance: { _, _ in },
-                                      lineArtists: { [] })
+        let settings = Settings()
+        let gossip = GossipController(host: fake, timelines: store)
+        let gig = GigController(host: fake, timelines: store, setlistFm: client, location: DeviceLocation(), gossip: gossip)
+        let setlists = SetlistsController(host: fake, setlistFm: client, musicBrainz: MusicBrainzClient(),
+                                          timelines: store, settings: settings,
+                                          settingsController: SettingsController(host: fake, settings: settings,
+                                                                                 spotify: SpotifyClient(settings)),
+                                          gig: gig)
+        let planning = PlanningController(host: fake, timelines: store, setlistFm: client,
+                                          musicBrainz: MusicBrainzClient(), gig: gig, gossip: gossip,
+                                          loadTimeline: {}, markSelectedOwnership: { _, _ in })
         return TicketsController(
             host: fake,
             timelines: store,
             setlistFm: client,
-            mintPlannedGig: { [unowned self] artist, venue, night in
-                minted.append((artist, venue, night))
-                return "minted"
-            },
-            planFmGig: { _ in },
-            lineArtists: { [] },
+            planning: planning,
             setlists: setlists,
             gig: gig)
     }
@@ -93,7 +84,7 @@ final class TicketsControllerTests: XCTestCase {
         XCTAssertTrue(fake.state.ticketDrafts.isEmpty)
         await eventually { fake.state.notice != nil }
         XCTAssertEqual(fake.state.notice, "That night is already on your line.")
-        XCTAssertTrue(minted.isEmpty)
+        XCTAssertTrue(fake.state.plannedGigs.isEmpty)
     }
 
     func testAConfirmedTicketForANewNightIsPlannedThroughPlanning() async {
@@ -103,11 +94,11 @@ final class TicketsControllerTests: XCTestCase {
 
         tickets.confirmTicket(open.id, artist: "Dumdumboys", venue: "Rockefeller", date: "14-09-2031")
 
-        await eventually { !minted.isEmpty }
-        XCTAssertEqual(minted.count, 1)
-        XCTAssertEqual(minted.first?.artist, "Dumdumboys")
-        XCTAssertEqual(minted.first?.venue, "Rockefeller")
-        XCTAssertEqual(minted.first.map { fmDate($0.night) }, "14-09-2031")
+        await eventually { !fake.state.plannedGigs.isEmpty }
+        XCTAssertEqual(fake.state.plannedGigs.count, 1)
+        XCTAssertEqual(fake.state.plannedGigs.first?.artist?.name, "Dumdumboys")
+        XCTAssertEqual(fake.state.plannedGigs.first?.venue?.name, "Rockefeller")
+        XCTAssertEqual(fake.state.plannedGigs.first?.eventDate, "14-09-2031")
         XCTAssertNil(fake.state.notice)
     }
 }

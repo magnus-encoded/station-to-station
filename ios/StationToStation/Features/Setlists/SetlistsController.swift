@@ -5,15 +5,13 @@ import Foundation
 @MainActor
 final class SetlistsController {
 
-    unowned let host: StateHost
+    let host: StateHost
     private let setlistFm: SetlistFmClient
     private let musicBrainz: MusicBrainzClient
     private let timelines: TimelineStore
     private let settings: Settings
-    private let saveMySetlistFmUser: (String) -> Void
-    private let adoptSetlist: (_ gigId: String, _ setlistId: String, _ fresh: FmSetlist?, _ notice: Bool) async -> Bool
-    private let storeAttendance: (String, StoredAttendance) -> Void
-    private let lineArtists: () -> [FmArtist]
+    private let settingsController: SettingsController
+    private let gig: GigController
     private var lookupChecks: Task<Void, Never>?
 
     init(
@@ -22,20 +20,16 @@ final class SetlistsController {
         musicBrainz: MusicBrainzClient,
         timelines: TimelineStore,
         settings: Settings,
-        saveMySetlistFmUser: @escaping (String) -> Void,
-        adoptSetlist: @escaping (String, String, FmSetlist?, Bool) async -> Bool,
-        storeAttendance: @escaping (String, StoredAttendance) -> Void,
-        lineArtists: @escaping () -> [FmArtist]
+        settingsController: SettingsController,
+        gig: GigController
     ) {
         self.host = host
         self.setlistFm = setlistFm
         self.musicBrainz = musicBrainz
         self.timelines = timelines
         self.settings = settings
-        self.saveMySetlistFmUser = saveMySetlistFmUser
-        self.adoptSetlist = adoptSetlist
-        self.storeAttendance = storeAttendance
-        self.lineArtists = lineArtists
+        self.settingsController = settingsController
+        self.gig = gig
     }
 
     func setArtistQuery(_ q: String) { host.state.artistQuery = q }
@@ -82,7 +76,7 @@ final class SetlistsController {
         // stamp playlists and find shared concerts — but never clobber an
         // explicit choice.
         if host.state.mySetlistFmUser.trimmingCharacters(in: .whitespaces).isEmpty {
-            saveMySetlistFmUser(userId)
+            settingsController.saveMySetlistFmUser(userId)
         }
         host.state.source = .user
         host.state.setlistsTitle = "Attended by \(userId)"
@@ -184,7 +178,6 @@ final class SetlistsController {
     /// The automatic checks' longest sleep: a night coming due is noticed within this.
     private static let lookupCheckCap: TimeInterval = 5 * 60
 
-    private var nowMillis: Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
 
     /// `answer` onto local Gig `gigId`'s stored lookup; nothing for a setlist.fm night or
     /// an empty answer.
@@ -193,7 +186,7 @@ final class SetlistsController {
               let gig = await timelines.load().gigs[gigId], gig.setlistId == nil,
               let settled = await timelines.editSetlistFmLookup(gigId: gigId, { answer.applyTo($0) })
         else { return }
-        storeAttendance(gigId, settled)
+        self.gig.storeAttendance(gigId, settled)
     }
 
     /// A pull on local Gig `gigId`: one lookup now, whatever the schedule says, unless
@@ -221,7 +214,7 @@ final class SetlistsController {
         guard let gig = await timelines.load().gigs[gigId] else { return true }
         if gig.setlistId != nil || gig.artist.trimmingCharacters(in: .whitespaces).isEmpty
             || parseFmDate(gig.date) == nil { return true }
-        let at = nowMillis
+        let at = epochMs(Date())
         let hits: [FmSetlist]
         do {
             hits = try await setlistFm.searchSetlists(artistName: gig.artist, date: gig.date).setlist
@@ -231,7 +224,7 @@ final class SetlistsController {
             // The request went out (or was refused on the quota): stamped either way, so
             // the schedule does not ask again at once.
             if let settled = await timelines.editSetlistFmLookup(gigId: gigId, { $0.lookedUp(at: at) }) {
-                storeAttendance(gigId, settled)
+                self.gig.storeAttendance(gigId, settled)
             }
             if error is SetlistFmRateLimited {
                 if manual { host.fail(error) }
@@ -241,7 +234,7 @@ final class SetlistsController {
             return true
         }
         let ticket = Ticket(artist: gig.artist, venue: gig.venue.nilIfBlank, date: gigDay(gig.date))
-        let artists = lineArtists()
+        let artists = host.state.lineArtists
         var outcome: LookupOutcome?
         let settled = await timelines.editSetlistFmLookup(gigId: gigId) { had in
             let next = setlistFmLookupOutcome(ticket, hits: hits, lineArtists: artists,
@@ -252,9 +245,9 @@ final class SetlistsController {
             return next.next
         }
         guard let settled else { return true }
-        storeAttendance(gigId, settled)
+        self.gig.storeAttendance(gigId, settled)
         if case .adopt(let hit, _)? = outcome {
-            _ = await adoptSetlist(gigId, hit.id, hit, true)
+            _ = await self.gig.adoptSetlist(gigId: gigId, setlistId: hit.id, fresh: hit, notice: true)
         }
         return true
     }
@@ -326,9 +319,9 @@ final class SetlistsController {
     func acceptSetlistFmMatch(gigId: String, setlistId: String) {
         Task {
             if let settled = await timelines.editSetlistFmLookup(gigId: gigId, { $0.asking([]) }) {
-                storeAttendance(gigId, settled)
+                self.gig.storeAttendance(gigId, settled)
             }
-            if !(await adoptSetlist(gigId, setlistId, nil, true)) {
+            if !(await self.gig.adoptSetlist(gigId: gigId, setlistId: setlistId, fresh: nil, notice: true)) {
                 host.state.error = "That night already has a setlist.fm id."
                 host.state.errorKind = nil
             }
@@ -339,7 +332,7 @@ final class SetlistsController {
         Task {
             guard let settled = await timelines.editSetlistFmLookup(gigId: gigId, { $0.rejectingPending() })
             else { return }
-            storeAttendance(gigId, settled)
+            self.gig.storeAttendance(gigId, settled)
         }
     }
 

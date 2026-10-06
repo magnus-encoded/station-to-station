@@ -3,16 +3,13 @@ import Foundation
 @MainActor
 final class GossipController {
 
-    unowned let host: StateHost
+    let host: StateHost
     private let timelines: TimelineStore
 
     init(host: StateHost, timelines: TimelineStore) {
         self.host = host
         self.timelines = timelines
     }
-
-    /// The nights the channel knows an end for: everything on the **Line**, plans included.
-    private var knownNights: [FmSetlist] { host.state.timelineShows + host.state.plannedGigs }
 
     /// The witnessed mark, keyed by every id the night answers to.
     func refreshWitnessed(_ publicState: PublicGossipState) async {
@@ -30,7 +27,7 @@ final class GossipController {
     /// rather than a flat day from now. See `GossipChannel.setNightEnds` for what the channel
     /// does with the rest of them.
     func contactsChanged() {
-        let ends = knownNights.reduce(into: [String: Date]()) { ends, gig in
+        let ends = host.state.knownNights.reduce(into: [String: Date]()) { ends, gig in
             if let date = gig.eventDate, let end = gossipExpiry(gigDate: date) { ends[gig.id] = end }
         }
         let friends = host.state.friends
@@ -42,7 +39,7 @@ final class GossipController {
             // What the **Presence rows** draw, read at the same moment as what the radio is
             // told — two answers a moment apart would light a bullet for a night the transport
             // has just stopped for.
-            let now = Int64(Date().timeIntervalSince1970 * 1000)
+            let now = epochMs(Date())
             let eligible = gossipParticipationEnds(cache: cache)
             host.state.gossipEligibleUntil = eligible
             // Only the nights that could still gossip *now*: a deadline in the map is a moment,
