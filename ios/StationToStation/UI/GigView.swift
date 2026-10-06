@@ -70,7 +70,7 @@ struct GigView: View {
     /// What this delete actually costs, said plainly. The count is of keepsakes whose
     /// original has already left the library, so this app's copy is the last one.
     private var deleteWarning: String {
-        let lost = model.state.selectedSetlist.map { model.photosLostByDeleting($0.id) } ?? 0
+        let lost = model.state.selectedSetlist.map { model.gig.photosLostByDeleting($0.id) } ?? 0
         switch lost {
         case 0: return "The night, its Log and the keepsakes on it go. Your photographs stay in your library."
         case 1: return "Its photograph is only stored here. Deleting the night deletes it."
@@ -284,7 +284,7 @@ struct GigView: View {
                 .autocorrectionDisabled()
             Button("Adopt") {
                 if let show = model.state.selectedSetlist {
-                    model.adoptSetlistLink(gigId: show.id, linkOrId: adoptLink)
+                    model.gig.adoptSetlistLink(gigId: show.id, linkOrId: adoptLink)
                 }
                 adoptLink = ""
             }
@@ -319,7 +319,7 @@ struct GigView: View {
         .alert("Delete this night?", isPresented: $deleting) {
             Button("Delete", role: .destructive) {
                 if let show = model.state.selectedSetlist {
-                    model.deleteGig(show.id)
+                    model.gig.deleteGig(show.id)
                     nav.pop()
                 }
             }
@@ -532,7 +532,7 @@ struct GigView: View {
                 if room?.checkIn == true {
                     Text("I'm here — check in").font(.system(size: 13)).foregroundStyle(amber)
                         .padding(.top, 6)
-                        .onTapGesture { model.checkIn(show.id) }
+                        .onTapGesture { model.gig.checkIn(show.id) }
                         .accessibilityAddTraits(.isButton)
                 }
             }
@@ -621,7 +621,7 @@ struct GigView: View {
                     }
                 }
                 Button(role: .destructive) {
-                    model.removePlannedGig(show.id)
+                    model.gig.removePlannedGig(show.id)
                     nav.pop()
                 } label: {
                     Text("I'm not going")
@@ -654,7 +654,7 @@ struct GigView: View {
         // Mine is an index into the Log, and the × and the correction panel act on it
         // there — the published row beside it is never touched by either.
         let remove: (() -> Void)? = (canLog ? line.logged : nil).map { j in
-            { correctingLog = nil; model.removeFromLog(j) }
+            { correctingLog = nil; model.gig.removeFromLog(j) }
         }
         if let p = line.published {
             switch rows[p] {
