@@ -28,7 +28,7 @@ final class GigMediaController {
             host.state.mediaOffers = cache.mediaOffers
             host.state.playlistsBySetlist = cache.playlists()
             host.state.selectedAttendance = cache.attendance()[setlist.id]
-            markSelectedOwnership(setlist, attendance: host.state.selectedAttendance)
+            markSelectedOwnership(setlist, host.state.selectedAttendance)
             refreshSuggestions(setlist)
         }
     }
