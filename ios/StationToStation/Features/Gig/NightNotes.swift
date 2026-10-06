@@ -118,7 +118,7 @@ struct NightNotes: View {
                     onLift: { id in
                         model.gigMedia.moveMedia(id, to: .shared)
                         // Publishing from a *maybe* Night asks the one question (#405).
-                        if let ask = model.maybesOnSelected().first { askingMaybe = ask }
+                        if let ask = model.contacts.maybesOnSelected().first { askingMaybe = ask }
                     }
                 )
             }

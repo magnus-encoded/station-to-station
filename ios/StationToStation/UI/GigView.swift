@@ -406,7 +406,7 @@ struct GigView: View {
     /// media from this Night. Android's `EventTag` for the same.
     private var maybeTags: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(model.maybesOnSelected()) { maybe in
+            ForEach(model.contacts.maybesOnSelected()) { maybe in
                 let line = maybeTagLine(maybe)
                 Button { askingMaybe = maybe } label: {
                     Text(line)

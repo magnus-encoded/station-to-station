@@ -265,7 +265,7 @@ struct StationView: View {
         // Fetch friends' Lanes when the strip opens, not at launch — a
         // Resolution never opened shouldn't spend setlist.fm's budget.
         .onChange(of: model.state.zoomedOut) { open in
-            if open { model.loadFriendTimelines() }
+            if open { model.contacts.loadFriendTimelines() }
         }
         // One modifier, not six chained `.onChange`s: that many distinct
         // `Equatable` types stacked in a single `body` expression blew the
@@ -610,7 +610,7 @@ struct StationView: View {
     private func resolveLink(_ proxy: ScrollViewProxy) {
         if let date = model.state.linkedDate {
             if model.state.zoomedOut {
-                model.loadFriendTimelines()
+                model.contacts.loadFriendTimelines()
                 if model.state.lanesLoading { return }
             }
             let ahead = futureRows(tickets: model.state.plannedGigs,

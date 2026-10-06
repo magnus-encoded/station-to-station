@@ -304,7 +304,7 @@ struct NightGrid: View {
     /// Going to share from a *maybe* Night asks the one question, once, now (#405 story
     /// 22) — and then carries on into the picker whatever the answer. Android's `onAdd`.
     private func add(to band: Band) {
-        if band == .shared, let ask = model.maybesOnSelected().first {
+        if band == .shared, let ask = model.contacts.maybesOnSelected().first {
             pickAfterMaybe = true
             askingMaybe = ask
         } else {
@@ -318,7 +318,7 @@ struct NightGrid: View {
     private func move(_ id: String, to band: Band) {
         let wasKept = model.state.gigMedia.contains { $0.id == id && $0.personal }
         model.gigMedia.moveMedia(id, to: band)
-        if band == .shared, wasKept, let ask = model.maybesOnSelected().first { askingMaybe = ask }
+        if band == .shared, wasKept, let ask = model.contacts.maybesOnSelected().first { askingMaybe = ask }
     }
 
     private func say(for hint: ReleaseHint, band: Band) -> String? {
@@ -384,7 +384,7 @@ struct NightGrid: View {
                         Button {
                             model.gigMedia.attachMedia(assetIds: [assetId], to: .shared)
                             // Straight into the shared band is sharing, so it asks too (#405).
-                            if let ask = model.maybesOnSelected().first { askingMaybe = ask }
+                            if let ask = model.contacts.maybesOnSelected().first { askingMaybe = ask }
                         } label: {
                             SuggestionTile(assetId: assetId)
                         }

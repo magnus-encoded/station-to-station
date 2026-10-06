@@ -30,12 +30,12 @@ struct MediaOfferAlert: ViewModifier {
         let shown = Binding<Bool>(get: { current != nil }, set: { if !$0 { answering = nil } })
         return content.alert(title, isPresented: shown, presenting: current) { offer in
             Button("Accept") {
-                model.acceptMediaOffer(offer.night, key: show.id)
+                model.contacts.acceptMediaOffer(offer.night, key: show.id)
                 answering = nil
             }
             .accessibilityLabel("Accept \(sender(offer.offer))'s offer onto this night")
             Button("Decline") {
-                model.declineMediaOffer(offer.night)
+                model.contacts.declineMediaOffer(offer.night)
                 answering = nil
             }
             .accessibilityLabel("Decline \(sender(offer.offer))'s offer")

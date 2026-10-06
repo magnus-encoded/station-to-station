@@ -37,7 +37,7 @@ struct FriendsView: View {
                         .textFieldStyle(.roundedBorder)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
-                    Button("Add") { model.addFriendByUsername(addQuery); addQuery = "" }
+                    Button("Add") { model.contacts.addFriendByUsername(addQuery); addQuery = "" }
                         .buttonStyle(.bordered)
                 }
                 HStack {
@@ -65,18 +65,18 @@ struct FriendsView: View {
                             Spacer()
                         }
                         .contentShape(Rectangle())
-                        .onTapGesture { model.openSharedConcerts(friend); nav.push(.setlists) }
+                        .onTapGesture { model.contacts.openSharedConcerts(friend); nav.push(.setlists) }
                         .accessibilityElement(children: .combine)
                         .accessibilityAddTraits(.isButton)
                         .accessibilityHint("Concerts you were both at")
                         .swipeActions {
-                            Button(role: .destructive) { model.removeFriend(friend) } label: {
+                            Button(role: .destructive) { model.contacts.removeFriend(friend) } label: {
                                 Label("Remove", systemImage: "trash")
                             }
                         }
                         // The swipe's button, named for whom it removes — the twin of
                         // Android's "Remove <name>" (#164).
-                        .accessibilityAction(named: "Remove \(friend.name)") { model.removeFriend(friend) }
+                        .accessibilityAction(named: "Remove \(friend.name)") { model.contacts.removeFriend(friend) }
                     }
                 }
             }
@@ -90,7 +90,7 @@ struct FriendsView: View {
             // Debounce: .task cancels on each keystroke, so this only fires once typing settles.
             try? await Task.sleep(nanoseconds: 400_000_000)
             if Task.isCancelled { return }
-            cardURL = await model.myCardURL()
+            cardURL = await model.contacts.myCardURL()
         }
     }
 }

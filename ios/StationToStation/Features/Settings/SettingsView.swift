@@ -708,7 +708,7 @@ private struct ServiceControls: View {
                                 .foregroundColor(muted)
                         }
                         Spacer()
-                        Button("Remove") { model.removeFriend(friend) }
+                        Button("Remove") { model.contacts.removeFriend(friend) }
                             .foregroundColor(amber)
                             .accessibilityLabel("Remove \(friend.name)")
                     }
