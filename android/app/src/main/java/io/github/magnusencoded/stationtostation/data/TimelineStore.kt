@@ -1027,7 +1027,10 @@ class TimelineStore(
 
     /**
      * The cache as last written, with #107's migration applied. Empty (never null)
-     * on first run or unreadable file.
+     * on first run or unreadable file. An unreadable file is moved aside to
+     * `timelines.corrupt-<epoch ms>.json`, bytes untouched, before the empty cache is
+     * returned: every write is a transform of this, so leaving it in place would let
+     * the next save replace every hand-logged **Gig** with nothing.
      *
      * Migrating on read rather than in a one-shot upgrade step: there is no schema
      * version to hang one off, and this way an old cache restored onto the device
@@ -1037,8 +1040,13 @@ class TimelineStore(
     suspend fun load(): TimelineCache = withContext(Dispatchers.IO) {
         if (!file.exists()) return@withContext TimelineCache()
         runCatching { json.decodeFromString<TimelineCache>(file.readText()) }
-            .getOrDefault(TimelineCache())
+            .getOrElse { quarantine(); TimelineCache() }
             .migrated(mimeOf)
+    }
+
+    private fun quarantine() {
+        val aside = File(file.parentFile, "${file.nameWithoutExtension}.corrupt-${System.currentTimeMillis()}.json")
+        runCatching { Files.move(file.toPath(), aside.toPath()) }
     }
 
     /**
