@@ -74,21 +74,30 @@ class TicketsController(
      * bytes, symbology `qr` (the parameter's own name for it), page 0, uncorroborated —
      * a link has no printed text to check it against.
      *
-     * Reuses [routeTicket] exactly as the PDF path does: a complete, unambiguous
-     * parse acts on its own, anything less is shown to the person to confirm. A link
-     * a provider gets wrong (a typo'd date, a missing artist) fails exactly the same
-     * safe way an unreadable PDF does — never a silent add.
+     * A link is never a complete read: any page or app can open one, so even a
+     * complete link only prefills the confirm prompt, Admission shown, and writes
+     * nothing until the person saves it.
      */
-    fun handleTicketLink(uri: Uri) {
-        val artist = uri.getQueryParameter("artist")?.trim()?.ifBlank { null }
-        val venue = uri.getQueryParameter("venue")?.trim()?.ifBlank { null }
-        val date = uri.getQueryParameter("date")?.trim()?.ifBlank { null }?.let { findDate(it) }
+    fun handleTicketLink(uri: Uri) = handleTicketLink(
+        uri.getQueryParameter("artist"),
+        uri.getQueryParameter("venue"),
+        uri.getQueryParameter("date"),
+        uri.getQueryParameter("qr"),
+    )
+
+    /** [handleTicketLink]'s query parameters, as the link carried them. */
+    internal fun handleTicketLink(artist: String?, venue: String?, date: String?, qr: String?) {
         val admissions = listOfNotNull(
-            uri.getQueryParameter("qr")?.trim()?.ifBlank { null }
+            qr?.trim()?.ifBlank { null }
                 ?.let { Admission(payload = it.toByteArray(Charsets.UTF_8), symbology = QR_SYMBOLOGY) },
         )
-        val parsed = ParsedTicket(admissions = admissions, artist = artist, venue = venue, date = date)
-        scope.launch { routeParsedTicket(parsed) }
+        val parsed = ParsedTicket(
+            admissions = admissions,
+            artist = artist?.trim()?.ifBlank { null },
+            venue = venue?.trim()?.ifBlank { null },
+            date = date?.trim()?.ifBlank { null }?.let { findDate(it) },
+        )
+        scope.launch { routeParsedTicket(parsed, alwaysAsk = true) }
     }
 
     /**
@@ -102,8 +111,15 @@ class TicketsController(
      * Where one does not redraw, [keepOriginal] copies the shared file in and
      * every such Admission names it: the Room shows that file in its place, so the
      * ticket needs no prompt for it. Null for a path with no file (a link).
+     *
+     * [alwaysAsk] turns a complete read into the prompt it would otherwise skip,
+     * the night it matched offered as the possible match.
      */
-    private suspend fun routeParsedTicket(read: ParsedTicket, keepOriginal: (() -> String?)? = null) {
+    private suspend fun routeParsedTicket(
+        read: ParsedTicket,
+        alwaysAsk: Boolean = false,
+        keepOriginal: (() -> String?)? = null,
+    ) {
         val parsed = withContext(Dispatchers.IO) {
             val checked = read.checkedForRedraw()
             if (keepOriginal != null && checked.needsOriginal) {
@@ -113,13 +129,18 @@ class TicketsController(
             }
         }
         val known = state().setlists + state().plannedGigs
-        val routing = routeTicket(parsed, known)
+        val routed = routeTicket(parsed, known)
+        val routing = if (!alwaysAsk) routed else when (routed) {
+            is TicketRouting.AlreadyKnown -> TicketRouting.NeedsConfirmation(parsed, possibleMatch = routed.gig)
+            is TicketRouting.NewPlannedGig -> TicketRouting.NeedsConfirmation(parsed, possibleMatch = null)
+            is TicketRouting.NeedsConfirmation -> routed
+        }
         // setlist.fm is asked before anything is written or asked: by artist and
         // day, never venue. A night already known needs no search here; a local one is
         // looked up once its Admissions are on it.
         val artist = parsed.artist?.trim()?.ifEmpty { null }
         val date = parsed.date?.takeIf { parseFmDate(it) != null }
-        val search = if (routing !is TicketRouting.AlreadyKnown && artist != null && date != null) {
+        val search = if (routed !is TicketRouting.AlreadyKnown && artist != null && date != null) {
             ticketSearch(parsed, artist, date)
         } else {
             null
