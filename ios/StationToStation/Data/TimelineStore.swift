@@ -918,17 +918,32 @@ actor TimelineStore {
     }()
 
     /// The cache as last written. Empty (never nil) on first run or an unreadable
-    /// file — a corrupt cache must cost the timeline, not the launch.
+    /// file — a corrupt cache must cost the timeline, not the launch. An unreadable
+    /// file is moved aside to `timelines.corrupt-<epoch ms>.json`, bytes untouched,
+    /// before the empty cache is returned: every write is a transform of this, so
+    /// leaving it in place would let the next save replace every hand-logged **Gig**
+    /// with nothing.
     ///
     /// #107's migration is applied on read rather than as a one-shot upgrade step:
     /// there is no schema version to hang one off, and this way an old cache
     /// restored onto the device later migrates too. It is a no-op once `gigs` is
     /// populated, which the first write after a migration makes permanent.
     func load() -> TimelineCache {
+        guard FileManager.default.fileExists(atPath: file.path) else { return TimelineCache() }
         guard let data = try? Data(contentsOf: file),
               let cache = try? JSONDecoder().decode(TimelineCache.self, from: data)
-        else { return TimelineCache() }
+        else {
+            quarantine()
+            return TimelineCache()
+        }
         return cache.migrated()
+    }
+
+    private func quarantine() {
+        let stem = file.deletingPathExtension().lastPathComponent
+        let millis = Int64(Date().timeIntervalSince1970 * 1000)
+        let aside = file.deletingLastPathComponent().appendingPathComponent("\(stem).corrupt-\(millis).json")
+        try? FileManager.default.moveItem(at: file, to: aside)
     }
 
     /// Merges into what is already stored and writes it back. Merging, not
