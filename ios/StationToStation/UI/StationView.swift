@@ -560,7 +560,7 @@ struct StationView: View {
     }
 
     private func openGig(_ show: FmSetlist) {
-        model.selectSetlist(show)
+        model.playlist.selectSetlist(show)
         nav.push(.gig)
     }
 

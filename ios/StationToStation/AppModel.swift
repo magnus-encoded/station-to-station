@@ -307,11 +307,24 @@ final class AppModel: ObservableObject, StateHost {
         gig: gig,
         gossip: gossip,
         loadTimeline: { [unowned self] in loadTimeline() },
-        markSelectedOwnership: { [unowned self] in markSelectedOwnership($0, attendance: $1) }
+        markSelectedOwnership: { [unowned self] in self.playlist.markSelectedOwnership($0, attendance: $1) }
     )
     private(set) lazy var gigMedia = GigMediaController(
         host: self, timelines: timelines,
-        markSelectedOwnership: { [unowned self] in self.markSelectedOwnership($0, attendance: $1) }
+        markSelectedOwnership: { [unowned self] in self.playlist.markSelectedOwnership($0, attendance: $1) }
+    )
+    private(set) lazy var playlist = PlaylistController(
+        host: self, spotify: spotify, timelines: timelines,
+        loadGigMedia: { [unowned self] in self.gigMedia.loadGigMedia($0) },
+        loadGigLog: { [unowned self] setlist in
+            self.state.gigLog = StoredLog()
+            Task {
+                let log = await self.timelines.log(setlistId: setlist.id)
+                guard self.state.selectedSetlist?.id == setlist.id else { return }
+                self.state.gigLog = log
+            }
+        },
+        addFriend: { [unowned self] in self.contacts.addFriend($0) }
     )
     private(set) lazy var gossip = GossipController(host: self, timelines: timelines)
     /// The device half of the Timeline (ADR-0001): the store, the client, the
@@ -362,8 +375,6 @@ final class AppModel: ObservableObject, StateHost {
         return contacts
     }()
     private var contactsChanges: AnyCancellable?
-
-    private var matchTask: Task<Void, Never>?
 
     private(set) lazy var tickets = TicketsController(
         host: self,
@@ -546,324 +557,5 @@ final class AppModel: ObservableObject, StateHost {
             user: state.clashfinderUser,
             publicKey: clashfinderPublicKey(user: state.clashfinderUser, privateKey: state.clashfinderPrivateKey)
         )
-    }
-
-    /// Discovers a friend from a Spotify playlist link they shared: reads the
-    /// playlist's description, and if it carries a setlist.fm stamp, adds the owner.
-    func discoverFriendFromPlaylist(_ link: String) {
-        guard let id = spotifyPlaylistId(link) else {
-            state.error = "That doesn't look like a Spotify playlist link."
-            state.errorKind = nil
-            return
-        }
-        Task {
-            do {
-                let playlist = try await spotify.getPlaylist(id)
-                let username = sfmUserFromDescription(playlist.description)
-                let ownerId = playlist.owner?.id
-                let me = try? await spotify.currentUser().id
-                if username == nil {
-                    state.error = "That playlist wasn't made with this app, so there's no setlist.fm user to add."
-                    state.errorKind = nil
-                } else if let ownerId, ownerId == me {
-                    state.notice = "That's your own playlist."
-                } else {
-                    contacts.addFriend(Friend(setlistfm: username!,
-                                     name: playlist.owner?.displayName?.nilIfBlank ?? username!,
-                                     spotifyId: ownerId))
-                    state.notice = "Added @\(username!) as a friend."
-                }
-            } catch {
-                fail(error)
-            }
-        }
-    }
-
-    // --- Matching ---
-
-    func selectSetlist(_ setlist: FmSetlist) {
-        matchTask?.cancel()
-        let artistName = setlist.artist?.name ?? ""
-        let matches = setlist.songs()
-            .filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
-            .map { song in
-                SongMatch(song: song,
-                          searchArtist: song.cover?.name ?? artistName,
-                          // Tape songs are intro/outro recordings, not performed live; excluded by default.
-                          included: !song.tape)
-            }
-        // Year – Artist – Where. The rule itself is the logic layer's, asserted by
-        // the same cases on both platforms — it is the one that drifted before.
-        let defaultName = TimelineLogic.playlistName(
-            for: setlist, mine: state.timelineShows, festivals: state.festivals
-        )
-
-        state.selectedSetlist = setlist
-        // Answered twice on purpose: now from the two lists, which are already in
-        // hand, and again in `loadGigMedia` once the store hands back the attendance
-        // claim. Starting at the answer the lists give rather than at `false` is what
-        // keeps a night that is plainly mine from drawing itself read-only for a frame.
-        markSelectedOwnership(setlist, attendance: nil)
-        gigMedia.loadGigMedia(setlist)
-        state.gigLog = StoredLog()
-        Task {
-            let log = await timelines.log(setlistId: setlist.id)
-            guard state.selectedSetlist?.id == setlist.id else { return }
-            state.gigLog = log
-        }
-        state.matches = matches
-        state.matching = true
-        state.playlistName = defaultName
-        state.createdPlaylistUrl = nil
-        state.coverCandidateIds = []
-        state.selectedCoverAssetId = nil
-        state.selectedCoverFrameMs = 0
-        state.coverSearched = false
-        state.coverUploadError = nil
-        loadCoverCandidates(setlist)
-
-        matchTask = Task {
-            for (index, match) in matches.enumerated() {
-                if Task.isCancelled { return }
-                let (candidates, error) = await findCandidates(match.song.name, match.searchArtist)
-                updateMatch(index) {
-                    $0.loading = false
-                    $0.candidates = candidates
-                    $0.selected = candidates.first
-                    $0.included = $0.included && !candidates.isEmpty
-                    $0.error = error
-                }
-                // Stay polite with the Spotify search API.
-                try? await Task.sleep(nanoseconds: 120_000_000)
-            }
-            state.matching = false
-        }
-    }
-
-    // --- Media on a night (#99) ---
-
-    /// What this night already holds, plus what the library says was shot that
-    /// night and is not attached yet.
-    /// Whether the open night is mine, through the one rule (#327) — never re-derived
-    /// at a call site, because the direction a second implementation would drift is
-    /// offering an edit on someone else's night.
-    private func markSelectedOwnership(_ setlist: FmSetlist, attendance: StoredAttendance?) {
-        state.selectedIsMine = isMyNight(
-            setlist.id,
-            attendance: attendance,
-            mine: state.timelineShows,
-            planned: state.plannedGigs
-        )
-    }
-
-    // --- Cover art (#178) ---
-
-    /// Offers the gig's own keepsakes first — already chosen for this night, so
-    /// they need no permission and no re-asking — then the gallery's same-night
-    /// match once that permission is granted. The gallery half is silent when
-    /// missing: the confirm screen asks for it instead, so a prompt only ever
-    /// follows a tap.
-    private func loadCoverCandidates(_ setlist: FmSetlist) {
-        guard let date = setlist.eventDate, let window = photoWindow(gigDate: date) else { return }
-        let granted = PhotoLibrary.isAuthorized
-        state.coverPermissionGranted = granted
-        state.coverLoading = true
-        Task {
-            // Clips included: a night whose only capture is a clip has a cover in it,
-            // one frame at a time (`CoverFrameSheet`). Pictures only, though — a Note
-            // holds no bytes and a dead reference resolves to nothing, and neither is
-            // a picture of the night.
-            let pinned = state.gigMedia
-                .filter { $0.kind == StoredMedia.Kind.photo || $0.kind == StoredMedia.Kind.video }
-                .map(\.ref)
-            let gallery = granted ? await Task.detached { PhotoLibrary.assetsFromNight(window) }.value : []
-            var seen = Set<String>()
-            let candidates = (pinned + gallery).filter { seen.insert($0).inserted }
-            guard state.selectedSetlist?.id == setlist.id else { return }
-            state.coverCandidateIds = candidates
-            state.coverLoading = false
-            state.coverSearched = true
-            // The first photo is the suggestion, so it is the cover until the
-            // picker is swiped somewhere else.
-            state.selectedCoverAssetId = candidates.first
-        }
-    }
-
-    /// The cover the picker has landed on, or nil for Spotify's own collage.
-    func setCover(_ assetId: String?) {
-        guard state.selectedCoverAssetId != assetId else { return }
-        state.selectedCoverAssetId = assetId
-        state.selectedCoverFrameMs = 0
-    }
-
-    /// The frame of the clip the scrub has settled on.
-    func setCoverFrame(_ atMs: Int64) {
-        if state.selectedCoverFrameMs != atMs { state.selectedCoverFrameMs = atMs }
-    }
-
-    /// Re-runs the cover search after the gallery permission prompt the picker
-    /// itself triggered — the rest of the confirm screen (matches, playlist name)
-    /// is untouched.
-    func refreshCoverCandidates() {
-        guard let setlist = state.selectedSetlist else { return }
-        loadCoverCandidates(setlist)
-    }
-
-    /// Returns nil on success, or the reason the cover did not make it.
-    private func uploadCover(playlistId: String, assetId: String) async -> String? {
-        guard spotify.hasImageUploadScope() else {
-            return "The cover needs a permission your Spotify login predates. "
-                + "Log out in Settings and log in again to enable playlist covers."
-        }
-        guard let jpeg = await PhotoLibrary.coverJpeg(assetId: assetId,
-                                                      frameMs: state.selectedCoverFrameMs) else {
-            return "That photo could not be prepared as a cover."
-        }
-        do {
-            try await spotify.uploadCover(playlistId, jpeg: jpeg)
-            return nil
-        } catch {
-            return "The cover could not be uploaded. \(userMessage(error))"
-        }
-    }
-
-    private func findCandidates(_ track: String, _ artist: String) async -> ([SpotifyTrack], String?) {
-        do {
-            var results = try await spotify.searchTracks("track:\"\(track)\" artist:\"\(artist)\"", limit: 10)
-            if results.isEmpty {
-                results = try await spotify.searchTracks("\(track) \(artist)", limit: 10)
-            }
-            // Best-first rather than Spotify-first: the auto-selection below takes
-            // the head of this list, and the picker lists them in this order too.
-            return (rankCandidates(results, track, artist), nil)
-        } catch {
-            return ([], userMessage(error))
-        }
-    }
-
-    private func updateMatch(_ index: Int, _ transform: (inout SongMatch) -> Void) {
-        guard state.matches.indices.contains(index) else { return }
-        transform(&state.matches[index])
-    }
-
-    func toggleIncluded(_ index: Int) { updateMatch(index) { $0.included.toggle() } }
-
-    func chooseCandidate(_ index: Int, _ track: SpotifyTrack) {
-        updateMatch(index) { $0.selected = track; $0.included = true }
-    }
-
-    func setPlaylistName(_ name: String) { state.playlistName = name }
-    func setPlaylistPublic(_ isPublic: Bool) { state.playlistPublic = isPublic }
-
-    /// Dismisses the "playlist created" result so it isn't shown again.
-    func dismissCreated() { state.createdPlaylistUrl = nil }
-
-    /// Manual re-search for one song with a user-provided query.
-    func researchSong(_ index: Int, _ query: String) {
-        let trimmed = query.trimmingCharacters(in: .whitespaces)
-        if trimmed.isEmpty { return }
-        updateMatch(index) { $0.loading = true; $0.error = nil }
-        Task {
-            do {
-                let found = try await spotify.searchTracks(trimmed, limit: 10)
-                // Ranked like the automatic search, or searching by hand would be
-                // the one path that still hands you Spotify's karaoke rendition.
-                // The query is the user's, but which recording we mean is still
-                // this song by this artist.
-                let songName = state.matches.indices.contains(index) ? state.matches[index].song.name : trimmed
-                let artist = state.matches.indices.contains(index) ? state.matches[index].searchArtist : ""
-                let results = rankCandidates(found, songName, artist)
-                updateMatch(index) {
-                    $0.loading = false
-                    $0.candidates = results
-                    $0.selected = results.first ?? $0.selected
-                    $0.error = results.isEmpty ? "No results for \"\(query)\"" : nil
-                }
-            } catch {
-                updateMatch(index) { $0.loading = false; $0.error = userMessage(error) }
-            }
-        }
-    }
-
-    // --- Playlist creation ---
-
-    func createPlaylist() {
-        let s = state
-        let tracks = s.matches.filter { $0.included && $0.selected != nil }.compactMap(\.selected)
-        if tracks.isEmpty {
-            state.error = "No songs selected"
-            state.errorKind = nil
-            return
-        }
-        let name = s.playlistName.isEmpty ? "Setlist" : s.playlistName
-        state.creatingPlaylist = true
-        Task {
-            do {
-                // Unknown scope means the login predates scope tracking — the
-                // remedy is the same as a missing scope: a fresh login.
-                if spotify.hasPlaylistScopes() != true {
-                    throw AppError("Your Spotify login is missing playlist permissions. "
-                        + "Log out in Settings, then log in again and approve the playlist "
-                        + "access on the Spotify page that opens.")
-                }
-                var description = "Setlist"
-                if let venue = s.selectedSetlist?.venueLine() { description += " at \(venue)" }
-                if let date = s.selectedSetlist?.eventDate { description += " on \(date)" }
-                description += ". Created from setlist.fm"
-                if let url = s.selectedSetlist?.url { description += ": \(url)" }
-                // Stamp the creator so a friend's app can discover the mapping.
-                let me = s.mySetlistFmUser.trimmingCharacters(in: .whitespaces)
-                if !me.isEmpty { description += " \(sfmStamp(me))" }
-
-                let playlist = try await spotify.createPlaylist(name: name, description: description, isPublic: s.playlistPublic)
-                let result: AddTracksResult
-                do {
-                    result = try await spotify.addTracks(playlist.id, uris: tracks.map(\.uri))
-                } catch {
-                    // The playlist exists at this point, so say so rather than
-                    // leaving the user with a bare failure and a stray playlist.
-                    throw AppError("Playlist \"\(name)\" was created but the songs could not be added. \(userMessage(error))")
-                }
-                // The songs are the point, so a cover that will not upload is
-                // reported next to the success rather than thrown over it.
-                let coverError: String?
-                if let assetId = s.selectedCoverAssetId {
-                    coverError = await uploadCover(playlistId: playlist.id, assetId: assetId)
-                } else {
-                    coverError = nil
-                }
-                // Fall back to the canonical URL rather than dropping the link:
-                // `externalUrls` is Spotify's to omit, the id is ours to keep.
-                let url = playlist.externalUrls["spotify"]
-                    ?? "https://open.spotify.com/playlist/\(playlist.id)"
-                state.creatingPlaylist = false
-                state.createdPlaylistUrl = url
-                state.createdPlaylistName = name
-                state.createdTrackCount = result.added
-                state.createdRefusedCount = result.refused.count
-                state.coverUploadError = coverError
-                // So the night still points at it — on this screen and on the next
-                // launch. Appended, never replaced: converting this night again must
-                // not orphan a link already sent to someone.
-                if let night = s.selectedSetlist?.id.nilIfBlank {
-                    let made = StoredPlaylist(url: url, name: name, trackCount: result.added)
-                    state.playlistsBySetlist[night, default: []].append(made)
-                    await timelines.save(playlists: [night: made])
-                }
-            } catch {
-                fail(error)
-            }
-        }
-    }
-
-    /// Drops one playlist link from a night.
-    ///
-    /// For a playlist deleted on Spotify, where the pointer left behind is dead
-    /// weight. It removes the *link*, never the night — which is why it is a separate
-    /// door from `deleteGig` and not a step inside it.
-    func removePlaylist(_ setlistId: String, url: String) {
-        state.playlistsBySetlist[setlistId] =
-            (state.playlistsBySetlist[setlistId] ?? []).filter { $0.url != url }
-        Task { await timelines.removePlaylist(setlistId: setlistId, url: url) }
     }
 }

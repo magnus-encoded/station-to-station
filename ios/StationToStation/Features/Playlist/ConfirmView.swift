@@ -25,7 +25,7 @@ struct ConfirmView: View {
                         .padding(.horizontal)
                     }
                     TextField("Playlist name", text: Binding(
-                        get: { s.playlistName }, set: model.setPlaylistName))
+                        get: { s.playlistName }, set: model.playlist.setPlaylistName))
                         .textFieldStyle(.roundedBorder)
                         .padding(.horizontal)
 
@@ -39,7 +39,7 @@ struct ConfirmView: View {
                         }
                         Spacer()
                         Toggle("", isOn: Binding(
-                            get: { s.playlistPublic }, set: model.setPlaylistPublic)).labelsHidden()
+                            get: { s.playlistPublic }, set: model.playlist.setPlaylistPublic)).labelsHidden()
                             .accessibilityLabel("Public playlist")
                     }
                     .padding(.horizontal)
@@ -60,9 +60,9 @@ struct ConfirmView: View {
                             match: match,
                             expanded: expandedIndex == index,
                             onToggleExpand: { expandedIndex = expandedIndex == index ? -1 : index },
-                            onToggleIncluded: { model.toggleIncluded(index) },
-                            onChooseCandidate: { model.chooseCandidate(index, $0) },
-                            onResearch: { model.researchSong(index, $0) })
+                            onToggleIncluded: { model.playlist.toggleIncluded(index) },
+                            onChooseCandidate: { model.playlist.chooseCandidate(index, $0) },
+                            onResearch: { model.playlist.researchSong(index, $0) })
                     }
                 }
                 .padding(.vertical, 8)
@@ -84,7 +84,7 @@ struct ConfirmView: View {
                         if let cover = s.selectedCoverAssetId, PhotoLibrary.isVideo(assetId: cover) {
                             pickingFrameFor = CoverClip(assetId: cover)
                         } else {
-                            model.createPlaylist()
+                            model.playlist.createPlaylist()
                         }
                     } label: {
                         if s.creatingPlaylist {
@@ -103,7 +103,7 @@ struct ConfirmView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: Binding(
             get: { s.createdPlaylistUrl != nil },
-            set: { if !$0 { model.dismissCreated() } })
+            set: { if !$0 { model.playlist.dismissCreated() } })
         ) {
             CreatedSheet(
                 name: s.createdPlaylistName,
@@ -112,17 +112,17 @@ struct ConfirmView: View {
                 coverError: s.coverUploadError,
                 url: URL(string: s.createdPlaylistUrl ?? "") ?? URL(string: "https://open.spotify.com")!,
                 onOpen: { openURL(URL(string: s.createdPlaylistUrl ?? "")!) },
-                onDone: { model.dismissCreated(); nav.pop() })
+                onDone: { model.playlist.dismissCreated(); nav.pop() })
         }
         .sheet(item: $pickingFrameFor) { clip in
             CoverFrameSheet(
                 assetId: clip.assetId,
                 frameMs: s.selectedCoverFrameMs,
-                onFrameChange: model.setCoverFrame,
+                onFrameChange: model.playlist.setCoverFrame,
                 onCancel: { pickingFrameFor = nil },
                 onConfirm: {
                     pickingFrameFor = nil
-                    model.createPlaylist()
+                    model.playlist.createPlaylist()
                 })
         }
     }
@@ -401,7 +401,7 @@ private struct CoverPicker: View {
             if !s.coverCandidateIds.isEmpty {
                 TabView(selection: Binding(
                     get: { s.selectedCoverAssetId },
-                    set: { model.setCover($0) })
+                    set: { model.playlist.setCover($0) })
                 ) {
                     // Spotify's own collage is always one swipe left of the
                     // suggested photo, so it stays reachable however many photos
@@ -458,7 +458,7 @@ private struct CoverPicker: View {
     private func requestGalleryAccess() {
         Task {
             _ = await PhotoLibrary.authorize()
-            model.refreshCoverCandidates()
+            model.playlist.refreshCoverCandidates()
         }
     }
 }

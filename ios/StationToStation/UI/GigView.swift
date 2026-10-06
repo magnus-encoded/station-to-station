@@ -581,14 +581,14 @@ struct GigView: View {
                                         : "Open \(playlist.name.nilIfBlank ?? "the playlist")")
                     .contextMenu {
                         Button(role: .destructive) {
-                            model.removePlaylist(show.id, url: playlist.url)
+                            model.playlist.removePlaylist(show.id, url: playlist.url)
                         } label: {
                             Label("Drop this link", systemImage: "trash")
                         }
                     }
                     // Named in the actions rotor too, beside the menu it sits in.
                     .accessibilityAction(named: "Drop this link") {
-                        model.removePlaylist(show.id, url: playlist.url)
+                        model.playlist.removePlaylist(show.id, url: playlist.url)
                     }
                 }
             }
