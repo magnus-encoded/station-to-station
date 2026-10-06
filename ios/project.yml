@@ -17,6 +17,8 @@ settings:
     SPOTIFY_CLIENT_ID: 4d0ca5e417a54b599b07bfac99671644
     SETLISTFM_API_KEY: ""
     MARKETING_VERSION: "1.12.0"
+    # Local and CI builds stay at 1; ios-testflight.yml overrides it with the
+    # workflow's run number, because App Store Connect rejects a repeated build number.
     CURRENT_PROJECT_VERSION: "1"
 
 targets:
@@ -61,6 +63,10 @@ targets:
       path: StationToStation/Info.plist
       properties:
         CFBundleDisplayName: Station to Station
+        # Only OS-provided crypto (CryptoKit, TLS over Network.framework) for
+        # authentication and data protection, which is exempt. Without this key every
+        # TestFlight upload stops at the export-compliance question.
+        ITSAppUsesNonExemptEncryption: false
         # Ground, the same near-black the timeline is drawn on, so a cold start is
         # one colour from the launch screen through to the first rows.
         UILaunchScreen:
