@@ -13,6 +13,8 @@ import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmVenue
 import io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmClient
+import io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmKey
+import io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmResponse
 import io.github.magnusencoded.stationtostation.features.FakeState
 import io.github.magnusencoded.stationtostation.features.planning.PlanningController
 import kotlinx.coroutines.CoroutineScope
@@ -44,7 +46,12 @@ class TicketsControllerTest {
 
     private fun controller(fake: FakeState): TicketsController {
         val scope = CoroutineScope(job + Dispatchers.Default)
-        val setlistFm = SetlistFmClient(keySource = { null })
+        // setlist.fm answers a search with no setlists with a 404.
+        val setlistFm = SetlistFmClient(
+            keySource = { SetlistFmKey("key", shared = false) },
+            transport = { _, _ -> SetlistFmResponse(404, "") },
+            sleep = {},
+        )
         val planning = PlanningController(
             fake.state, fake.update, store, setlistFm, unbuilt<MusicBrainzClient>(), scope, { failures += it },
         )
@@ -115,5 +122,34 @@ class TicketsControllerTest {
         assertEquals(listOf(known), fake.current.plannedGigs)
         assertEquals(1, fake.current.attendanceByGig["g1"]?.admissions?.size)
         assertTrue(fake.current.pendingTickets.isEmpty())
+    }
+
+    @Test
+    fun `a complete link for a night nobody holds is a prompt, not a new Gig`() {
+        val fake = FakeState(UiState())
+
+        controller(fake).handleTicketLink("Wilco", "Sentrum Scene", "14-09-2099", "ticket-payload")
+        settle()
+
+        assertTrue(fake.current.plannedGigs.isEmpty())
+        val prompt = fake.current.pendingTickets.single()
+        assertEquals("Wilco", prompt.parsed.artist)
+        assertEquals("Sentrum Scene", prompt.parsed.venue)
+        assertEquals("14-09-2099", prompt.parsed.date)
+        assertEquals("ticket-payload", prompt.parsed.admissions.single().payload.decodeToString())
+    }
+
+    @Test
+    fun `a complete link for a night already on the Line is a prompt naming it, not an attached Admission`() {
+        val known = FmSetlist(
+            id = "g1", eventDate = "14-09-2099", artist = FmArtist(name = "Wilco"), venue = FmVenue(name = "Sentrum Scene"),
+        )
+        val fake = FakeState(UiState(plannedGigs = listOf(known)))
+
+        controller(fake).handleTicketLink("Wilco", "Sentrum Scene", "14-09-2099", "ticket-payload")
+        settle()
+
+        assertNull(fake.current.attendanceByGig["g1"])
+        assertEquals(known, fake.current.pendingTickets.single().possibleMatch)
     }
 }
