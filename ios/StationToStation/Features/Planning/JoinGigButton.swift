@@ -12,7 +12,7 @@ struct JoinGigButton: View {
     }
 
     var body: some View {
-        Button(going ? "I am going too" : "I was there too") { model.joinGig(show) }
+        Button(going ? "I am going too" : "I was there too") { model.planning.joinGig(show) }
             .font(.system(size: 15)).foregroundStyle(amber)
             .padding(.horizontal, 24).padding(.vertical, 8)
     }

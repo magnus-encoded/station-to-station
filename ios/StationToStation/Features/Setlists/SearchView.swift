@@ -130,11 +130,11 @@ private struct UserTab: View {
         .padding(.horizontal)
         .sheet(isPresented: $adding) {
             AddGigSheet { artist, venue, date in
-                model.addGig(artist: artist, venue: venue, date: date)
+                model.planning.addGig(artist: artist, venue: venue, date: date)
                 adding = false
                 nav.popToRoot()
             } onAddByLink: { link in
-                model.addPlannedGig(link)
+                model.planning.addPlannedGig(link)
                 adding = false
                 nav.popToRoot()
             } onCancel: { adding = false }

@@ -16,11 +16,11 @@ struct AddGigSheets: ViewModifier {
         content
             .sheet(isPresented: $adding) {
                 AddGigSheet(initial: prefill) { artist, venue, date in
-                    model.addGig(artist: artist, venue: venue, date: date)
+                    model.planning.addGig(artist: artist, venue: venue, date: date)
                     adding = false
                     prefill = nil
                 } onAddByLink: { link in
-                    model.addPlannedGig(link)
+                    model.planning.addPlannedGig(link)
                     adding = false
                     prefill = nil
                 } onCancel: { adding = false; prefill = nil }
@@ -95,7 +95,7 @@ struct AddGigSheet: View {
                             // cannot tell that from typing — without the guard the
                             // list the pick just dismissed comes straight back.
                             .onChange(of: artist) { name in
-                                if name != picked { model.suggestArtists(name) }
+                                if name != picked { model.planning.suggestArtists(name) }
                             }
                         // Suggestions sit directly under the field they belong to and
                         // nowhere else. Capped at four rows: this is a prompt above a
@@ -105,7 +105,7 @@ struct AddGigSheet: View {
                             Button {
                                 picked = hit.name
                                 artist = hit.name
-                                model.clearArtistSuggestions()
+                                model.planning.clearArtistSuggestions()
                             } label: {
                                 Text(hit.disambiguation.isEmpty
                                      ? hit.name : "\(hit.name)  · \(hit.disambiguation)")
@@ -134,11 +134,11 @@ struct AddGigSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { model.clearArtistSuggestions(); onCancel() }
+                    Button("Cancel") { model.planning.clearArtistSuggestions(); onCancel() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") {
-                        model.clearArtistSuggestions()
+                        model.planning.clearArtistSuggestions()
                         if pasting { onAddByLink(link) } else { onAdd(artist, venue, date) }
                     }
                     .disabled(!ready)

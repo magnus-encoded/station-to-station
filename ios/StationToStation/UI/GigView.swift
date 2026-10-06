@@ -611,7 +611,7 @@ struct GigView: View {
                     Label("Added to your calendar", systemImage: "checkmark.circle")
                         .foregroundStyle(muted)
                 } else if alcove == .addToCalendar {
-                    Button { model.addToCalendar(show) } label: {
+                    Button { model.planning.addToCalendar(show) } label: {
                         Label("Add to calendar", systemImage: "calendar.badge.plus")
                     }
                 }
