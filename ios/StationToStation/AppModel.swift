@@ -299,7 +299,7 @@ final class AppModel: ObservableObject, StateHost {
     private(set) lazy var settingsController = SettingsController(host: self, settings: settings, spotify: spotify)
     private let musicBrainz = MusicBrainzClient()
     private let timelines = TimelineStore()
-    private(set) lazy var planning = PlanningController(
+    private(set) lazy var planning: PlanningController = PlanningController(
         host: self,
         timelines: timelines,
         setlistFm: setlistFm,
@@ -343,7 +343,7 @@ final class AppModel: ObservableObject, StateHost {
         lineArtists: { [unowned self] in planning.lineArtists() }
     )
 
-    private(set) lazy var gig = GigController(
+    private(set) lazy var gig: GigController = GigController(
         host: self,
         timelines: timelines,
         setlistFm: setlistFm,
