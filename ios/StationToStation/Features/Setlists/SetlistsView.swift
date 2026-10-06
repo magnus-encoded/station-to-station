@@ -16,7 +16,7 @@ struct SetlistsView: View {
                         SetlistRow(setlist: setlist, source: s.source, songCount: songCount)
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                if songCount > 0 { model.selectSetlist(setlist); nav.push(.confirm) }
+                                if songCount > 0 { model.playlist.selectSetlist(setlist); nav.push(.confirm) }
                             }
                             .accessibilityElement(children: .combine)
                             .accessibilityAddTraits(songCount > 0 ? .isButton : [])

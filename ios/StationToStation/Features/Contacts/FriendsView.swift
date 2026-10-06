@@ -45,7 +45,7 @@ struct FriendsView: View {
                         .textFieldStyle(.roundedBorder)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
-                    Button("Find") { model.discoverFriendFromPlaylist(linkQuery); linkQuery = "" }
+                    Button("Find") { model.playlist.discoverFriendFromPlaylist(linkQuery); linkQuery = "" }
                         .buttonStyle(.bordered)
                 }
             }
