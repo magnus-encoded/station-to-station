@@ -33,10 +33,8 @@ final class ContactsControllerTests: XCTestCase {
     override func tearDown() async throws {
         Settings().saveFriends([])
         try? FileManager.default.removeItem(at: file)
-        contacts = nil
-        gig = nil
-        gossip = nil
-        fake = nil
+        // Not released here: a Contact change starts a Gossip task that can still be
+        // running, and it reaches the host and controllers through unowned references.
     }
 
     private func id(_ name: String) -> String { "\(name)-\(UUID().uuidString)" }
