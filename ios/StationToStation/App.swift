@@ -107,7 +107,7 @@ struct StationToStationApp: App {
                 case nil:
                     return
                 case .passThrough(.friend, _):
-                    model.handleFriendLink(url)
+                    model.contacts.handleFriendLink(url)
                 case .passThrough(.handover, _):
                     // The old phone's code: the address, the certificate to pin and the
                     // key for the transfer, which is why any camera can open it and only
@@ -115,7 +115,7 @@ struct StationToStationApp: App {
                     // truncated or hand-typed link would land the reader on the *source*
                     // side's tick list, this phone offering to hand itself over.
                     guard parseHandoverInvite(url.absoluteString) != nil else { return }
-                    model.joinHandover(url)
+                    model.handover.joinHandover(url)
                     nav.popToRoot()
                     nav.push(.handover)
                 case .passThrough:
@@ -128,20 +128,20 @@ struct StationToStationApp: App {
                     case .open(.settings, _): nav.push(.settings)
                     case .open(.programme, _): nav.push(.programme)
                     case .open(let screen, let date):
-                        model.openTimeline(zoomedOut: screen == .timelines, date: date)
+                        model.navigation.openTimeline(zoomedOut: screen == .timelines, date: date)
                     case .openGig(let id):
-                        model.openGig(id) { nav.push(.gig) }
+                        model.navigation.openGig(id) { nav.push(.gig) }
                     case .addGig(let artist, let venue, let date):
-                        model.openAddGig(artist: artist, venue: venue, date: date)
+                        model.navigation.openAddGig(artist: artist, venue: venue, date: date)
                     case .writeToLog(let id, let appends, let replacements):
-                        model.openGig(id) {
+                        model.navigation.openGig(id) {
                             nav.push(.gig)
-                            model.writeToLog(appends: appends, replacements: replacements)
+                            model.gig.writeToLog(appends: appends, replacements: replacements)
                         }
                     case .legacyPlace(let id, let at):
-                        model.openPlace(id, as: at) { nav.push(.gig) }
+                        model.navigation.openPlace(id, as: at) { nav.push(.gig) }
                     case .me:
-                        model.setZoomedOut(false)
+                        model.navigation.setZoomedOut(false)
                     case .fixture(let name, let open):
                         model.loadFixture(name, open: open)
                     case .passThrough:
@@ -155,7 +155,7 @@ struct StationToStationApp: App {
             // foreground and only then (#531): at launch, on coming back, and on their
             // timer. This is the launch that went straight to active, which `onChange`
             // below never sees; a background relaunch (the gossip radio's) starts nothing.
-            .onAppear { if scenePhase == .active { model.startLookupChecks() } }
+            .onAppear { if scenePhase == .active { model.setlists.startLookupChecks() } }
         }
         // A **Ticket** is deposited while this app is in the background — the share
         // sheet never brings it forward — so the inbox is read on the way back in
@@ -164,10 +164,10 @@ struct StationToStationApp: App {
         .onChange(of: scenePhase) { phase in
             switch phase {
             case .active:
-                model.drainTicketInbox()
-                model.startLookupChecks()
+                model.tickets.drainTicketInbox()
+                model.setlists.startLookupChecks()
             case .inactive, .background:
-                model.stopLookupChecks()
+                model.setlists.stopLookupChecks()
             @unknown default:
                 break
             }
@@ -222,10 +222,10 @@ private struct BannersModifier: ViewModifier {
             // what VoiceOver announces.
             .alert("Change this contact?", isPresented: Binding(
                 get: { model.state.friendConflict != nil },
-                set: { if !$0 { model.dismissFriendOverwrite() } }
+                set: { if !$0 { model.contacts.dismissFriendOverwrite() } }
             ), presenting: model.state.friendConflict) { _ in
-                Button("Keep mine", role: .cancel) { model.dismissFriendOverwrite() }
-                Button("Use the card") { model.confirmFriendOverwrite() }
+                Button("Keep mine", role: .cancel) { model.contacts.dismissFriendOverwrite() }
+                Button("Use the card") { model.contacts.confirmFriendOverwrite() }
             } message: { conflict in
                 Text(conflict.message)
             }
@@ -239,14 +239,14 @@ private struct BannersModifier: ViewModifier {
             // dismissing a draft also deletes its inbox deposit.
             .sheet(item: Binding(
                 get: { model.state.ticketDrafts.first },
-                set: { if $0 == nil, let shown = shownTicketDraft { model.dismissTicket(shown) } }
+                set: { if $0 == nil, let shown = shownTicketDraft { model.tickets.dismissTicket(shown) } }
             )) { draft in
                 ConfirmTicketSheet(ticket: draft.ticket, possibleMatch: draft.possibleMatch,
                                    setlistFm: draft.setlistFm) { artist, venue, date, chosen in
-                    model.confirmTicket(draft.id, artist: artist, venue: venue, date: date,
+                    model.tickets.confirmTicket(draft.id, artist: artist, venue: venue, date: date,
                                         chosenSetlistId: chosen)
                 } onCancel: {
-                    model.dismissTicket(draft.id)
+                    model.tickets.dismissTicket(draft.id)
                 }
                 .onAppear { shownTicketDraft = draft.id }
                 // Only Cancel drops the ticket. A stray swipe-down would throw away a

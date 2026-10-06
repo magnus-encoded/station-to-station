@@ -70,7 +70,7 @@ struct ConfirmTicketSheet: View {
                 Section {
                     TextField("who's playing", text: $artist)
                         .onChange(of: artist) { name in
-                            if name != picked { model.suggestArtists(name) }
+                            if name != picked { model.planning.suggestArtists(name) }
                         }
                     // Suggestions matter more here than anywhere else: the name in
                     // this field came off an OCR pass, so a near miss is the expected
@@ -79,7 +79,7 @@ struct ConfirmTicketSheet: View {
                         Button {
                             picked = hit.name
                             artist = hit.name
-                            model.clearArtistSuggestions()
+                            model.planning.clearArtistSuggestions()
                         } label: {
                             Text(hit.disambiguation.isEmpty
                                  ? hit.name : "\(hit.name)  · \(hit.disambiguation)")
@@ -119,11 +119,11 @@ struct ConfirmTicketSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { model.clearArtistSuggestions(); onCancel() }
+                    Button("Cancel") { model.planning.clearArtistSuggestions(); onCancel() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") {
-                        model.clearArtistSuggestions()
+                        model.planning.clearArtistSuggestions()
                         onAdd(artist, venue, date, offered != nil ? chosen : nil)
                     }
                     .disabled(!ready)

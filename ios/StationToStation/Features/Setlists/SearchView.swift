@@ -19,7 +19,7 @@ struct SearchView: View {
             }
             if !s.spotifyConnected {
                 Button {
-                    if s.spotifyLoginReady { model.loginSpotify() } else { nav.push(.settings) }
+                    if s.spotifyLoginReady { model.settingsController.loginSpotify() } else { nav.push(.settings) }
                 } label: {
                     Text("Log in with Spotify").frame(maxWidth: .infinity)
                 }
@@ -61,11 +61,11 @@ private struct ArtistTab: View {
         VStack(alignment: .leading) {
             HStack {
                 TextField("Artist name", text: Binding(
-                    get: { s.artistQuery }, set: model.setArtistQuery))
+                    get: { s.artistQuery }, set: model.setlists.setArtistQuery))
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()
-                    .onSubmit { model.searchArtists() }
-                Button { model.searchArtists() } label: { Image(systemName: "magnifyingglass") }
+                    .onSubmit { model.setlists.searchArtists() }
+                Button { model.setlists.searchArtists() } label: { Image(systemName: "magnifyingglass") }
                     .accessibilityLabel("Search")
             }
             if s.searchLoading {
@@ -79,7 +79,7 @@ private struct ArtistTab: View {
                     }
                 }
                 .contentShape(Rectangle())
-                .onTapGesture { model.openArtist(artist); nav.push(.setlists) }
+                .onTapGesture { model.setlists.openArtist(artist); nav.push(.setlists) }
                 .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(.isButton)
             }
@@ -103,13 +103,13 @@ private struct UserTab: View {
                 .font(.subheadline)
             HStack {
                 TextField("setlist.fm user ID", text: Binding(
-                    get: { s.userQuery }, set: model.setUserQuery))
+                    get: { s.userQuery }, set: model.setlists.setUserQuery))
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
-                    .onSubmit { model.openUserAttended(); nav.push(.setlists) }
+                    .onSubmit { model.setlists.openUserAttended(); nav.push(.setlists) }
                 Button {
-                    model.openUserAttended(); nav.push(.setlists)
+                    model.setlists.openUserAttended(); nav.push(.setlists)
                 } label: { Image(systemName: "magnifyingglass") }
                 .accessibilityLabel("Load")
             }
@@ -130,11 +130,11 @@ private struct UserTab: View {
         .padding(.horizontal)
         .sheet(isPresented: $adding) {
             AddGigSheet { artist, venue, date in
-                model.addGig(artist: artist, venue: venue, date: date)
+                model.planning.addGig(artist: artist, venue: venue, date: date)
                 adding = false
                 nav.popToRoot()
             } onAddByLink: { link in
-                model.addPlannedGig(link)
+                model.planning.addPlannedGig(link)
                 adding = false
                 nav.popToRoot()
             } onCancel: { adding = false }

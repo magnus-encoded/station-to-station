@@ -6,7 +6,7 @@ on:
   push:
     paths: [ "android/**", "fixtures/**", ".github/workflows/android.yml" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "features-parity" ]
     paths: [ "android/**", "fixtures/**", ".github/workflows/android.yml" ]
   workflow_dispatch:
 

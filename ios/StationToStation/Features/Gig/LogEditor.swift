@@ -71,14 +71,14 @@ struct LogEditor: View {
                 .font(.system(size: 14)).foregroundStyle(ink)
                 .textFieldStyle(.plain)
                 .submitLabel(.done)
-                .onSubmit { if !typed.trimmed.isEmpty { model.addToLog(typed.trimmed); typed = "" } }
+                .onSubmit { if !typed.trimmed.isEmpty { model.gig.addToLog(typed.trimmed); typed = "" } }
                 .padding(8)
                 .background(RoundedRectangle(cornerRadius: 6).fill(faint.opacity(0.12)))
             if !typed.trimmed.isEmpty {
                 Text("+ add \"\(typed.trimmed)\"")
                     .font(.system(size: 13)).foregroundStyle(amber)
                     .padding(.vertical, 6)
-                    .onTapGesture { model.addToLog(typed.trimmed); typed = "" }
+                    .onTapGesture { model.gig.addToLog(typed.trimmed); typed = "" }
                     .accessibilityLabel("Add \(typed.trimmed) to your log")
                     .accessibilityAddTraits(.isButton)
             }
@@ -89,7 +89,7 @@ struct LogEditor: View {
         Text("+ they played one I can't name")
             .font(.system(size: 13)).foregroundStyle(slate)
             .padding(.vertical, 8)
-            .onTapGesture { model.addToLog("") }
+            .onTapGesture { model.gig.addToLog("") }
             .accessibilityLabel("They played one I can't name")
             .accessibilityAddTraits(.isButton)
     }
@@ -113,7 +113,7 @@ struct LogEditor: View {
             }
         }
         .contentShape(Rectangle())
-        .onTapGesture { model.setLogClosed(!log.closed) }
+        .onTapGesture { model.gig.setLogClosed(!log.closed) }
         // A painted square is not a checkbox to VoiceOver: one element, its state said
         // in words, the twin of Android's `Role.Checkbox` (#164). iOS 16 has no toggle
         // trait, so the value carries it.
@@ -143,8 +143,8 @@ struct LogCorrection: View {
             candidates: rankTitles(written, catalogue),
             canRestore: log.rememberedAt(index) != nil,
             looking: model.state.catalogueFetching != nil,
-            onPick: { model.correctLogEntry(index, title: $0); onDone() },
-            onRestore: { model.restoreLogEntry(index); onDone() }
+            onPick: { model.gig.correctLogEntry(index, title: $0); onDone() },
+            onRestore: { model.gig.restoreLogEntry(index); onDone() }
         )
     }
 

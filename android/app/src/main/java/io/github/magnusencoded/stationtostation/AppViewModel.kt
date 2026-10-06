@@ -2,6 +2,7 @@ package io.github.magnusencoded.stationtostation
 
 import android.app.Application
 import io.github.magnusencoded.stationtostation.features.planning.PlanningController
+import io.github.magnusencoded.stationtostation.features.tickets.TicketsController
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -572,12 +573,6 @@ data class UiState(
     val pendingTicket: PendingTicket? get() = pendingTickets.firstOrNull()
 }
 
-/** [ticket] behind whatever is already waiting on the prompt, never in its place. */
-fun UiState.queuingTicket(ticket: PendingTicket): UiState = copy(pendingTickets = pendingTickets + ticket)
-
-/** The ticket [id] answered (saved or discarded) and off the queue; the next one shows. */
-fun UiState.answeringTicket(id: String): UiState = copy(pendingTickets = pendingTickets.filterNot { it.id == id })
-
 /**
  * Furthest-future first, which is the same order the attended rows below already
  * use: up is always later, and a planned gig is not an exception to that.
@@ -892,10 +887,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         timelines = timelines,
         setlistFm = setlistFm,
         musicBrainz = musicBrainz,
+        scope = viewModelScope,
+        fail = ::fail,
+    )
+
+    private val tickets: TicketsController = TicketsController(
+        state = { _state.value },
+        update = { f -> _state.update(f) },
+        timelines = timelines,
+        setlistFm = setlistFm,
         ticketOriginals = ticketOriginals,
         application = getApplication(),
         scope = viewModelScope,
-        fail = ::fail,
+        planning = planning,
         adoptSetlist = { gigId, setlistId, fresh, notice -> adoptSetlist(gigId, setlistId, fresh, notice) },
         lookUpLocalGig = { gigId, manual -> setlists.lookUpLocalGig(gigId, manual) },
     )
@@ -1290,11 +1294,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun addGig(artist: String, venue: String, date: String) = planning.addGig(artist, venue, date)
     fun joinGig(gig: FmSetlist) = planning.joinGig(gig)
     fun addPlannedGigByHand(artist: String, venue: String, date: String) = planning.addPlannedGigByHand(artist, venue, date)
-    fun handleSharedTicketPdf(uri: Uri) = planning.handleSharedTicketPdf(uri)
-    fun handleTicketLink(uri: Uri) = planning.handleTicketLink(uri)
+    fun handleSharedTicketPdf(uri: Uri) = tickets.handleSharedTicketPdf(uri)
+    fun handleTicketLink(uri: Uri) = tickets.handleTicketLink(uri)
     fun confirmPendingTicket(id: String, artist: String, venue: String, date: String, chosenSetlistId: String? = null) =
-        planning.confirmPendingTicket(id, artist, venue, date, chosenSetlistId)
-    fun dismissPendingTicket(id: String) = planning.dismissPendingTicket(id)
+        tickets.confirmPendingTicket(id, artist, venue, date, chosenSetlistId)
+    fun dismissPendingTicket(id: String) = tickets.dismissPendingTicket(id)
     fun suggestArtists(query: String) = planning.suggestArtists(query)
     fun clearArtistSuggestions() = planning.clearArtistSuggestions()
     fun addLocalGig(artist: String, venue: String, date: String) = planning.addLocalGig(artist, venue, date)

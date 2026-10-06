@@ -85,11 +85,11 @@ struct NightNotes: View {
                 preamble: bands.shared.isEmpty ? "" : preamble,
                 senderName: senderName,
                 editable: editable,
-                onWrite: { model.setGigNote(.shared, text: $0) },
-                onVerdict: { v in if let id = bands.shared.first?.id { model.setGigVerdict(id, verdict: v) } },
+                onWrite: { model.gig.setGigNote(.shared, text: $0) },
+                onVerdict: { v in if let id = bands.shared.first?.id { model.gig.setGigVerdict(id, verdict: v) } },
                 // Withdrawing: the same move a photograph makes, through the
                 // same function. One note per band, so there is no index.
-                onLift: { id in model.moveMedia(id, to: .vault) }
+                onLift: { id in model.gigMedia.moveMedia(id, to: .vault) }
             )
             // Absent under the contact light for the reason the vault strip
             // is: a Contact cannot see the vault, and an empty row drawn
@@ -110,15 +110,15 @@ struct NightNotes: View {
                     // Was `true`: the vault is only ever mine, which is true of the
                     // *band* and says nothing about whose *night* this is (#327).
                     editable: editable,
-                    onWrite: { model.setGigNote(.vault, text: $0) },
-                    onVerdict: { v in if let id = bands.vault.first?.id { model.setGigVerdict(id, verdict: v) } },
+                    onWrite: { model.gig.setGigNote(.vault, text: $0) },
+                    onVerdict: { v in if let id = bands.vault.first?.id { model.gig.setGigVerdict(id, verdict: v) } },
                     // Publishing a draft. The upward move earns the green
                     // promise for free, because `hintForMoving` never asked
                     // what kind of item it was holding.
                     onLift: { id in
-                        model.moveMedia(id, to: .shared)
+                        model.gigMedia.moveMedia(id, to: .shared)
                         // Publishing from a *maybe* Night asks the one question (#405).
-                        if let ask = model.maybesOnSelected().first { askingMaybe = ask }
+                        if let ask = model.contacts.maybesOnSelected().first { askingMaybe = ask }
                     }
                 )
             }

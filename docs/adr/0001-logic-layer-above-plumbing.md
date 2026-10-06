@@ -56,3 +56,32 @@ since been settled, so there Android caught down — #68 deleted it.
 
 - `CONTEXT.md` — the domain vocabulary the logic layer is written in.
 - `fixtures/weave/` — the corpus that asserts agreement.
+
+## Amendment (2026-10-05): the set of features is logic
+
+The Decision above draws the line between rules and device, and leaves unsaid where the app's
+*features* fall. #647 read that silence as plumbing: it split Android's `AppViewModel` into
+`features/<name>/` controllers and noted that `AppModel.swift` was "not required to match the
+layout".
+
+That reading was wrong. **Which features the app has, and which feature owns a behaviour, is part
+of the logic layer.** Playlist, Handover, Contacts, Navigation, Setlists, Planning, Tickets, Gig,
+GigMedia, Gossip and Settings are units of the product, not of either platform, and "where does
+adopting a maybe live?" has one answer on both sides (Contacts). So the feature names and their
+boundaries match across platforms. A controller found on one side has its twin under the same name
+on the other.
+
+What stays plumbing is everything *inside* a feature: how it holds and publishes state, how
+views reach it, its concurrency. On iOS a controller is a `@MainActor` class over a `StateHost`; on
+Android it takes `state`/`update` and a `CoroutineScope`. Those are expected to differ.
+
+Because the boundaries are logic, the domain decides them, not whichever platform was split
+first. Android's split put Ticket routing and confirmation inside Planning. But a **Ticket** can
+be for a night already past, so it is not a planning thing, and Tickets is its own feature on both
+platforms. Android is the side that moves. A difference in the door does not make a feature
+either: iOS receives a shared Ticket through a share extension that deposits it for the app to
+collect (ADR-0020), Android through an intent filter, and both doors lead into Tickets.
+
+The reason is the one the Context gives, applied one level up: divergence costs commits, and most
+recent work lands on both platforms as a pair (#682–#685). A fix ported by looking up the same
+feature name is a lookup, not a search.

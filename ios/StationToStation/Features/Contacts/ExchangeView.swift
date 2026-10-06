@@ -94,14 +94,14 @@ struct ExchangeView: View {
             session.onFriendReceived = { friend in
                 Task { @MainActor in land(friend) }
             }
-            if let card = await model.myProbeCard() { session.start(card: card) }
-            cardURL = await model.myCardURL()
+            if let card = await model.contacts.myProbeCard() { session.start(card: card) }
+            cardURL = await model.contacts.myCardURL()
             // #265: the same screen, a second radio. Only started once a Contact with a
             // key exists — starting it is what raises the local-network prompt, and
             // asking a first-time user for a permission with nothing to find would be
             // asking for nothing. Denial costs only this: BLE, QR and the Pointer path
             // are untouched, which is why nothing here is reported to the screen.
-            await model.startContactExchange()
+            await model.contacts.startContactExchange()
         }
         .task {
             try? await Task.sleep(nanoseconds: UInt64(qrOfferAfter * 1_000_000_000))
@@ -114,7 +114,7 @@ struct ExchangeView: View {
             // Both radios stop together. Nothing about #265 outlives this screen: no
             // background service, no listener left advertising, no exported bytes left
             // in the outbox.
-            model.stopContactExchange()
+            model.contacts.stopContactExchange()
         }
     }
 
@@ -234,10 +234,10 @@ struct ExchangeView: View {
     /// a hostile write wants. The row stays, so the same person can be tapped again.
     @MainActor
     private func land(_ friend: Friend) {
-        model.addFriend(friend)
+        model.contacts.addFriend(friend)
         guard model.state.friendConflict == nil else { return }
         announce("\(friend.name)'s line joins yours")
-        model.setZoomedOut(true)
+        model.navigation.setZoomedOut(true)
         nav.popToRoot()
     }
 
@@ -285,8 +285,8 @@ struct ExchangeView: View {
 
     @MainActor
     private func saveCardName() {
-        model.saveMyCardName(nameDraft)
-        if let card = model.myProbeCard() { session.restart(card: card) }
+        model.contacts.saveMyCardName(nameDraft)
+        if let card = model.contacts.myProbeCard() { session.restart(card: card) }
     }
 
     private func note(_ text: String) -> some View {
