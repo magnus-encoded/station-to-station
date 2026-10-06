@@ -1516,7 +1516,29 @@ extension TimelineCache {
     /// `attendanceByGig` allowed for a local id there too, but #34 — the only
     /// thing that would ever have minted one — was never built, so no cache in
     /// existence contains one.
-    func migrated() -> TimelineCache { withGigs().withMedia() }
+    func migrated() -> TimelineCache { withGigs().withMedia().withPastTicketsAttended() }
+
+    /// The repair for a **Ticket** shared after its night: before the fix, every ticket
+    /// import wrote `planned`, so a ticket for a night already gone sat above today with
+    /// a hollow marker and nothing would ever make it attended.
+    ///
+    /// A planned **Gig** holding an Admission and created on a day after its own night is
+    /// that record: nobody plans a night that has passed. Needs no flag — once raised, a
+    /// record no longer matches. The Kotlin twin is `withPastTicketsAttended`.
+    func withPastTicketsAttended(calendar: Calendar = .current) -> TimelineCache {
+        var c = self
+        for (gigId, attendance) in gigAttendance {
+            guard attendance.provenance == "planned", !attendance.admissions.isEmpty,
+                  let gig = gigs[gigId], gig.createdAt > 0 else { continue }
+            let date = gig.date.isEmpty ? (gigPlanned[gigId]?.eventDate ?? "") : gig.date
+            guard let night = isoDate(fromFm: date) else { continue }
+            let created = Date(timeIntervalSince1970: TimeInterval(gig.createdAt) / 1000)
+            if night < isoToday(created, calendar: calendar) {
+                c.gigAttendance[gigId] = attendance.withProvenance("attended")
+            }
+        }
+        return c
+    }
 
     private func withGigs() -> TimelineCache {
         guard gigs.isEmpty else { return self }

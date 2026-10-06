@@ -154,6 +154,7 @@ class TicketsController(
             }
             is TicketImport.MintFromSetlistFm -> {
                 planning.planFmGig(landing.hit)
+                landing.hit.localDate()?.let { planning.claimTicketNight(landing.hit.id, it) }
                 attachAdmissions(landing.hit.id, parsed.admissions)
             }
             TicketImport.MintLocal -> {
@@ -258,6 +259,7 @@ class TicketsController(
                     }
                     else -> {
                         planning.planFmGig(hit)
+                        hit.localDate()?.let { planning.claimTicketNight(hit.id, it) }
                         attachAdmissions(hit.id, pending.parsed.admissions)
                     }
                 }
@@ -287,6 +289,7 @@ class TicketsController(
         admissions: List<Admission>,
     ): String {
         val gigId = planning.mintPlannedGig(artist, venue, night)
+        planning.claimTicketNight(gigId, night)
         attachAdmissions(gigId, admissions)
         return gigId
     }

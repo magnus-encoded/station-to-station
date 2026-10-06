@@ -179,6 +179,19 @@ class PlanningController(
     }
 
     /**
+     * A **Ticket**'s night, claimed by its date as [joinGig] claims a **Contact**'s: a
+     * night before [today] is one I was at. A ticket names a night, not a night still to
+     * come, and left `planned` a past one sits above today forever.
+     */
+    internal suspend fun claimTicketNight(gigId: String, night: LocalDate, today: LocalDate = LocalDate.now()) {
+        if (nightKind(night, today) != NightKind.WAS_AT) return
+        val attended = (state().attendanceByGig[gigId] ?: StoredAttendance())
+            .withProvenance(StoredAttendance.Provenance.ATTENDED)
+        timelines.saveAttendance(gigId, attended)
+        update { it.copy(attendanceByGig = it.attendanceByGig + (gigId to attended)) }
+    }
+
+    /**
      * Spellings for the artist name being typed, from MusicBrainz.
      *
      * Debounced rather than rate-limited: MusicBrainz asks for no more than a request a

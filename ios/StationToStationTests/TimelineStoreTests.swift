@@ -992,4 +992,20 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual(["keepsake"], held.media()["my-fm-night"]?.map(\.ref))
     }
 
+    func testATicketPlannedAfterItsNightHasPassedLoadsAsAttended() async {
+        let timelines = store()
+        let past = await timelines.createLocalGig(date: "22-10-2024", artist: "Øystein Sunde", venue: "Folketeateret")
+        let future = await timelines.createLocalGig(date: "22-10-2099", artist: "Øystein Sunde", venue: "Folketeateret")
+        for (gigId, date) in [(past, "22-10-2024"), (future, "22-10-2099")] {
+            _ = await timelines.savePlanned(localGigSetlist(gigId: gigId, artist: "Øystein Sunde", date: date,
+                                                            venue: "Folketeateret", city: ""))
+            _ = await timelines.attachAdmissions(setlistId: gigId,
+                                                 admissions: [StoredAdmission(payload: "cGF5bG9hZA==", symbology: "qr")])
+        }
+
+        let loaded = await timelines.load().attendance()
+        XCTAssertEqual(loaded[past]?.provenance, "attended")
+        XCTAssertEqual(loaded[past]?.admissions.count, 1)
+        XCTAssertEqual(loaded[future]?.provenance, "planned")
+    }
 }
