@@ -164,7 +164,7 @@ struct StationToStationApp: App {
         .onChange(of: scenePhase) { phase in
             switch phase {
             case .active:
-                model.drainTicketInbox()
+                model.tickets.drainTicketInbox()
                 model.setlists.startLookupChecks()
             case .inactive, .background:
                 model.setlists.stopLookupChecks()
@@ -239,14 +239,14 @@ private struct BannersModifier: ViewModifier {
             // dismissing a draft also deletes its inbox deposit.
             .sheet(item: Binding(
                 get: { model.state.ticketDrafts.first },
-                set: { if $0 == nil, let shown = shownTicketDraft { model.dismissTicket(shown) } }
+                set: { if $0 == nil, let shown = shownTicketDraft { model.tickets.dismissTicket(shown) } }
             )) { draft in
                 ConfirmTicketSheet(ticket: draft.ticket, possibleMatch: draft.possibleMatch,
                                    setlistFm: draft.setlistFm) { artist, venue, date, chosen in
-                    model.confirmTicket(draft.id, artist: artist, venue: venue, date: date,
+                    model.tickets.confirmTicket(draft.id, artist: artist, venue: venue, date: date,
                                         chosenSetlistId: chosen)
                 } onCancel: {
-                    model.dismissTicket(draft.id)
+                    model.tickets.dismissTicket(draft.id)
                 }
                 .onAppear { shownTicketDraft = draft.id }
                 // Only Cancel drops the ticket. A stray swipe-down would throw away a
