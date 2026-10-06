@@ -61,11 +61,11 @@ private struct ArtistTab: View {
         VStack(alignment: .leading) {
             HStack {
                 TextField("Artist name", text: Binding(
-                    get: { s.artistQuery }, set: model.setArtistQuery))
+                    get: { s.artistQuery }, set: model.setlists.setArtistQuery))
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()
-                    .onSubmit { model.searchArtists() }
-                Button { model.searchArtists() } label: { Image(systemName: "magnifyingglass") }
+                    .onSubmit { model.setlists.searchArtists() }
+                Button { model.setlists.searchArtists() } label: { Image(systemName: "magnifyingglass") }
                     .accessibilityLabel("Search")
             }
             if s.searchLoading {
@@ -79,7 +79,7 @@ private struct ArtistTab: View {
                     }
                 }
                 .contentShape(Rectangle())
-                .onTapGesture { model.openArtist(artist); nav.push(.setlists) }
+                .onTapGesture { model.setlists.openArtist(artist); nav.push(.setlists) }
                 .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(.isButton)
             }
@@ -103,13 +103,13 @@ private struct UserTab: View {
                 .font(.subheadline)
             HStack {
                 TextField("setlist.fm user ID", text: Binding(
-                    get: { s.userQuery }, set: model.setUserQuery))
+                    get: { s.userQuery }, set: model.setlists.setUserQuery))
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
-                    .onSubmit { model.openUserAttended(); nav.push(.setlists) }
+                    .onSubmit { model.setlists.openUserAttended(); nav.push(.setlists) }
                 Button {
-                    model.openUserAttended(); nav.push(.setlists)
+                    model.setlists.openUserAttended(); nav.push(.setlists)
                 } label: { Image(systemName: "magnifyingglass") }
                 .accessibilityLabel("Load")
             }

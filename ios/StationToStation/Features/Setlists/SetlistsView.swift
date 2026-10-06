@@ -25,7 +25,7 @@ struct SetlistsView: View {
                         ProgressView().frame(maxWidth: .infinity).padding()
                     } else if s.setlists.count < s.setlistsTotal {
                         Button("Load more (\(s.setlists.count)/\(s.setlistsTotal))") {
-                            model.loadMoreSetlists()
+                            model.setlists.loadMoreSetlists()
                         }
                         .frame(maxWidth: .infinity)
                     }
