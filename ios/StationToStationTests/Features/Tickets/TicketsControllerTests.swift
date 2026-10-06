@@ -101,4 +101,16 @@ final class TicketsControllerTests: XCTestCase {
         XCTAssertEqual(fake.state.plannedGigs.first?.eventDate, "14-09-2031")
         XCTAssertNil(fake.state.notice)
     }
+
+    func testAConfirmedTicketForANightAlreadyPastLandsAttendedNotPlanned() async {
+        let tickets = controller()
+        let open = draft()
+        fake.state.ticketDrafts = [open]
+
+        tickets.confirmTicket(open.id, artist: "Øystein Sunde", venue: "Folketeateret", date: "22-10-2024")
+
+        await eventually { fake.state.plannedGigs.first.flatMap { fake.state.attendanceByGig[$0.id] }?.provenance == "attended" }
+        let gigId = fake.state.plannedGigs.first?.id ?? ""
+        XCTAssertEqual(fake.state.attendanceByGig[gigId]?.provenance, "attended")
+    }
 }

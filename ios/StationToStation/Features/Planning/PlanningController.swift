@@ -155,6 +155,16 @@ final class PlanningController {
         return gigId
     }
 
+    /// A **Ticket**'s night, claimed by its date as `joinGig` claims a **Contact**'s: a
+    /// night before `today` is one I was at. A ticket names a night, not a night still to
+    /// come, and left `planned` a past one sits above today forever.
+    func claimTicketNight(_ gigId: String, date: String?, today: String = isoToday()) async {
+        guard nightKind(date: isoDate(fromFm: date), today: today) == .wasAt else { return }
+        let attended = (host.state.attendanceByGig[gigId] ?? StoredAttendance()).withProvenance("attended")
+        await timelines.saveAttendance(setlistId: gigId, attendance: attended)
+        host.state.attendanceByGig[gigId] = attended
+    }
+
     /// A night I was at that setlist.fm has never heard of, typed in.
     ///
     /// The only way into this app that does not end at setlist.fm: no account, no API

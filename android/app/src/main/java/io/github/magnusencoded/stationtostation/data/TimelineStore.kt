@@ -1531,7 +1531,34 @@ class TimelineStore(
  * minted one — was never built, so no cache in existence contains one.
  */
 internal fun TimelineCache.migrated(mimeOf: ((String) -> String?)? = null): TimelineCache =
-    withGigs().withMedia(mimeOf).withBands().withFestivals()
+    withGigs().withMedia(mimeOf).withBands().withFestivals().withPastTicketsAttended()
+
+/**
+ * The repair for a **Ticket** shared after its night: before the fix,
+ * every ticket import wrote `planned`, so a ticket for a night already gone sat above
+ * today with a hollow marker and nothing would ever make it attended.
+ *
+ * A planned **Gig** holding an Admission and created on a day after its own night is
+ * that record: nobody plans a night that has passed. Needs no flag — once raised, a
+ * record no longer matches.
+ */
+internal fun TimelineCache.withPastTicketsAttended(): TimelineCache {
+    val zone = java.time.ZoneId.systemDefault()
+    val raised = gigAttendance.filter { (gigId, attendance) ->
+        val gig = gigs[gigId] ?: return@filter false
+        if (attendance.provenance != StoredAttendance.Provenance.PLANNED) return@filter false
+        if (attendance.admissions.isEmpty() || gig.createdAt <= 0L) return@filter false
+        val night = gig.date.ifBlank { gigPlanned[gigId]?.eventDate.orEmpty() }
+            .let(::parseFmDate) ?: return@filter false
+        night < java.time.Instant.ofEpochMilli(gig.createdAt).atZone(zone).toLocalDate()
+    }
+    if (raised.isEmpty()) return this
+    return copy(
+        gigAttendance = gigAttendance + raised.mapValues {
+            it.value.withProvenance(StoredAttendance.Provenance.ATTENDED)
+        },
+    )
+}
 
 /**
  * #162's upgrade: the night-level grant becomes each item's own bit.

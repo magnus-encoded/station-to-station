@@ -105,6 +105,7 @@ final class TicketsController {
             await setlists.lookUpLocalGig(gigId, manual: false)
         case .mintFromSetlistFm(let hit):
             await planning.planFmGig(hit)
+            await planning.claimTicketNight(hit.id, date: hit.eventDate)
             await attachAdmissions(gigId: hit.id, ticket.admissions)
         case .mintLocal:
             guard case .add(let complete) = route else { return false }
@@ -163,6 +164,7 @@ final class TicketsController {
     private func put(_ ticket: Ticket) async -> String? {
         guard let artist = ticket.artist, let night = ticket.date else { return nil }
         let gigId = await planning.mintPlannedGig(artist: artist, venue: ticket.venue ?? "", night: night)
+        await planning.claimTicketNight(gigId, date: fmDate(night))
         await attachAdmissions(gigId: gigId, ticket.admissions)
         return gigId
     }
@@ -211,6 +213,7 @@ final class TicketsController {
                     await gig.adoptSetlist(gigId: local.id, setlistId: hit.id, fresh: hit, notice: true)
                 } else {
                     await planning.planFmGig(hit)
+                    await planning.claimTicketNight(hit.id, date: hit.eventDate)
                     await attachAdmissions(gigId: hit.id, confirmed.admissions)
                 }
             } else {

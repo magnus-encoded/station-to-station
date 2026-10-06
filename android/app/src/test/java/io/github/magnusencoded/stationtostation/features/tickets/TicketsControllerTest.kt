@@ -109,6 +109,21 @@ class TicketsControllerTest {
     }
 
     @Test
+    fun `confirming a ticket for a night already past lands it attended, not planned`() {
+        val ticket = pending()
+        val fake = FakeState(UiState(pendingTickets = listOf(ticket)))
+
+        controller(fake).confirmPendingTicket(ticket.id, "Øystein Sunde", "Folketeateret", "22-10-2024")
+        settle()
+
+        val gig = fake.current.plannedGigs.single()
+        val attendance = fake.current.attendanceByGig[gig.id]
+        assertEquals(StoredAttendance.Provenance.ATTENDED, attendance?.provenance)
+        assertEquals(1, attendance?.admissions?.size)
+        assertEquals(StoredAttendance.Provenance.ATTENDED, runBlocking { store.load().attendance()[gig.id] }?.provenance)
+    }
+
+    @Test
     fun `confirming a night already on the Line attaches to it rather than minting`() {
         val known = FmSetlist(
             id = "g1", eventDate = "14-09-2099", artist = FmArtist(name = "Wilco"), venue = FmVenue(name = "Sentrum Scene"),
