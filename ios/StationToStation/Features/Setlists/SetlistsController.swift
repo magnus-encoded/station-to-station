@@ -103,7 +103,7 @@ final class SetlistsController {
     }
 
     func loadMoreSetlists() {
-        let s = state
+        let s = host.state
         if s.setlistsLoading || s.setlists.count >= s.setlistsTotal { return }
         let nextPage = s.setlistsPage + 1
         host.state.setlistsLoading = true
