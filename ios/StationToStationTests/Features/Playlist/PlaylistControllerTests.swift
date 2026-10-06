@@ -10,8 +10,13 @@ final class PlaylistControllerTests: XCTestCase {
         var friends: [Friend] = []
     }
 
+    /// The controller holds its host `unowned`, and the Spotify and store tasks a test
+    /// starts outlive the test, so every host lives as long as the test process.
+    private static var hosts: [FakeState] = []
+
     private func rig() -> (FakeState, PlaylistController, Calls) {
         let host = FakeState()
+        Self.hosts.append(host)
         let calls = Calls()
         let playlist = PlaylistController(
             host: host,
