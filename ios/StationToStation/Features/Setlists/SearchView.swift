@@ -19,7 +19,7 @@ struct SearchView: View {
             }
             if !s.spotifyConnected {
                 Button {
-                    if s.spotifyLoginReady { model.loginSpotify() } else { nav.push(.settings) }
+                    if s.spotifyLoginReady { model.settingsController.loginSpotify() } else { nav.push(.settings) }
                 } label: {
                     Text("Log in with Spotify").frame(maxWidth: .infinity)
                 }

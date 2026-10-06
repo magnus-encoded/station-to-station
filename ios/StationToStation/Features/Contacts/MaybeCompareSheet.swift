@@ -112,7 +112,7 @@ struct MaybeCompareSheet: View {
         guard !answering else { return }
         answering = true
         Task { @MainActor in
-            if adopt { await model.adoptMaybe(maybe) } else { await model.answerMaybe(maybe, same: same) }
+            if adopt { await model.contacts.adoptMaybe(maybe) } else { await model.contacts.answerMaybe(maybe, same: same) }
             close()
         }
     }
@@ -125,15 +125,15 @@ struct MaybeUndoBanner: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        if let answer = model.maybeUndo {
+        if let answer = model.contacts.maybeUndo {
             VStack(alignment: .leading, spacing: 8) {
                 Text(maybeAnswered(answer.maybe, same: answer.same)).font(.callout)
                 HStack {
-                    Button("Undo") { Task { await model.undoMaybe(answer) } }
+                    Button("Undo") { Task { await model.contacts.undoMaybe(answer) } }
                         .buttonStyle(.borderedProminent)
                     Spacer()
                     Button("Dismiss") {
-                        if model.maybeUndo?.id == answer.id { model.maybeUndo = nil }
+                        if model.contacts.maybeUndo?.id == answer.id { model.contacts.maybeUndo = nil }
                     }
                 }
             }

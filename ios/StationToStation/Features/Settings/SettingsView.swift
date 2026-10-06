@@ -123,13 +123,13 @@ struct SettingsView: View {
         .sheet(item: $open, onDismiss: {
             guard spotifyLoginPending else { return }
             spotifyLoginPending = false
-            model.loginSpotify()
+            model.settingsController.loginSpotify()
         }) { tile in
             ServiceSheet(
                 id: tile.id,
                 graph: graph,
                 onSpotifyLogin: { clientId in
-                    model.saveSettings(apiKey: model.state.setlistFmApiKey, clientId: clientId)
+                    model.settingsController.saveSettings(apiKey: model.state.setlistFmApiKey, clientId: clientId)
                     spotifyLoginPending = true
                     open = nil
                 }
@@ -628,7 +628,7 @@ private struct ServiceControls: View {
             // only way out if the bundled key is ever revoked or rate-limited.
             KeyField(label: "setlist.fm API key", text: $apiKey)
             AmberButton(title: "Save") {
-                model.saveSettings(apiKey: apiKey, clientId: s.spotifyClientId)
+                model.settingsController.saveSettings(apiKey: apiKey, clientId: s.spotifyClientId)
             }
             .padding(.top, 4)
 
@@ -648,13 +648,13 @@ private struct ServiceControls: View {
                 enabled: !clashfinderUser.trimmingCharacters(in: .whitespaces).isEmpty
                     && !clashfinderPrivateKey.trimmingCharacters(in: .whitespaces).isEmpty
             ) {
-                model.saveClashfinderAccount(user: clashfinderUser, privateKey: clashfinderPrivateKey)
+                model.settingsController.saveClashfinderAccount(user: clashfinderUser, privateKey: clashfinderPrivateKey)
             }
             .padding(.top, 4)
 
         case "spotify":
             if s.spotifyConnected {
-                Button { model.disconnectSpotify() } label: {
+                Button { model.settingsController.disconnectSpotify() } label: {
                     Text("Log out")
                         .foregroundColor(ink)
                         .frame(maxWidth: .infinity)
@@ -682,7 +682,7 @@ private struct ServiceControls: View {
                       url: "https://magnus-encoded.github.io/station-to-station/")
             KeyField(label: "Spotify Client ID", text: $clientId)
             AmberButton(title: "Save") {
-                model.saveSettings(apiKey: s.setlistFmApiKey, clientId: clientId)
+                model.settingsController.saveSettings(apiKey: s.setlistFmApiKey, clientId: clientId)
             }
             .padding(.top, 4)
 
@@ -708,7 +708,7 @@ private struct ServiceControls: View {
                                 .foregroundColor(muted)
                         }
                         Spacer()
-                        Button("Remove") { model.removeFriend(friend) }
+                        Button("Remove") { model.contacts.removeFriend(friend) }
                             .foregroundColor(amber)
                             .accessibilityLabel("Remove \(friend.name)")
                     }

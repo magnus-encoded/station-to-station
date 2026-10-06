@@ -141,35 +141,35 @@ final class FriendArrivalTests: XCTestCase {
 
     @MainActor
     private func clearFriends(_ model: AppModel) {
-        for friend in model.state.friends { model.removeFriend(friend) }
+        for friend in model.state.friends { model.contacts.removeFriend(friend) }
     }
 
     /// The four doors all route through `addFriend`, so this is what each of them gets.
     @MainActor
     func testTheModelWritesAPromotionAndAsksAboutAChangedKey() {
         let model = emptyModel()
-        model.addFriend(Friend(setlistfm: "ozzy", name: "Ozzy"))
+        model.contacts.addFriend(Friend(setlistfm: "ozzy", name: "Ozzy"))
         XCTAssertNil(model.state.friends.first?.publicKey)
         XCTAssertNil(model.state.friendConflict)
 
         // Met in person: the key arrives, silently, and the card's name comes with it.
-        model.addFriend(Friend(setlistfm: "ozzy", name: "Ozzy Osbourne", publicKey: "k-ozzy"))
+        model.contacts.addFriend(Friend(setlistfm: "ozzy", name: "Ozzy Osbourne", publicKey: "k-ozzy"))
         XCTAssertNil(model.state.friendConflict)
         XCTAssertEqual("k-ozzy", model.state.friends.first?.publicKey)
         XCTAssertEqual("Ozzy Osbourne", model.state.friends.first?.name)
 
         // A second key for the same person is the one question, and refusing it is safe.
-        model.addFriend(Friend(setlistfm: "ozzy", name: "Ozzy Osbourne", publicKey: "k-someone-else"))
+        model.contacts.addFriend(Friend(setlistfm: "ozzy", name: "Ozzy Osbourne", publicKey: "k-someone-else"))
         XCTAssertNotNil(model.state.friendConflict)
         XCTAssertEqual(true, model.state.friendConflict?.keyChanged)
         XCTAssertEqual("k-ozzy", model.state.friends.first?.publicKey)
-        model.dismissFriendOverwrite()
+        model.contacts.dismissFriendOverwrite()
         XCTAssertNil(model.state.friendConflict)
         XCTAssertEqual("k-ozzy", model.state.friends.first?.publicKey)
 
         // Saying yes is the only thing that writes it.
-        model.addFriend(Friend(setlistfm: "ozzy", name: "Ozzy Osbourne", publicKey: "k-someone-else"))
-        model.confirmFriendOverwrite()
+        model.contacts.addFriend(Friend(setlistfm: "ozzy", name: "Ozzy Osbourne", publicKey: "k-someone-else"))
+        model.contacts.confirmFriendOverwrite()
         XCTAssertEqual("k-someone-else", model.state.friends.first?.publicKey)
         clearFriends(model)
     }
@@ -178,10 +178,10 @@ final class FriendArrivalTests: XCTestCase {
     @MainActor
     func testAConfirmedOverwriteFromAKeylessCardKeepsTheKey() {
         let model = emptyModel()
-        model.addFriend(Friend(setlistfm: "ozzy", name: "Ozzy", publicKey: "k-ozzy"))
+        model.contacts.addFriend(Friend(setlistfm: "ozzy", name: "Ozzy", publicKey: "k-ozzy"))
 
-        model.addFriend(Friend(setlistfm: "ozzy", name: "Ozzy (from a link)"))
-        model.confirmFriendOverwrite()
+        model.contacts.addFriend(Friend(setlistfm: "ozzy", name: "Ozzy (from a link)"))
+        model.contacts.confirmFriendOverwrite()
 
         XCTAssertEqual("Ozzy (from a link)", model.state.friends.first?.name)
         XCTAssertEqual("k-ozzy", model.state.friends.first?.publicKey)
@@ -244,13 +244,13 @@ final class FriendArrivalTests: XCTestCase {
     @MainActor
     func testTheModelHoldsTwoAccountlessContactsApart() {
         let model = emptyModel()
-        model.addFriend(dio)
-        model.addFriend(Friend(setlistfm: "", name: "Dio", publicKey: "k-someone-else"))
+        model.contacts.addFriend(dio)
+        model.contacts.addFriend(Friend(setlistfm: "", name: "Dio", publicKey: "k-someone-else"))
 
         XCTAssertNil(model.state.friendConflict)
         XCTAssertEqual(2, model.state.friends.count)
         XCTAssertEqual(2, Set(model.state.friends.map(\.laneKey)).count)
-        model.removeFriend(dio)
+        model.contacts.removeFriend(dio)
         XCTAssertEqual(["k-someone-else"], model.state.friends.compactMap(\.publicKey))
         clearFriends(model)
     }
