@@ -7,6 +7,9 @@ final class GigMediaControllerTests: XCTestCase {
     private let night = FmSetlist(id: "gigmedia-night", eventDate: "13-08-2026", artist: FmArtist(name: "A Band"))
 
     private var storeFile: URL!
+    /// Kept for the whole run: the controller holds its host `unowned`, and a save's
+    /// Task can still be reading it after the test that started it has returned.
+    private static var hosts: [FakeState] = []
 
     override func setUp() {
         super.setUp()
@@ -30,6 +33,7 @@ final class GigMediaControllerTests: XCTestCase {
         markSelectedOwnership: @escaping (FmSetlist, StoredAttendance?) -> Void = { _, _ in }
     ) -> (GigMediaController, FakeState) {
         let fake = FakeState()
+        Self.hosts.append(fake)
         fake.state.selectedSetlist = night
         fake.state.mediaBySetlist = [night.id: nightMedia]
         let controller = GigMediaController(host: fake, timelines: TimelineStore(file: storeFile),
