@@ -70,6 +70,8 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.MultiFormatWriter
 import com.google.zxing.common.BitMatrix
 import io.github.magnusencoded.stationtostation.AppViewModel
+import io.github.magnusencoded.stationtostation.features.tour.ContextHint
+import io.github.magnusencoded.stationtostation.features.tour.HintPlace
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangePeer
 import io.github.magnusencoded.stationtostation.data.gossip.GossipRadioStatus
@@ -105,6 +107,7 @@ fun ExchangeScreen(
     onSetUsername: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    LaunchedEffect(state.tour) { viewModel.tour.hints.offer(ContextHint.PullDown(HintPlace.Exchange)) }
     val context = LocalContext.current
 
     // Permission is asked for here and nowhere else: this is the only screen that needs

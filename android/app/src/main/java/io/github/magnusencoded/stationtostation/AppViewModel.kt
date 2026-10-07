@@ -130,6 +130,7 @@ import io.github.magnusencoded.stationtostation.data.gossip.gossipExpiry
 import io.github.magnusencoded.stationtostation.data.gossip.GossipService
 import io.github.magnusencoded.stationtostation.features.gossip.GossipController
 import io.github.magnusencoded.stationtostation.features.tour.CoachMark
+import io.github.magnusencoded.stationtostation.features.tour.ContextHint
 import io.github.magnusencoded.stationtostation.features.tour.TourState
 import io.github.magnusencoded.stationtostation.features.tour.tourController
 import io.github.magnusencoded.stationtostation.data.gossip.GossipStore
@@ -562,6 +563,7 @@ data class UiState(
     /** True once the first-run **Tour** has been offered. */
     val onboarded: Boolean = false,
     val tour: TourState = TourState(),
+    val contextHint: ContextHint? = null,
     /** The coach mark the **Tour** last asked for; null when none is up. */
     val coachMark: CoachMark? = null,
     /** True while an install onboarded before the **Tour** existed is being offered it. */

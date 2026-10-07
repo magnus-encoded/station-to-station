@@ -23,6 +23,7 @@ class TourController(
     private val isOnline: () -> Boolean,
     private val scope: CoroutineScope,
 ) {
+    val hints = TourHintEffects(state, update, store, scope)
 
     /** At launch, once the saved Tour is in state: resume an unfinished one, or offer it. */
     fun launch() {
@@ -80,6 +81,7 @@ class TourController(
         update {
             it.copy(
                 tour = after,
+                contextHint = it.contextHint.takeUnless { after.running },
                 coachMark = mark ?: if (after.step == before.step) it.coachMark else null,
                 onboarded = it.onboarded || offered,
             )
