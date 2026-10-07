@@ -1,5 +1,6 @@
 import Foundation
 import SystemConfiguration
+import UIKit
 
 struct DeviceTourConnectivity: TourConnectivity {
     func isOnline() -> Bool {
@@ -19,15 +20,21 @@ extension AppModel {
             deleteCalendarEvent: { deleteCalendarEvent($0) })
         let log = TourLogEffects(host: self, setlistFm: setlistFm, musicBrainz: musicBrainz,
                                  friendKey: { meetFriend.contactKey }, characterLine: { Self.characterLine($0) })
+        let selfie = TourSelfieEffects(host: self, timelines: timelines,
+                                      demoGigIds: { addGig.demoGigIds }, friendKey: { meetFriend.contactKey },
+                                      selfie: { Self.characterSelfie() }, characterLine: { Self.characterLine(.s18) })
         let tour = TourController(host: self, settings: settings,
                                   connectivity: DeviceTourConnectivity(),
-                                  demoWorld: DemoWorldRegistry(parts: [log, night, meetFriend, addGig]),
-                                  addGig: addGig, meetFriend: meetFriend, night: night, log: log)
+                                  demoWorld: DemoWorldRegistry(parts: [selfie, log, night, meetFriend, addGig]),
+                                  addGig: addGig, meetFriend: meetFriend, night: night, log: log, selfie: selfie)
         planning.onGigAdded = { [unowned tour] in tour.gigAdded($0) }
         planning.onCalendarAdded = { [unowned tour] in tour.calendarAdded($0, eventId: $1) }
         gig.onCheckedIn = { [unowned tour] in tour.checkedIn($0) }
         gig.logNow = { [unowned tour] in tour.now(for: $0) }
         gig.onLogWritten = { [unowned tour] in tour.logWritten($0, before: $1, after: $2, now: $3) }
+        gigMedia.onMediaAttached = { [unowned tour] in tour.mediaAttachment(for: $0, to: $1) }
+        contacts.mediaExchangeCache = { selfie.mediaExchangeCache($0) }
+        handover.mediaExchangeCache = { selfie.mediaExchangeCache($0) }
         return tour
     }
 
@@ -67,5 +74,13 @@ extension AppModel {
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let lines = json["lines"] as? [String: String] else { return "" }
         return lines[step.rawValue] ?? ""
+    }
+
+    private static func characterSelfie() -> Data? {
+        guard let url = Bundle.main.url(forResource: "character", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let asset = (json["selfie"] as? String)?.nilIfBlank else { return nil }
+        return UIImage(named: asset)?.jpegData(compressionQuality: 0.95)
     }
 }

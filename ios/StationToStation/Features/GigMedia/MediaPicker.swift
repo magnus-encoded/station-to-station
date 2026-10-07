@@ -34,8 +34,8 @@ struct MediaPicker: UIViewControllerRepresentable {
         init(_ onPicked: @escaping ([String]) -> Void) { self.onPicked = onPicked }
 
         func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-            picker.dismiss(animated: true)
-            onPicked(results.compactMap(\.assetIdentifier))
+            let ids = results.compactMap(\.assetIdentifier)
+            picker.dismiss(animated: true) { [onPicked] in onPicked(ids) }
         }
     }
 }

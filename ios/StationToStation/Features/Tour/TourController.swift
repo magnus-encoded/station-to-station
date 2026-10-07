@@ -23,13 +23,15 @@ final class TourController {
     private let meetFriend: TourMeetFriendEffects?
     private let night: TourNightArrivesEffects?
     private let log: TourLogEffects?
+    private let selfie: TourSelfieEffects?
     private var logTask: Task<Void, Never>?
     private(set) var state: TourState
     private var launched = false
 
     init(host: StateHost, settings: Settings, connectivity: TourConnectivity, demoWorld: DemoWorld,
          addGig: TourAddGigEffects? = nil, meetFriend: TourMeetFriendEffects? = nil,
-         night: TourNightArrivesEffects? = nil, log: TourLogEffects? = nil) {
+         night: TourNightArrivesEffects? = nil, log: TourLogEffects? = nil,
+         selfie: TourSelfieEffects? = nil) {
         self.host = host
         self.settings = settings
         self.connectivity = connectivity
@@ -38,6 +40,7 @@ final class TourController {
         self.meetFriend = meetFriend
         self.night = night
         self.log = log
+        self.selfie = selfie
         state = settings.tourState
         publish()
     }
@@ -115,6 +118,10 @@ final class TourController {
                         sendForDemoGig(gig.id, .setlistFilled)
                     }
                 }
+            case .deliverFriendSelfie:
+                guard let selfie, let gig = demoGig else { continue }
+                let now = epochMs(self.now(for: gig.id))
+                Task { await selfie.deliverFriendSelfie(for: gig, now: now) }
             default: break
             }
         }
@@ -165,6 +172,15 @@ final class TourController {
     func mapsOpened(_ gigId: String) { sendForDemoGig(gigId, .mapsOpened) }
     func ticketShown(_ gigId: String) { sendForDemoGig(gigId, .ticketShown) }
     func checkedIn(_ gigId: String) { sendForDemoGig(gigId, .checkedIn) }
+
+    func returnedFromPhotos(_ gigId: String) { sendForDemoGig(gigId, .returnedFromPhotos) }
+
+    func mediaAttachment(for gigId: String, to band: Band) -> ([StoredMedia]) -> Void {
+        guard running, isDemoGig(gigId), let selfie else { return { _ in } }
+        return selfie.attachment(for: gigId) { [weak self] in
+            self?.sendForDemoGig(gigId, .mediaAdded(visibility: band == .vault ? .private : .shared))
+        }
+    }
 
     /// A **Log** edit on the demo **Gig** while the Tour runs: kept in the demo store, never saved to the
     /// timeline or broadcast, and the event the awaiting step needs. False for every other edit.

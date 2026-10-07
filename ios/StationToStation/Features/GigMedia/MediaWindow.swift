@@ -73,6 +73,8 @@ struct MediaWindow: View {
                 p.play()
             } else {
                 image = await PhotoLibrary.fullImage(assetId: media.ref)
+                    ?? UIImage(contentsOfFile: Thumbnails.cacheFile(media.id).path)
+                    ?? UIImage(contentsOfFile: Thumbnails.gridFile(media.id).path)
             }
         }
     }
