@@ -47,6 +47,7 @@ import io.github.magnusencoded.stationtostation.ui.flyover.GigFlyoverScreen
 import io.github.magnusencoded.stationtostation.features.tour.TourEvent
 import io.github.magnusencoded.stationtostation.features.tour.TourOverlay
 import androidx.navigation.NavController
+import io.github.magnusencoded.stationtostation.features.tour.ContextHintOverlay
 import kotlinx.coroutines.flow.map
 
 class MainActivity : ComponentActivity() {
@@ -68,7 +69,7 @@ class MainActivity : ComponentActivity() {
         handleHandoverDebugIntent(intent)
         setContent {
             AppTheme {
-                AppNavigation(viewModel)
+                ContextHintOverlay(viewModel) { AppNavigation(viewModel) }
             }
         }
     }

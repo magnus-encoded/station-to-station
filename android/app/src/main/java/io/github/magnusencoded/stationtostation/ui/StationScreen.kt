@@ -227,6 +227,8 @@ import io.github.magnusencoded.stationtostation.data.hintForAdding
 import io.github.magnusencoded.stationtostation.data.hintForMoving
 import io.github.magnusencoded.stationtostation.data.preamble
 import io.github.magnusencoded.stationtostation.data.isMyNight
+import io.github.magnusencoded.stationtostation.features.tour.ContextHint
+import io.github.magnusencoded.stationtostation.features.tour.running
 import io.github.magnusencoded.stationtostation.data.visibleToContacts
 import io.github.magnusencoded.stationtostation.data.withheldFromContacts
 import io.github.magnusencoded.stationtostation.data.gigInviteUri
@@ -293,6 +295,7 @@ fun StationTimelineScreen(
     onOpenProgramme: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    LaunchedEffect(state.setlists, state.plannedGigs, state.festivals, state.tour.running) { viewModel.tour.hints.offerProgramme() }
     // Reachable from both the future edge and the empty spine: a collector with no
     // history at all still has a ticket for something.
     var adding by remember { mutableStateOf(false) }
@@ -394,7 +397,10 @@ fun StationTimelineScreen(
         setZoomedOut = { viewModel.setZoomedOut(it) },
         consumeJustConnected = { viewModel.consumeJustConnected() },
         toggleContactLight = { viewModel.toggleContactLight() },
-        toggleLineHidden = { viewModel.toggleLineHidden(it) },
+        toggleLineHidden = {
+            viewModel.toggleLineHidden(it)
+            viewModel.tour.hints.offer(ContextHint.LegendTap(hiding = it in viewModel.state.value.hiddenLines))
+        },
         loadMoreSetlists = { viewModel.loadMoreSetlists() },
         resolveFestivals = { viewModel.resolveFestivals() },
         loadFriendTimelines = { viewModel.loadFriendTimelines() },

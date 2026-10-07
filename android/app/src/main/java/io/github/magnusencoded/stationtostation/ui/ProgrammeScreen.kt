@@ -87,6 +87,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.magnusencoded.stationtostation.AppViewModel
+import io.github.magnusencoded.stationtostation.features.tour.ContextHint
+import io.github.magnusencoded.stationtostation.features.tour.HintPlace
 import io.github.magnusencoded.stationtostation.data.Position
 import io.github.magnusencoded.stationtostation.data.ProgrammeAct
 import io.github.magnusencoded.stationtostation.data.ProgrammeDiff
@@ -183,6 +185,9 @@ fun ProgrammeScreen(
     // The picker is where you start with nothing in hand, and where "change festival"
     // sends you back to.
     var picking by remember { mutableStateOf(true) }
+    LaunchedEffect(picking, state.clashfinderReady, state.tour) {
+        if (!picking && state.clashfinderReady) viewModel.tour.hints.offer(ContextHint.PullDown(HintPlace.Programme))
+    }
     var query by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }

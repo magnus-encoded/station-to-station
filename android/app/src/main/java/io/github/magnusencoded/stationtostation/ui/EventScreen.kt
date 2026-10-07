@@ -159,6 +159,7 @@ fun StationEventScreen(
     // rule that also builds their manifest (#145). Withheld items never come back as
     // content here — only as a count, and only when asked for.
     val gigMedia = if (state.contactLight) visibleToContacts(heldMedia) else heldMedia
+    LaunchedEffect(setlist, gigMedia, state.contactLight, state.attendanceByGig, state.setlists, state.plannedGigs, state.logsByGig, state.tour) { viewModel.tour.hints.offerInRoom() }
     val withheld = if (state.contactLight) withheldFromContacts(heldMedia) else emptyList()
     // A **Note** has no bytes and an empty [StoredMedia.ref], so every path that
     // resolves a reference has to be handed the visual run instead of the night.
