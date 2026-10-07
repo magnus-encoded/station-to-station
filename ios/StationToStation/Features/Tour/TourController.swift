@@ -4,6 +4,7 @@ protocol TourConnectivity {
     func isOnline() -> Bool
 }
 
+@MainActor
 protocol DemoWorld {
     func purge()
 }
@@ -18,14 +19,17 @@ final class TourController {
     private let settings: Settings
     private let connectivity: TourConnectivity
     private let demoWorld: DemoWorld
+    private let addGig: TourAddGigEffects?
     private(set) var state: TourState
     private var launched = false
 
-    init(host: StateHost, settings: Settings, connectivity: TourConnectivity, demoWorld: DemoWorld) {
+    init(host: StateHost, settings: Settings, connectivity: TourConnectivity, demoWorld: DemoWorld,
+         addGig: TourAddGigEffects? = nil) {
         self.host = host
         self.settings = settings
         self.connectivity = connectivity
         self.demoWorld = demoWorld
+        self.addGig = addGig
         state = settings.tourState
         publish()
     }
@@ -56,9 +60,17 @@ final class TourController {
             case .purgeDemoWorld: demoWorld.purge()
             case .showCoachMark(let mark): host.state.tourCoachMark = mark
             case .markTourFinished: host.state.tourFinished = true
+            case .lookUpBand: addGig?.lookUpBand()
             default: break
             }
         }
+    }
+
+    /// A **Gig** added while S4 waits for one is the **Demo world**'s; any other is the person's own.
+    func gigAdded(_ gigId: String) {
+        guard state.currentStep == .s4, !state.finished else { return }
+        addGig?.record(gigId)
+        send(.gigAdded)
     }
 
     func skip() { send(.skipped) }

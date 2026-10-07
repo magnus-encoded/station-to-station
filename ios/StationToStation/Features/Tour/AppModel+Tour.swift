@@ -11,7 +11,12 @@ struct DeviceTourConnectivity: TourConnectivity {
 
 extension AppModel {
     func makeTourController() -> TourController {
-        TourController(host: self, settings: settings,
-                       connectivity: DeviceTourConnectivity(), demoWorld: EmptyDemoWorld())
+        let addGig = TourAddGigEffects { [unowned self] in self.gig.deleteGig($0) }
+        let tour = TourController(host: self, settings: settings,
+                                  connectivity: DeviceTourConnectivity(),
+                                  demoWorld: DemoWorldRegistry(parts: [addGig]),
+                                  addGig: addGig)
+        planning.onGigAdded = { [unowned tour] in tour.gigAdded($0) }
+        return tour
     }
 }

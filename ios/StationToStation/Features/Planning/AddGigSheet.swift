@@ -106,6 +106,7 @@ struct AddGigSheet: View {
                                 picked = hit.name
                                 artist = hit.name
                                 model.planning.clearArtistSuggestions()
+                                model.tour.send(.bandPicked)
                             } label: {
                                 Text(hit.disambiguation.isEmpty
                                      ? hit.name : "\(hit.name)  · \(hit.disambiguation)")
@@ -144,6 +145,8 @@ struct AddGigSheet: View {
                     .disabled(!ready)
                 }
             }
+            // A sheet covers the app root's overlay, so the band and add-gig coach marks need their own.
+            .tourOverlay(model)
         }
     }
 }
