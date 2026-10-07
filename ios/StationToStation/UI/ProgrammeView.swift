@@ -116,6 +116,7 @@ struct ProgrammeView: View {
                     .padding(.horizontal, 16)
                 }
                 .refreshable { await reload() }
+                .onAppear { model.hints.offer(.pullDown(.programme)) }
             }
             if let label = commitLabel(board.diff, festival: programme.name, firstCommit: firstCommit, calendar: calendar) {
                 commitBar(label: label, diff: board.diff)

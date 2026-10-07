@@ -261,6 +261,7 @@ struct StationView: View {
         .onAppear {
             model.loadTimeline()
             recomputeRows()
+            model.hints.offerProgramme()
         }
         // Fetch friends' Lanes when the strip opens, not at launch — a
         // Resolution never opened shouldn't spend setlist.fm's budget.
@@ -281,7 +282,7 @@ struct StationView: View {
             friendShowIds: model.state.showsByFriend.mapValues { $0.map(\.id) },
             joins: model.state.nightJoins,
             apart: model.state.nightsApart,
-            recompute: recomputeRows
+            recompute: { recomputeRows(); model.hints.offerProgramme() }
         ))
         // Check-in (#174): opening the timeline takes one fix and compares it
         // against what's already known. Foreground, one-shot, nothing
@@ -425,7 +426,9 @@ struct StationView: View {
                         ForEach(legendExpanded ? head + rest : head, id: \.laneKey) { f in
                             laneKey(laneColor(colourOf[f.laneKey] ?? 0), f.name,
                                     hidden: model.state.hiddenLines.contains(f.laneKey)) {
+                                let hiding = !model.state.hiddenLines.contains(f.laneKey)
                                 model.navigation.toggleLineHidden(f.laneKey)
+                                model.hints.offer(.legendTap(hiding: hiding))
                             }
                         }
                         // A disclosure, never a truncation (#266): every name above
