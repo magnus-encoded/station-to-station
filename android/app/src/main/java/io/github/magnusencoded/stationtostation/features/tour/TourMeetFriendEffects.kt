@@ -63,6 +63,8 @@ class TourMeetFriendEffects(
         }
     }
 
+    suspend fun friendKey(): String? = contacts().firstOrNull { it.demo }?.publicKey
+
     /** The friend's ticket for the demo **Gig**, through the import a shared ticket takes. */
     suspend fun importDemoTicket(active: () -> Boolean): Boolean = writes.withLock {
         if (!active()) return false

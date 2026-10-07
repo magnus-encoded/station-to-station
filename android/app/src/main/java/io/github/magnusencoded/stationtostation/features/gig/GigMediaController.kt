@@ -16,6 +16,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 /**
+ * The **Tour**'s claim on one attach, taken before the copy. [keep] runs [save] and reports
+ * what was attached, or returns false, without saving, when the claim has lapsed.
+ */
+fun interface AttachClaim {
+    suspend fun keep(fresh: List<StoredMedia>, band: Band, save: suspend () -> Unit): Boolean
+}
+
+/**
  * A gig's keepsakes: attaching, moving between **Bands**, removing, song stamps and
  * the pictures drawn for them. Reads and writes [UiState] only through [state] and
  * [update].
@@ -26,6 +34,7 @@ class GigMediaController(
     private val timelines: TimelineStore,
     private val photos: PhotoRepository,
     private val scope: CoroutineScope,
+    private val claimAttach: (String) -> AttachClaim? = { null },
 ) {
 
     /**
@@ -48,10 +57,11 @@ class GigMediaController(
      * same-night search a playlist cover does.
      */
     fun addGigPhotos(setlistId: String, uris: List<Uri>, band: Band = Band.VAULT) {
+        val claim = claimAttach(setlistId)
         scope.launch {
             val had = state().mediaBySetlist[setlistId].orEmpty()
             val wanted = uris.filterNot { u -> had.any { it.ref == u.toString() } }
-            attach(setlistId, had, wanted.map { it to it }, band)
+            attach(setlistId, had, wanted.map { it to it }, band, claim)
         }
     }
 
@@ -65,6 +75,7 @@ class GigMediaController(
      * points at afterwards.
      */
     fun addPickedGigPhotos(setlistId: String, uris: List<Uri>, band: Band = Band.VAULT) {
+        val claim = claimAttach(setlistId)
         scope.launch {
             val had = state().mediaBySetlist[setlistId].orEmpty()
             attach(
@@ -72,6 +83,7 @@ class GigMediaController(
                 had,
                 uris.mapNotNull { picked -> photos.persistCopy(picked)?.let { it to picked } },
                 band,
+                claim,
             )
         }
     }
@@ -94,6 +106,7 @@ class GigMediaController(
         had: List<StoredMedia>,
         wanted: List<Pair<Uri, Uri>>,
         band: Band,
+        claim: AttachClaim?,
     ) {
         val fresh = mutableListOf<StoredMedia>()
         var failed = 0
@@ -115,7 +128,14 @@ class GigMediaController(
         }
         // Normalised through the bands so a fresh item lands at the end of its own
         // run rather than after somebody else's media.
-        if (fresh.isNotEmpty()) setGigMedia(setlistId, bandsOf(had + fresh).let { it.shared + it.received + it.vault })
+        if (fresh.isNotEmpty()) {
+            val media = bandsOf(had + fresh).let { it.shared + it.received + it.vault }
+            if (claim == null) {
+                setGigMedia(setlistId, media)
+            } else if (!claim.keep(fresh, band) { saveGigMedia(setlistId, media) }) {
+                fresh.forEach { photos.deleteOwnedBytes(it.id, it.ref) }
+            }
+        }
         if (failed > 0) {
             update {
                 it.copy(
@@ -169,6 +189,11 @@ class GigMediaController(
             )
         }
         scope.launch { timelines.saveSongOffsets(mediaId, offsets) }
+    }
+
+    private suspend fun saveGigMedia(setlistId: String, media: List<StoredMedia>) {
+        update { it.copy(mediaBySetlist = it.mediaBySetlist + (setlistId to media)) }
+        timelines.saveMedia(setlistId, media)
     }
 
     private fun setGigMedia(setlistId: String, media: List<StoredMedia>) {

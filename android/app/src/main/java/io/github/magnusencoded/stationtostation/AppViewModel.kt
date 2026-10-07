@@ -763,11 +763,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         photos = photos,
         contactKeys = { settings.friends.first().mapNotNull { it.publicKey } },
         manifest = {
-            val cache = timelines.load()
+            val cache = tour.offerable(timelines.load())
             val me = settings.mySetlistFmUser.first().orEmpty()
             handover.hashedManifest(contactManifest(cache, contactIdentityPublicKeyBase64(), me), cache)
         },
-        mine = { timelines.load() },
+        mine = { tour.offerable(timelines.load()) },
         gallery = { handover.galleryForMatching(timelines.load()) },
         onLanded = { landing -> timelines.mergeContactMedia(landing) },
         lanesByKey = {
@@ -843,6 +843,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         timelines = timelines,
         photos = photos,
         scope = viewModelScope,
+        claimAttach = { id -> tour.mediaClaim(id) },
     )
     private val gossipController = GossipController(
         state = { _state.value },
@@ -863,7 +864,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         writeLog = ::writeLog,
         fail = ::fail,
     )
-    val tour = tourController(application, _state, settings, timelines, viewModelScope, contacts, where) { ticket, gigId ->
+    val tour = tourController(application, _state, settings, timelines, viewModelScope, contacts, where, photos) { ticket, gigId ->
         tickets.importTicket(ticket, gigId)
     }
 
@@ -885,6 +886,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         timelines = timelines,
         scope = viewModelScope,
         restoreTimelines = { restoreTimelines() },
+        offerable = { tour.offerable(it) },
     )
 
     private val playlist = PlaylistController(
