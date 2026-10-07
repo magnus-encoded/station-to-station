@@ -29,7 +29,23 @@ class TourController(
         when {
             current.tour.running -> dispatch(TourEvent.Resumed)
             !current.onboarded -> dispatch(TourEvent.Started(isOnline()))
+            // Only an install onboarded before the Tour existed has `onboarded` and no Tour state.
+            current.tour == TourState() -> update { it.copy(tourUpgradePrompt = true) }
         }
+    }
+
+    /** Either answer closes the upgrade prompt for good. */
+    fun acceptUpgradePrompt() {
+        closeUpgradePrompt()
+        replay()
+    }
+
+    fun dismissUpgradePrompt() = closeUpgradePrompt()
+
+    private fun closeUpgradePrompt() {
+        val after = state().tour.copy(upgradePromptDismissed = true)
+        update { it.copy(tour = after, tourUpgradePrompt = false) }
+        scope.launch { store.saveTour(after) }
     }
 
     /** Settings' "Resume tour", there only while a Tour is unfinished. */

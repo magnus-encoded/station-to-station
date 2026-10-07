@@ -564,6 +564,8 @@ data class UiState(
     val tour: TourState = TourState(),
     /** The coach mark the **Tour** last asked for; null when none is up. */
     val coachMark: CoachMark? = null,
+    /** True while an install onboarded before the **Tour** existed is being offered it. */
+    val tourUpgradePrompt: Boolean = false,
     /**
      * True once launch has read what the first screen needs: the settings (so
      * [onboarded] is known) and the saved timeline, Festivals and all. The system
