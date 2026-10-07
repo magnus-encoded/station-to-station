@@ -497,7 +497,10 @@ struct StationView: View {
                         .accessibilityLabel("Looking it up on setlist.fm")
                         .spokenOnAppear("Looking it up on setlist.fm")
                 }
-                Button { adding = true } label: {
+                Button {
+                    adding = true
+                    model.tour.send(.curtainPulled)
+                } label: {
                     Image(systemName: "plus.circle").foregroundStyle(slate)
                 }
                 .accessibilityLabel("Add a gig")
@@ -562,6 +565,7 @@ struct StationView: View {
     private func openGig(_ show: FmSetlist) {
         model.playlist.selectSetlist(show)
         nav.push(.gig)
+        model.tour.send(.roomOpened)
     }
 
     /// The menu of a row of mine holding one **Gig**; a **Contact**'s row and a festival have none.

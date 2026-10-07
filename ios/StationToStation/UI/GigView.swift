@@ -269,6 +269,8 @@ struct GigView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
+        // Disappearing also covers a screen pushed on top; only leaving for the Timeline is backing out.
+        .onDisappear { if !nav.path.contains(.gig) { model.tour.send(.swipedBack) } }
         // Pasting the link to the record whoever created it just made. A pasted link
         // rather than a search by artist and date: the moment this is used is the moment
         // you are looking at the page you just created, so its url is in your hand, and

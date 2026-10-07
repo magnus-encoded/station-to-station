@@ -14,6 +14,7 @@ final class PlanningController {
     private let markSelectedOwnership: (FmSetlist, StoredAttendance?) -> Void
     /// The in-flight suggestion lookup, held so the next keystroke can cancel it.
     private var artistSearch: Task<Void, Never>?
+    var onGigAdded: ((String) -> Void)?
 
     init(
         host: StateHost,
@@ -152,6 +153,7 @@ final class PlanningController {
         // having done nothing at all.
         host.state.attendanceByGig[gigId] = await timelines.savePlanned(gig)
         host.state.plannedGigs = sortedPlanned(host.state.plannedGigs + [gig])
+        onGigAdded?(gigId)
         return gigId
     }
 
@@ -196,6 +198,7 @@ final class PlanningController {
             host.state.attendanceByGig[gigId] = attendance
             // The Spine is built from the store, and this night has just joined it.
             loadTimeline()
+            onGigAdded?(gigId)
         }
     }
 
