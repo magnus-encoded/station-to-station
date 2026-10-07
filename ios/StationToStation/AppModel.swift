@@ -294,7 +294,7 @@ final class AppModel: ObservableObject, StateHost {
     @Published var state = UiState()
 
     let settings = Settings()
-    lazy var tour = makeTourController(setlistFm: setlistFm, musicBrainz: musicBrainz)
+    lazy var tour = makeTourController(setlistFm: setlistFm, musicBrainz: musicBrainz, spotify: spotify)
     lazy var hints = TourHintEffects(host: self, tour: tour)
     private lazy var setlistFm = SetlistFmClient(
         keySource: { [settings] in settings.setlistFmKey },

@@ -14,15 +14,26 @@ struct TourCoachMarkView: View {
                 }
                 .accessibilityLabel("Dismiss tour card")
             }
-            Text(mark == .line
-                 ? "Vertical is time: your line runs down the screen"
-                 : "Try this step in the app to continue the Tour.")
+            if mark == .spotify {
+                Text(model.tour.virtualFriendName).font(.headline)
+                Text(model.tour.spotifyCoachLine)
+            } else {
+                Text(mark == .line
+                     ? "Vertical is time: your line runs down the screen"
+                     : "Try this step in the app to continue the Tour.")
+            }
             HStack {
                 Button("Skip") { model.tour.skip() }
                 Spacer()
-                Button("OK") {
-                    model.tour.dismissCoachMark()
-                    model.tour.send(.acknowledged)
+                if mark == .spotify {
+                    Button("Not now") { model.tour.declineSpotify() }
+                    Button("Spotify") { model.tour.exportSpotify() }
+                        .disabled(model.state.creatingPlaylist)
+                } else {
+                    Button("OK") {
+                        model.tour.dismissCoachMark()
+                        model.tour.send(.acknowledged)
+                    }
                 }
             }
         }
@@ -60,7 +71,7 @@ private struct TourModifier: ViewModifier {
             .overlay(alignment: .bottom) {
                 if model.state.tourUpgradePrompt {
                     TourUpgradePromptView(model: model)
-                } else if !model.state.tourFinished, model.state.tourStep != nil {
+                } else if !model.state.tourFinished, model.state.tourStep != nil, model.state.tourStep != .s20 {
                     if let mark = model.state.tourCoachMark {
                         TourCoachMarkView(model: model, mark: mark)
                     } else {

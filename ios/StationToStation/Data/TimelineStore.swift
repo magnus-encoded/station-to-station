@@ -1152,7 +1152,8 @@ actor TimelineStore {
     /// Deletion rather than `removePlanned`, which rightly refuses to erase a check-in —
     /// that refusal is exactly what used to strand an attendance claim for a night
     /// nothing pointed at any more.
-    func deleteGig(_ gigId: String, withMedia: Bool = false, anyId: Bool = false, attendedLane: String? = nil) -> Bool {
+    func deleteGig(_ gigId: String, withMedia: Bool = false, anyId: Bool = false, attendedLane: String? = nil,
+                   keepingPlaylists: Bool = false) -> Bool {
         var deleted = false
         writeMerged { cache in
             var c = cache
@@ -1167,7 +1168,7 @@ actor TimelineStore {
             c.gigLogs[id] = nil
             c.gigMedia[id] = nil
             c.gigCalendarEvent[id] = nil
-            c.gigPlaylists[id] = nil
+            if !keepingPlaylists { c.gigPlaylists[id] = nil }
             c.gigSongOffsets[id] = nil
             return c
         }

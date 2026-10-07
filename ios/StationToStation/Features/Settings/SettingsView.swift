@@ -101,6 +101,11 @@ struct SettingsView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
+            if model.tour.spotifyRetryPending {
+                Button("Retry Tour playlist on Spotify") { model.tour.exportSpotify() }
+                    .disabled(model.state.creatingPlaylist)
+                    .padding(.vertical, 8)
+            }
             SettingsField(graph: graph, onBack: { nav.pop() }, onOpen: { open = OpenTile(id: $0) })
             // Outside the Field, so a pan never carries it away. Moving to a new phone
             // lives here rather than on the Exchange screen: that screen is for meeting
