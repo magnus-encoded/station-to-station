@@ -12,6 +12,7 @@ import io.github.magnusencoded.stationtostation.data.clashfinder.ClashfinderAuth
 import io.github.magnusencoded.stationtostation.data.clashfinder.clashfinderPublicKey
 import io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmKey
 import io.github.magnusencoded.stationtostation.data.setlistfm.sharedQuotaSpent
+import io.github.magnusencoded.stationtostation.features.tour.TourState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -56,6 +57,7 @@ class SettingsRepository(private val context: Context) {
         val CLASHFINDER_PUBLIC_KEY = stringPreferencesKey("clashfinder_public_key")
         val FRIENDS = stringPreferencesKey("friends")
         val ONBOARDED = booleanPreferencesKey("onboarded")
+        val TOUR = stringPreferencesKey("tour")
     }
 
     /**
@@ -90,12 +92,22 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit { prefs -> leftBehind.forEach { prefs.remove(it) } }
     }
 
-    /** True once the user has passed the splash (logged in with Spotify or skipped). */
+    /** True once the first-run **Tour** has been offered: started, not just attempted offline. */
     val onboarded: Flow<Boolean> =
         context.dataStore.data.map { it[Keys.ONBOARDED] ?: false }
 
     suspend fun setOnboarded() {
         context.dataStore.edit { it[Keys.ONBOARDED] = true }
+    }
+
+    /** The saved **Tour**. An unreadable one reads as never started rather than failing launch. */
+    val tour: Flow<TourState> = context.dataStore.data.map { prefs ->
+        prefs[Keys.TOUR]?.let { runCatching { tourJson.decodeFromString(TourState.serializer(), it) }.getOrNull() }
+            ?: TourState()
+    }
+
+    suspend fun saveTour(state: TourState) {
+        context.dataStore.edit { it[Keys.TOUR] = tourJson.encodeToString(TourState.serializer(), state) }
     }
 
     // `always_relay` (#416) is gone with v2's lifecycle: no active **Gig** means no radio,
@@ -352,3 +364,5 @@ fun maskedHint(value: String): String = when {
     value.length <= 8 -> "*".repeat(value.length)
     else -> "*".repeat(7) + value.takeLast(4)
 }
+
+private val tourJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }

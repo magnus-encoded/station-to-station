@@ -271,7 +271,6 @@ private val AmberSoft = Color(0x29E7B24C)
 /** Amber with the light off: my own **Line** as a **Contact** sees it (#145). */
 internal val Unlit = Color(0xFF7C7788)
 internal val UnlitField = Color(0xFF1E1B26)
-private val SpotifyGreen = Color(0xFF1DB954)
 private val Slate = Color(0xFF6F809D) // the future / a connected-source, a cooler light
 private val Danger = Color(0xFFE08A8A)
 
@@ -279,55 +278,6 @@ internal val SlateSoft = Color(0x296F809D)
 internal val CrossedSoft = Color(0x296FBF9C)
 
 private val Serif = FontFamily.Serif
-
-@Composable
-fun SplashScreen(viewModel: AppViewModel, onProceed: () -> Unit) {
-    val state by viewModel.state.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var loginError by remember { mutableStateOf<String?>(null) }
-
-    // Passing the splash (either button, or already onboarded on a later launch)
-    // advances to the timeline.
-    LaunchedEffect(state.onboarded) { if (state.onboarded) onProceed() }
-
-    Box(Modifier.fillMaxSize().background(Ground).padding(32.dp), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("◦", color = Amber, fontSize = 20.sp, modifier = Modifier.clearAndSetSemantics {})
-            Spacer(Modifier.height(10.dp))
-            Text("Station to Station", fontFamily = Serif, fontSize = 30.sp, color = Ink)
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "Your concerts, kept. Connect Spotify to turn any night's setlist into a playlist — or skip and just browse the setlists.",
-                color = Muted,
-                fontSize = 14.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 4.dp),
-            )
-            Spacer(Modifier.height(36.dp))
-            Button(
-                onClick = {
-                    // startActivity fires before we navigate away, so cancelling the
-                    // splash's scope can't stop the browser from opening.
-                    scope.launch {
-                        loginError = startSpotifyLogin(context, viewModel)
-                        viewModel.markOnboarded()
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = SpotifyGreen, contentColor = Color.White),
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Log in with Spotify", fontWeight = FontWeight.SemiBold) }
-            Spacer(Modifier.height(4.dp))
-            TextButton(onClick = { viewModel.markOnboarded() }, modifier = Modifier.fillMaxWidth()) {
-                Text("Skip — just show me setlists", color = Muted)
-            }
-            loginError?.let {
-                Spacer(Modifier.height(10.dp))
-                Text(it, color = Danger, fontSize = 12.sp)
-            }
-        }
-    }
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

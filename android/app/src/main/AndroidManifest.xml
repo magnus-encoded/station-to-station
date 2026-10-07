@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- The Tour starts only with a connection, so launch asks whether there is one. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Reading gallery photos taken on the night of the show, to offer them as
          the playlist cover. Android 13 split this out of storage; 14 added the
