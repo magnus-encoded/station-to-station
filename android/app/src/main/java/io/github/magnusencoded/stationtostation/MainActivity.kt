@@ -18,6 +18,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -43,7 +44,9 @@ import io.github.magnusencoded.stationtostation.ui.SettingsScreen
 import io.github.magnusencoded.stationtostation.ui.StationEventScreen
 import io.github.magnusencoded.stationtostation.ui.StationTimelineScreen
 import io.github.magnusencoded.stationtostation.ui.flyover.GigFlyoverScreen
+import io.github.magnusencoded.stationtostation.features.tour.TourEvent
 import io.github.magnusencoded.stationtostation.features.tour.TourOverlay
+import androidx.navigation.NavController
 import kotlinx.coroutines.flow.map
 
 class MainActivity : ComponentActivity() {
@@ -222,6 +225,19 @@ fun AppTheme(content: @Composable () -> Unit) {
 @Composable
 fun AppNavigation(viewModel: AppViewModel) {
     val navController = rememberNavController()
+    // The Room steps of the Tour: a Gig opened from the timeline, then any way back to it,
+    // the swipe included, since the system back gesture pops without a callback of ours.
+    DisposableEffect(navController) {
+        var previous: String? = null
+        val listener = NavController.OnDestinationChangedListener { _, destination, _ ->
+            val route = destination.route
+            if (previous == "timeline" && route == "event") viewModel.tour.dispatch(TourEvent.RoomOpened)
+            if (previous == "event" && route == "timeline") viewModel.tour.dispatch(TourEvent.SwipedBack)
+            previous = route
+        }
+        navController.addOnDestinationChangedListener(listener)
+        onDispose { navController.removeOnDestinationChangedListener(listener) }
+    }
     // setlist.fm's automatic checks for local Gigs run while the app is in the
     // foreground and only then (#531): at launch, on coming back, and on their timer.
     LifecycleStartEffect(Unit) {
@@ -320,12 +336,14 @@ fun AppNavigation(viewModel: AppViewModel) {
                     onBack = { navController.popBackStack() },
                 )
             } else {
-                StationEventScreen(
-                    viewModel = viewModel,
-                    onBack = { navController.popBackStack() },
-                    onConvert = { navController.navigate("confirm") },
-                    onOpenSettings = { navController.navigate("settings") },
-                )
+                TourOverlay(viewModel) {
+                    StationEventScreen(
+                        viewModel = viewModel,
+                        onBack = { navController.popBackStack() },
+                        onConvert = { navController.navigate("confirm") },
+                        onOpenSettings = { navController.navigate("settings") },
+                    )
+                }
             }
         }
         composable("search") {

@@ -9,6 +9,7 @@ interface TourStore {
     suspend fun saveTour(state: TourState)
     suspend fun setOnboarded()
     suspend fun purgeDemoWorld()
+    suspend fun markDemo(gigId: String)
 }
 
 /**
@@ -61,6 +62,14 @@ class TourController(
         scope.launch { store.saveTour(after) }
     }
 
+    /** A **Gig** added while S4 waits for one is the **Demo world**'s; any other is the person's own. */
+    fun gigAdded(gigId: String) {
+        val tour = state().tour
+        if (!tour.running || tour.step != TourStep.S4) return
+        scope.launch { store.markDemo(gigId) }
+        dispatch(TourEvent.GigAdded)
+    }
+
     fun dispatch(event: TourEvent) {
         val before = state().tour
         val (after, commands) = TourScript.on(before, event)
@@ -83,7 +92,10 @@ class TourController(
             for (command in commands) {
                 when (command) {
                     TourCommand.PurgeDemoWorld -> store.purgeDemoWorld()
-                    // The rest belong to the steps that need them (#591 onwards).
+                    // The band is looked up by the add dialog's own MusicBrainz completion
+                    // as the person types; the Tour asks for no second lookup.
+                    TourCommand.LookUpBand -> completed(OnceOnly.LookUpBand)
+                    // The rest belong to the steps that need them (#593 onwards).
                     else -> Unit
                 }
             }
