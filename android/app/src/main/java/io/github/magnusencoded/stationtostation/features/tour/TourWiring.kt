@@ -26,7 +26,17 @@ fun tourController(
     store = object : TourStore {
         override suspend fun saveTour(state: TourState) = settings.saveTour(state)
         override suspend fun setOnboarded() = settings.setOnboarded()
-        override suspend fun purgeDemoWorld() = timelines.purgeDemoWorld()
+        override suspend fun purgeDemoWorld() {
+            val taken = timelines.purgeDemoWorld()
+            if (taken.isEmpty()) return
+            state.update {
+                it.copy(
+                    plannedGigs = it.plannedGigs.filterNot { gig -> gig.id in taken },
+                    attendanceByGig = it.attendanceByGig - taken,
+                )
+            }
+        }
+        override suspend fun markDemo(gigId: String) = timelines.markDemo(gigId)
     },
     isOnline = { context.isOnline() },
     scope = scope,

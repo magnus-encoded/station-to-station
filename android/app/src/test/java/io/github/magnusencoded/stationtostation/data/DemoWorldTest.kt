@@ -43,4 +43,14 @@ class DemoWorldTest {
         val plain = seeded.copy(gigs = mapOf(real.id to real))
         assertEquals(plain, plain.withoutDemoWorld())
     }
+
+    @Test
+    fun a_gig_tagged_demo_is_taken_by_the_purge() = kotlinx.coroutines.runBlocking {
+        val dir = java.nio.file.Files.createTempDirectory("demo").toFile()
+        val store = TimelineStore(java.io.File(dir, "timeline.json"))
+        val id = store.createLocalGig("01-01-2030", "Band", "")
+        store.markDemo(id)
+        assertEquals(setOf(id), store.purgeDemoWorld())
+        assertEquals(emptySet<String>(), store.purgeDemoWorld())
+    }
 }

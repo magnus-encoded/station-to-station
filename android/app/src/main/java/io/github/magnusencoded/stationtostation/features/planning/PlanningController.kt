@@ -20,6 +20,8 @@ class PlanningController(
     private val musicBrainz: MusicBrainzClient,
     private val scope: CoroutineScope,
     private val fail: (Exception) -> Unit,
+    /** Told the id of each **Gig** the add dialog puts on my **Line**. */
+    private val gigAdded: (String) -> Unit = {},
 ) {
 
     /** The in-flight artist lookup, so a new keystroke cancels the last one. */
@@ -48,10 +50,13 @@ class PlanningController(
             return
         }
         if (state().plannedGigs.any { it.id == id }) return
+        // A night already on my Line as attended stays mine, not a new Gig.
+        val known = state().setlists.any { it.id == id }
         update { it.copy(planningLoading = true) }
         scope.launch {
             try {
                 planFmGig(setlistFm.setlist(id))
+                if (!known) gigAdded(id)
                 update { it.copy(planningLoading = false) }
             } catch (e: Exception) {
                 update { it.copy(planningLoading = false) }
@@ -154,6 +159,7 @@ class PlanningController(
                     artistSuggestions = emptyList(),
                 )
             }
+            gigAdded(gigId)
         }
     }
 
@@ -251,6 +257,7 @@ class PlanningController(
                     attendanceByGig = it.attendanceByGig + (gigId to attendance),
                 )
             }
+            gigAdded(gigId)
         }
     }
 

@@ -899,6 +899,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         musicBrainz = musicBrainz,
         scope = viewModelScope,
         fail = ::fail,
+        gigAdded = { tour.gigAdded(it) },
     )
 
     private val tickets: TicketsController = TicketsController(

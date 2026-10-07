@@ -1429,7 +1429,22 @@ class TimelineStore(
      * and that refusal is exactly what strands one here.
      */
     /** Removes the **Demo world**. Real records are untouched. */
-    suspend fun purgeDemoWorld() = writeMerged { it.withoutDemoWorld() }
+    /** Removes the **Demo world** and returns the ids of the **Gigs** it took. */
+    suspend fun purgeDemoWorld(): Set<String> {
+        var taken = emptySet<String>()
+        writeMerged { cache ->
+            taken = cache.gigs.values.filter { it.demo }.mapTo(mutableSetOf()) { it.id }
+            cache.withoutDemoWorld()
+        }
+        return taken
+    }
+
+    /** Tags a **Gig** as the **Tour**'s, so [purgeDemoWorld] takes it back. */
+    suspend fun markDemo(gigId: String): Unit = writeMerged { cache ->
+        val id = cache.gigIdOrNull(gigId) ?: return@writeMerged cache
+        val gig = cache.gigs[id] ?: return@writeMerged cache
+        cache.copy(gigs = cache.gigs + (id to gig.copy(demo = true)))
+    }
 
     suspend fun deleteGig(
         gigId: String,

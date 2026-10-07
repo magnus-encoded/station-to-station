@@ -79,6 +79,8 @@ internal fun AddGigDialog(
     onAdd: (artist: String, venue: String, date: String) -> Unit,
     onAddByLink: (String) -> Unit,
     onDismiss: () -> Unit,
+    /** The **Tour**'s coach mark, which the dialog would otherwise cover. */
+    tour: @Composable () -> Unit = {},
 ) {
     var artist by remember { mutableStateOf(initial?.artist.orEmpty()) }
     var venue by remember { mutableStateOf(initial?.venue.orEmpty()) }
@@ -94,6 +96,7 @@ internal fun AddGigDialog(
                 .background(Raised)
                 .padding(20.dp),
         ) {
+            tour()
             Text("Add a gig", fontFamily = Serif, fontSize = 19.sp, color = Ink, modifier = Modifier.asHeading())
             Spacer(Modifier.height(6.dp))
             if (pasting) {

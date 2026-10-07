@@ -18,6 +18,8 @@ class TourControllerTest {
         override suspend fun saveTour(state: TourState) { saved = state }
         override suspend fun setOnboarded() { onboarded = true }
         override suspend fun purgeDemoWorld() { purges++ }
+        val demo = mutableListOf<String>()
+        override suspend fun markDemo(gigId: String) { demo += gigId }
     }
 
     private val store = Store()
@@ -177,5 +179,49 @@ class TourControllerTest {
             assertFalse(relaunch.current.tourUpgradePrompt)
             c.dispatch(TourEvent.Skipped)
         }
+    }
+
+    @Test
+    fun the_add_gig_steps_advance_only_on_their_gestures() {
+        val c = controller()
+        c.launch()
+        c.dispatch(TourEvent.Acknowledged)
+        c.dispatch(TourEvent.RoomOpened)
+        assertEquals(TourStep.S2, fake.current.tour.step)
+        c.dispatch(TourEvent.CurtainPulled)
+        assertEquals(CoachMark.Band, fake.current.coachMark)
+        c.dispatch(TourEvent.BandPicked)
+        c.gigAdded("gig-1")
+        assertEquals(CoachMark.OpenRoom, fake.current.coachMark)
+        c.dispatch(TourEvent.RoomOpened)
+        assertEquals(CoachMark.SwipeBack, fake.current.coachMark)
+        c.dispatch(TourEvent.SwipedBack)
+        assertEquals(TourStep.S7, fake.current.tour.step)
+    }
+
+    @Test
+    fun entering_the_band_step_completes_the_lookup_so_a_resume_skips_it() {
+        fake.update { it.copy(onboarded = true, tour = TourState(step = TourStep.S2)) }
+        controller().dispatch(TourEvent.CurtainPulled)
+        assertTrue(OnceOnly.LookUpBand in fake.current.tour.completedEffects)
+        assertTrue(OnceOnly.LookUpBand in store.saved!!.completedEffects)
+        val (_, commands) = TourScript.on(fake.current.tour, TourEvent.Resumed)
+        assertFalse(TourCommand.LookUpBand in commands)
+    }
+
+    @Test
+    fun a_gig_added_at_the_add_step_is_tagged_demo() {
+        fake.update { it.copy(onboarded = true, tour = TourState(step = TourStep.S4)) }
+        controller().gigAdded("gig-1")
+        assertEquals(listOf("gig-1"), store.demo)
+        assertEquals(TourStep.S5, fake.current.tour.step)
+    }
+
+    @Test
+    fun a_gig_added_outside_the_add_step_stays_the_persons_own() {
+        fake.update { it.copy(onboarded = true, tour = TourState(step = TourStep.S5)) }
+        controller().gigAdded("gig-1")
+        assertTrue(store.demo.isEmpty())
+        assertNull(store.saved)
     }
 }

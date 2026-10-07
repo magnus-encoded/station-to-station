@@ -198,6 +198,8 @@ import io.github.magnusencoded.stationtostation.data.FutureRow
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.StoredPlaylist
+import io.github.magnusencoded.stationtostation.features.tour.TourCoachMarkInline
+import io.github.magnusencoded.stationtostation.features.tour.TourEvent
 import io.github.magnusencoded.stationtostation.data.WovenSong
 import io.github.magnusencoded.stationtostation.data.isLocal
 import io.github.magnusencoded.stationtostation.data.StoredSetlistFmHit
@@ -386,7 +388,7 @@ fun StationTimelineScreen(
         onOpenImport = onOpenImport,
         onOpenNearby = onOpenNearby,
         onOpenProgramme = onOpenProgramme,
-        onAddGig = { adding = true },
+        onAddGig = { adding = true; viewModel.tour.dispatch(TourEvent.CurtainPulled) },
         onCompare = { comparing = it },
         menuFor = { menuFor(it) },
         setZoomedOut = { viewModel.setZoomedOut(it) },
@@ -443,7 +445,11 @@ fun StationTimelineScreen(
                     initial = prefill,
                     suggestions = state.artistSuggestions,
                     onArtistTyped = { viewModel.suggestArtists(it) },
-                    onArtistPicked = { viewModel.clearArtistSuggestions() },
+                    onArtistPicked = {
+                        viewModel.clearArtistSuggestions()
+                        viewModel.tour.dispatch(TourEvent.BandPicked)
+                    },
+                    tour = { TourCoachMarkInline(viewModel) },
                     onAdd = { artist, venue, date ->
                         viewModel.addGig(artist, venue, date)
                         adding = false

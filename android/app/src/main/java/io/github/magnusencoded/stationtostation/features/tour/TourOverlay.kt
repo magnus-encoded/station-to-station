@@ -49,9 +49,23 @@ fun TourOverlay(viewModel: AppViewModel, content: @Composable () -> Unit) {
                 mark = state.coachMark,
                 onAcknowledge = { viewModel.tour.dispatch(TourEvent.Acknowledged) },
                 onSkip = { viewModel.tour.dispatch(TourEvent.Skipped) },
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp),
             )
         }
     }
+}
+
+/** The coach mark inside a dialog, which covers [TourOverlay]: the band and add-gig steps. */
+@Composable
+fun TourCoachMarkInline(viewModel: AppViewModel) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    if (!state.tour.running) return
+    CoachMarkCard(
+        mark = state.coachMark,
+        onAcknowledge = { viewModel.tour.dispatch(TourEvent.Acknowledged) },
+        onSkip = { viewModel.tour.dispatch(TourEvent.Skipped) },
+        modifier = Modifier.padding(bottom = 12.dp),
+    )
 }
 
 /**
@@ -59,12 +73,14 @@ fun TourOverlay(viewModel: AppViewModel, content: @Composable () -> Unit) {
  * line and Skip only; each step's issue gives its mark the gesture it waits for.
  */
 @Composable
-private fun BoxScope.CoachMarkCard(mark: CoachMark?, onAcknowledge: () -> Unit, onSkip: () -> Unit) {
+private fun CoachMarkCard(
+    mark: CoachMark?,
+    onAcknowledge: () -> Unit,
+    onSkip: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Column(
-        Modifier
-            .align(Alignment.BottomCenter)
-            .navigationBarsPadding()
-            .padding(16.dp)
+        modifier
             .fillMaxWidth()
             .background(Card, RoundedCornerShape(16.dp))
             .padding(20.dp)
