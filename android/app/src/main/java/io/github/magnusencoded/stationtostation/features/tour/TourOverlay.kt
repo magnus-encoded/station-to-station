@@ -39,7 +39,12 @@ fun TourOverlay(viewModel: AppViewModel, content: @Composable () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     Box(Modifier.fillMaxSize()) {
         content()
-        if (state.tour.running) {
+        if (state.tourUpgradePrompt) {
+            UpgradePromptCard(
+                onAccept = { viewModel.tour.acceptUpgradePrompt() },
+                onDismiss = { viewModel.tour.dismissUpgradePrompt() },
+            )
+        } else if (state.tour.running) {
             CoachMarkCard(
                 mark = state.coachMark,
                 onAcknowledge = { viewModel.tour.dispatch(TourEvent.Acknowledged) },
@@ -74,6 +79,33 @@ private fun BoxScope.CoachMarkCard(mark: CoachMark?, onAcknowledge: () -> Unit, 
             if (mark == CoachMark.Line) {
                 TextButton(onClick = onAcknowledge) { Text("Got it", color = Amber) }
             }
+        }
+    }
+}
+
+/** App copy, not the Virtual friend's: offered once to an install that predates the Tour. */
+@Composable
+private fun BoxScope.UpgradePromptCard(onAccept: () -> Unit, onDismiss: () -> Unit) {
+    Column(
+        Modifier
+            .align(Alignment.BottomCenter)
+            .navigationBarsPadding()
+            .padding(16.dp)
+            .fillMaxWidth()
+            .background(Card, RoundedCornerShape(16.dp))
+            .padding(20.dp)
+            .testTag("tourUpgradePrompt"),
+    ) {
+        Text("New: a guided tour", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Walk through the app at a demo gig. It takes a few minutes and leaves nothing behind.",
+            color = Ink,
+        )
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            TextButton(onClick = onDismiss) { Text("No thanks", color = Muted) }
+            TextButton(onClick = onAccept) { Text("Take the tour", color = Amber) }
         }
     }
 }
