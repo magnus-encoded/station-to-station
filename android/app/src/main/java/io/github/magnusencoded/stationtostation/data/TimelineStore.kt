@@ -396,6 +396,8 @@ data class StoredGig(
     val setlistId: String? = null,
     /** Epoch millis. 0 means "came in with the migration". */
     val createdAt: Long = 0L,
+    /** Made by the **Tour**: part of the **Demo world**, gone when it ends or is skipped. */
+    val demo: Boolean = false,
 )
 
 /**
@@ -1426,6 +1428,9 @@ class TimelineStore(
      * either outcome — `removePlanned` deliberately refuses to erase a check-in,
      * and that refusal is exactly what strands one here.
      */
+    /** Removes the **Demo world**. Real records are untouched. */
+    suspend fun purgeDemoWorld() = writeMerged { it.withoutDemoWorld() }
+
     suspend fun deleteGig(
         gigId: String,
         withMedia: Boolean = false,
@@ -1842,4 +1847,25 @@ private fun <V> Map<String, V>.folded(keep: String, drop: String, union: (V, V) 
     val dropped = this[drop] ?: return this
     val kept = this[keep]
     return this - drop + (keep to if (kept == null) dropped else union(kept, dropped))
+}
+
+/**
+ * The cache with every demo-tagged **Gig** and what hangs off it removed. A playlist record
+ * stays: the playlist the Tour exports is the one thing the user keeps.
+ */
+internal fun TimelineCache.withoutDemoWorld(): TimelineCache {
+    val demo = gigs.values.filter { it.demo }
+    if (demo.isEmpty()) return this
+    val ids = demo.mapTo(mutableSetOf()) { it.id }
+    val shown = ids + demo.mapNotNull { it.setlistId }
+    return copy(
+        shows = shows.mapValues { (_, lane) -> lane.filterNot { it.id in shown } },
+        gigs = gigs - ids,
+        gigPlanned = gigPlanned - ids,
+        gigAttendance = gigAttendance - ids,
+        gigLogs = gigLogs - ids,
+        gigMedia = gigMedia - ids,
+        gigCalendarEvent = gigCalendarEvent - ids,
+        gigSongOffsets = gigSongOffsets - ids,
+    )
 }

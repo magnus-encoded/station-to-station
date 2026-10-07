@@ -129,6 +129,9 @@ import io.github.magnusencoded.stationtostation.data.gossip.contactNamesOf
 import io.github.magnusencoded.stationtostation.data.gossip.gossipExpiry
 import io.github.magnusencoded.stationtostation.data.gossip.GossipService
 import io.github.magnusencoded.stationtostation.features.gossip.GossipController
+import io.github.magnusencoded.stationtostation.features.tour.CoachMark
+import io.github.magnusencoded.stationtostation.features.tour.TourState
+import io.github.magnusencoded.stationtostation.features.tour.tourController
 import io.github.magnusencoded.stationtostation.data.gossip.GossipStore
 import io.github.magnusencoded.stationtostation.data.gossip.gigDatesOf
 import io.github.magnusencoded.stationtostation.data.gossip.gossipGigTonight
@@ -556,8 +559,11 @@ data class UiState(
     val setlistFmSharedQuotaSpent: Boolean = false,
     // Transient non-error notice (e.g. "Added a friend from that playlist")
     val notice: String? = null,
-    // True once the splash has been passed (Spotify login or skip).
+    /** True once the first-run **Tour** has been offered. */
     val onboarded: Boolean = false,
+    val tour: TourState = TourState(),
+    /** The coach mark the **Tour** last asked for; null when none is up. */
+    val coachMark: CoachMark? = null,
     /**
      * True once launch has read what the first screen needs: the settings (so
      * [onboarded] is known) and the saved timeline, Festivals and all. The system
@@ -850,6 +856,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         writeLog = ::writeLog,
         fail = ::fail,
     )
+    val tour = tourController(application, _state, settings, timelines, viewModelScope)
+
     private val settingsController = SettingsController(
         update = { transform -> _state.update(transform) },
         settings = settings.asSettingsStore(),
@@ -950,8 +958,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     myCardName = settings.myCardName.first() ?: "",
                     friends = settings.friends.first(),
                     onboarded = settings.onboarded.first(),
+                    tour = settings.tour.first(),
                 )
             }
+            tour.launch()
             restoreTimelines()
             // After the timeline is back, because the only reason the radio runs is a Gig
             // on this timeline that is still in participation.
@@ -1105,8 +1115,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             setlistsPage = if (adopt) (mine.size / SETLISTS_PER_PAGE).coerceAtLeast(1) else it.setlistsPage,
         )
     }
-
-    fun markOnboarded() = settingsController.markOnboarded()
 
     fun consumeError() = _state.update { it.copy(error = null, errorKind = null) }
     fun consumeNotice() = _state.update { it.copy(notice = null) }

@@ -40,10 +40,10 @@ import io.github.magnusencoded.stationtostation.ui.FriendTimelineScreen
 import io.github.magnusencoded.stationtostation.ui.HandoverScreen
 import io.github.magnusencoded.stationtostation.ui.ImportScreen
 import io.github.magnusencoded.stationtostation.ui.SettingsScreen
-import io.github.magnusencoded.stationtostation.ui.SplashScreen
 import io.github.magnusencoded.stationtostation.ui.StationEventScreen
 import io.github.magnusencoded.stationtostation.ui.StationTimelineScreen
 import io.github.magnusencoded.stationtostation.ui.flyover.GigFlyoverScreen
+import io.github.magnusencoded.stationtostation.features.tour.TourOverlay
 import kotlinx.coroutines.flow.map
 
 class MainActivity : ComponentActivity() {
@@ -230,12 +230,11 @@ fun AppNavigation(viewModel: AppViewModel) {
     }
     // Nothing is drawn until launch has read the settings and the saved timeline (the
     // system splash covers it), and then the first screen is the right one outright:
-    // onboarding only for someone who hasn't passed it, never as a flash on the way to
-    // the timeline. Ahead of the handover effect too, which needs the NavHost's graph.
-    val launch by remember(viewModel) { viewModel.state.map { it.launched to it.onboarded } }
-        .collectAsStateWithLifecycle(viewModel.state.value.let { it.launched to it.onboarded })
-    if (!launch.first) return
-    val startDestination = remember { if (launch.second) "timeline" else "splash" }
+    // the timeline, with the Tour's coach marks over it on a first launch. Ahead of the
+    // handover effect too, which needs the NavHost's graph.
+    val launched by remember(viewModel) { viewModel.state.map { it.launched } }
+        .collectAsStateWithLifecycle(viewModel.state.value.launched)
+    if (!launched) return
     // A handover can begin from outside any screen: the QR is read by the phone's camera
     // app, which opens the deep link, which starts the receiving side. Whatever was on
     // screen, that is the thing to be looking at.
@@ -255,34 +254,26 @@ fun AppNavigation(viewModel: AppViewModel) {
     // reads as the app changing rather than as one place leading to another.
     NavHost(
         navController = navController,
-        startDestination = startDestination,
+        startDestination = "timeline",
         enterTransition = { slideInHorizontally(tween(280)) { it } + fadeIn(tween(200)) },
         exitTransition = { slideOutHorizontally(tween(280)) { -it / 5 } + fadeOut(tween(200)) },
         popEnterTransition = { slideInHorizontally(tween(280)) { -it / 5 } + fadeIn(tween(200)) },
         popExitTransition = { slideOutHorizontally(tween(280)) { it } + fadeOut(tween(200)) },
     ) {
-        composable("splash") {
-            SplashScreen(
-                viewModel = viewModel,
-                onProceed = {
-                    navController.navigate("timeline") {
-                        popUpTo("splash") { inclusive = true }
-                    }
-                },
-            )
-        }
         composable("timeline") {
-            StationTimelineScreen(
-                viewModel = viewModel,
-                onOpenEvent = { navController.navigate("event") },
-                onOpenImport = { navController.navigate("import") },
-                // Both the people icon and the swipe-left gesture now lead to the one
-                // Exchange — there is a single way to meet someone.
-                onOpenConnect = { navController.navigate("exchange") },
-                onOpenNearby = { navController.navigate("exchange") },
-                onOpenSettings = { navController.navigate("settings") },
-                onOpenProgramme = { navController.navigate("programme") },
-            )
+            TourOverlay(viewModel) {
+                StationTimelineScreen(
+                    viewModel = viewModel,
+                    onOpenEvent = { navController.navigate("event") },
+                    onOpenImport = { navController.navigate("import") },
+                    // Both the people icon and the swipe-left gesture now lead to the one
+                    // Exchange — there is a single way to meet someone.
+                    onOpenConnect = { navController.navigate("exchange") },
+                    onOpenNearby = { navController.navigate("exchange") },
+                    onOpenSettings = { navController.navigate("settings") },
+                    onOpenProgramme = { navController.navigate("programme") },
+                )
+            }
         }
         composable("exchange") {
             ExchangeScreen(
@@ -372,6 +363,10 @@ fun AppNavigation(viewModel: AppViewModel) {
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
                 onOpenHandover = { navController.navigate("handover") },
+                onTour = { replay ->
+                    if (replay) viewModel.tour.replay() else viewModel.tour.resume()
+                    navController.popBackStack("timeline", inclusive = false)
+                },
             )
         }
         composable("handover") {

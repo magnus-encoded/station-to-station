@@ -16,7 +16,6 @@ import org.junit.Test
 class SettingsControllerTest {
 
     private class Store : SettingsStore {
-        var onboarded = false
         var apiKey: String? = null
         var clientId: String? = null
         var sharedQuotaSpent = false
@@ -24,7 +23,6 @@ class SettingsControllerTest {
         var scope: String? = null
         var authCleared = false
 
-        override suspend fun setOnboarded() { onboarded = true }
         override suspend fun saveSetlistFmApiKey(value: String) { apiKey = value.trim().ifEmpty { null } }
         override suspend fun saveSpotifyClientId(value: String) { clientId = value.trim().ifEmpty { null } }
         override suspend fun spotifyClientIdValue() = clientId
@@ -54,13 +52,6 @@ class SettingsControllerTest {
         scope = CoroutineScope(Dispatchers.Unconfined),
         fail = {},
     )
-
-    @Test
-    fun passing_the_splash_is_remembered_in_state_and_in_storage() {
-        controller().markOnboarded()
-        assertTrue(fake.current.onboarded)
-        assertTrue(store.onboarded)
-    }
 
     @Test
     fun saved_settings_are_trimmed_into_state_and_mark_each_service_ready() = runBlocking {

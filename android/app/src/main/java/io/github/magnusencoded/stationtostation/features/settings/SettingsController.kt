@@ -13,7 +13,6 @@ import kotlinx.coroutines.launch
 
 /** The slice of [SettingsRepository] the settings gestures touch. */
 interface SettingsStore {
-    suspend fun setOnboarded()
     suspend fun saveSetlistFmApiKey(value: String)
     suspend fun saveSpotifyClientId(value: String)
     suspend fun spotifyClientIdValue(): String?
@@ -34,7 +33,6 @@ interface SpotifyLogin {
 fun SettingsRepository.asSettingsStore(): SettingsStore {
     val repo = this
     return object : SettingsStore {
-        override suspend fun setOnboarded() = repo.setOnboarded()
         override suspend fun saveSetlistFmApiKey(value: String) = repo.saveSetlistFmApiKey(value)
         override suspend fun saveSpotifyClientId(value: String) = repo.saveSpotifyClientId(value)
         override suspend fun spotifyClientIdValue() = repo.spotifyClientIdValue()
@@ -63,12 +61,6 @@ class SettingsController(
     private val scope: CoroutineScope,
     private val fail: (Exception) -> Unit,
 ) {
-
-    /** Records that the splash was passed, so it never shows again. */
-    fun markOnboarded() {
-        update { it.copy(onboarded = true) }
-        scope.launch { settings.setOnboarded() }
-    }
 
     fun saveSettings(apiKey: String, clientId: String) {
         scope.launch { saveSettingsNow(apiKey, clientId) }

@@ -149,8 +149,10 @@ fun SettingsScreen(
     viewModel: AppViewModel,
     onBack: () -> Unit,
     onOpenHandover: () -> Unit = {},
+    /** True to replay the Tour from the start, false to resume it. */
+    onTour: (replay: Boolean) -> Unit = {},
 ) = MaterialTheme(colorScheme = FieldColours) {
-    SettingsField(viewModel, onBack, onOpenHandover)
+    SettingsField(viewModel, onBack, onOpenHandover, onTour)
 }
 
 /** What the phone itself has granted. Re-read on every resume: it changes in system settings. */
@@ -205,6 +207,7 @@ private fun SettingsField(
     viewModel: AppViewModel,
     onBack: () -> Unit,
     onOpenHandover: () -> Unit,
+    onTour: (replay: Boolean) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -259,6 +262,10 @@ private fun SettingsField(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(onClick = onOpenHandover) { Text("Move to a new phone", color = Ink) }
+                if (state.tour.step != null) {
+                    TextButton(onClick = { onTour(false) }) { Text("Resume tour", color = Ink) }
+                }
+                TextButton(onClick = { onTour(true) }) { Text("Replay tour", color = Ink) }
                 Spacer(Modifier.weight(1f))
                 Text(
                     "Build ${BuildConfig.VERSION_NAME} · ${BuildConfig.GIT_SHA}",
