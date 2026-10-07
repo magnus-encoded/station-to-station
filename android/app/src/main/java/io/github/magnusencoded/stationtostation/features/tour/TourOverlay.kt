@@ -1,5 +1,7 @@
 package io.github.magnusencoded.stationtostation.features.tour
 
+import android.annotation.SuppressLint
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,15 +14,22 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -37,11 +46,15 @@ private val Amber = Color(0xFFE7B24C)
 @Composable
 fun TourOverlay(viewModel: AppViewModel, content: @Composable () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val friend = remember { TourCharacter.load(context) }
     Box(Modifier.fillMaxSize()) {
         content()
-        if (state.tour.running) {
+        val step = state.tour.step
+        if (step != null && state.tour.running) {
             CoachMarkCard(
-                mark = state.coachMark,
+                friend = friend,
+                step = step,
                 onAcknowledge = { viewModel.tour.dispatch(TourEvent.Acknowledged) },
                 onSkip = { viewModel.tour.dispatch(TourEvent.Skipped) },
             )
@@ -54,7 +67,12 @@ fun TourOverlay(viewModel: AppViewModel, content: @Composable () -> Unit) {
  * line and Skip only; each step's issue gives its mark the gesture it waits for.
  */
 @Composable
-private fun BoxScope.CoachMarkCard(mark: CoachMark?, onAcknowledge: () -> Unit, onSkip: () -> Unit) {
+private fun BoxScope.CoachMarkCard(
+    friend: TourCharacter,
+    step: TourStep,
+    onAcknowledge: () -> Unit,
+    onSkip: () -> Unit,
+) {
     Column(
         Modifier
             .align(Alignment.BottomCenter)
@@ -65,38 +83,31 @@ private fun BoxScope.CoachMarkCard(mark: CoachMark?, onAcknowledge: () -> Unit, 
             .padding(20.dp)
             .testTag("coachMark"),
     ) {
-        Text(TOUR_FRIEND, color = Amber, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Image(
+                painterResource(drawable(friend.avatar)),
+                contentDescription = null,
+                modifier = Modifier.size(36.dp).clip(CircleShape),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(friend.name, color = Amber, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        }
         Spacer(Modifier.height(6.dp))
-        Text(mark?.let(::line) ?: "One moment…", color = Ink, fontFamily = FontFamily.Serif, fontSize = 18.sp)
+        Text(friend.line(step), color = Ink, fontFamily = FontFamily.Serif, fontSize = 18.sp)
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = onSkip) { Text("Skip", color = Muted) }
-            if (mark == CoachMark.Line) {
+            if (step != TourStep.S20) TextButton(onClick = onSkip) { Text("Skip", color = Muted) }
+            if (step.mark == CoachMark.Line) {
                 TextButton(onClick = onAcknowledge) { Text("Got it", color = Amber) }
             }
         }
     }
 }
 
-// Placeholders: the Virtual friend's name and writing are owned by a human (#607).
-private const val TOUR_FRIEND = "Your friend"
-
-private fun line(mark: CoachMark): String = when (mark) {
-    CoachMark.Line -> "This is your line. Down is back in time, up is what's coming."
-    CoachMark.Curtain -> "Pull down from the top to plan a gig."
-    CoachMark.Band -> "Who do you want to see?"
-    CoachMark.AddGig -> "Add the gig."
-    CoachMark.OpenRoom -> "Tap the gig to open its Room."
-    CoachMark.SwipeBack -> "Swipe right to go back."
-    CoachMark.Exchange -> "Let's swap contacts."
-    CoachMark.PinchOut -> "Pinch out to see my line beside yours."
-    CoachMark.Calendar -> "Put it in your calendar."
-    CoachMark.Maps -> "Find the way there."
-    CoachMark.Ticket -> "Show your ticket at the door."
-    CoachMark.CheckIn -> "Check in."
-    CoachMark.Log -> "What did they open with?"
-    CoachMark.Gap -> "Don't know this one? Leave a Gap."
-    CoachMark.Gossip -> "Tell me something back."
-    CoachMark.Selfie -> "Take a selfie."
-    CoachMark.Spotify -> "Keep the night as a playlist."
+/** The character file names its drawables, so a new character is data plus two drawables. */
+@SuppressLint("DiscouragedApi")
+@Composable
+private fun drawable(name: String): Int {
+    val context = LocalContext.current
+    return context.resources.getIdentifier(name, "drawable", context.packageName)
 }

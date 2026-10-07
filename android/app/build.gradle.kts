@@ -37,6 +37,8 @@ val gitSha: String = runCatching {
 android {
     namespace = "io.github.magnusencoded.stationtostation"
     compileSdk = 37
+    // The Tour's Virtual friend is shared data, read by iOS too.
+    sourceSets["main"].assets.srcDir("../../fixtures/tour/character")
 
     defaultConfig {
         applicationId = "io.github.magnusencoded.stationtostation"

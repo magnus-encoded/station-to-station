@@ -3,20 +3,25 @@ import SwiftUI
 struct TourCoachMarkView: View {
     @ObservedObject var model: AppModel
     let mark: TourCoachMark
+    let step: TourStep
+    private let friend = TourCharacter.bundled
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Tour").font(.headline)
+                Image(friend.avatar)
+                    .resizable()
+                    .frame(width: 36, height: 36)
+                    .clipShape(Circle())
+                    .accessibilityHidden(true)
+                Text(friend.name).font(.headline)
                 Spacer()
                 Button { model.tour.dismissCoachMark() } label: {
                     Image(systemName: "xmark")
                 }
                 .accessibilityLabel("Dismiss tour card")
             }
-            Text(mark == .line
-                 ? "Vertical is time: your line runs down the screen"
-                 : "Try this step in the app to continue the Tour.")
+            Text(friend.line(step))
             HStack {
                 Button("Skip") { model.tour.skip() }
                 Spacer()
@@ -61,8 +66,8 @@ private struct TourModifier: ViewModifier {
                 if model.state.tourUpgradePrompt {
                     TourUpgradePromptView(model: model)
                 } else if !model.state.tourFinished, model.state.tourStep != nil {
-                    if let mark = model.state.tourCoachMark {
-                        TourCoachMarkView(model: model, mark: mark)
+                    if let mark = model.state.tourCoachMark, let step = model.state.tourStep {
+                        TourCoachMarkView(model: model, mark: mark, step: step)
                     } else {
                         Button("Skip tour") { model.tour.skip() }
                             .buttonStyle(.borderedProminent)
