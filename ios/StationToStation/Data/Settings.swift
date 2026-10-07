@@ -10,7 +10,9 @@ import Foundation
 /// with the friends on both platforms; what moves is what `Credentials` names.
 final class Settings {
 
-    private let store = UserDefaults.standard
+    private let store: UserDefaults
+
+    init(store: UserDefaults = .standard) { self.store = store }
 
     private enum Key {
         static let setlistFmApiKey = "setlistfm_api_key"
@@ -26,6 +28,7 @@ final class Settings {
         static let mySetlistFmUser = "my_setlistfm_user"
         static let myCardName = "my_card_name"
         static let onboarded = "onboarded"
+        static let tourState = "tour_state"
         static let friends = "friends"
     }
 
@@ -113,9 +116,19 @@ final class Settings {
         store.set(privateKey.trimmingCharacters(in: .whitespacesAndNewlines), forKey: Key.clashfinderPrivateKey)
     }
 
-    /// Whether the first-run door has been passed. False on a fresh install and
-    /// nowhere else — `UserDefaults` answers false for a key it has never seen, which
-    /// is exactly the answer wanted.
+    var tourState: TourState {
+        guard let data = store.data(forKey: Key.tourState),
+              let state = try? JSONDecoder().decode(TourState.self, from: data) else { return TourState() }
+        return state
+    }
+
+    func saveTourState(_ state: TourState) {
+        guard let data = try? JSONEncoder().encode(state) else { return }
+        store.set(data, forKey: Key.tourState)
+    }
+
+    /// Whether the Tour has been offered. False on a fresh install and nowhere else:
+    /// `UserDefaults` answers false for a key it has never seen.
     var onboarded: Bool { store.bool(forKey: Key.onboarded) }
     func setOnboarded() { store.set(true, forKey: Key.onboarded) }
 
