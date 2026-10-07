@@ -19,18 +19,11 @@ Every version listed under "What has changed" in the
 ## 1.12.1 — 2026-10-07
 
 <!-- play -->
-A ticket for a night that has already happened now lands on your line as a gig you were at, not as a plan stuck above today. Tickets already caught this way are put right when the app opens. And if the app ever finds its saved timeline unreadable, it now sets the file aside rather than starting over on top of it, so your hand-logged gigs are not lost.
+Fix: a bug where imported tickets with a past date would get stuck as a planned event near the current events.
 <!-- /play -->
 
-**Tickets for past nights.** Share a ticket for a gig that has already been,
-and it joins your line as a night you were at. Before, it sat above today as a
-plan, and nothing ever moved it. Tickets that were caught like this are moved
-to your line the next time the app opens.
-
-**Fixes.** If the app's saved timeline can't be read, it is kept aside on the
-phone, untouched, instead of being overwritten by the next save. Behind the
-scenes, the iPhone app has been reorganised to match Android, with no change
-to how it works.
+**Fixes.** Imported tickets with a past date no longer get stuck as a planned
+event near the current events; ones already stuck are fixed when the app opens.
 
 ## 1.12.0 — 2026-10-05
 
