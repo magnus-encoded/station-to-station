@@ -46,6 +46,7 @@ struct UiState {
     var tourStep: TourStep?
     var tourCoachMark: TourCoachMark?
     var tourFinished = false
+    var tourUpgradePrompt = false
     /// True once launch has put the saved timeline on screen, Festivals and all.
     /// Until then the launch look stays over the Timeline, so a reopened app never
     /// shows an empty timeline or a "0 shows" count on the way to its own.

@@ -32,13 +32,35 @@ struct TourCoachMarkView: View {
     }
 }
 
+struct TourUpgradePromptView: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("New: a guided tour").font(.headline)
+            Text("Walk through the app at a demo gig. It takes a few minutes and leaves nothing behind.")
+            HStack {
+                Button("No thanks") { model.tour.dismissUpgradePrompt() }
+                Spacer()
+                Button("Take the tour") { model.tour.acceptUpgradePrompt() }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding()
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .padding()
+    }
+}
+
 private struct TourModifier: ViewModifier {
     @ObservedObject var model: AppModel
 
     func body(content: Content) -> some View {
         content
             .overlay(alignment: .bottom) {
-                if !model.state.tourFinished, model.state.tourStep != nil {
+                if model.state.tourUpgradePrompt {
+                    TourUpgradePromptView(model: model)
+                } else if !model.state.tourFinished, model.state.tourStep != nil {
                     if let mark = model.state.tourCoachMark {
                         TourCoachMarkView(model: model, mark: mark)
                     } else {
