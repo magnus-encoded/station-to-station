@@ -39,7 +39,7 @@ fun TourOverlay(viewModel: AppViewModel, content: @Composable () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     Box(Modifier.fillMaxSize()) {
         content()
-        if (state.tour.step != null) {
+        if (state.tour.running) {
             CoachMarkCard(
                 mark = state.coachMark,
                 onAcknowledge = { viewModel.tour.dispatch(TourEvent.Acknowledged) },

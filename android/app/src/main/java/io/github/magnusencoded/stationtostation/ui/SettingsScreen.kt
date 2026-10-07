@@ -1,5 +1,6 @@
 package io.github.magnusencoded.stationtostation.ui
 
+import io.github.magnusencoded.stationtostation.features.tour.running
 import io.github.magnusencoded.stationtostation.data.laneKey
 import android.Manifest
 import android.content.Context
@@ -262,7 +263,7 @@ private fun SettingsField(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(onClick = onOpenHandover) { Text("Move to a new phone", color = Ink) }
-                if (state.tour.step != null) {
+                if (state.tour.running) {
                     TextButton(onClick = { onTour(false) }) { Text("Resume tour", color = Ink) }
                 }
                 TextButton(onClick = { onTour(true) }) { Text("Replay tour", color = Ink) }

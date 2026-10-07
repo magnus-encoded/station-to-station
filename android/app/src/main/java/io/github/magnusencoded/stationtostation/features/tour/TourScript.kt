@@ -29,19 +29,24 @@ data class Place(val latitude: Double, val longitude: Double)
 /** Everything a restart has to get back; saved beside `onboarded`. */
 @Serializable
 data class TourState(
-    /** Null when no Tour is running. */
+    /** Null when no Tour has started, or after one was skipped. S20 is the end. */
     val step: TourStep? = null,
     val finished: Boolean = false,
     val upgradePromptDismissed: Boolean = false,
     val pendingSpotifyRetry: Boolean = false,
     val seenContextHints: Set<String> = emptySet(),
-    /** Side effects that must not run twice in one Tour, even when its step is re-entered. */
-    val done: Set<OnceOnly> = emptySet(),
+    /** Side effects that finished; a resumed step doesn't ask for them again. */
+    val completedEffects: Set<OnceOnly> = emptySet(),
+    /** Bumped for each new **Demo world**, so a replay is known to need a fresh one. */
+    val demoWorld: Int = 0,
     /** Where the exchange happened, which becomes the demo venue. */
     val venue: Place? = null,
     /** S18 waits for two events in turn; this is the first having arrived. */
     val returnedFromPhotos: Boolean = false,
 )
+
+/** A Tour is under way: started, and neither skipped nor at S20. */
+val TourState.running: Boolean get() = step != null && !finished
 
 enum class OnceOnly { LookUpBand, ImportDemoTicket }
 
@@ -93,21 +98,28 @@ object TourScript {
         val step = state.step
         return when (event) {
             is TourEvent.Started ->
-                if (event.online && step == null && !state.finished) enter(state, TourStep.S1)
+                if (event.online && step == null && !state.finished) enter(state.copy(demoWorld = state.demoWorld + 1), TourStep.S1)
                 else TourTransition(state)
             // From Settings, at any time: a finished Tour doesn't block it.
-            TourEvent.ReplayRequested -> {
-                val fresh = state.copy(finished = false, done = emptySet(), venue = null, returnedFromPhotos = false)
-                val entered = enter(fresh, TourStep.S1)
-                entered.copy(commands = listOf(TourCommand.PurgeDemoWorld) + entered.commands)
-            }
-            TourEvent.Resumed -> if (step != null) enter(state, step) else TourTransition(state)
-            TourEvent.Skipped -> if (step != null) finish(state) else TourTransition(state)
+            TourEvent.ReplayRequested -> enter(
+                state.copy(
+                    finished = false, completedEffects = emptySet(), venue = null,
+                    returnedFromPhotos = false, demoWorld = state.demoWorld + 1,
+                ),
+                TourStep.S1,
+            )
+            TourEvent.Resumed ->
+                if (step != null && !state.finished) enter(state, step) else TourTransition(state)
+            // Skip at S20 still clears up; the Tour had already finished itself.
+            TourEvent.Skipped -> if (step != null) TourTransition(
+                state.copy(step = null, finished = true, completedEffects = emptySet(), venue = null, returnedFromPhotos = false),
+                listOf(TourCommand.PurgeDemoWorld),
+            ) else TourTransition(state)
             else -> when {
-                step != null -> advance(state, step, event)
                 // The retry is offered after the Tour, outside any step.
-                event == TourEvent.SpotifyExported && state.pendingSpotifyRetry ->
+                !state.running && event == TourEvent.SpotifyExported && state.pendingSpotifyRetry ->
                     TourTransition(state.copy(pendingSpotifyRetry = false))
+                step != null -> advance(state, step, event)
                 else -> TourTransition(state)
             }
         }
@@ -158,22 +170,22 @@ object TourScript {
             else -> Unit
         }
         step.mark?.let { commands += TourCommand.ShowCoachMark(it) }
-        var done = state.done
-        if (step == TourStep.S3 && OnceOnly.LookUpBand !in done) {
-            commands += TourCommand.LookUpBand
-            done = done + OnceOnly.LookUpBand
-        }
+        val done = state.completedEffects
+        if (step == TourStep.S3 && OnceOnly.LookUpBand !in done) commands += TourCommand.LookUpBand
         if (step == TourStep.S9 && OnceOnly.ImportDemoTicket !in done) {
             commands += TourCommand.ImportDemoTicket(state.venue)
-            done = done + OnceOnly.ImportDemoTicket
         }
         if (step == TourStep.S17) commands += TourCommand.FillSetlist
-        return TourTransition(state.copy(step = step, done = done), commands)
+        return TourTransition(state.copy(step = step), commands)
     }
 
-    /** S20, and the way out of every step by Skip. */
+    /** S20: the playlist is kept, everything else the Tour made goes. */
     private fun finish(state: TourState) = TourTransition(
-        state.copy(step = null, finished = true, done = emptySet(), venue = null, returnedFromPhotos = false),
+        state.copy(step = TourStep.S20, finished = true, completedEffects = emptySet(), venue = null, returnedFromPhotos = false),
         listOf(TourCommand.PurgeDemoWorld, TourCommand.MarkTourFinished),
     )
+
+    /** The platform reports a once-only effect done, so a resumed step won't repeat it. */
+    fun completed(state: TourState, effect: OnceOnly): TourState =
+        state.copy(completedEffects = state.completedEffects + effect)
 }

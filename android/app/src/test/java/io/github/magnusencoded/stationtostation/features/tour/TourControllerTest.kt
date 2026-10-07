@@ -75,12 +75,23 @@ class TourControllerTest {
     fun skip_purges_the_demo_world_and_finishes_the_tour() {
         val c = controller()
         c.launch()
+        store.purges = 0
         c.dispatch(TourEvent.Skipped)
         assertEquals(1, store.purges)
         assertTrue(fake.current.tour.finished)
         assertNull(fake.current.tour.step)
         assertNull(fake.current.coachMark)
         assertTrue(store.saved!!.finished)
+    }
+
+    @Test
+    fun a_lookup_reported_done_is_not_asked_for_again_on_resume() {
+        val c = controller()
+        c.launch()
+        c.dispatch(TourEvent.Acknowledged)
+        c.dispatch(TourEvent.CurtainPulled)
+        c.completed(OnceOnly.LookUpBand)
+        assertEquals(setOf(OnceOnly.LookUpBand), store.saved?.completedEffects)
     }
 
     @Test

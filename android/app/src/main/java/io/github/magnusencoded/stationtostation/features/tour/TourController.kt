@@ -27,7 +27,7 @@ class TourController(
     fun launch() {
         val current = state()
         when {
-            current.tour.step != null -> dispatch(TourEvent.Resumed)
+            current.tour.running -> dispatch(TourEvent.Resumed)
             !current.onboarded -> dispatch(TourEvent.Started(isOnline()))
         }
     }
@@ -38,12 +38,19 @@ class TourController(
     /** Settings' "Replay tour": from S1 with a fresh **Demo world**, finished or not. */
     fun replay() = dispatch(TourEvent.ReplayRequested)
 
+    /** For the engines of S3 and S9: their effect is done and isn't asked for again. */
+    fun completed(effect: OnceOnly) {
+        val after = TourScript.completed(state().tour, effect)
+        update { it.copy(tour = after) }
+        scope.launch { store.saveTour(after) }
+    }
+
     fun dispatch(event: TourEvent) {
         val before = state().tour
         val (after, commands) = TourScript.on(before, event)
         if (after == before && commands.isEmpty()) return
         // Offered means started: an offline first launch leaves it to be offered again.
-        val offered = before.step == null && after.step != null
+        val offered = !before.running && after.running
         val mark = commands.filterIsInstance<TourCommand.ShowCoachMark>().lastOrNull()?.mark
         update {
             it.copy(
@@ -55,6 +62,8 @@ class TourController(
         scope.launch {
             store.saveTour(after)
             if (offered) store.setOnboarded()
+            // A new Demo world starts clean, whatever a killed earlier Tour left behind.
+            if (after.demoWorld != before.demoWorld) store.purgeDemoWorld()
             for (command in commands) {
                 when (command) {
                     TourCommand.PurgeDemoWorld -> store.purgeDemoWorld()
