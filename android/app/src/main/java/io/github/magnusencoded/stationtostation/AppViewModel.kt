@@ -860,7 +860,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         writeLog = ::writeLog,
         fail = ::fail,
     )
-    val tour = tourController(application, _state, settings, timelines, viewModelScope)
+    val tour = tourController(application, _state, settings, timelines, viewModelScope, contacts, where) { ticket, gigId ->
+        tickets.importTicket(ticket, gigId)
+    }
 
     private val settingsController = SettingsController(
         update = { transform -> _state.update(transform) },
@@ -966,8 +968,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     tour = settings.tour.first(),
                 )
             }
-            tour.launch()
             restoreTimelines()
+            tour.launch()
             // After the timeline is back, because the only reason the radio runs is a Gig
             // on this timeline that is still in participation.
             gossipController.sync()

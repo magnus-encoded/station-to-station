@@ -58,6 +58,7 @@ class SettingsRepository(private val context: Context) {
         val FRIENDS = stringPreferencesKey("friends")
         val ONBOARDED = booleanPreferencesKey("onboarded")
         val TOUR = stringPreferencesKey("tour")
+        val TOUR_LOCATION_ASKED = booleanPreferencesKey("tour_location_asked")
     }
 
     /**
@@ -138,6 +139,26 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun saveFriends(friends: List<Friend>) {
         context.dataStore.edit { it[Keys.FRIENDS] = encodeFriends(friends) }
+    }
+
+    /** True once: the **Tour** asks for location a single time, and a refusal is not asked again. */
+    suspend fun askTourLocationOnce(): Boolean {
+        var ask = false
+        context.dataStore.edit {
+            ask = it[Keys.TOUR_LOCATION_ASKED] != true
+            it[Keys.TOUR_LOCATION_ASKED] = true
+        }
+        return ask
+    }
+
+    /** Removes the demo-tagged **Contacts** and returns those left. */
+    suspend fun purgeDemoContacts(): List<Friend> {
+        var kept = emptyList<Friend>()
+        context.dataStore.edit {
+            kept = decodeFriends(it[Keys.FRIENDS]).filterNot { friend -> friend.demo }
+            it[Keys.FRIENDS] = encodeFriends(kept)
+        }
+        return kept
     }
 
     val setlistFmApiKey: Flow<String?> =

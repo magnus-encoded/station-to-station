@@ -100,6 +100,14 @@ class TicketsController(
         scope.launch { routeParsedTicket(parsed, alwaysAsk = true) }
     }
 
+    /** Imports [ticket] onto [targetGigId] only, through the routing a shared ticket takes. True once its admissions are attached. */
+    suspend fun importTicket(ticket: ParsedTicket, targetGigId: String): Boolean {
+        routeParsedTicket(ticket, targetGigId = targetGigId)
+        val payloads = ticket.admissions.map { it.payload.toAdmissionBase64() }
+        return payloads.isNotEmpty() && state().attendanceByGig[targetGigId]?.admissions.orEmpty()
+            .map { it.payload }.containsAll(payloads)
+    }
+
     /**
      * [handleSharedTicketPdf] and [handleTicketLink]'s shared decision, once each has its own [ParsedTicket].
      *
@@ -118,6 +126,7 @@ class TicketsController(
     private suspend fun routeParsedTicket(
         read: ParsedTicket,
         alwaysAsk: Boolean = false,
+        targetGigId: String? = null,
         keepOriginal: (() -> String?)? = null,
     ) {
         val parsed = withContext(Dispatchers.IO) {
@@ -128,7 +137,9 @@ class TicketsController(
                 checked
             }
         }
-        val known = state().setlists + state().plannedGigs
+        val known = (state().setlists + state().plannedGigs)
+            .filter { targetGigId == null || it.id == targetGigId }
+        if (targetGigId != null && known.none { it.id == targetGigId }) return
         val routed = routeTicket(parsed, known)
         val routing = if (!alwaysAsk) routed else when (routed) {
             is TicketRouting.AlreadyKnown -> TicketRouting.NeedsConfirmation(parsed, possibleMatch = routed.gig)
@@ -150,7 +161,8 @@ class TicketsController(
             is TicketImport.Attach -> attachAdmissions(landing.gigId, parsed.admissions)
             is TicketImport.AttachThenLookUp -> {
                 attachAdmissions(landing.gigId, parsed.admissions)
-                lookUpLocalGig(landing.gigId, false)
+                // A Demo world night has no catalogue counterpart to adopt.
+                if (timelines.load().gigs[landing.gigId]?.demo != true) lookUpLocalGig(landing.gigId, false)
             }
             is TicketImport.MintFromSetlistFm -> {
                 planning.planFmGig(landing.hit)

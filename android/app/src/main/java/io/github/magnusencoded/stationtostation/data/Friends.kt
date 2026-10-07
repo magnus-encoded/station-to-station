@@ -32,6 +32,8 @@ data class Friend(
      * Only the radio fills this in. A link or QR code never can (#271).
      */
     val publicKey: String? = null,
+    /** Made by the **Tour**: part of the **Demo world**, gone when it ends or is skipped. */
+    val demo: Boolean = false,
 )
 
 /**

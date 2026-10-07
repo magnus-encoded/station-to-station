@@ -78,6 +78,13 @@ class ContactsController(
         scope.launch { addFriendNow(friend) }
     }
 
+    /** The **Tour**'s **Contact**, tagged demo. False where a **Contact** with that key already exists. */
+    internal suspend fun addDemoFriend(friend: Friend): Boolean {
+        if (state().friends.any { it.publicKey == friend.publicKey }) return false
+        addFriendNow(friend.copy(demo = true))
+        return state().friends.any { it.publicKey == friend.publicKey && it.demo }
+    }
+
     private suspend fun addFriendNow(friend: Friend) {
         when (val arrival = friendArrival(friend, state().friends)) {
             is FriendArrival.Unchanged -> Unit
