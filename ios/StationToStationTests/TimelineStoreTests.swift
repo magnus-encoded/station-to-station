@@ -712,6 +712,15 @@ final class TimelineStoreTests: XCTestCase {
 
     // MARK: - The ticket's Admissions (#412, #441)
 
+    /// A year after today, so the night stays ahead however long this test lives.
+    /// `createLocalGig` stamps the wall clock, so a fixed date expires (#733).
+    private func aNightStillAhead() -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "dd-MM-yyyy"
+        return f.string(from: Calendar.current.date(byAdding: .year, value: 1, to: Date())!)
+    }
+
     private func admission(_ text: String, _ symbology: String = "qr", page: Int = 0) -> StoredAdmission {
         StoredAdmission(payload: Data(text.utf8).base64EncodedString(), symbology: symbology, page: page)
     }
@@ -743,7 +752,8 @@ final class TimelineStoreTests: XCTestCase {
     /// ran is kept. Before, the record read before the await was saved back whole.
     func testAnUpdateChangesOnlyItsOwnFieldsOnTheRecordAsItIsNow() async {
         let store = TimelineStore(file: tempFile(contents: "{}"))
-        let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
+        // A night still ahead: a past planned night holding a ticket loads as attended.
+        let id = await store.createLocalGig(date: aNightStillAhead(), artist: "Big Thief", venue: "")
         await store.saveAttendance(setlistId: id, attendance: StoredAttendance(provenance: "planned"))
         // Attached while the geocoder was out.
         await store.attachAdmissions(setlistId: id, admissions: [admission("TKT-9F31")])
