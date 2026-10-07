@@ -7,7 +7,7 @@ on:
   push:
     paths: [ "ios/**", "fixtures/**", ".github/workflows/ios.yml" ]
   pull_request:
-    branches: [ "main", "features-parity" ]
+    branches: [ "main", "features-parity", "features-tour" ]
     paths: [ "ios/**", "fixtures/**", ".github/workflows/ios.yml" ]
   # A release published by hand builds the iOS side for it. Not load-bearing:
   # android-release.yml creates its release with GITHUB_TOKEN, and GitHub will
