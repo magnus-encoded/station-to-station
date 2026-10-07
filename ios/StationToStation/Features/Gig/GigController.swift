@@ -10,23 +10,32 @@ final class GigController {
     private let setlistFm: SetlistFmClient
     private let location: DeviceLocation
     private let gossip: GossipController
+    private let publishLog: (String, String, Date, [Int: String]) async -> Void
 
     /// One-shot per launch: dismissing an offer must not make it reappear (#174).
     private var askedToCheckIn = false
     var onCheckedIn: ((String) -> Void)?
+    /// The clock a **Log** edit is stamped with; the **Demo clock** for the demo **Gig** only.
+    var logNow: ((String) -> Date)?
+    /// True when the **Demo world** owns the edit, bypassing timeline persistence and radio publication.
+    var onLogWritten: ((String, StoredLog, StoredLog, Int64) -> Bool)?
 
     init(
         host: StateHost,
         timelines: TimelineStore,
         setlistFm: SetlistFmClient,
         location: DeviceLocation,
-        gossip: GossipController
+        gossip: GossipController,
+        publishLog: @escaping (String, String, Date, [Int: String]) async -> Void = { gigId, localId, expiry, changes in
+            await GossipChannel.shared.publishLog(gigId: gigId, localGigId: localId, expiry: expiry, changes: changes)
+        }
     ) {
         self.host = host
         self.timelines = timelines
         self.setlistFm = setlistFm
         self.location = location
         self.gossip = gossip
+        self.publishLog = publishLog
     }
 
     /// How many pictures a delete would destroy — the ones this app holds the last
@@ -158,7 +167,7 @@ final class GigController {
 
     /// `write-to-log`: the same path typing into the Log takes, once the **Gig** is open.
     func writeToLog(appends: [String], replacements: [Int: String]) {
-        writeLog { $0.writing(appends: appends, replacements: replacements) }
+        writeLog { $0.writing(appends: appends, replacements: replacements, now: $1) }
     }
 
     /// True if any gig I know about could be checked into right now on the
@@ -337,27 +346,29 @@ final class GigController {
     /// they played by inaction, so this is a tap, not a diff against a candidate
     /// pool. Editing songs never touches `closed` — "that was the whole set" is a
     /// separate, deliberate sentence.
-    func addToLog(_ song: String) { writeLog { $0.adding(song) } }
+    func addToLog(_ song: String) { writeLog { $0.adding(song, now: $1) } }
 
-    func removeFromLog(_ index: Int) { writeLog { $0.removingAt(index) } }
+    func removeFromLog(_ index: Int) { writeLog { log, _ in log.removingAt(index) } }
 
     /// A title replaces entry `index`, and what was written moves beneath it (#126).
-    func correctLogEntry(_ index: Int, title: String) { writeLog { $0.correctingAt(index, title: title) } }
+    func correctLogEntry(_ index: Int, title: String) { writeLog { log, _ in log.correctingAt(index, title: title) } }
 
     /// The way back. A wrong correction must not be a one-way door.
-    func restoreLogEntry(_ index: Int) { writeLog { $0.restoringAt(index) } }
+    func restoreLogEntry(_ index: Int) { writeLog { log, _ in log.restoringAt(index) } }
 
     /// The only thing that may **Close** a **Log**, and it is a person saying so.
     /// setlist.fm has nowhere to keep this bit, so it never leaves the device.
     func setLogClosed(_ closed: Bool) {
-        writeLog { $0.completing(closed) }
+        writeLog { $0.completing(closed, now: $1) }
     }
 
-    private func writeLog(_ edit: (StoredLog) -> StoredLog) {
+    private func writeLog(_ edit: (StoredLog, Int64) -> StoredLog) {
         guard let setlist = host.state.selectedSetlist else { return }
         let before = host.state.gigLog
-        let updated = edit(before)
+        let now = epochMs(logNow?(setlist.id) ?? Date())
+        let updated = edit(before, now)
         host.state.gigLog = updated
+        if onLogWritten?(setlist.id, before, updated, now) == true { return }
         Task {
             await timelines.saveLog(setlistId: setlist.id, log: updated)
             let cache = await timelines.load()
@@ -365,8 +376,7 @@ final class GigController {
                let date = setlist.eventDate, let end = gossipExpiry(gigDate: date),
                let until = gossipParticipationUntil(checkedInAt: cache.attendance()[setlist.id]?.checkedInAt,
                     closed: updated.closed, completedAt: updated.completedAt, nightEnd: end, stoppedAt: GossipTransport.shared.stoppedAt), Date() < until {
-                await GossipChannel.shared.publishLog(gigId: setlist.id, localGigId: local.id,
-                    expiry: end, changes: gossipLogChanges(before: before, after: updated))
+                await publishLog(setlist.id, local.id, end, gossipLogChanges(before: before, after: updated))
             }
             gossip.contactsChanged()
         }

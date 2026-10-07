@@ -207,15 +207,15 @@ extension StoredLog {
     /// Replacements go first, in song order: song N replaces, N just past the end
     /// appends, and one further out is ignored, so a link never makes a **Gap** typing
     /// could not. The `appends` then follow in order.
-    func writing(appends: [String], replacements: [Int: String]) -> StoredLog {
+    func writing(appends: [String], replacements: [Int: String], now: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) -> StoredLog {
         var log = self
         for n in replacements.keys.sorted() {
             let at = n - 1
             let text = replacements[n]!
             if at < log.songs.count { log = log.correctingAt(at, title: text) }
-            else if at == log.songs.count { log = log.adding(text) }
+            else if at == log.songs.count { log = log.adding(text, now: now) }
         }
-        return appends.reduce(log) { $0.adding($1) }
+        return appends.reduce(log) { $0.adding($1, now: now) }
     }
 }
 

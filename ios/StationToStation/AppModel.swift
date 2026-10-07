@@ -294,7 +294,7 @@ final class AppModel: ObservableObject, StateHost {
     @Published var state = UiState()
 
     let settings = Settings()
-    lazy var tour = makeTourController()
+    lazy var tour = makeTourController(setlistFm: setlistFm, musicBrainz: musicBrainz)
     lazy var hints = TourHintEffects(host: self, tour: tour)
     private lazy var setlistFm = SetlistFmClient(
         keySource: { [settings] in settings.setlistFmKey },
@@ -323,6 +323,10 @@ final class AppModel: ObservableObject, StateHost {
         host: self, spotify: spotify, timelines: timelines,
         loadGigMedia: { [unowned self] in self.gigMedia.loadGigMedia($0) },
         loadGigLog: { [unowned self] setlist in
+            if let demo = self.tour.demoLog(for: setlist.id) {
+                self.state.gigLog = demo
+                return
+            }
             self.state.gigLog = StoredLog()
             Task {
                 let log = await self.timelines.log(setlistId: setlist.id)

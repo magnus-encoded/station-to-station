@@ -39,6 +39,20 @@ struct LogEditor: View {
 
             addField
             gapButton
+            ForEach(model.tour.demoGossip(for: setlist.id)) { gossip in
+                VStack(alignment: .leading, spacing: 4) {
+                    if gossip.source == .virtualFriend {
+                        Text(model.tour.virtualFriendName).font(.system(size: 11)).foregroundStyle(slate)
+                        if !gossip.characterLine.isEmpty {
+                            Text(gossip.characterLine).font(.system(size: 11)).foregroundStyle(slate)
+                        }
+                    }
+                    Text(gossip.song).font(.system(size: 13)).foregroundStyle(muted)
+                }.padding(.vertical, 6)
+            }
+            if let line = model.tour.setlistFillLine(for: setlist.id), !line.isEmpty {
+                Text(line).font(.system(size: 11)).foregroundStyle(slate).padding(.vertical, 6)
+            }
             Spacer().frame(height: 14)
             closedToggle(log)
 
