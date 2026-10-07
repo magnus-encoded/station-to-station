@@ -13,6 +13,7 @@ final class GigController {
 
     /// One-shot per launch: dismissing an offer must not make it reappear (#174).
     private var askedToCheckIn = false
+    var onCheckedIn: ((String) -> Void)?
 
     init(
         host: StateHost,
@@ -245,6 +246,7 @@ final class GigController {
             // being a plan, and the lane it leaves is drawn from this map.
             host.state.attendanceByGig[gigId] = attendance
             if host.state.selectedSetlist?.id == gigId { host.state.selectedAttendance = attendance }
+            onCheckedIn?(gigId)
             // And into the gossip channel, signed, to be carried by whoever this phone meets
             // between now and the end of this night (#417). Nothing is promised by this: see
             // `GossipTransport` on what iOS background delivery actually is.

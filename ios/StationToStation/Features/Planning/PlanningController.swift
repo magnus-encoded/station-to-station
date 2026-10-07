@@ -15,6 +15,7 @@ final class PlanningController {
     /// The in-flight suggestion lookup, held so the next keystroke can cancel it.
     private var artistSearch: Task<Void, Never>?
     var onGigAdded: ((String) -> Void)?
+    var onCalendarAdded: ((_ gigId: String, _ eventId: String) -> Void)?
 
     init(
         host: StateHost,
@@ -327,6 +328,7 @@ final class PlanningController {
         Task {
             if let id = await insertCalendarEvent(setlist) {
                 markCalendarAdded(setlist.id, eventId: id)
+                onCalendarAdded?(setlist.id, id)
             } else {
                 host.state.error = "Couldn't add this to your calendar."
                 host.state.errorKind = nil
