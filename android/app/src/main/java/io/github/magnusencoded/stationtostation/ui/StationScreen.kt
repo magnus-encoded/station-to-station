@@ -391,7 +391,10 @@ fun StationTimelineScreen(
         onAddGig = { adding = true; viewModel.tour.dispatch(TourEvent.CurtainPulled) },
         onCompare = { comparing = it },
         menuFor = { menuFor(it) },
-        setZoomedOut = { viewModel.setZoomedOut(it) },
+        setZoomedOut = {
+            viewModel.setZoomedOut(it)
+            if (it) viewModel.tour.dispatch(TourEvent.PinchedOut)
+        },
         consumeJustConnected = { viewModel.consumeJustConnected() },
         toggleContactLight = { viewModel.toggleContactLight() },
         toggleLineHidden = { viewModel.toggleLineHidden(it) },

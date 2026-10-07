@@ -224,4 +224,14 @@ class TourControllerTest {
         assertTrue(store.demo.isEmpty())
         assertNull(store.saved)
     }
+
+    @Test
+    fun a_ticket_import_saved_before_process_death_advances_on_resume_without_importing_again() {
+        fake.update {
+            it.copy(onboarded = true, tour = TourState(step = TourStep.S9, completedEffects = setOf(OnceOnly.ImportDemoTicket)))
+        }
+        controller().launch()
+        assertEquals(TourStep.S10, fake.current.tour.step)
+        assertEquals(CoachMark.Calendar, fake.current.coachMark)
+    }
 }

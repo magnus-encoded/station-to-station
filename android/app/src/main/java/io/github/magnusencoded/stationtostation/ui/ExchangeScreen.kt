@@ -73,6 +73,7 @@ import io.github.magnusencoded.stationtostation.AppViewModel
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangePeer
 import io.github.magnusencoded.stationtostation.data.gossip.GossipRadioStatus
+import io.github.magnusencoded.stationtostation.features.tour.TourExchangeScreen
 import kotlinx.coroutines.delay
 import java.time.Duration
 import java.time.Instant
@@ -106,6 +107,12 @@ fun ExchangeScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    // Keep this visit local while S7 advances and navigation catches up.
+    val tourExchange = remember { viewModel.tour.exchangeFriendName != null }
+    if (tourExchange) {
+        TourExchangeScreen(viewModel, onBack, onConnected)
+        return
+    }
 
     // Permission is asked for here and nowhere else: this is the only screen that needs
     // the radios, and opening it is the user saying they want to be found.
@@ -231,6 +238,38 @@ fun ExchangeScreen(
                     }
                 }
                 Spacer(Modifier.height(24.dp))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun LocalExchangeScreen(name: String, connecting: Boolean, onBack: () -> Unit, onConnect: () -> Unit) {
+    Scaffold(
+        containerColor = Ground,
+        topBar = {
+            TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Ground, titleContentColor = Ink),
+                title = { Text("Connect a timeline", fontFamily = Serif, fontSize = 18.sp, color = Ink, modifier = Modifier.asHeading()) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Faint)
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        Column(
+            Modifier.padding(padding).fillMaxSize().swipeRightToBack(onBack = onBack).padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            if (connecting) {
+                ConnectingBeat(name)
+            } else {
+                Radar(active = false)
+                Spacer(Modifier.height(28.dp))
+                PeerRow(ExchangePeer(id = "tour-friend", name = name, setlistfm = null), onConnect)
             }
         }
     }
