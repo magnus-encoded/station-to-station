@@ -60,6 +60,7 @@ class HandoverController(
     private val timelines: TimelineStore,
     private val scope: CoroutineScope,
     private val restoreTimelines: suspend () -> Unit,
+    private val offerable: (TimelineCache) -> TimelineCache = { it },
 ) {
 
     // Both accounts functions take a socket whose TLS handshake and link-key challenge
@@ -164,7 +165,7 @@ class HandoverController(
                     val socket = listening.accept()
                     handoverCloseables = listOf(server, socket)
                     socket.use { live ->
-                        val cache = timelines.load()
+                        val cache = offerable(timelines.load())
                         val manifest = hashedManifest(deviceManifest(cache, allow, myIdentities()), cache)
                         val payload = accountsPayload(allow)
                         val refById = cache.gigMedia.values.flatten().associate { it.id to it.ref }

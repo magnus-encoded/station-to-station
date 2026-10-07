@@ -36,6 +36,8 @@ class TourNightArrivesEffects(
     private val clock = MutableStateFlow(saved.clock?.let { LocalDateTime.ofInstant(Instant.ofEpochMilli(it), zone) })
     val demoNow = clock.asStateFlow()
 
+    val gigId: String? get() = saved.gigId
+
     fun isDemoGig(gigId: String): Boolean = saved.gigId == gigId
 
     suspend fun advance(to: DemoMoment, active: () -> Boolean) = writes.withLock {

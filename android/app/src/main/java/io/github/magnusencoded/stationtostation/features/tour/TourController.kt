@@ -1,12 +1,15 @@
 package io.github.magnusencoded.stationtostation.features.tour
 
 import io.github.magnusencoded.stationtostation.UiState
+import io.github.magnusencoded.stationtostation.data.TimelineCache
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
+import io.github.magnusencoded.stationtostation.features.gig.AttachClaim
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
+import java.time.ZoneId
 
 /** What the Tour saves and deletes. */
 interface TourStore {
@@ -29,6 +32,7 @@ class TourController(
     private val meetFriend: TourMeetFriendEffects? = null,
     private val askLocation: suspend () -> Boolean = { false },
     private val night: TourNightArrivesEffects? = null,
+    private val selfie: TourSelfieEffects? = null,
 ) {
     val hints = TourHintEffects(state, update, store, scope)
     val demoClock: StateFlow<LocalDateTime?> = night?.demoNow ?: MutableStateFlow(null)
@@ -58,6 +62,21 @@ class TourController(
     fun mapsOpened(gigId: String) = sendForDemoGig(gigId, TourEvent.MapsOpened)
     fun ticketShown(gigId: String) = sendForDemoGig(gigId, TourEvent.TicketShown)
     fun checkedIn(gigId: String) = sendForDemoGig(gigId, TourEvent.CheckedIn)
+
+    fun returnedFromPhotos(gigId: String) = sendForDemoGig(gigId, TourEvent.ReturnedFromPhotos)
+
+    /** Only for an attach on the demo **Gig** while the Tour runs; any other attach stays the person's own. */
+    fun mediaClaim(gigId: String): AttachClaim? {
+        val effects = selfie?.takeIf { isDemoGig(gigId) } ?: return null
+        val world = state().tour.demoWorld
+        return effects.claim(
+            active = { state().tour.running && state().tour.demoWorld == world },
+            added = { shared -> dispatch(TourEvent.MediaAdded(shared)) },
+        )
+    }
+
+    /** What this phone may offer a real **Contact**: the Demo world's media left out. */
+    fun offerable(cache: TimelineCache): TimelineCache = TourSelfieEffects.offerable(cache)
 
     private fun sendForDemoGig(gigId: String, event: TourEvent) {
         if (isDemoGig(gigId)) dispatch(event)
@@ -163,6 +182,17 @@ class TourController(
                         if (imported) {
                             completed(OnceOnly.ImportDemoTicket)
                             dispatch(TourEvent.TicketImported)
+                        }
+                    }
+                    TourCommand.DeliverFriendSelfie -> {
+                        val gigId = night?.gigId
+                        if (selfie != null && gigId != null) {
+                            val at = now(gigId).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                            scope.launch {
+                                selfie.deliverFriendSelfie(gigId, at) {
+                                    state().tour.running && state().tour.demoWorld == after.demoWorld
+                                }
+                            }
                         }
                     }
                     is TourCommand.AdvanceDemoClock -> night?.advance(command.to) {

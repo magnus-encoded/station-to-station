@@ -3,14 +3,21 @@ package io.github.magnusencoded.stationtostation.features.tour
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import android.net.Uri
+import androidx.core.content.ContextCompat
 import io.github.magnusencoded.stationtostation.UiState
 import io.github.magnusencoded.stationtostation.data.DeviceLocation
 import io.github.magnusencoded.stationtostation.data.ParsedTicket
 import io.github.magnusencoded.stationtostation.data.SettingsRepository
+import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.TimelineStore
+import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.features.contacts.ContactsController
+import java.io.ByteArrayOutputStream
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,6 +41,7 @@ fun tourController(
     scope: CoroutineScope,
     contacts: ContactsController,
     location: DeviceLocation,
+    photos: PhotoRepository,
     importTicket: suspend (ParsedTicket, String) -> Boolean,
 ): TourController {
     val demoGig: suspend () -> FmSetlist? = {
@@ -66,8 +74,24 @@ fun tourController(
         purgeContacts = { settings.purgeDemoContacts() },
         update = { transform -> state.update(transform) },
     )
+    val selfie = TourSelfieEffects(
+        timelines = timelines,
+        friendKey = { meetFriend.friendKey() },
+        selfieBytes = { selfieJpeg(context) },
+        storeSelfie = { id, bytes ->
+            withContext(Dispatchers.IO) {
+                val file = photos.receivedMediaFile(id, StoredMedia.Kind.PHOTO)
+                file.writeBytes(bytes)
+                val ref = photos.fileProviderRef(file)
+                if (photos.generateThumbnails(id, Uri.parse(ref))) ref else null.also { file.delete() }
+            }
+        },
+        discard = { photos.deleteOwnedBytes(it.id, it.ref) },
+        update = { transform -> state.update(transform) },
+    )
     val demoWorld = DemoWorldRegistry(
         listOf(
+            selfie,
             DemoWorld {
                 state.update { it.copy(calendarEventByGig = it.calendarEventByGig.filterKeys { id -> !night.isDemoGig(id) }) }
                 night.purge()
@@ -89,12 +113,35 @@ fun tourController(
         meetFriend = meetFriend,
         askLocation = { !location.hasPermission() && settings.askTourLocationOnce() },
         night = night,
+        selfie = selfie,
     )
 }
 
-internal fun friendName(readCharacter: () -> String): String = runCatching {
-    Json.parseToJsonElement(readCharacter()).jsonObject["name"]?.jsonPrimitive?.takeIf { it.isString }?.content.orEmpty()
-}.getOrDefault("")
+internal fun friendName(readCharacter: () -> String): String = characterString(readCharacter, "name").orEmpty()
+
+/** The character definition's string at [key], or null when the file or the key is missing. */
+internal fun characterString(readCharacter: () -> String, key: String): String? = runCatching {
+    Json.parseToJsonElement(readCharacter()).jsonObject[key]?.jsonPrimitive?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() }
+}.getOrNull()
+
+/** The character's selfie, a drawable named by the definition's `selfie` key, as JPEG bytes. */
+private suspend fun selfieJpeg(context: Context): ByteArray? = withContext(Dispatchers.Default) {
+    runCatching {
+        val name = characterString({ context.assets.open("character.json").bufferedReader().use { it.readText() } }, "selfie")
+            ?: return@runCatching null
+        val id = context.resources.getIdentifier(name, "drawable", context.packageName).takeIf { it != 0 }
+            ?: return@runCatching null
+        val drawable = ContextCompat.getDrawable(context, id) ?: return@runCatching null
+        val bitmap = Bitmap.createBitmap(SELFIE_EDGE, SELFIE_EDGE, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(Color.WHITE)
+        drawable.setBounds(0, 0, SELFIE_EDGE, SELFIE_EDGE)
+        drawable.draw(canvas)
+        ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.JPEG, 95, it) }.toByteArray()
+    }.getOrNull()
+}
+
+private const val SELFIE_EDGE = 1024
 
 private fun Context.isOnline(): Boolean {
     val manager = getSystemService(ConnectivityManager::class.java) ?: return false
