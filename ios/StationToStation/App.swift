@@ -55,9 +55,7 @@ struct StationToStationApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-            // The first-run door (#358), and nothing else is reachable behind it.
-            // A splash pushed *onto* the stack could be dismissed by a back
-            // gesture into a timeline nobody had asked to see yet.
+            // Offline at first launch: the splash stands in, and the Tour is offered on a later launch.
             if !model.state.onboarded {
                 SplashView()
                     .environmentObject(model)
@@ -151,6 +149,7 @@ struct StationToStationApp: App {
             }
             }
             }
+            .tourOverlay(model)
             // setlist.fm's automatic checks for local Gigs run while the app is in the
             // foreground and only then (#531): at launch, on coming back, and on their
             // timer. This is the launch that went straight to active, which `onChange`

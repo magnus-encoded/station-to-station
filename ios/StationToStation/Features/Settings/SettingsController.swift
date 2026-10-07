@@ -49,14 +49,9 @@ final class SettingsController {
         }
     }
 
-    /// The first-run door has been passed — by either button.
-    ///
-    /// A login that failed still counts: the door was opened deliberately, and making
-    /// someone answer the same splash again because Spotify was unreachable would
-    /// punish them for a network they do not control. Settings has the login for a
-    /// second attempt.
+    /// The splash has been passed for this launch only: `onboarded` is saved when the Tour
+    /// is offered, so an offline first launch still gets the Tour on a later one.
     func markOnboarded() {
-        settings.setOnboarded()
         host.state.onboarded = true
     }
 

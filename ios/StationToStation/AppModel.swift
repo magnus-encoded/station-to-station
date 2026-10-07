@@ -41,9 +41,11 @@ struct UiState {
     var bundledSpotifyClientId = false
     var bundledSetlistFmKey = false
     var grantedScope: String?
-    /// Whether the first-run door has been passed (#358). The splash is shown while
-    /// this is false, and a launch after it never sees one again.
+    /// Whether the Tour has been offered.
     var onboarded = false
+    var tourStep: TourStep?
+    var tourCoachMark: TourCoachMark?
+    var tourFinished = false
     /// True once launch has put the saved timeline on screen, Festivals and all.
     /// Until then the launch look stays over the Timeline, so a reopened app never
     /// shows an empty timeline or a "0 shows" count on the way to its own.
@@ -290,6 +292,7 @@ final class AppModel: ObservableObject, StateHost {
     @Published var state = UiState()
 
     let settings = Settings()
+    lazy var tour = makeTourController()
     private lazy var setlistFm = SetlistFmClient(
         keySource: { [settings] in settings.setlistFmKey },
         sharedQuotaSpentAt: { [settings] in settings.setlistFmSharedQuotaSpentAt },

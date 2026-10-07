@@ -92,6 +92,15 @@ struct SettingsView: View {
     var body: some View {
         let graph = serviceGraph(servicesAsKnown(model.state, access))
         VStack(spacing: 0) {
+            HStack {
+                if model.state.tourStep != nil && !model.state.tourFinished {
+                    Button("Resume tour") { model.tour.resume() }
+                }
+                Spacer()
+                Button("Replay tour") { model.tour.replay() }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
             SettingsField(graph: graph, onBack: { nav.pop() }, onOpen: { open = OpenTile(id: $0) })
             // Outside the Field, so a pan never carries it away. Moving to a new phone
             // lives here rather than on the Exchange screen: that screen is for meeting
