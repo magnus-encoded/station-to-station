@@ -11,7 +11,11 @@ final class TourControllerTests: XCTestCase {
 
     private final class World: DemoWorld {
         var purges = 0
-        func purge() { purges += 1 }
+        var onPurge: (() -> Void)?
+        func purge() {
+            purges += 1
+            onPurge?()
+        }
     }
 
     private func withSettings(_ body: (Settings) throws -> Void) rethrows {
@@ -100,6 +104,10 @@ final class TourControllerTests: XCTestCase {
             let world = World()
             let controller = TourController(host: host, settings: settings,
                                             connectivity: Connectivity(online: true), demoWorld: world)
+            world.onPurge = {
+                XCTAssertEqual(host.state.tourStep, .s20)
+                XCTAssertNil(host.state.tourCoachMark)
+            }
             controller.replay()
             XCTAssertEqual(world.purges, 1)
             XCTAssertEqual(host.state.tourStep, .s1)
@@ -109,6 +117,23 @@ final class TourControllerTests: XCTestCase {
             XCTAssertFalse(controller.state.demoTicketImported)
             XCTAssertEqual(controller.state.seenHints, ["rotate"])
             XCTAssertEqual(settings.tourState, controller.state)
+        }
+    }
+
+    func testSkipAtTheTerminalStepPurgesAndClearsTheStep() {
+        withSettings { settings in
+            settings.saveTourState(TourState(currentStep: .s20, finished: true))
+            let host = FakeState()
+            let world = World()
+            let controller = TourController(host: host, settings: settings,
+                                            connectivity: Connectivity(online: true), demoWorld: world)
+            controller.skip()
+            XCTAssertEqual(world.purges, 1)
+            XCTAssertNil(host.state.tourStep)
+            XCTAssertTrue(host.state.tourFinished)
+            XCTAssertEqual(settings.tourState, controller.state)
+            controller.skip()
+            XCTAssertEqual(world.purges, 1)
         }
     }
 

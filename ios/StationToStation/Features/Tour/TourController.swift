@@ -43,8 +43,9 @@ final class TourController {
     }
 
     func send(_ event: TourEvent) {
-        let (next, commands) = TourScript.reduce(state, event)
-        guard next != state || !commands.isEmpty else { return }
+        let (next, commands, freshDemoWorld) = TourScript.reduce(state, event)
+        guard next != state || !commands.isEmpty || freshDemoWorld else { return }
+        if freshDemoWorld { demoWorld.purge() }
         let changedStep = next.currentStep != state.currentStep
         state = next
         settings.saveTourState(state)

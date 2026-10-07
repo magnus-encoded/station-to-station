@@ -3,93 +3,81 @@ import XCTest
 @testable import StationToStation
 
 final class TourScriptFixtureTests: XCTestCase {
-    private func cases() throws -> [[String: Any]] {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("fixtures/tour/cases.json")
-        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [[String: Any]])
-    }
-
     func testSharedScriptCases() throws {
-        let rows: Set<String> = ["Offline start", "Skip at Sn", "Resume", "Replay",
-                                 "Out-of-order event", "Happy path", "Spotify declined", "Spotify retry"]
-        let selected = try cases().filter { rows.contains($0["row"] as? String ?? "") }
-        XCTAssertEqual(selected.filter { $0["row"] as? String == "Skip at Sn" }.count, 19)
-        for item in selected {
-            let id = try XCTUnwrap(item["id"] as? String)
-            var state = TourState()
-            let precondition = item["precondition"] as? [String: Any] ?? [:]
-            state.currentStep = (precondition["currentStep"] as? String).flatMap(TourStep.init(rawValue:))
-            state.finished = precondition["finished"] as? Bool ?? false
-            state.spotifyRetryPending = precondition["pendingSpotifyRetry"] as? Bool ?? false
-            let initial = state
-            var visited: [String] = []
-            var commands: [TourCommand] = []
-            var lastCommands: [TourCommand] = []
-            var reenteredStep: String?
-            var reenteredCommands: [TourCommand] = []
-            var spotify: String?
-            for raw in try XCTUnwrap(item["events"] as? [[String: Any]]) {
-                let type = try XCTUnwrap(raw["type"] as? String)
-                if type == "restart" {
-                    state = try JSONDecoder().decode(TourState.self, from: JSONEncoder().encode(state))
+        let rows: Set<String> = ["Happy path", "Offline start", "Skip at Sn", "Resume", "Replay",
+                                 "Out-of-order event", "Spotify declined", "Spotify retry"]
+        for fixture in try TourFixtures.load() {
+            switch fixture.row {
+            case "Fill: setlist.fm hit", "Fill: fallback": continue
+            default:
+                guard rows.contains(fixture.row) else {
+                    XCTFail("Unhandled Tour row: \(fixture.row)")
                     continue
                 }
-                let before = state
-                let result = TourScript.reduce(state, try event(raw))
-                state = result.0
-                lastCommands = result.1
-                commands += lastCommands
-                if let step = state.currentStep, step != before.currentStep { visited.append(step.rawValue) }
-                if type == "resumed" {
-                    reenteredStep = state.currentStep?.rawValue
-                    reenteredCommands = lastCommands
-                }
-                if type == "spotifyExported", state != before { spotify = "exported" }
             }
-            for (key, expected) in try XCTUnwrap(item["expect"] as? [String: Any]) {
-                switch key {
-                case "currentStep":
-                    XCTAssertEqual(state.currentStep?.rawValue, expected as? String, id)
-                case "finished": XCTAssertEqual(state.finished, expected as? Bool, id)
-                case "visitedSteps": XCTAssertEqual(visited, expected as? [String], id)
-                case "commands": XCTAssertEqual(commands.map(commandName), expected as? [String], id)
-                case "commandsEnd":
-                    let names = try XCTUnwrap(expected as? [String])
-                    XCTAssertEqual(Array(commands.suffix(names.count)).map(commandName), names, id)
-                case "spotify": XCTAssertEqual(spotify, expected as? String, id)
-                case "playlistCreated": XCTAssertEqual(spotify == "exported", expected as? Bool, id)
-                case "stateChanged": XCTAssertEqual(state != initial, expected as? Bool, id)
-                case "reenteredStep": XCTAssertEqual(reenteredStep, expected as? String, id)
-                case "reemitEntryCommands":
-                    XCTAssertEqual(!reenteredCommands.isEmpty, expected as? Bool, id)
-                    XCTAssertEqual(reenteredCommands, [.showCoachMark(.addGig)], id)
-                case "doNotRepeat":
-                    for name in try XCTUnwrap(expected as? [String]) {
-                        XCTAssertFalse(reenteredCommands.map(commandName).contains(name), id)
-                    }
-                case "freshDemoWorld":
-                    XCTAssertEqual(lastCommands.first == .purgeDemoWorld, expected as? Bool, id)
-                    XCTAssertEqual(lastCommands, [.purgeDemoWorld, .showCoachMark(.line)], id)
-                    XCTAssertFalse(state.finished, id)
-                case "pendingSpotifyRetry": XCTAssertEqual(state.spotifyRetryPending, expected as? Bool, id)
-                default: XCTFail("Unchecked expectation: \(key) in \(id)")
+            var state = TourState()
+            if let step = fixture.initial?.step {
+                state.currentStep = try XCTUnwrap(TourStep(rawValue: step), fixture.id)
+            }
+            state.finished = fixture.initial?.finished ?? false
+            state.spotifyRetryPending = fixture.initial?.pendingSpotifyRetry ?? false
+            let completed = fixture.initial?.completedEffects ?? []
+            state.bandLookedUp = completed.contains("lookUpBand")
+            state.demoTicketImported = completed.contains("importDemoTicket")
+            var visitedSteps: [String] = []
+            var spotifyExported = false
+            var playlistExportedBySkip = false
+            for (index, check) in fixture.checks.enumerated() {
+                let context = "\(fixture.id), check \(index): \(check.event)"
+                let before = state
+                let commands: [TourCommand]
+                let freshDemoWorld: Bool
+                if check.event == "restart" {
+                    state = try JSONDecoder().decode(TourState.self, from: JSONEncoder().encode(state))
+                    commands = []
+                    freshDemoWorld = false
+                } else {
+                    let result = TourScript.reduce(state, try event(check.event, online: fixture.online ?? true))
+                    state = result.state
+                    commands = result.commands
+                    freshDemoWorld = result.freshDemoWorld
+                }
+                if let step = state.currentStep, step != before.currentStep {
+                    visitedSteps.append(step.rawValue)
+                }
+                let completedExport = before.currentStep == .s19 && state.currentStep == .s20
+                    && state.finished && !state.spotifyRetryPending
+                let retriedExport = before.spotifyRetryPending && !state.spotifyRetryPending
+                    && state.finished && state.currentStep == before.currentStep
+                let exported = completedExport || retriedExport
+                spotifyExported = spotifyExported || exported
+                if check.event == "skipped" { playlistExportedBySkip = playlistExportedBySkip || exported }
+                XCTAssertEqual(state.currentStep?.rawValue, check.expect.step, context)
+                XCTAssertEqual(commands.map(commandName), check.expect.commands, context)
+                if let value = check.expect.finished { XCTAssertEqual(state.finished, value, context) }
+                if let value = check.expect.pendingSpotifyRetry {
+                    XCTAssertEqual(state.spotifyRetryPending, value, context)
+                }
+                if let value = check.expect.unchanged { XCTAssertEqual(state == before, value, context) }
+                if let value = check.expect.freshDemoWorld { XCTAssertEqual(freshDemoWorld, value, context) }
+            }
+            if let expected = fixture.expected {
+                if let value = expected.visitedSteps { XCTAssertEqual(visitedSteps, value, fixture.id) }
+                if let value = expected.finished { XCTAssertEqual(state.finished, value, fixture.id) }
+                if let value = expected.spotifyExported { XCTAssertEqual(spotifyExported, value, fixture.id) }
+                if let value = expected.playlistExportedBySkip {
+                    XCTAssertEqual(playlistExportedBySkip, value, fixture.id)
                 }
             }
         }
     }
 
-    private func event(_ raw: [String: Any]) throws -> TourEvent {
-        let type = try XCTUnwrap(raw["type"] as? String)
+    private func event(_ type: String, online: Bool) throws -> TourEvent {
         switch type {
-        case "started": return .started(online: try XCTUnwrap(raw["online"] as? Bool))
+        case "started": return .started(online: online)
         case "contactExchanged":
-            let location = try XCTUnwrap(raw["location"] as? [String: Double])
-            return .contactExchanged(location: TourLocation(
-                latitude: try XCTUnwrap(location["latitude"]), longitude: try XCTUnwrap(location["longitude"])))
-        case "mediaAdded":
-            return .mediaAdded(visibility: try XCTUnwrap(TourMediaVisibility(rawValue: try XCTUnwrap(raw["visibility"] as? String))))
+            return .contactExchanged(location: TourLocation(latitude: 59.9139, longitude: 10.7522))
+        case "mediaAdded": return .mediaAdded(visibility: .private)
         case "acknowledged": return .acknowledged
         case "curtainPulled": return .curtainPulled
         case "bandPicked": return .bandPicked
@@ -122,68 +110,12 @@ final class TourScriptFixtureTests: XCTestCase {
         case .showCoachMark(let mark): return "showCoachMark(\(mark.rawValue))"
         case .advanceDemoClock(let mark): return "advanceDemoClock(\(mark.rawValue))"
         case .lookUpBand: return "lookUpBand"
-        case .importDemoTicket: return "importDemoTicket"
-        case .deliverGossip: return "deliverGossip"
+        case .importDemoTicket: return "importDemoTicket(at: venue)"
+        case .deliverGossip: return "deliverGossip(gapFill)"
         case .fillSetlist: return "fillSetlist"
         case .deliverFriendSelfie: return "deliverFriendSelfie"
         case .purgeDemoWorld: return "purgeDemoWorld"
         case .markTourFinished: return "markTourFinished"
-        }
-    }
-
-    func testEveryStepEmitsItsScriptedEntryCommands() throws {
-        let expected: [[TourCommand]] = [
-            [.showCoachMark(.line)],
-            [.showCoachMark(.curtain)],
-            [.showCoachMark(.band), .lookUpBand],
-            [.showCoachMark(.addGig)],
-            [.showCoachMark(.openRoom)],
-            [.showCoachMark(.swipeBack)],
-            [.showCoachMark(.exchange)],
-            [.showCoachMark(.pinchOut)],
-            [.importDemoTicket],
-            [.advanceDemoClock(.approaching), .showCoachMark(.calendar)],
-            [.showCoachMark(.maps)],
-            [.advanceDemoClock(.doors), .showCoachMark(.ticket)],
-            [.showCoachMark(.checkIn)],
-            [.advanceDemoClock(.showStarted), .showCoachMark(.log)],
-            [.showCoachMark(.gap)],
-            [.showCoachMark(.gossip)],
-            [.fillSetlist],
-            [.showCoachMark(.selfie)],
-            [.advanceDemoClock(.after), .showCoachMark(.spotify)],
-            [.purgeDemoWorld, .markTourFinished]
-        ]
-        let happy = try XCTUnwrap(cases().first { $0["row"] as? String == "Happy path" })
-        var state = TourState()
-        var index = 0
-        for raw in try XCTUnwrap(happy["events"] as? [[String: Any]]) {
-            let result = TourScript.reduce(state, try event(raw))
-            if result.0.currentStep != state.currentStep {
-                var commands = expected[index]
-                if raw["type"] as? String == "gapRecorded" { commands.insert(.deliverGossip, at: 0) }
-                if raw["type"] as? String == "mediaAdded" { commands.insert(.deliverFriendSelfie, at: 0) }
-                XCTAssertEqual(result.1, commands, "S\(index + 1)")
-                index += 1
-            } else {
-                XCTAssertTrue(result.1.isEmpty)
-            }
-            state = result.0
-        }
-        XCTAssertEqual(index, 20)
-        XCTAssertTrue(state.finished)
-        XCTAssertEqual(state.location, TourLocation(latitude: 59.9139, longitude: 10.7522))
-    }
-
-    func testResumeDoesNotRepeatBandLookupOrTicketImport() throws {
-        for (step, event, command) in [(TourStep.s2, TourEvent.curtainPulled, TourCommand.lookUpBand),
-                                      (.s8, .pinchedOut, .importDemoTicket)] {
-            let entered = TourScript.reduce(TourState(currentStep: step), event)
-            XCTAssertTrue(entered.1.contains(command))
-            let restored = try JSONDecoder().decode(TourState.self, from: JSONEncoder().encode(entered.0))
-            let resumed = TourScript.reduce(restored, .resumed)
-            XCTAssertEqual(resumed.0, restored)
-            XCTAssertFalse(resumed.1.contains(command))
         }
     }
 
@@ -199,12 +131,6 @@ final class TourScriptFixtureTests: XCTestCase {
             XCTAssertEqual(added.0.currentStep, .s19)
             XCTAssertEqual(added.1, [.deliverFriendSelfie, .advanceDemoClock(.after), .showCoachMark(.spotify)])
         }
-    }
-
-    func testGapDeliversGossipBeforeTheNextCoachMark() {
-        let result = TourScript.reduce(TourState(currentStep: .s15), .gapRecorded)
-        XCTAssertEqual(result.0.currentStep, .s16)
-        XCTAssertEqual(result.1, [.deliverGossip, .showCoachMark(.gossip)])
     }
 
     func testConnectivityLossLeavesTheActiveStepUntouched() {

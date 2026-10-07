@@ -94,8 +94,14 @@ enum TourScript {
         .s20: Step(entry: [.purgeDemoWorld, .markTourFinished], awaits: [])
     ]
 
-    /// Advances only on the awaited event; entry commands describe the next Tour step.
-    static func reduce(_ state: TourState, _ event: TourEvent) -> (TourState, [TourCommand]) {
+    /// Replay requires a fresh Demo world before its entry commands run.
+    static func reduce(_ state: TourState, _ event: TourEvent)
+        -> (state: TourState, commands: [TourCommand], freshDemoWorld: Bool) {
+        let (next, commands) = transition(state, event)
+        return (next, commands, event == .replayRequested)
+    }
+
+    private static func transition(_ state: TourState, _ event: TourEvent) -> (TourState, [TourCommand]) {
         var next = state
         switch event {
         case .started(let online):
@@ -105,16 +111,15 @@ enum TourScript {
             next = TourState()
             next.seenHints = state.seenHints
             next.upgradePromptDismissed = state.upgradePromptDismissed
-            let (replayed, commands) = enter(.s1, next)
-            return (replayed, [.purgeDemoWorld] + commands)
+            return enter(.s1, next)
         case .resumed:
             guard let step = state.currentStep, !state.finished else { return (state, []) }
             return enter(step, next)
         case .skipped:
-            guard state.currentStep != nil, !state.finished else { return (state, []) }
+            guard state.currentStep != nil else { return (state, []) }
             next.currentStep = nil
             next.finished = true
-            return (next, [.purgeDemoWorld, .markTourFinished])
+            return (next, [.purgeDemoWorld])
         case .spotifyExported where state.spotifyRetryPending && (state.finished || state.currentStep == nil):
             next.spotifyRetryPending = false
             return (next, [])
@@ -131,6 +136,8 @@ enum TourScript {
             guard next.returnedFromPhotos else { return (state, []) }
         }
         if case .contactExchanged(let location) = event { next.location = location }
+        if event == .bandPicked { next.bandLookedUp = true }
+        if event == .ticketImported { next.demoTicketImported = true }
         if event == .spotifyDeclined { next.spotifyRetryPending = true }
         if event == .spotifyExported { next.spotifyRetryPending = false }
         guard let index = TourStep.allCases.firstIndex(of: step),
@@ -154,8 +161,6 @@ enum TourScript {
             if $0 == .importDemoTicket { return !state.demoTicketImported }
             return true
         }
-        if commands.contains(.lookUpBand) { next.bandLookedUp = true }
-        if commands.contains(.importDemoTicket) { next.demoTicketImported = true }
         if step == .s20 { next.finished = true }
         return (next, commands)
     }
