@@ -43,7 +43,24 @@ final class TourController {
             settings.setOnboarded()
             host.state.onboarded = true
             send(.started(online: true))
+        } else if settings.onboarded && state == TourState() {
+            // Only an install onboarded before the Tour existed has `onboarded` and no Tour state.
+            host.state.tourUpgradePrompt = true
         }
+    }
+
+    /// Either answer closes the upgrade prompt for good.
+    func acceptUpgradePrompt() {
+        closeUpgradePrompt()
+        replay()
+    }
+
+    func dismissUpgradePrompt() { closeUpgradePrompt() }
+
+    private func closeUpgradePrompt() {
+        state.upgradePromptDismissed = true
+        settings.saveTourState(state)
+        host.state.tourUpgradePrompt = false
     }
 
     func send(_ event: TourEvent) {

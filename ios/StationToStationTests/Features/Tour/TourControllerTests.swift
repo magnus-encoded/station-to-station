@@ -182,4 +182,59 @@ final class TourControllerTests: XCTestCase {
             XCTAssertEqual(world.purges, 1)
         }
     }
+
+    func testAnUpgraderIsOfferedTheTourOnceAndDismissingHidesItForGood() {
+        withSettings { settings in
+            settings.setOnboarded()
+            let host = FakeState()
+            let controller = TourController(host: host, settings: settings,
+                                            connectivity: Connectivity(online: true), demoWorld: World())
+            controller.start()
+            XCTAssertTrue(host.state.tourUpgradePrompt)
+            XCTAssertNil(host.state.tourStep)
+            controller.dismissUpgradePrompt()
+            XCTAssertFalse(host.state.tourUpgradePrompt)
+            XCTAssertNil(host.state.tourStep)
+
+            let relaunch = FakeState()
+            TourController(host: relaunch, settings: settings,
+                           connectivity: Connectivity(online: true), demoWorld: World()).start()
+            XCTAssertFalse(relaunch.state.tourUpgradePrompt)
+            XCTAssertNil(relaunch.state.tourStep)
+        }
+    }
+
+    func testAcceptingTheUpgradePromptStartsTheTourAndNeverOffersItAgain() {
+        withSettings { settings in
+            settings.setOnboarded()
+            let host = FakeState()
+            let controller = TourController(host: host, settings: settings,
+                                            connectivity: Connectivity(online: true), demoWorld: World())
+            controller.start()
+            controller.acceptUpgradePrompt()
+            XCTAssertFalse(host.state.tourUpgradePrompt)
+            XCTAssertEqual(host.state.tourStep, .s1)
+            XCTAssertEqual(host.state.tourCoachMark, .line)
+            controller.skip()
+
+            let relaunch = FakeState()
+            TourController(host: relaunch, settings: settings,
+                           connectivity: Connectivity(online: true), demoWorld: World()).start()
+            XCTAssertFalse(relaunch.state.tourUpgradePrompt)
+            XCTAssertTrue(settings.tourState.upgradePromptDismissed)
+        }
+    }
+
+    func testANewInstallNeverSeesTheUpgradePrompt() {
+        withSettings { settings in
+            for online in [false, true, true] {
+                let host = FakeState()
+                let controller = TourController(host: host, settings: settings,
+                                                connectivity: Connectivity(online: online), demoWorld: World())
+                controller.start()
+                XCTAssertFalse(host.state.tourUpgradePrompt)
+                controller.skip()
+            }
+        }
+    }
 }
