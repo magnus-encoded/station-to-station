@@ -1,0 +1,18 @@
+name: Release tools
+
+# changelog.py --check also runs at tag time, after the build has been queued;
+# a malformed entry is cheaper to learn about on the release PR.
+on:
+  pull_request:
+    paths: [ "tools/*.py", "CHANGELOG.md", "docs/privacy-policy.md", ".github/workflows/tools.yml" ]
+  push:
+    branches: [ main ]
+    paths: [ "tools/*.py", "CHANGELOG.md", "docs/privacy-policy.md", ".github/workflows/tools.yml" ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: python3 -m unittest discover -s tools -p '*_test.py' -v
+      - run: python3 tools/changelog.py --check

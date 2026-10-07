@@ -123,15 +123,40 @@ def green_android_sha() -> str:
     return runs[0]["headSha"]
 
 
+def tag_plan(name: str, sha: str, local: str | None, remote: str | None) -> str:
+    """"create" a new tag, or "push" one already made locally at sha whose push
+    never landed. A tag on origin has been published; a local one elsewhere is stale."""
+    if remote:
+        raise Refusal(f"{name} is already on origin ({remote[:7]}), so it has been published")
+    if local and local != sha:
+        raise Refusal(f"a local {name} points at {local[:7]}, not main ({sha[:7]}); "
+                      f"remove it with `git tag -d {name}` and run again")
+    return "push" if local else "create"
+
+
+def tag_shas(name: str) -> tuple[str | None, str | None]:
+    """The commit the tag names locally and on origin; None where it is absent."""
+    local = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"{name}^{{commit}}"],
+                           cwd=ROOT, capture_output=True, text=True).stdout.strip() or None
+    refs = {}
+    for line in git("ls-remote", "--tags", "origin", name).splitlines():
+        sha, ref = line.split("\t")
+        refs[ref] = sha
+    # An annotated tag lists its object and, peeled with ^{}, the commit.
+    remote = refs.get(f"refs/tags/{name}^{{}}") or refs.get(f"refs/tags/{name}")
+    return local, remote
+
+
 def tag(version: str, push: bool) -> None:
     version = show(parse(version))
     name = f"v{version}"
-    git("fetch", "--quiet", "--tags", "origin", "main")
+    # No --tags: a local tag that differs from origin's fails the fetch ("would
+    # clobber existing tag") before tag_plan can say what to do about it.
+    git("fetch", "--quiet", "origin", "main")
     sha = git("rev-parse", "origin/main")
     short = sha[:7]
 
-    if git("tag", "--list", name):
-        raise Refusal(f"{name} already exists")
+    plan = tag_plan(name, sha, *tag_shas(name))
     carried = app_version(sha)
     if carried != version:
         raise Refusal(f"main ({short}) carries {carried}, not {version}; bump it first")
@@ -153,9 +178,11 @@ def tag(version: str, push: bool) -> None:
                       f"({green[:7]}); wait for CI on {short}")
 
     if not push:
-        print(f"[dry run] would tag {short} as {name} and push it; add --push")
+        made = f"push the local {name}" if plan == "push" else f"tag {short} as {name} and push it"
+        print(f"[dry run] would {made}; add --push")
         return
-    git("tag", name, sha)
+    if plan == "create":
+        git("tag", name, sha)
     git("push", "origin", name)
     print(f"tagged {short} as {name} and pushed; android-release.yml is publishing it")
 
