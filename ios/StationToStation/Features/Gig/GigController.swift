@@ -68,7 +68,7 @@ final class GigController {
     ///
     /// Any **Gig** this phone holds a record of can go, its setlist.fm id or not. One held only
     /// by my setlist.fm attended list has no delete; see `gigMenu`.
-    func deleteGig(_ gigId: String) {
+    func deleteGig(_ gigId: String, keepingPlaylists: Bool = false) {
         let media = host.state.mediaBySetlist[gigId] ?? []
         let me = host.state.mySetlistFmUser.trimmingCharacters(in: .whitespaces)
         host.state.plannedGigs.removeAll { $0.id == gigId }
@@ -84,7 +84,8 @@ final class GigController {
             host.state.gigLog = StoredLog()
         }
         Task {
-            guard await timelines.deleteGig(gigId, withMedia: true, anyId: true, attendedLane: me) else { return }
+            guard await timelines.deleteGig(gigId, withMedia: true, anyId: true, attendedLane: me,
+                                            keepingPlaylists: keepingPlaylists) else { return }
             for item in media { PhotoLibrary.deleteThumbnails(item.id) }
         }
     }

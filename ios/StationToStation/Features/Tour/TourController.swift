@@ -24,14 +24,17 @@ final class TourController {
     private let night: TourNightArrivesEffects?
     private let log: TourLogEffects?
     private let selfie: TourSelfieEffects?
+    private let spotify: TourSpotifyEffects?
     private var logTask: Task<Void, Never>?
+    private var spotifyTask: Task<Void, Never>?
+    private var spotifyGeneration = UUID()
     private(set) var state: TourState
     private var launched = false
 
     init(host: StateHost, settings: Settings, connectivity: TourConnectivity, demoWorld: DemoWorld,
          addGig: TourAddGigEffects? = nil, meetFriend: TourMeetFriendEffects? = nil,
          night: TourNightArrivesEffects? = nil, log: TourLogEffects? = nil,
-         selfie: TourSelfieEffects? = nil) {
+         selfie: TourSelfieEffects? = nil, spotify: TourSpotifyEffects? = nil) {
         self.host = host
         self.settings = settings
         self.connectivity = connectivity
@@ -41,6 +44,7 @@ final class TourController {
         self.night = night
         self.log = log
         self.selfie = selfie
+        self.spotify = spotify
         state = settings.tourState
         publish()
     }
@@ -79,7 +83,17 @@ final class TourController {
         guard next != state || !commands.isEmpty || freshDemoWorld else { return }
         if freshDemoWorld {
             logTask?.cancel()
+            spotifyTask?.cancel()
+            spotifyTask = nil
+            spotifyGeneration = UUID()
+            spotify?.reset()
             demoWorld.purge()
+        }
+        if event == .skipped {
+            spotifyTask?.cancel()
+            spotifyTask = nil
+            spotifyGeneration = UUID()
+            spotify?.reset()
         }
         let changedStep = next.currentStep != state.currentStep
         state = next
@@ -95,7 +109,11 @@ final class TourController {
             case .purgeDemoWorld:
                 logTask?.cancel()
                 demoWorld.purge()
-            case .showCoachMark(let mark): host.state.tourCoachMark = mark
+            case .showCoachMark(let mark):
+                if mark == .spotify, let gig = demoGig, let log {
+                    spotify?.prepare(for: gig, log: log.loadLog(gig.id))
+                }
+                host.state.tourCoachMark = mark
             case .markTourFinished: host.state.tourFinished = true
             case .lookUpBand: addGig?.lookUpBand()
             case .importDemoTicket: importDemoTicket()
@@ -211,6 +229,34 @@ final class TourController {
 
     var virtualFriendName: String { meetFriend?.name ?? "" }
 
+    var spotifyCoachLine: String { spotify?.coachLine ?? "" }
+    var spotifyRetryPending: Bool { state.spotifyRetryPending }
+
+    @discardableResult
+    func exportSpotify() -> Task<Void, Never> {
+        guard spotifyTask == nil, let spotify,
+              (running && state.currentStep == .s19) || (state.finished && state.spotifyRetryPending)
+        else { return Task {} }
+        let expected = state
+        let token = spotifyGeneration
+        let task = Task {
+            defer { if token == spotifyGeneration { spotifyTask = nil } }
+            guard let event = await spotify.export(), state == expected, !Task.isCancelled else { return }
+            send(event)
+        }
+        spotifyTask = task
+        return task
+    }
+
+    func declineSpotify() {
+        guard running, state.currentStep == .s19 else { return }
+        spotifyTask?.cancel()
+        spotifyTask = nil
+        spotifyGeneration = UUID()
+        spotify?.cancel()
+        send(.spotifyDeclined)
+    }
+
     func setlistFillLine(for gigId: String) -> String? {
         guard running, isDemoGig(gigId) else { return nil }
         return log?.fillLine(gigId)
@@ -236,7 +282,10 @@ final class TourController {
         }
     }
 
-    func skip() { send(.skipped) }
+    func skip() {
+        guard running, state.currentStep != .s20 else { return }
+        send(.skipped)
+    }
     /// The saved step can outlive its local **Gossip** delivery when the app is killed.
     func resume() {
         guard state.currentStep == .s16, let log, let gig = demoGig,

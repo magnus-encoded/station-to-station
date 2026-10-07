@@ -1,9 +1,22 @@
 import Foundation
 
+protocol PlaylistSpotify: AnyObject {
+    func hasPlaylistScopes() -> Bool?
+    func hasImageUploadScope() -> Bool
+    func searchTracks(_ query: String, limit: Int) async throws -> [SpotifyTrack]
+    func createPlaylist(name: String, description: String, isPublic: Bool) async throws -> PlaylistResponse
+    func addTracks(_ playlistId: String, uris: [String]) async throws -> AddTracksResult
+    func uploadCover(_ playlistId: String, jpeg: Data) async throws
+    func getPlaylist(_ playlistId: String) async throws -> SimplePlaylist
+    func currentUser() async throws -> SpotifyUser
+}
+
+extension SpotifyClient: PlaylistSpotify {}
+
 @MainActor
 final class PlaylistController {
     private let host: StateHost
-    private let spotify: SpotifyClient
+    private let spotify: PlaylistSpotify
     private let timelines: TimelineStore
     private let loadGigMedia: (FmSetlist) -> Void
     private let loadGigLog: (FmSetlist) -> Void
@@ -11,7 +24,7 @@ final class PlaylistController {
 
     private var matchTask: Task<Void, Never>?
 
-    init(host: StateHost, spotify: SpotifyClient, timelines: TimelineStore,
+    init(host: StateHost, spotify: PlaylistSpotify, timelines: TimelineStore,
          loadGigMedia: @escaping (FmSetlist) -> Void,
          loadGigLog: @escaping (FmSetlist) -> Void,
          addFriend: @escaping (Friend) -> Void) {
@@ -259,13 +272,6 @@ final class PlaylistController {
         host.state.creatingPlaylist = true
         Task {
             do {
-                // Unknown scope means the login predates scope tracking — the
-                // remedy is the same as a missing scope: a fresh login.
-                if spotify.hasPlaylistScopes() != true {
-                    throw AppError("Your Spotify login is missing playlist permissions. "
-                        + "Log out in Settings, then log in again and approve the playlist "
-                        + "access on the Spotify page that opens.")
-                }
                 var description = "Setlist"
                 if let venue = s.selectedSetlist?.venueLine() { description += " at \(venue)" }
                 if let date = s.selectedSetlist?.eventDate { description += " on \(date)" }
@@ -275,45 +281,65 @@ final class PlaylistController {
                 let me = s.mySetlistFmUser.trimmingCharacters(in: .whitespaces)
                 if !me.isEmpty { description += " \(sfmStamp(me))" }
 
-                let playlist = try await spotify.createPlaylist(name: name, description: description, isPublic: s.playlistPublic)
-                let result: AddTracksResult
-                do {
-                    result = try await spotify.addTracks(playlist.id, uris: tracks.map(\.uri))
-                } catch {
-                    // The playlist exists at this point, so say so rather than
-                    // leaving the user with a bare failure and a stray playlist.
-                    throw AppError("Playlist \"\(name)\" was created but the songs could not be added. \(userMessage(error))")
-                }
-                // The songs are the point, so a cover that will not upload is
-                // reported next to the success rather than thrown over it.
-                let coverError: String?
-                if let assetId = s.selectedCoverAssetId {
-                    coverError = await uploadCover(playlistId: playlist.id, assetId: assetId)
-                } else {
-                    coverError = nil
-                }
-                // Fall back to the canonical URL rather than dropping the link:
-                // `externalUrls` is Spotify's to omit, the id is ours to keep.
-                let url = playlist.externalUrls["spotify"]
-                    ?? "https://open.spotify.com/playlist/\(playlist.id)"
-                host.state.creatingPlaylist = false
-                host.state.createdPlaylistUrl = url
-                host.state.createdPlaylistName = name
-                host.state.createdTrackCount = result.added
-                host.state.createdRefusedCount = result.refused.count
-                host.state.coverUploadError = coverError
-                // So the night still points at it — on this screen and on the next
-                // launch. Appended, never replaced: converting this night again must
-                // not orphan a link already sent to someone.
+                let made = try await exportPlaylist(tracks: tracks, name: name, description: description,
+                                                    isPublic: s.playlistPublic, coverAssetId: s.selectedCoverAssetId)
                 if let night = s.selectedSetlist?.id.nilIfBlank {
-                    let made = StoredPlaylist(url: url, name: name, trackCount: result.added)
                     host.state.playlistsBySetlist[night, default: []].append(made)
                     await timelines.save(playlists: [night: made])
                 }
             } catch {
+                host.state.creatingPlaylist = false
                 host.fail(error)
             }
         }
+    }
+
+    /// Exports supplied songs with the same matching and creation path as the picker.
+    /// The caller holds the receipt when there is no lasting Gig to attach it to.
+    func exportSetlist(_ setlist: FmSetlist, name: String, description: String) async throws -> StoredPlaylist {
+        var tracks: [SpotifyTrack] = []
+        for song in setlist.songs() where !song.tape && song.name.nilIfBlank != nil {
+            try Task.checkCancellation()
+            let (candidates, error) = await findCandidates(song.name, song.cover?.name ?? setlist.artist?.name ?? "")
+            if let error { throw AppError(error) }
+            if let track = candidates.first { tracks.append(track) }
+            try await Task.sleep(nanoseconds: 120_000_000)
+        }
+        try Task.checkCancellation()
+        return try await exportPlaylist(tracks: tracks, name: name, description: description,
+                                        isPublic: true, coverAssetId: nil)
+    }
+
+    private func exportPlaylist(tracks: [SpotifyTrack], name: String, description: String,
+                                isPublic: Bool, coverAssetId: String?) async throws -> StoredPlaylist {
+        guard !tracks.isEmpty else { throw AppError("No songs selected") }
+        // Unknown scope means a login predates scope tracking and needs fresh consent too.
+        guard spotify.hasPlaylistScopes() == true else {
+            throw AppError("Your Spotify login is missing playlist permissions. "
+                + "Log out in Settings, then log in again and approve the playlist "
+                + "access on the Spotify page that opens.")
+        }
+        let playlist = try await spotify.createPlaylist(name: name, description: description, isPublic: isPublic)
+        let result: AddTracksResult
+        do {
+            result = try await spotify.addTracks(playlist.id, uris: tracks.map(\.uri))
+        } catch {
+            throw AppError("Playlist \"\(name)\" was created but the songs could not be added. \(userMessage(error))")
+        }
+        let coverError: String?
+        if let coverAssetId {
+            coverError = await uploadCover(playlistId: playlist.id, assetId: coverAssetId)
+        } else {
+            coverError = nil
+        }
+        let url = playlist.externalUrls["spotify"] ?? "https://open.spotify.com/playlist/\(playlist.id)"
+        host.state.creatingPlaylist = false
+        host.state.createdPlaylistUrl = url
+        host.state.createdPlaylistName = name
+        host.state.createdTrackCount = result.added
+        host.state.createdRefusedCount = result.refused.count
+        host.state.coverUploadError = coverError
+        return StoredPlaylist(url: url, name: name, trackCount: result.added)
     }
 
     /// Drops one playlist link from a night.

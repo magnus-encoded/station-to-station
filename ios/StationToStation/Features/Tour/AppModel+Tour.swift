@@ -12,8 +12,9 @@ struct DeviceTourConnectivity: TourConnectivity {
 }
 
 extension AppModel {
-    func makeTourController(setlistFm: SetlistFmClient, musicBrainz: MusicBrainzClient) -> TourController {
-        let addGig = TourAddGigEffects { [unowned self] in self.gig.deleteGig($0) }
+    func makeTourController(setlistFm: SetlistFmClient, musicBrainz: MusicBrainzClient,
+                            spotify: SpotifyClient) -> TourController {
+        let addGig = TourAddGigEffects { [unowned self] in self.gig.deleteGig($0, keepingPlaylists: true) }
         let meetFriend = makeMeetFriendEffects(addGig)
         let night = TourNightArrivesEffects(
             demoGig: { [unowned self] in self.state.plannedGigs.first { addGig.demoGigIds.contains($0.id) } },
@@ -23,10 +24,13 @@ extension AppModel {
         let selfie = TourSelfieEffects(host: self, timelines: timelines,
                                       demoGigIds: { addGig.demoGigIds }, friendKey: { meetFriend.contactKey },
                                       selfie: { Self.characterSelfie() }, characterLine: { Self.characterLine(.s18) })
+        let ending = TourSpotifyEffects(host: self, settings: settings, playlist: playlist, login: spotify,
+                                        characterLine: { Self.characterLine($0) })
         let tour = TourController(host: self, settings: settings,
                                   connectivity: DeviceTourConnectivity(),
                                   demoWorld: DemoWorldRegistry(parts: [selfie, log, night, meetFriend, addGig]),
-                                  addGig: addGig, meetFriend: meetFriend, night: night, log: log, selfie: selfie)
+                                  addGig: addGig, meetFriend: meetFriend, night: night, log: log, selfie: selfie,
+                                  spotify: ending)
         planning.onGigAdded = { [unowned tour] in tour.gigAdded($0) }
         planning.onCalendarAdded = { [unowned tour] in tour.calendarAdded($0, eventId: $1) }
         gig.onCheckedIn = { [unowned tour] in tour.checkedIn($0) }
@@ -69,11 +73,17 @@ extension AppModel {
     }
 
     private static func characterLine(_ step: TourStep) -> String {
+        characterLine(step.rawValue)
+    }
+
+    private static func characterLine(_ key: String) -> String {
         guard let url = Bundle.main.url(forResource: "character", withExtension: "json"),
               let data = try? Data(contentsOf: url),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let lines = json["lines"] as? [String: String] else { return "" }
-        return lines[step.rawValue] ?? ""
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return "" }
+        if key.hasPrefix("playlist."), let playlist = json["playlist"] as? [String: String] {
+            return playlist[String(key.dropFirst("playlist.".count))] ?? ""
+        }
+        return (json["lines"] as? [String: String])?[key] ?? ""
     }
 
     private static func characterSelfie() -> Data? {
