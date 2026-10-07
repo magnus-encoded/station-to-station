@@ -120,20 +120,16 @@ final class TourControllerTests: XCTestCase {
         }
     }
 
-    func testSkipAtTheTerminalStepPurgesAndClearsTheStep() {
+    func testThereIsNoSkipAtTheTerminalStep() {
         withSettings { settings in
-            settings.saveTourState(TourState(currentStep: .s20, finished: true))
+            settings.saveTourState(TourState(currentStep: .s20))
             let host = FakeState()
             let world = World()
             let controller = TourController(host: host, settings: settings,
                                             connectivity: Connectivity(online: true), demoWorld: world)
             controller.skip()
-            XCTAssertEqual(world.purges, 1)
-            XCTAssertNil(host.state.tourStep)
-            XCTAssertTrue(host.state.tourFinished)
-            XCTAssertEqual(settings.tourState, controller.state)
-            controller.skip()
-            XCTAssertEqual(world.purges, 1)
+            XCTAssertEqual(world.purges, 0)
+            XCTAssertEqual(controller.state.currentStep, .s20)
         }
     }
 
