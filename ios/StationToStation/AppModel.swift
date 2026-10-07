@@ -47,6 +47,7 @@ struct UiState {
     var tourCoachMark: TourCoachMark?
     var tourFinished = false
     var tourUpgradePrompt = false
+    var contextHint: ContextHint?
     /// True once launch has put the saved timeline on screen, Festivals and all.
     /// Until then the launch look stays over the Timeline, so a reopened app never
     /// shows an empty timeline or a "0 shows" count on the way to its own.
@@ -294,6 +295,7 @@ final class AppModel: ObservableObject, StateHost {
 
     let settings = Settings()
     lazy var tour = makeTourController()
+    lazy var hints = TourHintEffects(host: self, tour: tour)
     private lazy var setlistFm = SetlistFmClient(
         keySource: { [settings] in settings.setlistFmKey },
         sharedQuotaSpentAt: { [settings] in settings.setlistFmSharedQuotaSpentAt },

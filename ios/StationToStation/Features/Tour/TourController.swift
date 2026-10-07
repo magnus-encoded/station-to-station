@@ -99,6 +99,13 @@ final class TourController {
     }
     func dismissCoachMark() { host.state.tourCoachMark = nil }
 
+    var running: Bool { state.currentStep != nil && !state.finished }
+
+    func markHintSeen(_ key: String) {
+        state.seenHints.insert(key)
+        settings.saveTourState(state)
+    }
+
     private func publish() {
         host.state.tourStep = state.currentStep
         host.state.tourFinished = state.finished

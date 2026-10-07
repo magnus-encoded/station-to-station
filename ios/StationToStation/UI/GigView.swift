@@ -230,6 +230,8 @@ struct GigView: View {
         // to the next one — and the row's own clock only runs for a **Room** that was already
         // open when it happened.
         .task { model.gossip.refreshGossipPresence() }
+        .task { model.hints.offerInRoom() }
+        .onChange(of: model.state.gigMedia.count) { _ in model.hints.offerInRoom() }
         .toolbar {
             // Only for a night this app minted. A night that already has a setlist.fm
             // page has nothing to adopt, and offering it there would be an invitation

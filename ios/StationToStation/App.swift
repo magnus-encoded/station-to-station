@@ -150,6 +150,7 @@ struct StationToStationApp: App {
             }
             }
             .tourOverlay(model)
+            .contextHints(model)
             // setlist.fm's automatic checks for local Gigs run while the app is in the
             // foreground and only then (#531): at launch, on coming back, and on their
             // timer. This is the launch that went straight to active, which `onChange`
