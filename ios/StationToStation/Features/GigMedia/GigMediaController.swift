@@ -6,13 +6,18 @@ import Foundation
 final class GigMediaController {
     let host: StateHost
     private let timelines: TimelineStore
+    /// The **Tour**'s claim on an attach, taken before the read and called with what it attached.
+    var onMediaAttached: (String, Band) -> ([StoredMedia]) -> Void = { _, _ in { _ in } }
+    private let attachAssets: ([String]) async -> (media: [StoredMedia], failed: Int)
     /// Playlist's, reached through `AppModel` until that feature is a controller.
     private let markSelectedOwnership: (FmSetlist, StoredAttendance?) -> Void
 
     init(host: StateHost, timelines: TimelineStore,
+         attachAssets: @escaping ([String]) async -> (media: [StoredMedia], failed: Int) = { await PhotoLibrary.attach(assetIds: $0) },
          markSelectedOwnership: @escaping (FmSetlist, StoredAttendance?) -> Void) {
         self.host = host
         self.timelines = timelines
+        self.attachAssets = attachAssets
         self.markSelectedOwnership = markSelectedOwnership
     }
 
@@ -93,8 +98,10 @@ final class GigMediaController {
         let had = host.state.gigMedia
         let wanted = assetIds.filter { id in !had.contains { $0.ref == id } }
         guard !wanted.isEmpty else { return }
+        // Capture Tour ownership before PhotoKit suspends: a skip can finish during the read.
+        let didAttach = onMediaAttached(setlist.id, band)
         Task {
-            let (fetched, failed) = await PhotoLibrary.attach(assetIds: wanted)
+            let (fetched, failed) = await attachAssets(wanted)
             if !fetched.isEmpty {
                 let fresh = fetched.map { item -> StoredMedia in
                     var m = item
@@ -107,6 +114,7 @@ final class GigMediaController {
                 let media = split.shared + split.received + split.vault
                 host.state.mediaBySetlist[setlist.id] = media
                 await timelines.saveMedia(setlistId: setlist.id, media: media)
+                didAttach(fresh)
                 refreshSuggestions(setlist)
             }
             if failed > 0 {

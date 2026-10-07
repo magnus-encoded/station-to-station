@@ -1207,6 +1207,15 @@ actor TimelineStore {
         }
     }
 
+    func removeMedia(ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        writeMerged { cache in
+            var c = cache
+            c.gigMedia = c.gigMedia.mapValues { $0.filter { !ids.contains($0.id) } }
+            return c
+        }
+    }
+
     /// What a **Contact** just sent over the same WiFi (#265), added to the nights
     /// it belongs to. The twin of Android's `mergeContactMedia`.
     ///

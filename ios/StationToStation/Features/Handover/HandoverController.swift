@@ -7,6 +7,8 @@ final class HandoverController {
     private let timelines: TimelineStore
     private let spotify: SpotifyClient
     private let loadTimeline: () -> Void
+    /// What this phone may offer a **Contact**: the **Tour**'s demo media left out.
+    var mediaExchangeCache: (TimelineCache) -> TimelineCache = { $0 }
 
     init(host: StateHost, settings: Settings, timelines: TimelineStore, spotify: SpotifyClient,
          loadTimeline: @escaping () -> Void) {
@@ -34,7 +36,8 @@ final class HandoverController {
         handoverExchange.offer(
             allow: allow,
             manifest: { [timelines, weak self] in
-                let cache = await timelines.load()
+                let loaded = await timelines.load()
+                let cache = await self?.mediaExchangeCache(loaded) ?? TimelineCache()
                 var refs: [String: String] = [:]
                 for item in cache.gigMedia.values.flatMap({ $0 }) { refs[item.id] = item.ref }
                 await self?.rememberHandoverRefs(refs)

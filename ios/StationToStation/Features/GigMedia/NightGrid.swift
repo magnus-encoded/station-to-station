@@ -136,8 +136,14 @@ struct NightGrid: View {
             }
         }
         .padding(.vertical, 16)
-        .sheet(item: $pickingBand) { band in
-            MediaPicker { model.gigMedia.attachMedia(assetIds: $0, to: band) }.ignoresSafeArea()
+        .sheet(item: $pickingBand, onDismiss: {
+            if let id = model.state.selectedSetlist?.id { model.tour.returnedFromPhotos(id) }
+        }) { band in
+            let gigId = model.state.selectedSetlist?.id
+            MediaPicker {
+                if let gigId { model.tour.returnedFromPhotos(gigId) }
+                model.gigMedia.attachMedia(assetIds: $0, to: band)
+            }.ignoresSafeArea()
         }
         .modifier(MaybeNightAlert(asking: $askingMaybe, sharing: true) {
             // Whichever way it was answered — or not — a share that asked it carries on:

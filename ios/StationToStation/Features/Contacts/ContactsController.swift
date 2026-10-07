@@ -17,6 +17,8 @@ final class ContactsController: ObservableObject {
     private let logic: TimelineLogic
     private let gossip: GossipController
     private let gig: GigController
+    /// What this phone may offer a **Contact**: the **Tour**'s demo media left out.
+    var mediaExchangeCache: (TimelineCache) -> TimelineCache = { $0 }
 
     init(host: StateHost, settings: Settings, timelines: TimelineStore,
          setlistFm: SetlistFmClient, spotify: SpotifyClient, logic: TimelineLogic,
@@ -236,12 +238,17 @@ final class ContactsController: ObservableObject {
     /// the root, so there is no way to gain a first Contact and still be on this screen.
     private lazy var contactExchange = ContactExchange(
         contactKeys: { [settings] in settings.friends.compactMap { $0.publicKey?.nilIfBlank } },
-        manifest: { [timelines, settings] in
+        manifest: { [timelines, settings, weak self] in
             guard let me = ContactIdentity.publicKeyBase64() else { return HandoverManifest() }
-            return await hashedContactManifest(await timelines.load(), me: me,
+            let cache = await timelines.load()
+            let offered = await self?.mediaExchangeCache(cache) ?? TimelineCache()
+            return await hashedContactManifest(offered, me: me,
                                                setlistfm: settings.mySetlistFmUser ?? "")
         },
-        mine: { [timelines] in await timelines.load() },
+        mine: { [timelines, weak self] in
+            let cache = await timelines.load()
+            return await self?.mediaExchangeCache(cache) ?? TimelineCache()
+        },
         gallery: { [timelines] in
             let windows = await timelines.load().gigs.values
                 .compactMap { photoWindow(gigDate: $0.date) }
