@@ -83,14 +83,7 @@ jobs:
         working-directory: android
         run: ./gradlew --no-daemon testDebugUnitTest
 
-      # keystore.properties is gitignored and absent here, so the signing config
-      # in app/build.gradle.kts falls through to these env vars. UPLOAD_STORE_FILE
-      # is resolved against the Gradle root, which is android/.
-      # `tr -d` because the secret is set by a human at a shell, and `base64 -w0`
-      # under Git Bash on Windows emits CRLF. GNU base64 rejects the CR outright
-      # and writes a truncated file, which then fails as "wrong password" three
-      # steps later. Stripping both line endings costs nothing and makes the
-      # secret portable across whatever machine sets it next.
+      # `tr -d`: a CRLF in the base64 makes GNU base64 write a truncated file.
       - name: Restore the upload keystore
         env:
           UPLOAD_KEYSTORE_BASE64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
@@ -98,12 +91,7 @@ jobs:
           printf '%s' "$UPLOAD_KEYSTORE_BASE64" | tr -d '\r\n' | base64 -d > android/upload-keystore.jks
           echo "decoded $(stat -c%s android/upload-keystore.jks) bytes"
 
-      # Without the key, build.gradle.kts drops the signing config and produces an
-      # *unsigned* bundle rather than failing — green here, rejected at the Play
-      # Console. Catch it before spending a build on it.
-      #
-      # keytool's output is kept: piping it to /dev/null once turned a one-line
-      # "keystore password was incorrect" into a bare exit 1 with nothing to read.
+      # Without the key the build is unsigned, not red. Output kept for its error.
       - name: Check the keystore arrived
         run: |
           keytool -list -keystore android/upload-keystore.jks \
