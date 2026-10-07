@@ -11,19 +11,23 @@ struct DeviceTourConnectivity: TourConnectivity {
 }
 
 extension AppModel {
-    func makeTourController() -> TourController {
+    func makeTourController(setlistFm: SetlistFmClient, musicBrainz: MusicBrainzClient) -> TourController {
         let addGig = TourAddGigEffects { [unowned self] in self.gig.deleteGig($0) }
         let meetFriend = makeMeetFriendEffects(addGig)
         let night = TourNightArrivesEffects(
             demoGig: { [unowned self] in self.state.plannedGigs.first { addGig.demoGigIds.contains($0.id) } },
             deleteCalendarEvent: { deleteCalendarEvent($0) })
+        let log = TourLogEffects(host: self, setlistFm: setlistFm, musicBrainz: musicBrainz,
+                                 friendKey: { meetFriend.contactKey }, characterLine: { Self.characterLine($0) })
         let tour = TourController(host: self, settings: settings,
                                   connectivity: DeviceTourConnectivity(),
-                                  demoWorld: DemoWorldRegistry(parts: [night, meetFriend, addGig]),
-                                  addGig: addGig, meetFriend: meetFriend, night: night)
+                                  demoWorld: DemoWorldRegistry(parts: [log, night, meetFriend, addGig]),
+                                  addGig: addGig, meetFriend: meetFriend, night: night, log: log)
         planning.onGigAdded = { [unowned tour] in tour.gigAdded($0) }
         planning.onCalendarAdded = { [unowned tour] in tour.calendarAdded($0, eventId: $1) }
         gig.onCheckedIn = { [unowned tour] in tour.checkedIn($0) }
+        gig.logNow = { [unowned tour] in tour.now(for: $0) }
+        gig.onLogWritten = { [unowned tour] in tour.logWritten($0, before: $1, after: $2, now: $3) }
         return tour
     }
 
@@ -55,5 +59,13 @@ extension AppModel {
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return "" }
         return json["name"] as? String ?? ""
+    }
+
+    private static func characterLine(_ step: TourStep) -> String {
+        guard let url = Bundle.main.url(forResource: "character", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let lines = json["lines"] as? [String: String] else { return "" }
+        return lines[step.rawValue] ?? ""
     }
 }

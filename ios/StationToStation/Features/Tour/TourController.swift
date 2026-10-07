@@ -22,12 +22,14 @@ final class TourController {
     private let addGig: TourAddGigEffects?
     private let meetFriend: TourMeetFriendEffects?
     private let night: TourNightArrivesEffects?
+    private let log: TourLogEffects?
+    private var logTask: Task<Void, Never>?
     private(set) var state: TourState
     private var launched = false
 
     init(host: StateHost, settings: Settings, connectivity: TourConnectivity, demoWorld: DemoWorld,
          addGig: TourAddGigEffects? = nil, meetFriend: TourMeetFriendEffects? = nil,
-         night: TourNightArrivesEffects? = nil) {
+         night: TourNightArrivesEffects? = nil, log: TourLogEffects? = nil) {
         self.host = host
         self.settings = settings
         self.connectivity = connectivity
@@ -35,6 +37,7 @@ final class TourController {
         self.addGig = addGig
         self.meetFriend = meetFriend
         self.night = night
+        self.log = log
         state = settings.tourState
         publish()
     }
@@ -71,20 +74,47 @@ final class TourController {
     func send(_ event: TourEvent) {
         let (next, commands, freshDemoWorld) = TourScript.reduce(state, event)
         guard next != state || !commands.isEmpty || freshDemoWorld else { return }
-        if freshDemoWorld { demoWorld.purge() }
+        if freshDemoWorld {
+            logTask?.cancel()
+            demoWorld.purge()
+        }
         let changedStep = next.currentStep != state.currentStep
         state = next
         settings.saveTourState(state)
         if changedStep || state.finished { host.state.tourCoachMark = nil }
         publish()
-        for command in commands {
+        run(commands)
+    }
+
+    private func run(_ commands: [TourCommand]) {
+        for (index, command) in commands.enumerated() {
             switch command {
-            case .purgeDemoWorld: demoWorld.purge()
+            case .purgeDemoWorld:
+                logTask?.cancel()
+                demoWorld.purge()
             case .showCoachMark(let mark): host.state.tourCoachMark = mark
             case .markTourFinished: host.state.tourFinished = true
             case .lookUpBand: addGig?.lookUpBand()
             case .importDemoTicket: importDemoTicket()
             case .advanceDemoClock(let mark): night?.advance(to: mark)
+            case .deliverGossip:
+                guard let log, let gig = demoGig else { continue }
+                let expected = state
+                let now = epochMs(self.now(for: gig.id))
+                logTask = Task {
+                    guard await log.deliverGossip(for: gig, now: now),
+                          !Task.isCancelled, state == expected else { return }
+                    run(Array(commands.dropFirst(index + 1)))
+                }
+                return
+            case .fillSetlist:
+                guard let log, let gig = demoGig else { continue }
+                let now = epochMs(self.now(for: gig.id))
+                logTask = Task {
+                    if await log.fillSetlist(for: gig, now: now), !Task.isCancelled {
+                        sendForDemoGig(gig.id, .setlistFilled)
+                    }
+                }
             default: break
             }
         }
@@ -136,6 +166,45 @@ final class TourController {
     func ticketShown(_ gigId: String) { sendForDemoGig(gigId, .ticketShown) }
     func checkedIn(_ gigId: String) { sendForDemoGig(gigId, .checkedIn) }
 
+    /// A **Log** edit on the demo **Gig** while the Tour runs: kept in the demo store, never saved to the
+    /// timeline or broadcast, and the event the awaiting step needs. False for every other edit.
+    func logWritten(_ gigId: String, before: StoredLog, after: StoredLog, now: Int64) -> Bool {
+        guard running, isDemoGig(gigId), let log else { return false }
+        let step = state.currentStep
+        let changes = gossipLogChanges(before: before, after: after)
+        let namedChange = changes.values.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let canReply = step == .s16 && log.gossip(gigId).contains { $0.source == .virtualFriend }
+        log.writeLog(gigId, log: after, reply: canReply && namedChange, now: now)
+        if step == .s14, after.songs.count > before.songs.count, namedChange { send(.logEntryWritten) }
+        if step == .s15, after.gaps > before.gaps { send(.gapRecorded) }
+        if canReply, namedChange { send(.gossipSent) }
+        return true
+    }
+
+    /// The demo **Gig**'s **Log**, nil for every other **Gig** and once the Tour is over.
+    func demoLog(for gigId: String) -> StoredLog? {
+        guard running, isDemoGig(gigId), let log else { return nil }
+        return log.loadLog(gigId)
+    }
+
+    /// The gossip shown in the demo **Gig**'s **Log**: the friend's, and the person's reply.
+    func demoGossip(for gigId: String) -> [TourLogEffects.Gossip] {
+        guard running, isDemoGig(gigId) else { return [] }
+        return log?.gossip(gigId) ?? []
+    }
+
+    var virtualFriendName: String { meetFriend?.name ?? "" }
+
+    func setlistFillLine(for gigId: String) -> String? {
+        guard running, isDemoGig(gigId) else { return nil }
+        return log?.fillLine(gigId)
+    }
+
+    private var demoGig: FmSetlist? {
+        guard running else { return nil }
+        return host.state.plannedGigs.first { isDemoGig($0.id) }
+    }
+
     private func sendForDemoGig(_ gigId: String, _ event: TourEvent) {
         guard running, isDemoGig(gigId) else { return }
         send(event)
@@ -152,7 +221,19 @@ final class TourController {
     }
 
     func skip() { send(.skipped) }
-    func resume() { send(.resumed) }
+    /// The saved step can outlive its local **Gossip** delivery when the app is killed.
+    func resume() {
+        guard state.currentStep == .s16, let log, let gig = demoGig,
+              log.loadLog(gig.id).gaps > 0, !log.gossip(gig.id).contains(where: { $0.source == .virtualFriend })
+        else { send(.resumed); return }
+        let expected = state
+        let now = epochMs(self.now(for: gig.id))
+        logTask = Task {
+            guard await log.deliverGossip(for: gig, now: now),
+                  !Task.isCancelled, state == expected else { return }
+            send(.resumed)
+        }
+    }
     func replay() {
         settings.setOnboarded()
         host.state.onboarded = true
