@@ -233,6 +233,7 @@ struct StationView: View {
                         model.navigation.setZoomedOut(f > 0.5)
                         dragFraction = nil
                     }
+                    if f > 0.5 && model.state.zoomedOut { model.tour.send(.pinchedOut) }
                 }
         )
         // Swipe the timeline left to start connecting with someone nearby — the

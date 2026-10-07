@@ -302,7 +302,7 @@ final class AppModel: ObservableObject, StateHost {
     private lazy var spotify = SpotifyClient(settings)
     private(set) lazy var settingsController = SettingsController(host: self, settings: settings, spotify: spotify)
     private let musicBrainz = MusicBrainzClient()
-    private let timelines = TimelineStore()
+    let timelines = TimelineStore()
     private(set) lazy var planning: PlanningController = PlanningController(
         host: self,
         timelines: timelines,
@@ -338,7 +338,7 @@ final class AppModel: ObservableObject, StateHost {
     /// The shared half: the sequence and the rules, testable because the plumbing
     /// above is handed in rather than constructed inside it.
     private lazy var logic = TimelineLogic(plumbing: plumbing)
-    private lazy var location = DeviceLocation()
+    lazy var location = DeviceLocation()
     private(set) lazy var navigation = NavigationController(
         host: self,
         timelines: timelines,

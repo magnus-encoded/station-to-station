@@ -52,6 +52,14 @@ final class TicketsController {
         }
     }
 
+    /// A **Ticket** handed over inside the app rather than through the share sheet (the
+    /// Tour's friend, S9): routed exactly as a deposit is, minus the box.
+    func importTicket(_ ticket: Ticket, now: Date = Date()) async {
+        let id = UUID().uuidString
+        depositsInHand.insert(id)
+        if !(await routeShared(ticket, depositId: id, original: nil, now: now)) { depositsInHand.remove(id) }
+    }
+
     /// Deposits read from the box and not yet settled: being routed, or on the prompt.
     private var depositsInHand: Set<String> = []
 

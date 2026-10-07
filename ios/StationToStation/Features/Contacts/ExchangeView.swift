@@ -49,6 +49,35 @@ struct ExchangeView: View {
     }
 
     var body: some View {
+        if let friend = model.tour.exchangeFriendName {
+            tourExchange(friend)
+        } else {
+            radioExchange
+        }
+    }
+
+    /// The Tour's Exchange (S7): the Virtual friend as the one row, landed on this phone.
+    /// No radio is started, so nothing goes over the air.
+    private func tourExchange(_ friend: String) -> some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                note("Stand next to someone with the app open. When they appear, add them "
+                    + "and your timelines weave together.")
+                Radar().padding(.vertical, 24)
+                if let connectingWith {
+                    connecting(connectingWith)
+                } else {
+                    peerRow(ExchangePeer(id: "tour-friend", name: friend, setlistfm: nil))
+                }
+            }
+            .padding(.horizontal, 24)
+        }
+        .background(ground.ignoresSafeArea())
+        .navigationTitle("Connect a timeline")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var radioExchange: some View {
         ScrollView {
             VStack(spacing: 0) {
                 if session.bluetoothDenied {
@@ -201,6 +230,16 @@ struct ExchangeView: View {
     @MainActor
     private func tap(_ peer: ExchangePeer) {
         connectingWith = peer.name
+        if model.tour.exchangeFriendName != nil {
+            // The friend lands here rather than over the radio; the Lanes stay closed,
+            // because opening them is the next step's pinch.
+            Task { @MainActor in
+                await model.tour.exchangeWithFriend()
+                connectingWith = nil
+                nav.popToRoot()
+            }
+            return
+        }
         announce("Connecting with \(peer.name)")
         session.connect(peer) { friend in
             Task { @MainActor in

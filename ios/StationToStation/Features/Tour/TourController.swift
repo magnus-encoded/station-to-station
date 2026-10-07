@@ -20,16 +20,18 @@ final class TourController {
     private let connectivity: TourConnectivity
     private let demoWorld: DemoWorld
     private let addGig: TourAddGigEffects?
+    private let meetFriend: TourMeetFriendEffects?
     private(set) var state: TourState
     private var launched = false
 
     init(host: StateHost, settings: Settings, connectivity: TourConnectivity, demoWorld: DemoWorld,
-         addGig: TourAddGigEffects? = nil) {
+         addGig: TourAddGigEffects? = nil, meetFriend: TourMeetFriendEffects? = nil) {
         self.host = host
         self.settings = settings
         self.connectivity = connectivity
         self.demoWorld = demoWorld
         self.addGig = addGig
+        self.meetFriend = meetFriend
         state = settings.tourState
         publish()
     }
@@ -78,6 +80,7 @@ final class TourController {
             case .showCoachMark(let mark): host.state.tourCoachMark = mark
             case .markTourFinished: host.state.tourFinished = true
             case .lookUpBand: addGig?.lookUpBand()
+            case .importDemoTicket: importDemoTicket()
             default: break
             }
         }
@@ -88,6 +91,28 @@ final class TourController {
         guard state.currentStep == .s4, !state.finished else { return }
         addGig?.record(gigId)
         send(.gigAdded)
+    }
+
+    /// The Virtual friend's row on the Exchange screen while S7 waits for it; nil otherwise.
+    var exchangeFriendName: String? {
+        guard host.state.tourStep == .s7, !host.state.tourFinished, let meetFriend else { return nil }
+        return meetFriend.name
+    }
+
+    /// S7's tap on the friend's row: a local Exchange, no radio.
+    func exchangeWithFriend() async {
+        guard state.currentStep == .s7, !state.finished, let meetFriend else { return }
+        let fix = await meetFriend.exchange()
+        // No fix: the script still needs a location, and the venue simply has none.
+        send(.contactExchanged(location: fix ?? TourLocation(latitude: 0, longitude: 0)))
+    }
+
+    private func importDemoTicket() {
+        guard let meetFriend else { return }
+        Task {
+            await meetFriend.importDemoTicket()
+            send(.ticketImported)
+        }
     }
 
     func skip() { send(.skipped) }
