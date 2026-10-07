@@ -833,6 +833,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         setGigMedia = { id, media -> setGigMedia(id, media) },
         syncGossip = { gossipController.sync() },
         gossipAbout = { id -> gossipController.gossipAbout(id) },
+        gigNow = { id, now -> tour.now(id, now) },
+        venuePoint = { gig -> tour.venuePoint(gig) },
+        onCheckedIn = { id -> tour.checkedIn(id) },
     )
     private val gigMedia = GigMediaController(
         state = { _state.value },
@@ -1317,7 +1320,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun suggestArtists(query: String) = planning.suggestArtists(query)
     fun clearArtistSuggestions() = planning.clearArtistSuggestions()
     fun addLocalGig(artist: String, venue: String, date: String) = planning.addLocalGig(artist, venue, date)
-    fun markCalendarAdded(gigId: String, eventUri: String) = planning.markCalendarAdded(gigId, eventUri)
+    suspend fun markCalendarAdded(gigId: String, eventUri: String, world: Int? = tour.calendarWorld(gigId)) {
+        if (tour.calendarAdded(gigId, eventUri, world)) planning.markCalendarAdded(gigId, eventUri)
+    }
     fun commitProgramme(
         programme: StoredProgramme,
         diff: ProgrammeDiff,

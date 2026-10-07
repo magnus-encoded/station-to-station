@@ -32,6 +32,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.ZoneId
 
 /**
  * A **Gig**'s own record: its **Log**, notes, setlist.fm adoption, deletion and check-in.
@@ -51,6 +52,10 @@ class GigController(
     private val setGigMedia: (String, List<StoredMedia>) -> Unit,
     private val syncGossip: suspend () -> Unit,
     private val gossipAbout: suspend (String) -> Unit,
+    private val gigNow: (String, LocalDateTime) -> LocalDateTime = { _, now -> now },
+    private val venuePoint: (FmSetlist) -> Pair<Double, Double>? = { null },
+    private val onCheckedIn: (String) -> Unit = {},
+    private val locate: suspend () -> Pair<Double, Double>? = { where.currentFix() },
 ) {
 
     /**
@@ -339,7 +344,7 @@ class GigController(
      */
     fun checkInDue(now: LocalDateTime = LocalDateTime.now()): Boolean =
         state().plannedGigs.any { gig ->
-            canCheckInManually(gig, now) && !isCheckedIn(gig.id)
+            canCheckInManually(gig, gigNow(gig.id, now)) && !isCheckedIn(gig.id)
         }
 
     fun hasLocationPermission(): Boolean = where.hasPermission()
@@ -356,14 +361,15 @@ class GigController(
      * ponytail: linear over the planned gigs, geocoding only the one that passes
      * the city gate. You have a ticket for a handful of nights, not thousands.
      */
-    fun offerCheckIn() {
+    fun offerCheckIn(now: LocalDateTime = LocalDateTime.now()) {
         if (askedToCheckIn) return
         askedToCheckIn = true
         scope.launch {
-            val now = LocalDateTime.now()
-            val fix = where.currentFix() ?: return@launch
+            val fix = locate() ?: return@launch
             val candidates = state().plannedGigs.filterNot { isCheckedIn(it.id) }
-            val gig = checkInCandidate(candidates, now, fix) ?: return@launch
+            val gig = candidates.firstOrNull {
+                checkInCandidate(listOf(it), gigNow(it.id, now), fix) != null
+            } ?: return@launch
             val venue = venueCoords(gig) ?: return@launch
             if (!atVenue(fix, venue)) return@launch
             update { it.copy(checkInOffer = gig) }
@@ -381,6 +387,7 @@ class GigController(
      * can't place, which costs this gig its prompt and nothing else.
      */
     private suspend fun venueCoords(gig: FmSetlist): Pair<Double, Double>? {
+        venuePoint(gig)?.let { return it }
         state().attendanceByGig[gig.id]?.let { stored ->
             val lat = stored.venueLat
             val lon = stored.venueLon
@@ -400,16 +407,17 @@ class GigController(
      * flag, not a competing record. Not a gate on anything: the peer-attested badge
      * decorates this entry later, it doesn't replace it.
      */
-    fun checkIn(gigId: String) {
+    fun checkIn(gigId: String, now: LocalDateTime = LocalDateTime.now()) {
         update { it.copy(checkInOffer = null) }
         val saved = updateAttendance(gigId) {
             it.copy(
                 provenance = StoredAttendance.Provenance.CHECKED_IN,
-                checkedInAt = System.currentTimeMillis(),
+                checkedInAt = gigNow(gigId, now).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
             )
         }
         scope.launch {
             saved.join()
+            onCheckedIn(gigId)
             withContext(Dispatchers.IO) { runCatching { gossipAbout(gigId) } }
             syncGossip()
         }

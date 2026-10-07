@@ -76,6 +76,7 @@ import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSong
 import io.github.magnusencoded.stationtostation.data.setlistfm.line
 import io.github.magnusencoded.stationtostation.data.visibleToContacts
+import java.time.LocalDateTime
 
 private val Amber = Color(0xFFE7B24C)
 private val Raised = Color(0xFF17121F)
@@ -157,6 +158,7 @@ internal fun TimelineItem(
     joinedWith: List<String> = emptyList(),
     /** What a long press offers; null, and the row has no menu. */
     menu: GigMenuSpec? = null,
+    now: LocalDateTime = LocalDateTime.now(),
 ) {
     val songCount = setlist.performed().size
     val zoomedOut = laneWidth > 0.dp
@@ -289,7 +291,7 @@ internal fun TimelineItem(
             Spacer(Modifier.height(7.dp))
             Text(
                 when {
-                    planned -> plannedStatus(setlist.localDate(), songCount = songCount)
+                    planned -> plannedStatus(setlist.localDate(), now, songCount = songCount)
                     songCount > 0 -> "$songCount songs"
                     else -> "setlist not logged"
                 },

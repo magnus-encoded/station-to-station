@@ -6,15 +6,15 @@ import android.content.Intent
 import android.net.Uri
 
 /**
- * Fires the OS maps app at a venue by text query — see [venueMapsQuery]. No lat/long:
- * setlist.fm doesn't have any, so `geo:0,0?q=` lets the OS geocode the name itself.
- * A no-op (not a crash) when no maps app is installed; #33 needs its own fallback.
+ * Opens the venue's point when supplied, otherwise lets Maps geocode its name.
+ * Returns false when no Maps app can receive the handoff.
  */
-fun openVenueInMaps(context: Context, query: String) {
-    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=" + Uri.encode(query)))
+fun openVenueInMaps(context: Context, query: String, pointUri: String? = null): Boolean {
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(pointUri ?: ("geo:0,0?q=" + Uri.encode(query))))
     try {
         context.startActivity(intent)
+        return true
     } catch (e: ActivityNotFoundException) {
-        // ponytail: no maps app to hand off to; degrade to nothing rather than crash.
+        return false
     }
 }
