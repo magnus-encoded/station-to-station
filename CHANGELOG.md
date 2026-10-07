@@ -19,14 +19,14 @@ Every version listed under "What has changed" in the
 ## 1.12.1 — 2026-10-07
 
 <!-- play -->
-Fix: a bug where imported tickets with a past date would get stuck as a planned event near the current events.
 Fix: if the saved timeline can't be read, it is now set aside instead of being overwritten, so no gigs are lost.
+Fix: a bug where imported tickets with a past date would get stuck as a planned event near the current events.
 <!-- /play -->
 
-**Fixes.** Imported tickets with a past date no longer get stuck as a planned
-event near the current events; ones already stuck are fixed when the app opens.
-If the app's saved timeline can't be read, it is kept aside on the phone,
-untouched, instead of being overwritten by the next save. Behind the scenes,
+**Fixes.** If the app's saved timeline can't be read, it is kept aside on the
+phone, untouched, instead of being overwritten by the next save. Imported
+tickets with a past date no longer get stuck as a planned event near the
+current events; ones already stuck are fixed when the app opens. Behind the scenes,
 the iPhone app has been reorganised to match Android, with no change to how it
 works.
 
