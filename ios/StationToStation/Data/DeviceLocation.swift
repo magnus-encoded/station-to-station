@@ -12,6 +12,7 @@ import CoreLocation
 final class DeviceLocation: NSObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
     private var fixContinuation: CheckedContinuation<(lat: Double, lon: Double)?, Never>?
+    private var answerContinuation: CheckedContinuation<Void, Never>?
     /// Fires once the permission prompt is answered — the iOS stand-in for
     /// Android's `rememberLauncherForActivityResult` callback, which is what
     /// lets a "not now" or "allow" answer resume the offer that asked for it.
@@ -39,6 +40,18 @@ final class DeviceLocation: NSObject, CLLocationManagerDelegate {
     /// merely for opening the app.
     func requestPermission() {
         manager.requestWhenInUseAuthorization()
+    }
+
+    /// One fix, asking for the permission first when it has never been answered. The
+    /// Tour's Exchange (S7) is the one place a fix is worth a prompt on its own.
+    func fixAskingFirst() async -> (lat: Double, lon: Double)? {
+        if manager.authorizationStatus == .notDetermined {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                answerContinuation = continuation
+                manager.requestWhenInUseAuthorization()
+            }
+        }
+        return await currentFix()
     }
 
     /// One fix, or nil — no permission, no provider, location switched off, or
@@ -84,6 +97,13 @@ final class DeviceLocation: NSObject, CLLocationManagerDelegate {
     }
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        Task { @MainActor in self.onAuthorizationChanged?() }
+        let answered = manager.authorizationStatus != .notDetermined
+        Task { @MainActor in
+            if answered, let waiting = self.answerContinuation {
+                self.answerContinuation = nil
+                waiting.resume()
+            }
+            self.onAuthorizationChanged?()
+        }
     }
 }
