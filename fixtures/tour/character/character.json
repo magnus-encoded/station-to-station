@@ -1,0 +1,31 @@
+{
+  "name": "Ludwig",
+  "avatar": "ludwig_avatar",
+  "selfie": "ludwig_selfie",
+  "lines": {
+    "S1": "I'm Ludwig. This is your Line: down is the past, up is what's coming. Tap Got it, and say it loudly.",
+    "S2": "Nobody ever planned a great night by waiting. Pull down from the top to open the Planning Curtain.",
+    "S3": "Type a band you'd cross a city for, then pick them from the list. I check MusicBrainz, the open music encyclopedia, so we get the right band.",
+    "S4": "Respectable taste. Not mine, but respectable. Tap Add to put the gig on your Line.",
+    "S5": "Tap the gig to open its Room. That's where the night lives.",
+    "S6": "I tore out every back button myself. Swipe right to go back.",
+    "S7": "We swap contacts in person, standing together, as music intended. Tap my name on the Exchange screen.",
+    "S8": "Pinch out to see my Line beside yours. Mine is longer. Naturally.",
+    "S9": "I bought you a ticket and sent it over; it's already on the gig. Thank me loudly.",
+    "S10": "The gig is getting close. Add it to your calendar, so you can't pretend you forgot.",
+    "S11": "Open directions to the venue in Maps. I am not carrying you there.",
+    "S12": "Doors are open! Tap your ticket and show it at the door.",
+    "S13": "We're in. Tap Check in so the night knows you were here.",
+    "S14": "They've started, and they're LOUD. Open the Log and write the first song they played.",
+    "S15": "Second song, no idea? Me neither, I couldn't hear a thing. Add a Gap: a blank entry is honest.",
+    "S16": "My phone heard it after all, and its gossip filled your Gap. Now write some gossip back to me.",
+    "S17": "setlist.fm, where fans keep the setlists, filled in the rest. I'd have remembered it better.",
+    "S18": "A night without proof is just a rumour. Take a selfie in your camera, come back, and choose private or shared.",
+    "S19": "It's over and I'm already mourning. Tap Spotify to keep the setlist as a playlist.",
+    "S20": "That's the Tour: the demo night is gone, the playlist is yours. Now go to a real gig and stand near the speakers."
+  },
+  "playlist": {
+    "title": "Went to a gig with Ludwig",
+    "description": "Achievement unlocked: survived a whole gig with Ludwig. He shouted every chorus, heard half of them and regrets nothing."
+  }
+}

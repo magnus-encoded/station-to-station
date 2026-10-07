@@ -33,6 +33,9 @@ targets:
       - path: ../fixtures/weave
         type: folder
         buildPhase: resources
+      # The Tour's Virtual friend, shared with Android.
+      - path: ../fixtures/tour/character/character.json
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.magnusencoded.stationtostation

@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Drawn after Joseph Karl Stieler's 1820 portrait (public domain); original vector work. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+    <path
+        android:pathData="M0,0 H96 V96 H0 Z"
+        android:fillColor="#120E1A" />
+    <path
+        android:pathData="M14,0 L24,0 L40,96 L0,96 L0,40 Z"
+        android:fillColor="#E7B24C" />
+    <path
+        android:pathData="M76,0 L86,0 L96,30 L96,96 L60,96 Z"
+        android:fillColor="#7C5CC4" />
+    <path
+        android:pathData="M0,60 H96 V96 H0 Z"
+        android:fillColor="#120E1A" />
+    <path
+        android:pathData="M15,4a4,4 0 1,0 8,0a4,4 0 1,0 -8,0z"
+        android:fillColor="#EDE9F2" />
+    <path
+        android:pathData="M77,4a4,4 0 1,0 8,0a4,4 0 1,0 -8,0z"
+        android:fillColor="#EDE9F2" />
+    <path
+        android:pathData="M0,96 L0,76 C4,70 12,70 14,76 C16,70 22,68 26,76 L26,96 Z M70,96 L70,78 C72,70 80,70 82,76 C86,68 94,70 96,76 L96,96 Z"
+        android:fillColor="#2A2236" />
+    <path
+        android:pathData="M18,96 C20,76 32,68 48,68 C64,68 76,76 78,96 Z"
+        android:fillColor="#2A2236" />
+    <path
+        android:pathData="M38,70 L48,84 L58,70 L54,66 L42,66 Z"
+        android:fillColor="#EDE9F2" />
+    <path
+        android:pathData="M36,66 C40,74 56,74 60,66 L62,72 C56,80 40,80 34,72 Z"
+        android:fillColor="#B8322A" />
+    <path
+        android:pathData="M46,76 L42,90 L50,88 L52,76 Z"
+        android:fillColor="#B8322A" />
+    <path
+        android:pathData="M28,46a4,4 0 1,0 8,0a4,4 0 1,0 -8,0z"
+        android:fillColor="#E3C3A0" />
+    <path
+        android:pathData="M60,46a4,4 0 1,0 8,0a4,4 0 1,0 -8,0z"
+        android:fillColor="#E3C3A0" />
+    <path
+        android:pathData="M33,40 C33,24 63,24 63,40 L62,52 C60,62 54,68 48,68 C42,68 36,62 34,52 Z"
+        android:fillColor="#E3C3A0" />
+    <path
+        android:pathData="M30,46 C22,40 20,30 26,24 C22,18 28,10 36,12 C38,4 50,4 54,10 C62,6 72,12 70,20 C78,24 76,36 68,40 C70,46 66,50 64,46 C64,36 60,30 54,28 C50,32 42,30 40,26 C36,30 32,36 32,46 Z"
+        android:fillColor="#6E6058" />
+    <path
+        android:pathData="M28,26 C32,22 36,22 38,18 M46,10 C46,14 50,16 52,14 M60,14 C64,18 66,20 70,22 M26,34 C28,30 30,30 32,28"
+        android:strokeColor="#9C8E85"
+        android:strokeWidth="1.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M38,40 L46,43 M58,40 L50,43"
+        android:strokeColor="#3B302C"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M41.4,46a1.6,1.6 0 1,0 3.2,0a1.6,1.6 0 1,0 -3.2,0z"
+        android:fillColor="#1D1728" />
+    <path
+        android:pathData="M51.4,46a1.6,1.6 0 1,0 3.2,0a1.6,1.6 0 1,0 -3.2,0z"
+        android:fillColor="#1D1728" />
+    <path
+        android:pathData="M48,47 L47,54 L50,55"
+        android:strokeColor="#B08A6E"
+        android:strokeWidth="1.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M43,60 C46,58.5 50,58.5 53,60"
+        android:strokeColor="#7A4A3A"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M76,70 C76,62 84,62 84,70 L84,78 L76,78 Z"
+        android:fillColor="#E3C3A0" />
+    <path
+        android:pathData="M77,64 L77,54 L80,54 L80,64 Z M81,64 L81,56 L84,56 L84,64 Z"
+        android:fillColor="#E3C3A0" />
+    <path
+        android:pathData="M75,78 L85,78 L86,96 L74,96 Z"
+        android:fillColor="#2A2236" />
+</vector>
