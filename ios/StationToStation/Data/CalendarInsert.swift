@@ -64,3 +64,11 @@ private func requestCalendarAccess(_ store: EKEventStore) async -> Bool {
         store.requestAccess(to: .event) { granted, _ in continuation.resume(returning: granted) }
     }
 }
+
+/// Deletes the event `insertCalendarEvent` made, by its identifier. Nothing happens when it
+/// is already gone or access was never granted.
+func deleteCalendarEvent(_ eventId: String) {
+    let store = EKEventStore()
+    guard let event = store.event(withIdentifier: eventId) else { return }
+    try? store.remove(event, span: .thisEvent)
+}

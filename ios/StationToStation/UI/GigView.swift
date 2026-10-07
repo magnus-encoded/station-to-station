@@ -396,7 +396,7 @@ struct GigView: View {
                 // Android reaches the same field through `state.attendanceByGig[id]`.
                 admissionCount: model.state.selectedAttendance?.admissions.count ?? 0
             ),
-            now: Date()
+            now: model.tour.now(for: show.id)
         )
     }
 
@@ -532,6 +532,7 @@ struct GigView: View {
                 if room?.showTicket == true,
                    let admissions = model.state.selectedAttendance?.admissions, !admissions.isEmpty {
                     TicketAtTheDoor(admissions: admissions).padding(.top, 10)
+                        .simultaneousGesture(TapGesture().onEnded { model.tour.ticketShown(show.id) })
                 }
                 if room?.checkIn == true {
                     Text("I'm here — check in").font(.system(size: 13)).foregroundStyle(amber)
@@ -619,8 +620,18 @@ struct GigView: View {
                         Label("Add to calendar", systemImage: "calendar.badge.plus")
                     }
                 }
-                if let mapsQuery {
-                    Button { openVenueInMaps(mapsQuery) } label: {
+                if let demoMaps = model.tour.mapsURL(for: show) {
+                    Button {
+                        openURL(demoMaps)
+                        model.tour.mapsOpened(show.id)
+                    } label: {
+                        Label("Open in Maps", systemImage: "map")
+                    }
+                } else if let mapsQuery {
+                    Button {
+                        openVenueInMaps(mapsQuery)
+                        model.tour.mapsOpened(show.id)
+                    } label: {
                         Label("Open in Maps", systemImage: "map")
                     }
                 }

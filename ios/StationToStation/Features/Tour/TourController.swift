@@ -21,17 +21,20 @@ final class TourController {
     private let demoWorld: DemoWorld
     private let addGig: TourAddGigEffects?
     private let meetFriend: TourMeetFriendEffects?
+    private let night: TourNightArrivesEffects?
     private(set) var state: TourState
     private var launched = false
 
     init(host: StateHost, settings: Settings, connectivity: TourConnectivity, demoWorld: DemoWorld,
-         addGig: TourAddGigEffects? = nil, meetFriend: TourMeetFriendEffects? = nil) {
+         addGig: TourAddGigEffects? = nil, meetFriend: TourMeetFriendEffects? = nil,
+         night: TourNightArrivesEffects? = nil) {
         self.host = host
         self.settings = settings
         self.connectivity = connectivity
         self.demoWorld = demoWorld
         self.addGig = addGig
         self.meetFriend = meetFriend
+        self.night = night
         state = settings.tourState
         publish()
     }
@@ -81,6 +84,7 @@ final class TourController {
             case .markTourFinished: host.state.tourFinished = true
             case .lookUpBand: addGig?.lookUpBand()
             case .importDemoTicket: importDemoTicket()
+            case .advanceDemoClock(let mark): night?.advance(to: mark)
             default: break
             }
         }
@@ -106,6 +110,38 @@ final class TourController {
         // No fix: the script still needs a location, and the venue simply has none.
         send(.contactExchanged(location: fix ?? TourLocation(latitude: 0, longitude: 0)))
     }
+
+    /// The clock a **Gig**'s rules read: the **Demo clock** for the demo **Gig** while the
+    /// Tour runs, the real one for every other **Gig** and once the Tour is over.
+    func now(for gigId: String) -> Date {
+        guard running, isDemoGig(gigId), let demoNow = night?.demoNow else { return Date() }
+        return demoNow
+    }
+
+    /// S10: the calendar event made for the demo **Gig**, kept so the purge can delete it.
+    func calendarAdded(_ gigId: String, eventId: String) {
+        guard running, isDemoGig(gigId) else { return }
+        night?.recordCalendarEvent(eventId)
+        send(.calendarAdded)
+    }
+
+    /// Where Maps should open for `gig`: the demo venue's point for the demo **Gig**, nil
+    /// (the plain venue query) for every other.
+    func mapsURL(for gig: FmSetlist) -> URL? {
+        guard running, isDemoGig(gig.id) else { return nil }
+        return TourNightArrivesEffects.mapsURL(for: gig)
+    }
+
+    func mapsOpened(_ gigId: String) { sendForDemoGig(gigId, .mapsOpened) }
+    func ticketShown(_ gigId: String) { sendForDemoGig(gigId, .ticketShown) }
+    func checkedIn(_ gigId: String) { sendForDemoGig(gigId, .checkedIn) }
+
+    private func sendForDemoGig(_ gigId: String, _ event: TourEvent) {
+        guard running, isDemoGig(gigId) else { return }
+        send(event)
+    }
+
+    private func isDemoGig(_ gigId: String) -> Bool { addGig?.demoGigIds.contains(gigId) == true }
 
     private func importDemoTicket() {
         guard let meetFriend else { return }

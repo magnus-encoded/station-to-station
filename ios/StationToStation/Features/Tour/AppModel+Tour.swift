@@ -14,11 +14,16 @@ extension AppModel {
     func makeTourController() -> TourController {
         let addGig = TourAddGigEffects { [unowned self] in self.gig.deleteGig($0) }
         let meetFriend = makeMeetFriendEffects(addGig)
+        let night = TourNightArrivesEffects(
+            demoGig: { [unowned self] in self.state.plannedGigs.first { addGig.demoGigIds.contains($0.id) } },
+            deleteCalendarEvent: { deleteCalendarEvent($0) })
         let tour = TourController(host: self, settings: settings,
                                   connectivity: DeviceTourConnectivity(),
-                                  demoWorld: DemoWorldRegistry(parts: [meetFriend, addGig]),
-                                  addGig: addGig, meetFriend: meetFriend)
+                                  demoWorld: DemoWorldRegistry(parts: [night, meetFriend, addGig]),
+                                  addGig: addGig, meetFriend: meetFriend, night: night)
         planning.onGigAdded = { [unowned tour] in tour.gigAdded($0) }
+        planning.onCalendarAdded = { [unowned tour] in tour.calendarAdded($0, eventId: $1) }
+        gig.onCheckedIn = { [unowned tour] in tour.checkedIn($0) }
         return tour
     }
 
