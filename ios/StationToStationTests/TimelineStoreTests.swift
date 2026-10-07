@@ -743,7 +743,8 @@ final class TimelineStoreTests: XCTestCase {
     /// ran is kept. Before, the record read before the await was saved back whole.
     func testAnUpdateChangesOnlyItsOwnFieldsOnTheRecordAsItIsNow() async {
         let store = TimelineStore(file: tempFile(contents: "{}"))
-        let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
+        // A night still ahead: a past planned night holding a ticket loads as attended.
+        let id = await store.createLocalGig(date: "14-09-2099", artist: "Big Thief", venue: "")
         await store.saveAttendance(setlistId: id, attendance: StoredAttendance(provenance: "planned"))
         // Attached while the geocoder was out.
         await store.attachAdmissions(setlistId: id, admissions: [admission("TKT-9F31")])
