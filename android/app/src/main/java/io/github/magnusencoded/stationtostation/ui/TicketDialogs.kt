@@ -27,6 +27,7 @@ import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -164,7 +165,7 @@ internal fun keptOriginalLine(symbology: String, page: AdmissionPage? = null): S
  * full-screen view are #525's.
  */
 @Composable
-internal fun TicketAtTheDoor(admissions: List<StoredAdmission>) {
+internal fun TicketAtTheDoor(admissions: List<StoredAdmission>, onShown: () -> Unit = {}) {
     if (admissions.isEmpty()) return
     var index by remember(admissions) { mutableStateOf(0) }
     val page = AdmissionPage.of(index, admissions.size)
@@ -182,6 +183,9 @@ internal fun TicketAtTheDoor(admissions: List<StoredAdmission>) {
         value = DoorVerdict(admission, door)
     }
     val shown = verdict.forAdmission(admission) ?: AtTheDoor.Checking
+    LaunchedEffect(admission, shown, onShown) {
+        if (shown is AtTheDoor.Shown || shown is AtTheDoor.Original) onShown()
+    }
     BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
         // The card's own padding and border, inside the width the Room gives it.
         val inner = maxWidth - 30.dp

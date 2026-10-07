@@ -1,12 +1,5 @@
 package io.github.magnusencoded.stationtostation.ui
 
-import io.github.magnusencoded.stationtostation.data.Friend
-import io.github.magnusencoded.stationtostation.MediaThumb
-import io.github.magnusencoded.stationtostation.CoverCandidate
-import io.github.magnusencoded.stationtostation.data.StoredAdmission
-import io.github.magnusencoded.stationtostation.data.WovenSong
-import io.github.magnusencoded.stationtostation.data.StoredPlaylist
-import androidx.compose.foundation.lazy.LazyListScope
 import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -36,6 +29,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -78,13 +72,19 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.magnusencoded.stationtostation.AppViewModel
+import io.github.magnusencoded.stationtostation.CoverCandidate
 import io.github.magnusencoded.stationtostation.ErrorKind
+import io.github.magnusencoded.stationtostation.MediaThumb
 import io.github.magnusencoded.stationtostation.NOT_STAMPED
 import io.github.magnusencoded.stationtostation.NightKind
 import io.github.magnusencoded.stationtostation.data.Band
+import io.github.magnusencoded.stationtostation.data.Friend
+import io.github.magnusencoded.stationtostation.data.StoredAdmission
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.StoredMedia
+import io.github.magnusencoded.stationtostation.data.StoredPlaylist
+import io.github.magnusencoded.stationtostation.data.WovenSong
 import io.github.magnusencoded.stationtostation.data.gigInviteUri
 import io.github.magnusencoded.stationtostation.data.handle
 import io.github.magnusencoded.stationtostation.data.isLocal
@@ -104,6 +104,7 @@ import io.github.magnusencoded.stationtostation.data.visibleToContacts
 import io.github.magnusencoded.stationtostation.data.waitingOn
 import io.github.magnusencoded.stationtostation.data.weaveSetlist
 import io.github.magnusencoded.stationtostation.data.withheldFromContacts
+import io.github.magnusencoded.stationtostation.features.tour.nowForGig
 import io.github.magnusencoded.stationtostation.nightKind
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -143,6 +144,7 @@ fun StationEventScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val setlist = state.selectedSetlist
+    val now = viewModel.tour.nowForGig(setlist?.id.orEmpty())
     val context = LocalContext.current
     // A night I'm going to, not one I was at. Everything this screen says about a
     // setlist has to change: there is no setlist to be missing yet.
@@ -336,7 +338,7 @@ fun StationEventScreen(
     // The phase and the curtain come off the same value as the offers, so they cannot
     // disagree. The alcove is still not dispatched from — the swipe's action order is
     // a separate, deliberately deferred change (#129).
-    val offers = gigOffers(gigAsKnown, LocalDateTime.now())
+    val offers = gigOffers(gigAsKnown, now)
     val leaf = offers.phase
     // What pulling the curtain down asks for, decided by the same fold that draws the
     // chip — never the same request on a night three weeks away, a night being stood
@@ -428,17 +430,20 @@ fun StationEventScreen(
         if (band == Band.SHARED && wasKept) maybes.firstOrNull()?.let { askingMaybe = it }
     }
 
-    val plannedTimeState = if (planned) setlist?.localDate()?.let { gigTimeState(LocalDateTime.now(), it) } else null
+    val plannedTimeState = if (planned) setlist?.localDate()?.let { gigTimeState(now, it) } else null
     val planAhead = planned &&
         plannedTimeState != GigTimeState.PAST && plannedTimeState != GigTimeState.DAY_OF
+    // The demo Gig is local, so its Log bar would hide S10's calendar action.
+    val logBar = canLog && !(planAhead && setlist?.let { viewModel.tour.isDemoGig(it.id) } == true)
     // The insert is a couple of binder calls, so it runs off the main thread; success
     // persists the returned URI, and every failure (no writable calendar, provider
     // refusal) degrades to a toast with no link and no stage advance.
     val addToCalendar: () -> Unit = add@{
         val s = setlist ?: return@add
+        val world = viewModel.tour.calendarWorld(s.id)
         scope.launch {
             val uri = withContext(Dispatchers.IO) { insertCalendarEvent(context.contentResolver, s) }
-            if (uri != null) viewModel.markCalendarAdded(s.id, uri.toString())
+            if (uri != null) viewModel.markCalendarAdded(s.id, uri.toString(), world)
             else Toast.makeText(context, "Couldn't add this to your calendar.", Toast.LENGTH_SHORT).show()
         }
     }
@@ -461,6 +466,9 @@ fun StationEventScreen(
     // The invite is unchanged from the button it replaces: the gig-invite deep link out
     // through the OS share sheet. Repeatable — an invite is per-person.
     val onInvite: () -> Unit = { setlist?.let { context.startActivity(gigInviteChooser(it)) } }
+    val onTicketShown = remember(setlist?.id, state.tour.step) {
+        { setlist?.let { viewModel.tour.ticketShown(it.id) }; Unit }
+    }
 
     val maybeAnswers = remember { SnackbarHostState() }
     fun recordAnswer(maybe: MaybeNight, same: Boolean, adopt: Boolean = false) {
@@ -495,7 +503,9 @@ fun StationEventScreen(
         bottomBar = {
             EventBottomBar(
                 setlist = setlist,
-                canLog = canLog,
+                canLog = logBar,
+                now = now,
+                onTicketShown = onTicketShown,
                 planned = planned,
                 checkedIn = checkedIn,
                 convertible = convertible,
@@ -646,7 +656,7 @@ fun StationEventScreen(
                     // through to that same open-on-setlist.fm, matching their crumb.
                     // Registered even with nothing to convert, or a show with no logged
                     // setlist would be the one screen you can't swipe out of.
-                    .pointerInput(setlist.id, canConvert, planAhead, added, canLog, leaf) {
+                    .pointerInput(setlist.id, canConvert, planAhead, added, logBar, leaf) {
                         val threshold = 110.dp.toPx()
                         var dragX = 0f
                         detectHorizontalDragGestures(
@@ -663,7 +673,7 @@ fun StationEventScreen(
                                     // nothing for half the night is a dead gesture, and
                                     // this one publishes nothing by itself anyway — it
                                     // fills the clipboard and opens their form.
-                                    canLog -> onPublish()
+                                    logBar -> onPublish()
                                     planAhead && !added -> onAddToCalendar()
                                     planAhead && added -> onInvite()
                                     canConvert -> {
@@ -688,6 +698,18 @@ fun StationEventScreen(
                             color = Muted,
                             fontSize = 13.sp,
                         )
+                        venueMapsQuery(setlist.venue?.name, setlist.venue?.city?.name)?.let { query ->
+                            Text(
+                                "Open venue in Maps ↗",
+                                color = Slate,
+                                fontSize = 13.sp,
+                                modifier = Modifier.spokenAs("Open venue in Maps").clickable {
+                                    if (openVenueInMaps(context, query, viewModel.tour.mapsUri(setlist))) {
+                                        viewModel.tour.mapsOpened(setlist.id)
+                                    }
+                                }.padding(vertical = 6.dp),
+                            )
+                        }
                         Spacer(Modifier.height(11.dp))
                         EventChipRow(
                             setlist = setlist,
@@ -695,6 +717,7 @@ fun StationEventScreen(
                             checkedIn = checkedIn,
                             witnessed = setlist.id in state.witnessedGigs,
                             made = made,
+                            now = now,
                         )
                         // A lookup found something but was not sure (#531): the question
                         // waits here, on the night, until it is answered. Dismissing the
@@ -915,6 +938,8 @@ private fun EventBottomBar(
     onAddToCalendar: () -> Unit,
     onInvite: () -> Unit,
     onForgetPlaylist: (String) -> Unit,
+    now: LocalDateTime,
+    onTicketShown: () -> Unit,
 ) {
     val context = LocalContext.current
     if (canLog && setlist != null) {
@@ -932,11 +957,11 @@ private fun EventBottomBar(
             // checked into actually gets.
             if (checkedIn) {
                 presenceRow()
-            } else if (planned && canCheckInManually(setlist, LocalDateTime.now())) {
+            } else if (planned && canCheckInManually(setlist, now)) {
                 // A hand-added night lands here while still planned, and this was the
                 // only branch with no way to say "I'm here" — so it stayed planned, and
                 // a planned night is never offered to a Contact on a Reconcile.
-                if (showTicket) TicketAtTheDoor(admissions)
+                if (showTicket) TicketAtTheDoor(admissions, onShown = onTicketShown)
                 Text(
                     "I'm here — check in",
                     color = Amber,
@@ -1001,7 +1026,7 @@ private fun EventBottomBar(
         // it's still ahead, check in on the night, nudge setlist.fm once it's
         // over. An unparseable date can't be placed on that line, so it falls
         // to the plan-ahead actions rather than losing them.
-        val timeState = setlist.localDate()?.let { gigTimeState(LocalDateTime.now(), it) }
+        val timeState = setlist.localDate()?.let { gigTimeState(now, it) }
         Column(
             Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -1015,11 +1040,11 @@ private fun EventBottomBar(
             // The manual check-in, and the only one there is when location was
             // refused or the venue couldn't be geocoded. Same night window as
             // the ambient offer; no location involved at all.
-            if (canCheckInManually(setlist, LocalDateTime.now())) {
+            if (canCheckInManually(setlist, now)) {
                 if (checkedIn) {
                     presenceRow()
                 } else {
-                    if (showTicket) TicketAtTheDoor(admissions)
+                    if (showTicket) TicketAtTheDoor(admissions, onShown = onTicketShown)
                     Text(
                         "I'm here — check in",
                         color = Amber,
@@ -1184,6 +1209,7 @@ private fun EventChipRow(
     checkedIn: Boolean,
     witnessed: Boolean,
     made: List<StoredPlaylist>,
+    now: LocalDateTime,
 ) {
     val context = LocalContext.current
     Row {
@@ -1192,7 +1218,7 @@ private fun EventChipRow(
         // holding fifteen songs cannot print it and one holding none
         // keeps printing it.
         EventTag(
-            gigStatus(planned, setlist.localDate(), setlist.performed().size),
+            gigStatus(planned, setlist.localDate(), setlist.performed().size, now),
             color = if (planned) Slate else Muted,
         )
         setlist.tour?.name?.let {
@@ -1528,4 +1554,3 @@ private fun LazyListScope.setlistRows(
     }
     }
 }
-

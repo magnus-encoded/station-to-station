@@ -1,8 +1,12 @@
 package io.github.magnusencoded.stationtostation.features.tour
 
 import io.github.magnusencoded.stationtostation.UiState
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import java.time.LocalDateTime
 
 /** What the Tour saves and deletes. */
 interface TourStore {
@@ -24,8 +28,40 @@ class TourController(
     private val scope: CoroutineScope,
     private val meetFriend: TourMeetFriendEffects? = null,
     private val askLocation: suspend () -> Boolean = { false },
+    private val night: TourNightArrivesEffects? = null,
 ) {
     val hints = TourHintEffects(state, update, store, scope)
+    val demoClock: StateFlow<LocalDateTime?> = night?.demoNow ?: MutableStateFlow(null)
+
+    fun isDemoGig(gigId: String): Boolean = state().tour.running && night?.isDemoGig(gigId) == true
+
+    fun now(gigId: String, realNow: LocalDateTime = LocalDateTime.now()): LocalDateTime =
+        if (isDemoGig(gigId)) demoClock.value ?: realNow else realNow
+
+    fun mapsUri(gig: FmSetlist): String? =
+        venuePoint(gig)?.let { TourNightArrivesEffects.mapsUri(it, gig.venue?.name) }
+
+    fun venuePoint(gig: FmSetlist): Pair<Double, Double>? =
+        state().tour.venue?.takeIf { isDemoGig(gig.id) }?.let { it.latitude to it.longitude }
+
+    fun calendarWorld(gigId: String): Int? = state().tour.demoWorld.takeIf { isDemoGig(gigId) }
+
+    suspend fun calendarAdded(gigId: String, eventUri: String, world: Int? = calendarWorld(gigId)): Boolean {
+        if (world == null) return true
+        val kept = night?.recordCalendarEvent(eventUri) {
+            isDemoGig(gigId) && state().tour.demoWorld == world
+        } == true
+        if (kept) sendForDemoGig(gigId, TourEvent.CalendarAdded)
+        return kept
+    }
+
+    fun mapsOpened(gigId: String) = sendForDemoGig(gigId, TourEvent.MapsOpened)
+    fun ticketShown(gigId: String) = sendForDemoGig(gigId, TourEvent.TicketShown)
+    fun checkedIn(gigId: String) = sendForDemoGig(gigId, TourEvent.CheckedIn)
+
+    private fun sendForDemoGig(gigId: String, event: TourEvent) {
+        if (isDemoGig(gigId)) dispatch(event)
+    }
 
     /** At launch, once the saved Tour is in state: resume an unfinished one, or offer it. */
     fun launch() {
@@ -128,6 +164,9 @@ class TourController(
                             completed(OnceOnly.ImportDemoTicket)
                             dispatch(TourEvent.TicketImported)
                         }
+                    }
+                    is TourCommand.AdvanceDemoClock -> night?.advance(command.to) {
+                        state().tour.running && state().tour.step == after.step && state().tour.demoWorld == after.demoWorld
                     }
                     else -> Unit
                 }

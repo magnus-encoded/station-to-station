@@ -20,9 +20,11 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,11 +33,6 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -59,11 +56,16 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
@@ -80,83 +82,78 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.LocalTextStyle
-import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
-import androidx.compose.ui.semantics.heading
-import androidx.core.content.ContextCompat
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Snackbar
-import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.Velocity
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -165,93 +162,97 @@ import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.github.magnusencoded.stationtostation.GigMenuItem
-import io.github.magnusencoded.stationtostation.caption
-import io.github.magnusencoded.stationtostation.NightKind
-import io.github.magnusencoded.stationtostation.gigMenu
-import io.github.magnusencoded.stationtostation.nightKind
 import io.github.magnusencoded.stationtostation.AddGigLink
 import io.github.magnusencoded.stationtostation.AppViewModel
-import io.github.magnusencoded.stationtostation.UiState
-import io.github.magnusencoded.stationtostation.ErrorKind
 import io.github.magnusencoded.stationtostation.BuildConfig
 import io.github.magnusencoded.stationtostation.CoverCandidate
+import io.github.magnusencoded.stationtostation.ErrorKind
 import io.github.magnusencoded.stationtostation.GigLink
+import io.github.magnusencoded.stationtostation.GigMenuItem
 import io.github.magnusencoded.stationtostation.MediaThumb
 import io.github.magnusencoded.stationtostation.NOT_STAMPED
+import io.github.magnusencoded.stationtostation.NightKind
 import io.github.magnusencoded.stationtostation.PendingTicket
-import io.github.magnusencoded.stationtostation.nearestGig
-import io.github.magnusencoded.stationtostation.data.DeviceLocation
-import io.github.magnusencoded.stationtostation.data.Friend
-import io.github.magnusencoded.stationtostation.data.atUser
-import io.github.magnusencoded.stationtostation.data.handle
-import io.github.magnusencoded.stationtostation.data.laneKey
-import io.github.magnusencoded.stationtostation.data.parseFmDate
-import io.github.magnusencoded.stationtostation.data.nameOf
-import io.github.magnusencoded.stationtostation.data.MediaOffer
-import io.github.magnusencoded.stationtostation.data.waitingOn
-import io.github.magnusencoded.stationtostation.data.FriendArrival
-import io.github.magnusencoded.stationtostation.data.FutureRow
-import io.github.magnusencoded.stationtostation.data.StoredAttendance
-import io.github.magnusencoded.stationtostation.data.StoredLog
-import io.github.magnusencoded.stationtostation.data.StoredPlaylist
-import io.github.magnusencoded.stationtostation.features.tour.TourCoachMarkInline
-import io.github.magnusencoded.stationtostation.features.tour.TourEvent
-import io.github.magnusencoded.stationtostation.data.WovenSong
-import io.github.magnusencoded.stationtostation.data.isLocal
-import io.github.magnusencoded.stationtostation.data.StoredSetlistFmHit
-import io.github.magnusencoded.stationtostation.data.setlistfm.line
-import io.github.magnusencoded.stationtostation.data.setlistfm.setlistFmQuestion
-import io.github.magnusencoded.stationtostation.data.rankTitles
-import io.github.magnusencoded.stationtostation.data.weaveSetlist
-import io.github.magnusencoded.stationtostation.data.setlistEditEntry
-import io.github.magnusencoded.stationtostation.data.futureRows
-import io.github.magnusencoded.stationtostation.data.spineNights
-import io.github.magnusencoded.stationtostation.data.postFiling
-import io.github.magnusencoded.stationtostation.data.setlistPaste
-import androidx.compose.foundation.ScrollState
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.runtime.mutableStateMapOf
-import kotlin.math.abs
-import io.github.magnusencoded.stationtostation.data.StoredMedia
-import io.github.magnusencoded.stationtostation.data.Band
-import io.github.magnusencoded.stationtostation.data.ReleaseHint
-import io.github.magnusencoded.stationtostation.data.bandsOf
-import io.github.magnusencoded.stationtostation.data.hintForAdding
-import io.github.magnusencoded.stationtostation.data.hintForMoving
-import io.github.magnusencoded.stationtostation.data.preamble
-import io.github.magnusencoded.stationtostation.data.isMyNight
-import io.github.magnusencoded.stationtostation.features.tour.ContextHint
-import io.github.magnusencoded.stationtostation.features.tour.running
-import io.github.magnusencoded.stationtostation.data.visibleToContacts
-import io.github.magnusencoded.stationtostation.data.withheldFromContacts
-import io.github.magnusencoded.stationtostation.data.gigInviteUri
-import io.github.magnusencoded.stationtostation.data.StoredAdmission
-import io.github.magnusencoded.stationtostation.data.TicketOriginals
-import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
-import io.github.magnusencoded.stationtostation.data.musicbrainz.MbArtist
-import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
-import io.github.magnusencoded.stationtostation.data.setlistfm.FmSong
-import io.github.magnusencoded.stationtostation.data.zxingFormatName
+import io.github.magnusencoded.stationtostation.UiState
+import io.github.magnusencoded.stationtostation.caption
 import io.github.magnusencoded.stationtostation.data.AdmissionDrawing
 import io.github.magnusencoded.stationtostation.data.AdmissionShape
+import io.github.magnusencoded.stationtostation.data.Band
+import io.github.magnusencoded.stationtostation.data.DeviceLocation
+import io.github.magnusencoded.stationtostation.data.Friend
+import io.github.magnusencoded.stationtostation.data.FriendArrival
+import io.github.magnusencoded.stationtostation.data.FutureRow
+import io.github.magnusencoded.stationtostation.data.MediaOffer
 import io.github.magnusencoded.stationtostation.data.ParsedTicket
+import io.github.magnusencoded.stationtostation.data.ReleaseHint
+import io.github.magnusencoded.stationtostation.data.StoredAdmission
+import io.github.magnusencoded.stationtostation.data.StoredAttendance
+import io.github.magnusencoded.stationtostation.data.StoredLog
+import io.github.magnusencoded.stationtostation.data.StoredMedia
+import io.github.magnusencoded.stationtostation.data.StoredPlaylist
+import io.github.magnusencoded.stationtostation.data.StoredSetlistFmHit
+import io.github.magnusencoded.stationtostation.data.TicketOriginals
+import io.github.magnusencoded.stationtostation.data.WovenSong
 import io.github.magnusencoded.stationtostation.data.admissionDrawing
+import io.github.magnusencoded.stationtostation.data.atUser
+import io.github.magnusencoded.stationtostation.data.bandsOf
 import io.github.magnusencoded.stationtostation.data.doorDrawing
+import io.github.magnusencoded.stationtostation.data.futureRows
+import io.github.magnusencoded.stationtostation.data.gigInviteUri
+import io.github.magnusencoded.stationtostation.data.handle
+import io.github.magnusencoded.stationtostation.data.hintForAdding
+import io.github.magnusencoded.stationtostation.data.hintForMoving
+import io.github.magnusencoded.stationtostation.data.isLocal
+import io.github.magnusencoded.stationtostation.data.isMyNight
+import io.github.magnusencoded.stationtostation.data.laneKey
+import io.github.magnusencoded.stationtostation.data.musicbrainz.MbArtist
+import io.github.magnusencoded.stationtostation.data.nameOf
+import io.github.magnusencoded.stationtostation.data.parseFmDate
+import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
+import io.github.magnusencoded.stationtostation.data.postFiling
+import io.github.magnusencoded.stationtostation.data.preamble
+import io.github.magnusencoded.stationtostation.data.rankTitles
+import io.github.magnusencoded.stationtostation.data.setlistEditEntry
+import io.github.magnusencoded.stationtostation.data.setlistPaste
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSong
+import io.github.magnusencoded.stationtostation.data.setlistfm.line
+import io.github.magnusencoded.stationtostation.data.setlistfm.setlistFmQuestion
+import io.github.magnusencoded.stationtostation.data.spineNights
+import io.github.magnusencoded.stationtostation.data.visibleToContacts
+import io.github.magnusencoded.stationtostation.data.waitingOn
+import io.github.magnusencoded.stationtostation.data.weaveSetlist
+import io.github.magnusencoded.stationtostation.data.withheldFromContacts
+import io.github.magnusencoded.stationtostation.data.zxingFormatName
+import io.github.magnusencoded.stationtostation.features.tour.ContextHint
+import io.github.magnusencoded.stationtostation.features.tour.TourCoachMarkInline
+import io.github.magnusencoded.stationtostation.features.tour.TourEvent
+import io.github.magnusencoded.stationtostation.features.tour.nowForGig
+import io.github.magnusencoded.stationtostation.features.tour.running
+import io.github.magnusencoded.stationtostation.gigMenu
+import io.github.magnusencoded.stationtostation.nearestGig
+import io.github.magnusencoded.stationtostation.nightKind
 import io.github.magnusencoded.stationtostation.ui.flyover.CollectionFlyoverScreen
 import io.github.magnusencoded.stationtostation.ui.flyover.collectionBillboard
 import io.github.magnusencoded.stationtostation.ui.flyover.collectionFlyoverGigs
 import io.github.magnusencoded.stationtostation.ui.flyover.collectionMedia
-import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
+import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 // Station to Station — the timeline face of the app.
 // Flow: splash (log in with Spotify, or skip to setlists-only) → the timeline
@@ -387,6 +388,7 @@ fun StationTimelineScreen(
     )
 
     val actions = TimelineActions(
+        gigNow = { viewModel.tour.nowForGig(it) },
         onOpenEvent = onOpenEvent,
         onOpenImport = onOpenImport,
         onOpenNearby = onOpenNearby,
@@ -536,6 +538,7 @@ fun StationTimelineScreen(
 
 /** Everything the timeline's sections do to the world, so no section holds the [AppViewModel]. */
 private class TimelineActions(
+    val gigNow: @Composable (String) -> LocalDateTime,
     val onOpenEvent: () -> Unit,
     val onOpenImport: () -> Unit,
     val onOpenNearby: () -> Unit,
@@ -1204,6 +1207,7 @@ private fun LazyListScope.futureItems(
         when (val node = row.node) {
             is TimelineNode.Concert -> TimelineItem(
                 setlist = node.setlist,
+                now = actions.gigNow(node.setlist.id),
                 highlight = false,
                 planned = true,
                 laneWidth = laneWidth,
@@ -1232,6 +1236,7 @@ private fun LazyListScope.futureItems(
                         node.shows.forEach { gig ->
                             TimelineItem(
                                 setlist = gig,
+                                now = actions.gigNow(gig.id),
                                 highlight = false,
                                 planned = true,
                                 inside = true,
@@ -1292,6 +1297,7 @@ private fun LazyListScope.wovenItems(
                         .orEmpty().filterNot { it.kind == StoredMedia.Kind.NOTE }
                     TimelineItem(
                         setlist = node.setlist,
+                        now = actions.gigNow(node.setlist.id),
                         highlight = isFirst && row.mine,
                         mine = row.mine,
                         menu = if (row.mine) actions.menuFor(node.setlist) else null,
