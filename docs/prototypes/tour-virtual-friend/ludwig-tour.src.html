@@ -1,0 +1,334 @@
+<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>Ludwig's Tour Script</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a phone showing the real card over a schematic app, beside the script state and a clickable S1-S20 strip. */
+:root {
+  --ground: #f3f1f6; --panel: #ffffff; --ink: #1d1728; --muted: #6b6478; --rule: #dcd7e4;
+  --amber: #b86e00; --amber-soft: #fbeccf; --ok: #2f7d4f; --bad: #b3261e;
+  --app-bg: #14101c; --app-card: #1d1728; --app-ink: #f1ecf8; --app-muted: #8f87a0; --app-amber: #e8a33d; --app-line: #3a3248; --ludwig: #d8493e;
+  --serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --ground: #0f0b16; --panel: #191322; --ink: #f1ecf8; --muted: #9a92ab; --rule: #2e2640;
+  --amber: #e8a33d; --amber-soft: #3a2a10; --ok: #6fcf97; --bad: #ff8a80; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --ground: #0f0b16; --panel: #191322; --ink: #f1ecf8; --muted: #9a92ab; --rule: #2e2640;
+  --amber: #e8a33d; --amber-soft: #3a2a10; --ok: #6fcf97; --bad: #ff8a80; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); font-family: var(--sans); font-size: 14px; line-height: 1.45; padding-inline: 16px; padding-block: 20px 40px; margin: 0; }
+.wrap { max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px 24px; }
+h1 { font-family: var(--serif); font-size: 28px; line-height: 1.15; margin: 0 0 4px; font-weight: 600; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); max-width: 62ch; }
+.badge { font: 500 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--amber); border: 1px solid var(--amber); border-radius: 3px; padding: 2px 6px; display: inline-block; margin-bottom: 8px; }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--panel); }
+.seg button { font: 500 13px var(--sans); color: var(--muted); background: none; border: 0; padding: 7px 16px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
+button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.strip { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: 500 12px var(--mono); border: 1px solid var(--rule); background: var(--panel); color: var(--muted); border-radius: 4px; padding: 5px 8px; cursor: pointer; min-width: 44px; text-align: center; }
+.chip.done { color: var(--ok); border-color: var(--ok); }
+.chip.nocard { border-style: dashed; }
+.chip.cur { background: var(--amber); border-color: var(--amber); color: #1d1728; font-weight: 600; }
+.main { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 28px; align-items: start; }
+.phone { width: 320px; height: 650px; background: var(--app-bg); border: 8px solid #05030a; border-radius: 36px; position: relative; overflow: hidden; color: var(--app-ink); box-shadow: 0 10px 30px rgba(0,0,0,.25); margin: 0 auto; }
+.screen > * { flex-shrink: 0; }
+.screen { overflow-y: auto; scrollbar-width: none; position: absolute; inset: 0; padding: 38px 16px 16px; font-size: 12px; display: flex; flex-direction: column; gap: 10px; }
+.ktitle { font: 500 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--app-muted); }
+.a-row { border: 1px solid var(--app-line); border-radius: 8px; padding: 9px 11px; background: var(--app-card); display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.a-row small { color: var(--app-muted); }
+.a-faint { color: var(--app-muted); font-size: 11px; }
+.hi { outline: 2px solid var(--app-amber); outline-offset: 3px; border-radius: 6px; position: relative; }
+.a-amber { color: var(--app-amber); }
+.spine { width: 2px; background: var(--app-line); align-self: center; flex: 1; min-height: 40px; }
+.node { width: 12px; height: 12px; border-radius: 50%; background: var(--app-amber); align-self: center; }
+.plus { width: 34px; height: 34px; border: 1.5px solid var(--app-amber); color: var(--app-amber); border-radius: 50%; display: grid; place-items: center; font-size: 20px; align-self: center; }
+.door { border: 1px dashed var(--app-line); border-radius: 8px; padding: 8px 11px; color: var(--app-muted); }
+.arrow { text-align: center; color: var(--app-amber); font: 500 11px var(--mono); }
+.lanes { display: flex; justify-content: center; gap: 70px; flex: 1; }
+.lane { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 90px; }
+.lane .spine { flex: 1; }
+.barcode { background: #fff; border-radius: 8px; padding: 10px; display: flex; gap: 2px; height: 70px; align-items: stretch; }
+.barcode i { background: #111; width: 3px; } .barcode i:nth-child(3n) { width: 6px; } .barcode i:nth-child(4n) { background: #fff; width: 4px; }
+.card { --bust: 124px; position: absolute; left: 0; right: 0; bottom: 0; }
+.card.inline { position: relative; left: auto; right: auto; bottom: auto; margin: 0 -16px; min-height: calc(var(--bust) * 1.25 + 6px); }
+.card.top { top: 34px; bottom: auto; min-height: calc(var(--bust) * 1.25 + 6px); }
+.card { z-index: 2; }
+.kbd { position: absolute; left: 0; right: 0; bottom: 0; height: 210px; background: #26212f; border-top: 1px solid var(--app-line); padding: 8px 6px; display: flex; flex-direction: column; gap: 8px; z-index: 3; }
+.kbd .tag { font: 500 9px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--app-muted); text-align: center; }
+.krow { display: flex; gap: 4px; justify-content: center; } .krow i { flex: 1; max-width: 24px; height: 36px; background: #3b3547; border-radius: 5px; }
+.chip.sub { border-style: dotted; font-size: 11px; }
+.card .bust { position: absolute; right: 0; bottom: 0; width: var(--bust); height: auto; filter: drop-shadow(0 0 1px rgba(255,255,255,.45)) drop-shadow(0 2px 6px rgba(0,0,0,.5)); }
+.card .say { position: relative; z-index: 1; margin: 10px 0 6px 6px; width: calc(100% - var(--bust) * .94 - 6px); border-radius: 14px; padding: 12px 11px 7px; font-family: var(--serif); display: flex; flex-direction: column; gap: 5px; border-left: 3px solid var(--ludwig); }
+.card.ios .say { background: rgba(58, 50, 74, .94); backdrop-filter: blur(10px); }
+.card.android .say { background: #1d1728; border-top: 1px solid var(--app-line); border-right: 1px solid var(--app-line); border-bottom: 1px solid var(--app-line); }
+.card .tab { position: absolute; top: -9px; left: -3px; background: var(--ludwig); color: #fff; font: 700 11px var(--sans); letter-spacing: .03em; padding: 2px 16px 2px 9px; clip-path: polygon(0 0, 100% 0, calc(100% - 8px) 100%, 0 100%); }
+.card .do { font-size: 14px; line-height: 1.3; font-weight: 600; margin: 0; }
+.card .why { font-size: 12px; line-height: 1.35; margin: 0; color: #cfc7de; }
+.card .btns { display: flex; justify-content: space-between; align-items: center; gap: 8px; font: 500 12px var(--sans); color: var(--app-muted); }
+.card .btns span { padding: 3px 2px; } .card .btns .go { color: var(--app-amber); font-weight: 600; }
+.lud { color: var(--ludwig); }
+.lane.lud-lane .spine { background: var(--ludwig); width: 3px; }
+.lane.lud-lane .tick { width: 12px; height: 3px; background: var(--ludwig); align-self: center; border-radius: 2px; }
+.a-row.lud-row { border-left: 3px solid var(--ludwig); }
+.nocardtag { position: absolute; left: 8px; right: 8px; bottom: 8px; border: 1px dashed var(--app-line); border-radius: 12px; padding: 10px 12px; color: var(--app-muted); font-size: 12px; background: var(--app-bg); }
+.nocardtag b { color: var(--app-ink); font-weight: 600; }
+.panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.panel h2 { font: 600 12px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0; }
+.stepname { font-family: var(--serif); font-size: 22px; font-weight: 600; margin: 0; }
+dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; }
+dt { color: var(--muted); } dd { margin: 0; font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+.btnrow { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { font: 500 13px var(--mono); border: 1px solid var(--ink); background: var(--ink); color: var(--panel); border-radius: 6px; padding: 8px 12px; cursor: pointer; }
+.btn.alt { background: none; color: var(--ink); border-color: var(--rule); }
+.btn.skip { background: none; color: var(--bad); border-color: var(--bad); }
+.btn[disabled] { opacity: .4; cursor: default; }
+.limits { display: flex; gap: 8px; flex-wrap: wrap; font: 12px var(--mono); }
+.limit { border: 1px solid var(--rule); border-radius: 4px; padding: 3px 7px; color: var(--muted); }
+.limit.over { color: var(--bad); border-color: var(--bad); }
+.log { font: 12px/1.5 var(--mono); max-height: 180px; overflow: auto; border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; background: var(--ground); }
+.log div.cmd { color: var(--amber); } .log div.evt { color: var(--ink); } .log div.sys { color: var(--muted); }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.pl { font-family: var(--serif); border-left: 3px solid var(--amber); padding-left: 12px; }
+.pl b { display: block; font-size: 16px; } .pl span { color: var(--muted); }
+.ov { font: 500 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--amber); }
+@media (max-width: 760px) { .main { grid-template-columns: minmax(0, 1fr); } .phone { width: 300px; } h1 { font-size: 24px; } }
+@media (prefers-reduced-motion: no-preference) { .card { transition: opacity .15s; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <span class="badge">Prototype · throwaway</span>
+      <h1>Ludwig's Tour script</h1>
+      <p>Every card below is read from <code>fixtures/tour/character/character.json</code> and played through the S1–S20 script. Pick a platform, then perform each step's event to move on. The phone is a schematic of the app, not a screenshot.</p>
+    </div>
+    <div class="seg" role="group" aria-label="Platform">
+      <button id="p-ios" aria-pressed="true">iOS</button>
+      <button id="p-android" aria-pressed="false">Android</button>
+    </div>
+  </header>
+
+  <div class="strip" id="strip" aria-label="Steps"></div>
+
+  <div class="main">
+    <div class="phone" id="phone" aria-label="Schematic phone"></div>
+    <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
+      <section class="panel" id="stepPanel"></section>
+      <section class="panel"><h2>Script log</h2><div class="log" id="log"></div></section>
+    </div>
+  </div>
+
+  <section class="panel"><h2>What Ludwig sends outside the cards</h2>
+    <div class="cols" id="extras"></div>
+  </section>
+  <section class="panel"><h2>Keyboard spec</h2>
+    <div class="cols">
+      <div><div class="ov">Where the keyboard comes up</div><p>S3 and S4 (band, venue and date fields), S14 (the Log's song field) and S15, which can begin with the keyboard still up because Add does not dismiss it. The strip's <b>a</b> and <b>b</b> chips are the keyboard-shown and keyboard-hidden states of those steps.</p></div>
+      <div><div class="ov">Rules</div><p><b>S3 and S4:</b> the card is laid out inline above the form fields on both platforms, keyboard up or down. <b>S14 and S15:</b> bottom overlay while the keyboard is down; docked to the top while it is up. The card is never behind the keyboard and never over a field the user is typing in.</p></div>
+      <div><div class="ov">Not a script concern</div><p>Keyboard shown and hidden are UI events. They are not TourEvents and the state machine and frozen fixtures do not see them. Android: <code>WindowInsets.isImeVisible</code>. iOS: the keyboard will-show and will-hide notifications.</p></div>
+    </div>
+  </section>
+</div>
+
+<script id="character" type="application/json">__CHARACTER__</script>
+<script>
+const C = JSON.parse(document.getElementById('character').textContent);
+const AVATAR = "__AVATAR__", BUST = "__BUST__", SELFIE = "__SELFIE__";
+const LIM = { do: 20, why: 30 };
+const wc = s => (s || '').trim().split(/\s+/).filter(Boolean).length;
+
+// The Tour script table from the epic (#587): entry commands, awaited events, and the card (if any).
+const STEPS = [
+  { id:'S1',  name:'The line',        emits:['showCoachMark(line)'], waits:['acknowledged'], via:'card OK / Got it' },
+  { id:'S2',  name:'Planning Curtain',emits:['showCoachMark(curtain)'], waits:['curtainPulled'] },
+  { id:'S3',  name:'Band',            emits:['showCoachMark(band)','lookUpBand'], waits:['bandPicked'] },
+  { id:'S4',  name:'Add the gig',     emits:['showCoachMark(addGig)'], waits:['gigAdded'] },
+  { id:'S5',  name:'Room',            emits:['showCoachMark(openRoom)'], waits:['roomOpened'] },
+  { id:'S6',  name:'Swipe back',      emits:['showCoachMark(swipeBack)'], waits:['swipedBack'] },
+  { id:'S7',  name:'Exchange',        emits:['showCoachMark(exchange)'], waits:['contactExchanged(location)'] },
+  { id:'S8',  name:'Timelines',       emits:['showCoachMark(pinchOut)'], waits:['pinchedOut'] },
+  { id:'S9',  name:'Ticket',          emits:['importDemoTicket(at: venue)'], waits:['ticketImported'], nocard:true, auto:true },
+  { id:'S10', name:'Calendar',        emits:['advanceDemoClock(approaching)','showCoachMark(calendar)'], waits:['calendarAdded'], clock:'approaching' },
+  { id:'S11', name:'Maps',            emits:['showCoachMark(maps)'], waits:['mapsOpened'] },
+  { id:'S12', name:'At the door',     emits:['advanceDemoClock(doors)','showCoachMark(ticket)'], waits:['ticketShown'], clock:'doors' },
+  { id:'S13', name:'Check-in',        emits:['showCoachMark(checkIn)'], waits:['checkedIn'] },
+  { id:'S14', name:'First song',      emits:['advanceDemoClock(showStarted)','showCoachMark(log)'], waits:['logEntryWritten'], clock:'showStarted' },
+  { id:'S15', name:'Gap',             emits:['showCoachMark(gap)'], waits:['gapRecorded'], then:['deliverGossip(gapFill)'] },
+  { id:'S16', name:'Gossip back',     emits:['showCoachMark(gossip)'], waits:['gossipSent'], via:'card OK / Got it' },
+  { id:'S17', name:'Setlist fill',    emits:['fillSetlist'], waits:['setlistFilled'], nocard:true, auto:true },
+  { id:'S18', name:'Selfie',          emits:['showCoachMark(selfie)'], waits:['returnedFromPhotos','mediaAdded(visibility)'], then2:['deliverFriendSelfie'] },
+  { id:'S19', name:'Spotify',         emits:['advanceDemoClock(after)','showCoachMark(spotify)'], waits:['spotifyExported','spotifyDeclined'], clock:'after', choice:true },
+  { id:'S20', name:'End',             emits:['purgeDemoWorld','markTourFinished'], waits:[], nocard:true, end:true },
+];
+// Steps where a text field takes the keyboard. Keyboard events are UI events, not TourEvents: the script ignores them and only the card's place changes.
+const KB = { S3: 'inline', S4: 'inline', S14: 'top', S15: 'top' };
+const KBH = 210;
+const NOCARD_TEXT = {
+  S9:  'No card. The friend\'s PDF ticket is imported silently; the S12 card explains it.',
+  S17: 'No card. The setlist fills in, and the note below appears in the Log.',
+  S20: 'No card. The demo gig, its ticket, the Contact and the calendar event are deleted. The playlist stays.',
+};
+
+let platform = 'ios';
+const S = { kb: false, kbp: '', i: 0, sub: 0, finished: false, skipped: false, vis: 'shared', exported: null, clock: 'planned', log: [] };
+const L = (k, t) => S.log.push([k, t]);
+function enter(i, keepKb = false) {
+  S.i = i; S.sub = 0; S.kb = keepKb; S.kbp = keepKb ? 'a' : ''; const st = STEPS[i];
+  L('sys', '→ ' + st.id + ' ' + st.name);
+  st.emits.forEach(c => L('cmd', 'emit ' + c));
+  if (st.clock) S.clock = st.clock;
+  if (st.end) S.finished = true;
+}
+function perform(evt, lead) {
+  const st = STEPS[S.i];
+  L('evt', 'event ' + evt);
+  if (st.id === 'S18' && evt === 'returnedFromPhotos') { S.sub = 1; render(); return; }
+  if (st.id === 'S18' && evt.startsWith('mediaAdded')) L('cmd', 'emit deliverFriendSelfie');
+  if (st.id === 'S15') L('cmd', 'emit deliverGossip(gapFill)');
+  if (st.id === 'S19') S.exported = evt === 'spotifyExported';
+  if (st.id === 'S19' && evt === 'spotifyDeclined') L('sys', 'pending Spotify retry saved');
+  // Add does not dismiss the keyboard, so S15 can begin with it still up.
+  if (S.i < STEPS.length - 1) enter(S.i + 1, st.id === 'S14' && S.kb);
+  render();
+}
+function skip() { L('evt', 'event skipped'); L('cmd', 'emit purgeDemoWorld'); L('cmd', 'emit markTourFinished'); S.finished = true; S.skipped = true; render(); }
+function restart() { S.i = 0; S.finished = false; S.skipped = false; S.exported = null; S.clock = 'planned'; S.vis = 'shared'; S.log = []; L('evt', 'event started (online)'); enter(0); render(); }
+function jump(i, kbp = '') {
+  L('sys', 'jumped (free play)'); S.finished = false; S.skipped = false; enter(i);
+  if (kbp) { S.kbp = kbp; S.kb = kbp === 'a'; }
+  render();
+}
+function kbEvent(up) { L('evt', 'ui ' + (up ? 'keyboardShown' : 'keyboardHidden') + ' (layout only, not a TourEvent)'); S.kb = up; S.kbp = up ? 'a' : 'b'; render(); }
+function placement(st) {
+  const k = KB[st.id];
+  if (k === 'inline') return 'Inline, above the form fields, keyboard up or down. The form sits beneath it and the keyboard never covers it.';
+  if (k === 'top') return S.kb ? 'Docked to the top of the screen while the keyboard is up: never behind the keyboard, never over the entry field.' : 'Bottom overlay. Docks to the top when the keyboard comes up.';
+  return 'Bottom overlay.';
+}
+
+function cardFor(st) {
+  const e = C.lines[st.id]; if (!e) return null;
+  return { do: e[platform] || e.do, why: e.why || '', over: !!e[platform] };
+}
+
+/* ---------- Schematic scenes ---------- */
+const H = (t, extra = '') => `<span class="hi ${extra}">${t}</span>`;
+const bar = t => `<div class="ktitle">${t}</div>`;
+function scene(st) {
+  const i = STEPS.indexOf(st), id = st.id, ios = platform === 'ios';
+  const line = (opts = {}) => bar('Your Line') + `
+    <div class="door a-faint">THE FUTURE</div>
+    ${opts.plus ? (ios ? `<div class="plus hi">+</div>` : `<div class="door hi">+ a gig you're going to<br><small>pull down from the top to here, then let go</small></div>`) : ''}
+    ${opts.row ? `<div class="a-row hi"><span>Example band<br><small>planned · date TBC</small></span><span class="a-amber">›</span></div>` : '<div class="a-faint" style="text-align:center">Nothing on your Line yet.</div>'}
+    <div class="arrow">↑ coming &nbsp;·&nbsp; ↓ earlier</div><div class="spine"></div><div class="node"></div><div class="spine"></div>`;
+  const room = (inner, title = 'The Room') => bar(title) + `<div class="a-row"><span>Example band<br><small>Example venue · ${S.clock}</small></span></div>` + inner;
+  const log = () => {
+    const rows = [];
+    if (i >= 14) rows.push(`<div class="a-row"><span>Song one <small>(you typed this)</small></span></div>`);
+    if (i === 13) rows.push(`<div class="a-row hi" ${S.kb ? 'style="margin-top:auto"' : ''}><span class="a-faint">a song they played</span><span class="a-amber">+ add</span></div>`);
+    if (i >= 14) rows.push(i === 14 ? `<div class="a-row"><span class="a-faint">+ they played one I can't name</span></div>` : `<div class="a-row lud-row ${i === 15 ? 'hi' : ''}"><span>Song two <small>(was a Gap)</small></span></div>`);
+    if (i === 14) rows[rows.length - 1] = `<div class="a-row hi" ${S.kb ? 'style="margin-top:auto"' : ''}><span class="a-faint">+ they played one I can't name</span></div>`;
+    if (i >= 15) rows.push(`<div class="lud" style="padding-left:6px;font-family:var(--serif);font-size:12px">${C.notes.gapFill}</div>`);
+    if (i >= 16) rows.push(`<div class="a-row"><span>…eight more songs <small>(from setlist.fm)</small></span></div>`, `<div class="lud" style="padding-left:6px;font-family:var(--serif);font-size:12px">${C.notes.setlistFill}</div>`);
+    return room(`<div class="ktitle" style="margin-top:6px">The Log</div>` + rows.join(''));
+  };
+  switch (id) {
+    case 'S1': return line();
+    case 'S2': return line({ plus: true });
+    case 'S3': return bar('Add a gig') + `<div class="a-row hi"><span>who's playing</span></div><div class="a-faint">example suggestions</div><div class="a-row"><span>Example band <small>· UK, 1990s</small></span></div><div class="a-row"><span>Example Band <small>· a different one</small></span></div>`;
+    case 'S4': return bar('Add a gig') + `<div class="a-row"><span>Example band</span><small>✓</small></div><div class="a-row"><span class="a-faint">venue (optional)</span></div><div class="a-row"><span class="a-faint">date (dd-MM-yyyy)</span></div><div class="btnrow" style="justify-content:flex-end;display:flex;gap:10px"><span class="a-faint">Cancel</span>${H('<span class="a-amber">&nbsp;Add&nbsp;</span>')}</div>`;
+    case 'S5': return line({ row: true });
+    case 'S6': return room(`<div class="a-faint">Log · media · ticket · check-in</div>`) + `<div class="arrow" style="margin-top:20px">swipe right →</div>`;
+    case 'S7': return bar('Exchange · reached by swiping left on your Line') + `<div class="a-faint">Connect a timeline. Stand next to someone with the app open.</div><div class="a-row hi"><span style="font:16px var(--serif)">${C.name}<br><small style="font:12px var(--sans)">@${C.username}</small></span><span class="a-amber">Add ›</span></div>`;
+    case 'S8': return bar('Your Line · zoomed out') + `<div class="lanes"><div class="lane"><span class="a-faint">You</span><div class="spine"></div><div class="node"></div><div class="spine"></div></div><div class="lane lud-lane"><span class="lud">Ludwig</span><div class="spine" style="min-height:14px"></div><div class="tick"></div><div class="spine" style="min-height:14px"></div><div class="tick"></div><div class="spine" style="min-height:14px"></div><div class="tick"></div><div class="spine" style="min-height:14px"></div><div class="tick"></div><div class="spine" style="min-height:14px"></div></div></div><div class="arrow">pinch two fingers together</div>`;
+    case 'S9': return room(`<div class="a-row"><span>Ticket <small>PDF from Ludwig, imported</small></span><span class="a-faint">✓</span></div>`);
+    case 'S10': return room(ios ? `<div style="flex:1"></div><div class="a-row hi"><span>📅 Add to calendar</span></div>` : `<div class="a-faint">← swipe left in the Room to reach the Alcove</div><div class="a-row hi"><span>‹ swipe to add to calendar</span></div>`);
+    case 'S11': return room(`<div class="a-row hi"><span>${ios ? 'Open in Maps' : 'Open venue in Maps ↗'}</span></div>`);
+    case 'S12': return room(`<div class="${ios ? 'hi ' : ''}barcode">${Array.from({ length: 28 }, () => '<i></i>').join('')}</div><div class="a-faint">${ios ? 'tap the barcode' : 'shown when the barcode draws'}</div>`);
+    case 'S13': return room(`<div class="a-row"><span>Ticket</span></div><div class="a-row hi"><span class="a-amber">I'm here — check in</span></div>`);
+    case 'S14': case 'S15': case 'S16': case 'S17': return log();
+    case 'S18': return room(`<div class="ktitle" style="margin-top:6px">Shared</div><div class="a-row" style="height:56px"><img src="${SELFIE}" style="height:44px;border-radius:6px"><small>Ludwig's selfie, after you add yours</small></div>` + (ios ? `<div class="a-row hi"><span>＋ Add to shared</span></div><div class="a-row"><span>＋ Add to the vault</span></div>` : `<div class="a-row hi"><span>↕ drag up: shared, down: private</span></div>`) + `<div class="a-faint">the system photo library opens, not a camera</div>`);
+    case 'S19': return bar('Spotify') + `<div class="a-row"><span>Setlist · 10 songs</span></div><div class="pl" style="border-color:var(--app-amber);margin-top:6px;color:var(--app-ink)"><b>${C.playlist.title}</b><span style="color:var(--app-muted)">${C.playlist.description}</span></div>`;
+    case 'S20': return bar('Tour finished') + `<div class="a-faint">${S.skipped ? 'Skipped: the demo world is gone and no playlist was made.' : 'The demo world is purged. Kept: the playlist, your photo, granted permissions.'}</div>`;
+  }
+  return '';
+}
+
+function cardHTML(c, st, cls) {
+  const isIos = platform === 'ios';
+  const go = isIos ? (st.id === 'S19' ? '<span>Not now</span><span class="go">Spotify</span>' : '<span class="go">OK</span>') : (st.id === 'S1' || st.id === 'S16' ? '<span class="go">Got it</span>' : '');
+  return `<div class="card ${platform} ${cls}">
+    <img class="bust" src="${BUST}" alt="${C.name}">
+    <div class="say"><span class="tab">${C.name}</span><p class="do">${c.do}</p>${c.why ? `<p class="why">${c.why}</p>` : ''}
+    <div class="btns"><span>Skip</span>${go}</div></div></div>`;
+}
+function keyboardHTML() {
+  const rows = [10, 9, 7, 3].map(n => `<div class="krow">${'<i></i>'.repeat(n)}</div>`).join('');
+  return `<div class="kbd"><div class="tag">keyboard</div>${rows}</div>`;
+}
+function phoneHTML() {
+  const st = STEPS[S.i];
+  if (S.finished && S.skipped) return `<div class="screen">${bar('Tour skipped')}<div class="a-faint">purgeDemoWorld ran. Nothing from the demo is left on your Line.</div></div>`;
+  const kbUp = S.kb && KB[st.id];
+  const c = cardFor(st);
+  const inline = KB[st.id] === 'inline' && c;
+  const screen = `<div class="screen" style="${kbUp ? 'padding-bottom:' + (KBH + 10) + 'px' : ''}">${inline ? cardHTML(c, st, 'inline') : ''}${scene(st)}</div>`;
+  const kb = kbUp ? keyboardHTML() : '';
+  if (!c) return screen + `<div class="nocardtag"><b>${st.id}</b> · ${NOCARD_TEXT[st.id]}</div>`;
+  return screen + (inline ? '' : cardHTML(c, st, kbUp ? 'top' : '')) + kb;
+}
+function render() {
+  document.getElementById('p-ios').setAttribute('aria-pressed', platform === 'ios');
+  document.getElementById('p-android').setAttribute('aria-pressed', platform === 'android');
+  // strip
+  const chip = (s, k, ph) => `<button class="chip ${ph ? 'sub' : ''} ${k === S.i && !S.finished && S.kbp === ph ? 'cur' : ''} ${k < S.i || (S.finished && !S.skipped) ? 'done' : ''} ${s.nocard ? 'nocard' : ''}" data-i="${k}" data-k="${ph}" title="${s.name}${ph === 'a' ? ' · keyboard up' : ph === 'b' ? ' · keyboard down again' : ''}${s.nocard ? ' (no card)' : ''}">${s.id}${ph}</button>`;
+  document.getElementById('strip').innerHTML = STEPS.map((s, k) => chip(s, k, '') + (KB[s.id] ? chip(s, k, 'a') + chip(s, k, 'b') : '')).join('');
+  document.querySelectorAll('.chip').forEach(b => b.onclick = () => jump(+b.dataset.i, b.dataset.k));
+  document.getElementById('phone').innerHTML = phoneHTML();
+  // With the keyboard up the form scrolls so the focused control stays above it.
+  const scr = document.querySelector('#phone .screen'), hi = scr && scr.querySelector('.hi');
+  if (scr && S.kb && hi) { const over = hi.getBoundingClientRect().bottom - (scr.getBoundingClientRect().bottom - KBH - 10); if (over > 0) scr.scrollTop += over + 8; }
+  // panel
+  const st = STEPS[S.i], c = cardFor(st);
+  const ev = st.waits;
+  let btns = '';
+  if (S.finished) btns = `<button class="btn" id="restart">Replay (fresh demo world)</button>`;
+  else if (st.id === 'S18') btns = S.sub === 0 ? `<button class="btn" data-e="returnedFromPhotos">returnedFromPhotos</button>` :
+    `<span class="a-faint" style="align-self:center">visibility:</span><div class="seg"><button id="v-s" aria-pressed="${S.vis === 'shared'}">shared</button><button id="v-p" aria-pressed="${S.vis === 'private'}">private</button></div><button class="btn" data-e="mediaAdded(${S.vis})">mediaAdded(${S.vis})</button>`;
+  else if (st.id === 'S19') btns = `<button class="btn" data-e="spotifyExported">spotifyExported</button><button class="btn alt" data-e="spotifyDeclined">spotifyDeclined</button>`;
+  else btns = `<button class="btn" data-e="${ev[0]}">${st.auto ? 'platform reports ' : ''}${ev[0]}${st.via ? ' · ' + st.via : ''}</button>`;
+  if (!S.finished && !st.end) btns += `<button class="btn skip" id="skip">skipped</button>`;
+  if (!S.finished && KB[st.id]) btns += `<span class="a-faint" style="align-self:center;flex-basis:100%">UI events, no script transition:</span><button class="btn alt" data-k="up" ${S.kb ? 'disabled' : ''}>${st.id}a · keyboardShown</button><button class="btn alt" data-k="down" ${S.kb ? '' : 'disabled'}>${st.id}b · keyboardHidden</button>`;
+  const lim = c ? `<div class="limits"><span class="limit ${wc(c.do) > LIM.do ? 'over' : ''}">do ${wc(c.do)}/${LIM.do} words</span>${c.why ? `<span class="limit ${wc(c.why) > LIM.why ? 'over' : ''}">why ${wc(c.why)}/${LIM.why} words</span>` : ''}${c.over ? `<span class="ov">${platform} override in use</span>` : ''}</div>` : '';
+  document.getElementById('stepPanel').innerHTML = `<h2>Script state</h2>
+    <p class="stepname">${st.id} · ${st.name}</p>
+    <dl><dt>On entry</dt><dd>${st.emits.join(', ')}</dd>
+        <dt>Waits for</dt><dd>${ev.length ? ev.join(' → ') : '—'}${st.then ? ' → ' + st.then.join(', ') : ''}</dd>
+        <dt>Demo clock</dt><dd>${S.clock}</dd>
+        <dt>Card</dt><dd>${c ? placement(st) : '—'}</dd>${KB[st.id] ? `<dt>Keyboard</dt><dd>${S.kb ? 'up' : 'down'}${S.kbp ? ' (' + st.id + S.kbp + ')' : ''}</dd>` : ''}
+        <dt>Tour</dt><dd>${S.finished ? (S.skipped ? 'finished (skipped), no playlist' : 'finished' + (S.exported === false ? ', Spotify retry pending' : '')) : 'running'}</dd></dl>
+    ${lim}<div class="btnrow">${btns}</div>`;
+  document.querySelectorAll('[data-e]').forEach(b => b.onclick = () => perform(b.dataset.e));
+  document.querySelectorAll('#stepPanel [data-k]').forEach(b => b.onclick = () => kbEvent(b.dataset.k === 'up'));
+  const sk = document.getElementById('skip'); if (sk) sk.onclick = skip;
+  const rs = document.getElementById('restart'); if (rs) rs.onclick = restart;
+  const vs = document.getElementById('v-s'), vp = document.getElementById('v-p');
+  if (vs) vs.onclick = () => { S.vis = 'shared'; render(); }; if (vp) vp.onclick = () => { S.vis = 'private'; render(); };
+  const lg = document.getElementById('log'); lg.innerHTML = S.log.map(([k, t]) => `<div class="${k}">${t}</div>`).join(''); lg.scrollTop = lg.scrollHeight;
+}
+document.getElementById('p-ios').onclick = () => { platform = 'ios'; render(); };
+document.getElementById('p-android').onclick = () => { platform = 'android'; render(); };
+
+document.getElementById('extras').innerHTML = `
+  <div><div class="ov">Gap filled · the note on Ludwig's gossip (S15→S16)</div><p class="pl"><b>Ludwig</b><span>${C.notes.gapFill}</span></p></div>
+  <div><div class="ov">Setlist filled · a line in the Log (S17)</div><p class="pl"><b>Ludwig</b><span>${C.notes.setlistFill}</span></p></div>
+  <div><div class="ov">Spotify playlist · public, kept after the Tour</div><p class="pl"><b>${C.playlist.title}</b><span>${C.playlist.description}</span></p></div>
+  <div><div class="ov">Selfie · Ludwig's, shared into the Room (S18)</div><img src="${SELFIE}" alt="Ludwig's selfie" style="width:120px;border-radius:10px"></div>`;
+restart();
+</script>
+
