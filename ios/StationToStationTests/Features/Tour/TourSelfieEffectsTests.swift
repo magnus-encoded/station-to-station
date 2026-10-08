@@ -128,7 +128,7 @@ final class TourSelfieEffectsTests: XCTestCase {
             let received = try XCTUnwrap(stored.first { $0.from == friend.contactKey })
             XCTAssertFalse(received.personal)
             XCTAssertEqual(received.kind, StoredMedia.Kind.photo)
-            XCTAssertNil(received.text)
+            XCTAssertEqual(received.text, "")
             XCTAssertTrue(FileManager.default.fileExists(atPath: Thumbnails.gridFile(received.id).path))
             XCTAssertTrue(FileManager.default.fileExists(atPath: Thumbnails.cacheFile(received.id).path))
             await effects.deliverFriendSelfie(for: demo, now: 2)

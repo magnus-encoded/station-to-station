@@ -37,7 +37,7 @@ val gitSha: String = runCatching {
 android {
     namespace = "io.github.magnusencoded.stationtostation"
     compileSdk = 37
-    sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/tour-character"))
+    sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/tour-character").get().asFile)
 
     defaultConfig {
         applicationId = "io.github.magnusencoded.stationtostation"

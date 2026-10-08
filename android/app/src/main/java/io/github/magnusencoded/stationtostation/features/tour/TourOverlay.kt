@@ -13,6 +13,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
@@ -50,9 +53,11 @@ fun TourOverlay(viewModel: AppViewModel, content: @Composable () -> Unit) {
     LaunchedEffect(state.spotifyConnected) {
         if (exportAfterLogin && state.spotifyConnected) { exportAfterLogin = false; viewModel.exportTourPlaylist() }
     }
+    var dockHeight by remember { mutableStateOf(155.dp) }
+    val density = LocalDensity.current
     val dockTop = WindowInsets.isImeVisible && state.tour.step in setOf(TourStep.S14, TourStep.S15)
     Box(Modifier.fillMaxSize()) {
-        Box(Modifier.padding(top = if (dockTop) 155.dp else 0.dp)) { content() }
+        Box(Modifier.padding(top = if (dockTop) dockHeight else 0.dp)) { content() }
         if (state.tourUpgradePrompt) {
             UpgradePromptCard(onAccept = { viewModel.tour.acceptUpgradePrompt() },
                 onDismiss = { viewModel.tour.dismissUpgradePrompt() })
@@ -72,9 +77,11 @@ fun TourOverlay(viewModel: AppViewModel, content: @Composable () -> Unit) {
                     onDeclineSpotify = { viewModel.tour.dispatch(TourEvent.SpotifyDeclined) },
                     busy = state.creatingPlaylist || state.matching,
                     onSkip = { viewModel.tour.dispatch(TourEvent.Skipped) },
-                    modifier = if (dockTop) Modifier.align(Alignment.TopCenter).statusBarsPadding()
+                    modifier = (if (dockTop) Modifier.align(Alignment.TopCenter).statusBarsPadding()
                                else Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
-            }
+                        .onSizeChanged { dockHeight = with(density) { it.height.toDp() } })
+            } ?: TextButton(onClick = { viewModel.tour.dispatch(TourEvent.Skipped) },
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()) { Text("Skip tour") }
         }
     }
 }
@@ -109,8 +116,16 @@ internal fun CoachMarkCard(
         context.resources.getIdentifier(character.cutout, "drawable", context.packageName)
     }
     BoxWithConstraints(modifier.fillMaxWidth().heightIn(min = 155.dp).testTag("coachMark")) {
-        Image(painterResource(portrait), contentDescription = null,
-            modifier = Modifier.align(Alignment.BottomEnd).width(124.dp).height(148.8.dp))
+        Box(Modifier.align(Alignment.BottomEnd).width(124.dp).height(148.8.dp)) {
+            val painter = painterResource(portrait)
+            Image(painter, null, Modifier.fillMaxSize().offset(y = 2.dp).blur(4.dp),
+                colorFilter = ColorFilter.tint(Color.Black.copy(alpha = .5f)))
+            for ((x, y) in listOf(-.6f to 0f, .6f to 0f, 0f to -.6f, 0f to .6f)) {
+                Image(painter, null, Modifier.fillMaxSize().offset(x.dp, y.dp),
+                    colorFilter = ColorFilter.tint(Color.White.copy(alpha = .45f)))
+            }
+            Image(painter, null, Modifier.fillMaxSize())
+        }
         Box(Modifier.align(Alignment.BottomStart).padding(start = 6.dp, top = 10.dp, bottom = 6.dp)
             .width((maxWidth - (124.dp * .94f) - 6.dp).coerceAtLeast(1.dp))) {
             Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(14.dp))
