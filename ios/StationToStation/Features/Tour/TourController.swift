@@ -211,7 +211,6 @@ final class TourController {
         log.writeLog(gigId, log: after, reply: canReply && namedChange, now: now)
         if step == .s14, after.songs.count > before.songs.count, namedChange { send(.logEntryWritten) }
         if step == .s15, after.gaps > before.gaps { send(.gapRecorded) }
-        if canReply, namedChange { send(.gossipSent) }
         return true
     }
 
@@ -227,7 +226,15 @@ final class TourController {
         return log?.gossip(gigId) ?? []
     }
 
-    var virtualFriendName: String { meetFriend?.name ?? "" }
+    var character: TourCharacter { .bundled }
+    var virtualFriendName: String { character.name }
+    var virtualFriendKey: String? { meetFriend?.contactKey }
+
+    func acknowledgeCard() {
+        let step = state.currentStep
+        dismissCoachMark()
+        send(step == .s16 ? .gossipSent : .acknowledged)
+    }
 
     var spotifyCoachLine: String { spotify?.coachLine ?? "" }
     var spotifyRetryPending: Bool { state.spotifyRetryPending }

@@ -248,7 +248,7 @@ fun ExchangeScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun LocalExchangeScreen(name: String, connecting: Boolean, onBack: () -> Unit, onConnect: () -> Unit) {
+internal fun LocalExchangeScreen(name: String, connecting: Boolean, onBack: () -> Unit, username: String, avatar: Int, onConnect: () -> Unit) {
     Scaffold(
         containerColor = Ground,
         topBar = {
@@ -272,7 +272,7 @@ internal fun LocalExchangeScreen(name: String, connecting: Boolean, onBack: () -
             } else {
                 Radar(active = false)
                 Spacer(Modifier.height(28.dp))
-                PeerRow(ExchangePeer(id = "tour-friend", name = name, setlistfm = null), onConnect)
+                PeerRow(ExchangePeer(id = "tour-friend", name = name, setlistfm = username), onConnect, avatar)
             }
         }
     }
@@ -450,7 +450,7 @@ private fun Radar(active: Boolean) {
 }
 
 @Composable
-private fun PeerRow(peer: ExchangePeer, onConnect: () -> Unit) {
+private fun PeerRow(peer: ExchangePeer, onConnect: () -> Unit, avatar: Int? = null) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -464,7 +464,10 @@ private fun PeerRow(peer: ExchangePeer, onConnect: () -> Unit) {
         Box(
             Modifier.size(34.dp).clip(CircleShape).background(Raised2).border(1.5.dp, Slate, CircleShape),
             contentAlignment = Alignment.Center,
-        ) { Text(peer.name.take(1).uppercase(), color = Slate, fontSize = 15.sp, fontFamily = Serif) }
+        ) {
+            if (avatar != null) androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(avatar), null, Modifier.fillMaxSize())
+            else Text(peer.name.take(1).uppercase(), color = Slate, fontSize = 15.sp, fontFamily = Serif)
+        }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(peer.name, color = Ink, fontFamily = Serif, fontSize = 16.sp)

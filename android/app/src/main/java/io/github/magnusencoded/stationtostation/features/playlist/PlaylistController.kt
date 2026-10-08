@@ -256,14 +256,26 @@ class PlaylistController(
     }
 
 
-    fun createPlaylist() {
+    /** The Tour uses the normal matcher and playlist writer with character-owned metadata. */
+    fun exportTour(gig: FmSetlist, title: String, description: String, completed: () -> Unit) {
+        selectSetlist(gig)
+        val matching = matchJob
+        scope.launch {
+            matching?.join()
+            createPlaylist(title to description, completed)
+        }
+    }
+
+    fun createPlaylist() = createPlaylist(null) {}
+
+    private fun createPlaylist(metadata: Pair<String, String>?, completed: () -> Unit) {
         val s = state()
         val tracks = s.matches.filter { it.included && it.selected != null }.mapNotNull { it.selected }
         if (tracks.isEmpty()) {
             update { it.copy(errorKind = null, error = "No songs selected") }
             return
         }
-        val name = s.playlistName.ifBlank { "Setlist" }
+        val name = metadata?.first ?: s.playlistName.ifBlank { "Setlist" }
         update { it.copy(creatingPlaylist = true) }
         scope.launch {
             try {
@@ -281,7 +293,7 @@ class PlaylistController(
                 // link. Appended after the 300-char clamp so truncation can't cut it off.
                 val stamp = s.mySetlistFmUser.trim().takeIf { it.isNotEmpty() }
                     ?.let { " " + sfmStamp(it) } ?: ""
-                val description = buildString {
+                val description = metadata?.second ?: (buildString {
                     append("Live at ").append(setlist?.venueLine() ?: "an unknown venue")
                     // The name carries only the year, so the full date lives here.
                     setlist?.readableDate()?.let { append(", ").append(it) }
@@ -289,7 +301,7 @@ class PlaylistController(
                     setlist?.tour?.name?.let { append(" ").append(it).append(".") }
                     append(" From setlist.fm")
                     setlist?.url?.let { append(": ").append(it) }
-                }.take(300 - stamp.length) + stamp
+                }.take(300 - stamp.length) + stamp)
                 val playlist = spotify.createPlaylist(name, description, s.playlistPublic)
                 val result = try {
                     spotify.addTracks(playlist.id, tracks.map { it.uri })
@@ -331,6 +343,7 @@ class PlaylistController(
                 }
                 // So the night still points at it on the next launch.
                 if (night != null) timelines.save(playlists = mapOf(night to made))
+                completed()
             } catch (e: Exception) {
                 fail(e)
             }

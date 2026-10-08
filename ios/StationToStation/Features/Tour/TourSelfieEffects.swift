@@ -15,13 +15,12 @@ final class TourSelfieEffects: DemoWorld {
     private let demoGigIds: () -> [String]
     private let friendKey: () -> String?
     private let selfie: () -> Data?
-    private let characterLine: () -> String
     private let deleteThumbnails: (String) -> Void
     private var generation = UUID()
 
     init(host: StateHost, store: UserDefaults = .standard, timelines: TimelineStore,
          demoGigIds: @escaping () -> [String], friendKey: @escaping () -> String?,
-         selfie: @escaping () -> Data?, characterLine: @escaping () -> String,
+         selfie: @escaping () -> Data?,
          deleteThumbnails: @escaping (String) -> Void = { PhotoLibrary.deleteThumbnails($0) }) {
         self.host = host
         self.store = store
@@ -29,7 +28,6 @@ final class TourSelfieEffects: DemoWorld {
         self.demoGigIds = demoGigIds
         self.friendKey = friendKey
         self.selfie = selfie
-        self.characterLine = characterLine
         self.deleteThumbnails = deleteThumbnails
     }
 
@@ -68,7 +66,7 @@ final class TourSelfieEffects: DemoWorld {
             return
         }
         let item = StoredMedia(id: id, kind: StoredMedia.Kind.photo, capturedAt: now,
-                               from: key, personal: false, text: characterLine())
+                               from: key, personal: false)
         remember([item], for: gig.id)
         let split = bandsOf((cache.media()[gig.id] ?? []) + [item])
         let media = split.shared + split.received + split.vault

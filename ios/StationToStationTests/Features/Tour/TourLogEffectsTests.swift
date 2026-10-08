@@ -222,6 +222,8 @@ final class TourLogEffectsTests: XCTestCase {
         gig.addToLog("")
         await eventually { self.host.state.tourCoachMark == .gossip }
         gig.addToLog("Song 3")
+        XCTAssertEqual(host.state.tourStep, .s16)
+        tour.acknowledgeCard()
         XCTAssertEqual(host.state.tourStep, .s17)
         XCTAssertEqual(tour.demoGossip(for: "demo").last?.source, .user)
         XCTAssertEqual(tour.demoGossip(for: "demo").last?.song, "Song 3")

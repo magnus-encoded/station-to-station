@@ -80,6 +80,12 @@ struct AddGigSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                if !model.state.tourFinished,
+                   model.state.tourStep == .s3 || model.state.tourStep == .s4,
+                   let mark = model.state.tourCoachMark {
+                    TourCoachMarkView(model: model, mark: mark)
+                        .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
+                }
                 if pasting {
                     Section {
                         TextField("setlist.fm link", text: $link)
@@ -145,8 +151,6 @@ struct AddGigSheet: View {
                     .disabled(!ready)
                 }
             }
-            // A sheet covers the app root's overlay, so the band and add-gig coach marks need their own.
-            .tourOverlay(model)
         }
     }
 }

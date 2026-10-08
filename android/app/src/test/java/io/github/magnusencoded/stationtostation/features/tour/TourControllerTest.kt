@@ -34,6 +34,15 @@ class TourControllerTest {
         scope = CoroutineScope(Dispatchers.Unconfined),
     )
 
+    @Test fun s16WaitsForTheCardAcknowledgement() {
+        fake.update { it.copy(tour = TourState(step = TourStep.S16), coachMark = CoachMark.Gossip) }
+        val controller = controller()
+        controller.dispatch(TourEvent.LogEntryWritten)
+        assertEquals(TourStep.S16, fake.current.tour.step)
+        controller.acknowledgeCard()
+        assertEquals(TourStep.S17, fake.current.tour.step)
+    }
+
     @Test
     fun a_first_launch_with_a_connection_starts_the_tour_at_the_line() {
         controller().launch()

@@ -42,8 +42,11 @@ fun tourController(
     contacts: ContactsController,
     location: DeviceLocation,
     photos: PhotoRepository,
+    setlistFm: io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmClient,
+    musicBrainz: io.github.magnusencoded.stationtostation.data.musicbrainz.MusicBrainzClient,
     importTicket: suspend (ParsedTicket, String) -> Boolean,
 ): TourController {
+    val character = TourCharacter.load(context)
     val demoGig: suspend () -> FmSetlist? = {
         val cache = timelines.load()
         val demo = cache.gigs.values.filter { it.demo }.map { it.setlistId ?: it.id }.toSet()
@@ -59,7 +62,14 @@ fun tourController(
         },
     )
     val meetFriend = TourMeetFriendEffects(
-        friendName = { friendName { context.assets.open("character.json").bufferedReader().use { it.readText() } } },
+        friendName = { character.name },
+        extraNights = { gig ->
+            // These local demo nights make the new lane visibly longer, even for a returning user.
+            val count = (state.value.setlists + state.value.plannedGigs).distinctBy { it.id }.size.coerceAtLeast(1)
+            (1..count).map { index -> gig.copy(id = "tour-history:$index:${gig.id}",
+                eventDate = gig.localDate()?.minusWeeks(index.toLong())?.format(java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy")),
+                url = null) }
+        },
         contacts = { settings.friends.first() },
         demoGig = demoGig,
         locate = { location.currentFix()?.let { Place(it.first, it.second) } },
@@ -77,7 +87,7 @@ fun tourController(
     val selfie = TourSelfieEffects(
         timelines = timelines,
         friendKey = { meetFriend.friendKey() },
-        selfieBytes = { selfieJpeg(context) },
+        selfieBytes = { selfieJpeg(context, character.selfie) },
         storeSelfie = { id, bytes ->
             withContext(Dispatchers.IO) {
                 val file = photos.receivedMediaFile(id, StoredMedia.Kind.PHOTO)
@@ -89,9 +99,19 @@ fun tourController(
         discard = { photos.deleteOwnedBytes(it.id, it.ref) },
         update = { transform -> state.update(transform) },
     )
+    val log = TourLogEffects(File(context.filesDir, "tour-logs.json"), { change -> state.update(change) }) { gig ->
+        val mbid = gig.artist?.mbid.orEmpty()
+        if (mbid.isBlank()) emptyList() else {
+            val recent = runCatching { setlistFm.artistSetlists(mbid).setlist }
+                .getOrDefault(emptyList()).sortedByDescending { it.localDate() }
+            recent.firstOrNull { it.performed().isNotEmpty() }?.performed()?.map { it.name }
+                ?: runCatching { musicBrainz.catalogue(mbid) }.getOrDefault(emptyList())
+        }
+    }
     val demoWorld = DemoWorldRegistry(
         listOf(
             selfie,
+            log,
             DemoWorld {
                 state.update { it.copy(calendarEventByGig = it.calendarEventByGig.filterKeys { id -> !night.isDemoGig(id) }) }
                 night.purge()
@@ -114,6 +134,9 @@ fun tourController(
         askLocation = { !location.hasPermission() && settings.askTourLocationOnce() },
         night = night,
         selfie = selfie,
+        log = log,
+        demoGig = demoGig,
+        readCharacter = { character },
     )
 }
 
@@ -125,10 +148,8 @@ internal fun characterString(readCharacter: () -> String, key: String): String? 
 }.getOrNull()
 
 /** The character's selfie, a drawable named by the definition's `selfie` key, as JPEG bytes. */
-private suspend fun selfieJpeg(context: Context): ByteArray? = withContext(Dispatchers.Default) {
+private suspend fun selfieJpeg(context: Context, name: String): ByteArray? = withContext(Dispatchers.Default) {
     runCatching {
-        val name = characterString({ context.assets.open("character.json").bufferedReader().use { it.readText() } }, "selfie")
-            ?: return@runCatching null
         val id = context.resources.getIdentifier(name, "drawable", context.packageName).takeIf { it != 0 }
             ?: return@runCatching null
         val drawable = ContextCompat.getDrawable(context, id) ?: return@runCatching null

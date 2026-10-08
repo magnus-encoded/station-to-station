@@ -20,12 +20,12 @@ extension AppModel {
             demoGig: { [unowned self] in self.state.plannedGigs.first { addGig.demoGigIds.contains($0.id) } },
             deleteCalendarEvent: { deleteCalendarEvent($0) })
         let log = TourLogEffects(host: self, setlistFm: setlistFm, musicBrainz: musicBrainz,
-                                 friendKey: { meetFriend.contactKey }, characterLine: { Self.characterLine($0) })
+                                 friendKey: { meetFriend.contactKey }, characterLine: { ($0 == .s16 ? TourCharacter.bundled.notes.gapFill : TourCharacter.bundled.notes.setlistFill) })
         let selfie = TourSelfieEffects(host: self, timelines: timelines,
                                       demoGigIds: { addGig.demoGigIds }, friendKey: { meetFriend.contactKey },
-                                      selfie: { Self.characterSelfie() }, characterLine: { Self.characterLine(.s18) })
+                                      selfie: { UIImage(named: TourCharacter.bundled.selfie)?.jpegData(compressionQuality: 0.95) })
         let ending = TourSpotifyEffects(host: self, settings: settings, playlist: playlist, login: spotify,
-                                        characterLine: { Self.characterLine($0) })
+                                        characterLine: { $0 == "playlist.title" ? TourCharacter.bundled.playlist.title : TourCharacter.bundled.playlist.description })
         let tour = TourController(host: self, settings: settings,
                                   connectivity: DeviceTourConnectivity(),
                                   demoWorld: DemoWorldRegistry(parts: [selfie, log, night, meetFriend, addGig]),
@@ -44,7 +44,7 @@ extension AppModel {
 
     private func makeMeetFriendEffects(_ addGig: TourAddGigEffects) -> TourMeetFriendEffects {
         TourMeetFriendEffects(
-            friendName: { Self.characterName() },
+            friendName: { TourCharacter.bundled.name },
             demoGig: { [unowned self] in
                 self.state.plannedGigs.first { addGig.demoGigIds.contains($0.id) }
             },
@@ -60,37 +60,23 @@ extension AppModel {
                 await self.contacts.landContactNights(key, nights, withdrawn)
             },
             removeContact: { [unowned self] in self.contacts.removeFriend($0) },
-            importTicket: { [unowned self] in await self.tickets.importTicket($0) })
+            importTicket: { [unowned self] in await self.tickets.importTicket($0) },
+            extraNights: { [unowned self] gig in
+                // Local demo nights make the new lane longer even for a returning user.
+                let count = max(1, Set((self.state.setlists + self.state.plannedGigs).map(\.id)).count)
+                let formatter = DateFormatter()
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.dateFormat = "dd-MM-yyyy"
+                return (1...count).map { index in
+                    var night = gig
+                    night.id = "tour-history:\(index):\(gig.id)"
+                    if let date = gig.localDate(), let prior = Calendar.current.date(byAdding: .day, value: -7 * index, to: date) {
+                        night.eventDate = formatter.string(from: prior)
+                    }
+                    night.url = nil
+                    return night
+                }
+            })
     }
 
-    /// The Virtual friend's name from the character definition, empty until it is bundled.
-    private static func characterName() -> String {
-        guard let url = Bundle.main.url(forResource: "character", withExtension: "json"),
-              let data = try? Data(contentsOf: url),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return "" }
-        return json["name"] as? String ?? ""
-    }
-
-    private static func characterLine(_ step: TourStep) -> String {
-        characterLine(step.rawValue)
-    }
-
-    private static func characterLine(_ key: String) -> String {
-        guard let url = Bundle.main.url(forResource: "character", withExtension: "json"),
-              let data = try? Data(contentsOf: url),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return "" }
-        if key.hasPrefix("playlist."), let playlist = json["playlist"] as? [String: String] {
-            return playlist[String(key.dropFirst("playlist.".count))] ?? ""
-        }
-        return (json["lines"] as? [String: String])?[key] ?? ""
-    }
-
-    private static func characterSelfie() -> Data? {
-        guard let url = Bundle.main.url(forResource: "character", withExtension: "json"),
-              let data = try? Data(contentsOf: url),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let asset = (json["selfie"] as? String)?.nilIfBlank else { return nil }
-        return UIImage(named: asset)?.jpegData(compressionQuality: 0.95)
-    }
 }

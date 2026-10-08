@@ -42,9 +42,8 @@ struct LogEditor: View {
             ForEach(model.tour.demoGossip(for: setlist.id)) { gossip in
                 VStack(alignment: .leading, spacing: 4) {
                     if gossip.source == .virtualFriend {
-                        Text(model.tour.virtualFriendName).font(.system(size: 11)).foregroundStyle(slate)
                         if !gossip.characterLine.isEmpty {
-                            Text(gossip.characterLine).font(.system(size: 11)).foregroundStyle(slate)
+                            Text(gossip.characterLine).font(.system(size: 11)).foregroundStyle(model.tourAccent)
                         }
                     }
                     Text(gossip.song).font(.system(size: 13)).foregroundStyle(muted)

@@ -38,6 +38,7 @@ class TourMeetFriendEffects(
     private val purgeContacts: suspend () -> List<Friend>,
     private val update: ((UiState) -> UiState) -> Unit,
     private val mintKey: (() -> String)? = null,
+    private val extraNights: (FmSetlist) -> List<FmSetlist> = { emptyList() },
 ) {
     private val writes = Mutex()
     val name: String get() = friendName()
@@ -58,7 +59,7 @@ class TourMeetFriendEffects(
             if (friend !in held && !addContact(friend)) return
             val placed = placed(gig, fix)
             placeVenue(placed)
-            landNights(requireNotNull(friend.publicKey), listOf(placed))
+            landNights(requireNotNull(friend.publicKey), listOf(placed) + extraNights(placed))
             if (active()) exchanged(fix)
         }
     }

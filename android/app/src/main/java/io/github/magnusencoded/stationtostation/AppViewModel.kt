@@ -836,6 +836,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         gigNow = { id, now -> tour.now(id, now) },
         venuePoint = { gig -> tour.venuePoint(gig) },
         onCheckedIn = { id -> tour.checkedIn(id) },
+        onLogWritten = { id, before, after -> tour.logWritten(id, before, after) },
     )
     private val gigMedia = GigMediaController(
         state = { _state.value },
@@ -864,7 +865,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         writeLog = ::writeLog,
         fail = ::fail,
     )
-    val tour = tourController(application, _state, settings, timelines, viewModelScope, contacts, where, photos) { ticket, gigId ->
+    val tour = tourController(application, _state, settings, timelines, viewModelScope, contacts, where, photos, setlistFm, musicBrainz) { ticket, gigId ->
         tickets.importTicket(ticket, gigId)
     }
 
@@ -899,6 +900,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         fail = ::fail,
         addFriend = ::addFriend,
     )
+
+    fun exportTourPlaylist() {
+        val id = _state.value.plannedGigs.firstOrNull { tour.isDemoGig(it.id) }?.id ?: return
+        val gig = _state.value.plannedGigs.first { it.id == id }
+        val log = tour.demoLogRecord(id)?.log ?: return
+        val metadata = tour.character.playlist
+        // Closing this demo conversion copy does not close the person's Log.
+        val songs = log.songs.filter { it.isNotBlank() }.map { io.github.magnusencoded.stationtostation.data.setlistfm.FmSong(name = it) }
+        val exportGig = gig.copy(sets = io.github.magnusencoded.stationtostation.data.setlistfm.FmSets(
+            set = listOf(io.github.magnusencoded.stationtostation.data.setlistfm.FmSet(song = songs))))
+        playlist.exportTour(exportGig, metadata.title, metadata.description) {
+            tour.dispatch(io.github.magnusencoded.stationtostation.features.tour.TourEvent.SpotifyExported)
+        }
+    }
 
     private val planning: PlanningController = PlanningController(
         state = { _state.value },

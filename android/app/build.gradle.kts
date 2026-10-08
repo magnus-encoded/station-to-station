@@ -37,6 +37,7 @@ val gitSha: String = runCatching {
 android {
     namespace = "io.github.magnusencoded.stationtostation"
     compileSdk = 37
+    sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/tour-character"))
 
     defaultConfig {
         applicationId = "io.github.magnusencoded.stationtostation"
@@ -288,3 +289,9 @@ tasks.withType<Test>().configureEach {
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
     }
 }
+
+val copyTourCharacter by tasks.registering(Copy::class) {
+    from("../../fixtures/tour/character") { include("character.json") }
+    into(layout.buildDirectory.dir("generated/tour-character"))
+}
+tasks.named("preBuild") { dependsOn(copyTourCharacter) }

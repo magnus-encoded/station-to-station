@@ -35,6 +35,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -173,6 +175,12 @@ fun FriendsScreen(
                 items(state.friends, key = { it.laneKey }) { friend ->
                     ListItem(
                         headlineContent = { Text(friend.name) },
+                        leadingContent = if (friend.demo) {{
+                            val context = androidx.compose.ui.platform.LocalContext.current
+                            val id = context.resources.getIdentifier(viewModel.tour.character.avatar, "drawable", context.packageName)
+                            androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(id), null,
+                                Modifier.size(34.dp).then(Modifier.clip(androidx.compose.foundation.shape.CircleShape)))
+                        }} else null,
                         supportingContent = { Text(if (friend.setlistfm.isBlank()) "Contact" else "@${friend.setlistfm}") },
                         trailingContent = {
                             IconButton(onClick = { viewModel.removeFriend(friend) }) {

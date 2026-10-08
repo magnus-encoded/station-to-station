@@ -82,6 +82,11 @@ jobs:
           echo "Using simulator $udid"
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
 
+      - name: Check Tour character
+        run: |
+          python3 fixtures/tour/check_character.py
+          python3 fixtures/tour/test_character.py
+
       - name: Run unit tests
         working-directory: ios
         run: |

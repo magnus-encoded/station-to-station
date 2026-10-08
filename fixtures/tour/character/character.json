@@ -1,0 +1,97 @@
+{
+  "name": "Ludwig",
+  "username": "HaydnEnjoyer1770",
+  "avatar": "ludwig_avatar",
+  "selfie": "ludwig_selfie",
+  "cutout": "ludwig_cutout",
+  "lines": {
+    "S1": {
+      "do": "Have a look, then tap the button on this card.",
+      "why": "I'm Ludwig, and you're coming to a gig with me. This is your Line, your concert-going life: down is the past, up is what's coming."
+    },
+    "S2": {
+      "do": "Open the planner at the top of your Line to add a gig.",
+      "ios": "Tap the circled plus in the Future block at the top of your Line.",
+      "android": "Pull down from the top of your Line to “a gig you're going to”, then let go.",
+      "why": "Anything you plan appears above today on your Line. This gig is a demo and is deleted when we finish."
+    },
+    "S3": {
+      "do": "Type a band you actually like, then tap the right match in the list.",
+      "why": "The app asks MusicBrainz, a free public music database, to find the exact band, so we don't end up with the wrong one."
+    },
+    "S4": {
+      "do": "Respectable taste. Not mine, but respectable. Enter a date in the future as dd-MM-yyyy, then tap Add.",
+      "why": "A date that hasn't happened yet makes it a planned gig, which waits on your Line until the night arrives."
+    },
+    "S5": {
+      "do": "Tap the gig you just added.",
+      "why": "Every gig has a Room: its Log, photos, ticket and check-in all live there."
+    },
+    "S6": {
+      "do": "Swipe right to go back to your Line.",
+      "ios": "Swipe right from the left edge of the screen to go back to your Line.",
+      "android": "Swipe right on the Room to go back to your Line.",
+      "why": "Right always means back out, on every screen of the app. Worth remembering, because I won't be holding your hand."
+    },
+    "S7": {
+      "do": "Swipe left on your Line to open the Exchange, then tap my name.",
+      "why": "An Exchange turns two people standing together into contacts. I'm pretend, so nothing leaves your phone. Your location, if you allow it, becomes the gig's venue."
+    },
+    "S8": {
+      "do": "Pinch two fingers together on your Line to zoom out.",
+      "why": "Zooming out puts my Line beside yours, and every friend you add gets their own. Mine has more gigs on it. You can see that for yourself."
+    },
+    "S10": {
+      "do": "Open the gig, then add it to your calendar from its Room.",
+      "ios": "Open the gig, scroll to the bottom of its Room and tap Add to calendar.",
+      "android": "Open the gig, then swipe left in its Room, or tap “swipe to add to calendar”.",
+      "why": "Your phone will ask for calendar access. The event is part of the demo and is deleted when we finish."
+    },
+    "S11": {
+      "do": "In the Room, open directions to the venue in Maps.",
+      "ios": "In the Room, tap Open in Maps to get directions.",
+      "android": "In the Room, tap Open venue in Maps.",
+      "why": "This leaves the app for Maps. Come back when you've looked, and the Tour will still be here."
+    },
+    "S12": {
+      "do": "Open your ticket in the Room, as you would at the door.",
+      "ios": "Tap the white barcode in the Room, as you would at the door.",
+      "why": "That's the PDF ticket I sent you. The app read it and attached it to the gig; any ticket you share to the app lands the same way."
+    },
+    "S13": {
+      "do": "Tap “I'm here — check in”, then confirm if asked.",
+      "why": "A check-in says you were at this gig. While you're checked in, nearby phones may carry what you log to others. Nothing is sent during the Tour."
+    },
+    "S14": {
+      "do": "Type the first song they played into the Log, then add it.",
+      "why": "The Log is your own setlist, kept as the night happens. Nobody is marking it, so any song you know will do."
+    },
+    "S15": {
+      "do": "In the Log, tap “they played one I can't name”.",
+      "why": "A Gap is an honest blank: they played something and you couldn't name it. It beats a Log that pretends to be complete."
+    },
+    "S16": {
+      "do": "Read song two in your Log: that's gossip from my phone. Then carry on.",
+      "why": "Gossip is how phones in radio range swap what happened at a gig, friends or strangers, with no server. Mine just filled your Gap."
+    },
+    "S18": {
+      "do": "Take a selfie, then add it to the night from your photo library.",
+      "ios": "Take a selfie, then tap Add to shared or Add to the vault and choose it.",
+      "android": "Take a selfie, then drag the ↕ handle up for shared or down for private, and pick it.",
+      "why": "Shared photos can go to friends you've exchanged with. Private ones stay on your phone. Your photo stays in your library either way."
+    },
+    "S19": {
+      "do": "Make a playlist of tonight's setlist on Spotify.",
+      "ios": "Tap Spotify to turn tonight's setlist into a playlist, or Not now to skip it.",
+      "why": "You'll log in to Spotify. The public playlist is the one thing this Tour keeps; everything else, including the demo gig, is deleted."
+    }
+  },
+  "notes": {
+    "gapFill": "Track two.",
+    "setlistFill": "The rest comes from setlist.fm, where fans log what bands play."
+  },
+  "playlist": {
+    "title": "Went to a gig with Ludwig",
+    "description": "Achievement unlocked: survived a whole gig with Ludwig. He arrived early, left late and had opinions about the support act throughout."
+  }
+}

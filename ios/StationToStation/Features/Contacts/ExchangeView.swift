@@ -67,7 +67,7 @@ struct ExchangeView: View {
                 if let connectingWith {
                     connecting(connectingWith)
                 } else {
-                    peerRow(ExchangePeer(id: "tour-friend", name: friend, setlistfm: nil))
+                    peerRow(ExchangePeer(id: "tour-friend", name: friend, setlistfm: model.tour.character.username))
                 }
             }
             .padding(.horizontal, 24)
@@ -199,8 +199,12 @@ struct ExchangeView: View {
         HStack(spacing: 12) {
             ZStack {
                 Circle().strokeBorder(slate, lineWidth: 1.5)
-                Text(peer.name.prefix(1).uppercased())
-                    .font(.system(size: 15, design: .serif)).foregroundStyle(slate)
+                if peer.id == "tour-friend" {
+                    Image(model.tour.character.avatar).resizable().scaledToFill().clipShape(Circle())
+                } else {
+                    Text(peer.name.prefix(1).uppercased())
+                        .font(.system(size: 15, design: .serif)).foregroundStyle(slate)
+                }
             }
             .frame(width: 34, height: 34)
             VStack(alignment: .leading, spacing: 2) {

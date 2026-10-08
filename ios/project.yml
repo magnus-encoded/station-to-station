@@ -25,6 +25,8 @@ targets:
     platform: iOS
     sources:
       - StationToStation
+      - path: ../fixtures/tour/character/character.json
+        buildPhase: resources
       # The shared weave fixtures, bundled as a folder reference (structure
       # preserved, so the two timelines.json in different cases don't collide).
       # This is how CI seeds a real Spine: `station-to-station://fixture/<name>`

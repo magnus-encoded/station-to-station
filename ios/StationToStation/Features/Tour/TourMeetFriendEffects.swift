@@ -13,6 +13,7 @@ final class TourMeetFriendEffects: DemoWorld {
     private static let nightsKey = "tour.demoContactNights"
 
     private let store: UserDefaults
+    private let extraNights: (FmSetlist) -> [FmSetlist]
     private let friendName: () -> String
     private let demoGig: () -> FmSetlist?
     private let locate: () async -> TourLocation?
@@ -30,7 +31,9 @@ final class TourMeetFriendEffects: DemoWorld {
          addContact: @escaping (Friend) -> Void,
          landNights: @escaping (String, [FmSetlist], [String]) async -> Void,
          removeContact: @escaping (Friend) -> Void,
-         importTicket: @escaping (Ticket) async -> Void) {
+         importTicket: @escaping (Ticket) async -> Void,
+         extraNights: @escaping (FmSetlist) -> [FmSetlist] = { _ in [] }) {
+        self.extraNights = extraNights
         self.store = store
         self.friendName = friendName
         self.demoGig = demoGig
@@ -64,8 +67,9 @@ final class TourMeetFriendEffects: DemoWorld {
             gig = placed(gig, at: fix)
             await placeVenue(gig)
         }
-        if !demoNights.contains(gig.id) { store.set(demoNights + [gig.id], forKey: Self.nightsKey) }
-        await landNights(key, [gig], [])
+        let nights = [gig] + extraNights(gig)
+        store.set(Array(Set(demoNights + nights.map(\.id))), forKey: Self.nightsKey)
+        await landNights(key, nights, [])
         return fix
     }
 

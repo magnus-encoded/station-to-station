@@ -871,6 +871,16 @@ fun StationEventScreen(
                             onAdd = { viewModel.addToLog(setlist.id, it) },
                             onClosed = { viewModel.setLogClosed(setlist.id, it) },
                         )
+                        viewModel.tour.demoLogRecord(setlist.id)?.let { record ->
+                            record.gapSong?.let { song ->
+                                Text(song, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp))
+                                Text(viewModel.tour.character.notes.gapFill,
+                                    color = io.github.magnusencoded.stationtostation.features.tour.tourAccent(state),
+                                    fontSize = 11.sp, modifier = Modifier.padding(horizontal = 20.dp))
+                            }
+                            if (record.filled) Text(viewModel.tour.character.notes.setlistFill,
+                                color = Slate, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 20.dp))
+                        }
                         Spacer(Modifier.height(10.dp))
                     }
                 }

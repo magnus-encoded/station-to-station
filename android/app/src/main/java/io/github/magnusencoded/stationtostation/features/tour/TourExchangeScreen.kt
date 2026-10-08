@@ -30,7 +30,10 @@ fun TourExchangeScreen(viewModel: AppViewModel, onBack: () -> Unit, onConnected:
         }
     }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { exchange() }
-    LocalExchangeScreen(name, connecting, onBack) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val character = viewModel.tour.character
+    val avatar = context.resources.getIdentifier(character.avatar, "drawable", context.packageName)
+    LocalExchangeScreen(name, connecting, onBack, character.username, avatar) {
         connecting = true
         scope.launch {
             if (viewModel.tour.askLocationOnce()) permission.launch(DeviceLocation.requiredPermissions())

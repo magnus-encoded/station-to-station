@@ -1,100 +1,141 @@
 package io.github.magnusencoded.stationtostation.features.tour
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import io.github.magnusencoded.stationtostation.AppViewModel
+import io.github.magnusencoded.stationtostation.UiState
+import io.github.magnusencoded.stationtostation.ui.laneColourOf
+import io.github.magnusencoded.stationtostation.ui.railColor
 
-private val Card = Color(0xF21D1728)
-private val Ink = Color(0xFFEDE9F2)
-private val Muted = Color(0xFF8B8299)
-private val Amber = Color(0xFFE7B24C)
+private val Card = Color(0xFF1D1728)
+private val Ink = Color(0xFFF1ECF8)
+private val Muted = Color(0xFF8F87A0)
+private val Amber = Color(0xFFE8A33D)
 
-/** [content] with the **Tour**'s coach mark over it, while one is running. */
+internal fun tourAccent(state: UiState): Color = state.friends.firstOrNull { it.demo }
+    ?.let { laneColourOf(it, state.friends) }
+    // Before the Exchange there is no Contact; use the first Contact's palette index.
+    ?: railColor(0)
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TourOverlay(viewModel: AppViewModel, content: @Composable () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var exportAfterLogin by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(state.spotifyConnected) {
+        if (exportAfterLogin && state.spotifyConnected) { exportAfterLogin = false; viewModel.exportTourPlaylist() }
+    }
+    val dockTop = WindowInsets.isImeVisible && state.tour.step in setOf(TourStep.S14, TourStep.S15)
     Box(Modifier.fillMaxSize()) {
-        content()
+        Box(Modifier.padding(top = if (dockTop) 155.dp else 0.dp)) { content() }
         if (state.tourUpgradePrompt) {
-            UpgradePromptCard(
-                onAccept = { viewModel.tour.acceptUpgradePrompt() },
-                onDismiss = { viewModel.tour.dismissUpgradePrompt() },
-            )
-        } else if (state.tour.running) {
-            CoachMarkCard(
-                mark = state.coachMark,
-                onAcknowledge = { viewModel.tour.dispatch(TourEvent.Acknowledged) },
-                onSkip = { viewModel.tour.dispatch(TourEvent.Skipped) },
-                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp),
-            )
+            UpgradePromptCard(onAccept = { viewModel.tour.acceptUpgradePrompt() },
+                onDismiss = { viewModel.tour.dismissUpgradePrompt() })
+        } else if (state.tour.running && state.tour.step !in setOf(TourStep.S3, TourStep.S4)) {
+            state.coachMark?.let { mark ->
+                CoachMarkCard(viewModel.tour.character, mark, tourAccent(state),
+                    onAcknowledge = { viewModel.tour.acknowledgeCard() },
+                    onSpotify = {
+                        if (state.spotifyConnected) viewModel.exportTourPlaylist()
+                        else { exportAfterLogin = true; scope.launch {
+                            io.github.magnusencoded.stationtostation.ui.startSpotifyLogin(context, viewModel)?.let {
+                                exportAfterLogin = false
+                                android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_LONG).show()
+                            }
+                        } }
+                    },
+                    onDeclineSpotify = { viewModel.tour.dispatch(TourEvent.SpotifyDeclined) },
+                    busy = state.creatingPlaylist || state.matching,
+                    onSkip = { viewModel.tour.dispatch(TourEvent.Skipped) },
+                    modifier = if (dockTop) Modifier.align(Alignment.TopCenter).statusBarsPadding()
+                               else Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
+            }
         }
     }
 }
 
-/** The coach mark inside a dialog, which covers [TourOverlay]: the band and add-gig steps. */
 @Composable
 fun TourCoachMarkInline(viewModel: AppViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    if (!state.tour.running) return
-    CoachMarkCard(
-        mark = state.coachMark,
-        onAcknowledge = { viewModel.tour.dispatch(TourEvent.Acknowledged) },
-        onSkip = { viewModel.tour.dispatch(TourEvent.Skipped) },
-        modifier = Modifier.padding(bottom = 12.dp),
-    )
+    if (!state.tour.running || state.tour.step !in setOf(TourStep.S3, TourStep.S4)) return
+    state.coachMark?.let { mark ->
+        CoachMarkCard(viewModel.tour.character, mark, tourAccent(state),
+            onAcknowledge = { viewModel.tour.acknowledgeCard() },
+            onSkip = { viewModel.tour.dispatch(TourEvent.Skipped) }, modifier = Modifier.padding(bottom = 12.dp))
+    }
 }
 
-/**
- * One coach mark, with Skip on every step. Marks whose gesture has no engine yet show their
- * line and Skip only; each step's issue gives its mark the gesture it waits for.
- */
 @Composable
-private fun CoachMarkCard(
-    mark: CoachMark?,
+internal fun CoachMarkCard(
+    character: TourCharacter,
+    mark: CoachMark,
+    accent: Color,
     onAcknowledge: () -> Unit,
     onSkip: () -> Unit,
     modifier: Modifier = Modifier,
+    onSpotify: () -> Unit = {},
+    onDeclineSpotify: () -> Unit = {},
+    busy: Boolean = false,
 ) {
-    Column(
-        modifier
-            .fillMaxWidth()
-            .background(Card, RoundedCornerShape(16.dp))
-            .padding(20.dp)
-            .testTag("coachMark"),
-    ) {
-        Text(TOUR_FRIEND, color = Amber, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(6.dp))
-        Text(mark?.let(::line) ?: "One moment…", color = Ink, fontFamily = FontFamily.Serif, fontSize = 18.sp)
-        Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = onSkip) { Text("Skip", color = Muted) }
-            if (mark == CoachMark.Line) {
-                TextButton(onClick = onAcknowledge) { Text("Got it", color = Amber) }
+    val slant = with(LocalDensity.current) { 8.dp.toPx() }
+    val line = character.line(mark)
+    val context = LocalContext.current
+    val portrait = remember(character.cutout) {
+        context.resources.getIdentifier(character.cutout, "drawable", context.packageName)
+    }
+    BoxWithConstraints(modifier.fillMaxWidth().heightIn(min = 155.dp).testTag("coachMark")) {
+        Image(painterResource(portrait), contentDescription = null,
+            modifier = Modifier.align(Alignment.BottomEnd).width(124.dp).height(148.8.dp))
+        Box(Modifier.align(Alignment.BottomStart).padding(start = 6.dp, top = 10.dp, bottom = 6.dp)
+            .width((maxWidth - (124.dp * .94f) - 6.dp).coerceAtLeast(1.dp))) {
+            Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(14.dp))
+                .border(1.dp, Color(0xFF3A3248), RoundedCornerShape(14.dp))
+                .drawBehind { drawLine(accent, Offset(1.5.dp.toPx(), 0f), Offset(1.5.dp.toPx(), size.height), 3.dp.toPx()) }
+                .padding(start = 14.dp, top = 12.dp, end = 11.dp, bottom = 7.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(line.instruction, color = Ink, fontFamily = FontFamily.Serif, fontSize = 14.sp,
+                    lineHeight = 18.2.sp, fontWeight = FontWeight.SemiBold)
+                line.why?.let { Text(it, color = Color(0xFFCFC7DE), fontFamily = FontFamily.Serif,
+                    fontSize = 12.sp, lineHeight = 16.2.sp) }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    TextButton(onClick = onSkip, contentPadding = PaddingValues(2.dp)) { Text("Skip", color = Muted, fontSize = 12.sp) }
+                    if (mark == CoachMark.Spotify) {
+                        TextButton(onClick = onDeclineSpotify, enabled = !busy, contentPadding = PaddingValues(2.dp)) { Text("Not now", fontSize = 12.sp) }
+                        TextButton(onClick = onSpotify, enabled = !busy, contentPadding = PaddingValues(2.dp)) { Text("Spotify", color = Amber, fontSize = 12.sp) }
+                    } else TextButton(onClick = onAcknowledge, contentPadding = PaddingValues(2.dp)) {
+                        Text(if (mark == CoachMark.Line || mark == CoachMark.Gossip) "Got it" else "OK", color = Amber, fontSize = 12.sp)
+                    }
+                }
             }
+            Text(character.name, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.offset(y = (-9).dp).background(accent, GenericShape { size, _ ->
+                    moveTo(0f, 0f); lineTo(size.width, 0f); lineTo(size.width - slant, size.height); lineTo(0f, size.height); close()
+                }).padding(start = 9.dp, end = 16.dp, top = 2.dp, bottom = 2.dp))
         }
     }
 }
@@ -124,27 +165,4 @@ private fun BoxScope.UpgradePromptCard(onAccept: () -> Unit, onDismiss: () -> Un
             TextButton(onClick = onAccept) { Text("Take the tour", color = Amber) }
         }
     }
-}
-
-// Placeholders: the Virtual friend's name and writing are owned by a human (#607).
-private const val TOUR_FRIEND = "Your friend"
-
-private fun line(mark: CoachMark): String = when (mark) {
-    CoachMark.Line -> "This is your line. Down is back in time, up is what's coming."
-    CoachMark.Curtain -> "Pull down from the top to plan a gig."
-    CoachMark.Band -> "Who do you want to see?"
-    CoachMark.AddGig -> "Add the gig."
-    CoachMark.OpenRoom -> "Tap the gig to open its Room."
-    CoachMark.SwipeBack -> "Swipe right to go back."
-    CoachMark.Exchange -> "Let's swap contacts."
-    CoachMark.PinchOut -> "Pinch out to see my line beside yours."
-    CoachMark.Calendar -> "Put it in your calendar."
-    CoachMark.Maps -> "Find the way there."
-    CoachMark.Ticket -> "Show your ticket at the door."
-    CoachMark.CheckIn -> "Check in."
-    CoachMark.Log -> "What did they open with?"
-    CoachMark.Gap -> "Don't know this one? Leave a Gap."
-    CoachMark.Gossip -> "Tell me something back."
-    CoachMark.Selfie -> "Take a selfie."
-    CoachMark.Spotify -> "Keep the night as a playlist."
 }

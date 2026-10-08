@@ -120,7 +120,7 @@ final class TourFinalPurgeTests: XCTestCase {
         XCTAssertTrue(delivered)
         let selfie = TourSelfieEffects(host: host, store: defaults, timelines: timelines,
                                        demoGigIds: { addGig.demoGigIds }, friendKey: { friend.contactKey },
-                                       selfie: { nil }, characterLine: { "Character selfie from data" },
+                                       selfie: { nil },
                                        deleteThumbnails: { id in
                                            deletedThumbnails.append(id)
                                            PhotoLibrary.deleteThumbnails(id)

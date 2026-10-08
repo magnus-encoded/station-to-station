@@ -33,7 +33,33 @@ class TourController(
     private val askLocation: suspend () -> Boolean = { false },
     private val night: TourNightArrivesEffects? = null,
     private val selfie: TourSelfieEffects? = null,
+    private val log: TourLogEffects? = null,
+    private val demoGig: suspend () -> FmSetlist? = { null },
+    private val readCharacter: () -> TourCharacter = { error("Tour character not supplied") },
 ) {
+    val character: TourCharacter by lazy(readCharacter)
+
+    fun acknowledgeCard() {
+        when (state().tour.step) {
+            TourStep.S1 -> dispatch(TourEvent.Acknowledged)
+            TourStep.S16 -> dispatch(TourEvent.GossipSent)
+            else -> update { it.copy(coachMark = null) }
+        }
+    }
+
+    fun logWritten(id: String, before: io.github.magnusencoded.stationtostation.data.StoredLog,
+                   after: io.github.magnusencoded.stationtostation.data.StoredLog): Boolean {
+        if (!isDemoGig(id) || log == null) return false
+        log.write(id, after)
+        when {
+            state().tour.step == TourStep.S14 && after.songs.count { it.isNotBlank() } > before.songs.count { it.isNotBlank() } -> dispatch(TourEvent.LogEntryWritten)
+            state().tour.step == TourStep.S15 && after.songs.count { it.isBlank() } > before.songs.count { it.isBlank() } -> dispatch(TourEvent.GapRecorded)
+        }
+        return true
+    }
+
+    fun demoLogRecord(id: String): TourLogEffects.Record? = if (isDemoGig(id)) log?.record(id) else null
+
     val hints = TourHintEffects(state, update, store, scope)
     val demoClock: StateFlow<LocalDateTime?> = night?.demoNow ?: MutableStateFlow(null)
 
@@ -109,6 +135,7 @@ class TourController(
 
     /** Settings' "Resume tour", there only while a Tour is unfinished. */
     fun resume() {
+        log?.restore()
         val tour = state().tour
         if (tour.running && tour.step == TourStep.S9 && OnceOnly.ImportDemoTicket in tour.completedEffects) {
             dispatch(TourEvent.TicketImported)
@@ -182,6 +209,14 @@ class TourController(
                         if (imported) {
                             completed(OnceOnly.ImportDemoTicket)
                             dispatch(TourEvent.TicketImported)
+                        }
+                    }
+                    TourCommand.DeliverGossip, TourCommand.FillSetlist -> {
+                        val gig = demoGig()
+                        if (gig != null && log != null) {
+                            val active = { state().tour.running && state().tour.demoWorld == after.demoWorld }
+                            if (command == TourCommand.DeliverGossip) log.deliver(gig, active)
+                            else if (log.fill(gig, now(gig.id).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(), active)) dispatch(TourEvent.SetlistFilled)
                         }
                     }
                     TourCommand.DeliverFriendSelfie -> {

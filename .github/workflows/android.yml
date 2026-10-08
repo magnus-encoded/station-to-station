@@ -50,6 +50,11 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      - name: Check Tour character
+        run: |
+          python3 fixtures/tour/check_character.py
+          python3 fixtures/tour/test_character.py
+
       - name: Run unit tests
         working-directory: android
         run: ./gradlew --no-daemon testDebugUnitTest

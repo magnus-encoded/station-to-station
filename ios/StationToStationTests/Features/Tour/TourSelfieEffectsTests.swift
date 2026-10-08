@@ -56,7 +56,7 @@ final class TourSelfieEffectsTests: XCTestCase {
         TourSelfieEffects(host: host, store: defaults, timelines: timelines,
                           demoGigIds: { addGig.demoGigIds }, friendKey: { friend.contactKey },
                           selfie: { [unowned self] in hasSelfie ? self.imageData() : nil },
-                          characterLine: { "Line from data" }, deleteThumbnails: { [unowned self] id in
+                          deleteThumbnails: { [unowned self] id in
             self.deleted.append(id)
             PhotoLibrary.deleteThumbnails(id)
         })
@@ -128,7 +128,7 @@ final class TourSelfieEffectsTests: XCTestCase {
             let received = try XCTUnwrap(stored.first { $0.from == friend.contactKey })
             XCTAssertFalse(received.personal)
             XCTAssertEqual(received.kind, StoredMedia.Kind.photo)
-            XCTAssertEqual(received.text, "Line from data")
+            XCTAssertNil(received.text)
             XCTAssertTrue(FileManager.default.fileExists(atPath: Thumbnails.gridFile(received.id).path))
             XCTAssertTrue(FileManager.default.fileExists(atPath: Thumbnails.cacheFile(received.id).path))
             await effects.deliverFriendSelfie(for: demo, now: 2)

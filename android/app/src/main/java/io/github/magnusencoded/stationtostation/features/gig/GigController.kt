@@ -56,6 +56,7 @@ class GigController(
     private val venuePoint: (FmSetlist) -> Pair<Double, Double>? = { null },
     private val onCheckedIn: (String) -> Unit = {},
     private val locate: suspend () -> Pair<Double, Double>? = { where.currentFix() },
+    private val onLogWritten: (String, StoredLog, StoredLog) -> Boolean = { _, _, _ -> false },
 ) {
 
     /**
@@ -171,6 +172,7 @@ class GigController(
     fun writeLog(gigId: String, edit: (StoredLog) -> StoredLog) {
         val before = logFor(gigId)
         val updated = edit(before)
+        if (onLogWritten(gigId, before, updated)) return
         update { it.copy(logsByGig = it.logsByGig + (gigId to updated)) }
         scope.launch {
             timelines.saveLog(gigId, updated)

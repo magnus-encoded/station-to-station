@@ -58,6 +58,10 @@ struct FriendsView: View {
                 Section("Friends") {
                     ForEach(s.friends) { friend in
                         HStack {
+                            if let key = model.tour.virtualFriendKey, friend.publicKey == key {
+                                Image(model.tour.character.avatar).resizable().scaledToFill()
+                                    .frame(width: 34, height: 34).clipShape(Circle())
+                            }
                             VStack(alignment: .leading) {
                                 Text(friend.name)
                                 Text(friend.setlistfm.nilIfBlank.map { "@\($0)" } ?? "Contact").font(.caption).foregroundStyle(.secondary)
