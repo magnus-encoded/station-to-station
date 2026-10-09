@@ -7,7 +7,7 @@ struct TourCoachMarkView: View {
 
     var body: some View {
         let character = model.tour.character
-        let line = character.line(mark)
+        let line = character.line(mark, opener: model.tour.opener)
         card(character, line: line)
     }
 
@@ -31,12 +31,7 @@ struct TourCoachMarkView: View {
                 HStack {
                     Button("Skip") { model.tour.skip() }.foregroundStyle(.secondary)
                     Spacer(minLength: 8)
-                    if mark == .spotify {
-                        Button("Not now") { model.tour.declineSpotify() }
-                        Button("Spotify") { model.tour.exportSpotify() }.disabled(model.state.creatingPlaylist)
-                    } else {
-                        Button("OK") { model.tour.acknowledgeCard() }
-                    }
+                    Button("OK") { model.tour.acknowledgeCard() }
                 }.font(.system(size: 12)).padding(.top, 3)
             }
             .foregroundStyle(Color(red: 241/255, green: 236/255, blue: 248/255))

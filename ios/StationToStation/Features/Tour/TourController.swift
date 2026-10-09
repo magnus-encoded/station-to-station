@@ -110,6 +110,17 @@ final class TourController {
                 logTask?.cancel()
                 demoWorld.purge()
             case .showCoachMark(let mark):
+                if mark == .log, let gig = demoGig, let log {
+                    let expected = state
+                    logTask = Task {
+                        let title = await log.opener(for: gig)
+                        guard !Task.isCancelled, state == expected else { return }
+                        opener = title
+                        host.state.tourCoachMark = mark
+                        run(Array(commands.dropFirst(index + 1)))
+                    }
+                    return
+                }
                 if mark == .spotify, let gig = demoGig, let log {
                     spotify?.prepare(for: gig, log: log.loadLog(gig.id))
                 }
@@ -119,7 +130,7 @@ final class TourController {
             case .importDemoTicket: importDemoTicket()
             case .advanceDemoClock(let mark): night?.advance(to: mark)
             case .deliverGossip:
-                guard let log, let gig = demoGig else { continue }
+                guard let log, let gig = demoGig else { return }
                 let expected = state
                 let now = epochMs(self.now(for: gig.id))
                 logTask = Task {
@@ -129,7 +140,7 @@ final class TourController {
                 }
                 return
             case .fillSetlist:
-                guard let log, let gig = demoGig else { continue }
+                guard let log, let gig = demoGig else { return }
                 let now = epochMs(self.now(for: gig.id))
                 logTask = Task {
                     if await log.fillSetlist(for: gig, now: now), !Task.isCancelled {
@@ -218,6 +229,7 @@ final class TourController {
         log.writeLog(gigId, log: after, reply: canReply && namedChange, now: now)
         if step == .s14, after.songs.count > before.songs.count, namedChange { send(.logEntryWritten) }
         if step == .s15, after.gaps > before.gaps { send(.gapRecorded) }
+        if step == .s17, !before.closed, after.closed, state.setlistReady == true { send(.setCompleted) }
         return true
     }
 
@@ -234,6 +246,7 @@ final class TourController {
     }
 
     var character: TourCharacter { .bundled }
+    private(set) var opener: String?
     var virtualFriendName: String { character.name }
     var virtualFriendKey: String? { meetFriend?.contactKey }
 

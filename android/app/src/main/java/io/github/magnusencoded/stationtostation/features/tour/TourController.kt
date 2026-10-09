@@ -38,6 +38,8 @@ class TourController(
     private val readCharacter: () -> TourCharacter = { error("Tour character not supplied") },
 ) {
     val character: TourCharacter by lazy(readCharacter)
+    var opener: String? = null
+        private set
 
     fun acknowledgeCard() {
         when (state().tour.step) {
@@ -52,6 +54,7 @@ class TourController(
         if (!isDemoGig(id) || log == null) return false
         log.write(id, after)
         when {
+            state().tour.step == TourStep.S17 && !before.closed && after.closed && log.record(id)?.filled == true -> dispatch(TourEvent.SetCompleted)
             state().tour.step == TourStep.S14 && after.songs.count { it.isNotBlank() } > before.songs.count { it.isNotBlank() } -> dispatch(TourEvent.LogEntryWritten)
             state().tour.step == TourStep.S15 && after.songs.count { it.isBlank() } > before.songs.count { it.isBlank() } -> dispatch(TourEvent.GapRecorded)
         }
@@ -187,12 +190,11 @@ class TourController(
         if (after == before && commands.isEmpty()) return
         // Offered means started: an offline first launch leaves it to be offered again.
         val offered = !before.running && after.running
-        val mark = commands.filterIsInstance<TourCommand.ShowCoachMark>().lastOrNull()?.mark
         update {
             it.copy(
                 tour = after,
                 contextHint = it.contextHint.takeUnless { after.running },
-                coachMark = mark ?: if (after.step == before.step) it.coachMark else null,
+                coachMark = if (after.step == before.step) it.coachMark else null,
                 onboarded = it.onboarded || offered,
             )
         }
@@ -216,13 +218,19 @@ class TourController(
                             dispatch(TourEvent.TicketImported)
                         }
                     }
+                    is TourCommand.ShowCoachMark -> {
+                        if (command.mark == CoachMark.Log) opener = demoGig()?.let { log?.pool(it)?.firstOrNull() }
+                        if (state().tour.running && state().tour.step == after.step && state().tour.demoWorld == after.demoWorld) {
+                            update { it.copy(coachMark = command.mark) }
+                        }
+                    }
                     TourCommand.DeliverGossip, TourCommand.FillSetlist -> {
                         val gig = demoGig()
                         if (gig != null && log != null) {
                             val active = { state().tour.running && state().tour.demoWorld == after.demoWorld }
-                            if (command == TourCommand.DeliverGossip) log.deliver(gig, active)
-                            else if (log.fill(gig, now(gig.id).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(), active)) dispatch(TourEvent.SetlistFilled)
-                        }
+                            if (command == TourCommand.DeliverGossip && !log.deliver(gig, active)) return@launch
+                            else if (command == TourCommand.FillSetlist && log.fill(gig, now(gig.id).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(), active)) dispatch(TourEvent.SetlistFilled)
+                        } else return@launch
                     }
                     TourCommand.DeliverFriendSelfie -> {
                         val gigId = night?.gigId

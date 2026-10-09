@@ -6,6 +6,7 @@ struct TourCharacter: Codable {
         let why: String?
         let ios: String?
         let android: String?
+        var fallback: String? = nil
         var instruction: String { ios ?? `do` }
     }
     struct Notes: Codable { let gapFill: String; let setlistFill: String }
@@ -29,7 +30,7 @@ struct TourCharacter: Codable {
         catch { preconditionFailure("Invalid Tour character: \(error)") }
     }()
 
-    static let cardSteps = Set((1...19).filter { $0 != 9 && $0 != 17 }.map { "S\($0)" })
+    static let cardSteps = Set((1...19).filter { $0 != 9 }.map { "S\($0)" })
     enum Invalid: Error { case missingValue, cardSteps, wordLimit(String) }
     static func decode(_ data: Data) throws -> TourCharacter {
         let character = try JSONDecoder().decode(Self.self, from: data)
@@ -43,8 +44,11 @@ struct TourCharacter: Codable {
         }) else { throw Invalid.missingValue }
         guard Set(character.lines.keys) == cardSteps else { throw Invalid.cardSteps }
         for (step, line) in character.lines {
-            for (text, limit) in [(Optional(line.do), 20), (line.why, 30), (line.ios, 20), (line.android, 20)] {
+            for (text, limit) in [(Optional(line.do), 20), (line.why, 30), (line.ios, 20), (line.android, 20), (line.fallback, 20)] {
                 if let text {
+                    let stripped = step == "S14" && text == line.do ? text.replacingOccurrences(of: "{opener}", with: "") : text
+                    guard !stripped.contains("{"), !stripped.contains("}") else { throw Invalid.missingValue }
+                    if text.contains("{opener}"), line.fallback == nil { throw Invalid.missingValue }
                     let words = text.split(whereSeparator: { $0.isWhitespace })
                     guard !words.isEmpty, words.count <= limit else { throw Invalid.wordLimit(step) }
                 }
@@ -53,7 +57,12 @@ struct TourCharacter: Codable {
         return character
     }
 
-    func line(_ mark: TourCoachMark) -> Line { lines[mark.step.rawValue]! }
+    func line(_ mark: TourCoachMark, opener: String? = nil) -> Line {
+        let line = lines[mark.step.rawValue]!
+        guard line.instruction.contains("{opener}") else { return line }
+        let text = opener.flatMap { $0.isEmpty ? nil : $0 }.map { line.instruction.replacingOccurrences(of: "{opener}", with: $0) } ?? line.fallback!
+        return Line(do: text, why: line.why, ios: nil, android: nil)
+    }
 }
 
 extension TourCoachMark {
@@ -74,6 +83,7 @@ extension TourCoachMark {
         case .log: return .s14
         case .gap: return .s15
         case .gossip: return .s16
+        case .setComplete: return .s17
         case .selfie: return .s18
         case .spotify: return .s19
         }

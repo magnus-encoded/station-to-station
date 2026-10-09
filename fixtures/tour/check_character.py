@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 import sys
 
-CARD_STEPS = {f"S{i}" for i in range(1, 20)} - {"S9", "S17"}
+CARD_STEPS = {f"S{i}" for i in range(1, 20)} - {"S9"}
 
 def validate(path):
     data = json.loads(path.read_text())
@@ -34,13 +34,21 @@ def validate(path):
         datetime.strptime(night["date"], "%d-%m-%Y")
     lines = data.get("lines")
     if not isinstance(lines, dict) or set(lines) != CARD_STEPS:
-        raise ValueError("lines: must contain exactly S1-S8, S10-S16, S18, S19")
+        raise ValueError("lines: must contain exactly S1-S8, S10-S19")
     for step, line in lines.items():
         if not isinstance(line, dict):
             raise ValueError(f"{step}: required object")
         try:
             string(line, "do", 20)
-            for key, limit in (("why", 30), ("ios", 20), ("android", 20)):
+            for key, value in line.items():
+                if not isinstance(value, str):
+                    continue
+                stripped = value.replace("{opener}", "") if step == "S14" and key == "do" else value
+                if "{" in stripped or "}" in stripped:
+                    raise ValueError(f"{key}: unknown placeholder")
+            if "{opener}" in line["do"]:
+                string(line, "fallback", 20)
+            for key, limit in (("why", 30), ("ios", 20), ("android", 20), ("fallback", 20)):
                 if key in line:
                     string(line, key, limit)
         except ValueError as error:

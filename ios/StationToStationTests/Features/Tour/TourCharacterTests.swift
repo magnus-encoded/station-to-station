@@ -10,6 +10,13 @@ final class TourCharacterTests: XCTestCase {
         XCTAssertEqual(line.why, "Reason")
     }
 
+    func testOpenerAndGenericFallback() {
+        let character = TourCharacter.bundled
+        XCTAssertEqual(character.line(.log, opener: "Paranoid Android").instruction,
+                       "They’re playing “Paranoid Android” as the opener. Type it into the Log, then add it.")
+        XCTAssertEqual(character.line(.log).instruction, "Type the first song they played into the Log, then add it.")
+    }
+
     func testMissingStepAndLongInstructionFail() throws {
         let data = try JSONEncoder().encode(TourCharacter.bundled)
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])

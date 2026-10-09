@@ -79,6 +79,15 @@ struct GigView: View {
         }
     }
 
+    private var tourSpotify: Bool {
+        model.state.tourStep == .s19 && model.state.selectedSetlist.map { model.tour.isDemoGig($0.id) } == true
+    }
+
+    private func makePlaylist() {
+        if tourSpotify { model.tour.exportSpotify() }
+        else { nav.push(.confirm) }
+    }
+
     var body: some View {
         let show = model.state.selectedSetlist
         let offers = show.map { roomOffers(for: $0) }
@@ -278,7 +287,7 @@ struct GigView: View {
             if offers?.alcove == .addToCalendar, let show = model.state.selectedSetlist {
                 model.planning.addToCalendar(show, onFailure: { calendarFailed = true })
             } else if offers?.alcove == .spotify {
-                nav.push(.confirm)
+                makePlaylist()
             }
         }
         .accessibilityAction(named: "Add to calendar") {
@@ -290,7 +299,7 @@ struct GigView: View {
         // to be a button, and the button was reachable; the gesture on its own is
         // not, so the grammar cannot cost a reader the action.
         .accessibilityAction(named: "Make a Spotify playlist") {
-            if offers?.alcove == .spotify { nav.push(.confirm) }
+            if offers?.alcove == .spotify { makePlaylist() }
         }
         .accessibilityAction(named: model.state.contactLight
             ? "Turn the contact light off"
@@ -404,8 +413,8 @@ struct GigView: View {
                 // not *linked* — the same `takeUnless(localGig)` Android applies. Fed
                 // whole it would make an unposted night look recorded, and the Alcove
                 // would offer the playlist where the set still needs handing over.
-                setlistId: show.url == nil ? nil : show.id,
-                songCount: show.performed().count,
+                setlistId: tourSpotify ? show.id : (show.url == nil ? nil : show.id),
+                songCount: tourSpotify ? log.named().count : show.performed().count,
                 calendarEvent: model.state.calendarEventByGig[show.id],
                 // Off the same claim `provenance` above is read from, rather than a
                 // map of its own: #441 keeps the Admissions on `StoredAttendance`,

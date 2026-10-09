@@ -63,8 +63,9 @@
       "why": "A check-in says you were at this gig. While you're checked in, nearby phones may carry what you log to others. Nothing is sent during the Tour."
     },
     "S14": {
-      "do": "Type the first song they played into the Log, then add it.",
-      "why": "The Log is your own setlist, kept as the night happens. Nobody is marking it, so any song you know will do."
+      "do": "They’re playing “{opener}” as the opener. Type it into the Log, then add it.",
+      "why": "The Log is your own setlist, kept as the night happens. Nobody is marking it, so any song you know will do.",
+      "fallback": "Type the first song they played into the Log, then add it."
     },
     "S15": {
       "do": "In the Log, tap “they played one I can't name”.",
@@ -74,6 +75,10 @@
       "do": "Read song two in your Log: that's gossip from my phone. Then carry on.",
       "why": "Gossip is how phones in radio range swap what happened at a gig, friends or strangers, with no server. Mine just filled your Gap."
     },
+    "S17": {
+      "do": "Tick “That was the whole set” in the Room.",
+      "why": "setlist.fm has the rest of tonight’s set. I’ve filled your Log from it. Even I can’t remember everything."
+    },
     "S18": {
       "do": "Take a selfie, then add it to the night from your photo library.",
       "ios": "Take a selfie, then tap Add to shared or Add to the vault and choose it.",
@@ -81,8 +86,7 @@
       "why": "Shared photos can go to friends you've exchanged with. Private ones stay on your phone. Your photo stays in your library either way."
     },
     "S19": {
-      "do": "Make a playlist of tonight's setlist on Spotify.",
-      "ios": "Tap Spotify to turn tonight's setlist into a playlist, or Not now to skip it.",
+      "do": "Swipe the gig left to turn tonight’s set into a Spotify playlist.",
       "why": "You'll log in to Spotify. The public playlist is the one thing this Tour keeps; everything else, including the demo gig, is deleted."
     }
   },

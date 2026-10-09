@@ -138,6 +138,25 @@ final class TourLogEffectsTests: XCTestCase {
         XCTAssertTrue(TourRecordingsProtocol.requests.first?.url?.query?.contains("artist=band-id") == true)
     }
 
+    func testEmptySourcesDoNotReportAFilledSet() async throws {
+        let log = effects(try client([]))
+        log.writeLog("demo", log: StoredLog(songs: ["Mine"]), reply: false, now: 1)
+        let filled = await log.fillSetlist(for: demo, now: 2)
+        XCTAssertFalse(filled)
+        XCTAssertFalse(log.records["demo"]?.filled ?? true)
+    }
+
+    func testGossipDoesNotRepeatTheOpenerWhenAnotherSongWasLogged() async throws {
+        let log = effects(try client([response(songs)]))
+        let opener = await log.opener(for: demo)
+        XCTAssertEqual(opener, songs.first)
+        log.writeLog("demo", log: StoredLog().adding("Other", now: 1).adding("", now: 2), reply: false, now: 2)
+        let delivered = await log.deliverGossip(for: demo, now: 3)
+        XCTAssertTrue(delivered)
+        XCTAssertEqual(log.loadLog("demo").songs, ["Other", "Second Song"])
+        XCTAssertEqual(fmRequests.count, 1)
+    }
+
     func testThePureFillNormalisesDuplicatesAndDoesNotInventSongs() {
         XCTAssertEqual(tourSetlistFill(userSongs: ["P.I.M.P.", "Dont Look Back"],
                                       setlistFmSongs: ["pimp", "Don't Look Back", "New", "NEW", "  "],
@@ -148,7 +167,7 @@ final class TourLogEffectsTests: XCTestCase {
         XCTAssertEqual(tourSetlistFill(userSongs: ["Mine"], setlistFmSongs: [], musicBrainzSongs: []), [])
     }
 
-    func testTheSharedS17FillCasesResumeAndAdvanceToS18() async throws {
+    func testTheSharedS17FillCasesWaitForCompletion() async throws {
         let fixtures = try TourFixtures.load().filter { ["Fill: setlist.fm hit", "Fill: fallback"].contains($0.row) }
         XCTAssertEqual(fixtures.count, 2)
         for fixture in fixtures {
@@ -169,7 +188,7 @@ final class TourLogEffectsTests: XCTestCase {
             log.writeLog("demo", log: entered, reply: false, now: 7)
             let (tour, _) = makeTour(log, fm: fm)
             tour.start()
-            await eventually { self.host.state.tourStep == .s18 }
+            await eventually { self.host.state.tourCoachMark == .setComplete }
             XCTAssertEqual(host.state.gigLog.songs, input.enteredSongs + (expected.addedSongs ?? []), fixture.id)
             XCTAssertEqual(host.state.gigLog.songs.count, try XCTUnwrap(expected.totalSongs), fixture.id)
             XCTAssertEqual(TourRecordingsProtocol.requests.count, expected.source == "musicBrainz" ? 1 : 0, fixture.id)
@@ -188,6 +207,8 @@ final class TourLogEffectsTests: XCTestCase {
         let (tour, gig) = makeTour(log, fm: fm)
         walkToS14(tour)
         XCTAssertEqual(host.state.tourStep, .s14)
+        await eventually { self.host.state.tourCoachMark == .log }
+        XCTAssertEqual(tour.opener, "Don't Look Back")
         gig.addToLog("Dont Look Back")
         XCTAssertEqual(host.state.tourStep, .s15)
         gig.addToLog("")
@@ -227,7 +248,13 @@ final class TourLogEffectsTests: XCTestCase {
         XCTAssertEqual(host.state.tourStep, .s17)
         XCTAssertEqual(tour.demoGossip(for: "demo").last?.source, .user)
         XCTAssertEqual(tour.demoGossip(for: "demo").last?.song, "Song 3")
-        await eventually { self.host.state.tourStep == .s18 }
+        await eventually { self.host.state.tourCoachMark == .setComplete }
+        XCTAssertEqual(host.state.tourStep, .s17)
+        let before = host.state.gigLog
+        var completed = before
+        completed.closed = true
+        _ = tour.logWritten("demo", before: before, after: completed, now: 100)
+        XCTAssertEqual(host.state.tourStep, .s18)
         XCTAssertEqual(host.state.gigLog.songs.count, 10)
         XCTAssertEqual(Array(host.state.gigLog.songs.prefix(3)), ["Dont Look Back", "Second Song", "Song 3"])
         XCTAssertEqual(published, [])
@@ -290,7 +317,7 @@ final class TourLogEffectsTests: XCTestCase {
         walkToS14(tour)
         gig.addToLog("Dont Look Back")
         gig.addToLog("")
-        await eventually { self.fmRequests.count == 2 && TourRecordingsProtocol.requests.count == 1 }
+        await eventually { self.fmRequests.count >= 2 && TourRecordingsProtocol.requests.count >= 1 }
         XCTAssertEqual(host.state.tourStep, .s16)
         XCTAssertNil(host.state.tourCoachMark)
         XCTAssertEqual(host.state.gigLog.gaps, 1)

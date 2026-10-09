@@ -22,7 +22,9 @@
         {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
         {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
         {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
-        {"event": "setlistFilled", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
+        {"event": "setCompleted", "expect": {"step": "S17", "unchanged": true, "commands": []}},
+        {"event": "setlistFilled", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)"]}},
+        {"event": "setCompleted", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
         {"event": "returnedFromPhotos", "expect": {"step": "S18", "commands": []}},
         {"event": "mediaAdded", "expect": {"step": "S19", "commands": ["deliverFriendSelfie", "advanceDemoClock(after)", "showCoachMark(spotify)"]}},
         {"event": "spotifyExported", "expect": {"step": "S20", "commands": ["purgeDemoWorld", "markTourFinished"]}}
@@ -347,7 +349,9 @@
         {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
         {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
         {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
-        {"event": "setlistFilled", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
+        {"event": "setCompleted", "expect": {"step": "S17", "unchanged": true, "commands": []}},
+        {"event": "setlistFilled", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)"]}},
+        {"event": "setCompleted", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
         {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
       ],
       "expected": {"playlistExportedBySkip": false}
@@ -373,7 +377,9 @@
         {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
         {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
         {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
-        {"event": "setlistFilled", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
+        {"event": "setCompleted", "expect": {"step": "S17", "unchanged": true, "commands": []}},
+        {"event": "setlistFilled", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)"]}},
+        {"event": "setCompleted", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
         {"event": "returnedFromPhotos", "expect": {"step": "S18", "commands": []}},
         {"event": "mediaAdded", "expect": {"step": "S19", "commands": ["deliverFriendSelfie", "advanceDemoClock(after)", "showCoachMark(spotify)"]}},
         {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
@@ -401,7 +407,9 @@
         {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
         {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
         {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
-        {"event": "setlistFilled", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
+        {"event": "setCompleted", "expect": {"step": "S17", "unchanged": true, "commands": []}},
+        {"event": "setlistFilled", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)"]}},
+        {"event": "setCompleted", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
         {"event": "returnedFromPhotos", "expect": {"step": "S18", "commands": []}},
         {"event": "mediaAdded", "expect": {"step": "S19", "commands": ["deliverFriendSelfie", "advanceDemoClock(after)", "showCoachMark(spotify)"]}},
         {"event": "spotifyExported", "expect": {"step": "S20", "commands": ["purgeDemoWorld", "markTourFinished"]}},
@@ -670,7 +678,7 @@
         {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
         {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
         {"event": "restart", "expect": {"step": "S16", "commands": []}},
-        {"event": "resumed", "expect": {"step": "S16", "commands": ["showCoachMark(gossip)"]}}
+        {"event": "resumed", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}}
       ]
     },
     {
@@ -719,7 +727,9 @@
         {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
         {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
         {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
-        {"event": "setlistFilled", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
+        {"event": "setCompleted", "expect": {"step": "S17", "unchanged": true, "commands": []}},
+        {"event": "setlistFilled", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)"]}},
+        {"event": "setCompleted", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
         {"event": "restart", "expect": {"step": "S18", "commands": []}},
         {"event": "resumed", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}}
       ]
@@ -745,7 +755,9 @@
         {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
         {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
         {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
-        {"event": "setlistFilled", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
+        {"event": "setCompleted", "expect": {"step": "S17", "unchanged": true, "commands": []}},
+        {"event": "setlistFilled", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)"]}},
+        {"event": "setCompleted", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
         {"event": "returnedFromPhotos", "expect": {"step": "S18", "commands": []}},
         {"event": "mediaAdded", "expect": {"step": "S19", "commands": ["deliverFriendSelfie", "advanceDemoClock(after)", "showCoachMark(spotify)"]}},
         {"event": "restart", "expect": {"step": "S19", "commands": []}},
@@ -797,7 +809,9 @@
         {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
         {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
         {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
-        {"event": "setlistFilled", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
+        {"event": "setCompleted", "expect": {"step": "S17", "unchanged": true, "commands": []}},
+        {"event": "setlistFilled", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)"]}},
+        {"event": "setCompleted", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
         {"event": "returnedFromPhotos", "expect": {"step": "S18", "commands": []}},
         {"event": "mediaAdded", "expect": {"step": "S19", "commands": ["deliverFriendSelfie", "advanceDemoClock(after)", "showCoachMark(spotify)"]}},
         {"event": "spotifyDeclined", "expect": {"step": "S20", "commands": ["purgeDemoWorld", "markTourFinished"], "finished": true, "pendingSpotifyRetry": true}}
@@ -817,7 +831,9 @@
       "initial": {"step": "S17"},
       "input": {"enteredSongs": ["Song 1", "Song 2"], "setlistFmSongs": ["Song 1", "Song 2", "Song 3", "Song 4", "Song 5", "Song 6", "Song 7", "Song 8", "Song 9", "Song 10"], "musicBrainzSongs": ["Song 1", "Song 2", "Song 3", "Song 4", "Song 5", "Song 6", "Song 7", "Song 8", "Song 9", "Song 10"]},
       "checks": [
-        {"event": "setlistFilled", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}}
+        {"event": "setCompleted", "expect": {"step": "S17", "unchanged": true, "commands": []}},
+        {"event": "setlistFilled", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)"]}},
+        {"event": "setCompleted", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}}
       ],
       "expected": {"source": "setlistFm", "addedSongs": ["Song 3", "Song 4", "Song 5", "Song 6", "Song 7", "Song 8", "Song 9", "Song 10"], "totalSongs": 10}
     },
@@ -827,7 +843,9 @@
       "initial": {"step": "S17"},
       "input": {"enteredSongs": ["Song 1", "Song 2"], "setlistFmSongs": [], "musicBrainzSongs": ["Song 1", "Song 2", "Song 3", "Song 4", "Song 5", "Song 6", "Song 7", "Song 8", "Song 9", "Song 10"]},
       "checks": [
-        {"event": "setlistFilled", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}}
+        {"event": "setCompleted", "expect": {"step": "S17", "unchanged": true, "commands": []}},
+        {"event": "setlistFilled", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)"]}},
+        {"event": "setCompleted", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}}
       ],
       "expected": {"source": "musicBrainz", "addedSongs": ["Song 3", "Song 4", "Song 5", "Song 6", "Song 7", "Song 8", "Song 9", "Song 10"], "totalSongs": 10}
     },

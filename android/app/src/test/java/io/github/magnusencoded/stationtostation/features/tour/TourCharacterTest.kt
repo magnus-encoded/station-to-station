@@ -11,6 +11,12 @@ class TourCharacterTest {
         val character = TourCharacter.decode(source())
         TourStep.entries.mapNotNull { it.mark }.forEach { assertTrue(character.line(it).instruction.isNotBlank()) }
     }
+    @Test fun openerRendersAndAnEmptyPoolKeepsTheGenericInstruction() {
+        val character = TourCharacter.decode(source())
+        assertEquals("They’re playing “Paranoid Android” as the opener. Type it into the Log, then add it.",
+            character.line(CoachMark.Log, "Paranoid Android").instruction)
+        assertEquals("Type the first song they played into the Log, then add it.", character.line(CoachMark.Log).instruction)
+    }
     @Test fun anOverrideChangesOnlyTheInstruction() {
         val line = TourCharacter.Line("Base", "Reason", ios = "Apple", android = "Android")
         assertEquals("Android", line.onAndroid().instruction)

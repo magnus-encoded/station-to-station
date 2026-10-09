@@ -94,6 +94,7 @@ final class TourScriptFixtureTests: XCTestCase {
         case "gapRecorded": return .gapRecorded
         case "gossipSent": return .gossipSent
         case "setlistFilled": return .setlistFilled
+        case "setCompleted": return .setCompleted
         case "returnedFromPhotos": return .returnedFromPhotos
         case "spotifyExported": return .spotifyExported
         case "spotifyDeclined": return .spotifyDeclined

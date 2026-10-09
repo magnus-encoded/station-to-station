@@ -109,10 +109,17 @@ struct MusicBrainzClient {
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        guard let (data, response) = try? await session.data(for: request),
-              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode)
-        else { return nil }
-        return parseRecordings(String(decoding: data, as: UTF8.self))
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                print("Tour: MusicBrainz catalogue failed for \(mbid): \(response)")
+                return nil
+            }
+            return parseRecordings(String(decoding: data, as: UTF8.self))
+        } catch {
+            print("Tour: MusicBrainz catalogue failed for \(mbid): \(error)")
+            return nil
+        }
     }
 }
 

@@ -111,6 +111,7 @@ class TourScriptCasesTest {
         "gapRecorded" -> TourEvent.GapRecorded
         "gossipSent" -> TourEvent.GossipSent
         "setlistFilled" -> TourEvent.SetlistFilled
+        "setCompleted" -> TourEvent.SetCompleted
         "returnedFromPhotos" -> TourEvent.ReturnedFromPhotos
         "mediaAdded" -> TourEvent.MediaAdded(shared = true)
         "spotifyExported" -> TourEvent.SpotifyExported

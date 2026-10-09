@@ -47,12 +47,6 @@ internal fun tourAccent(state: UiState): Color = state.friends.firstOrNull { it.
 @Composable
 fun TourOverlay(viewModel: AppViewModel, content: @Composable () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var exportAfterLogin by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(state.spotifyConnected) {
-        if (exportAfterLogin && state.spotifyConnected) { exportAfterLogin = false; viewModel.exportTourPlaylist() }
-    }
     var dockHeight by remember { mutableStateOf(155.dp) }
     val density = LocalDensity.current
     val dockTop = WindowInsets.isImeVisible && state.tour.step in setOf(TourStep.S14, TourStep.S15)
@@ -67,17 +61,7 @@ fun TourOverlay(viewModel: AppViewModel, content: @Composable () -> Unit) {
             state.coachMark?.let { mark ->
                 CoachMarkCard(viewModel.tour.character, mark, tourAccent(state),
                     onAcknowledge = { viewModel.tour.acknowledgeCard() },
-                    onSpotify = {
-                        if (state.spotifyConnected) viewModel.exportTourPlaylist()
-                        else { exportAfterLogin = true; scope.launch {
-                            io.github.magnusencoded.stationtostation.ui.startSpotifyLogin(context, viewModel)?.let {
-                                exportAfterLogin = false
-                                android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_LONG).show()
-                            }
-                        } }
-                    },
-                    onDeclineSpotify = { viewModel.tour.dispatch(TourEvent.SpotifyDeclined) },
-                    busy = state.creatingPlaylist || state.matching,
+                    opener = viewModel.tour.opener,
                     onSkip = { viewModel.tour.dispatch(TourEvent.Skipped) },
                     modifier = (if (dockTop) Modifier.align(Alignment.TopCenter).statusBarsPadding()
                                else Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
@@ -107,12 +91,10 @@ internal fun CoachMarkCard(
     onAcknowledge: () -> Unit,
     onSkip: () -> Unit,
     modifier: Modifier = Modifier,
-    onSpotify: () -> Unit = {},
-    onDeclineSpotify: () -> Unit = {},
-    busy: Boolean = false,
+    opener: String? = null,
 ) {
     val slant = with(LocalDensity.current) { 8.dp.toPx() }
-    val line = character.line(mark)
+    val line = character.line(mark, opener)
     val context = LocalContext.current
     val portrait = remember(character.cutout) {
         context.resources.getIdentifier(character.cutout, "drawable", context.packageName)
@@ -145,10 +127,7 @@ internal fun CoachMarkCard(
                     fontSize = 12.sp, lineHeight = 16.2.sp) }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     TextButton(onClick = onSkip, contentPadding = PaddingValues(2.dp)) { Text("Skip", color = Muted, fontSize = 12.sp) }
-                    if (mark == CoachMark.Spotify) {
-                        TextButton(onClick = onDeclineSpotify, enabled = !busy, contentPadding = PaddingValues(2.dp)) { Text("Not now", fontSize = 12.sp) }
-                        TextButton(onClick = onSpotify, enabled = !busy, contentPadding = PaddingValues(2.dp)) { Text("Spotify", color = Amber, fontSize = 12.sp) }
-                    } else TextButton(onClick = onAcknowledge, contentPadding = PaddingValues(2.dp)) {
+                    TextButton(onClick = onAcknowledge, contentPadding = PaddingValues(2.dp)) {
                         Text(if (mark == CoachMark.Line || mark == CoachMark.Gossip) "Got it" else "OK", color = Amber, fontSize = 12.sp)
                     }
                 }

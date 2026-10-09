@@ -75,9 +75,10 @@ final class TourLogEffects: DemoWorld {
         let pool = await songs(for: gig)
         guard generation == token, !Task.isCancelled else { return false }
         var record = records[gig.id] ?? Record()
+        if record.gossip.contains(where: { $0.source == .virtualFriend }) { return true }
         let titles = dedupe(pool.fm.isEmpty ? pool.mb : pool.fm)
         guard let gap = record.log.songs.firstIndex(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }),
-              let song = titles.first(where: { title in !record.log.songs.contains { sameSong($0, title) } })
+              let song = titles.dropFirst().first(where: { title in !record.log.songs.contains { sameSong($0, title) } })
         else { return false }
         record.log = record.log.fillingTourGap(at: gap, title: song)
         record.gossip.append(Gossip(id: UUID().uuidString, source: .virtualFriend, contactKey: friendKey(),
@@ -92,11 +93,18 @@ final class TourLogEffects: DemoWorld {
         let pool = await songs(for: gig)
         guard generation == token, !Task.isCancelled else { return false }
         var record = records[gig.id] ?? Record()
+        if record.filled { return true }
         let additions = tourSetlistFill(userSongs: record.log.songs, setlistFmSongs: pool.fm, musicBrainzSongs: pool.mb)
+        guard !additions.isEmpty else { return false }
         record.log = additions.reduce(record.log) { $0.adding($1, now: now) }
         record.filled = true
         save(gig.id, record)
         return true
+    }
+
+    func opener(for gig: FmSetlist) async -> String? {
+        let pool = await songs(for: gig)
+        return (pool.fm.isEmpty ? pool.mb : pool.fm).first
     }
 
     func purge() {
@@ -115,14 +123,19 @@ final class TourLogEffects: DemoWorld {
     }
 
     private func songs(for gig: FmSetlist) async -> (fm: [String], mb: [String]) {
-        guard let mbid = gig.artist?.mbid, !mbid.isEmpty else { return ([], []) }
+        guard let mbid = gig.artist?.mbid, !mbid.isEmpty else {
+            print("Tour: song pool has no artist MBID for \(gig.id)")
+            return ([], [])
+        }
         if let pool = pools[mbid] { return pool }
         let token = generation
         var fm: [String] = []
         var page = 1
         var fetched = 0
         while generation == token, !Task.isCancelled {
-            guard let response = try? await setlistFm.artistSetlists(mbid, page: page) else { break }
+            let response: SetlistsResponse
+            do { response = try await setlistFm.artistSetlists(mbid, page: page) }
+            catch { print("Tour: setlist.fm song pool failed for \(mbid): \(error)"); break }
             let recent = response.setlist.sorted { ($0.localDate() ?? .distantPast) > ($1.localDate() ?? .distantPast) }
             fm = recent.first { !$0.performed().isEmpty }?.performed().map(\.name) ?? []
             fetched += response.setlist.count
@@ -131,6 +144,7 @@ final class TourLogEffects: DemoWorld {
         }
         var mb: [String] = []
         if fm.isEmpty, generation == token, !Task.isCancelled { mb = await musicBrainz.catalogue(mbid: mbid) }
+        if fm.isEmpty && mb.isEmpty { print("Tour: no performed setlist or MusicBrainz songs for \(mbid)") }
         let pool = (fm: fm, mb: mb)
         if generation == token, !Task.isCancelled, (!fm.isEmpty || !mb.isEmpty) { pools[mbid] = pool }
         return pool

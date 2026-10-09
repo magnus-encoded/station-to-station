@@ -38,6 +38,47 @@ class TourLogEffectsTest {
         assertFalse(file.exists())
     }
 
+    @Test fun pickedArtistSurvivesStoreCheckInAndSuppliesGossip() = runBlocking {
+        val store = io.github.magnusencoded.stationtostation.data.TimelineStore(File(temporary.root, "timeline.json"))
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Job() + kotlinx.coroutines.Dispatchers.Unconfined)
+        val fm = io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmClient(keySource = { null })
+        val planning = io.github.magnusencoded.stationtostation.features.planning.PlanningController(
+            fake.state, fake.update, store, fm,
+            io.github.magnusencoded.stationtostation.data.musicbrainz.MusicBrainzClient(), scope, { throw it },
+            gigAdded = { id -> kotlinx.coroutines.runBlocking { store.markDemo(id) } })
+        planning.pickArtist(io.github.magnusencoded.stationtostation.data.musicbrainz.MbArtist("Radiohead", "radiohead-id"))
+        planning.addGig("Radiohead", "Venue", "01-01-2030")
+        scope.coroutineContext[kotlinx.coroutines.Job]!!.children.toList().forEach { it.join() }
+        val added = store.load().planned().single()
+        assertEquals("radiohead-id", added.artist?.mbid)
+        store.saveAttendance(added.id, io.github.magnusencoded.stationtostation.data.StoredAttendance(
+            provenance = io.github.magnusencoded.stationtostation.data.StoredAttendance.Provenance.CHECKED_IN))
+        val cache = store.load()
+        val ids = cache.gigs.values.filter { it.demo }.map { it.setlistId ?: it.id }.toSet()
+        val atS16 = cache.planned().single { it.id in ids }
+        val effects = TourLogEffects(File(temporary.root, "logs.json"), fake.update) { gig ->
+            if (gig.artist?.mbid == "radiohead-id") listOf("Paranoid Android", "Karma Police", "No Surprises") else emptyList()
+        }
+        assertEquals("Paranoid Android", effects.pool(atS16).first())
+        effects.write(atS16.id, StoredLog().adding("Paranoid Android", 10).adding("", 20))
+        assertTrue(effects.deliver(atS16) { true })
+        assertEquals(listOf("Paranoid Android", "Karma Police"), effects.record(atS16.id)!!.log.songs)
+        scope.coroutineContext[kotlinx.coroutines.Job]!!.cancel()
+    }
+
+    @Test fun gossipDoesNotRepeatTheSuggestedOpenerWhenTheUserLogsAnotherSong() = runBlocking {
+        val effects = TourLogEffects(File(temporary.root, "logs.json"), fake.update) { listOf("Opener", "Second", "Third") }
+        effects.write(gig.id, StoredLog().adding("Other", 10).adding("", 20))
+        assertTrue(effects.deliver(gig) { true })
+        assertEquals(listOf("Other", "Second"), effects.record(gig.id)!!.log.songs)
+    }
+
+    @Test fun emptyPoolDoesNotReportAFilledSet() = runBlocking {
+        val effects = TourLogEffects(File(temporary.root, "logs.json"), fake.update) { emptyList() }
+        effects.write(gig.id, StoredLog().adding("Mine", 10))
+        assertFalse(effects.fill(gig, 30) { true })
+    }
+
     @Test fun fillNeverInventsSongsOrOverwritesTheUsersWords() {
         assertEquals(emptyList<String>(), tourSetlistFill(listOf("Mine"), emptyList()))
         assertEquals(listOf("Second"), tourSetlistFill(listOf("Mine"), listOf("mine", "Second", "Second", "")))

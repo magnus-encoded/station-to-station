@@ -25,7 +25,7 @@ enum TourStep: String, Codable, CaseIterable {
 
 enum TourCoachMark: String, Codable, Equatable {
     case line, curtain, band, addGig, openRoom, swipeBack, exchange, pinchOut
-    case calendar, maps, ticket, checkIn, log, gap, gossip, selfie, spotify
+    case calendar, maps, ticket, checkIn, log, gap, gossip, setComplete, selfie, spotify
 }
 
 enum DemoClockMark: String, Codable, Equatable { case approaching, doors, showStarted, after }
@@ -40,7 +40,7 @@ enum TourEvent: Equatable {
     case acknowledged, curtainPulled, bandPicked, gigAdded, roomOpened, swipedBack
     case contactExchanged(location: TourLocation)
     case pinchedOut, ticketImported, calendarAdded, mapsOpened, ticketShown, checkedIn
-    case logEntryWritten, gapRecorded, gossipSent, setlistFilled, returnedFromPhotos
+    case logEntryWritten, gapRecorded, gossipSent, setlistFilled, setCompleted, returnedFromPhotos
     case mediaAdded(visibility: TourMediaVisibility)
     case spotifyExported, spotifyDeclined, skipped, resumed, replayRequested, connectivityLost
 }
@@ -61,6 +61,7 @@ struct TourState: Codable, Equatable {
     var bandLookedUp = false
     var demoTicketImported = false
     var returnedFromPhotos = false
+    var setlistReady: Bool? = nil
     var location: TourLocation?
 }
 
@@ -86,9 +87,9 @@ enum TourScript {
         .s12: Step(entry: [.advanceDemoClock(.doors), .showCoachMark(.ticket)], awaits: [.ticketShown]),
         .s13: Step(entry: [.showCoachMark(.checkIn)], awaits: [.checkedIn]),
         .s14: Step(entry: [.advanceDemoClock(.showStarted), .showCoachMark(.log)], awaits: [.logEntryWritten]),
-        .s15: Step(entry: [.showCoachMark(.gap)], awaits: [.gapRecorded], exit: [.deliverGossip]),
-        .s16: Step(entry: [.showCoachMark(.gossip)], awaits: [.gossipSent]),
-        .s17: Step(entry: [.fillSetlist], awaits: [.setlistFilled]),
+        .s15: Step(entry: [.showCoachMark(.gap)], awaits: [.gapRecorded]),
+        .s16: Step(entry: [.deliverGossip, .showCoachMark(.gossip)], awaits: [.gossipSent]),
+        .s17: Step(entry: [.fillSetlist], awaits: [.setCompleted]),
         .s18: Step(entry: [.showCoachMark(.selfie)], awaits: [.returnedFromPhotos, .mediaAdded(visibility: .private)], exit: [.deliverFriendSelfie]),
         .s19: Step(entry: [.advanceDemoClock(.after), .showCoachMark(.spotify)], awaits: [.spotifyExported, .spotifyDeclined]),
         .s20: Step(entry: [.purgeDemoWorld, .markTourFinished], awaits: [])
@@ -124,6 +125,13 @@ enum TourScript {
             next.spotifyRetryPending = false
             return (next, [])
         default: break
+        }
+        if state.currentStep == .s17, !state.finished {
+            if event == .setlistFilled {
+                next.setlistReady = true
+                return (next, [.showCoachMark(.setComplete)])
+            }
+            if event == .setCompleted, state.setlistReady != true { return (state, []) }
         }
         guard let step = state.currentStep, !state.finished,
               let definition = steps[step],

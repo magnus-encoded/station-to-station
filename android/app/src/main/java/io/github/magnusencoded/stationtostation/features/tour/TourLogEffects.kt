@@ -17,6 +17,15 @@ class TourLogEffects(
 ) : DemoWorld {
     @Serializable data class Record(val log: StoredLog = StoredLog(), val gapSong: String? = null, val filled: Boolean = false)
     private var generation = 0
+    private val pools = mutableMapOf<String, List<String>>()
+
+    suspend fun pool(gig: FmSetlist): List<String> {
+        pools[gig.id]?.let { return it }
+        val token = generation
+        val titles = songs(gig).filter { it.isNotBlank() }
+        if (token == generation && titles.isNotEmpty()) pools[gig.id] = titles
+        return titles
+    }
     private var records: Map<String, Record> = if (file.exists()) Json.decodeFromString(file.readText()) else emptyMap()
 
     fun restore() { update { it.copy(logsByGig = it.logsByGig + records.mapValues { row -> row.value.log }) } }
@@ -25,12 +34,12 @@ class TourLogEffects(
 
     suspend fun deliver(gig: FmSetlist, active: () -> Boolean): Boolean {
         val token = generation
-        val pool = songs(gig)
+        val pool = pool(gig)
         if (token != generation || !active()) return false
         val record = records[gig.id] ?: return false
         if (record.gapSong != null) return true
         val gap = record.log.songs.indexOfFirst { it.isBlank() }
-        val song = pool.firstOrNull { title -> title.isNotBlank() && record.log.songs.none { sameSong(it, title) } } ?: return false
+        val song = pool.drop(1).firstOrNull { title -> title.isNotBlank() && record.log.songs.none { sameSong(it, title) } } ?: return false
         if (gap < 0) return false
         val titles = record.log.songs.toMutableList().apply { this[gap] = song }
         // Naming a Gap preserves its entry time and stable line number.
@@ -40,11 +49,12 @@ class TourLogEffects(
 
     suspend fun fill(gig: FmSetlist, now: Long, active: () -> Boolean): Boolean {
         val token = generation
-        val pool = songs(gig)
+        val pool = pool(gig)
         if (token != generation || !active()) return false
         val record = records[gig.id] ?: Record()
         if (record.filled) return true
         val additions = tourSetlistFill(record.log.songs, pool)
+        if (additions.isEmpty()) return false
         save(gig.id, record.copy(log = additions.fold(record.log) { log, song -> log.adding(song, now) }, filled = true))
         return true
     }
@@ -60,6 +70,7 @@ class TourLogEffects(
 
     override suspend fun purge() {
         generation++
+        pools.clear()
         val ids = records.keys
         records = emptyMap()
         file.delete()

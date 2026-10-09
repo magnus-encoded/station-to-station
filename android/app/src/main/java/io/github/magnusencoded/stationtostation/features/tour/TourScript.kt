@@ -12,12 +12,12 @@ enum class TourStep(val mark: CoachMark?) {
     S5(CoachMark.OpenRoom), S6(CoachMark.SwipeBack), S7(CoachMark.Exchange), S8(CoachMark.PinchOut),
     S9(null), S10(CoachMark.Calendar), S11(CoachMark.Maps), S12(CoachMark.Ticket),
     S13(CoachMark.CheckIn), S14(CoachMark.Log), S15(CoachMark.Gap), S16(CoachMark.Gossip),
-    S17(null), S18(CoachMark.Selfie), S19(CoachMark.Spotify), S20(null),
+    S17(CoachMark.SetComplete), S18(CoachMark.Selfie), S19(CoachMark.Spotify), S20(null),
 }
 
 enum class CoachMark {
     Line, Curtain, Band, AddGig, OpenRoom, SwipeBack, Exchange, PinchOut, Calendar, Maps,
-    Ticket, CheckIn, Log, Gap, Gossip, Selfie, Spotify,
+    Ticket, CheckIn, Log, Gap, Gossip, SetComplete, Selfie, Spotify,
 }
 
 /** The narrative moments the **Demo clock** jumps to. */
@@ -43,6 +43,7 @@ data class TourState(
     val venue: Place? = null,
     /** S18 waits for two events in turn; this is the first having arrived. */
     val returnedFromPhotos: Boolean = false,
+    val setlistReady: Boolean = false,
 )
 
 /** A Tour is under way: started, and neither skipped nor at S20. */
@@ -69,6 +70,7 @@ sealed interface TourEvent {
     data object GapRecorded : TourEvent
     data object GossipSent : TourEvent
     data object SetlistFilled : TourEvent
+    data object SetCompleted : TourEvent
     data object ReturnedFromPhotos : TourEvent
     data class MediaAdded(val shared: Boolean) : TourEvent
     data object SpotifyExported : TourEvent
@@ -104,7 +106,7 @@ object TourScript {
             TourEvent.ReplayRequested -> enter(
                 state.copy(
                     finished = false, completedEffects = emptySet(), venue = null,
-                    returnedFromPhotos = false, demoWorld = state.demoWorld + 1,
+                    returnedFromPhotos = false, setlistReady = false, demoWorld = state.demoWorld + 1,
                 ),
                 TourStep.S1,
             )
@@ -128,8 +130,10 @@ object TourScript {
     private fun advance(state: TourState, step: TourStep, event: TourEvent): TourTransition = when {
         step == TourStep.S7 && event is TourEvent.ContactExchanged ->
             enter(state.copy(venue = event.location), TourStep.S8)
-        step == TourStep.S15 && event == TourEvent.GapRecorded ->
-            enter(state, TourStep.S16).let { it.copy(commands = listOf(TourCommand.DeliverGossip) + it.commands) }
+        step == TourStep.S15 && event == TourEvent.GapRecorded -> enter(state, TourStep.S16)
+        step == TourStep.S17 && event == TourEvent.SetlistFilled ->
+            TourTransition(state.copy(setlistReady = true), listOf(TourCommand.ShowCoachMark(CoachMark.SetComplete)))
+        step == TourStep.S17 && event == TourEvent.SetCompleted && state.setlistReady -> enter(state, TourStep.S18)
         step == TourStep.S18 && event == TourEvent.ReturnedFromPhotos ->
             TourTransition(state.copy(returnedFromPhotos = true))
         step == TourStep.S18 && event is TourEvent.MediaAdded && state.returnedFromPhotos ->
@@ -157,7 +161,7 @@ object TourScript {
         TourStep.S13 to TourEvent.CheckedIn,
         TourStep.S14 to TourEvent.LogEntryWritten,
         TourStep.S16 to TourEvent.GossipSent,
-        TourStep.S17 to TourEvent.SetlistFilled,
+
     )
 
     private fun enter(state: TourState, step: TourStep): TourTransition {
@@ -169,7 +173,8 @@ object TourScript {
             TourStep.S19 -> commands += TourCommand.AdvanceDemoClock(DemoMoment.After)
             else -> Unit
         }
-        step.mark?.let { commands += TourCommand.ShowCoachMark(it) }
+        if (step == TourStep.S16) commands += TourCommand.DeliverGossip
+        if (step != TourStep.S17) step.mark?.let { commands += TourCommand.ShowCoachMark(it) }
         val done = state.completedEffects
         if (step == TourStep.S3 && OnceOnly.LookUpBand !in done) commands += TourCommand.LookUpBand
         if (step == TourStep.S9 && OnceOnly.ImportDemoTicket !in done) {

@@ -257,7 +257,7 @@ final class TourSpotifyEffectsTests: XCTestCase {
         log.writeLog(next.id, log: StoredLog(songs: ["Another song"]), reply: false, now: 2)
         let events: [TourEvent] = [.roomOpened, .swipedBack, .contactExchanged(location: TourLocation(latitude: 0, longitude: 0)),
                                 .pinchedOut, .ticketImported, .calendarAdded, .mapsOpened, .ticketShown, .checkedIn,
-                                .logEntryWritten, .gapRecorded, .gossipSent, .setlistFilled, .returnedFromPhotos,
+                                .logEntryWritten, .gapRecorded, .gossipSent, .setlistFilled, .setCompleted, .returnedFromPhotos,
                                 .mediaAdded(visibility: .private)]
         for event in events { tour.send(event) }
         XCTAssertEqual(tour.state.currentStep, .s19)

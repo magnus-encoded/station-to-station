@@ -143,7 +143,15 @@ fun StationEventScreen(
     onOpenSettings: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val setlist = state.selectedSetlist
+    val tourSpotify = state.tour.step == io.github.magnusencoded.stationtostation.features.tour.TourStep.S19 &&
+        viewModel.tour.isDemoGig(state.selectedSetlist?.id.orEmpty())
+    val setlist = state.selectedSetlist?.let { gig ->
+        if (!tourSpotify) gig else gig.copy(sets = io.github.magnusencoded.stationtostation.data.setlistfm.FmSets(
+            set = listOf(io.github.magnusencoded.stationtostation.data.setlistfm.FmSet(song =
+                state.logsByGig[gig.id]?.songs.orEmpty().filter { it.isNotBlank() }.map {
+                    io.github.magnusencoded.stationtostation.data.setlistfm.FmSong(name = it)
+                }))))
+    }
     val now = viewModel.tour.nowForGig(setlist?.id.orEmpty())
     val context = LocalContext.current
     // A night I'm going to, not one I was at. Everything this screen says about a
@@ -276,6 +284,30 @@ fun StationEventScreen(
     // graduates to inviting a friend, which repeats forever. The event's URI is both
     // the "already added" flag and the thing the link opens.
     val scope = rememberCoroutineScope()
+    var exportAfterLogin by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(state.spotifyConnected, tourSpotify) {
+        if (exportAfterLogin && state.spotifyConnected) {
+            exportAfterLogin = false
+            if (tourSpotify) viewModel.exportTourPlaylist()
+        }
+    }
+    val makePlaylist: () -> Unit = {
+        if (tourSpotify) {
+            if (state.spotifyConnected) viewModel.exportTourPlaylist()
+            else {
+                exportAfterLogin = true
+                scope.launch {
+                    startSpotifyLogin(context, viewModel)?.let {
+                        exportAfterLogin = false
+                        Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        } else if (setlist != null) {
+            viewModel.selectSetlist(setlist)
+            onConvert()
+        }
+    }
     val calendarEventUri = setlist?.let { state.calendarEventByGig[it.id] }
     val added = calendarEventUri != null
     // Only in the plan-ahead window does the swipe do the calendar/invite dance. PAST
@@ -437,7 +469,7 @@ fun StationEventScreen(
     val planAhead = planned &&
         plannedTimeState != GigTimeState.PAST && plannedTimeState != GigTimeState.DAY_OF
     // The demo Gig is local, so its Log bar would hide S10's calendar action.
-    val logBar = canLog && !(planAhead && setlist?.let { viewModel.tour.isDemoGig(it.id) } == true)
+    val logBar = canLog && !tourSpotify && !(planAhead && setlist?.let { viewModel.tour.isDemoGig(it.id) } == true)
     // The insert is a couple of binder calls, so it runs off the main thread; success
     // persists the returned URI, and every failure (no writable calendar, provider
     // refusal) offers an explicit Tour opt-out, without inventing an event receipt.
@@ -535,12 +567,7 @@ fun StationEventScreen(
                 admissions = setlist?.let { state.attendanceByGig[it.id]?.admissions }.orEmpty(),
                 presenceRow = presenceRow,
                 onPublish = onPublish,
-                onMakePlaylist = {
-                    if (setlist != null) {
-                        viewModel.selectSetlist(setlist)
-                        onConvert()
-                    }
-                },
+                onMakePlaylist = makePlaylist,
                 onAdopt = { adopting = true },
                 onDeleteNight = {
                     if (setlist != null) {
@@ -694,10 +721,7 @@ fun StationEventScreen(
                                     logBar -> onPublish()
                                     planAhead && !added -> onAddToCalendar()
                                     planAhead && added -> onInvite()
-                                    canConvert -> {
-                                        viewModel.selectSetlist(setlist)
-                                        onConvert()
-                                    }
+                                    canConvert -> makePlaylist()
                                     else -> setlist.url?.let {
                                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it)))
                                     }
