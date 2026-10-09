@@ -1,14 +1,37 @@
 import SwiftUI
+import UIKit
+import Photos
+import AVFoundation
 import Combine
 
 struct TourCoachMarkView: View {
     @ObservedObject var model: AppModel
     let mark: TourCoachMark
+    var screen: String = "line"
+    @State private var cameraPresented = false
+    @State private var cameraError: String?
 
     var body: some View {
         let character = model.tour.character
-        let line = character.line(mark, opener: model.tour.opener)
+        let line = character.line(mark, opener: model.tour.opener, screen: screen == "room" && model.tour.state.returnedFromPhotos ? "roomAfterPhoto" : screen)
         card(character, line: line)
+            .sheet(isPresented: $cameraPresented) {
+                TourCamera(cancel: { cameraPresented = false }) { result in
+                    cameraPresented = false
+                    switch result {
+                    case .success:
+                        if let id = model.state.selectedSetlist?.id { model.tour.returnedFromPhotos(id) }
+                    case .failure(let error): cameraError = error.localizedDescription
+                    }
+                }
+            }
+            .alert("Camera", isPresented: Binding(get: { cameraError != nil }, set: { if !$0 { cameraError = nil } })) {
+                Button("Choose an existing photo") {
+                    if let id = model.state.selectedSetlist?.id { model.tour.returnedFromPhotos(id) }
+                    cameraError = nil
+                }
+                Button("Cancel", role: .cancel) { cameraError = nil }
+            } message: { Text(cameraError ?? "") }
     }
 
     private func card(_ character: TourCharacter, line: TourCharacter.Line) -> some View {
@@ -31,7 +54,23 @@ struct TourCoachMarkView: View {
                 HStack {
                     Button("Skip") { model.tour.skip() }.foregroundStyle(.secondary)
                     Spacer(minLength: 8)
-                    Button("OK") { model.tour.acknowledgeCard() }
+                    if mark == .selfie && screen.hasPrefix("room") {
+                        Button {
+                            Task { @MainActor in
+                                guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+                                    cameraError = "No camera is available. You can choose a photo from your library."
+                                    return
+                                }
+                                let allowed = await AVCaptureDevice.requestAccess(for: .video)
+                                if allowed { cameraPresented = true }
+                                else { cameraError = "Camera access is off. Enable it in Settings, or choose a photo from your library." }
+                            }
+                        } label: { Image(systemName: "camera") }
+                        .accessibilityLabel("Take a selfie")
+                    }
+                    if mark.canAcknowledge(on: screen) {
+                        Button("OK") { model.tour.acknowledgeCard() }
+                    }
                 }.font(.system(size: 12)).padding(.top, 3)
             }
             .foregroundStyle(Color(red: 241/255, green: 236/255, blue: 248/255))
@@ -90,12 +129,13 @@ struct TourUpgradePromptView: View {
 private struct TourModifier: ViewModifier {
     @ObservedObject var model: AppModel
     let dockTop: Bool
+    let screen: String
 
     func body(content: Content) -> some View {
         content
             .safeAreaInset(edge: .top, spacing: 0) {
                 if dockTop, let mark = model.state.tourCoachMark {
-                    TourCoachMarkView(model: model, mark: mark)
+                    TourCoachMarkView(model: model, mark: mark, screen: screen)
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -104,7 +144,7 @@ private struct TourModifier: ViewModifier {
                 } else if !model.state.tourFinished, let step = model.state.tourStep,
                           step != .s20, step != .s3, step != .s4 {
                     if let mark = model.state.tourCoachMark, !dockTop {
-                        TourCoachMarkView(model: model, mark: mark)
+                        TourCoachMarkView(model: model, mark: mark, screen: screen)
                     } else if !dockTop {
                         Button("Skip tour") { model.tour.skip() }.buttonStyle(.borderedProminent).padding()
                     }
@@ -115,7 +155,49 @@ private struct TourModifier: ViewModifier {
 }
 
 extension View {
-    func tourOverlay(_ model: AppModel, inRoom: Bool) -> some View {
-        modifier(TourModifier(model: model, dockTop: inRoom))
+    func tourOverlay(_ model: AppModel, inRoom: Bool, screen: String) -> some View {
+        modifier(TourModifier(model: model, dockTop: inRoom, screen: screen))
+    }
+}
+
+private struct TourCamera: UIViewControllerRepresentable {
+    let cancel: () -> Void
+    let completion: (Result<Void, Error>) -> Void
+    func makeCoordinator() -> Coordinator { Coordinator(cancel: cancel, completion: completion) }
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        if UIImagePickerController.isCameraDeviceAvailable(.front) { picker.cameraDevice = .front }
+        picker.delegate = context.coordinator
+        return picker
+    }
+    func updateUIViewController(_ picker: UIImagePickerController, context: Context) {}
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let completion: (Result<Void, Error>) -> Void
+        let cancel: () -> Void
+        init(cancel: @escaping () -> Void, completion: @escaping (Result<Void, Error>) -> Void) {
+            self.cancel = cancel
+            self.completion = completion
+        }
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { cancel() }
+        func imagePickerController(_ picker: UIImagePickerController,
+                                   didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            guard let image = info[.originalImage] as? UIImage else { return }
+            Task { @MainActor in
+                let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+                guard status == .authorized || status == .limited else {
+                    completion(.failure(NSError(domain: "TourCamera", code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "Allow saving photos in Settings, or choose an existing photo."])))
+                    return
+                }
+                do {
+                    try await PHPhotoLibrary.shared().performChanges {
+                        PHAssetChangeRequest.creationRequestForAsset(from: image)
+                    }
+                    completion(.success(()))
+                } catch { completion(.failure(error)) }
+            }
+        }
     }
 }

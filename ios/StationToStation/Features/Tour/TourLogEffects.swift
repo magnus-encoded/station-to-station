@@ -29,12 +29,15 @@ final class TourLogEffects: DemoWorld {
     private let musicBrainz: MusicBrainzClient
     private let friendKey: () -> String?
     private let characterLine: (TourStep) -> String
+    private let pause: (UInt64) async -> Void
     private var generation = UUID()
     private var pools: [String: (fm: [String], mb: [String])] = [:]
 
     init(host: StateHost, store: UserDefaults = .standard,
          setlistFm: SetlistFmClient, musicBrainz: MusicBrainzClient,
-         friendKey: @escaping () -> String?, characterLine: @escaping (TourStep) -> String) {
+         friendKey: @escaping () -> String?, characterLine: @escaping (TourStep) -> String,
+         pause: @escaping (UInt64) async -> Void = { try? await Task.sleep(nanoseconds: $0 * 1_000_000) }) {
+        self.pause = pause
         self.host = host
         self.store = store
         self.setlistFm = setlistFm
@@ -74,6 +77,9 @@ final class TourLogEffects: DemoWorld {
         let token = generation
         let pool = await songs(for: gig)
         guard generation == token, !Task.isCancelled else { return false }
+        if records[gig.id]?.gossip.contains(where: { $0.source == .virtualFriend }) == true { return true }
+        await pause(2500)
+        guard generation == token, !Task.isCancelled else { return false }
         var record = records[gig.id] ?? Record()
         if record.gossip.contains(where: { $0.source == .virtualFriend }) { return true }
         let titles = dedupe(pool.fm.isEmpty ? pool.mb : pool.fm)
@@ -96,7 +102,15 @@ final class TourLogEffects: DemoWorld {
         if record.filled { return true }
         let additions = tourSetlistFill(userSongs: record.log.songs, setlistFmSongs: pool.fm, musicBrainzSongs: pool.mb)
         guard !additions.isEmpty else { return false }
-        record.log = additions.reduce(record.log) { $0.adding($1, now: now) }
+        for song in additions {
+            await pause(500)
+            guard generation == token, !Task.isCancelled else { return false }
+            record = records[gig.id] ?? Record()
+            if !record.log.songs.contains(where: { sameSong($0, song) }) {
+                record.log = record.log.adding(song, now: now)
+                save(gig.id, record)
+            }
+        }
         record.filled = true
         save(gig.id, record)
         return true

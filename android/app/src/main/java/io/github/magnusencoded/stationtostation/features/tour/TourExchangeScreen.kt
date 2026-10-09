@@ -33,11 +33,13 @@ fun TourExchangeScreen(viewModel: AppViewModel, onBack: () -> Unit, onConnected:
     val context = androidx.compose.ui.platform.LocalContext.current
     val character = viewModel.tour.character
     val avatar = context.resources.getIdentifier(character.avatar, "drawable", context.packageName)
-    LocalExchangeScreen(name, connecting, onBack, character.username, avatar) {
-        connecting = true
-        scope.launch {
-            if (viewModel.tour.askLocationOnce()) permission.launch(DeviceLocation.requiredPermissions())
-            else exchange()
+    TourOverlay(viewModel, screen = "exchange") {
+        LocalExchangeScreen(name, connecting, onBack, character.username, avatar) {
+            connecting = true
+            scope.launch {
+                if (viewModel.tour.askLocationOnce()) permission.launch(DeviceLocation.requiredPermissions())
+                else exchange()
+            }
         }
     }
 }

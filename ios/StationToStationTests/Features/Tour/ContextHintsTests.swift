@@ -101,6 +101,18 @@ final class ContextHintsTests: XCTestCase {
         return (host, tour, TourHintEffects(host: host, tour: tour), settings, suite)
     }
 
+    func testHintsWaitWhileTheTourIsOffered() {
+        let (host, _, hints, settings, suite) = makeHints(online: false)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        host.state.tourUpgradePrompt = true
+        hints.offer(.pullDown(.room))
+        XCTAssertNil(host.state.contextHint)
+        XCTAssertTrue(settings.tourState.seenHints.isEmpty)
+        host.state.tourUpgradePrompt = false
+        hints.offer(.pullDown(.room))
+        XCTAssertEqual(host.state.contextHint, .pullDown(.room))
+    }
+
     func testAHintShowsOnceAndStaysSeenAcrossLaunches() {
         let (host, _, hints, settings, suite) = makeHints(online: false)
         defer { UserDefaults().removePersistentDomain(forName: suite) }

@@ -87,7 +87,7 @@ final class TourSpotifyEffectsTests: XCTestCase {
 
     private func logEffects() -> TourLogEffects {
         TourLogEffects(host: host, store: defaults, setlistFm: SetlistFmClient(keySource: { nil }),
-                        musicBrainz: MusicBrainzClient(), friendKey: { nil }, characterLine: { _ in "" })
+                        musicBrainz: MusicBrainzClient(), friendKey: { nil }, characterLine: { _ in "" }, pause: { _ in })
     }
 
     private func makeTour() -> (TourController, TourSpotifyEffects, TourAddGigEffects, TourLogEffects) {

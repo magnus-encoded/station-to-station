@@ -174,7 +174,7 @@ object TourScript {
             else -> Unit
         }
         if (step == TourStep.S16) commands += TourCommand.DeliverGossip
-        if (step != TourStep.S17) step.mark?.let { commands += TourCommand.ShowCoachMark(it) }
+        step.mark?.let { commands += TourCommand.ShowCoachMark(it) }
         val done = state.completedEffects
         if (step == TourStep.S3 && OnceOnly.LookUpBand !in done) commands += TourCommand.LookUpBand
         if (step == TourStep.S9 && OnceOnly.ImportDemoTicket !in done) {

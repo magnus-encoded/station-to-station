@@ -21,7 +21,7 @@
         {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
         {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
         {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
-        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
+        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)", "fillSetlist"]}},
         {"event": "setCompleted", "expect": {"step": "S17", "unchanged": true, "commands": []}},
         {"event": "setlistFilled", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)"]}},
         {"event": "setCompleted", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
@@ -323,7 +323,7 @@
         {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
         {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
         {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
-        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
+        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)", "fillSetlist"]}},
         {"event": "skipped", "expect": {"step": null, "commands": ["purgeDemoWorld"], "finished": true}}
       ],
       "expected": {"playlistExportedBySkip": false}
@@ -348,7 +348,7 @@
         {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
         {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
         {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
-        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
+        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)", "fillSetlist"]}},
         {"event": "setCompleted", "expect": {"step": "S17", "unchanged": true, "commands": []}},
         {"event": "setlistFilled", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)"]}},
         {"event": "setCompleted", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
@@ -376,7 +376,7 @@
         {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
         {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
         {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
-        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
+        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)", "fillSetlist"]}},
         {"event": "setCompleted", "expect": {"step": "S17", "unchanged": true, "commands": []}},
         {"event": "setlistFilled", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)"]}},
         {"event": "setCompleted", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
@@ -406,7 +406,7 @@
         {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
         {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
         {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
-        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
+        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)", "fillSetlist"]}},
         {"event": "setCompleted", "expect": {"step": "S17", "unchanged": true, "commands": []}},
         {"event": "setlistFilled", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)"]}},
         {"event": "setCompleted", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
@@ -701,9 +701,9 @@
         {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
         {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
         {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
-        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
+        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)", "fillSetlist"]}},
         {"event": "restart", "expect": {"step": "S17", "commands": []}},
-        {"event": "resumed", "expect": {"step": "S17", "commands": ["fillSetlist"]}}
+        {"event": "resumed", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)", "fillSetlist"]}}
       ]
     },
     {
@@ -726,7 +726,7 @@
         {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
         {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
         {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
-        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
+        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)", "fillSetlist"]}},
         {"event": "setCompleted", "expect": {"step": "S17", "unchanged": true, "commands": []}},
         {"event": "setlistFilled", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)"]}},
         {"event": "setCompleted", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
@@ -754,7 +754,7 @@
         {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
         {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
         {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
-        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
+        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)", "fillSetlist"]}},
         {"event": "setCompleted", "expect": {"step": "S17", "unchanged": true, "commands": []}},
         {"event": "setlistFilled", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)"]}},
         {"event": "setCompleted", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
@@ -808,7 +808,7 @@
         {"event": "checkedIn", "expect": {"step": "S14", "commands": ["advanceDemoClock(showStarted)", "showCoachMark(log)"]}},
         {"event": "logEntryWritten", "expect": {"step": "S15", "commands": ["showCoachMark(gap)"]}},
         {"event": "gapRecorded", "expect": {"step": "S16", "commands": ["deliverGossip(gapFill)", "showCoachMark(gossip)"]}},
-        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["fillSetlist"]}},
+        {"event": "gossipSent", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)", "fillSetlist"]}},
         {"event": "setCompleted", "expect": {"step": "S17", "unchanged": true, "commands": []}},
         {"event": "setlistFilled", "expect": {"step": "S17", "commands": ["showCoachMark(setComplete)"]}},
         {"event": "setCompleted", "expect": {"step": "S18", "commands": ["showCoachMark(selfie)"]}},
@@ -1000,6 +1000,272 @@
       "checks": [
         {"event": "acknowledged", "expect": {"step": "S19", "commands": [], "unchanged": true}}
       ]
+    }
+  ],
+  "copyCases": [
+    {
+      "step": "S1",
+      "screen": "line",
+      "ios": "Have a look, then tap the button on this card.",
+      "android": "Have a look, then tap the button on this card.",
+      "why": "I'm Ludwig, and you're coming to a gig with me. This is your Line, your concert-going life: down is the past, up is what's coming.",
+      "ack": true
+    },
+    {
+      "step": "S1",
+      "screen": "lineEmpty",
+      "ios": "Have a look, then tap the button on this card.",
+      "android": "Have a look, then tap the button on this card.",
+      "why": "I'm Ludwig, and you're coming to a gig with me. Your Line is empty for now: down is the past, up is what's coming.",
+      "ack": true
+    },
+    {
+      "step": "S2",
+      "screen": "line",
+      "ios": "Tap the plus in Future to add a gig.",
+      "android": "Pull down on your Line to add a gig.",
+      "why": "Anything you plan appears above today on your Line. This gig is a demo and is deleted when we finish.",
+      "ack": false
+    },
+    {
+      "step": "S2",
+      "screen": "lineEmpty",
+      "ios": "Tap “add a gig by hand” to plan our night.",
+      "android": "Tap “add a gig by hand” to plan our night.",
+      "why": "Anything you plan appears above today on your Line. This gig is a demo and is deleted when we finish.",
+      "ack": false
+    },
+    {
+      "step": "S7",
+      "screen": "line",
+      "ios": "Open the Exchange to meet me.",
+      "android": "Open the Exchange to meet me.",
+      "why": "An Exchange turns two people standing together into contacts. I'm pretend, so nothing leaves your phone. Your location, if you allow it, becomes the gig's venue.",
+      "ack": false
+    },
+    {
+      "step": "S7",
+      "screen": "exchange",
+      "ios": "Tap my name to exchange with me.",
+      "android": "Tap my name to exchange with me.",
+      "why": "An Exchange turns two people standing together into contacts. I'm pretend, so nothing leaves your phone. Your location, if you allow it, becomes the gig's venue.",
+      "ack": false
+    },
+    {
+      "step": "S10",
+      "screen": "line",
+      "ios": "Tap our gig to open its Room.",
+      "android": "Tap our gig to open its Room.",
+      "why": "Your phone will ask for calendar access. The event is part of the demo and is deleted when we finish.",
+      "ack": false
+    },
+    {
+      "step": "S10",
+      "screen": "room",
+      "ios": "Scroll to the bottom and tap Add to calendar.",
+      "android": "Swipe left in the Room, or tap “swipe to add to calendar”.",
+      "why": "Your phone will ask for calendar access. The event is part of the demo and is deleted when we finish.",
+      "ack": false
+    },
+    {
+      "step": "S11",
+      "screen": "line",
+      "ios": "Tap our gig to open its Room.",
+      "android": "Tap our gig to open its Room.",
+      "why": "This leaves the app for Maps. Come back when you've looked, and the Tour will still be here.",
+      "ack": false
+    },
+    {
+      "step": "S11",
+      "screen": "room",
+      "ios": "In the Room, tap Open in Maps to get directions.",
+      "android": "In the Room, tap Open venue in Maps.",
+      "why": "This leaves the app for Maps. Come back when you've looked, and the Tour will still be here.",
+      "ack": false
+    },
+    {
+      "step": "S12",
+      "screen": "line",
+      "ios": "Tap our gig to open its Room.",
+      "android": "Tap our gig to open its Room.",
+      "why": "That's the PDF ticket I sent you. The app read it and attached it to the gig; any ticket you share to the app lands the same way.",
+      "ack": false
+    },
+    {
+      "step": "S12",
+      "screen": "room",
+      "ios": "Tap the white barcode in the Room, as you would at the door.",
+      "android": "Open your ticket in the Room, as you would at the door.",
+      "why": "That's the PDF ticket I sent you. The app read it and attached it to the gig; any ticket you share to the app lands the same way.",
+      "ack": false
+    },
+    {
+      "step": "S13",
+      "screen": "line",
+      "ios": "Tap our gig to open its Room.",
+      "android": "Tap our gig to open its Room.",
+      "why": "A check-in says you were at this gig. While you're checked in, nearby phones may carry what you log to others. Nothing is sent during the Tour.",
+      "ack": false
+    },
+    {
+      "step": "S13",
+      "screen": "room",
+      "ios": "Tap “I'm here — check in”, then confirm if asked.",
+      "android": "Tap “I'm here — check in”, then confirm if asked.",
+      "why": "A check-in says you were at this gig. While you're checked in, nearby phones may carry what you log to others. Nothing is sent during the Tour.",
+      "ack": false
+    },
+    {
+      "step": "S14",
+      "screen": "line",
+      "ios": "Tap our gig to open its Room.",
+      "android": "Tap our gig to open its Room.",
+      "why": "The Log is your own setlist, kept as the night happens. Nobody is marking it, so any song you know will do.",
+      "ack": false
+    },
+    {
+      "step": "S14",
+      "screen": "room",
+      "ios": "They’re playing “Paranoid Android” as the opener. Type it into the Log, then add it.",
+      "android": "They’re playing “Paranoid Android” as the opener. Type it into the Log, then add it.",
+      "why": "The Log is your own setlist, kept as the night happens. Nobody is marking it, so any song you know will do.",
+      "ack": false
+    },
+    {
+      "step": "S15",
+      "screen": "line",
+      "ios": "Tap our gig to open its Room.",
+      "android": "Tap our gig to open its Room.",
+      "why": "A Gap is an honest blank: they played something and you couldn't name it. It beats a Log that pretends to be complete.",
+      "ack": false
+    },
+    {
+      "step": "S15",
+      "screen": "room",
+      "ios": "In the Log, tap “they played one I can't name”.",
+      "android": "In the Log, tap “they played one I can't name”.",
+      "why": "A Gap is an honest blank: they played something and you couldn't name it. It beats a Log that pretends to be complete.",
+      "ack": false
+    },
+    {
+      "step": "S16",
+      "screen": "line",
+      "ios": "Tap our gig to open its Room.",
+      "android": "Tap our gig to open its Room.",
+      "why": "Gossip is how phones in radio range swap what happened at a gig, friends or strangers, with no server. Mine just filled your Gap.",
+      "ack": false
+    },
+    {
+      "step": "S16",
+      "screen": "room",
+      "ios": "Read song two in your Log: that's gossip from my phone. Then carry on.",
+      "android": "Read song two in your Log: that's gossip from my phone. Then carry on.",
+      "why": "Gossip is how phones in radio range swap what happened at a gig, friends or strangers, with no server. Mine just filled your Gap.",
+      "ack": true
+    },
+    {
+      "step": "S17",
+      "screen": "line",
+      "ios": "Tap our gig to open its Room.",
+      "android": "Tap our gig to open its Room.",
+      "why": "setlist.fm has the rest of tonight’s set. Watch it arrive in your Log. Even I can’t remember everything.",
+      "ack": false
+    },
+    {
+      "step": "S17",
+      "screen": "room",
+      "ios": "Tick “That was the whole set” in the Room.",
+      "android": "Tick “That was the whole set” in the Room.",
+      "why": "setlist.fm has the rest of tonight’s set. Watch it arrive in your Log. Even I can’t remember everything.",
+      "ack": false
+    },
+    {
+      "step": "S18",
+      "screen": "line",
+      "ios": "Tap our gig to open its Room.",
+      "android": "Tap our gig to open its Room.",
+      "why": "Shared photos can go to friends you've exchanged with. Private ones stay on your phone. Your photo stays in your library either way.",
+      "ack": false
+    },
+    {
+      "step": "S18",
+      "screen": "room",
+      "ios": "Tap the camera on this card and take a selfie.",
+      "android": "Tap the camera on this card and take a selfie.",
+      "why": "Shared photos can go to friends you've exchanged with. Private ones stay on your phone. Your photo stays in your library either way.",
+      "ack": false
+    },
+    {
+      "step": "S19",
+      "screen": "line",
+      "ios": "Swipe the gig left to turn tonight’s set into a Spotify playlist.",
+      "android": "Swipe the gig left to turn tonight’s set into a Spotify playlist.",
+      "why": "You'll log in to Spotify. The public playlist is the one thing this Tour keeps; everything else, including the demo gig, is deleted.",
+      "ack": false
+    },
+    {
+      "step": "S19",
+      "screen": "room",
+      "ios": "Swipe right from the left edge to return to your Line.",
+      "android": "Swipe right from the left edge to return to your Line.",
+      "why": "You'll log in to Spotify. The public playlist is the one thing this Tour keeps; everything else, including the demo gig, is deleted.",
+      "ack": false
+    },
+    {
+      "step": "S18",
+      "screen": "roomAfterPhoto",
+      "ios": "Tap Add to shared or Add to the vault, then choose your selfie.",
+      "android": "Drag the ↕ handle up for shared or down for private, then choose your selfie.",
+      "why": "Shared photos can go to friends you've exchanged with. Private ones stay on your phone. Your photo stays in your library either way.",
+      "ack": false
+    },
+    {
+      "step": "S6",
+      "screen": "line",
+      "ios": "Tap our gig to open its Room.",
+      "android": "Tap our gig to open its Room.",
+      "why": "Going left means going back, on every screen of the app. Worth remembering, because I won't be holding your hand.",
+      "ack": false
+    },
+    {
+      "step": "S6",
+      "screen": "room",
+      "ios": "Swipe right from the left edge of the screen to go back to your Line.",
+      "android": "Swipe right from the left edge of the screen to go back to your Line.",
+      "why": "Going left means going back, on every screen of the app. Worth remembering, because I won't be holding your hand.",
+      "ack": false
+    },
+    {
+      "step": "S7",
+      "screen": "room",
+      "ios": "Swipe right from the left edge to return to your Line.",
+      "android": "Swipe right from the left edge to return to your Line.",
+      "why": "An Exchange turns two people standing together into contacts. I'm pretend, so nothing leaves your phone. Your location, if you allow it, becomes the gig's venue.",
+      "ack": false
+    },
+    {
+      "step": "S8",
+      "screen": "room",
+      "ios": "Swipe right from the left edge to return to your Line.",
+      "android": "Swipe right from the left edge to return to your Line.",
+      "why": "Zooming out puts my Line beside yours, and every friend you add gets their own. Mine has more gigs on it. You can see that for yourself.",
+      "ack": false
+    },
+    {
+      "step": "S8",
+      "screen": "exchange",
+      "ios": "Go back to your Line.",
+      "android": "Go back to your Line.",
+      "why": "Zooming out puts my Line beside yours, and every friend you add gets their own. Mine has more gigs on it. You can see that for yourself.",
+      "ack": false
+    },
+    {
+      "step": "S19",
+      "screen": "roomAfterPhoto",
+      "ios": "Swipe right from the left edge to return to your Line.",
+      "android": "Swipe right from the left edge to return to your Line.",
+      "why": "You'll log in to Spotify. The public playlist is the one thing this Tour keeps; everything else, including the demo gig, is deleted.",
+      "ack": false
     }
   ]
 }

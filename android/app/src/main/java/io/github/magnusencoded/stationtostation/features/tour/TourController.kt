@@ -45,7 +45,7 @@ class TourController(
         when (state().tour.step) {
             TourStep.S1 -> dispatch(TourEvent.Acknowledged)
             TourStep.S16 -> dispatch(TourEvent.GossipSent)
-            else -> update { it.copy(coachMark = null) }
+            else -> Unit
         }
     }
 

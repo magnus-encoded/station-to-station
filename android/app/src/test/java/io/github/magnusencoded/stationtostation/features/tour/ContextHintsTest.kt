@@ -106,6 +106,17 @@ class ContextHintsTest {
         ContextHint.Flyover(lastYear, now, 12, 3), ContextHint.Programme(1),
     ) + HintPlace.entries.map { ContextHint.PullDown(it) }
 
+    @Test fun hintsWaitWhileTheTourIsOffered() {
+        fake.current = fake.current.copy(tourUpgradePrompt = true)
+        val effects = hints()
+        effects.offer(ContextHint.Programme(1))
+        assertNull(fake.current.contextHint)
+        assertTrue(fake.current.tour.seenContextHints.isEmpty())
+        fake.current = fake.current.copy(tourUpgradePrompt = false)
+        effects.offer(ContextHint.Programme(1))
+        assertEquals(ContextHint.Programme(1), fake.current.contextHint)
+    }
+
     @Test
     fun each_hint_is_persisted_as_it_shows_and_stays_seen_after_relaunch() {
         val effects = hints()

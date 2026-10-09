@@ -161,24 +161,28 @@ struct AddGigSheet: View {
     }
 }
 
-/// One night I hold a ticket for, above today (#175). Not woven into `rows` — it isn't
-/// an attended show and has no Lane/Crossing geometry of its own to draw — just the
-/// fact of the gig and `plannedStatus`'s answer to "how far off is it", the same words
-/// `gigStatus` gives an attended row once it has passed.
+/// A planned night sits on the Spine above today. Its open node and countdown
+/// distinguish it from attended shows; it has no Contact Lane or Crossing yet.
 struct PlannedGigRow: View {
     let setlist: FmSetlist
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(setlist.readableDate() ?? "Unknown date")
-                .font(.system(size: 11, weight: .semibold)).kerning(1).foregroundStyle(faint)
-            Text(setlist.artist?.name ?? "Unknown artist")
-                .font(.system(size: 15, design: .serif)).foregroundStyle(ink)
-            Text(setlist.venueLine()).font(.system(size: 13)).foregroundStyle(muted)
-            Text(plannedStatus(gigDate: setlist.eventDate, now: Date(), songCount: setlist.performed().count))
-                .font(.system(size: 12)).foregroundStyle(slate).padding(.top, 2)
+        HStack(spacing: 14) {
+            Circle().stroke(slate, lineWidth: 2).frame(width: 10, height: 10)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(setlist.readableDate() ?? "Unknown date")
+                    .font(.system(size: 11, weight: .semibold)).kerning(1).foregroundStyle(faint)
+                Text(setlist.artist?.name ?? "Unknown artist")
+                    .font(.system(size: 15, design: .serif)).foregroundStyle(ink)
+                Text(setlist.venueLine()).font(.system(size: 13)).foregroundStyle(muted)
+                Text(plannedStatus(gigDate: setlist.eventDate, now: Date(), songCount: setlist.performed().count))
+                    .font(.system(size: 12)).foregroundStyle(slate).padding(.top, 2)
+            }
         }
         .padding(.vertical, 8)
+        .background(alignment: .leading) {
+            Rectangle().fill(slate.opacity(0.3)).frame(width: 2).offset(x: 5)
+        }
         // Every place this row is drawn, a tap opens the Gig (#164).
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)

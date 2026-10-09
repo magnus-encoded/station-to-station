@@ -67,7 +67,7 @@ final class TourMeetFriendEffects: DemoWorld {
             gig = placed(gig, at: fix)
             await placeVenue(gig)
         }
-        let nights = [gig] + extraNights(gig)
+        let nights = extraNights(gig)
         store.set(Array(Set(demoNights + nights.map(\.id))), forKey: Self.nightsKey)
         await landNights(key, nights, [])
         return fix

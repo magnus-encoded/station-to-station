@@ -147,7 +147,7 @@ class TourMeetFriendEffectsTest {
         assertEquals(here.latitude, placed.venue?.city?.coords?.lat)
         assertEquals(here.longitude, placed.venue?.city?.coords?.long)
         assertEquals("Room", placed.venue?.name)
-        assertEquals(listOf(placed), timelines.load().shows[friend.laneKey])
+        assertTrue(timelines.load().shows[friend.laneKey].orEmpty().none { it.id == gig.id })
         assertTrue(effects.importDemoTicket { true })
         assertEquals(1, timelines.load().attendance()[gig.id]?.admissions?.size)
         assertEquals("tour-demo-ticket", timelines.load().attendance()[gig.id]?.admissions?.single()?.payloadBytes?.toString(Charsets.UTF_8))
@@ -238,7 +238,7 @@ class TourMeetFriendEffectsTest {
         timelines = TimelineStore(timelineFile)
         effects().exchange({ true }) {}
         assertEquals(friend, contacts().single { it.demo })
-        assertEquals(listOf(gig.id), timelines.load().shows[friend.laneKey]?.map { it.id })
+        assertTrue(timelines.load().shows[friend.laneKey].orEmpty().none { it.id == gig.id })
         assertTrue(effects().importDemoTicket { true })
         assertTrue(effects().importDemoTicket { true })
         assertEquals(1, timelines.load().attendance()[gig.id]?.admissions?.size)

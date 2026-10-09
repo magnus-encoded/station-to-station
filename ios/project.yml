@@ -98,8 +98,9 @@ targets:
           - bluetooth-central
           - bluetooth-peripheral
         NSCameraUsageDescription:
-          Station to Station uses the camera to scan a friend's card when Bluetooth
-          can't reach them.
+          Station to Station uses the camera to scan a friend's card and take your Tour selfie.
+        NSPhotoLibraryAddUsageDescription:
+          Station to Station saves your Tour selfie so you can add it to the night from your photo library.
         # Reconcile over the same WiFi (#265): both keys are required before iOS will
         # let NWBrowser or NWListener touch the local network at all. The service type
         # is Android's constant verbatim — the two have to match or the phones never

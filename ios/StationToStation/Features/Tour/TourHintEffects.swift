@@ -12,7 +12,7 @@ final class TourHintEffects {
     }
 
     func offer(_ hint: ContextHint) {
-        guard host.state.contextHint == nil,
+        guard !host.state.tourUpgradePrompt, host.state.contextHint == nil,
               contextHintDue(hint, seen: tour.state.seenHints, tourRunning: tour.running) else { return }
         tour.markHintSeen(hint.key)
         host.state.contextHint = hint
@@ -41,7 +41,7 @@ private struct ContextHintModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content.overlay(alignment: .top) {
-            if let hint = model.state.contextHint {
+            if !model.state.tourUpgradePrompt, !model.tour.running, let hint = model.state.contextHint {
                 HStack(alignment: .top, spacing: 12) {
                     Text(hint.text)
                     Spacer()

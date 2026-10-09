@@ -7,6 +7,7 @@ struct TourCharacter: Codable {
         let ios: String?
         let android: String?
         var fallback: String? = nil
+        var screens: [String: Line]? = nil
         var instruction: String { ios ?? `do` }
     }
     struct Notes: Codable { let gapFill: String; let setlistFill: String }
@@ -43,7 +44,15 @@ struct TourCharacter: Codable {
                 isoDate(fromFm: night.date) != nil
         }) else { throw Invalid.missingValue }
         guard Set(character.lines.keys) == cardSteps else { throw Invalid.cardSteps }
-        for (step, line) in character.lines {
+        let screens: Set<String> = ["line", "lineEmpty", "room", "roomAfterPhoto", "exchange"]
+        guard character.lines.values.allSatisfy({ line in
+            (line.screens ?? [:]).allSatisfy { screen, copy in
+                screens.contains(screen) && (copy.screens ?? [:]).isEmpty
+            }
+        }) else { throw Invalid.missingValue }
+        for (step, line) in character.lines.flatMap({ step, line in
+            [(step, line)] + (line.screens ?? [:]).map { (step, $0.value) }
+        }) {
             for (text, limit) in [(Optional(line.do), 20), (line.why, 30), (line.ios, 20), (line.android, 20), (line.fallback, 20)] {
                 if let text {
                     let stripped = step == "S14" && text == line.do ? text.replacingOccurrences(of: "{opener}", with: "") : text
@@ -57,8 +66,10 @@ struct TourCharacter: Codable {
         return character
     }
 
-    func line(_ mark: TourCoachMark, opener: String? = nil) -> Line {
-        let line = lines[mark.step.rawValue]!
+    func line(_ mark: TourCoachMark, opener: String? = nil, screen: String = "line") -> Line {
+        let base = lines[mark.step.rawValue]!
+        let selected = base.screens?[screen] ?? base.screens?[screen == "roomAfterPhoto" ? "room" : "line"] ?? base
+        let line = Line(do: selected.do, why: selected.why ?? base.why, ios: selected.ios, android: selected.android, fallback: selected.fallback)
         guard line.instruction.contains("{opener}") else { return line }
         let text = opener.flatMap { $0.isEmpty ? nil : $0 }.map { line.instruction.replacingOccurrences(of: "{opener}", with: $0) } ?? line.fallback!
         return Line(do: text, why: line.why, ios: nil, android: nil)
@@ -66,6 +77,10 @@ struct TourCharacter: Codable {
 }
 
 extension TourCoachMark {
+    func canAcknowledge(on screen: String) -> Bool {
+        hasAcknowledgement && (self != .gossip || screen.hasPrefix("room"))
+    }
+    var hasAcknowledgement: Bool { self == .line || self == .gossip }
     var step: TourStep {
         switch self {
         case .line: return .s1

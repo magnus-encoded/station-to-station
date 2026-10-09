@@ -27,7 +27,7 @@ fun ContextHintOverlay(viewModel: AppViewModel, content: @Composable () -> Unit)
     Box(Modifier.fillMaxSize()) {
         content()
         val hint = state.contextHint
-        if (hint != null && !state.tour.running) {
+        if (hint != null && !state.tour.running && !state.tourUpgradePrompt) {
             Card(
                 modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(16.dp)
                     .testTag("contextHint"),

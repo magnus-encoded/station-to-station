@@ -7,13 +7,24 @@
   "lines": {
     "S1": {
       "do": "Have a look, then tap the button on this card.",
-      "why": "I'm Ludwig, and you're coming to a gig with me. This is your Line, your concert-going life: down is the past, up is what's coming."
+      "why": "I'm Ludwig, and you're coming to a gig with me. This is your Line, your concert-going life: down is the past, up is what's coming.",
+      "screens": {
+        "lineEmpty": {
+          "do": "Have a look, then tap the button on this card.",
+          "why": "I'm Ludwig, and you're coming to a gig with me. Your Line is empty for now: down is the past, up is what's coming."
+        }
+      }
     },
     "S2": {
       "do": "Open the planner at the top of your Line to add a gig.",
-      "ios": "Tap the plus in Future, or “add a gig by hand” on an empty Line.",
-      "android": "Pull down to add a gig, or tap “add a gig by hand” on an empty Line.",
-      "why": "Anything you plan appears above today on your Line. This gig is a demo and is deleted when we finish."
+      "ios": "Tap the plus in Future to add a gig.",
+      "android": "Pull down on your Line to add a gig.",
+      "why": "Anything you plan appears above today on your Line. This gig is a demo and is deleted when we finish.",
+      "screens": {
+        "lineEmpty": {
+          "do": "Tap “add a gig by hand” to plan our night."
+        }
+      }
     },
     "S3": {
       "do": "Type a band you actually like, then tap the right match in the list.",
@@ -28,66 +39,141 @@
       "why": "Every gig has a Room: its Log, photos, ticket and check-in all live there."
     },
     "S6": {
-      "do": "Swipe right to go back to your Line.",
-      "ios": "Swipe right from the left edge of the screen to go back to your Line.",
-      "android": "Swipe right on the Room to go back to your Line.",
-      "why": "Right always means back out, on every screen of the app. Worth remembering, because I won't be holding your hand."
+      "do": "Swipe right from the left edge of the screen to go back to your Line.",
+      "why": "Going left means going back, on every screen of the app. Worth remembering, because I won't be holding your hand.",
+      "screens": {
+        "line": {
+          "do": "Tap our gig to open its Room."
+        },
+        "room": {
+          "do": "Swipe right from the left edge of the screen to go back to your Line."
+        }
+      }
     },
     "S7": {
-      "do": "Swipe left on your Line to open the Exchange, then tap my name.",
-      "why": "An Exchange turns two people standing together into contacts. I'm pretend, so nothing leaves your phone. Your location, if you allow it, becomes the gig's venue."
+      "do": "Open the Exchange to meet me.",
+      "why": "An Exchange turns two people standing together into contacts. I'm pretend, so nothing leaves your phone. Your location, if you allow it, becomes the gig's venue.",
+      "screens": {
+        "exchange": {
+          "do": "Tap my name to exchange with me."
+        },
+        "room": {
+          "do": "Swipe right from the left edge to return to your Line."
+        }
+      }
     },
     "S8": {
       "do": "Pinch two fingers together on your Line to zoom out.",
-      "why": "Zooming out puts my Line beside yours, and every friend you add gets their own. Mine has more gigs on it. You can see that for yourself."
+      "why": "Zooming out puts my Line beside yours, and every friend you add gets their own. Mine has more gigs on it. You can see that for yourself.",
+      "screens": {
+        "room": {
+          "do": "Swipe right from the left edge to return to your Line."
+        },
+        "exchange": {
+          "do": "Go back to your Line."
+        }
+      }
     },
     "S10": {
-      "do": "Open the gig, then add it to your calendar from its Room.",
-      "ios": "Open the gig, scroll to the bottom of its Room and tap Add to calendar.",
-      "android": "Open the gig, then swipe left in its Room, or tap “swipe to add to calendar”.",
-      "why": "Your phone will ask for calendar access. The event is part of the demo and is deleted when we finish."
+      "why": "Your phone will ask for calendar access. The event is part of the demo and is deleted when we finish.",
+      "do": "Tap our gig to open its Room.",
+      "screens": {
+        "room": {
+          "do": "Add this gig to your calendar.",
+          "ios": "Scroll to the bottom and tap Add to calendar.",
+          "android": "Swipe left in the Room, or tap “swipe to add to calendar”."
+        }
+      }
     },
     "S11": {
-      "do": "In the Room, open directions to the venue in Maps.",
-      "ios": "In the Room, tap Open in Maps to get directions.",
-      "android": "In the Room, tap Open venue in Maps.",
-      "why": "This leaves the app for Maps. Come back when you've looked, and the Tour will still be here."
+      "why": "This leaves the app for Maps. Come back when you've looked, and the Tour will still be here.",
+      "do": "Tap our gig to open its Room.",
+      "screens": {
+        "room": {
+          "do": "In the Room, open directions to the venue in Maps.",
+          "ios": "In the Room, tap Open in Maps to get directions.",
+          "android": "In the Room, tap Open venue in Maps."
+        }
+      }
     },
     "S12": {
-      "do": "Open your ticket in the Room, as you would at the door.",
-      "ios": "Tap the white barcode in the Room, as you would at the door.",
-      "why": "That's the PDF ticket I sent you. The app read it and attached it to the gig; any ticket you share to the app lands the same way."
+      "why": "That's the PDF ticket I sent you. The app read it and attached it to the gig; any ticket you share to the app lands the same way.",
+      "do": "Tap our gig to open its Room.",
+      "screens": {
+        "room": {
+          "do": "Open your ticket in the Room, as you would at the door.",
+          "ios": "Tap the white barcode in the Room, as you would at the door."
+        }
+      }
     },
     "S13": {
-      "do": "Tap “I'm here — check in”, then confirm if asked.",
-      "why": "A check-in says you were at this gig. While you're checked in, nearby phones may carry what you log to others. Nothing is sent during the Tour."
+      "why": "A check-in says you were at this gig. While you're checked in, nearby phones may carry what you log to others. Nothing is sent during the Tour.",
+      "do": "Tap our gig to open its Room.",
+      "screens": {
+        "room": {
+          "do": "Tap “I'm here — check in”, then confirm if asked."
+        }
+      }
     },
     "S14": {
-      "do": "They’re playing “{opener}” as the opener. Type it into the Log, then add it.",
       "why": "The Log is your own setlist, kept as the night happens. Nobody is marking it, so any song you know will do.",
-      "fallback": "Type the first song they played into the Log, then add it."
+      "do": "Tap our gig to open its Room.",
+      "screens": {
+        "room": {
+          "do": "They’re playing “{opener}” as the opener. Type it into the Log, then add it.",
+          "fallback": "Type the first song they played into the Log, then add it."
+        }
+      }
     },
     "S15": {
-      "do": "In the Log, tap “they played one I can't name”.",
-      "why": "A Gap is an honest blank: they played something and you couldn't name it. It beats a Log that pretends to be complete."
+      "why": "A Gap is an honest blank: they played something and you couldn't name it. It beats a Log that pretends to be complete.",
+      "do": "Tap our gig to open its Room.",
+      "screens": {
+        "room": {
+          "do": "In the Log, tap “they played one I can't name”."
+        }
+      }
     },
     "S16": {
-      "do": "Read song two in your Log: that's gossip from my phone. Then carry on.",
-      "why": "Gossip is how phones in radio range swap what happened at a gig, friends or strangers, with no server. Mine just filled your Gap."
+      "why": "Gossip is how phones in radio range swap what happened at a gig, friends or strangers, with no server. Mine just filled your Gap.",
+      "do": "Tap our gig to open its Room.",
+      "screens": {
+        "room": {
+          "do": "Read song two in your Log: that's gossip from my phone. Then carry on."
+        }
+      }
     },
     "S17": {
-      "do": "Tick “That was the whole set” in the Room.",
-      "why": "setlist.fm has the rest of tonight’s set. I’ve filled your Log from it. Even I can’t remember everything."
+      "why": "setlist.fm has the rest of tonight’s set. Watch it arrive in your Log. Even I can’t remember everything.",
+      "do": "Tap our gig to open its Room.",
+      "screens": {
+        "room": {
+          "do": "Tick “That was the whole set” in the Room."
+        }
+      }
     },
     "S18": {
-      "do": "Take a selfie, then add it to the night from your photo library.",
-      "ios": "Take a selfie, then tap Add to shared or Add to the vault and choose it.",
-      "android": "Take a selfie, then drag the ↕ handle up for shared or down for private, and pick it.",
-      "why": "Shared photos can go to friends you've exchanged with. Private ones stay on your phone. Your photo stays in your library either way."
+      "why": "Shared photos can go to friends you've exchanged with. Private ones stay on your phone. Your photo stays in your library either way.",
+      "do": "Tap our gig to open its Room.",
+      "screens": {
+        "room": {
+          "do": "Tap the camera on this card and take a selfie."
+        },
+        "roomAfterPhoto": {
+          "do": "Add your selfie from the photo library.",
+          "ios": "Tap Add to shared or Add to the vault, then choose your selfie.",
+          "android": "Drag the ↕ handle up for shared or down for private, then choose your selfie."
+        }
+      }
     },
     "S19": {
       "do": "Swipe the gig left to turn tonight’s set into a Spotify playlist.",
-      "why": "You'll log in to Spotify. The public playlist is the one thing this Tour keeps; everything else, including the demo gig, is deleted."
+      "why": "You'll log in to Spotify. The public playlist is the one thing this Tour keeps; everything else, including the demo gig, is deleted.",
+      "screens": {
+        "room": {
+          "do": "Swipe right from the left edge to return to your Line."
+        }
+      }
     }
   },
   "notes": {

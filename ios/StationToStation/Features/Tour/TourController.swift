@@ -252,6 +252,7 @@ final class TourController {
 
     func acknowledgeCard() {
         let step = state.currentStep
+        guard step == .s1 || step == .s16 else { return }
         dismissCoachMark()
         send(step == .s16 ? .gossipSent : .acknowledged)
     }

@@ -49,13 +49,13 @@ final class TourMeetFriendEffectsTests: XCTestCase {
             importTicket: { [unowned self] in self.imported.append($0) })
     }
 
-    func testTheExchangeLandsAContactWithTheDemoGigAtTheVenueWhereIStand() async {
+    func testExchangePlacesMyGigWithoutDuplicatingItOnTheFriendsLine() async {
         let effects = makeEffects(fix: here)
         let fix = await effects.exchange()
         XCTAssertEqual(fix, here)
         XCTAssertEqual(contacts.map(\.name), ["Friend from data"])
         XCTAssertNotNil(contacts.first?.publicKey)
-        XCTAssertEqual(lanes[effects.contactKey!], ["demo"])
+        XCTAssertEqual(lanes[effects.contactKey!], [])
         XCTAssertEqual(placedVenue?.venue?.city?.coords?.lat, here.latitude)
         XCTAssertEqual(placedVenue?.venue?.city?.coords?.long, here.longitude)
         XCTAssertEqual(placedVenue?.venue?.name, "Room")

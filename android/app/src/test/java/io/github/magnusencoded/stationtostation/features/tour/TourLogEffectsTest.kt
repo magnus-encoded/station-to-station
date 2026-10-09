@@ -15,9 +15,26 @@ class TourLogEffectsTest {
     private val fake = FakeState()
     private val gig = FmSetlist(id = "demo")
 
+    @Test fun gapWaitsAndFillArrivesOneSongPerTick() = runBlocking {
+        lateinit var effects: TourLogEffects
+        val waits = mutableListOf<Pair<Long, List<String>>>()
+        effects = TourLogEffects(File(temporary.root, "paced.json"), fake.update, pause = { duration ->
+            waits += duration to effects.record(gig.id)!!.log.songs
+        }) { listOf("Mine", "Second", "Third", "Fourth") }
+        effects.write(gig.id, StoredLog().adding("Mine", 10).adding("", 20))
+        assertTrue(effects.deliver(gig) { true })
+        assertTrue(effects.fill(gig, 30) { true })
+        assertEquals(listOf(
+            2500L to listOf("Mine", ""),
+            500L to listOf("Mine", "Second"),
+            500L to listOf("Mine", "Second", "Third"),
+        ), waits)
+        assertEquals(listOf("Mine", "Second", "Third", "Fourth"), effects.record(gig.id)!!.log.songs)
+    }
+
     @Test fun gapFillPreservesEntryIdentityAndRelaunchPurgeKeepsRealLog() = runBlocking {
         val file = File(temporary.root, "logs.json")
-        val effects = TourLogEffects(file, fake.update) { listOf("Mine", "Second", "Third") }
+        val effects = TourLogEffects(file, fake.update, pause = {}) { listOf("Mine", "Second", "Third") }
         val original = StoredLog().adding("Mine", 10).adding("", 20)
         fake.update { it.copy(logsByGig = mapOf("real" to StoredLog(songs = listOf("Keep")))) }
         effects.write(gig.id, original)
@@ -29,7 +46,7 @@ class TourLogEffectsTest {
         assertTrue(effects.deliver(gig) { true })
         assertTrue(effects.fill(gig, 30) { true })
         assertEquals(listOf("Mine", "Second", "Third"), effects.record(gig.id)!!.log.songs)
-        val resumed = TourLogEffects(file, fake.update) { emptyList() }
+        val resumed = TourLogEffects(file, fake.update, pause = {}) { emptyList() }
         resumed.restore()
         assertEquals(effects.record(gig.id), resumed.record(gig.id))
         resumed.purge()
@@ -56,7 +73,7 @@ class TourLogEffectsTest {
         val cache = store.load()
         val ids = cache.gigs.values.filter { it.demo }.map { it.setlistId ?: it.id }.toSet()
         val atS16 = cache.planned().single { it.id in ids }
-        val effects = TourLogEffects(File(temporary.root, "logs.json"), fake.update) { gig ->
+        val effects = TourLogEffects(File(temporary.root, "logs.json"), fake.update, pause = {}) { gig ->
             if (gig.artist?.mbid == "radiohead-id") listOf("Paranoid Android", "Karma Police", "No Surprises") else emptyList()
         }
         assertEquals("Paranoid Android", effects.pool(atS16).first())
@@ -67,14 +84,14 @@ class TourLogEffectsTest {
     }
 
     @Test fun gossipDoesNotRepeatTheSuggestedOpenerWhenTheUserLogsAnotherSong() = runBlocking {
-        val effects = TourLogEffects(File(temporary.root, "logs.json"), fake.update) { listOf("Opener", "Second", "Third") }
+        val effects = TourLogEffects(File(temporary.root, "logs.json"), fake.update, pause = {}) { listOf("Opener", "Second", "Third") }
         effects.write(gig.id, StoredLog().adding("Other", 10).adding("", 20))
         assertTrue(effects.deliver(gig) { true })
         assertEquals(listOf("Other", "Second"), effects.record(gig.id)!!.log.songs)
     }
 
     @Test fun emptyPoolDoesNotReportAFilledSet() = runBlocking {
-        val effects = TourLogEffects(File(temporary.root, "logs.json"), fake.update) { emptyList() }
+        val effects = TourLogEffects(File(temporary.root, "logs.json"), fake.update, pause = {}) { emptyList() }
         effects.write(gig.id, StoredLog().adding("Mine", 10))
         assertFalse(effects.fill(gig, 30) { true })
     }
@@ -89,7 +106,7 @@ class TourLogEffectsTest {
     @Test fun lateNetworkResultCannotRecreatePurgedDemo() = runBlocking {
         val file = File(temporary.root, "logs.json")
         lateinit var effects: TourLogEffects
-        effects = TourLogEffects(file, fake.update) { effects.purge(); listOf("Second") }
+        effects = TourLogEffects(file, fake.update, pause = {}) { effects.purge(); listOf("Second") }
         effects.write(gig.id, StoredLog().adding("", 20))
         assertFalse(effects.deliver(gig) { true })
         assertFalse(file.exists())

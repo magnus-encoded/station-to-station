@@ -19,7 +19,7 @@ class TourHintEffects(
 ) {
     fun offer(hint: ContextHint) {
         val current = state()
-        if (current.contextHint != null ||
+        if (current.tourUpgradePrompt || current.contextHint != null ||
             !contextHintDue(hint, current.tour.seenContextHints, current.tour.running)
         ) return
         val tour = current.tour.copy(seenContextHints = current.tour.seenContextHints + hint.key)

@@ -13,6 +13,7 @@ import java.io.File
 class TourLogEffects(
     private val file: File,
     private val update: ((UiState) -> UiState) -> Unit,
+    private val pause: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) },
     private val songs: suspend (FmSetlist) -> List<String>,
 ) : DemoWorld {
     @Serializable data class Record(val log: StoredLog = StoredLog(), val gapSong: String? = null, val filled: Boolean = false)
@@ -36,6 +37,9 @@ class TourLogEffects(
         val token = generation
         val pool = pool(gig)
         if (token != generation || !active()) return false
+        if (records[gig.id]?.gapSong != null) return true
+        pause(2500)
+        if (token != generation || !active()) return false
         val record = records[gig.id] ?: return false
         if (record.gapSong != null) return true
         val gap = record.log.songs.indexOfFirst { it.isBlank() }
@@ -55,7 +59,15 @@ class TourLogEffects(
         if (record.filled) return true
         val additions = tourSetlistFill(record.log.songs, pool)
         if (additions.isEmpty()) return false
-        save(gig.id, record.copy(log = additions.fold(record.log) { log, song -> log.adding(song, now) }, filled = true))
+        for (song in additions) {
+            pause(500)
+            if (token != generation || !active()) return false
+            val current = records[gig.id] ?: Record()
+            if (current.log.songs.none { sameSong(it, song) }) {
+                save(gig.id, current.copy(log = current.log.adding(song, now)))
+            }
+        }
+        save(gig.id, (records[gig.id] ?: record).copy(filled = true))
         return true
     }
 

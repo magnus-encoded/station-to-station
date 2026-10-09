@@ -480,11 +480,7 @@ struct StationView: View {
     /// a planned gig", not the drag itself — so this is a plain button that opens an
     /// alert with a text field instead.
     ///
-    /// The lane stays flat: no Spine, no rails, no node rings. That is Expression and it
-    /// was already decided here. What was Grammar and missing is the grouping — two
-    /// planned nights at one venue are one **Section** above today exactly as they would
-    /// be below it (#134), and they open in place, because collapsing them with no way
-    /// back in would take away the only handle each night had.
+    /// Planned nights at one venue form a Section above today and open in place.
     private var future: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("\u{2191}  THE FUTURE")

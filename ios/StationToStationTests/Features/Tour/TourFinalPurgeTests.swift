@@ -114,7 +114,7 @@ final class TourFinalPurgeTests: XCTestCase {
         night.recordCalendarEvent("demo-event")
         night.advance(to: .after)
         let log = TourLogEffects(host: host, store: defaults, setlistFm: fm, musicBrainz: MusicBrainzClient(),
-                                  friendKey: { friend.contactKey }, characterLine: { _ in "Character gossip from data" })
+                                  friendKey: { friend.contactKey }, characterLine: { _ in "Character gossip from data" }, pause: { _ in })
         log.writeLog(demo.id, log: StoredLog(songs: ["Demo opener", ""]), reply: false, now: 10)
         let delivered = await log.deliverGossip(for: demo, now: 11)
         XCTAssertTrue(delivered)

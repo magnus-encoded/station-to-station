@@ -59,7 +59,7 @@ class TourMeetFriendEffects(
             if (friend !in held && !addContact(friend)) return
             val placed = placed(gig, fix)
             placeVenue(placed)
-            landNights(requireNotNull(friend.publicKey), listOf(placed) + extraNights(placed))
+            landNights(requireNotNull(friend.publicKey), extraNights(placed))
             if (active()) exchanged(fix)
         }
     }

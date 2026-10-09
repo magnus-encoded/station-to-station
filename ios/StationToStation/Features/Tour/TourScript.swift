@@ -23,7 +23,7 @@ enum TourStep: String, Codable, CaseIterable {
     case s20 = "S20"
 }
 
-enum TourCoachMark: String, Codable, Equatable {
+enum TourCoachMark: String, Codable, Equatable, CaseIterable {
     case line, curtain, band, addGig, openRoom, swipeBack, exchange, pinchOut
     case calendar, maps, ticket, checkIn, log, gap, gossip, setComplete, selfie, spotify
 }
@@ -89,7 +89,7 @@ enum TourScript {
         .s14: Step(entry: [.advanceDemoClock(.showStarted), .showCoachMark(.log)], awaits: [.logEntryWritten]),
         .s15: Step(entry: [.showCoachMark(.gap)], awaits: [.gapRecorded]),
         .s16: Step(entry: [.deliverGossip, .showCoachMark(.gossip)], awaits: [.gossipSent]),
-        .s17: Step(entry: [.fillSetlist], awaits: [.setCompleted]),
+        .s17: Step(entry: [.showCoachMark(.setComplete), .fillSetlist], awaits: [.setCompleted]),
         .s18: Step(entry: [.showCoachMark(.selfie)], awaits: [.returnedFromPhotos, .mediaAdded(visibility: .private)], exit: [.deliverFriendSelfie]),
         .s19: Step(entry: [.advanceDemoClock(.after), .showCoachMark(.spotify)], awaits: [.spotifyExported, .spotifyDeclined]),
         .s20: Step(entry: [.purgeDemoWorld, .markTourFinished], awaits: [])

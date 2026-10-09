@@ -35,7 +35,17 @@ def validate(path):
     lines = data.get("lines")
     if not isinstance(lines, dict) or set(lines) != CARD_STEPS:
         raise ValueError("lines: must contain exactly S1-S8, S10-S19")
+    expanded = [(step, line) for step, line in lines.items()]
     for step, line in lines.items():
+        if not isinstance(line, dict):
+            raise ValueError(f"{step}: required object")
+        screens = line.get("screens", {})
+        if not isinstance(screens, dict) or set(screens) - {"line", "lineEmpty", "room", "roomAfterPhoto", "exchange"}:
+            raise ValueError(f"{step}: invalid screens")
+        if any(not isinstance(value, dict) or value.get("screens") for value in screens.values()):
+            raise ValueError(f"{step}: invalid screen copy")
+        expanded.extend((step, value) for value in screens.values())
+    for step, line in expanded:
         if not isinstance(line, dict):
             raise ValueError(f"{step}: required object")
         try:

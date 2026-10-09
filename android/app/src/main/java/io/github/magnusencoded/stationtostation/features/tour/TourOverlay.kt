@@ -1,5 +1,14 @@
 package io.github.magnusencoded.stationtostation.features.tour
 
+import android.content.Intent
+import android.provider.MediaStore
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -33,6 +42,11 @@ import io.github.magnusencoded.stationtostation.UiState
 import io.github.magnusencoded.stationtostation.ui.laneColourOf
 import io.github.magnusencoded.stationtostation.ui.railColor
 
+internal fun CoachMark.canAcknowledge(screen: String): Boolean =
+    hasAcknowledgement && (this != CoachMark.Gossip || screen.startsWith("room"))
+
+internal val CoachMark.hasAcknowledgement: Boolean get() = this == CoachMark.Line || this == CoachMark.Gossip
+
 private val Card = Color(0xFF1D1728)
 private val Ink = Color(0xFFF1ECF8)
 private val Muted = Color(0xFF8F87A0)
@@ -44,7 +58,7 @@ internal fun tourAccent(state: UiState): Color = state.friends.firstOrNull { it.
     ?: railColor(0)
 
 @Composable
-fun TourOverlay(viewModel: AppViewModel, inRoom: Boolean = false, content: @Composable () -> Unit) {
+fun TourOverlay(viewModel: AppViewModel, inRoom: Boolean = false, screen: String? = null, content: @Composable () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val hasCard = state.tour.running && state.coachMark != null && state.tour.step !in setOf(TourStep.S3, TourStep.S4)
     TourDock(inRoom, hasCard, content) { cardModifier ->
@@ -55,7 +69,11 @@ fun TourOverlay(viewModel: AppViewModel, inRoom: Boolean = false, content: @Comp
             state.coachMark?.let { mark ->
                 CoachMarkCard(viewModel.tour.character, mark, tourAccent(state),
                     onAcknowledge = { viewModel.tour.acknowledgeCard() },
+                    onCameraReturned = { state.selectedSetlist?.let { viewModel.tour.returnedFromPhotos(it.id) } },
                     opener = viewModel.tour.opener,
+                    screen = screen ?: if (inRoom) {
+                        if (state.tour.returnedFromPhotos) "roomAfterPhoto" else "room"
+                    } else if (state.setlists.isEmpty() && state.plannedGigs.isEmpty()) "lineEmpty" else "line",
                     onSkip = { viewModel.tour.dispatch(TourEvent.Skipped) },
                     modifier = cardModifier)
             } ?: TextButton(onClick = { viewModel.tour.dispatch(TourEvent.Skipped) },
@@ -102,10 +120,13 @@ internal fun CoachMarkCard(
     onSkip: () -> Unit,
     modifier: Modifier = Modifier,
     opener: String? = null,
+    screen: String = "line",
+    onCameraReturned: () -> Unit = {},
 ) {
     val slant = with(LocalDensity.current) { 8.dp.toPx() }
-    val line = character.line(mark, opener)
+    val line = character.line(mark, opener, screen)
     val context = LocalContext.current
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { onCameraReturned() }
     val portrait = remember(character.cutout) {
         context.resources.getIdentifier(character.cutout, "drawable", context.packageName)
     }
@@ -137,7 +158,15 @@ internal fun CoachMarkCard(
                     fontSize = 12.sp, lineHeight = 16.2.sp) }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     TextButton(onClick = onSkip, contentPadding = PaddingValues(2.dp)) { Text("Skip", color = Muted, fontSize = 12.sp) }
-                    TextButton(onClick = onAcknowledge, contentPadding = PaddingValues(2.dp)) {
+                    if (mark == CoachMark.Selfie && screen.startsWith("room")) IconButton(onClick = {
+                        try {
+                            camera.launch(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA))
+                        } catch (_: android.content.ActivityNotFoundException) {
+                            Toast.makeText(context, "No camera app found. Choose a photo from your library.", Toast.LENGTH_LONG).show()
+                            onCameraReturned()
+                        }
+                    }) { Icon(Icons.Default.CameraAlt, contentDescription = "Take a selfie", tint = Amber) }
+                    if (mark.canAcknowledge(screen)) TextButton(onClick = onAcknowledge, contentPadding = PaddingValues(2.dp)) {
                         Text(if (mark == CoachMark.Line || mark == CoachMark.Gossip) "Got it" else "OK", color = Amber, fontSize = 12.sp)
                     }
                 }

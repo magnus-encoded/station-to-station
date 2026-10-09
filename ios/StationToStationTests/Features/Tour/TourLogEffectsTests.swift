@@ -57,10 +57,29 @@ final class TourLogEffectsTests: XCTestCase {
         }, sleep: { _ in })
     }
 
-    private func effects(_ fm: SetlistFmClient) -> TourLogEffects {
+    private func effects(_ fm: SetlistFmClient, pause: @escaping (UInt64) async -> Void = { _ in }) -> TourLogEffects {
         TourLogEffects(host: host, store: defaults, setlistFm: fm,
                        musicBrainz: MusicBrainzClient(session: session), friendKey: { "virtual-contact-key" },
-                       characterLine: { "character.lines.\($0.rawValue)" })
+                       characterLine: { "character.lines.\($0.rawValue)" }, pause: pause)
+    }
+
+    func testGapWaitsAndFillArrivesOneSongPerTick() async throws {
+        let fm = try client([response(["Mine", "Second", "Third", "Fourth"])])
+        var waits: [UInt64] = []
+        var snapshots: [[String]] = []
+        var log: TourLogEffects!
+        log = effects(fm, pause: { duration in
+            waits.append(duration)
+            snapshots.append(log.loadLog("demo").songs)
+        })
+        log.writeLog("demo", log: StoredLog(songs: ["Mine", ""]), reply: false, now: 10)
+        let delivered = await log.deliverGossip(for: demo, now: 20)
+        let filled = await log.fillSetlist(for: demo, now: 30)
+        XCTAssertTrue(delivered)
+        XCTAssertTrue(filled)
+        XCTAssertEqual(waits, [2500, 500, 500])
+        XCTAssertEqual(snapshots, [["Mine", ""], ["Mine", "Second"], ["Mine", "Second", "Third"]])
+        XCTAssertEqual(log.loadLog("demo").songs, ["Mine", "Second", "Third", "Fourth"])
     }
 
     private func makeTour(_ effects: TourLogEffects, fm: SetlistFmClient) -> (TourController, GigController) {
@@ -192,7 +211,7 @@ final class TourLogEffectsTests: XCTestCase {
             log.writeLog("demo", log: entered, reply: false, now: 7)
             let (tour, _) = makeTour(log, fm: fm)
             tour.start()
-            await eventually { self.host.state.tourCoachMark == .setComplete }
+            await eventually { tour.state.setlistReady == true }
             XCTAssertEqual(host.state.gigLog.songs, input.enteredSongs + (expected.addedSongs ?? []), fixture.id)
             XCTAssertEqual(host.state.gigLog.songs.count, try XCTUnwrap(expected.totalSongs), fixture.id)
             XCTAssertEqual(TourRecordingsProtocol.requests.count, expected.source == "musicBrainz" ? 1 : 0, fixture.id)
@@ -252,7 +271,7 @@ final class TourLogEffectsTests: XCTestCase {
         XCTAssertEqual(host.state.tourStep, .s17)
         XCTAssertEqual(tour.demoGossip(for: "demo").last?.source, .user)
         XCTAssertEqual(tour.demoGossip(for: "demo").last?.song, "Song 3")
-        await eventually { self.host.state.tourCoachMark == .setComplete }
+        await eventually { tour.state.setlistReady == true }
         XCTAssertEqual(host.state.tourStep, .s17)
         let before = host.state.gigLog
         var completed = before

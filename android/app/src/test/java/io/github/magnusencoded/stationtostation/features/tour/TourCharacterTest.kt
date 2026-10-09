@@ -7,6 +7,25 @@ import org.junit.Test
 
 class TourCharacterTest {
     private fun source(): String = File("../../fixtures/tour/character/character.json").readText()
+    @Test fun sharedScreenCopyAndAcknowledgementCases() {
+        val character = TourCharacter.decode(source())
+        val cases = Json.parseToJsonElement(File("../../fixtures/tour/cases.json").readText())
+            .jsonObject.getValue("copyCases").jsonArray
+        for (item in cases) {
+            val row = item.jsonObject
+            val mark = TourStep.valueOf(row.getValue("step").jsonPrimitive.content).mark!!
+            val screen = row.getValue("screen").jsonPrimitive.content
+            val line = character.line(mark, "Paranoid Android", screen)
+            assertEquals(row.toString(), row.getValue("android").jsonPrimitive.content, line.instruction)
+            assertEquals(row["why"]?.jsonPrimitive?.contentOrNull, line.why)
+            assertEquals(row.getValue("ack").jsonPrimitive.boolean, mark.canAcknowledge(screen))
+        }
+    }
+    @Test fun actionCardsHaveNoAcknowledgement() {
+        TourStep.entries.mapNotNull { it.mark }.forEach { mark ->
+            assertEquals(mark == CoachMark.Line || mark == CoachMark.Gossip, mark.canAcknowledge("room"))
+        }
+    }
     @Test fun finalCharacterLoadsEveryCard() {
         val character = TourCharacter.decode(source())
         TourStep.entries.mapNotNull { it.mark }.forEach { assertTrue(character.line(it).instruction.isNotBlank()) }
@@ -14,8 +33,8 @@ class TourCharacterTest {
     @Test fun openerRendersAndAnEmptyPoolKeepsTheGenericInstruction() {
         val character = TourCharacter.decode(source())
         assertEquals("They’re playing “Paranoid Android” as the opener. Type it into the Log, then add it.",
-            character.line(CoachMark.Log, "Paranoid Android").instruction)
-        assertEquals("Type the first song they played into the Log, then add it.", character.line(CoachMark.Log).instruction)
+            character.line(CoachMark.Log, "Paranoid Android", screen = "room").instruction)
+        assertEquals("Type the first song they played into the Log, then add it.", character.line(CoachMark.Log, screen = "room").instruction)
     }
     @Test fun anOverrideChangesOnlyTheInstruction() {
         val line = TourCharacter.Line("Base", "Reason", ios = "Apple", android = "Android")

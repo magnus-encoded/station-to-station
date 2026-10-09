@@ -19,15 +19,18 @@ data class TourCharacter(
 ) {
     @Serializable
     data class Line(@SerialName("do") val instruction: String, val why: String? = null,
-                    val ios: String? = null, val android: String? = null, val fallback: String? = null) {
+                    val ios: String? = null, val android: String? = null, val fallback: String? = null,
+                    val screens: Map<String, Line> = emptyMap()) {
         fun onAndroid() = copy(instruction = android ?: instruction)
     }
     @Serializable data class Notes(val gapFill: String, val setlistFill: String)
     @Serializable data class History(val artist: String, val date: String, val venue: String, val city: String)
     @Serializable data class Playlist(val title: String, val description: String)
 
-    fun line(mark: CoachMark, opener: String? = null): Line {
-        val line = lines.getValue(TourStep.entries.single { it.mark == mark }.name).onAndroid()
+    fun line(mark: CoachMark, opener: String? = null, screen: String = "line"): Line {
+        val base = lines.getValue(TourStep.entries.single { it.mark == mark }.name)
+        val selected = base.screens[screen] ?: base.screens[if (screen == "roomAfterPhoto") "room" else "line"] ?: base
+        val line = selected.copy(why = selected.why ?: base.why).onAndroid()
         return line.copy(instruction = if ("{opener}" in line.instruction) {
             opener?.takeIf { it.isNotBlank() }?.let { line.instruction.replace("{opener}", it) } ?: requireNotNull(line.fallback)
         } else line.instruction)
@@ -41,7 +44,11 @@ data class TourCharacter(
             listOf(it.artist, it.venue, it.city).all(String::isNotBlank) &&
                 io.github.magnusencoded.stationtostation.data.parseFmDate(it.date) != null
         }) { "Missing or invalid demo history" }
-        lines.forEach { (step, line) ->
+        val screens = setOf("line", "lineEmpty", "room", "roomAfterPhoto", "exchange")
+        require(lines.values.all { line ->
+            line.screens.keys.all { it in screens } && line.screens.values.all { it.screens.isEmpty() }
+        }) { "Unknown or nested screen" }
+        lines.flatMap { (step, line) -> listOf(step to line) + line.screens.map { step to it.value } }.forEach { (step, line) ->
             fun check(text: String, limit: Int) {
                 require(text.isNotBlank() && text.trim().split(Regex("\\s+")).size <= limit) { "$step exceeds $limit words or is blank" }
             }

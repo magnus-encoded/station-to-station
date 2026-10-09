@@ -23,6 +23,16 @@ import org.junit.Test
 
 class TourCardLayoutTest {
     @get:Rule val compose = createComposeRule()
+    @Test fun actionCardOffersSkipButNoAcknowledgement() {
+        val character = TourCharacter.load(InstrumentationRegistry.getInstrumentation().targetContext)
+        compose.setContent {
+            MaterialTheme { CoachMarkCard(character, CoachMark.Calendar, Color.Blue, {}, {}, screen = "room") }
+        }
+        compose.onNodeWithText("Skip").assertExists()
+        compose.onNodeWithText("OK").assertDoesNotExist()
+        compose.onNodeWithText("Got it").assertDoesNotExist()
+    }
+
     @Test fun nameTabDoesNotCoverInstructionsAtLargeFontSize() {
         val character = TourCharacter.load(InstrumentationRegistry.getInstrumentation().targetContext)
         compose.setContent {
