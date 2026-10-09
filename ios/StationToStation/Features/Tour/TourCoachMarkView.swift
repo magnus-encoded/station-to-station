@@ -89,9 +89,7 @@ struct TourUpgradePromptView: View {
 
 private struct TourModifier: ViewModifier {
     @ObservedObject var model: AppModel
-    @State private var keyboardVisible = false
-
-    private var dockTop: Bool { keyboardVisible && (model.state.tourStep == .s14 || model.state.tourStep == .s15) }
+    let dockTop: Bool
 
     func body(content: Content) -> some View {
         content
@@ -112,12 +110,12 @@ private struct TourModifier: ViewModifier {
                     }
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardVisible = true }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardVisible = false }
             .onAppear { model.tour.start() }
     }
 }
 
 extension View {
-    func tourOverlay(_ model: AppModel) -> some View { modifier(TourModifier(model: model)) }
+    func tourOverlay(_ model: AppModel, inRoom: Bool) -> some View {
+        modifier(TourModifier(model: model, dockTop: inRoom))
+    }
 }

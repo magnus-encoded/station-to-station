@@ -534,6 +534,43 @@ fun StationEventScreen(
         }
     }
 
+    val roomActions: @Composable () -> Unit = {
+        EventRoomActions(
+            setlist = setlist,
+            canLog = logBar,
+            now = now,
+            onTicketShown = onTicketShown,
+            planned = planned,
+            checkedIn = checkedIn,
+            convertible = convertible,
+            localGig = localGig,
+            made = made,
+            calendarEventUri = calendarEventUri,
+            showTicket = offers.room.showTicket && (!viewModel.tour.isDemoGig(setlist?.id.orEmpty()) ||
+                state.tour.step in setOf(io.github.magnusencoded.stationtostation.features.tour.TourStep.S12,
+                    io.github.magnusencoded.stationtostation.features.tour.TourStep.S13)),
+            admissions = setlist?.let { state.attendanceByGig[it.id]?.admissions }.orEmpty(),
+            onPublish = onPublish,
+            onMakePlaylist = makePlaylist,
+            onAdopt = { adopting = true },
+            onDeleteNight = {
+                if (setlist != null) {
+                    if (viewModel.photosLostByDeleting(setlist.id) > 0) deleting = true
+                    else { viewModel.deleteGig(setlist.id); onBack() }
+                }
+            },
+            onNotGoing = {
+                if (setlist != null) {
+                    viewModel.removePlannedGig(setlist.id)
+                    onBack()
+                }
+            },
+            onAddToCalendar = onAddToCalendar,
+            onInvite = onInvite,
+            onForgetPlaylist = { url -> if (setlist != null) viewModel.removePlaylist(setlist.id, url) },
+        )
+    }
+
     Scaffold(
         containerColor = Ground,
         snackbarHost = { SnackbarHost(maybeAnswers) },
@@ -549,43 +586,13 @@ fun StationEventScreen(
             )
         },
         bottomBar = {
-            EventBottomBar(
-                setlist = setlist,
-                canLog = logBar,
-                now = now,
-                onTicketShown = onTicketShown,
-                planned = planned,
-                checkedIn = checkedIn,
-                convertible = convertible,
-                localGig = localGig,
-                leaf = leaf,
-                made = made,
-                calendarEventUri = calendarEventUri,
-                showTicket = offers.room.showTicket && (!viewModel.tour.isDemoGig(setlist?.id.orEmpty()) ||
-                    state.tour.step in setOf(io.github.magnusencoded.stationtostation.features.tour.TourStep.S12,
-                        io.github.magnusencoded.stationtostation.features.tour.TourStep.S13)),
-                admissions = setlist?.let { state.attendanceByGig[it.id]?.admissions }.orEmpty(),
-                presenceRow = presenceRow,
-                onPublish = onPublish,
-                onMakePlaylist = makePlaylist,
-                onAdopt = { adopting = true },
-                onDeleteNight = {
-                    if (setlist != null) {
-                        if (viewModel.photosLostByDeleting(setlist.id) > 0) deleting = true
-                        else { viewModel.deleteGig(setlist.id); onBack() }
-                    }
-                },
-                onCheckIn = { if (setlist != null) viewModel.checkIn(setlist.id) },
-                onNotGoing = {
-                    if (setlist != null) {
-                        viewModel.removePlannedGig(setlist.id)
-                        onBack()
-                    }
-                },
-                onAddToCalendar = onAddToCalendar,
-                onInvite = onInvite,
-                onForgetPlaylist = { url -> if (setlist != null) viewModel.removePlaylist(setlist.id, url) },
-            )
+            if (checkedIn) presenceRow()
+            else if (planned && setlist != null && canCheckInManually(setlist, now)) {
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Text("I'm here — check in", color = Amber, fontSize = 13.sp,
+                        modifier = Modifier.clickable { viewModel.checkIn(setlist.id) }.padding(12.dp))
+                }
+            }
         },
     ) { padding ->
         if (setlist == null) {
@@ -943,6 +950,7 @@ fun StationEventScreen(
                         onMove = { id, band, index -> moveAndAsk(setlist.id, id, band, index) },
                     )
                 }
+                item { roomActions() }
                 item { Spacer(Modifier.height(96.dp)) }
             }
         }
@@ -970,24 +978,21 @@ fun StationEventScreen(
 }
 
 @Composable
-private fun EventBottomBar(
+private fun EventRoomActions(
     setlist: FmSetlist?,
     canLog: Boolean,
     planned: Boolean,
     checkedIn: Boolean,
     convertible: Boolean,
     localGig: Boolean,
-    leaf: GigLeaf,
     made: List<StoredPlaylist>,
     calendarEventUri: String?,
     showTicket: Boolean,
     admissions: List<StoredAdmission>,
-    presenceRow: @Composable () -> Unit,
     onPublish: () -> Unit,
     onMakePlaylist: () -> Unit,
     onAdopt: () -> Unit,
     onDeleteNight: () -> Unit,
-    onCheckIn: () -> Unit,
     onNotGoing: () -> Unit,
     onAddToCalendar: () -> Unit,
     onInvite: () -> Unit,
@@ -1006,35 +1011,9 @@ private fun EventBottomBar(
             Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Above the **Log** prompt, because standing somewhere comes before
-            // writing anything down — and because this is the bar a night that was
-            // checked into actually gets.
-            if (checkedIn) {
-                presenceRow()
-            } else if (planned && canCheckInManually(setlist, now)) {
-                // A hand-added night lands here while still planned, and this was the
-                // only branch with no way to say "I'm here" — so it stayed planned, and
-                // a planned night is never offered to a Contact on a Reconcile.
-                if (showTicket) TicketAtTheDoor(admissions, onShown = onTicketShown)
-                Text(
-                    "I'm here — check in",
-                    color = Amber,
-                    fontSize = 13.sp,
-                    modifier = Modifier
-                        .clickable(onClick = onCheckIn)
-                        .padding(vertical = 6.dp),
-                )
+            if (!checkedIn && planned && canCheckInManually(setlist, now) && showTicket) {
+                TicketAtTheDoor(admissions, onShown = onTicketShown)
             }
-            Text(
-                when (leaf) {
-                    // The entries are the set; the way in is under it.
-                    GigLeaf.CAPTURE -> "noting the set — add what they play below"
-                    else -> "your log · add anything you remember below"
-                },
-                color = Faint,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(vertical = 4.dp),
-            )
             Text(
                 "‹ copy the set and open setlist.fm",
                 color = Amber,
@@ -1085,34 +1064,7 @@ private fun EventBottomBar(
             Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // The ticket's own barcodes, every Admission in its own
-            // symbology — see TicketAtTheDoor. Gone the moment checked in (see
-            // `checkedIn` below) and never drawn at all when there is no ticket
-            // to show. Worth showing on this gig's own page as soon as a ticket
-            // is attached, not held back until the day-of check-in window the
-            // way the offer to check in is.
-            // The manual check-in, and the only one there is when location was
-            // refused or the venue couldn't be geocoded. Same night window as
-            // the ambient offer; no location involved at all.
-            if (canCheckInManually(setlist, now)) {
-                if (checkedIn) {
-                    presenceRow()
-                } else {
-                    if (showTicket) TicketAtTheDoor(admissions, onShown = onTicketShown)
-                    Text(
-                        "I'm here — check in",
-                        color = Amber,
-                        fontSize = 13.sp,
-                        modifier = Modifier
-                            .clickable(onClick = onCheckIn)
-                            .padding(vertical = 6.dp),
-                    )
-                }
-            } else if (!checkedIn) {
-                // Outside the check-in window: no "I'm here" offer yet, but
-                // still worth showing that the ticket's barcode was captured.
-                if (showTicket) TicketAtTheDoor(admissions, onShown = onTicketShown)
-            }
+            if (!checkedIn && showTicket) TicketAtTheDoor(admissions, onShown = onTicketShown)
             when (timeState) {
                 // Over: adding a setlist is a past action, so the setlist.fm
                 // crumb belongs here and only here.

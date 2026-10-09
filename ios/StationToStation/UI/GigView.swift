@@ -145,11 +145,6 @@ struct GigView: View {
                         // written once the songs have been read back, which is what
                         // "analysis happens after the show" means as a layout.
                         NightNotes(preamble: gigPreamble(show), senderName: senderName)
-                        // The Alcove's own controls, below the night's record rather
-                        // than inside it — Android pins these in a `bottomBar`, and a
-                        // fixture of the Room is not part of what the Room holds. The
-                        // vehicle differs (pinned there, scrolled here) and that part
-                        // is Expression.
                         // What this night already became (#360). With the Alcove's
                         // own controls, because a made playlist is a fixture of the
                         // Room rather than part of the night's record — and once a

@@ -337,7 +337,7 @@ fun AppNavigation(viewModel: AppViewModel) {
                     onBack = { navController.popBackStack() },
                 )
             } else {
-                TourOverlay(viewModel) {
+                TourOverlay(viewModel, inRoom = true) {
                     StationEventScreen(
                         viewModel = viewModel,
                         onBack = { navController.popBackStack() },

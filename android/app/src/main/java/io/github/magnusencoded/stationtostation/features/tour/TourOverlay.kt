@@ -43,17 +43,11 @@ internal fun tourAccent(state: UiState): Color = state.friends.firstOrNull { it.
     // Before the Exchange there is no Contact; use the first Contact's palette index.
     ?: railColor(0)
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun TourOverlay(viewModel: AppViewModel, content: @Composable () -> Unit) {
+fun TourOverlay(viewModel: AppViewModel, inRoom: Boolean = false, content: @Composable () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    var dockHeight by remember { mutableStateOf(155.dp) }
-    val density = LocalDensity.current
-    val dockTop = WindowInsets.isImeVisible && state.tour.step in setOf(TourStep.S14, TourStep.S15)
-    Box(Modifier.fillMaxSize().background(Color(0xFF0E0B14))) {
-        val hasCard = state.tour.running && state.coachMark != null && state.tour.step !in setOf(TourStep.S3, TourStep.S4)
-        Box(Modifier.padding(top = if (dockTop && hasCard) dockHeight else 0.dp,
-            bottom = if (!dockTop && hasCard) dockHeight else 0.dp)) { content() }
+    val hasCard = state.tour.running && state.coachMark != null && state.tour.step !in setOf(TourStep.S3, TourStep.S4)
+    TourDock(inRoom, hasCard, content) { cardModifier ->
         if (state.tourUpgradePrompt) {
             UpgradePromptCard(onAccept = { viewModel.tour.acceptUpgradePrompt() },
                 onDismiss = { viewModel.tour.dismissUpgradePrompt() })
@@ -63,12 +57,28 @@ fun TourOverlay(viewModel: AppViewModel, content: @Composable () -> Unit) {
                     onAcknowledge = { viewModel.tour.acknowledgeCard() },
                     opener = viewModel.tour.opener,
                     onSkip = { viewModel.tour.dispatch(TourEvent.Skipped) },
-                    modifier = (if (dockTop) Modifier.align(Alignment.TopCenter).statusBarsPadding()
-                               else Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
-                        .onSizeChanged { dockHeight = with(density) { it.height.toDp() } })
+                    modifier = cardModifier)
             } ?: TextButton(onClick = { viewModel.tour.dispatch(TourEvent.Skipped) },
                 modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()) { Text("Skip tour") }
         }
+    }
+}
+
+@Composable
+internal fun TourDock(
+    inRoom: Boolean,
+    hasCard: Boolean,
+    content: @Composable () -> Unit,
+    overlay: @Composable BoxScope.(Modifier) -> Unit,
+) {
+    var dockHeight by remember { mutableStateOf(155.dp) }
+    val density = LocalDensity.current
+    Box(Modifier.fillMaxSize().background(Color(0xFF0E0B14))) {
+        Box(Modifier.padding(top = if (inRoom && hasCard) dockHeight else 0.dp,
+            bottom = if (!inRoom && hasCard) dockHeight else 0.dp)) { content() }
+        overlay((if (inRoom) Modifier.align(Alignment.TopCenter).statusBarsPadding()
+                 else Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
+            .onSizeChanged { dockHeight = with(density) { it.height.toDp() } })
     }
 }
 

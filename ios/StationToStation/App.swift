@@ -149,7 +149,7 @@ struct StationToStationApp: App {
             }
             }
             }
-            .tourOverlay(model)
+            .tourOverlay(model, inRoom: nav.path.last == .gig)
             .contextHints(model)
             // setlist.fm's automatic checks for local Gigs run while the app is in the
             // foreground and only then (#531): at launch, on coming back, and on their
