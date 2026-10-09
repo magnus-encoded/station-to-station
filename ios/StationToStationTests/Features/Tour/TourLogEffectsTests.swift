@@ -178,6 +178,10 @@ final class TourLogEffectsTests: XCTestCase {
             TourRecordingsProtocol.body = String(decoding: body, as: UTF8.self)
             TourRecordingsProtocol.requests = []
             fmRequests = []
+            // Each fixture starts from a fresh host, or the previous fixture's coach mark satisfies the wait.
+            host = FakeState()
+            host.state.selectedSetlist = demo
+            host.state.plannedGigs = [demo]
             let rawStep = try XCTUnwrap(fixture.initial?.step, fixture.id)
             let step = try XCTUnwrap(TourStep(rawValue: rawStep), fixture.id)
             Settings(store: defaults).saveTourState(TourState(currentStep: step))
@@ -193,7 +197,7 @@ final class TourLogEffectsTests: XCTestCase {
             XCTAssertEqual(host.state.gigLog.songs.count, try XCTUnwrap(expected.totalSongs), fixture.id)
             XCTAssertEqual(TourRecordingsProtocol.requests.count, expected.source == "musicBrainz" ? 1 : 0, fixture.id)
             XCTAssertEqual(fmRequests.count, 1, fixture.id)
-            let check = try XCTUnwrap(fixture.checks.first, fixture.id)
+            let check = try XCTUnwrap(fixture.checks.first { $0.event == "setlistFilled" }, fixture.id)
             XCTAssertEqual(host.state.tourStep?.rawValue, check.expect.step, fixture.id)
             let mark = try XCTUnwrap(host.state.tourCoachMark, fixture.id)
             XCTAssertEqual(["showCoachMark(\(mark.rawValue))"], check.expect.commands, fixture.id)
