@@ -84,6 +84,18 @@ class TourNightArrivesEffectsTest {
         return TourController(fake.state, fake.update, store, { true }, scope, night = night)
     }
 
+    @Test fun decliningCalendarAdvancesOnlyTheDemoLessonWithoutAReceipt() = runBlocking {
+        val controller = atS10()
+        controller.continueWithoutCalendar(real.id)
+        drain()
+        assertEquals(TourStep.S10, fake.current.tour.step)
+        controller.continueWithoutCalendar(gig.id)
+        drain()
+        assertEquals(TourStep.S11, fake.current.tour.step)
+        assertTrue(fake.current.calendarEventByGig.isEmpty())
+        assertTrue(deleted.isEmpty())
+    }
+
     private suspend fun atS10(): TourController {
         timelines.savePlanned(real)
         timelines.savePlanned(gig)

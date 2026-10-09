@@ -6,6 +6,7 @@ The Tour's Virtual friend lives in this folder and nowhere else. Both platforms 
 
 | Key | Meaning |
 |---|---|
+| `history` | Fictional demo gigs: artist, date (`dd-MM-yyyy`), venue and city. Ludwig’s varied history is set within Beethoven’s lifetime; these are not claims about real performances or attendance. |
 | `name` | Display name on every card and on the Exchange row. |
 | `username` | The card's setlist.fm username, shown as `@username` under the name on the Exchange row (S7). |
 | `avatar`, `selfie`, `cutout` | Asset base names (see below). |

@@ -440,24 +440,37 @@ fun StationEventScreen(
     val logBar = canLog && !(planAhead && setlist?.let { viewModel.tour.isDemoGig(it.id) } == true)
     // The insert is a couple of binder calls, so it runs off the main thread; success
     // persists the returned URI, and every failure (no writable calendar, provider
-    // refusal) degrades to a toast with no link and no stage advance.
+    // refusal) offers an explicit Tour opt-out, without inventing an event receipt.
+    var calendarFailure by remember { mutableStateOf<String?>(null) }
+    calendarFailure?.let { message ->
+        AlertDialog(onDismissRequest = { calendarFailure = null },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = { calendarFailure = null }) { Text("OK") } },
+            dismissButton = {
+                if (setlist != null && viewModel.tour.isDemoGig(setlist.id) &&
+                    state.tour.step == io.github.magnusencoded.stationtostation.features.tour.TourStep.S10) {
+                    TextButton(onClick = { calendarFailure = null; viewModel.tour.continueWithoutCalendar(setlist.id) }) {
+                        Text("Continue without calendar")
+                    }
+                }
+            })
+    }
     val addToCalendar: () -> Unit = add@{
         val s = setlist ?: return@add
         val world = viewModel.tour.calendarWorld(s.id)
         scope.launch {
-            val uri = withContext(Dispatchers.IO) { insertCalendarEvent(context.contentResolver, s) }
+            val uri = withContext(Dispatchers.IO) { runCatching { insertCalendarEvent(context.contentResolver, s) }.getOrNull() }
             if (uri != null) viewModel.markCalendarAdded(s.id, uri.toString(), world)
-            else Toast.makeText(context, "Couldn't add this to your calendar.", Toast.LENGTH_SHORT).show()
+            else calendarFailure = "No writable calendar was available, or the calendar refused the event. No event was created."
         }
     }
     val calendarPermission = arrayOf(Manifest.permission.WRITE_CALENDAR, Manifest.permission.READ_CALENDAR)
-    // A denied permission is the graceful-degrade path: a toast, and the swipe stays on
-    // "add to calendar" because no event was made.
+    // A denied permission never claims an event was made.
     val calendarPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
         if (grants.values.all { it }) addToCalendar()
-        else Toast.makeText(context, "Calendar access is needed to add this show.", Toast.LENGTH_SHORT).show()
+        else calendarFailure = "Calendar access was not granted. No event was created."
     }
     val onAddToCalendar: () -> Unit = {
         if (calendarPermission.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
@@ -516,7 +529,9 @@ fun StationEventScreen(
                 leaf = leaf,
                 made = made,
                 calendarEventUri = calendarEventUri,
-                showTicket = offers.room.showTicket,
+                showTicket = offers.room.showTicket && (!viewModel.tour.isDemoGig(setlist?.id.orEmpty()) ||
+                    state.tour.step in setOf(io.github.magnusencoded.stationtostation.features.tour.TourStep.S12,
+                        io.github.magnusencoded.stationtostation.features.tour.TourStep.S13)),
                 admissions = setlist?.let { state.attendanceByGig[it.id]?.admissions }.orEmpty(),
                 presenceRow = presenceRow,
                 onPublish = onPublish,
@@ -701,13 +716,15 @@ fun StationEventScreen(
                             color = Muted,
                             fontSize = 13.sp,
                         )
-                        venueMapsQuery(setlist.venue?.name, setlist.venue?.city?.name)?.let { query ->
+                        val demoMaps = viewModel.tour.mapsUri(setlist)
+                        val mapsQuery = venueMapsQuery(setlist.venue?.name, setlist.venue?.city?.name)
+                        if (demoMaps != null || mapsQuery != null) {
                             Text(
                                 "Open venue in Maps ↗",
                                 color = Slate,
                                 fontSize = 13.sp,
                                 modifier = Modifier.spokenAs("Open venue in Maps").clickable {
-                                    if (openVenueInMaps(context, query, viewModel.tour.mapsUri(setlist))) {
+                                    if (openVenueInMaps(context, mapsQuery.orEmpty(), demoMaps)) {
                                         viewModel.tour.mapsOpened(setlist.id)
                                     }
                                 }.padding(vertical = 6.dp),
@@ -1070,7 +1087,7 @@ private fun EventBottomBar(
             } else if (!checkedIn) {
                 // Outside the check-in window: no "I'm here" offer yet, but
                 // still worth showing that the ticket's barcode was captured.
-                TicketAtTheDoor(admissions)
+                if (showTicket) TicketAtTheDoor(admissions, onShown = onTicketShown)
             }
             when (timeState) {
                 // Over: adding a setlist is a past action, so the setlist.fm

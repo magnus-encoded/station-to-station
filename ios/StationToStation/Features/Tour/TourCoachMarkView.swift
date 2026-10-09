@@ -20,6 +20,9 @@ struct TourCoachMarkView: View {
                 .shadow(color: .black.opacity(0.5), radius: 6, y: 2)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 5) {
+                Text(character.name).font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                    .padding(.init(top: 2, leading: 9, bottom: 2, trailing: 16))
+                    .background(model.tourAccent, in: TourNameTab())
                 Text(line.instruction).font(.system(size: 14, weight: .semibold, design: .serif))
                 if let why = line.why {
                     Text(why).font(.system(size: 12, design: .serif))
@@ -42,11 +45,6 @@ struct TourCoachMarkView: View {
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
             .background(Color(red: 58/255, green: 50/255, blue: 74/255).opacity(0.94), in: RoundedRectangle(cornerRadius: 14))
             .overlay(alignment: .leading) { Rectangle().fill(model.tourAccent).frame(width: 3) }
-            .overlay(alignment: .topLeading) {
-                Text(character.name).font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
-                    .padding(.init(top: 2, leading: 9, bottom: 2, trailing: 16))
-                    .background(model.tourAccent, in: TourNameTab()).offset(y: -9)
-            }
             .padding(.leading, 6).padding(.trailing, 124 * 0.94)
             .padding(.top, 10).padding(.bottom, 6)
         }
@@ -107,7 +105,7 @@ private struct TourModifier: ViewModifier {
                     TourCoachMarkView(model: model, mark: mark)
                 }
             }
-            .overlay(alignment: .bottom) {
+            .safeAreaInset(edge: .bottom, spacing: 0) {
                 if model.state.tourUpgradePrompt {
                     TourUpgradePromptView(model: model)
                 } else if !model.state.tourFinished, let step = model.state.tourStep,

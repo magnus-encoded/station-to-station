@@ -70,8 +70,15 @@ struct AddGigSheet: View {
                   today: isoToday())
     }
 
+    private var tourPlanning: Bool { !model.state.tourFinished && (model.state.tourStep == .s3 || model.state.tourStep == .s4) }
+
     private var ready: Bool {
-        pasting
+        if tourPlanning {
+            return !artist.trimmingCharacters(in: .whitespaces).isEmpty && picked == artist &&
+                !venue.trimmingCharacters(in: .whitespaces).isEmpty &&
+                (isoDate(fromFm: date.trimmingCharacters(in: .whitespaces)).map { $0 > isoToday() } ?? false)
+        }
+        return pasting
             ? !link.trimmingCharacters(in: .whitespaces).isEmpty
             : !artist.trimmingCharacters(in: .whitespaces).isEmpty
                 && !date.trimmingCharacters(in: .whitespaces).isEmpty
@@ -101,7 +108,7 @@ struct AddGigSheet: View {
                             // cannot tell that from typing — without the guard the
                             // list the pick just dismissed comes straight back.
                             .onChange(of: artist) { name in
-                                if name != picked { model.planning.suggestArtists(name) }
+                                if name != picked { picked = ""; model.planning.suggestArtists(name) }
                             }
                         // Suggestions sit directly under the field they belong to and
                         // nowhere else. Capped at four rows: this is a prompt above a
@@ -111,7 +118,7 @@ struct AddGigSheet: View {
                             Button {
                                 picked = hit.name
                                 artist = hit.name
-                                model.planning.clearArtistSuggestions()
+                                model.planning.pickArtist(hit)
                                 model.tour.send(.bandPicked)
                             } label: {
                                 Text(hit.disambiguation.isEmpty
@@ -119,7 +126,7 @@ struct AddGigSheet: View {
                                     .font(.footnote).foregroundStyle(slate)
                             }
                         }
-                        TextField("venue (optional)", text: $venue)
+                        TextField(tourPlanning ? "venue" : "venue (optional)", text: $venue)
                         TextField("date (dd-MM-yyyy)", text: $date)
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
                     } footer: {
@@ -130,12 +137,12 @@ struct AddGigSheet: View {
                                + "was played goes in its log afterwards.")
                     }
                 }
-                Section {
+                if !tourPlanning { Section {
                     Button(pasting ? "or type it in" : "or paste a setlist.fm link") {
                         pasting.toggle()
                     }
                     .font(.footnote)
-                }
+                } }
             }
             .navigationTitle("Add a gig")
             .navigationBarTitleDisplayMode(.inline)
@@ -145,7 +152,6 @@ struct AddGigSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") {
-                        model.planning.clearArtistSuggestions()
                         if pasting { onAddByLink(link) } else { onAdd(artist, venue, date) }
                     }
                     .disabled(!ready)

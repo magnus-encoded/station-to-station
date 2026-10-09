@@ -64,11 +64,12 @@ fun tourController(
     val meetFriend = TourMeetFriendEffects(
         friendName = { character.name },
         extraNights = { gig ->
-            // These local demo nights make the new lane visibly longer, even for a returning user.
-            val count = (state.value.setlists + state.value.plannedGigs).distinctBy { it.id }.size.coerceAtLeast(1)
-            (1..count).map { index -> gig.copy(id = "tour-history:$index:${gig.id}",
-                eventDate = gig.localDate()?.minusWeeks(index.toLong())?.format(java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy")),
-                url = null) }
+            // Fictional character history, never copies of the person's chosen gig.
+            character.history.mapIndexed { index, night ->
+                io.github.magnusencoded.stationtostation.data.localGigSetlist(
+                    "tour-history:$index:${gig.id}", night.artist,
+                    requireNotNull(io.github.magnusencoded.stationtostation.data.parseFmDate(night.date)), night.venue, night.city)
+            }
         },
         contacts = { settings.friends.first() },
         demoGig = demoGig,

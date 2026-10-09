@@ -46,6 +46,24 @@ final class PlanningControllerTests: XCTestCase {
         FmSetlist(id: id, eventDate: date, artist: FmArtist(name: artist))
     }
 
+    func testTourRequiresVenueAndFutureDate() async {
+        state.tourFinished = false
+        state.tourStep = .s4
+        for (date, venue) in [("01-01-2000", "Room"), ("01-01-2099", "")] {
+            state.error = nil
+            model.addGig(artist: "Band", venue: venue, date: date, today: "2026-10-09")
+            XCTAssertNotNil(state.error)
+            XCTAssertTrue(state.plannedGigs.isEmpty)
+        }
+    }
+
+    func testPickedArtistIdentitySurvivesPlanning() async {
+        model.pickArtist(MbArtist(name: "Band", mbid: "artist-id", disambiguation: ""))
+        model.addGig(artist: "Band", venue: "Room", date: "01-01-2099", today: "2026-10-09")
+        await eventually { state.plannedGigs.count == 1 }
+        XCTAssertEqual("artist-id", state.plannedGigs.first?.artist?.mbid)
+    }
+
     func testANightBeforeTodayIsAddedAsAttended() async {
         model.addGig(artist: "A Band", venue: "Blå", date: "01-02-2020", today: "2026-10-05")
 

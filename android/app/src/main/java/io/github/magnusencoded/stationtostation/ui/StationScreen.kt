@@ -457,10 +457,11 @@ fun StationTimelineScreen(
                     suggestions = state.artistSuggestions,
                     onArtistTyped = { viewModel.suggestArtists(it) },
                     onArtistPicked = {
-                        viewModel.clearArtistSuggestions()
+                        viewModel.pickArtist(it)
                         viewModel.tour.dispatch(TourEvent.BandPicked)
                     },
                     tour = { TourCoachMarkInline(viewModel) },
+                    tourPlanning = state.tour.running && state.tour.step in setOf(io.github.magnusencoded.stationtostation.features.tour.TourStep.S3, io.github.magnusencoded.stationtostation.features.tour.TourStep.S4),
                     onAdd = { artist, venue, date ->
                         viewModel.addGig(artist, venue, date)
                         adding = false
@@ -496,7 +497,7 @@ fun StationTimelineScreen(
                 state.setlists.isEmpty() && state.plannedGigs.isEmpty() ->
                     EmptyTimeline(
                         onAdd = onOpenImport,
-                        onAddGig = { adding = true },
+                        onAddGig = actions.onAddGig,
                     )
 
                 else -> TimelineLine(
@@ -1436,7 +1437,7 @@ fun ImportScreen(
             initial = null,
             suggestions = state.artistSuggestions,
             onArtistTyped = { viewModel.suggestArtists(it) },
-            onArtistPicked = { viewModel.clearArtistSuggestions() },
+            onArtistPicked = { viewModel.pickArtist(it) },
             onAdd = { artist, venue, date ->
                 viewModel.addGig(artist, venue, date)
                 byHand = false

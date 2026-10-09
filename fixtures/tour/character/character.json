@@ -11,8 +11,8 @@
     },
     "S2": {
       "do": "Open the planner at the top of your Line to add a gig.",
-      "ios": "Tap the circled plus in the Future block at the top of your Line.",
-      "android": "Pull down from the top of your Line to “a gig you're going to”, then let go.",
+      "ios": "Tap the plus in Future, or “add a gig by hand” on an empty Line.",
+      "android": "Pull down to add a gig, or tap “add a gig by hand” on an empty Line.",
       "why": "Anything you plan appears above today on your Line. This gig is a demo and is deleted when we finish."
     },
     "S3": {
@@ -20,7 +20,7 @@
       "why": "The app asks MusicBrainz, a free public music database, to find the exact band, so we don't end up with the wrong one."
     },
     "S4": {
-      "do": "Respectable taste. Not mine, but respectable. Enter a date in the future as dd-MM-yyyy, then tap Add.",
+      "do": "Respectable taste. Not mine, but respectable. Enter a venue and a future date as dd-MM-yyyy, then tap Add.",
       "why": "A date that hasn't happened yet makes it a planned gig, which waits on your Line until the night arrives."
     },
     "S5": {
@@ -93,5 +93,43 @@
   "playlist": {
     "title": "Went to a gig with Ludwig",
     "description": "Achievement unlocked: survived a whole gig with Ludwig. He arrived early, left late and had opinions about the support act throughout."
-  }
+  },
+  "history": [
+    {
+      "artist": "Wolfgang Amadeus Mozart",
+      "date": "10-03-1785",
+      "venue": "Burgtheater",
+      "city": "Vienna"
+    },
+    {
+      "artist": "Joseph Haydn",
+      "date": "04-05-1795",
+      "venue": "King's Theatre",
+      "city": "London"
+    },
+    {
+      "artist": "Muzio Clementi",
+      "date": "12-04-1802",
+      "venue": "Saloon",
+      "city": "Vienna"
+    },
+    {
+      "artist": "Antonio Salieri",
+      "date": "18-06-1804",
+      "venue": "Court theatre",
+      "city": "Vienna"
+    },
+    {
+      "artist": "Johann Nepomuk Hummel",
+      "date": "09-11-1810",
+      "venue": "Assembly rooms",
+      "city": "Vienna"
+    },
+    {
+      "artist": "Franz Schubert",
+      "date": "14-02-1825",
+      "venue": "Private salon",
+      "city": "Vienna"
+    }
+  ]
 }

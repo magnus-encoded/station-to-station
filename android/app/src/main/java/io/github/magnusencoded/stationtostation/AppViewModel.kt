@@ -1335,6 +1335,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         tickets.confirmPendingTicket(id, artist, venue, date, chosenSetlistId)
     fun dismissPendingTicket(id: String) = tickets.dismissPendingTicket(id)
     fun suggestArtists(query: String) = planning.suggestArtists(query)
+    fun pickArtist(artist: io.github.magnusencoded.stationtostation.data.musicbrainz.MbArtist) = planning.pickArtist(artist)
     fun clearArtistSuggestions() = planning.clearArtistSuggestions()
     fun addLocalGig(artist: String, venue: String, date: String) = planning.addLocalGig(artist, venue, date)
     suspend fun markCalendarAdded(gigId: String, eventUri: String, world: Int? = tour.calendarWorld(gigId)) {

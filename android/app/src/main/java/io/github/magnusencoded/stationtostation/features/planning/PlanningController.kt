@@ -4,6 +4,7 @@ import io.github.magnusencoded.stationtostation.*
 import io.github.magnusencoded.stationtostation.data.*
 import io.github.magnusencoded.stationtostation.data.musicbrainz.MusicBrainzClient
 import io.github.magnusencoded.stationtostation.data.setlistfm.*
+import io.github.magnusencoded.stationtostation.features.tour.running
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -91,6 +92,12 @@ class PlanningController(
             update { it.copy(errorKind = null, error = "A night needs who played and a date as dd-MM-yyyy.") }
             return
         }
+        val tour = state().tour
+        if (tour.running && tour.step == io.github.magnusencoded.stationtostation.features.tour.TourStep.S4 &&
+            (venue.isBlank() || !night.isAfter(LocalDate.now()))) {
+            update { it.copy(errorKind = null, error = "For the Tour, enter a venue and a date after today.") }
+            return
+        }
         when (nightKind(night, LocalDate.now())) {
             NightKind.GOING_TO -> addPlannedGigByHand(artist, venue, date)
             NightKind.WAS_AT -> addLocalGig(artist, venue, date)
@@ -144,9 +151,12 @@ class PlanningController(
             update { it.copy(errorKind = null, error = "A night needs who is playing and a date as dd-MM-yyyy.") }
             return
         }
+        val picked = pickedArtist?.takeIf { it.name == artist.trim() }
+        pickedArtist = null
         scope.launch {
             val gigId = timelines.createLocalGig(fmDate(night), artist.trim(), venue.trim())
-            val gig = localGigSetlist(gigId, artist.trim(), night, venue.trim(), city = "")
+            val base = localGigSetlist(gigId, artist.trim(), night, venue.trim(), city = "")
+            val gig = if (picked == null) base else base.copy(artist = FmArtist(mbid = picked.mbid, name = picked.name))
             // The claim goes into state as well as onto disk. `plannedLane` filters on
             // it, so a gig added without it was written correctly and then drawn by
             // nothing — the night appeared only after a restart, which reads as Add
@@ -209,7 +219,15 @@ class PlanningController(
      * is offline can still type the name, and an error snackbar for a suggestion that
      * did not arrive would be nagging about a service they did not ask to use.
      */
+    private var pickedArtist: io.github.magnusencoded.stationtostation.data.musicbrainz.MbArtist? = null
+
+    fun pickArtist(artist: io.github.magnusencoded.stationtostation.data.musicbrainz.MbArtist) {
+        clearArtistSuggestions()
+        pickedArtist = artist
+    }
+
     fun suggestArtists(query: String) {
+        pickedArtist = null
         artistSearch?.cancel()
         if (query.isBlank()) {
             update { it.copy(artistSuggestions = emptyList()) }
@@ -224,6 +242,7 @@ class PlanningController(
 
     /** The typed name was replaced by a picked one, so the list has done its job. */
     fun clearArtistSuggestions() {
+        pickedArtist = null
         artistSearch?.cancel()
         update { it.copy(artistSuggestions = emptyList()) }
     }
@@ -245,9 +264,12 @@ class PlanningController(
             update { it.copy(errorKind = null, error = "A night needs who played and a date as dd-MM-yyyy.") }
             return
         }
+        val picked = pickedArtist?.takeIf { it.name == artist.trim() }
+        pickedArtist = null
         scope.launch {
             val gigId = timelines.createLocalGig(fmDate(night), artist.trim(), venue.trim())
-            val gig = localGigSetlist(gigId, artist.trim(), night, venue.trim(), city = "")
+            val base = localGigSetlist(gigId, artist.trim(), night, venue.trim(), city = "")
+            val gig = if (picked == null) base else base.copy(artist = FmArtist(mbid = picked.mbid, name = picked.name))
             val attendance = StoredAttendance(provenance = StoredAttendance.Provenance.ATTENDED)
             timelines.savePlanned(gig)
             timelines.saveAttendance(gigId, attendance)

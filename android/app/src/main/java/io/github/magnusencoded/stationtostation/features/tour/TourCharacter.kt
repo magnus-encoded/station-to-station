@@ -15,6 +15,7 @@ data class TourCharacter(
     val lines: Map<String, Line>,
     val notes: Notes,
     val playlist: Playlist,
+    val history: List<History> = emptyList(),
 ) {
     @Serializable
     data class Line(@SerialName("do") val instruction: String, val why: String? = null,
@@ -22,6 +23,7 @@ data class TourCharacter(
         fun onAndroid() = copy(instruction = android ?: instruction)
     }
     @Serializable data class Notes(val gapFill: String, val setlistFill: String)
+    @Serializable data class History(val artist: String, val date: String, val venue: String, val city: String)
     @Serializable data class Playlist(val title: String, val description: String)
 
     fun line(mark: CoachMark): Line = lines.getValue(TourStep.entries.single { it.mark == mark }.name).onAndroid()
@@ -30,6 +32,10 @@ data class TourCharacter(
         require(listOf(name, username, avatar, selfie, cutout, notes.gapFill, notes.setlistFill,
             playlist.title, playlist.description).all { it.isNotBlank() }) { "Missing character value" }
         require(lines.keys == TourStep.entries.filter { it.mark != null }.map { it.name }.toSet()) { "Missing or unexpected card step" }
+        require(history.isNotEmpty() && history.all {
+            listOf(it.artist, it.venue, it.city).all(String::isNotBlank) &&
+                io.github.magnusencoded.stationtostation.data.parseFmDate(it.date) != null
+        }) { "Missing or invalid demo history" }
         lines.forEach { (step, line) ->
             fun check(text: String, limit: Int) {
                 require(text.isNotBlank() && text.trim().split(Regex("\\s+")).size <= limit) { "$step exceeds $limit words or is blank" }

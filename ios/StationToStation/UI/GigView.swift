@@ -58,6 +58,7 @@ struct GigView: View {
     /// Whether the filing sheet is up — handing this night to setlist.fm.
     @State private var filing = false
     @State private var adopting = false
+    @State private var calendarFailed = false
     @State private var deleting = false
     /// Whether the "Possible match on setlist.fm" list is open (#531).
     @State private var askingMatch = false
@@ -335,7 +336,18 @@ struct GigView: View {
         // and it may be empty — empty while the band plays, and empty on a night
         // whose record nobody has filled in, where the playlist would convert
         // nothing. The playlist is what remains once the night is recorded.
-        .swipeLeft { if offers?.alcove == .spotify { nav.push(.confirm) } }
+        .swipeLeft {
+            if offers?.alcove == .addToCalendar, let show = model.state.selectedSetlist {
+                model.planning.addToCalendar(show, onFailure: { calendarFailed = true })
+            } else if offers?.alcove == .spotify {
+                nav.push(.confirm)
+            }
+        }
+        .accessibilityAction(named: "Add to calendar") {
+            if offers?.alcove == .addToCalendar, let show = model.state.selectedSetlist {
+                model.planning.addToCalendar(show, onFailure: { calendarFailed = true })
+            }
+        }
         // The same move for VoiceOver, which takes the flick for itself. This used
         // to be a button, and the button was reachable; the gesture on its own is
         // not, so the grammar cannot cost a reader the action.
@@ -530,6 +542,7 @@ struct GigView: View {
                 // does; `TicketAtTheDoor` draws every Admission in its own symbology,
                 // one at a time, and says so plainly of one it cannot redraw (#441).
                 if room?.showTicket == true,
+                   (!model.tour.isDemoGig(show.id) || model.state.tourStep == .s12 || model.state.tourStep == .s13),
                    let admissions = model.state.selectedAttendance?.admissions, !admissions.isEmpty {
                     TicketAtTheDoor(admissions: admissions).padding(.top, 10)
                         .simultaneousGesture(TapGesture().onEnded { model.tour.ticketShown(show.id) })
@@ -616,7 +629,7 @@ struct GigView: View {
                     Label("Added to your calendar", systemImage: "checkmark.circle")
                         .foregroundStyle(muted)
                 } else if alcove == .addToCalendar {
-                    Button { model.planning.addToCalendar(show) } label: {
+                    Button { model.planning.addToCalendar(show, onFailure: { calendarFailed = true }) } label: {
                         Label("Add to calendar", systemImage: "calendar.badge.plus")
                     }
                 }
@@ -646,6 +659,14 @@ struct GigView: View {
             .foregroundStyle(ink)
             .tint(ink)
             .padding(.horizontal, 24).padding(.top, 14)
+            .alert("Calendar event not created", isPresented: $calendarFailed) {
+                Button("OK", role: .cancel) {}
+                if model.tour.isDemoGig(show.id), model.state.tourStep == .s10 {
+                    Button("Continue without calendar") { model.tour.continueWithoutCalendar(show.id) }
+                }
+            } message: {
+                Text("Calendar access was denied or no writable calendar was available. No event was created.")
+            }
         }
     }
 

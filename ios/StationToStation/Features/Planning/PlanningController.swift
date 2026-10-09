@@ -74,7 +74,15 @@ final class PlanningController {
     /// A failure is an empty list, never a banner. This is a prompt on top of a field
     /// that works perfectly well without it, and MusicBrainz being unreachable is not
     /// something the person typing needs to be told about mid-word (ADR-0004).
+    private var pickedArtist: MbArtist?
+
+    func pickArtist(_ artist: MbArtist) {
+        clearArtistSuggestions()
+        pickedArtist = artist
+    }
+
     func suggestArtists(_ query: String) {
+        pickedArtist = nil
         artistSearch?.cancel()
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             host.state.artistSuggestions = []
@@ -91,6 +99,7 @@ final class PlanningController {
 
     /// The typed name was replaced by a picked one, so the list has done its job.
     func clearArtistSuggestions() {
+        pickedArtist = nil
         artistSearch?.cancel()
         host.state.artistSuggestions = []
     }
@@ -102,6 +111,12 @@ final class PlanningController {
         guard let night = isoDate(fromFm: date.trimmingCharacters(in: .whitespaces)),
               !artist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             host.state.error = "A night needs who played and a date as dd-MM-yyyy."
+            host.state.errorKind = nil
+            return
+        }
+        if !host.state.tourFinished, host.state.tourStep == .s4,
+           venue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || night <= today {
+            host.state.error = "For the Tour, enter a venue and a date after today."
             host.state.errorKind = nil
             return
         }
@@ -144,10 +159,13 @@ final class PlanningController {
     /// literally the same code; a second copy is a divergence with a delay on it.
     @discardableResult
     func mintPlannedGig(artist: String, venue: String, night: Date) async -> String {
+        let picked = pickedArtist?.name == artist ? pickedArtist : nil
+        pickedArtist = nil
         let day = fmDate(night)
         let gigId = await timelines.createLocalGig(date: day, artist: artist, venue: venue)
-        let gig = localGigSetlist(gigId: gigId, artist: artist, date: day,
+        var gig = localGigSetlist(gigId: gigId, artist: artist, date: day,
                                   venue: venue, city: "")
+        if let picked { gig.artist = FmArtist(mbid: picked.mbid, name: picked.name) }
         // The claim goes into state as well as onto disk. `plannedLane` filters on
         // it, so a gig added without it is written correctly and then drawn by
         // nothing — the night appears only after a restart, which reads as Add
@@ -324,14 +342,17 @@ final class PlanningController {
     /// itself asks nothing of the model layer, but the result — the id, or the lack of
     /// one — has to land somewhere the leaf reads. Degrades to the same error banner
     /// every other failure in this model uses, matching Android's toast.
-    func addToCalendar(_ setlist: FmSetlist) {
+    func addToCalendar(_ setlist: FmSetlist, onFailure: (() -> Void)? = nil) {
         Task {
             if let id = await insertCalendarEvent(setlist) {
                 markCalendarAdded(setlist.id, eventId: id)
                 onCalendarAdded?(setlist.id, id)
             } else {
-                host.state.error = "Couldn't add this to your calendar."
-                host.state.errorKind = nil
+                if let onFailure { onFailure() }
+                else {
+                    host.state.error = "Couldn't add this to your calendar."
+                    host.state.errorKind = nil
+                }
             }
         }
     }

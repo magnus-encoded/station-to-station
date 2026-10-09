@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Validate the swappable Tour character without third-party dependencies."""
 import json
+from datetime import datetime
 from pathlib import Path
 import sys
 
@@ -22,6 +23,15 @@ def validate(path):
             raise ValueError(f"{group}: required object")
         for key in keys:
             string(data[group], key)
+    history = data.get("history")
+    if not isinstance(history, list) or not history:
+        raise ValueError("history: required non-empty list of fictional gigs")
+    for night in history:
+        if not isinstance(night, dict):
+            raise ValueError("history: each gig must be an object")
+        for key in ("artist", "date", "venue", "city"):
+            string(night, key)
+        datetime.strptime(night["date"], "%d-%m-%Y")
     lines = data.get("lines")
     if not isinstance(lines, dict) or set(lines) != CARD_STEPS:
         raise ValueError("lines: must contain exactly S1-S8, S10-S16, S18, S19")

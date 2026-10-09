@@ -391,7 +391,7 @@ internal fun TicketConfirmDialog(
             StationField(artist, { artist = it; onArtistTyped(it) }, "who's playing")
             // Suggestions matter more here than anywhere else: the name in this field
             // came off an OCR pass, so a near miss is the expected case, not a typo.
-            ArtistSuggestions(suggestions) { artist = it; onArtistPicked() }
+            ArtistSuggestions(suggestions) { artist = it.name; onArtistPicked() }
             Spacer(Modifier.height(8.dp))
             StationField(venue, { venue = it }, "venue (optional)")
             Spacer(Modifier.height(8.dp))
@@ -432,7 +432,7 @@ internal fun TicketConfirmDialog(
  * scrolls is a search result page pretending to be a hint.
  */
 @Composable
-internal fun ArtistSuggestions(suggestions: List<MbArtist>, onPick: (String) -> Unit) {
+internal fun ArtistSuggestions(suggestions: List<MbArtist>, onPick: (MbArtist) -> Unit) {
     suggestions.take(4).forEach { hit ->
         Text(
             buildString {
@@ -443,7 +443,7 @@ internal fun ArtistSuggestions(suggestions: List<MbArtist>, onPick: (String) -> 
             fontSize = 12.sp,
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { onPick(hit.name) }
+                .clickable { onPick(hit) }
                 .padding(vertical = 6.dp),
         )
     }

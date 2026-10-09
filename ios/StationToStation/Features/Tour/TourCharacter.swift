@@ -17,6 +17,8 @@ struct TourCharacter: Codable {
     let cutout: String
     let lines: [String: Line]
     let notes: Notes
+    struct History: Codable { let artist: String; let date: String; let venue: String; let city: String }
+    let history: [History]?
     let playlist: Playlist
 
     static let bundled: TourCharacter = {
@@ -35,6 +37,10 @@ struct TourCharacter: Codable {
                character.notes.gapFill, character.notes.setlistFill, character.playlist.title,
                character.playlist.description].allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
         else { throw Invalid.missingValue }
+        guard let history = character.history, !history.isEmpty, history.allSatisfy({ night in
+            [night.artist, night.venue, night.city].allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } &&
+                isoDate(fromFm: night.date) != nil
+        }) else { throw Invalid.missingValue }
         guard Set(character.lines.keys) == cardSteps else { throw Invalid.cardSteps }
         for (step, line) in character.lines {
             for (text, limit) in [(Optional(line.do), 20), (line.why, 30), (line.ios, 20), (line.android, 20)] {

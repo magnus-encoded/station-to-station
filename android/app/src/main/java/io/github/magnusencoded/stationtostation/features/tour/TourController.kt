@@ -85,6 +85,11 @@ class TourController(
         return kept
     }
 
+    fun continueWithoutCalendar(gigId: String) {
+        // The frozen script names this lesson calendarAdded; opting out creates no receipt.
+        if (state().tour.step == TourStep.S10) sendForDemoGig(gigId, TourEvent.CalendarAdded)
+    }
+
     fun mapsOpened(gigId: String) = sendForDemoGig(gigId, TourEvent.MapsOpened)
     fun ticketShown(gigId: String) = sendForDemoGig(gigId, TourEvent.TicketShown)
     fun checkedIn(gigId: String) = sendForDemoGig(gigId, TourEvent.CheckedIn)

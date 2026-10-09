@@ -16,8 +16,8 @@ import java.time.ZoneId
  *
  * Needs WRITE_CALENDAR (to insert) and READ_CALENDAR (to find a calendar to write to);
  * the caller requests both at swipe time. Returns null when there's no date to place
- * it on, no writable calendar, or the provider refuses — each degrades to a toast, no
- * link, no stage advance.
+ * it on, no writable calendar, or the provider refuses. The caller explains failure;
+ * no calendar link is stored unless insertion succeeds.
  *
  * Runs off the main thread (a couple of binder round-trips): the caller wraps it in IO.
  */
@@ -51,7 +51,9 @@ private fun primaryCalendarId(resolver: ContentResolver): Long? {
         CalendarContract.Calendars.IS_PRIMARY,
         CalendarContract.Calendars.VISIBLE,
     )
-    resolver.query(CalendarContract.Calendars.CONTENT_URI, projection, null, null, null)?.use { c ->
+    resolver.query(CalendarContract.Calendars.CONTENT_URI, projection,
+        "${CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL} >= ?",
+        arrayOf(CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR.toString()), null)?.use { c ->
         val idCol = c.getColumnIndexOrThrow(CalendarContract.Calendars._ID)
         val primaryCol = c.getColumnIndexOrThrow(CalendarContract.Calendars.IS_PRIMARY)
         val visibleCol = c.getColumnIndexOrThrow(CalendarContract.Calendars.VISIBLE)

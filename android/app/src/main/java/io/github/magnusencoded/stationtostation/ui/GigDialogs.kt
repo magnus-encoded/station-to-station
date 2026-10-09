@@ -1,6 +1,8 @@
 package io.github.magnusencoded.stationtostation.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -75,14 +77,16 @@ internal fun AddGigDialog(
     initial: AddGigLink?,
     suggestions: List<MbArtist>,
     onArtistTyped: (String) -> Unit,
-    onArtistPicked: () -> Unit,
+    onArtistPicked: (MbArtist) -> Unit,
     onAdd: (artist: String, venue: String, date: String) -> Unit,
     onAddByLink: (String) -> Unit,
     onDismiss: () -> Unit,
     /** The **Tour**'s coach mark, which the dialog would otherwise cover. */
     tour: @Composable () -> Unit = {},
+    tourPlanning: Boolean = false,
 ) {
     var artist by remember { mutableStateOf(initial?.artist.orEmpty()) }
+    var pickedArtist by remember { mutableStateOf<MbArtist?>(null) }
     var venue by remember { mutableStateOf(initial?.venue.orEmpty()) }
     var date by remember { mutableStateOf(initial?.date.orEmpty()) }
     var link by remember { mutableStateOf("") }
@@ -94,6 +98,7 @@ internal fun AddGigDialog(
             Modifier
                 .clip(RoundedCornerShape(16.dp))
                 .background(Raised)
+                .verticalScroll(rememberScrollState())
                 .padding(20.dp),
         ) {
             tour()
@@ -122,16 +127,16 @@ internal fun AddGigDialog(
                     fontSize = 12.sp,
                 )
                 Spacer(Modifier.height(14.dp))
-                StationField(artist, { artist = it; onArtistTyped(it) }, "who's playing")
-                ArtistSuggestions(suggestions) { artist = it; onArtistPicked() }
+                StationField(artist, { artist = it; pickedArtist = null; onArtistTyped(it) }, "who's playing")
+                ArtistSuggestions(suggestions) { artist = it.name; pickedArtist = it; onArtistPicked(it) }
                 Spacer(Modifier.height(8.dp))
-                StationField(venue, { venue = it }, "venue (optional)")
+                StationField(venue, { venue = it }, if (tourPlanning) "venue" else "venue (optional)")
                 Spacer(Modifier.height(8.dp))
                 StationField(date, { date = it }, "date (dd-MM-yyyy)", imeDone = true)
             }
 
             Spacer(Modifier.height(4.dp))
-            TextButton(onClick = { pasting = !pasting }) {
+            if (!tourPlanning) TextButton(onClick = { pasting = !pasting }) {
                 Text(
                     if (pasting) "or type it in" else "or paste a setlist.fm link",
                     color = Faint,
@@ -141,7 +146,8 @@ internal fun AddGigDialog(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text("Cancel", color = Faint) }
                 val ready =
-                    if (pasting) link.isNotBlank() else artist.isNotBlank() && date.isNotBlank()
+                    if (pasting) link.isNotBlank() else artist.isNotBlank() && date.isNotBlank() &&
+                        (!tourPlanning || (pickedArtist != null && venue.isNotBlank() && parseFmDate(date)?.isAfter(LocalDate.now()) == true))
                 TextButton(
                     onClick = {
                         if (pasting) onAddByLink(link) else onAdd(artist, venue, date)

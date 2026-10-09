@@ -56,8 +56,10 @@ fun TourOverlay(viewModel: AppViewModel, content: @Composable () -> Unit) {
     var dockHeight by remember { mutableStateOf(155.dp) }
     val density = LocalDensity.current
     val dockTop = WindowInsets.isImeVisible && state.tour.step in setOf(TourStep.S14, TourStep.S15)
-    Box(Modifier.fillMaxSize()) {
-        Box(Modifier.padding(top = if (dockTop) dockHeight else 0.dp)) { content() }
+    Box(Modifier.fillMaxSize().background(Color(0xFF0E0B14))) {
+        val hasCard = state.tour.running && state.coachMark != null && state.tour.step !in setOf(TourStep.S3, TourStep.S4)
+        Box(Modifier.padding(top = if (dockTop && hasCard) dockHeight else 0.dp,
+            bottom = if (!dockTop && hasCard) dockHeight else 0.dp)) { content() }
         if (state.tourUpgradePrompt) {
             UpgradePromptCard(onAccept = { viewModel.tour.acceptUpgradePrompt() },
                 onDismiss = { viewModel.tour.dismissUpgradePrompt() })
@@ -133,6 +135,10 @@ internal fun CoachMarkCard(
                 .drawBehind { drawLine(accent, Offset(1.5.dp.toPx(), 0f), Offset(1.5.dp.toPx(), size.height), 3.dp.toPx()) }
                 .padding(start = 14.dp, top = 12.dp, end = 11.dp, bottom = 7.dp),
                 verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(character.name, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.background(accent, GenericShape { size, _ ->
+                    moveTo(0f, 0f); lineTo(size.width, 0f); lineTo(size.width - slant, size.height); lineTo(0f, size.height); close()
+                }).padding(start = 9.dp, end = 16.dp, top = 2.dp, bottom = 2.dp))
                 Text(line.instruction, color = Ink, fontFamily = FontFamily.Serif, fontSize = 14.sp,
                     lineHeight = 18.2.sp, fontWeight = FontWeight.SemiBold)
                 line.why?.let { Text(it, color = Color(0xFFCFC7DE), fontFamily = FontFamily.Serif,
@@ -147,10 +153,7 @@ internal fun CoachMarkCard(
                     }
                 }
             }
-            Text(character.name, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold,
-                modifier = Modifier.offset(y = (-9).dp).background(accent, GenericShape { size, _ ->
-                    moveTo(0f, 0f); lineTo(size.width, 0f); lineTo(size.width - slant, size.height); lineTo(0f, size.height); close()
-                }).padding(start = 9.dp, end = 16.dp, top = 2.dp, bottom = 2.dp))
+
         }
     }
 }

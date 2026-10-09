@@ -187,6 +187,13 @@ final class TourController {
         return TourNightArrivesEffects.mapsURL(for: gig)
     }
 
+    func continueWithoutCalendar(_ gigId: String) {
+        // The frozen script names completion of this lesson calendarAdded;
+        // declining creates no calendar event or receipt.
+        guard state.currentStep == .s10 else { return }
+        sendForDemoGig(gigId, .calendarAdded)
+    }
+
     func mapsOpened(_ gigId: String) { sendForDemoGig(gigId, .mapsOpened) }
     func ticketShown(_ gigId: String) { sendForDemoGig(gigId, .ticketShown) }
     func checkedIn(_ gigId: String) { sendForDemoGig(gigId, .checkedIn) }
@@ -279,7 +286,7 @@ final class TourController {
         send(event)
     }
 
-    private func isDemoGig(_ gigId: String) -> Bool { addGig?.demoGigIds.contains(gigId) == true }
+    func isDemoGig(_ gigId: String) -> Bool { addGig?.demoGigIds.contains(gigId) == true }
 
     private func importDemoTicket() {
         guard let meetFriend else { return }

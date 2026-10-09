@@ -62,19 +62,10 @@ extension AppModel {
             removeContact: { [unowned self] in self.contacts.removeFriend($0) },
             importTicket: { [unowned self] in await self.tickets.importTicket($0) },
             extraNights: { [unowned self] gig in
-                // Local demo nights make the new lane longer even for a returning user.
-                let count = max(1, Set((self.state.setlists + self.state.plannedGigs).map(\.id)).count)
-                let formatter = DateFormatter()
-                formatter.locale = Locale(identifier: "en_US_POSIX")
-                formatter.dateFormat = "dd-MM-yyyy"
-                return (1...count).map { index in
-                    var night = gig
-                    night.id = "tour-history:\(index):\(gig.id)"
-                    if let date = gig.localDate(), let prior = Calendar.current.date(byAdding: .day, value: -7 * index, to: date) {
-                        night.eventDate = formatter.string(from: prior)
-                    }
-                    night.url = nil
-                    return night
+                // Fictional character history stays independent of the chosen gig.
+                (TourCharacter.bundled.history ?? []).enumerated().map { index, night in
+                    localGigSetlist(gigId: "tour-history:\(index):\(gig.id)", artist: night.artist,
+                                    date: night.date, venue: night.venue, city: night.city)
                 }
             })
     }
