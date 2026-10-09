@@ -99,8 +99,9 @@ class TourMeetFriendEffects(
         fun ticket(gig: FmSetlist): ParsedTicket? {
             val artist = gig.artist?.name?.takeIf { it.isNotBlank() } ?: return null
             val date = gig.eventDate?.takeIf { parseFmDate(it) != null } ?: return null
+            // A fixed sample survives barcode read-back; the import separately supplies the Gig id.
             return ParsedTicket(
-                admissions = listOf(Admission("tour-demo-ticket:${gig.id}".toByteArray(Charsets.UTF_8), QR_SYMBOLOGY)),
+                admissions = listOf(Admission("tour-demo-ticket".toByteArray(Charsets.UTF_8), QR_SYMBOLOGY)),
                 artist = artist,
                 venue = gig.venue?.name.orEmpty(),
                 date = date,

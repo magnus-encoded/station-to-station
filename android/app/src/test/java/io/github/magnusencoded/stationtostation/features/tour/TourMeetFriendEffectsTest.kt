@@ -20,6 +20,12 @@ import java.time.LocalDate
 import java.util.Base64
 
 class TourMeetFriendEffectsTest {
+    @Test fun `demo ticket redraw does not depend on the gig UUID`() = runBlocking {
+        seed()
+        val ticket = TourMeetFriendEffects.ticket(gig.copy(id = "0ea054ab-ce3e-4f10-8ce7-78e3040dc36f"))!!
+        assertTrue(ticket.checkedForRedraw().showsEveryAdmission)
+    }
+
     private val directory = Files.createTempDirectory("tour-meet-friend").toFile()
     private val timelineFile = File(directory, "timelines.json")
     private val friendsFile = File(directory, "friends.json")
@@ -144,7 +150,7 @@ class TourMeetFriendEffectsTest {
         assertEquals(listOf(placed), timelines.load().shows[friend.laneKey])
         assertTrue(effects.importDemoTicket { true })
         assertEquals(1, timelines.load().attendance()[gig.id]?.admissions?.size)
-        assertEquals("tour-demo-ticket:${gig.id}", timelines.load().attendance()[gig.id]?.admissions?.single()?.payloadBytes?.toString(Charsets.UTF_8))
+        assertEquals("tour-demo-ticket", timelines.load().attendance()[gig.id]?.admissions?.single()?.payloadBytes?.toString(Charsets.UTF_8))
         assertEquals("real-ticket", timelines.load().attendance()[real.id]?.admissions?.single()?.payloadBytes?.toString(Charsets.UTF_8))
         assertTrue(fake.current.pendingTickets.isEmpty())
         assertEquals(0, lookupCalls)

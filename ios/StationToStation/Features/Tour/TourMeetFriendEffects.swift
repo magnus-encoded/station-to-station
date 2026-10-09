@@ -107,7 +107,8 @@ final class TourMeetFriendEffects: DemoWorld {
     static func ticket(for gig: FmSetlist) -> Ticket? {
         guard let artist = gig.artist?.name.nilIfBlank,
               let date = gig.eventDate.flatMap({ gigDay($0) }) else { return nil }
-        let admission = Admission(payload: Data("tour-demo-ticket:\(gig.id)".utf8), symbology: qrSymbology)
+        // A fixed sample survives barcode read-back; the import separately supplies the Gig id.
+        let admission = Admission(payload: Data("tour-demo-ticket".utf8), symbology: qrSymbology)
         return Ticket(admissions: [admission], artist: artist, venue: gig.venue?.name ?? "", date: date)
     }
 

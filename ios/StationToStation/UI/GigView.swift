@@ -81,7 +81,6 @@ struct GigView: View {
 
     var body: some View {
         let show = model.state.selectedSetlist
-        let rows = show.map(eventRows) ?? []
         let offers = show.map { roomOffers(for: $0) }
         ZStack {
             ground.ignoresSafeArea()
@@ -103,68 +102,7 @@ struct GigView: View {
                         // says so — and neither record is changed by the other,
                         // which is still the rule: this decides reading order and
                         // nothing else.
-                        let publicState = model.state.publicGossip
-                        let received = publicState.project(gigIds: [show.id]).filter { !publicState.localAuthors.contains($0.author) }
-                        let liveContacts = contactNamesOf(model.state.friends)
-                        let arrivals = Set(publicState.arrivals(gigIds: [show.id]).compactMap { fact in
-                            publicState.attributedName(fact.author, live: liveContacts)
-                        })
-                        // Who is *still* here, above who checked in at all tonight. The two
-                        // lines answer different questions and the second cannot answer the
-                        // first: a check-in is authored once and stays in the record all
-                        // night, so only `metAt` — stamped when a Pass arrived, read through
-                        // `gossipNearbyWindow` — can say somebody is standing here now (#484).
-                        // Ink rather than amber: amber means *mine* at every Resolution. Only
-                        // on a night this device is actually participating in — `metAt` names
-                        // people and not nights, and a name under last month's Gig would be a
-                        // lie the window cannot catch.
-                        TimelineView(.periodic(from: .now, by: 10)) { tick in
-                            let atThisGig = model.state.presentGigs.contains(show.id)
-                            let here: [String] = !atThisGig ? [] : gossipNearby(model.state.metAt, now: tick.date)
-                                .map { liveContacts[$0] ?? publicState.contactNames[$0] ?? "Someone" }
-                            if let sentence = alsoHereSentence(here) {
-                                Text(sentence).font(.system(size: 15, weight: .medium))
-                                    .foregroundStyle(ink).padding(.horizontal, 24).padding(.bottom, 8)
-                            }
-                        }
-                        if !arrivals.isEmpty {
-                            Text(arrivals.sorted().joined(separator: ", ") + " · checked in")
-                                .font(.system(size: 12)).foregroundStyle(muted).padding(.horizontal, 24)
-                        }
-                        // Who was here, and it stays (#499). Asked under every id this night has
-                        // been known by — adopting a setlist.fm id must not split the record, and
-                        // `seenWith` folds by device so the union cannot count one phone twice.
-                        let seenRecord = publicState.seenWith(
-                            gigIds: model.state.gossipGigAliases[show.id] ?? [show.id], live: liveContacts)
-                        if !seenRecord.isEmpty {
-                            Text(seenWithLine(seenRecord))
-                                .font(.system(size: 12)).foregroundStyle(muted)
-                                .padding(.horizontal, 24).padding(.top, 2)
-                        }
-                        if !model.state.selectedIsMine { JoinGigButton(show: show) }
-                        let log = model.state.gigLog
-                        let woven = weaveSetlist(published: rows.map(publishedTitle),
-                                                 logged: log.songs)
-                        let gossipRows = weaveGossip(base: woven.map { line in
-                            line.logged.map { log.songs[$0] } ?? line.published.flatMap { publishedTitle(rows[$0]) }
-                        }, facts: received)
-                        if gossipRows.isEmpty {
-                            Text(emptySetLine)
-                                .font(.system(size: 13)).foregroundStyle(muted)
-                                .padding(.horizontal, 24).padding(.top, 8)
-                        } else {
-                            ForEach(Array(gossipRows.enumerated()), id: \.offset) { _, row in
-                                ForEach(row.facts, id: \.id) { fact in
-                                    gossipAttribution(fact)
-                                }
-                                if let base = row.base {
-                                    wovenRow(woven[base], rows: rows, log: log, setlist: show, canLog: canLog(show))
-                                } else {
-                                    Text(row.text?.isEmpty == false ? row.text! : "a song they couldn't name")
-                                        .padding(.horizontal, 24).padding(.vertical, 8)
-                                }
-                            }
-                        }
+                        gigRecord(show)
                         // My own Log (#169), under the set and never taken away — it
                         // renders on a night's page forever after. The way in is under
                         // the entries because the entries *are* the set now (#268).
@@ -362,6 +300,73 @@ struct GigView: View {
         // Back is a chevron with no label, and the swipe that also does it is a
         // gesture VoiceOver consumes.
         .accessibilityAction(.escape) { nav.pop() }
+    }
+
+    @ViewBuilder
+    private func gigRecord(_ show: FmSetlist) -> some View {
+        let rows = eventRows(show)
+        let publicState = model.state.publicGossip
+        let received = publicState.project(gigIds: [show.id]).filter { !publicState.localAuthors.contains($0.author) }
+        let liveContacts = contactNamesOf(model.state.friends)
+        let arrivals = Set(publicState.arrivals(gigIds: [show.id]).compactMap { fact in
+            publicState.attributedName(fact.author, live: liveContacts)
+        })
+        // Who is *still* here, above who checked in at all tonight. The two
+        // lines answer different questions and the second cannot answer the
+        // first: a check-in is authored once and stays in the record all
+        // night, so only `metAt` — stamped when a Pass arrived, read through
+        // `gossipNearbyWindow` — can say somebody is standing here now (#484).
+        // Ink rather than amber: amber means *mine* at every Resolution. Only
+        // on a night this device is actually participating in — `metAt` names
+        // people and not nights, and a name under last month's Gig would be a
+        // lie the window cannot catch.
+        TimelineView(.periodic(from: .now, by: 10)) { tick in
+            let atThisGig = model.state.presentGigs.contains(show.id)
+            let here: [String] = !atThisGig ? [] : gossipNearby(model.state.metAt, now: tick.date)
+                .map { liveContacts[$0] ?? publicState.contactNames[$0] ?? "Someone" }
+            if let sentence = alsoHereSentence(here) {
+                Text(sentence).font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(ink).padding(.horizontal, 24).padding(.bottom, 8)
+            }
+        }
+        if !arrivals.isEmpty {
+            Text(arrivals.sorted().joined(separator: ", ") + " · checked in")
+                .font(.system(size: 12)).foregroundStyle(muted).padding(.horizontal, 24)
+        }
+        // Who was here, and it stays (#499). Asked under every id this night has
+        // been known by — adopting a setlist.fm id must not split the record, and
+        // `seenWith` folds by device so the union cannot count one phone twice.
+        let seenRecord = publicState.seenWith(
+            gigIds: model.state.gossipGigAliases[show.id] ?? [show.id], live: liveContacts)
+        if !seenRecord.isEmpty {
+            Text(seenWithLine(seenRecord))
+                .font(.system(size: 12)).foregroundStyle(muted)
+                .padding(.horizontal, 24).padding(.top, 2)
+        }
+        if !model.state.selectedIsMine { JoinGigButton(show: show) }
+        let log = model.state.gigLog
+        let woven = weaveSetlist(published: rows.map(publishedTitle),
+                                 logged: log.songs)
+        let gossipRows = weaveGossip(base: woven.map { line in
+            line.logged.map { log.songs[$0] } ?? line.published.flatMap { publishedTitle(rows[$0]) }
+        }, facts: received)
+        if gossipRows.isEmpty {
+            Text(emptySetLine)
+                .font(.system(size: 13)).foregroundStyle(muted)
+                .padding(.horizontal, 24).padding(.top, 8)
+        } else {
+            ForEach(Array(gossipRows.enumerated()), id: \.offset) { _, row in
+                ForEach(row.facts, id: \.id) { fact in
+                    gossipAttribution(fact)
+                }
+                if let base = row.base {
+                    wovenRow(woven[base], rows: rows, log: log, setlist: show, canLog: canLog(show))
+                } else {
+                    Text(row.text?.isEmpty == false ? row.text! : "a song they couldn't name")
+                        .padding(.horizontal, 24).padding(.vertical, 8)
+                }
+            }
+        }
     }
 
     /// The night's own facts, for the Preamble over a Note (#50). Derived on
