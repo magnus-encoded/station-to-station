@@ -44,6 +44,7 @@ data class TourState(
     /** S18 waits for two events in turn; this is the first having arrived. */
     val returnedFromPhotos: Boolean = false,
     val setlistReady: Boolean = false,
+    val goalSatisfied: Boolean = false,
 )
 
 /** A Tour is under way: started, and neither skipped nor at S20. */
@@ -96,7 +97,14 @@ data class TourTransition(val state: TourState, val commands: List<TourCommand> 
 
 object TourScript {
 
-    fun on(state: TourState, event: TourEvent): TourTransition {
+    fun on(state: TourState, event: TourEvent, goals: Set<TourStep> = emptySet()): TourTransition {
+        val actual = if (state.goalSatisfied && event == TourEvent.Acknowledged) AWAITS[state.step] ?: event else event
+        val result = transition(state, actual)
+        val entered = result.state.step != state.step || event == TourEvent.Resumed
+        return if (entered) result.copy(state = result.state.copy(goalSatisfied = result.state.step in goals)) else result
+    }
+
+    private fun transition(state: TourState, event: TourEvent): TourTransition {
         val step = state.step
         return when (event) {
             is TourEvent.Started ->
@@ -181,7 +189,7 @@ object TourScript {
             commands += TourCommand.ImportDemoTicket(state.venue)
         }
         if (step == TourStep.S17) commands += TourCommand.FillSetlist
-        return TourTransition(state.copy(step = step), commands)
+        return TourTransition(state.copy(step = step, goalSatisfied = false), commands)
     }
 
     /** S20: the playlist is kept, everything else the Tour made goes. */

@@ -26,6 +26,16 @@ class TourControllerTest {
     private val fake = FakeState()
     private var online = true
 
+    @Test fun replayReturnsToLineBeforeS1() {
+        fake.update { it.copy(zoomedOut=true, selectedSetlist=io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist(id="room")) }
+        var settingsOpen = true
+        controller().replay { settingsOpen = false; assertEquals(null, fake.current.tour.step) }
+        assertFalse(settingsOpen)
+        assertFalse(fake.current.zoomedOut)
+        assertNull(fake.current.selectedSetlist)
+        assertEquals(TourStep.S1, fake.current.tour.step)
+    }
+
     private fun controller() = TourController(
         state = fake.state,
         update = fake.update,

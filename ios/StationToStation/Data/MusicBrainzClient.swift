@@ -71,7 +71,7 @@ struct MusicBrainzClient {
     /// The disambiguation comment comes back with the name because MusicBrainz has
     /// four artists called Nirvana and a list of four identical rows is worse than no
     /// list at all.
-    func searchArtists(query: String, limit: Int = artistLimit) async -> [MbArtist] {
+    func searchArtists(query: String, limit: Int = artistLimit) async throws -> [MbArtist] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard q.count >= Self.minQuery else { return [] }
         var comps = URLComponents(string: "https://musicbrainz.org/ws/2/artist")!
@@ -86,9 +86,9 @@ struct MusicBrainzClient {
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        guard let (data, response) = try? await session.data(for: request),
-              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode)
-        else { return [] }
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode)
+        else { throw URLError(.badServerResponse) }
         return Array(parseArtists(String(decoding: data, as: UTF8.self)).prefix(limit))
     }
 

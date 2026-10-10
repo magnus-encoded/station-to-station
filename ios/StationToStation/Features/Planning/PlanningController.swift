@@ -84,16 +84,24 @@ final class PlanningController {
     func suggestArtists(_ query: String) {
         pickedArtist = nil
         artistSearch?.cancel()
-        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        host.state.artistSuggestions = []
+        host.state.artistLookup = query.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 ? "idle" : "loading"
+        guard query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 else {
             host.state.artistSuggestions = []
             return
         }
         artistSearch = Task { [musicBrainz] in
             try? await Task.sleep(nanoseconds: 350_000_000)
             guard !Task.isCancelled else { return }
-            let hits = await musicBrainz.searchArtists(query: query)
-            guard !Task.isCancelled else { return }
-            host.state.artistSuggestions = hits
+            do {
+                let hits = try await musicBrainz.searchArtists(query: query)
+                guard !Task.isCancelled else { return }
+                host.state.artistSuggestions = hits
+                host.state.artistLookup = hits.isEmpty ? "nohit" : "hits"
+            } catch {
+                guard !Task.isCancelled else { return }
+                host.state.artistLookup = "failed"
+            }
         }
     }
 
@@ -102,6 +110,7 @@ final class PlanningController {
         pickedArtist = nil
         artistSearch?.cancel()
         host.state.artistSuggestions = []
+        host.state.artistLookup = "idle"
     }
 
     /// The one add form's write. The date decides the rule underneath: a night before
@@ -380,4 +389,17 @@ final class PlanningController {
             loadTimeline()
         }
     }
+}
+
+func tourBandReason(picked: Bool, lookup: String, nohit: String, failed: String) -> String? {
+    if picked { return nil }
+    switch lookup {
+    case "nohit": return nohit
+    case "failed": return failed
+    case "loading": return "Looking up the band…"
+    default: return "Pick a band from the MusicBrainz list."
+    }
+}
+func tourPlanReady(picked: Bool, venue: String, future: Bool) -> Bool {
+    picked && !venue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && future
 }

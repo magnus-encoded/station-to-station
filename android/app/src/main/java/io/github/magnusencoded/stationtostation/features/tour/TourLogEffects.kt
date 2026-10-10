@@ -14,16 +14,19 @@ class TourLogEffects(
     private val file: File,
     private val update: ((UiState) -> UiState) -> Unit,
     private val pause: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) },
+    private val fallbackSongs: suspend (FmSetlist) -> List<String> = { emptyList() },
     private val songs: suspend (FmSetlist) -> List<String>,
 ) : DemoWorld {
-    @Serializable data class Record(val log: StoredLog = StoredLog(), val gapSong: String? = null, val filled: Boolean = false)
+    @Serializable data class Record(val log: StoredLog = StoredLog(), val gapSong: String? = null, val filled: Boolean = false, val gapSongs: List<String> = emptyList())
+    private val unordered = mutableSetOf<String>()
     private var generation = 0
     private val pools = mutableMapOf<String, List<String>>()
 
     suspend fun pool(gig: FmSetlist): List<String> {
         pools[gig.id]?.let { return it }
         val token = generation
-        val titles = songs(gig).filter { it.isNotBlank() }
+        val ordered = songs(gig).filter { it.isNotBlank() }
+        val titles = ordered.ifEmpty { fallbackSongs(gig).filter { it.isNotBlank() }.also { unordered.add(gig.id) } }
         if (token == generation && titles.isNotEmpty()) pools[gig.id] = titles
         return titles
     }
@@ -42,12 +45,16 @@ class TourLogEffects(
         if (token != generation || !active()) return false
         val record = records[gig.id] ?: return false
         if (record.gapSong != null) return true
-        val gap = record.log.songs.indexOfFirst { it.isBlank() }
-        val song = pool.drop(1).firstOrNull { title -> title.isNotBlank() && record.log.songs.none { sameSong(it, title) } } ?: return false
-        if (gap < 0) return false
-        val titles = record.log.songs.toMutableList().apply { this[gap] = song }
-        // Naming a Gap preserves its entry time and stable line number.
-        save(gig.id, record.copy(log = record.log.copy(songs = titles), gapSong = song))
+        val titles = record.log.songs.toMutableList()
+        val filled = mutableListOf<String>()
+        titles.indices.filter { titles[it].isBlank() }.forEach { index ->
+            val song = if (gig.id !in unordered) pool.getOrNull(index)
+                else pool.firstOrNull { candidate -> titles.none { sameSong(it, candidate) } }
+            if (song != null) { titles[index] = song; filled += song }
+        }
+        if (filled.isEmpty()) return false
+        // Naming Gaps preserves their entry times and stable line numbers.
+        save(gig.id, record.copy(log = record.log.copy(songs = titles), gapSong = filled.first(), gapSongs = filled))
         return true
     }
 
@@ -59,15 +66,8 @@ class TourLogEffects(
         if (record.filled) return true
         val additions = tourSetlistFill(record.log.songs, pool)
         if (additions.isEmpty()) return false
-        for (song in additions) {
-            pause(500)
-            if (token != generation || !active()) return false
-            val current = records[gig.id] ?: Record()
-            if (current.log.songs.none { sameSong(it, song) }) {
-                save(gig.id, current.copy(log = current.log.adding(song, now)))
-            }
-        }
-        save(gig.id, (records[gig.id] ?: record).copy(filled = true))
+        val filled = additions.fold(record.log) { log, song -> log.adding(song, now) }
+        save(gig.id, record.copy(log = filled, filled = true))
         return true
     }
 
@@ -83,6 +83,7 @@ class TourLogEffects(
     override suspend fun purge() {
         generation++
         pools.clear()
+        unordered.clear()
         val ids = records.keys
         records = emptyMap()
         file.delete()

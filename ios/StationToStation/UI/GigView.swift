@@ -358,18 +358,27 @@ struct GigView: View {
             Text(emptySetLine)
                 .font(.system(size: 13)).foregroundStyle(muted)
                 .padding(.horizontal, 24).padding(.top, 8)
-        } else {
-            ForEach(Array(gossipRows.enumerated()), id: \.offset) { _, row in
+        }
+        ArrivingLog(keys: gossipRows.enumerated().map { index, row in
+                guard let base = row.base else { return "gossip:\(index)" }
+                let line = woven[base]
+                return line.logged.map { "log:\(log.lineNumberAt($0))" }
+                    ?? "published:\(line.published.map { String(describing: rows[$0]) } ?? "")"
+            }, titles: gossipRows.map { row in
+                guard let base = row.base else { return "" }
+                let line = woven[base]
+                return line.logged.map { log.songs[$0] } ?? line.published.flatMap { publishedTitle(rows[$0]) } ?? ""
+            }) { index, arrival in
+                let row = gossipRows[index]
                 ForEach(row.facts, id: \.id) { fact in
                     gossipAttribution(fact)
                 }
                 if let base = row.base {
-                    wovenRow(woven[base], rows: rows, log: log, setlist: show, canLog: canLog(show))
+                    wovenRow(woven[base], rows: rows, log: log, setlist: show, canLog: canLog(show), arrival: arrival)
                 } else {
                     Text(row.text?.isEmpty == false ? row.text! : "a song they couldn't name")
                         .padding(.horizontal, 24).padding(.vertical, 8)
                 }
-            }
         }
     }
 
@@ -695,7 +704,7 @@ struct GigView: View {
     /// one both records hold.
     @ViewBuilder
     private func wovenRow(_ line: WovenSong, rows: [EventRow], log: StoredLog,
-                          setlist: FmSetlist, canLog: Bool) -> some View {
+                          setlist: FmSetlist, canLog: Bool, arrival: LogArrivalFrame) -> some View {
         // Mine is an index into the Log, and the × and the correction panel act on it
         // there — the published row beside it is never touched by either.
         let remove: (() -> Void)? = (canLog ? line.logged : nil).map { j in
@@ -714,7 +723,7 @@ struct GigView: View {
                     // The strongest thing a row can say: two records, independently,
                     // agree. Amber is what says it.
                     mine: line.both,
-                    onRemove: remove
+                    onRemove: remove, arrival: arrival
                 )
             }
         } else if let j = line.logged {
@@ -736,7 +745,7 @@ struct GigView: View {
                 // A Gap offers no correction: "one I couldn't name" is an
                 // acknowledged fact, not an invitation to guess.
                 onTap: gap || !canLog ? nil : { correctingLog = correctingLog == j ? nil : j },
-                onRemove: remove
+                onRemove: remove, arrival: arrival
             )
             if correctingLog == j {
                 LogCorrection(setlist: setlist, index: j) { correctingLog = nil }

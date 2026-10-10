@@ -67,6 +67,7 @@ struct StationToStationApp: App {
                 // The Timeline is home; the setlist-to-Spotify converter stays
                 // reachable behind search, exactly as on Android — nothing removed.
                 StationView()
+                    .id(model.state.tourReplayGeneration)
                     .navigationDestination(for: Route.self) { route in
                         switch route {
                         case .friends: FriendsView()
@@ -157,7 +158,10 @@ struct StationToStationApp: App {
             // foreground and only then (#531): at launch, on coming back, and on their
             // timer. This is the launch that went straight to active, which `onChange`
             // below never sees; a background relaunch (the gossip radio's) starts nothing.
-            .onAppear { if scenePhase == .active { model.setlists.startLookupChecks() } }
+            .onAppear {
+                model.tour.currentScreen = { nav.path.isEmpty ? "line" : nav.path.last == .gig ? "room" : "other" }
+                if scenePhase == .active { model.setlists.startLookupChecks() }
+            }
         }
         // A **Ticket** is deposited while this app is in the background — the share
         // sheet never brings it forward — so the inbox is read on the way back in

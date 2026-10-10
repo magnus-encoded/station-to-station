@@ -6,12 +6,16 @@
   "cutout": "ludwig_cutout",
   "lines": {
     "S1": {
-      "do": "Have a look, then tap the button on this card.",
+      "do": "Have a look, then tap OK.",
       "why": "I'm Ludwig, and you're coming to a gig with me. This is your Line, your concert-going life: down is the past, up is what's coming.",
       "screens": {
         "lineEmpty": {
-          "do": "Have a look, then tap the button on this card.",
+          "do": "Have a look, then tap OK.",
           "why": "I'm Ludwig, and you're coming to a gig with me. Your Line is empty for now: down is the past, up is what's coming."
+        },
+        "timelines": {
+          "do": "Have a look at these Lines, then tap OK.",
+          "why": "I'm Ludwig, and you're coming to a gig with me. These are the timelines: your Line beside your contacts' Lines."
         }
       }
     },
@@ -23,12 +27,19 @@
       "screens": {
         "lineEmpty": {
           "do": "Tap “add a gig by hand” to plan our night."
+        },
+        "timelines": {
+          "do": "Spread two fingers apart on your Line to zoom in, then open the planner.",
+          "ios": "Spread two fingers apart on your Line, then tap + and choose Future.",
+          "android": "Spread two fingers apart on your Line, then pull down to open the planner."
         }
       }
     },
     "S3": {
       "do": "Type a band you actually like, then tap the right match in the list.",
-      "why": "The app asks MusicBrainz, a free public music database, to find the exact band, so we don't end up with the wrong one."
+      "why": "The app asks MusicBrainz, a free public music database, to find the exact band, so we don't end up with the wrong one.",
+      "nohit": "MusicBrainz has never heard of them. I need it to know tonight's songs. Try another band.",
+      "failed": "MusicBrainz isn't answering. Tap Retry; I'm not blaming the band for this one."
     },
     "S4": {
       "do": "Respectable taste. Not mine, but respectable. Enter a venue and a future date as dd-MM-yyyy, then tap Add.",
@@ -36,7 +47,8 @@
     },
     "S5": {
       "do": "Tap the gig you just added.",
-      "why": "Every gig has a Room: its Log, photos, ticket and check-in all live there."
+      "why": "Every gig has a Room: its Log, photos, ticket and check-in all live there.",
+      "already": "You're already in the Room. This is where tonight's songs, photos and gossip belong."
     },
     "S6": {
       "do": "Swipe right from the left edge of the screen to go back to your Line.",
@@ -48,10 +60,11 @@
         "room": {
           "do": "Swipe right from the left edge of the screen to go back to your Line."
         }
-      }
+      },
+      "already": "You're back on your Line. Tonight's gig has its place here."
     },
     "S7": {
-      "do": "Open the Exchange to meet me.",
+      "do": "Swipe left on your Line to open the Exchange.",
       "why": "An Exchange turns two people standing together into contacts. I'm pretend, so nothing leaves your phone. Your location, if you allow it, becomes the gig's venue.",
       "screens": {
         "exchange": {
@@ -70,9 +83,10 @@
           "do": "Swipe right from the left edge to return to your Line."
         },
         "exchange": {
-          "do": "Go back to your Line."
+          "do": "Swipe right from the left edge to return to your Line."
         }
-      }
+      },
+      "already": "You're already zoomed out, so my Line is right beside yours."
     },
     "S10": {
       "why": "Your phone will ask for calendar access. The event is part of the demo and is deleted when we finish.",
@@ -83,7 +97,8 @@
           "ios": "Scroll to the bottom and tap Add to calendar.",
           "android": "Swipe left in the Room, or tap “swipe to add to calendar”."
         }
-      }
+      },
+      "already": "Tonight is already in your calendar. That's one less thing to remember."
     },
     "S11": {
       "why": "This leaves the app for Maps. Come back when you've looked, and the Tour will still be here.",
@@ -113,7 +128,8 @@
         "room": {
           "do": "Tap “I'm here — check in”, then confirm if asked."
         }
-      }
+      },
+      "already": "You're already checked in. Your phone knows you were here tonight."
     },
     "S14": {
       "why": "The Log is your own setlist, kept as the night happens. Nobody is marking it, so any song you know will do.",
@@ -123,7 +139,8 @@
           "do": "They’re playing “{opener}” as the opener. Type it into the Log, then add it.",
           "fallback": "Type the first song they played into the Log, then add it."
         }
-      }
+      },
+      "gap": "That Gap is fine. Now type the opener by name into the Log, then add it."
     },
     "S15": {
       "why": "A Gap is an honest blank: they played something and you couldn't name it. It beats a Log that pretends to be complete.",
@@ -135,11 +152,11 @@
       }
     },
     "S16": {
-      "why": "Gossip is how phones in radio range swap what happened at a gig, friends or strangers, with no server. Mine just filled your Gap.",
+      "why": "Gossip is how phones in radio range swap what happened at a gig, friends or strangers, with no server. Mine just filled your Gaps.",
       "do": "Tap our gig to open its Room.",
       "screens": {
         "room": {
-          "do": "Read song two in your Log: that's gossip from my phone. Then carry on."
+          "do": "Look at what my gossip filled in, then tap OK."
         }
       }
     },
@@ -177,7 +194,7 @@
     }
   },
   "notes": {
-    "gapFill": "Track two.",
+    "gapFill": "My phone filled your Gaps.",
     "setlistFill": "The rest comes from setlist.fm, where fans log what bands play."
   },
   "playlist": {

@@ -82,13 +82,19 @@ final class TourLogEffects: DemoWorld {
         guard generation == token, !Task.isCancelled else { return false }
         var record = records[gig.id] ?? Record()
         if record.gossip.contains(where: { $0.source == .virtualFriend }) { return true }
-        let titles = dedupe(pool.fm.isEmpty ? pool.mb : pool.fm)
-        guard let gap = record.log.songs.firstIndex(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }),
-              let song = titles.dropFirst().first(where: { title in !record.log.songs.contains { sameSong($0, title) } })
-        else { return false }
-        record.log = record.log.fillingTourGap(at: gap, title: song)
-        record.gossip.append(Gossip(id: UUID().uuidString, source: .virtualFriend, contactKey: friendKey(),
-                                    song: song, characterLine: characterLine(.s16), enteredAt: now))
+        let gaps = record.log.songs.indices.filter { record.log.songs[$0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        var filled = false
+        for gap in gaps {
+            let song = pool.fm.isEmpty
+                ? pool.mb.first { candidate in !record.log.songs.contains { sameSong($0, candidate) } }
+                : (pool.fm.indices.contains(gap) ? pool.fm[gap] : nil)
+            guard let song else { continue }
+            record.log = record.log.fillingTourGap(at: gap, title: song)
+            record.gossip.append(Gossip(id: UUID().uuidString, source: .virtualFriend, contactKey: friendKey(),
+                                        song: song, characterLine: characterLine(.s16), enteredAt: now))
+            filled = true
+        }
+        guard filled else { return false }
         save(gig.id, record)
         return true
     }
@@ -102,15 +108,7 @@ final class TourLogEffects: DemoWorld {
         if record.filled { return true }
         let additions = tourSetlistFill(userSongs: record.log.songs, setlistFmSongs: pool.fm, musicBrainzSongs: pool.mb)
         guard !additions.isEmpty else { return false }
-        for song in additions {
-            await pause(500)
-            guard generation == token, !Task.isCancelled else { return false }
-            record = records[gig.id] ?? Record()
-            if !record.log.songs.contains(where: { sameSong($0, song) }) {
-                record.log = record.log.adding(song, now: now)
-                save(gig.id, record)
-            }
-        }
+        for song in additions { record.log = record.log.adding(song, now: now) }
         record.filled = true
         save(gig.id, record)
         return true

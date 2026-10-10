@@ -1006,16 +1006,16 @@
     {
       "step": "S1",
       "screen": "line",
-      "ios": "Have a look, then tap the button on this card.",
-      "android": "Have a look, then tap the button on this card.",
+      "ios": "Have a look, then tap OK.",
+      "android": "Have a look, then tap OK.",
       "why": "I'm Ludwig, and you're coming to a gig with me. This is your Line, your concert-going life: down is the past, up is what's coming.",
       "ack": true
     },
     {
       "step": "S1",
       "screen": "lineEmpty",
-      "ios": "Have a look, then tap the button on this card.",
-      "android": "Have a look, then tap the button on this card.",
+      "ios": "Have a look, then tap OK.",
+      "android": "Have a look, then tap OK.",
       "why": "I'm Ludwig, and you're coming to a gig with me. Your Line is empty for now: down is the past, up is what's coming.",
       "ack": true
     },
@@ -1038,8 +1038,8 @@
     {
       "step": "S7",
       "screen": "line",
-      "ios": "Open the Exchange to meet me.",
-      "android": "Open the Exchange to meet me.",
+      "ios": "Swipe left on your Line to open the Exchange.",
+      "android": "Swipe left on your Line to open the Exchange.",
       "why": "An Exchange turns two people standing together into contacts. I'm pretend, so nothing leaves your phone. Your location, if you allow it, becomes the gig's venue.",
       "ack": false
     },
@@ -1152,15 +1152,15 @@
       "screen": "line",
       "ios": "Tap our gig to open its Room.",
       "android": "Tap our gig to open its Room.",
-      "why": "Gossip is how phones in radio range swap what happened at a gig, friends or strangers, with no server. Mine just filled your Gap.",
+      "why": "Gossip is how phones in radio range swap what happened at a gig, friends or strangers, with no server. Mine just filled your Gaps.",
       "ack": false
     },
     {
       "step": "S16",
       "screen": "room",
-      "ios": "Read song two in your Log: that's gossip from my phone. Then carry on.",
-      "android": "Read song two in your Log: that's gossip from my phone. Then carry on.",
-      "why": "Gossip is how phones in radio range swap what happened at a gig, friends or strangers, with no server. Mine just filled your Gap.",
+      "ios": "Look at what my gossip filled in, then tap OK.",
+      "android": "Look at what my gossip filled in, then tap OK.",
+      "why": "Gossip is how phones in radio range swap what happened at a gig, friends or strangers, with no server. Mine just filled your Gaps.",
       "ack": true
     },
     {
@@ -1254,8 +1254,8 @@
     {
       "step": "S8",
       "screen": "exchange",
-      "ios": "Go back to your Line.",
-      "android": "Go back to your Line.",
+      "ios": "Swipe right from the left edge to return to your Line.",
+      "android": "Swipe right from the left edge to return to your Line.",
       "why": "Zooming out puts my Line beside yours, and every friend you add gets their own. Mine has more gigs on it. You can see that for yourself.",
       "ack": false
     },
@@ -1267,5 +1267,73 @@
       "why": "You'll log in to Spotify. The public playlist is the one thing this Tour keeps; everything else, including the demo gig, is deleted.",
       "ack": false
     }
-  ]
+  ],
+  "goalCases": [
+    {
+      "name": "S8 entered while zoomed out",
+      "initial": "S7",
+      "event": "contactExchanged",
+      "goals": [
+        "S8"
+      ],
+      "step": "S8",
+      "satisfied": true,
+      "screen": "timelines"
+    },
+    {
+      "name": "S8 resumed while zoomed out",
+      "initial": "S8",
+      "event": "resumed",
+      "goals": [
+        "S8"
+      ],
+      "step": "S8",
+      "satisfied": true,
+      "screen": "timelines"
+    },
+    {
+      "name": "Tour started zoomed out",
+      "event": "started",
+      "goals": [
+        "S8"
+      ],
+      "step": "S1",
+      "satisfied": false,
+      "screen": "timelines"
+    },
+    {
+      "name": "Planner from timelines",
+      "initial": "S1",
+      "event": "acknowledged",
+      "goals": [
+        "S8"
+      ],
+      "step": "S2",
+      "satisfied": false,
+      "screen": "timelines"
+    }
+  ],
+  "gapCase": {
+    "pool": [
+      "Opener",
+      "Second",
+      "Third",
+      "Fourth"
+    ],
+    "written": [
+      "",
+      "Opener",
+      ""
+    ],
+    "filled": [
+      "Opener",
+      "Opener",
+      "Third"
+    ],
+    "gossip": [
+      "Opener",
+      "Third"
+    ],
+    "label": "My phone filled your Gaps."
+  }
 }

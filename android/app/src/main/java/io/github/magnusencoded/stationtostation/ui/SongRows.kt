@@ -1,5 +1,8 @@
 package io.github.magnusencoded.stationtostation.ui
 
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import android.util.Log
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -108,6 +111,7 @@ internal fun StampRow(
 @Composable
 internal fun SongRow(
     number: Int?,
+    arrival: LogArrivalFrame = LogArrivalFrame(),
     song: FmSong,
     offsetMs: Long = NOT_STAMPED,
     mine: Boolean = false,
@@ -117,10 +121,12 @@ internal fun SongRow(
     onRemoveLog: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
 ) {
+    val slideWidth = with(LocalDensity.current) { LocalConfiguration.current.screenWidthDp.dp.toPx() }
     val cover = song.cover?.name
     Row(
         Modifier
             .fillMaxWidth()
+            .arrivalSpace(arrival)
             .height(IntrinsicSize.Min)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             // One stop per song, and the amber ring said in words: it is the only thing
@@ -136,6 +142,7 @@ internal fun SongRow(
             val size = if (number == null) 8.dp else 18.dp
             Box(
                 Modifier
+                    .graphicsLayer { alpha = if (arrival.node) 1f else 0f }
                     .align(Alignment.TopCenter)
                     .padding(top = if (number == null) 7.dp else 2.dp)
                     .size(size)
@@ -169,7 +176,7 @@ internal fun SongRow(
                 )
             }
         }
-        Column(Modifier.weight(1f).padding(top = 1.dp, bottom = 15.dp)) {
+        Column(Modifier.graphicsLayer { translationX = slideWidth * (1f - arrival.text); alpha = if (arrival.text > 0f) 1f else 0f }.weight(1f).padding(top = 1.dp, bottom = 15.dp)) {
             Text(song.name, color = if (number == null) Muted else Ink, fontSize = 15.sp)
             val note = cover?.let { "$it cover" } ?: "tape".takeIf { song.tape }
             if (note != null) Text(note, color = Faint, fontSize = 11.sp)
@@ -231,13 +238,16 @@ internal fun RemoveLogEntry(onRemove: () -> Unit) {
 internal fun LoggedRow(
     title: String,
     number: Int?,
+    arrival: LogArrivalFrame = LogArrivalFrame(),
     remembered: String?,
     onCorrect: (() -> Unit)?,
     onRemove: (() -> Unit)?,
 ) {
+    val slideWidth = with(LocalDensity.current) { LocalConfiguration.current.screenWidthDp.dp.toPx() }
     Row(
         Modifier
             .fillMaxWidth()
+            .arrivalSpace(arrival)
             .height(IntrinsicSize.Min)
             .then(if (onCorrect != null) Modifier.clickable(onClickLabel = "Correct the title", onClick = onCorrect) else Modifier)
             .semantics(mergeDescendants = true) { stateDescription = "in your log" }
@@ -248,6 +258,7 @@ internal fun LoggedRow(
             Box(Modifier.align(Alignment.TopCenter).width(2.dp).fillMaxHeight().background(LineCol))
             Box(
                 Modifier
+                    .graphicsLayer { alpha = if (arrival.node) 1f else 0f }
                     .align(Alignment.TopCenter)
                     .padding(top = if (number == null) 7.dp else 2.dp)
                     .size(if (number == null) 8.dp else 18.dp)
@@ -273,7 +284,7 @@ internal fun LoggedRow(
                 )
             }
         }
-        Column(Modifier.weight(1f).padding(top = 1.dp, bottom = 15.dp)) {
+        Column(Modifier.graphicsLayer { translationX = slideWidth * (1f - arrival.text); alpha = if (arrival.text > 0f) 1f else 0f }.weight(1f).padding(top = 1.dp, bottom = 15.dp)) {
             // A **Gap** is a song that was played and could not be named. It is in the
             // record on purpose: an acknowledged hole is a true fact, and the same
             // song silently absent is the record lying about what it knows.

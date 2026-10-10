@@ -6,6 +6,10 @@ struct TourCharacter: Codable {
         let why: String?
         let ios: String?
         let android: String?
+        var already: String? = nil
+        var gap: String? = nil
+        var nohit: String? = nil
+        var failed: String? = nil
         var fallback: String? = nil
         var screens: [String: Line]? = nil
         var instruction: String { ios ?? `do` }
@@ -44,7 +48,10 @@ struct TourCharacter: Codable {
                 isoDate(fromFm: night.date) != nil
         }) else { throw Invalid.missingValue }
         guard Set(character.lines.keys) == cardSteps else { throw Invalid.cardSteps }
-        let screens: Set<String> = ["line", "lineEmpty", "room", "roomAfterPhoto", "exchange"]
+        guard ["S5", "S6", "S8", "S10", "S13"].allSatisfy({ character.lines[$0]?.already != nil }),
+              character.lines["S3"]?.nohit != nil, character.lines["S3"]?.failed != nil,
+              character.lines["S14"]?.gap != nil else { throw Invalid.missingValue }
+        let screens: Set<String> = ["line", "lineEmpty", "room", "roomAfterPhoto", "exchange", "timelines"]
         guard character.lines.values.allSatisfy({ line in
             (line.screens ?? [:]).allSatisfy { screen, copy in
                 screens.contains(screen) && (copy.screens ?? [:]).isEmpty
@@ -53,7 +60,7 @@ struct TourCharacter: Codable {
         for (step, line) in character.lines.flatMap({ step, line in
             [(step, line)] + (line.screens ?? [:]).map { (step, $0.value) }
         }) {
-            for (text, limit) in [(Optional(line.do), 20), (line.why, 30), (line.ios, 20), (line.android, 20), (line.fallback, 20)] {
+            for (text, limit) in [(Optional(line.do), 20), (line.why, 30), (line.ios, 20), (line.android, 20), (line.fallback, 20), (line.nohit, 20), (line.failed, 20), (line.already, 30), (line.gap, 20)] {
                 if let text {
                     let stripped = step == "S14" && text == line.do ? text.replacingOccurrences(of: "{opener}", with: "") : text
                     guard !stripped.contains("{"), !stripped.contains("}") else { throw Invalid.missingValue }
@@ -66,8 +73,10 @@ struct TourCharacter: Codable {
         return character
     }
 
-    func line(_ mark: TourCoachMark, opener: String? = nil, screen: String = "line") -> Line {
+    func line(_ mark: TourCoachMark, opener: String? = nil, screen: String = "line", satisfied: Bool = false, gap: Bool = false) -> Line {
         let base = lines[mark.step.rawValue]!
+        if satisfied { return Line(do: "Tap OK.", why: base.already ?? base.why, ios: nil, android: nil) }
+        if gap && mark == .log && screen.hasPrefix("room") { return Line(do: base.gap!, why: base.why, ios: nil, android: nil) }
         let selected = base.screens?[screen] ?? base.screens?[screen == "roomAfterPhoto" ? "room" : "line"] ?? base
         let line = Line(do: selected.do, why: selected.why ?? base.why, ios: selected.ios, android: selected.android, fallback: selected.fallback)
         guard line.instruction.contains("{opener}") else { return line }

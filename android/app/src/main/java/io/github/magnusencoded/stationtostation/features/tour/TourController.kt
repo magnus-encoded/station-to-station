@@ -42,6 +42,7 @@ class TourController(
         private set
 
     fun acknowledgeCard() {
+        if (state().tour.goalSatisfied) { dispatch(TourEvent.Acknowledged); return }
         when (state().tour.step) {
             TourStep.S1 -> dispatch(TourEvent.Acknowledged)
             TourStep.S16 -> dispatch(TourEvent.GossipSent)
@@ -153,7 +154,12 @@ class TourController(
     }
 
     /** Settings' "Replay tour": from S1 with a fresh **Demo world**, finished or not. */
-    fun replay() = dispatch(TourEvent.ReplayRequested)
+    fun replay(returnToLine: () -> Unit = {}) {
+        returnToLine()
+        update { it.copy(selectedSetlist = null, selectedCollection = null, zoomedOut = false,
+            addGigLink = null, contactLight = false) }
+        dispatch(TourEvent.ReplayRequested)
+    }
 
     /** For the engines of S3 and S9: their effect is done and isn't asked for again. */
     fun completed(effect: OnceOnly) {
@@ -184,9 +190,21 @@ class TourController(
         )
     }
 
+    var currentScreen: () -> String = { "line" }
+
+    private fun satisfiedGoals(): Set<TourStep> = buildSet {
+        val current = state()
+        if (current.zoomedOut) add(TourStep.S8)
+        val id = night?.gigId ?: return@buildSet
+        if (currentScreen() == "room" && current.selectedSetlist?.id == id) add(TourStep.S5)
+        if (currentScreen() == "line" && !current.zoomedOut) add(TourStep.S6)
+        if (id in current.calendarEventByGig) add(TourStep.S10)
+        if (current.attendanceByGig[id]?.provenance == io.github.magnusencoded.stationtostation.data.StoredAttendance.Provenance.CHECKED_IN) add(TourStep.S13)
+    }
+
     fun dispatch(event: TourEvent) {
         val before = state().tour
-        val (after, commands) = TourScript.on(before, event)
+        val (after, commands) = TourScript.on(before, event, satisfiedGoals())
         if (after == before && commands.isEmpty()) return
         // Offered means started: an offline first launch leaves it to be offered again.
         val offered = !before.running && after.running

@@ -13,7 +13,7 @@ struct TourCoachMarkView: View {
 
     var body: some View {
         let character = model.tour.character
-        let line = character.line(mark, opener: model.tour.opener, screen: screen == "room" && model.tour.state.returnedFromPhotos ? "roomAfterPhoto" : screen)
+        let line = character.line(mark, opener: model.tour.opener, screen: screen == "room" && model.tour.state.returnedFromPhotos ? "roomAfterPhoto" : (screen == "line" || screen == "lineEmpty") && model.state.zoomedOut ? "timelines" : screen, satisfied: model.tour.state.goalSatisfied == true, gap: model.state.gigLog.gaps > 0)
         card(character, line: line)
             .sheet(isPresented: $cameraPresented) {
                 TourCamera(cancel: { cameraPresented = false }) { result in
@@ -68,7 +68,7 @@ struct TourCoachMarkView: View {
                         } label: { Image(systemName: "camera") }
                         .accessibilityLabel("Take a selfie")
                     }
-                    if mark.canAcknowledge(on: screen) {
+                    if model.tour.state.goalSatisfied == true || mark.canAcknowledge(on: screen) {
                         Button("OK") { model.tour.acknowledgeCard() }
                     }
                 }.font(.system(size: 12)).padding(.top, 3)

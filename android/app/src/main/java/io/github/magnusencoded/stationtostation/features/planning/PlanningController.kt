@@ -229,14 +229,17 @@ class PlanningController(
     fun suggestArtists(query: String) {
         pickedArtist = null
         artistSearch?.cancel()
-        if (query.isBlank()) {
+        update { it.copy(artistSuggestions = emptyList(), artistLookup = if (query.trim().length < 2) "idle" else "loading") }
+        if (query.trim().length < 2) {
             update { it.copy(artistSuggestions = emptyList()) }
             return
         }
         artistSearch = scope.launch {
             delay(350)
-            val hits = runCatching { musicBrainz.searchArtists(query) }.getOrDefault(emptyList())
-            update { it.copy(artistSuggestions = hits) }
+            val result = runCatching { musicBrainz.searchArtists(query) }
+            if (!kotlinx.coroutines.currentCoroutineContext().get(Job)!!.isActive) return@launch
+            val hits = result.getOrDefault(emptyList())
+            update { it.copy(artistSuggestions = hits, artistLookup = if (result.isFailure) "failed" else if (hits.isEmpty()) "nohit" else "hits") }
         }
     }
 
@@ -244,7 +247,7 @@ class PlanningController(
     fun clearArtistSuggestions() {
         pickedArtist = null
         artistSearch?.cancel()
-        update { it.copy(artistSuggestions = emptyList()) }
+        update { it.copy(artistSuggestions = emptyList(), artistLookup = "idle") }
     }
 
     /**
@@ -405,3 +408,12 @@ class PlanningController(
                     nameKey(gig.artist?.name.orEmpty()) == nameKey(artist))
         }
 }
+
+internal fun tourBandReason(picked: Boolean, lookup: String, nohit: String, failed: String): String? =
+    if (picked) null else when (lookup) {
+        "nohit" -> nohit
+        "failed" -> failed
+        "loading" -> "Looking up the band…"
+        else -> "Pick a band from the MusicBrainz list."
+    }
+internal fun tourPlanReady(picked: Boolean, venue: String, future: Boolean): Boolean = picked && venue.isNotBlank() && future

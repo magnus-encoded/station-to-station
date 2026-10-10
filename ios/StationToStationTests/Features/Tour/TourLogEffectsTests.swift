@@ -63,7 +63,7 @@ final class TourLogEffectsTests: XCTestCase {
                        characterLine: { "character.lines.\($0.rawValue)" }, pause: pause)
     }
 
-    func testGapWaitsAndFillArrivesOneSongPerTick() async throws {
+    func testGapWaitsAndFillPublishesWithoutSeparateAnimationDelays() async throws {
         let fm = try client([response(["Mine", "Second", "Third", "Fourth"])])
         var waits: [UInt64] = []
         var snapshots: [[String]] = []
@@ -77,9 +77,48 @@ final class TourLogEffectsTests: XCTestCase {
         let filled = await log.fillSetlist(for: demo, now: 30)
         XCTAssertTrue(delivered)
         XCTAssertTrue(filled)
-        XCTAssertEqual(waits, [2500, 500, 500])
-        XCTAssertEqual(snapshots, [["Mine", ""], ["Mine", "Second"], ["Mine", "Second", "Third"]])
+        XCTAssertEqual(waits, [2500])
+        XCTAssertEqual(snapshots, [["Mine", ""]])
         XCTAssertEqual(log.loadLog("demo").songs, ["Mine", "Second", "Third", "Fourth"])
+    }
+
+    func testSharedGapAtS14ThenSongThenGap() async throws {
+        struct Gap: Decodable { let pool: [String]; let written: [String]; let filled: [String]; let gossip: [String]; let label: String }
+        struct Corpus: Decodable { let gapCase: Gap }
+        let row = try JSONDecoder().decode(Corpus.self, from: handoffData()).gapCase
+        let fm = try client([response(row.pool)])
+        let log = effects(fm)
+        var state = TourState(); state.currentStep = .s14
+        state = TourScript.reduce(state, .gapRecorded).state
+        XCTAssertEqual(state.currentStep, .s14)
+        XCTAssertEqual(TourCharacter.bundled.line(.log, screen: "room", gap: true).instruction, TourCharacter.bundled.lines["S14"]?.gap)
+        state = TourScript.reduce(state, .logEntryWritten).state
+        XCTAssertEqual(state.currentStep, .s15)
+        state = TourScript.reduce(state, .gapRecorded).state
+        XCTAssertEqual(state.currentStep, .s16)
+        log.writeLog("demo", log: StoredLog(songs: row.written), reply: false, now: 10)
+        let delivered = await log.deliverGossip(for: demo, now: 20)
+        XCTAssertTrue(delivered)
+        XCTAssertEqual(log.loadLog("demo").songs, row.filled)
+        XCTAssertEqual(log.gossip("demo").map(\.song), row.gossip)
+        XCTAssertEqual(TourCharacter.bundled.notes.gapFill, row.label)
+    }
+
+    func testReplayReturnsToLineBeforeS1() throws {
+        let fm = try client([])
+        let tour = makeTour(effects(fm), fm: fm).0
+        host.state.zoomedOut = true
+        let nav = Nav(); nav.push(.gig); nav.push(.settings)
+        var returned = false
+        tour.replay {
+            XCTAssertNotEqual(tour.state.currentStep, .s1)
+            nav.popToRoot(); returned = true
+        }
+        XCTAssertTrue(returned)
+        XCTAssertTrue(nav.path.isEmpty)
+        XCTAssertFalse(host.state.zoomedOut)
+        XCTAssertNil(host.state.selectedSetlist)
+        XCTAssertEqual(tour.state.currentStep, .s1)
     }
 
     private func makeTour(_ effects: TourLogEffects, fm: SetlistFmClient) -> (TourController, GigController) {

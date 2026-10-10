@@ -668,6 +668,11 @@ fun StationEventScreen(
         val woven = remember(rows, log.songs) {
             weaveSetlist(rows.map { (it as? EventRow.SongItem)?.song?.name }, log.songs)
         }
+        val arrivalKeys = woven.map { line -> line.logged?.let { "log:${log.lineNumberAt(it)}" }
+            ?: "published:${line.published?.let { rows[it] }}" }
+        val arrivals = rememberLogArrivals(setlist.id, arrivalKeys, woven.map { line ->
+            line.logged?.let { log.songs[it] } ?: (line.published?.let { rows[it] } as? EventRow.SongItem)?.song?.name.orEmpty()
+        })
         val canConvert = convertible
         val offsets = viewModel.songOffsets(recordingMedia?.id, setlist.songs().size)
         // Offsets are indexed over every song, tape included; row.number skips tape,
@@ -867,6 +872,7 @@ fun StationEventScreen(
                     }
                 }
                 setlistRows(
+                    arrivals = arrivals, arrivalKeys = arrivalKeys,
                     setlist = setlist,
                     rows = rows,
                     woven = woven,
@@ -921,7 +927,7 @@ fun StationEventScreen(
                         )
                         viewModel.tour.demoLogRecord(setlist.id)?.let { record ->
                             record.gapSong?.let { song ->
-                                Text(song, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp))
+                                Text(record.gapSongs.ifEmpty { listOf(song) }.joinToString(" · "), color = Muted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp))
                                 Text(viewModel.tour.character.notes.gapFill,
                                     color = io.github.magnusencoded.stationtostation.features.tour.tourAccent(state),
                                     fontSize = 11.sp, modifier = Modifier.padding(horizontal = 20.dp))
@@ -1424,6 +1430,8 @@ private fun EventMedia(
 }
 
 private fun LazyListScope.setlistRows(
+    arrivals: Map<String, LogArrival>,
+    arrivalKeys: List<String>,
     setlist: FmSetlist,
     rows: List<EventRow>,
     woven: List<WovenSong>,
@@ -1497,11 +1505,13 @@ private fun LazyListScope.setlistRows(
         val remove = logAt?.let { j ->
             { onCorrectingChange(null); onRemoveFromLog(j) }
         }
+        ArrivingLogRow(arrivals[arrivalKeys[gossipRow.base]]) { arrival ->
         when (val row = line.published?.let { rows[it] }) {
             is EventRow.Encore -> EncoreLabel()
             is EventRow.SongItem -> {
                 val at = offsets.getOrElse(songIndexByRow[line.published!!]) { NOT_STAMPED }
                 SongRow(
+                    arrival = arrival,
                     number = row.number,
                     song = row.song,
                     offsetMs = at,
@@ -1521,6 +1531,7 @@ private fun LazyListScope.setlistRows(
                 val j = line.logged!!
                 val title = log.songs[j]
                 LoggedRow(
+                    arrival = arrival,
                     title = title,
                     // Only when nothing was published: then my Log is the
                     // record of this night and its order is the set's.
@@ -1556,6 +1567,7 @@ private fun LazyListScope.setlistRows(
                     )
                 }
             }
+        }
         }
     }
     }

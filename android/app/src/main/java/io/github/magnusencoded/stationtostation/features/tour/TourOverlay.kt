@@ -71,9 +71,11 @@ fun TourOverlay(viewModel: AppViewModel, inRoom: Boolean = false, screen: String
                     onAcknowledge = { viewModel.tour.acknowledgeCard() },
                     onCameraReturned = { state.selectedSetlist?.let { viewModel.tour.returnedFromPhotos(it.id) } },
                     opener = viewModel.tour.opener,
+                    satisfied = state.tour.goalSatisfied,
+                    gap = state.selectedSetlist?.id?.let { state.logsByGig[it]?.songs?.any(String::isBlank) } == true,
                     screen = screen ?: if (inRoom) {
                         if (state.tour.returnedFromPhotos) "roomAfterPhoto" else "room"
-                    } else if (state.setlists.isEmpty() && state.plannedGigs.isEmpty()) "lineEmpty" else "line",
+                    } else if (state.zoomedOut) "timelines" else if (state.setlists.isEmpty() && state.plannedGigs.isEmpty()) "lineEmpty" else "line",
                     onSkip = { viewModel.tour.dispatch(TourEvent.Skipped) },
                     modifier = cardModifier)
             } ?: TextButton(onClick = { viewModel.tour.dispatch(TourEvent.Skipped) },
@@ -121,10 +123,12 @@ internal fun CoachMarkCard(
     modifier: Modifier = Modifier,
     opener: String? = null,
     screen: String = "line",
+    satisfied: Boolean = false,
+    gap: Boolean = false,
     onCameraReturned: () -> Unit = {},
 ) {
     val slant = with(LocalDensity.current) { 8.dp.toPx() }
-    val line = character.line(mark, opener, screen)
+    val line = character.line(mark, opener, screen, satisfied, gap)
     val context = LocalContext.current
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { onCameraReturned() }
     val portrait = remember(character.cutout) {
@@ -166,7 +170,7 @@ internal fun CoachMarkCard(
                             onCameraReturned()
                         }
                     }) { Icon(Icons.Default.CameraAlt, contentDescription = "Take a selfie", tint = Amber) }
-                    if (mark.canAcknowledge(screen)) TextButton(onClick = onAcknowledge, contentPadding = PaddingValues(2.dp)) {
+                    if (satisfied || mark.canAcknowledge(screen)) TextButton(onClick = onAcknowledge, contentPadding = PaddingValues(2.dp)) {
                         Text(if (mark == CoachMark.Line || mark == CoachMark.Gossip) "Got it" else "OK", color = Amber, fontSize = 12.sp)
                     }
                 }

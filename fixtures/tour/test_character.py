@@ -33,6 +33,12 @@ class CharacterTests(unittest.TestCase):
     def test_missing_history(self): self.check_broken(lambda d: d.pop("history"))
     def test_bad_history_date(self): self.check_broken(lambda d: d["history"][0].update(date="31-02-1800"))
     def test_real_character(self): validate(self.source)
+    def test_missing_satisfied_copy(self):
+        for step in ("S5", "S6", "S8", "S10", "S13"):
+            self.check_broken(lambda d: d["lines"][step].pop("already"))
+    def test_missing_failed(self): self.check_broken(lambda d: d["lines"]["S3"].pop("failed"))
+    def test_missing_gap(self): self.check_broken(lambda d: d["lines"]["S14"].pop("gap"))
+    def test_missing_nohit(self): self.check_broken(lambda d: d["lines"]["S3"].pop("nohit", None))
     def test_missing_opener_fallback(self): self.check_broken(lambda d: d["lines"]["S14"]["screens"]["room"].pop("fallback"))
     def test_unknown_placeholder(self): self.check_broken(lambda d: d["lines"]["S14"].update({"do": "Play {song}."}))
     def test_placeholder_on_wrong_step(self): self.check_broken(lambda d: d["lines"]["S1"].update({"do": "Play {opener}."}))

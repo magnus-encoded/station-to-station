@@ -62,6 +62,7 @@ struct TourState: Codable, Equatable {
     var demoTicketImported = false
     var returnedFromPhotos = false
     var setlistReady: Bool? = nil
+    var goalSatisfied: Bool? = nil
     var location: TourLocation?
 }
 
@@ -96,9 +97,14 @@ enum TourScript {
     ]
 
     /// Replay requires a fresh Demo world before its entry commands run.
-    static func reduce(_ state: TourState, _ event: TourEvent)
+    static func reduce(_ state: TourState, _ event: TourEvent, goals: Set<TourStep> = [])
         -> (state: TourState, commands: [TourCommand], freshDemoWorld: Bool) {
-        let (next, commands) = transition(state, event)
+        let actual = state.goalSatisfied == true && event == .acknowledged
+            ? (state.currentStep.flatMap { steps[$0]?.awaits.first } ?? event) : event
+        var (next, commands) = transition(state, actual)
+        if next.currentStep != state.currentStep || event == .resumed {
+            next.goalSatisfied = next.currentStep.map { goals.contains($0) } == true ? true : nil
+        }
         return (next, commands, event == .replayRequested)
     }
 
@@ -164,6 +170,7 @@ enum TourScript {
     private static func enter(_ step: TourStep, _ state: TourState) -> (TourState, [TourCommand]) {
         var next = state
         next.currentStep = step
+        next.goalSatisfied = nil
         let commands = (steps[step]?.entry ?? []).filter {
             if $0 == .lookUpBand { return !state.bandLookedUp }
             if $0 == .importDemoTicket { return !state.demoTicketImported }

@@ -38,9 +38,12 @@ struct SpineRow: View {
     /// Drops my Log entry, leaving setlist.fm's row where it was.
     var onRemove: (() -> Void)? = nil
 
+    var arrival = LogArrivalFrame()
+
     private var ringSize: CGFloat { number == nil ? 8 : 18 }
 
     var body: some View {
+        ArrivalLayout(fraction: arrival.space) {
         HStack(alignment: .top, spacing: 0) {
             ZStack(alignment: .top) {
                 // The line runs the full height of the row and the disc is painted in
@@ -60,6 +63,7 @@ struct SpineRow: View {
                             .foregroundStyle(mine ? amber : faint)
                     )
                     .padding(.top, number == nil ? 7 : 2)
+                    .opacity(arrival.node ? 1 : 0)
             }
             .frame(width: 50)
 
@@ -73,6 +77,8 @@ struct SpineRow: View {
                 }
             }
             .padding(.top, 1).padding(.bottom, 15)
+            .offset(x: (1 - arrival.text) * UIScreen.main.bounds.width)
+            .opacity(arrival.text > 0 ? 1 : 0)
             Spacer(minLength: 0)
 
             if let onRemove {
@@ -86,6 +92,8 @@ struct SpineRow: View {
         }
         .fixedSize(horizontal: false, vertical: true)
         .padding(.trailing, 20)
+        }
+        .clipped()
         .contentShape(Rectangle())
         .onTapGesture { onTap?() }
         // One stop per song: its number, its title, its note. The amber ring is the

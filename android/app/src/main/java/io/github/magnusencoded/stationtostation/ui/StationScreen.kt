@@ -461,6 +461,9 @@ fun StationTimelineScreen(
                         viewModel.tour.dispatch(TourEvent.BandPicked)
                     },
                     tour = { TourCoachMarkInline(viewModel) },
+                    artistLookup = state.artistLookup,
+                    nohit = viewModel.tour.character.lines.getValue("S3").nohit.orEmpty(),
+                    failed = viewModel.tour.character.lines.getValue("S3").failed.orEmpty(),
                     tourPlanning = state.tour.running && state.tour.step in setOf(io.github.magnusencoded.stationtostation.features.tour.TourStep.S3, io.github.magnusencoded.stationtostation.features.tour.TourStep.S4),
                     onAdd = { artist, venue, date ->
                         viewModel.addGig(artist, venue, date)

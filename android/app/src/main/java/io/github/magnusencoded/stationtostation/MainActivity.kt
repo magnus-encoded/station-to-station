@@ -232,6 +232,7 @@ fun AppNavigation(viewModel: AppViewModel) {
         var previous: String? = null
         val listener = NavController.OnDestinationChangedListener { _, destination, _ ->
             val route = destination.route
+            viewModel.tour.currentScreen = { when (navController.currentDestination?.route) { "timeline" -> "line"; "event" -> "room"; else -> "other" } }
             if (previous == "timeline" && route == "event") viewModel.tour.dispatch(TourEvent.RoomOpened)
             if (previous == "event" && route == "timeline") viewModel.tour.dispatch(TourEvent.SwipedBack)
             previous = route
@@ -383,8 +384,12 @@ fun AppNavigation(viewModel: AppViewModel) {
                 onBack = { navController.popBackStack() },
                 onOpenHandover = { navController.navigate("handover") },
                 onTour = { replay ->
-                    if (replay) viewModel.tour.replay() else viewModel.tour.resume()
-                    navController.popBackStack("timeline", inclusive = false)
+                    if (replay) viewModel.tour.replay {
+                        navController.navigate("timeline") { popUpTo("timeline") { inclusive = true } }
+                    } else {
+                        navController.popBackStack("timeline", inclusive = false)
+                        viewModel.tour.resume()
+                    }
                 },
             )
         }

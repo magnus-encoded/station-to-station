@@ -394,6 +394,7 @@ data class UiState(
      * which is the ordinary case for a small act and must stay usable.
      */
     val artistSuggestions: List<MbArtist> = emptyList(),
+    val artistLookup: String = "idle",
     /**
      * My **Log** of each night, by gig id — what I saw, kept apart from what
      * setlist.fm publishes. Restored from disk, because a set noted in a field with

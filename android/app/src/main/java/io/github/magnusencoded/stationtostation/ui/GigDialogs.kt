@@ -84,6 +84,9 @@ internal fun AddGigDialog(
     /** The **Tour**'s coach mark, which the dialog would otherwise cover. */
     tour: @Composable () -> Unit = {},
     tourPlanning: Boolean = false,
+    artistLookup: String = "idle",
+    nohit: String = "",
+    failed: String = "",
 ) {
     var artist by remember { mutableStateOf(initial?.artist.orEmpty()) }
     var pickedArtist by remember { mutableStateOf<MbArtist?>(null) }
@@ -129,10 +132,18 @@ internal fun AddGigDialog(
                 Spacer(Modifier.height(14.dp))
                 StationField(artist, { artist = it; pickedArtist = null; onArtistTyped(it) }, "who's playing")
                 ArtistSuggestions(suggestions) { artist = it.name; pickedArtist = it; onArtistPicked(it) }
+                if (tourPlanning && pickedArtist == null) {
+                    Text(io.github.magnusencoded.stationtostation.features.planning.tourBandReason(false, artistLookup, nohit, failed).orEmpty(), color = Muted, fontSize = 12.sp)
+                    if (artistLookup == "failed") TextButton(onClick = { onArtistTyped(artist) }) { Text("Retry") }
+                }
                 Spacer(Modifier.height(8.dp))
                 StationField(venue, { venue = it }, if (tourPlanning) "venue" else "venue (optional)")
                 Spacer(Modifier.height(8.dp))
                 StationField(date, { date = it }, "date (dd-MM-yyyy)", imeDone = true)
+                if (tourPlanning) {
+                    if (venue.isBlank()) Text("Enter a venue.", color = Muted, fontSize = 12.sp)
+                    if (parseFmDate(date)?.isAfter(LocalDate.now()) != true) Text("Enter a date after today as dd-MM-yyyy.", color = Muted, fontSize = 12.sp)
+                }
             }
 
             Spacer(Modifier.height(4.dp))
@@ -147,7 +158,7 @@ internal fun AddGigDialog(
                 TextButton(onClick = onDismiss) { Text("Cancel", color = Faint) }
                 val ready =
                     if (pasting) link.isNotBlank() else artist.isNotBlank() && date.isNotBlank() &&
-                        (!tourPlanning || (pickedArtist != null && venue.isNotBlank() && parseFmDate(date)?.isAfter(LocalDate.now()) == true))
+                        (!tourPlanning || io.github.magnusencoded.stationtostation.features.planning.tourPlanReady(pickedArtist != null, venue, parseFmDate(date)?.isAfter(LocalDate.now()) == true))
                 TextButton(
                     onClick = {
                         if (pasting) onAddByLink(link) else onAdd(artist, venue, date)

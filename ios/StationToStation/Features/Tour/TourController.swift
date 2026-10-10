@@ -78,8 +78,21 @@ final class TourController {
         host.state.tourUpgradePrompt = false
     }
 
+    var currentScreen: () -> String = { "line" }
+
+    private var satisfiedGoals: Set<TourStep> {
+        var goals: Set<TourStep> = []
+        if host.state.zoomedOut { goals.insert(.s8) }
+        guard let gig = demoGig else { return goals }
+        if currentScreen() == "room" && host.state.selectedSetlist?.id == gig.id { goals.insert(.s5) }
+        if currentScreen() == "line" && !host.state.zoomedOut { goals.insert(.s6) }
+        if host.state.calendarEventByGig[gig.id] != nil { goals.insert(.s10) }
+        if host.state.attendanceByGig[gig.id]?.provenance == "checked_in" { goals.insert(.s13) }
+        return goals
+    }
+
     func send(_ event: TourEvent) {
-        let (next, commands, freshDemoWorld) = TourScript.reduce(state, event)
+        let (next, commands, freshDemoWorld) = TourScript.reduce(state, event, goals: satisfiedGoals)
         guard next != state || !commands.isEmpty || freshDemoWorld else { return }
         if freshDemoWorld {
             logTask?.cancel()
@@ -251,6 +264,7 @@ final class TourController {
     var virtualFriendKey: String? { meetFriend?.contactKey }
 
     func acknowledgeCard() {
+        if state.goalSatisfied == true { send(.acknowledged); return }
         let step = state.currentStep
         guard step == .s1 || step == .s16 else { return }
         dismissCoachMark()
@@ -327,7 +341,14 @@ final class TourController {
             send(.resumed)
         }
     }
-    func replay() {
+    func replay(returnToLine: () -> Void = {}) {
+        returnToLine()
+        host.state.tourReplayGeneration += 1
+        host.state.selectedSetlist = nil
+        host.state.zoomedOut = false
+        host.state.expandedFestivals = []
+        host.state.addGigLink = nil
+        host.state.contactLight = false
         settings.setOnboarded()
         host.state.onboarded = true
         send(.replayRequested)

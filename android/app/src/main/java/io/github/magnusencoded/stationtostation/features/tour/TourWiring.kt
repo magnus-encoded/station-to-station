@@ -100,7 +100,11 @@ fun tourController(
         discard = { photos.deleteOwnedBytes(it.id, it.ref) },
         update = { transform -> state.update(transform) },
     )
-    val log = TourLogEffects(File(context.filesDir, "tour-logs.json"), { change -> state.update(change) }) { gig ->
+    val log = TourLogEffects(File(context.filesDir, "tour-logs.json"), { change -> state.update(change) }, fallbackSongs = { gig ->
+        gig.artist?.mbid?.takeIf { it.isNotBlank() }?.let { mbid ->
+            runCatching { musicBrainz.catalogue(mbid) }.getOrDefault(emptyList())
+        }.orEmpty()
+    }) { gig ->
         val mbid = gig.artist?.mbid.orEmpty()
         if (mbid.isBlank()) {
             android.util.Log.w("Tour", "Song pool has no artist MBID for ${gig.id}")
@@ -110,11 +114,7 @@ fun tourController(
                 .onFailure { android.util.Log.w("Tour", "setlist.fm song pool failed for $mbid", it) }
                 .getOrDefault(emptyList()).sortedByDescending { it.localDate() }
             recent.firstOrNull { it.performed().isNotEmpty() }?.performed()?.map { it.name }
-                ?: runCatching { musicBrainz.catalogue(mbid) }
-                    .onFailure { android.util.Log.w("Tour", "MusicBrainz song pool failed for $mbid", it) }
-                    .getOrDefault(emptyList()).also {
-                        if (it.isEmpty()) android.util.Log.w("Tour", "No performed setlist or MusicBrainz songs for $mbid")
-                    }
+                ?: emptyList()
         }
     }
     val demoWorld = DemoWorldRegistry(

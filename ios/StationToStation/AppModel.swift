@@ -136,6 +136,7 @@ struct UiState {
     var showsByFriend: [String: [FmSetlist]] = [:]
     /// The Timelines resolution: the strip of friends' Lanes opened beside my
     /// Spine, in place. Not a screen — pinch toggles it.
+    var tourReplayGeneration = 0
     var zoomedOut = false
     /// Every **Festival** identity this device knows, and which **Gigs** carry one
     /// (#166). Nothing infers a Festival; this is the only thing that makes one.
@@ -261,6 +262,7 @@ struct UiState {
     /// by-hand doors (#350). Session-lived and cleared the moment one is picked: it
     /// is a prompt, and nothing downstream is keyed on the **mbid** it carries.
     var artistSuggestions: [MbArtist] = []
+    var artistLookup = "idle"
     /// The handover screen's whole state (#142). Nil `role` means no handover is
     /// running, which is also what the screen reads to know whether to exist.
     var handover = HandoverUi()

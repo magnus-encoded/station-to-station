@@ -74,9 +74,8 @@ struct AddGigSheet: View {
 
     private var ready: Bool {
         if tourPlanning {
-            return !artist.trimmingCharacters(in: .whitespaces).isEmpty && picked == artist &&
-                !venue.trimmingCharacters(in: .whitespaces).isEmpty &&
-                (isoDate(fromFm: date.trimmingCharacters(in: .whitespaces)).map { $0 > isoToday() } ?? false)
+            return tourPlanReady(picked: !picked.isEmpty && picked == artist, venue: venue,
+                future: isoDate(fromFm: date.trimmingCharacters(in: .whitespaces)).map { $0 > isoToday() } ?? false)
         }
         return pasting
             ? !link.trimmingCharacters(in: .whitespaces).isEmpty
@@ -126,9 +125,18 @@ struct AddGigSheet: View {
                                     .font(.footnote).foregroundStyle(slate)
                             }
                         }
+                        if tourPlanning && (picked.isEmpty || picked != artist) {
+                            Text(tourBandReason(picked: false, lookup: model.state.artistLookup,
+                                nohit: TourCharacter.bundled.lines["S3"]!.nohit!, failed: TourCharacter.bundled.lines["S3"]!.failed!)!).font(.footnote)
+                            if model.state.artistLookup == "failed" { Button("Retry") { model.planning.suggestArtists(artist) } }
+                        }
                         TextField(tourPlanning ? "venue" : "venue (optional)", text: $venue)
                         TextField("date (dd-MM-yyyy)", text: $date)
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        if tourPlanning {
+                            if venue.trimmingCharacters(in: .whitespaces).isEmpty { Text("Enter a venue.").font(.footnote) }
+                            if !(isoDate(fromFm: date).map { $0 > isoToday() } ?? false) { Text("Enter a date after today as dd-MM-yyyy.").font(.footnote) }
+                        }
                     } footer: {
                         Text(kind == .goingTo
                              ? "A night ahead can't be searched for, so it lives on this phone "

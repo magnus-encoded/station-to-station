@@ -4,6 +4,7 @@ import io.github.magnusencoded.stationtostation.data.StoredLog
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.features.FakeState
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -15,7 +16,29 @@ class TourLogEffectsTest {
     private val fake = FakeState()
     private val gig = FmSetlist(id = "demo")
 
-    @Test fun gapWaitsAndFillArrivesOneSongPerTick() = runBlocking {
+
+    @Test fun sharedGapAtS14ThenSongThenGap() = runBlocking {
+        val row = handoffCases().getValue("gapCase").jsonObject
+        fun songs(key: String) = row.getValue(key).jsonArray.map { it.jsonPrimitive.content }
+        val effects = TourLogEffects(File(temporary.root,"gaps.json"),fake.update,pause={}) { songs("pool") }
+        var step = TourState(step=TourStep.S14)
+        var log = StoredLog()
+        songs("written").forEachIndexed { index, song ->
+            log = log.adding(song,10)
+            step = TourScript.on(step, if(song.isBlank()) TourEvent.GapRecorded else TourEvent.LogEntryWritten).state
+            if (index == 0) assertEquals(TourStep.S14, step.step)
+            effects.write(gig.id,log)
+        }
+        assertEquals(TourStep.S16,step.step)
+        assertTrue(effects.deliver(gig) { true })
+        assertEquals(songs("filled"),effects.record(gig.id)!!.log.songs)
+        assertEquals(songs("gossip"),effects.record(gig.id)!!.gapSongs)
+        val character = TourCharacter.decode(tourFixtureFile("character/character.json").readText())
+        assertEquals(row.getValue("label").jsonPrimitive.content, character.notes.gapFill)
+        assertTrue(character.line(CoachMark.Log, screen="room", gap=true).instruction.contains("Gap is fine"))
+    }
+
+    @Test fun gapWaitsAndFillPublishesOneBatch() = runBlocking {
         lateinit var effects: TourLogEffects
         val waits = mutableListOf<Pair<Long, List<String>>>()
         effects = TourLogEffects(File(temporary.root, "paced.json"), fake.update, pause = { duration ->
@@ -26,8 +49,6 @@ class TourLogEffectsTest {
         assertTrue(effects.fill(gig, 30) { true })
         assertEquals(listOf(
             2500L to listOf("Mine", ""),
-            500L to listOf("Mine", "Second"),
-            500L to listOf("Mine", "Second", "Third"),
         ), waits)
         assertEquals(listOf("Mine", "Second", "Third", "Fourth"), effects.record(gig.id)!!.log.songs)
     }

@@ -97,7 +97,7 @@ struct SettingsView: View {
                     Button("Resume tour") { model.tour.resume() }
                 }
                 Spacer()
-                Button("Replay tour") { model.tour.replay() }
+                Button("Replay tour") { model.tour.replay { open = nil; nav.popToRoot() } }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
