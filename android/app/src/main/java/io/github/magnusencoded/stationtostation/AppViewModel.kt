@@ -3,8 +3,6 @@ package io.github.magnusencoded.stationtostation
 import android.app.Application
 import io.github.magnusencoded.stationtostation.features.planning.PlanningController
 import io.github.magnusencoded.stationtostation.features.tickets.TicketsController
-import android.content.Context
-import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
@@ -12,138 +10,58 @@ import androidx.lifecycle.viewModelScope
 import io.github.magnusencoded.stationtostation.features.settings.SettingsController
 import io.github.magnusencoded.stationtostation.features.settings.asSettingsStore
 import io.github.magnusencoded.stationtostation.features.settings.asSpotifyLogin
-import io.github.magnusencoded.stationtostation.data.Band
 import io.github.magnusencoded.stationtostation.features.contacts.ContactsController
 import io.github.magnusencoded.stationtostation.features.setlists.SetlistController
 import io.github.magnusencoded.stationtostation.features.gig.GigController
 import io.github.magnusencoded.stationtostation.features.gig.GigMediaController
 import io.github.magnusencoded.stationtostation.data.Friend
 import io.github.magnusencoded.stationtostation.data.FriendArrival
-import io.github.magnusencoded.stationtostation.data.friendArrival
 import io.github.magnusencoded.stationtostation.data.laneKey
-import io.github.magnusencoded.stationtostation.data.landNights
 import io.github.magnusencoded.stationtostation.data.spineDismissals
 import io.github.magnusencoded.stationtostation.data.spineJoins
 import io.github.magnusencoded.stationtostation.data.MediaOffer
 import io.github.magnusencoded.stationtostation.data.mySpine
-import io.github.magnusencoded.stationtostation.data.withFriend
-import io.github.magnusencoded.stationtostation.ble.probeCardFor
 import io.github.magnusencoded.stationtostation.data.DeviceLocation
 import io.github.magnusencoded.stationtostation.data.DeviceTimelinePlumbing
 import io.github.magnusencoded.stationtostation.data.Festivals
 import io.github.magnusencoded.stationtostation.data.LoadedSpine
-import io.github.magnusencoded.stationtostation.data.ProgrammeAct
-import io.github.magnusencoded.stationtostation.data.StoredProgramme
-import io.github.magnusencoded.stationtostation.data.programmeDays
 import io.github.magnusencoded.stationtostation.data.clashfinder.ClashfinderClient
 import io.github.magnusencoded.stationtostation.data.SettingsRepository
-import io.github.magnusencoded.stationtostation.data.StoredAdmission
 import io.github.magnusencoded.stationtostation.data.TicketOriginals
-import io.github.magnusencoded.stationtostation.data.keepingOriginal
-import io.github.magnusencoded.stationtostation.data.needsOriginal
-import io.github.magnusencoded.stationtostation.data.originals
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
-import io.github.magnusencoded.stationtostation.data.StoredFestival
-import io.github.magnusencoded.stationtostation.data.ProgrammeDiff
-import io.github.magnusencoded.stationtostation.data.actKey
-import io.github.magnusencoded.stationtostation.data.nameKey
-import io.github.magnusencoded.stationtostation.data.playedActs
-import io.github.magnusencoded.stationtostation.data.programmeFestivalId
 import io.github.magnusencoded.stationtostation.data.StoredLog
-import io.github.magnusencoded.stationtostation.data.bandsOf
 import io.github.magnusencoded.stationtostation.data.fmDate
-import io.github.magnusencoded.stationtostation.data.holdLanes
-import io.github.magnusencoded.stationtostation.data.laneNeedsFetch
-import io.github.magnusencoded.stationtostation.data.isLocal
-import io.github.magnusencoded.stationtostation.data.localGigSetlist
-import io.github.magnusencoded.stationtostation.data.moveMedia
-import io.github.magnusencoded.stationtostation.data.parseFmDate
-import io.github.magnusencoded.stationtostation.data.plannedLane
 import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.StoredPlaylist
 import io.github.magnusencoded.stationtostation.data.Admission
 import io.github.magnusencoded.stationtostation.data.ParsedTicket
-import io.github.magnusencoded.stationtostation.data.TicketRouting
-import io.github.magnusencoded.stationtostation.data.findDate
 import io.github.magnusencoded.stationtostation.data.matchKnownNight
-import io.github.magnusencoded.stationtostation.data.PdfTicketExtractor
-import io.github.magnusencoded.stationtostation.data.onDevice
-import io.github.magnusencoded.stationtostation.data.parseTicket
-import io.github.magnusencoded.stationtostation.data.checkedForRedraw
-import io.github.magnusencoded.stationtostation.data.routeTicket
-import io.github.magnusencoded.stationtostation.data.QR_SYMBOLOGY
 import io.github.magnusencoded.stationtostation.data.TimelineLogic
-import io.github.magnusencoded.stationtostation.data.TimelineCache
 import io.github.magnusencoded.stationtostation.data.TimelineStore
-import io.github.magnusencoded.stationtostation.data.friendFromUri
 import io.github.magnusencoded.stationtostation.data.photos.PhotoRepository
 import io.github.magnusencoded.stationtostation.features.playlist.PlaylistController
-import io.github.magnusencoded.stationtostation.data.sfmStamp
-import io.github.magnusencoded.stationtostation.data.sfmUserFromDescription
-import io.github.magnusencoded.stationtostation.data.spotifyPlaylistId
-import io.github.magnusencoded.stationtostation.data.toShareUri
 import io.github.magnusencoded.stationtostation.features.navigation.NavigationController
-import io.github.magnusencoded.stationtostation.ui.MaybeNight
 import io.github.magnusencoded.stationtostation.ui.TimelineNode
-import io.github.magnusencoded.stationtostation.ui.atVenue
-import io.github.magnusencoded.stationtostation.ui.canCheckInManually
-import io.github.magnusencoded.stationtostation.ui.checkInCandidate
-import io.github.magnusencoded.stationtostation.ui.venueMapsQuery
-import io.github.magnusencoded.stationtostation.ble.ProbeCard
-import io.github.magnusencoded.stationtostation.data.AccountsMove
 import io.github.magnusencoded.stationtostation.features.handover.HandoverController
-import io.github.magnusencoded.stationtostation.data.AccountsPayload
-import io.github.magnusencoded.stationtostation.data.CATEGORY_ACCOUNTS
-import io.github.magnusencoded.stationtostation.data.Credentials
-import io.github.magnusencoded.stationtostation.data.HandoverManifest
-import io.github.magnusencoded.stationtostation.data.Identities
-import io.github.magnusencoded.stationtostation.data.categoriesFor
-import io.github.magnusencoded.stationtostation.data.deviceManifest
-import io.github.magnusencoded.stationtostation.data.identitiesOnly
-import io.github.magnusencoded.stationtostation.data.mayClearCredentials
 import io.github.magnusencoded.stationtostation.data.unionAttendance
 import io.github.magnusencoded.stationtostation.data.unionLog
 import io.github.magnusencoded.stationtostation.data.unionMedia
 import io.github.magnusencoded.stationtostation.data.unionPlaylists
-import io.github.magnusencoded.stationtostation.data.exchange.HandoverInvite
-import io.github.magnusencoded.stationtostation.data.exchange.HandoverPhase
 import io.github.magnusencoded.stationtostation.data.exchange.HandoverProgress
 import io.github.magnusencoded.stationtostation.data.exchange.HandoverReceipt
-import io.github.magnusencoded.stationtostation.data.exchange.certFingerprint
-import io.github.magnusencoded.stationtostation.data.exchange.forgetHandoverIdentity
-import io.github.magnusencoded.stationtostation.data.exchange.generateHandoverIdentity
-import io.github.magnusencoded.stationtostation.data.exchange.handoverAlias
-import io.github.magnusencoded.stationtostation.data.exchange.localLinkAddress
-import io.github.magnusencoded.stationtostation.data.exchange.parseHandoverInvite
-import io.github.magnusencoded.stationtostation.data.exchange.runHandoverReceiver
-import io.github.magnusencoded.stationtostation.data.exchange.runHandoverSource
-import io.github.magnusencoded.stationtostation.data.exchange.sslClientContext
-import io.github.magnusencoded.stationtostation.data.exchange.sslServerContext
-import io.github.magnusencoded.stationtostation.data.exchange.toUri
 import io.github.magnusencoded.stationtostation.data.exchange.ContactExchange
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangePeer
 import io.github.magnusencoded.stationtostation.data.exchange.ExchangeSession
 import io.github.magnusencoded.stationtostation.data.exchange.contactIdentityPublicKeyBase64
 import io.github.magnusencoded.stationtostation.data.gossip.contactKeysOf
 import io.github.magnusencoded.stationtostation.data.gossip.contactNamesOf
-import io.github.magnusencoded.stationtostation.data.gossip.gossipExpiry
 import io.github.magnusencoded.stationtostation.data.gossip.GossipService
 import io.github.magnusencoded.stationtostation.features.gossip.GossipController
 import io.github.magnusencoded.stationtostation.data.gossip.GossipStore
-import io.github.magnusencoded.stationtostation.data.gossip.gigDatesOf
-import io.github.magnusencoded.stationtostation.data.gossip.gossipGigTonight
-import io.github.magnusencoded.stationtostation.data.gossip.GigIdentity
-import io.github.magnusencoded.stationtostation.data.gossip.GossipEnvelope
 import io.github.magnusencoded.stationtostation.data.gossip.gossipGigAliases
 import io.github.magnusencoded.stationtostation.data.gossip.gossipActiveGigId
-import io.github.magnusencoded.stationtostation.data.gossip.gossipParticipationEnds
 import io.github.magnusencoded.stationtostation.data.gossip.gossipStoppedGigs
 import io.github.magnusencoded.stationtostation.data.contactManifest
-import io.github.magnusencoded.stationtostation.data.GalleryItem
-import io.github.magnusencoded.stationtostation.data.exchange.readAccountsAck
-import io.github.magnusencoded.stationtostation.data.exchange.readAccountsStep
-import io.github.magnusencoded.stationtostation.data.exchange.writeAccountsAck
-import io.github.magnusencoded.stationtostation.data.exchange.writeAccountsStep
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSong
@@ -151,49 +69,17 @@ import io.github.magnusencoded.stationtostation.data.musicbrainz.MbArtist
 import io.github.magnusencoded.stationtostation.data.musicbrainz.MusicBrainzClient
 import io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmClient
 import io.github.magnusencoded.stationtostation.data.setlistfm.SetlistFmRateLimited
-import io.github.magnusencoded.stationtostation.data.setlistfm.parseSetlistId
-import io.github.magnusencoded.stationtostation.data.setlistfm.LOOKUP_FRICTION_MESSAGE
-import io.github.magnusencoded.stationtostation.data.setlistfm.LookupGig
-import io.github.magnusencoded.stationtostation.data.setlistfm.LookupPlan
-import io.github.magnusencoded.stationtostation.data.setlistfm.LookupOutcome
-import io.github.magnusencoded.stationtostation.data.setlistfm.ManualLookup
-import io.github.magnusencoded.stationtostation.data.setlistfm.TicketImport
 import io.github.magnusencoded.stationtostation.data.setlistfm.TicketSetlistFm
-import io.github.magnusencoded.stationtostation.data.setlistfm.TicketSetlistFmAnswer
-import io.github.magnusencoded.stationtostation.data.setlistfm.asStoredHit
-import io.github.magnusencoded.stationtostation.data.setlistfm.chipHits
-import io.github.magnusencoded.stationtostation.data.setlistfm.manualSetlistFmLookup
-import io.github.magnusencoded.stationtostation.data.setlistfm.setlistFmLookupOutcome
-import io.github.magnusencoded.stationtostation.data.setlistfm.setlistFmLookupPlan
-import io.github.magnusencoded.stationtostation.data.setlistfm.ticketImport
-import io.github.magnusencoded.stationtostation.data.SetlistFmMatch
-import io.github.magnusencoded.stationtostation.data.StoredSetlistFmHit
-import io.github.magnusencoded.stationtostation.data.matchSetlistFm
 import io.github.magnusencoded.stationtostation.data.spotify.SpotifyClient
 import io.github.magnusencoded.stationtostation.data.spotify.SpotifyTrack
-import io.github.magnusencoded.stationtostation.data.spotify.rankCandidates
-import java.io.Closeable
-import java.security.SecureRandom
 import java.util.UUID
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.NonCancellable
-import java.net.Socket
-import java.time.Instant
 import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.ZoneId
 
 /** A song with no place yet in the night's recording. 0L is a real time — the first song. */
 const val NOT_STAMPED = -1L
@@ -475,7 +361,7 @@ data class UiState(
     val checkInOffer: FmSetlist? = null,
     /**
      * Every **Festival** identity this device knows, and which **Gigs** carry one.
-     * Nothing else makes a **Node** a **Festival** (#166); see resolveFestivals().
+     * Nothing else makes a **Node** a **Festival** (#166); see NavigationController.resolveFestivals().
      */
     val festivals: Festivals = Festivals(),
     /** Set by a card swap so the timeline opens with the other lines already showing. */
@@ -725,9 +611,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      */
     val clashfinder = ClashfinderClient { settings.clashfinderAuth() }
 
-    suspend fun openClashfinderInBrowser(context: Context, path: String) =
-        settingsController.openClashfinderInBrowser(context, path)
-
     /**
      * The Timeline's sequence and rules (ADR-0001), with the device half handed in
      * rather than constructed inside it — which is what makes them reachable from
@@ -736,13 +619,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val logic = TimelineLogic(DeviceTimelinePlumbing(timelines, setlistFm))
 
     val spotify = SpotifyClient(settings)
-    private val photos = PhotoRepository(application)
+    val photos = PhotoRepository(application)
     private val exchange = ExchangeSession(application, viewModelScope)
     private val where = DeviceLocation(application)
 
     /**
      * #257's whole LAN reconcile, scoped to the Exchange screen:
-     * [startContactExchange]/[stopContactExchange] sit on that screen's
+     * [ContactsController.startContactExchange]/[ContactsController.stopContactExchange] sit on that screen's
      * `DisposableEffect`, alongside the Nearby/BLE radios it already starts and stops —
      * no background service, no extra permission, and no advertising on the network for
      * as long as the app merely happens to be open.
@@ -779,7 +662,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         },
     )
 
-    private val contacts: ContactsController = ContactsController(
+    val contacts: ContactsController = ContactsController(
         state = { _state.value },
         update = { change -> _state.update(change) },
         settings = settings,
@@ -793,7 +676,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         fail = { e -> fail(e) },
         errorKindOf = { e -> errorKindOf(e) },
         isSharedQuota = { e -> isSharedQuota(e) },
-        adoptSetlist = { gigId, setlistId, fresh, notice -> adoptSetlist(gigId, setlistId, fresh, notice) },
+        adoptSetlist = { gigId, setlistId, fresh, notice -> gigController.adoptSetlist(gigId, setlistId, fresh, notice) },
         syncGossip = { gossipController.sync() },
     )
 
@@ -811,7 +694,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
-    private val gigController = GigController(
+    val gigController = GigController(
         state = { _state.value },
         update = { change -> _state.update(change) },
         timelines = timelines,
@@ -824,14 +707,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         syncGossip = { gossipController.sync() },
         gossipAbout = { id -> gossipController.gossipAbout(id) },
     )
-    private val gigMedia = GigMediaController(
+    val gigMedia = GigMediaController(
         state = { _state.value },
         update = { f -> _state.update(f) },
         timelines = timelines,
         photos = photos,
         scope = viewModelScope,
     )
-    private val gossipController = GossipController(
+    val gossipController = GossipController(
         state = { _state.value },
         update = { edit -> _state.update(edit) },
         gossip = gossip,
@@ -839,7 +722,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         radio = { activeUntil -> GossipService.sync(getApplication<Application>(), activeUntil) },
         scope = viewModelScope,
     )
-    private val navigation = NavigationController(
+    val navigation = NavigationController(
         state = { _state.value },
         update = { change -> _state.update(change) },
         scope = viewModelScope,
@@ -847,10 +730,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         saveHiddenLines = { timelines.saveHiddenLines(it) },
         resolveFestivalsFor = { mine, known -> logic.resolveFestivals(mine, known) },
         refreshLine = { friend -> contacts.refreshLine(friend) },
-        writeLog = ::writeLog,
+        writeLog = { gigId, edit -> gigController.writeLog(gigId, edit) },
         fail = ::fail,
     )
-    private val settingsController = SettingsController(
+    val settingsController = SettingsController(
         update = { transform -> _state.update(transform) },
         settings = settings.asSettingsStore(),
         spotify = spotify.asSpotifyLogin(),
@@ -858,7 +741,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         fail = { fail(it) },
     )
 
-    private val handover = HandoverController(
+    val handover = HandoverController(
         state = { _state.value },
         update = { change -> _state.update(change) },
         application = application,
@@ -870,7 +753,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         restoreTimelines = { restoreTimelines() },
     )
 
-    private val playlist = PlaylistController(
+    val playlist = PlaylistController(
         state = { _state.value },
         update = { transform -> _state.update(transform) },
         spotify = spotify,
@@ -878,10 +761,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         timelines = timelines,
         scope = viewModelScope,
         fail = ::fail,
-        addFriend = ::addFriend,
+        addFriend = { friend -> contacts.addFriend(friend) },
     )
 
-    private val planning: PlanningController = PlanningController(
+    val planning: PlanningController = PlanningController(
         state = { _state.value },
         update = { f -> _state.update(f) },
         timelines = timelines,
@@ -891,7 +774,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         fail = ::fail,
     )
 
-    private val tickets: TicketsController = TicketsController(
+    val tickets: TicketsController = TicketsController(
         state = { _state.value },
         update = { f -> _state.update(f) },
         timelines = timelines,
@@ -900,11 +783,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         application = getApplication(),
         scope = viewModelScope,
         planning = planning,
-        adoptSetlist = { gigId, setlistId, fresh, notice -> adoptSetlist(gigId, setlistId, fresh, notice) },
+        adoptSetlist = { gigId, setlistId, fresh, notice -> gigController.adoptSetlist(gigId, setlistId, fresh, notice) },
         lookUpLocalGig = { gigId, manual -> setlists.lookUpLocalGig(gigId, manual) },
     )
 
-    private val setlists: SetlistController = SetlistController(
+    val setlists: SetlistController = SetlistController(
         state = { _state.value },
         update = { change -> _state.update(change) },
         setlistFm = setlistFm,
@@ -915,9 +798,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         scope = viewModelScope,
         fail = ::fail,
         consumeError = ::consumeError,
-        saveSettingsNow = ::saveSettingsNow,
+        saveSettingsNow = { apiKey, clientId -> settingsController.saveSettingsNow(apiKey, clientId) },
         saveMySetlistFmUser = ::saveMySetlistFmUser,
-        adoptSetlist = ::adoptSetlist,
+        adoptSetlist = { gigId, setlistId, fresh, notice -> gigController.adoptSetlist(gigId, setlistId, fresh, notice) },
         lineArtists = { planning.lineArtists() },
     )
 
@@ -1004,10 +887,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         // Same landing as a tap, so one tap brings both people in.
         exchange.onFriendReceived = { friend -> viewModelScope.launch { contacts.bringIn(friend) } }
     }
-
-    fun startContactExchange() = contacts.startContactExchange()
-
-    fun stopContactExchange() = contacts.stopContactExchange()
 
     override fun onCleared() {
         exchange.stop()
@@ -1106,8 +985,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    fun markOnboarded() = settingsController.markOnboarded()
-
     fun consumeError() = _state.update { it.copy(error = null, errorKind = null) }
     fun consumeNotice() = _state.update { it.copy(notice = null) }
 
@@ -1132,37 +1009,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun isSharedQuota(e: Throwable): Boolean =
         e is SetlistFmRateLimited && e.sharedKey
 
-    fun saveSettings(apiKey: String, clientId: String) =
-        settingsController.saveSettings(apiKey, clientId)
-
-    suspend fun saveSettingsNow(apiKey: String, clientId: String) =
-        settingsController.saveSettingsNow(apiKey, clientId)
-
-    fun saveClashfinderCredentials(user: String, privateKey: String) =
-        settingsController.saveClashfinderCredentials(user, privateKey)
-
-    suspend fun buildSpotifyAuthUri(): Uri = settingsController.buildSpotifyAuthUri()
-
-    fun handleAuthRedirect(uri: Uri) = settingsController.handleAuthRedirect(uri)
-
-    fun disconnectSpotify() = settingsController.disconnectSpotify()
-
-    suspend fun receiveHandoverAccounts(socket: Socket): AccountsPayload? =
-        handover.receiveHandoverAccounts(socket)
-
-    suspend fun sendHandoverAccounts(socket: Socket, payload: AccountsPayload): AccountsMove =
-        handover.sendHandoverAccounts(socket, payload)
-
-    fun offerHandover(allow: Set<String>) = handover.offerHandover(allow)
-
-    fun joinHandover(uri: Uri) = handover.joinHandover(uri)
-
-    fun cancelHandover() = handover.cancelHandover()
-
-    fun dismissHandover() = handover.dismissHandover()
-
-    // --- Friends (peer-to-peer) ---
-
     fun saveMySetlistFmUser(username: String) {
         val trimmed = username.trim()
         viewModelScope.launch {
@@ -1170,20 +1016,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(mySetlistFmUser = trimmed) }
         }
     }
-
-    suspend fun myCardUri(): Uri? = contacts.myCardUri()
-
-    fun addFriend(friend: Friend) = contacts.addFriend(friend)
-
-    fun confirmFriendOverwrite() = contacts.confirmFriendOverwrite()
-
-    fun dismissFriendOverwrite() = contacts.dismissFriendOverwrite()
-
-    fun addFriendByUsername(username: String) = contacts.addFriendByUsername(username)
-
-    fun handleFriendLink(uri: Uri) = contacts.handleFriendLink(uri)
-
-    fun removeFriend(friend: Friend) = contacts.removeFriend(friend)
 
     /**
      * Yes to a **Contact**'s offer (#405): their media is filed on my Night [key] and their
@@ -1211,128 +1043,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(mediaOffers = held) }
         }
     }
-
-    fun joinNight(night: String, key: String) = contacts.joinNight(night, key)
-
-    fun dismissMaybe(night: String, key: String) = contacts.dismissMaybe(night, key)
-
-    fun adoptMaybe(maybe: MaybeNight) = contacts.adoptMaybe(maybe)
-
-    fun unjoinNight(night: String, key: String) = contacts.unjoinNight(night, key)
-
-    fun undismissMaybe(night: String, key: String) = contacts.undismissMaybe(night, key)
-
-    fun viewFriendTimeline(friend: Friend) = contacts.viewFriendTimeline(friend)
-
-    fun openSharedConcerts(friend: Friend) = contacts.openSharedConcerts(friend)
-
-    // --- Exchange (meeting someone in person) + two-timeline comparison ---
-
-    fun saveMyCardName(name: String) = contacts.saveMyCardName(name)
-
-    fun startExchange() = contacts.startExchange()
-
-    fun restartExchange() = contacts.restartExchange()
-
-    fun stopExchange() = contacts.stopExchange()
-
-    fun exchangePermissions(): List<String> = contacts.exchangePermissions()
-
-    fun connectWith(peer: ExchangePeer) = contacts.connectWith(peer)
-
-    fun consumeJustConnected() = contacts.consumeJustConnected()
-
-    fun setZoomedOut(on: Boolean) = navigation.setZoomedOut(on)
-
-    fun handleLink(intent: LinkIntent) = navigation.handleLink(intent)
-
-    fun linkGig(id: String, at: GigLink) = navigation.linkGig(id, at)
-
-    fun consumeLinkScreen() = navigation.consumeLinkScreen()
-
-    fun consumeLinkedDate() = navigation.consumeLinkedDate()
-
-    fun consumeAddGigLink() = navigation.consumeAddGigLink()
-
-    fun consumeGigLink() = navigation.consumeGigLink()
-
-    fun toggleFestival(key: String) = navigation.toggleFestival(key)
-
-    fun toggleLineHidden(lane: String) = navigation.toggleLineHidden(lane)
-
-    fun openFestival(key: String) = navigation.openFestival(key)
-
-    fun knownGig(id: String): FmSetlist? = navigation.knownGig(id)
-
-    fun resolveFestivals() = navigation.resolveFestivals()
-
-    fun loadFriendTimelines() = contacts.loadFriendTimelines()
-
-    fun setArtistQuery(q: String) = setlists.setArtistQuery(q)
-    fun setUserQuery(q: String) = setlists.setUserQuery(q)
-    fun searchArtists() = setlists.searchArtists()
-    fun openArtist(artist: FmArtist) = setlists.openArtist(artist)
-    fun importAttended(username: String, apiKey: String?) = setlists.importAttended(username, apiKey)
-    fun openUserAttended() = setlists.openUserAttended()
-    fun refreshSelectedSetlist() = setlists.refreshSelectedSetlist()
-    fun startLookupChecks() = setlists.startLookupChecks()
-    fun stopLookupChecks() = setlists.stopLookupChecks()
-    suspend fun setlistFmChipHits(gigId: String): List<StoredSetlistFmHit> = setlists.setlistFmChipHits(gigId)
-    fun acceptSetlistFmMatch(gigId: String, setlistId: String) = setlists.acceptSetlistFmMatch(gigId, setlistId)
-    fun rejectSetlistFmMatches(gigId: String) = setlists.rejectSetlistFmMatches(gigId)
-    fun loadMoreSetlists() = setlists.loadMoreSetlists()
-
-    // --- Matching ---
-
-    fun openShow(setlist: FmSetlist) = navigation.openShow(setlist)
-
-    fun openCollectionWalk(node: TimelineNode.Several) = navigation.openCollectionWalk(node)
-
-    fun closeCollectionWalk() = navigation.closeCollectionWalk()
-
-    fun addPlannedGig(linkOrId: String) = planning.addPlannedGig(linkOrId)
-    fun addGig(artist: String, venue: String, date: String) = planning.addGig(artist, venue, date)
-    fun joinGig(gig: FmSetlist) = planning.joinGig(gig)
-    fun addPlannedGigByHand(artist: String, venue: String, date: String) = planning.addPlannedGigByHand(artist, venue, date)
-    fun handleSharedTicketPdf(uri: Uri) = tickets.handleSharedTicketPdf(uri)
-    fun handleTicketLink(uri: Uri) = tickets.handleTicketLink(uri)
-    fun confirmPendingTicket(id: String, artist: String, venue: String, date: String, chosenSetlistId: String? = null) =
-        tickets.confirmPendingTicket(id, artist, venue, date, chosenSetlistId)
-    fun dismissPendingTicket(id: String) = tickets.dismissPendingTicket(id)
-    fun suggestArtists(query: String) = planning.suggestArtists(query)
-    fun clearArtistSuggestions() = planning.clearArtistSuggestions()
-    fun addLocalGig(artist: String, venue: String, date: String) = planning.addLocalGig(artist, venue, date)
-    fun markCalendarAdded(gigId: String, eventUri: String) = planning.markCalendarAdded(gigId, eventUri)
-    fun commitProgramme(
-        programme: StoredProgramme,
-        diff: ProgrammeDiff,
-        picked: Set<String>,
-        now: LocalDateTime = LocalDateTime.now(),
-    ) = planning.commitProgramme(programme, diff, picked, now)
-
-    fun standing(gigId: String): GigStanding = gigController.standing(gigId)
-
-    fun photosLostByDeleting(gigId: String): Int = gigController.photosLostByDeleting(gigId)
-
-    fun deleteGig(gigId: String) = gigController.deleteGig(gigId)
-
-    // --- The Log: what I saw, as opposed to what setlist.fm publishes ---
-
-    fun blockGossip(author: String) = gossipController.block(author)
-
-    fun logFor(gigId: String): StoredLog = gigController.logFor(gigId)
-
-    fun addToLog(gigId: String, song: String) = gigController.addToLog(gigId, song)
-
-    fun removeFromLog(gigId: String, index: Int) = gigController.removeFromLog(gigId, index)
-
-    fun correctLogEntry(gigId: String, index: Int, title: String) = gigController.correctLogEntry(gigId, index, title)
-
-    fun restoreLogEntry(gigId: String, index: Int) = gigController.restoreLogEntry(gigId, index)
-
-    fun setLogClosed(gigId: String, closed: Boolean) = gigController.setLogClosed(gigId, closed)
-
-    private fun writeLog(gigId: String, edit: (StoredLog) -> StoredLog) = gigController.writeLog(gigId, edit)
 
     /**
      * The light switch, at the outermost rung of my own **Line** (#145).
@@ -1376,77 +1086,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             if (titles.isNotEmpty()) timelines.saveCatalogue(mbid, titles)
         }
     }
-
-    fun moveGigMedia(setlistId: String, mediaId: String, band: Band, index: Int) =
-        gigMedia.moveGigMedia(setlistId, mediaId, band, index)
-
-    fun setGigNote(setlistId: String, band: Band, text: String) = gigController.setGigNote(setlistId, band, text)
-
-    fun setGigVerdict(setlistId: String, noteId: String, verdict: String?) =
-        gigController.setGigVerdict(setlistId, noteId, verdict)
-
-    fun adoptSetlistLink(gigId: String, linkOrId: String) = gigController.adoptSetlistLink(gigId, linkOrId)
-
-    private suspend fun adoptSetlist(gigId: String, setlistId: String, fresh: FmSetlist?, notice: Boolean): Boolean =
-        gigController.adoptSetlist(gigId, setlistId, fresh, notice)
-
-    fun removePlannedGig(gigId: String) = gigController.removePlannedGig(gigId)
-
-    fun checkInDue(now: LocalDateTime = LocalDateTime.now()): Boolean = gigController.checkInDue(now)
-
-    fun hasLocationPermission(): Boolean = gigController.hasLocationPermission()
-
-    fun isCheckedIn(gigId: String): Boolean = gigController.isCheckedIn(gigId)
-
-    fun offerCheckIn() = gigController.offerCheckIn()
-
-    fun dismissCheckInOffer() = gigController.dismissCheckInOffer()
-
-    fun checkIn(gigId: String) = gigController.checkIn(gigId)
-
-    fun refreshGossip() = gossipController.refresh()
-
-    fun selectGossipGig(gigId: String) = gossipController.selectGig(gigId)
-
-    fun selectSetlist(setlist: FmSetlist) = playlist.selectSetlist(setlist)
-    fun toggleIncluded(index: Int) = playlist.toggleIncluded(index)
-    fun chooseCandidate(index: Int, track: SpotifyTrack) = playlist.chooseCandidate(index, track)
-    fun setPlaylistName(name: String) = playlist.setPlaylistName(name)
-    fun setPlaylistPublic(public: Boolean) = playlist.setPlaylistPublic(public)
-    fun discoverFriendFromPlaylist(link: String) = playlist.discoverFriendFromPlaylist(link)
-    fun loadCoverCandidates() = playlist.loadCoverCandidates()
-    fun setCover(uri: Uri?) = playlist.setCover(uri)
-    fun setCoverFrame(atMs: Long) = playlist.setCoverFrame(atMs)
-    fun researchSong(index: Int, query: String) = playlist.researchSong(index, query)
-    fun createPlaylist() = playlist.createPlaylist()
-    fun removePlaylist(setlistId: String, url: String) = playlist.removePlaylist(setlistId, url)
-
-    fun isVideoCover(uri: Uri): Boolean = photos.isVideo(uri)
-
-    suspend fun videoDurationMs(uri: Uri): Long = photos.videoDurationMs(uri)
-
-    suspend fun videoFrameAt(uri: Uri, atMs: Long): Bitmap? = photos.videoFrameAt(uri, atMs)
-
-    fun addGigPhotos(setlistId: String, uris: List<Uri>, band: Band = Band.VAULT) =
-        gigMedia.addGigPhotos(setlistId, uris, band)
-
-    fun addPickedGigPhotos(setlistId: String, uris: List<Uri>, band: Band = Band.VAULT) =
-        gigMedia.addPickedGigPhotos(setlistId, uris, band)
-
-    fun removeGigPhoto(setlistId: String, uri: Uri) = gigMedia.removeGigPhoto(setlistId, uri)
-
-    fun songOffsets(mediaId: String?, songCount: Int): List<Long> = gigMedia.songOffsets(mediaId, songCount)
-
-    fun stampSong(mediaId: String, index: Int, atMs: Long, songCount: Int) =
-        gigMedia.stampSong(mediaId, index, atMs, songCount)
-
-    fun loadGigPhotoSuggestions() = gigMedia.loadGigPhotoSuggestions()
-
-    suspend fun photoPreview(uri: Uri): MediaThumb = gigMedia.photoPreview(uri)
-
-    fun isVideo(uri: Uri): Boolean = gigMedia.isVideo(uri)
-
-    suspend fun fullPhoto(uri: Uri): Bitmap? = gigMedia.fullPhoto(uri)
 
     private fun setGigMedia(setlistId: String, media: List<StoredMedia>) {
         _state.update { it.copy(mediaBySetlist = it.mediaBySetlist + (setlistId to media)) }

@@ -361,7 +361,7 @@ fun ProgrammeScreen(
                 error = error,
                 blocked = blocked,
                 onImport = { importer.launch(arrayOf("*/*")) },
-                onOpenInBrowser = { scope.launch { viewModel.openClashfinderInBrowser(context, refusedPath) } },
+                onOpenInBrowser = { scope.launch { viewModel.settingsController.openClashfinderInBrowser(context, refusedPath) } },
                 onRefresh = { loadIndex() },
                 onPick = { loadProgramme(it.id) },
             )
@@ -375,9 +375,9 @@ fun ProgrammeScreen(
                 error = error,
                 blocked = blocked,
                 onImport = { importer.launch(arrayOf("*/*")) },
-                onOpenInBrowser = { scope.launch { viewModel.openClashfinderInBrowser(context, refusedPath) } },
+                onOpenInBrowser = { scope.launch { viewModel.settingsController.openClashfinderInBrowser(context, refusedPath) } },
                 onRefetch = { loadProgramme(programme.id) },
-                onCommit = { diff, picked -> viewModel.commitProgramme(programme, diff, picked) },
+                onCommit = { diff, picked -> viewModel.planning.commitProgramme(programme, diff, picked) },
             )
         }
     }

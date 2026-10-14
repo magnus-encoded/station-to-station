@@ -292,7 +292,7 @@ private fun SettingsField(
                 // snackbar if the login cannot even start.
                 openId = null
                 scope.launch {
-                    viewModel.saveSettingsNow(state.setlistFmApiKey, clientId)
+                    viewModel.settingsController.saveSettingsNow(state.setlistFmApiKey, clientId)
                     startSpotifyLogin(context, viewModel)?.let { snackbarHostState.showSnackbar(it) }
                 }
             },
@@ -672,7 +672,7 @@ private fun ServiceControls(
             ) { apiKey = it }
             Spacer(Modifier.height(12.dp))
             AmberButton("Save", Modifier.fillMaxWidth()) {
-                viewModel.saveSettings(apiKey, state.spotifyClientId)
+                viewModel.settingsController.saveSettings(apiKey, state.spotifyClientId)
             }
         }
 
@@ -696,7 +696,7 @@ private fun ServiceControls(
             KeyField("clashfinder private key", key) { key = it }
             Spacer(Modifier.height(12.dp))
             AmberButton("Save clashfinder account", Modifier.fillMaxWidth()) {
-                viewModel.saveClashfinderCredentials(user, key)
+                viewModel.settingsController.saveClashfinderCredentials(user, key)
             }
         }
 
@@ -704,7 +704,7 @@ private fun ServiceControls(
             var clientId by remember(state.spotifyClientId) { mutableStateOf(state.spotifyClientId) }
             if (state.spotifyConnected) {
                 OutlinedButton(
-                    onClick = { viewModel.disconnectSpotify() },
+                    onClick = { viewModel.settingsController.disconnectSpotify() },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Log out", color = Ink) }
             } else {
@@ -737,7 +737,7 @@ private fun ServiceControls(
             ) { clientId = it }
             Spacer(Modifier.height(12.dp))
             AmberButton("Save", Modifier.fillMaxWidth()) {
-                viewModel.saveSettings(state.setlistFmApiKey, clientId)
+                viewModel.settingsController.saveSettings(state.setlistFmApiKey, clientId)
             }
         }
 
@@ -774,7 +774,7 @@ private fun ServiceControls(
                         )
                     }
                     TextButton(
-                        onClick = { viewModel.removeFriend(friend) },
+                        onClick = { viewModel.contacts.removeFriend(friend) },
                         modifier = Modifier.semantics { contentDescription = "Remove ${friend.name}" },
                     ) { Text("Remove") }
                 }

@@ -311,14 +311,14 @@ fun SplashScreen(viewModel: AppViewModel, onProceed: () -> Unit) {
                     // splash's scope can't stop the browser from opening.
                     scope.launch {
                         loginError = startSpotifyLogin(context, viewModel)
-                        viewModel.markOnboarded()
+                        viewModel.settingsController.markOnboarded()
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = SpotifyGreen, contentColor = Color.White),
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Log in with Spotify", fontWeight = FontWeight.SemiBold) }
             Spacer(Modifier.height(4.dp))
-            TextButton(onClick = { viewModel.markOnboarded() }, modifier = Modifier.fillMaxWidth()) {
+            TextButton(onClick = { viewModel.settingsController.markOnboarded() }, modifier = Modifier.fillMaxWidth()) {
                 Text("Skip — just show me setlists", color = Muted)
             }
             loginError?.let {
@@ -350,21 +350,21 @@ fun StationTimelineScreen(
         val link = state.addGigLink ?: return@LaunchedEffect
         prefill = link
         adding = true
-        viewModel.consumeAddGigLink()
+        viewModel.navigation.consumeAddGigLink()
     }
     // The Gig a long press asked to delete, held while the dialog for lost photographs is up.
     var deleteAsked by remember { mutableStateOf<FmSetlist?>(null) }
     val timelineContext = LocalContext.current
     fun menuFor(gig: FmSetlist): GigMenuSpec? {
-        val standing = viewModel.standing(gig.id)
+        val standing = viewModel.gigController.standing(gig.id)
         val entries = gigMenu(standing, gig.url != null).map { item ->
             when (item) {
                 GigMenuItem.OPEN_ON_SETLIST_FM -> GigMenuEntry("Open on setlist.fm") {
                     timelineContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(gig.url)))
                 }
                 GigMenuItem.DELETE -> GigMenuEntry("Delete gig", danger = true) {
-                    if (viewModel.photosLostByDeleting(gig.id) > 0) deleteAsked = gig
-                    else viewModel.deleteGig(gig.id)
+                    if (viewModel.gigController.photosLostByDeleting(gig.id) > 0) deleteAsked = gig
+                    else viewModel.gigController.deleteGig(gig.id)
                 }
             }
         }
@@ -372,8 +372,8 @@ fun StationTimelineScreen(
     }
     deleteAsked?.let { gig ->
         DeleteNightDialog(
-            photos = viewModel.photosLostByDeleting(gig.id),
-            onDelete = { deleteAsked = null; viewModel.deleteGig(gig.id) },
+            photos = viewModel.gigController.photosLostByDeleting(gig.id),
+            onDelete = { deleteAsked = null; viewModel.gigController.deleteGig(gig.id) },
             onDismiss = { deleteAsked = null },
         )
     }
@@ -390,10 +390,10 @@ fun StationTimelineScreen(
         comparing = null
         // Taking their setlist.fm entry can't be undone, so it offers no Undo; the
         // adoption says "Adopted" itself.
-        if (adopt) { viewModel.adoptMaybe(maybe); return }
+        if (adopt) { viewModel.contacts.adoptMaybe(maybe); return }
         val night = maybe.theirs.id
         val key = maybe.mine.id
-        val write = if (same) viewModel.joinNight(night, key) else viewModel.dismissMaybe(night, key)
+        val write = if (same) viewModel.contacts.joinNight(night, key) else viewModel.contacts.dismissMaybe(night, key)
         answerScope.launch {
             write.join()
             answers.currentSnackbarData?.dismiss()
@@ -403,7 +403,7 @@ fun StationTimelineScreen(
                 duration = SnackbarDuration.Long,
             )
             if (undo == SnackbarResult.ActionPerformed) {
-                if (same) viewModel.unjoinNight(night, key) else viewModel.undismissMaybe(night, key)
+                if (same) viewModel.contacts.unjoinNight(night, key) else viewModel.contacts.undismissMaybe(night, key)
             }
         }
     }
@@ -422,13 +422,13 @@ fun StationTimelineScreen(
         plannedGigs = state.plannedGigs,
         offer = state.checkInOffer,
         conflict = state.friendConflict,
-        checkInDue = { viewModel.checkInDue() },
-        hasLocationPermission = { viewModel.hasLocationPermission() },
-        onOffer = { viewModel.offerCheckIn() },
-        onCheckIn = { viewModel.checkIn(it) },
-        onDismissOffer = { viewModel.dismissCheckInOffer() },
-        onConfirmOverwrite = { viewModel.confirmFriendOverwrite() },
-        onDismissOverwrite = { viewModel.dismissFriendOverwrite() },
+        checkInDue = { viewModel.gigController.checkInDue() },
+        hasLocationPermission = { viewModel.gigController.hasLocationPermission() },
+        onOffer = { viewModel.gigController.offerCheckIn() },
+        onCheckIn = { viewModel.gigController.checkIn(it) },
+        onDismissOffer = { viewModel.gigController.dismissCheckInOffer() },
+        onConfirmOverwrite = { viewModel.contacts.confirmFriendOverwrite() },
+        onDismissOverwrite = { viewModel.contacts.dismissFriendOverwrite() },
     )
 
     val actions = TimelineActions(
@@ -439,23 +439,23 @@ fun StationTimelineScreen(
         onAddGig = { adding = true },
         onCompare = { comparing = it },
         menuFor = { menuFor(it) },
-        setZoomedOut = { viewModel.setZoomedOut(it) },
-        consumeJustConnected = { viewModel.consumeJustConnected() },
+        setZoomedOut = { viewModel.navigation.setZoomedOut(it) },
+        consumeJustConnected = { viewModel.contacts.consumeJustConnected() },
         toggleContactLight = { viewModel.toggleContactLight() },
-        toggleLineHidden = { viewModel.toggleLineHidden(it) },
-        loadMoreSetlists = { viewModel.loadMoreSetlists() },
-        resolveFestivals = { viewModel.resolveFestivals() },
-        loadFriendTimelines = { viewModel.loadFriendTimelines() },
+        toggleLineHidden = { viewModel.navigation.toggleLineHidden(it) },
+        loadMoreSetlists = { viewModel.setlists.loadMoreSetlists() },
+        resolveFestivals = { viewModel.navigation.resolveFestivals() },
+        loadFriendTimelines = { viewModel.contacts.loadFriendTimelines() },
         timelinesLoading = { viewModel.state.value.timelinesLoading },
-        consumeLinkedDate = { viewModel.consumeLinkedDate() },
-        linkGig = { id, at -> viewModel.linkGig(id, at) },
-        knownGig = { viewModel.knownGig(it) },
-        openShow = { viewModel.openShow(it) },
-        consumeGigLink = { viewModel.consumeGigLink() },
-        openFestival = { viewModel.openFestival(it) },
-        toggleFestival = { viewModel.toggleFestival(it) },
-        openCollectionWalk = { viewModel.openCollectionWalk(it) },
-        photoPreview = { viewModel.photoPreview(it) },
+        consumeLinkedDate = { viewModel.navigation.consumeLinkedDate() },
+        linkGig = { id, at -> viewModel.navigation.linkGig(id, at) },
+        knownGig = { viewModel.navigation.knownGig(it) },
+        openShow = { viewModel.navigation.openShow(it) },
+        consumeGigLink = { viewModel.navigation.consumeGigLink() },
+        openFestival = { viewModel.navigation.openFestival(it) },
+        toggleFestival = { viewModel.navigation.toggleFestival(it) },
+        openCollectionWalk = { viewModel.navigation.openCollectionWalk(it) },
+        photoPreview = { viewModel.gigMedia.photoPreview(it) },
     )
 
     Scaffold(
@@ -492,15 +492,15 @@ fun StationTimelineScreen(
                 AddGigDialog(
                     initial = prefill,
                     suggestions = state.artistSuggestions,
-                    onArtistTyped = { viewModel.suggestArtists(it) },
-                    onArtistPicked = { viewModel.clearArtistSuggestions() },
+                    onArtistTyped = { viewModel.planning.suggestArtists(it) },
+                    onArtistPicked = { viewModel.planning.clearArtistSuggestions() },
                     onAdd = { artist, venue, date ->
-                        viewModel.addGig(artist, venue, date)
+                        viewModel.planning.addGig(artist, venue, date)
                         adding = false
                         prefill = null
                     },
-                    onAddByLink = { link -> viewModel.addPlannedGig(link); adding = false; prefill = null },
-                    onDismiss = { viewModel.clearArtistSuggestions(); adding = false; prefill = null },
+                    onAddByLink = { link -> viewModel.planning.addPlannedGig(link); adding = false; prefill = null },
+                    onDismiss = { viewModel.planning.clearArtistSuggestions(); adding = false; prefill = null },
                 )
             }
             state.pendingTicket?.let { pending ->
@@ -510,13 +510,13 @@ fun StationTimelineScreen(
                     TicketConfirmDialog(
                         pending = pending,
                         suggestions = state.artistSuggestions,
-                        onArtistTyped = { viewModel.suggestArtists(it) },
-                        onArtistPicked = { viewModel.clearArtistSuggestions() },
+                        onArtistTyped = { viewModel.planning.suggestArtists(it) },
+                        onArtistPicked = { viewModel.planning.clearArtistSuggestions() },
                         onConfirm = { artist, venue, date, chosen ->
-                            viewModel.clearArtistSuggestions()
-                            viewModel.confirmPendingTicket(pending.id, artist, venue, date, chosen)
+                            viewModel.planning.clearArtistSuggestions()
+                            viewModel.tickets.confirmPendingTicket(pending.id, artist, venue, date, chosen)
                         },
-                        onDismiss = { viewModel.clearArtistSuggestions(); viewModel.dismissPendingTicket(pending.id) },
+                        onDismiss = { viewModel.planning.clearArtistSuggestions(); viewModel.tickets.dismissPendingTicket(pending.id) },
                     )
                 }
             }
@@ -555,13 +555,13 @@ fun StationTimelineScreen(
                     CollectionFlyoverScreen(
                         viewModel = viewModel,
                         node = node,
-                        onBack = { viewModel.closeCollectionWalk() },
+                        onBack = { viewModel.navigation.closeCollectionWalk() },
                     )
                 } else {
                     CollectionMediaScreen(
                         viewModel = viewModel,
                         node = node,
-                        onBack = { viewModel.closeCollectionWalk() },
+                        onBack = { viewModel.navigation.closeCollectionWalk() },
                     )
                 }
             }
@@ -1464,15 +1464,15 @@ fun ImportScreen(
         AddGigDialog(
             initial = null,
             suggestions = state.artistSuggestions,
-            onArtistTyped = { viewModel.suggestArtists(it) },
-            onArtistPicked = { viewModel.clearArtistSuggestions() },
+            onArtistTyped = { viewModel.planning.suggestArtists(it) },
+            onArtistPicked = { viewModel.planning.clearArtistSuggestions() },
             onAdd = { artist, venue, date ->
-                viewModel.addGig(artist, venue, date)
+                viewModel.planning.addGig(artist, venue, date)
                 byHand = false
                 onDone()
             },
-            onAddByLink = { link -> viewModel.addPlannedGig(link); byHand = false; onDone() },
-            onDismiss = { viewModel.clearArtistSuggestions(); byHand = false },
+            onAddByLink = { link -> viewModel.planning.addPlannedGig(link); byHand = false; onDone() },
+            onDismiss = { viewModel.planning.clearArtistSuggestions(); byHand = false },
         )
     }
 
@@ -1540,7 +1540,7 @@ fun ImportScreen(
             Spacer(Modifier.height(18.dp))
             Button(
                 onClick = {
-                    viewModel.importAttended(username.trim(), if (!state.setlistFmReady) apiKey else null)
+                    viewModel.setlists.importAttended(username.trim(), if (!state.setlistFmReady) apiKey else null)
                 },
                 enabled = username.isNotBlank() &&
                     (state.setlistFmReady || apiKey.isNotBlank()) &&
