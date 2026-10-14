@@ -99,7 +99,7 @@ class HandoverController(
      * *here* only if the receiver's ack genuinely arrives ([mayClearCredentials]): a
      * dropped connection after the send must never clear a credential that may exist
      * nowhere else. This is the one call site of a handover-triggered
-     * [SettingsRepository.clearSpotifyAuth] — manual sign-out (`AppViewModel.disconnectSpotify`)
+     * [SettingsRepository.clearSpotifyAuth] — manual sign-out (`SettingsController.disconnectSpotify`)
      * does not go through it.
      */
     suspend fun sendHandoverAccounts(socket: Socket, payload: AccountsPayload): AccountsMove =

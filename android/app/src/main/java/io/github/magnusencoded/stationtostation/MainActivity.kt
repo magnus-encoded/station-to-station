@@ -114,7 +114,7 @@ class MainActivity : ComponentActivity() {
                 PassThroughKind.CALLBACK -> viewModel.settingsController.handleAuthRedirect(uri)
                 // A ticketing provider's own confirmation page, linking straight to a gig
                 // with the fields it already knows rather than a PDF for this app to OCR
-                // (see AppViewModel.handleTicketLink).
+                // (see TicketsController.handleTicketLink).
                 PassThroughKind.TICKET -> viewModel.tickets.handleTicketLink(uri)
             }
             else -> viewModel.navigation.handleLink(link)
