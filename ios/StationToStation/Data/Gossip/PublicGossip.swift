@@ -186,19 +186,23 @@ struct PublicGossipState: Codable {
     /// asserting something it cannot see. See `seenWith(gigIds:live:)`.
     var metDevices: [String: [String: Int64]] = [:]
 
+    var verifiedIds: Set<String> = []
     private var verified: [String: GossipEnvelope] = [:]
 
     private enum CodingKeys: String, CodingKey {
-        case facts, seen, held, blocked, recognition, useful, localAuthors, contactNames, metDevices
+        case facts, seen, held, blocked, recognition, useful, localAuthors, contactNames, metDevices, verifiedIds
     }
 
     // Comparing the whole envelope prevents a copied id from bypassing validation.
     private mutating func valid(_ envelope: GossipEnvelope, verify: (Data, Data, String) -> Bool) -> Bool {
-        if verified[envelope.id] == envelope { return true }
-        guard envelope.valid(verify: verify) else { return false }
+        let cached = verifiedIds.contains(envelope.id) &&
+            (verified[envelope.id] == envelope || facts[envelope.id] == envelope || held[envelope.id]?.envelope == envelope)
+        guard cached || envelope.valid(verify: verify) else { return false }
+        verifiedIds.insert(envelope.id)
         verified[envelope.id] = envelope
         if envelope.kind == "witness", let claim = decodePublicEnvelope(envelope.text) {
             verified[claim.id] = claim
+            verifiedIds.insert(claim.id)
         }
         return true
     }
@@ -219,6 +223,7 @@ struct PublicGossipState: Codable {
         useful = try container.decodeIfPresent([String: Int64].self, forKey: .useful) ?? [:]
         localAuthors = try container.decodeIfPresent(Set<String>.self, forKey: .localAuthors) ?? []
         contactNames = try container.decodeIfPresent([String: String].self, forKey: .contactNames) ?? [:]
+        verifiedIds = try container.decodeIfPresent(Set<String>.self, forKey: .verifiedIds) ?? []
         metDevices = try container.decodeIfPresent([String: [String: Int64]].self, forKey: .metDevices) ?? [:]
     }
 
@@ -255,6 +260,8 @@ struct PublicGossipState: Codable {
         seen = seen.filter { $0.value > now }
         held = held.filter { $0.value.until > now && $0.value.envelope.expiresAt > now }
         useful = useful.filter { $0.value > now }
+        verifiedIds.formIntersection(Set(facts.keys).union(held.keys))
+        verified = verified.filter { verifiedIds.contains($0.key) }
     }
     @discardableResult
     mutating func receive(_ envelope: GossipEnvelope, from: String, now: Int64, local: Bool = false, verify: (Data, Data, String) -> Bool = { verifyChallenge($0, signature: $1, publicKeyBase64: $2) }) -> Bool {

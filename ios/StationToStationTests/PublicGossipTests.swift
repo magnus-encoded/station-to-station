@@ -3,6 +3,67 @@ import CryptoKit
 @testable import StationToStation
 
 final class PublicGossipTests: XCTestCase {
+    func testSecondPassDoesNotVerifyCachedFactsAgain() throws {
+        var state = PublicGossipState()
+        let envelope = fact()
+        var calls = 0
+        let verify: (Data, Data, String) -> Bool = { payload, signature, author in
+            calls += 1
+            return verifyChallenge(payload, signature: signature, publicKeyBase64: author)
+        }
+        XCTAssertTrue(state.receive(envelope, from: "relay", now: 2000, verify: verify))
+        state.recognizeContacts([], verify: verify)
+        XCTAssertEqual(calls, 1)
+        state = try JSONDecoder().decode(PublicGossipState.self, from: JSONEncoder().encode(state))
+        XCTAssertFalse(state.receive(envelope, from: "relay", now: 2001, verify: verify))
+        state.recognizeContacts([], verify: verify)
+        XCTAssertEqual(calls, 1)
+        var forged = envelope
+        forged.signature = Data([1]).base64EncodedString()
+        XCTAssertFalse(state.receive(forged, from: "relay", now: 2002, verify: verify))
+        XCTAssertEqual(calls, 2)
+        forged = envelope
+        forged.text = "forged"
+        XCTAssertFalse(state.receive(forged, from: "relay", now: 2003, verify: verify))
+        XCTAssertEqual(state.project(gigIds: ["gig"]), [envelope])
+    }
+
+    func testRestoredFactsAreVerifiedOnceBeforeBeingCached() {
+        var state = PublicGossipState()
+        let envelope = fact()
+        state.facts[envelope.id] = envelope
+        var calls = 0
+        let verify: (Data, Data, String) -> Bool = { payload, signature, author in
+            calls += 1
+            return verifyChallenge(payload, signature: signature, publicKeyBase64: author)
+        }
+        for _ in 0..<2 { state.recognizeContacts([], verify: verify) }
+        XCTAssertEqual(calls, 1)
+    }
+
+    func testProjectFiveThousandFactsFinishesWithinTwoSeconds() {
+        var state = PublicGossipState()
+        for index in 0..<2500 {
+            var log = GossipEnvelope(gigId: "old-\(index)", scope: "scope-\(index)",
+                author: "author", createdAt: 1000, expiresAt: 100000, kind: "log", line: 0)
+            log.id = "log-\(index)"
+            var update = log
+            update.id = "update-\(index)"
+            update.gigId = "new-\(index)"
+            update.formerIds = [log.gigId]
+            update.kind = "update"
+            update.line = -1
+            update.createdAt = 1100
+            state.facts[log.id] = log
+            state.facts[update.id] = update
+        }
+        let start = ProcessInfo.processInfo.systemUptime
+        let projected = state.project(gigIds: ["new-2499"])
+        let elapsed = ProcessInfo.processInfo.systemUptime - start
+        XCTAssertEqual(Set(projected.map(\.id)), ["log-2499", "update-2499"])
+        XCTAssertLessThan(elapsed, 2)
+    }
+
     func testExchangeRecognizesEmbeddedClaimWithoutUndoingBlock() throws {
         let card = P256.Signing.PrivateKey()
         let durable = card.publicKey.derRepresentation.base64EncodedString()

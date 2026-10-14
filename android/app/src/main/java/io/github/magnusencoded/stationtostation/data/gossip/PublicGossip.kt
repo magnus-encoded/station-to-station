@@ -231,16 +231,19 @@ data class PublicGossipState(
      * asserting something it cannot see. See [seenWith].
      */
     val metDevices: MutableMap<String, MutableMap<String, Long>> = mutableMapOf(),
+    val verifiedIds: MutableSet<String> = mutableSetOf(),
 ) {
     @kotlinx.serialization.Transient
     private val verified: MutableMap<String, GossipEnvelope> = mutableMapOf()
 
     // Comparing the whole envelope prevents a copied id from bypassing validation.
     private fun valid(envelope: GossipEnvelope, verify: (ByteArray, ByteArray, String) -> Boolean): Boolean {
-        if (verified[envelope.id] == envelope) return true
-        if (!envelope.valid(verify)) return false
+        val cached = envelope.id in verifiedIds &&
+            (verified[envelope.id] == envelope || facts[envelope.id] == envelope || held[envelope.id]?.envelope == envelope)
+        if (!cached && !envelope.valid(verify)) return false
+        verifiedIds.add(envelope.id)
         verified[envelope.id] = envelope
-        if (envelope.kind == "witness") decodePublicEnvelope(envelope.text)?.let { verified[it.id] = it }
+        if (envelope.kind == "witness") decodePublicEnvelope(envelope.text)?.let { verified[it.id] = it; verifiedIds.add(it.id) }
         return true
     }
 
@@ -274,6 +277,9 @@ data class PublicGossipState(
         seen.entries.removeAll { it.value <= now }
         held.entries.removeAll { it.value.until <= now || it.value.envelope.expiresAt <= now }
         useful.entries.removeAll { it.value <= now }
+        val retained = facts.keys + held.keys
+        verifiedIds.retainAll(retained.toSet())
+        verified.keys.retainAll(verifiedIds)
     }
     fun receive(envelope: GossipEnvelope, from: String, now: Long, local: Boolean = false, verify: (ByteArray, ByteArray, String) -> Boolean = ::verifyChallenge): Boolean {
         prune(now)

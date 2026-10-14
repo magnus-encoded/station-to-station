@@ -10,6 +10,56 @@ import java.io.File
 import io.github.magnusencoded.stationtostation.data.exchange.verifyChallenge
 
 class PublicGossipTest {
+    @Test fun secondPassDoesNotVerifyCachedFactsAgain() {
+        var state = PublicGossipState()
+        val envelope = fact()
+        var calls = 0
+        val verify: (ByteArray, ByteArray, String) -> Boolean = { payload, signature, author ->
+            calls++
+            verifyChallenge(payload, signature, author)
+        }
+        assertTrue(state.receive(envelope, "relay", 2000, verify = verify))
+        state.recognizeContacts(emptySet(), verify = verify)
+        assertEquals(1, calls)
+        state = kotlinx.serialization.json.Json.decodeFromString<PublicGossipState>(
+            kotlinx.serialization.json.Json.encodeToString(PublicGossipState.serializer(), state))
+        assertFalse(state.receive(envelope, "relay", 2001, verify = verify))
+        state.recognizeContacts(emptySet(), verify = verify)
+        assertEquals(1, calls)
+        assertFalse(state.receive(envelope.copy(signature = gossipBase64(byteArrayOf(1))), "relay", 2002, verify = verify))
+        assertEquals(2, calls)
+        assertFalse(state.receive(envelope.copy(text = "forged"), "relay", 2003, verify = verify))
+        assertEquals(listOf(envelope), state.project(setOf("gig")))
+    }
+
+    @Test fun restoredFactsAreVerifiedOnceBeforeBeingCached() {
+        val state = PublicGossipState(facts = linkedMapOf(fact().let { it.id to it }))
+        var calls = 0
+        val verify: (ByteArray, ByteArray, String) -> Boolean = { payload, signature, author ->
+            calls++
+            verifyChallenge(payload, signature, author)
+        }
+        repeat(2) { state.recognizeContacts(emptySet(), verify = verify) }
+        assertEquals(1, calls)
+    }
+
+    @Test fun projectFiveThousandFactsFinishesWithinTwoSeconds() {
+        val state = PublicGossipState()
+        for (index in 0 until 2500) {
+            val log = GossipEnvelope(id = "log-$index", gigId = "old-$index", scope = "scope-$index",
+                author = "author", createdAt = 1000, expiresAt = 100000, kind = "log", line = 0)
+            val update = log.copy(id = "update-$index", gigId = "new-$index", formerIds = listOf(log.gigId),
+                kind = "update", line = -1, createdAt = 1100)
+            state.facts[log.id] = log
+            state.facts[update.id] = update
+        }
+        val start = System.nanoTime()
+        val projected = state.project(setOf("new-2499"))
+        val elapsed = System.nanoTime() - start
+        assertEquals(setOf("log-2499", "update-2499"), projected.map { it.id }.toSet())
+        assertTrue("Projection took ${elapsed / 1_000_000} ms", elapsed < 2_000_000_000L)
+    }
+
     @Test fun exchangeRecognizesAClaimInsideARelayedWitnessWithoutUndoingItsBlock() {
         val card = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
         val durable = gossipBase64(card.public.encoded)
