@@ -361,7 +361,7 @@ data class UiState(
     val checkInOffer: FmSetlist? = null,
     /**
      * Every **Festival** identity this device knows, and which **Gigs** carry one.
-     * Nothing else makes a **Node** a **Festival** (#166); see NavigationController.resolveFestivals().
+     * Nothing else makes a **Node** a **Festival**; see NavigationController.resolveFestivals().
      */
     val festivals: Festivals = Festivals(),
     /** Set by a card swap so the timeline opens with the other lines already showing. */
