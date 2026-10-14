@@ -619,7 +619,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val logic = TimelineLogic(DeviceTimelinePlumbing(timelines, setlistFm))
 
     val spotify = SpotifyClient(settings)
-    val photos = PhotoRepository(application)
+    private val photos = PhotoRepository(application)
     private val exchange = ExchangeSession(application, viewModelScope)
     private val where = DeviceLocation(application)
 
@@ -676,8 +676,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         fail = { e -> fail(e) },
         errorKindOf = { e -> errorKindOf(e) },
         isSharedQuota = { e -> isSharedQuota(e) },
-        adoptSetlist = { gigId, setlistId, fresh, notice -> gigController.adoptSetlist(gigId, setlistId, fresh, notice) },
-        syncGossip = { gossipController.sync() },
+        adoptSetlist = { gigId, setlistId, fresh, notice -> gig.adoptSetlist(gigId, setlistId, fresh, notice) },
+        syncGossip = { gossip.sync() },
     )
 
     /**
@@ -689,23 +689,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * advertising, accepting, relaying, forgetting — is the service's, which is why nothing
      * else about a relayed message reaches [UiState].
      */
-    private val gossip = GossipStore(application)
+    private val gossipStore = GossipStore(application)
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
-    val gigController = GigController(
+    val gig = GigController(
         state = { _state.value },
         update = { change -> _state.update(change) },
         timelines = timelines,
         photos = photos,
         where = where,
         setlistFm = setlistFm,
-        gossip = gossip,
+        gossip = gossipStore,
         scope = viewModelScope,
         setGigMedia = { id, media -> setGigMedia(id, media) },
-        syncGossip = { gossipController.sync() },
-        gossipAbout = { id -> gossipController.gossipAbout(id) },
+        syncGossip = { gossip.sync() },
+        gossipAbout = { id -> gossip.gossipAbout(id) },
     )
     val gigMedia = GigMediaController(
         state = { _state.value },
@@ -714,10 +714,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         photos = photos,
         scope = viewModelScope,
     )
-    val gossipController = GossipController(
+    val gossip = GossipController(
         state = { _state.value },
         update = { edit -> _state.update(edit) },
-        gossip = gossip,
+        gossip = gossipStore,
         timelines = timelines,
         radio = { activeUntil -> GossipService.sync(getApplication<Application>(), activeUntil) },
         scope = viewModelScope,
@@ -730,7 +730,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         saveHiddenLines = { timelines.saveHiddenLines(it) },
         resolveFestivalsFor = { mine, known -> logic.resolveFestivals(mine, known) },
         refreshLine = { friend -> contacts.refreshLine(friend) },
-        writeLog = { gigId, edit -> gigController.writeLog(gigId, edit) },
+        writeLog = { gigId, edit -> gig.writeLog(gigId, edit) },
         fail = ::fail,
     )
     val settingsController = SettingsController(
@@ -783,7 +783,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         application = getApplication(),
         scope = viewModelScope,
         planning = planning,
-        adoptSetlist = { gigId, setlistId, fresh, notice -> gigController.adoptSetlist(gigId, setlistId, fresh, notice) },
+        adoptSetlist = { gigId, setlistId, fresh, notice -> gig.adoptSetlist(gigId, setlistId, fresh, notice) },
         lookUpLocalGig = { gigId, manual -> setlists.lookUpLocalGig(gigId, manual) },
     )
 
@@ -794,13 +794,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         timelines = timelines,
         setlistFmKey = { settings.setlistFmKey() },
         sharedQuotaSpentAtValue = { settings.sharedQuotaSpentAtValue() },
-        gossipStoppedAt = { gossip.stoppedAt() },
+        gossipStoppedAt = { gossipStore.stoppedAt() },
         scope = viewModelScope,
         fail = ::fail,
         consumeError = ::consumeError,
         saveSettingsNow = { apiKey, clientId -> settingsController.saveSettingsNow(apiKey, clientId) },
         saveMySetlistFmUser = ::saveMySetlistFmUser,
-        adoptSetlist = { gigId, setlistId, fresh, notice -> gigController.adoptSetlist(gigId, setlistId, fresh, notice) },
+        adoptSetlist = { gigId, setlistId, fresh, notice -> gig.adoptSetlist(gigId, setlistId, fresh, notice) },
         lineArtists = { planning.lineArtists() },
     )
 
@@ -838,16 +838,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             restoreTimelines()
             // After the timeline is back, because the only reason the radio runs is a Gig
             // on this timeline that is still in participation.
-            gossipController.sync()
+            gossip.sync()
         }
         // Witnessed check-in is the one gossip answer the screens ask for. Read from the
         // store rather than pushed at the moment of witnessing, so a phone that was closed
         // when the witness arrived projects it the same way after a restart.
         viewModelScope.launch {
-            gossip.publicStates.collect { public ->
+            gossipStore.publicStates.collect { public ->
                 val witnessed = public.apply { prune(System.currentTimeMillis()) }.witnessedGigIds()
                 val gigs = timelines.load().gigs
-                val adopted = gossip.adoptedIds()
+                val adopted = gossipStore.adoptedIds()
                 val projected = witnessed + witnessed.mapNotNull { adopted[it] ?: gigs[it]?.setlistId }
                 val aliases = gossipGigAliases(timelines, adopted)
                 _state.update {
@@ -857,7 +857,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             settings.friends.collect { friends ->
-                gossip.updatePublic(System.currentTimeMillis()) { it.recognizeContacts(contactKeysOf(friends), contactNamesOf(friends)) }
+                gossipStore.updatePublic(System.currentTimeMillis()) { it.recognizeContacts(contactKeysOf(friends), contactNamesOf(friends)) }
             }
         }
         // The radios' outputs, mirrored into UiState.

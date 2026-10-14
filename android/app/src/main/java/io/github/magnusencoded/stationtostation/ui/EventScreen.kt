@@ -303,8 +303,8 @@ fun StationEventScreen(
             active = state.gossipActiveGig == setlist.id,
             stopped = setlist.id in state.gossipStoppedGigs,
             friends = state.friends,
-            onSelect = { viewModel.gossipController.selectGig(setlist.id) },
-            onExpiry = { viewModel.gossipController.refresh() },
+            onSelect = { viewModel.gossip.selectGig(setlist.id) },
+            onExpiry = { viewModel.gossip.refresh() },
         )
     }
     // Whose catalogue to offer when correcting an entry: the night's own setlist.fm
@@ -515,14 +515,14 @@ fun StationEventScreen(
                 onAdopt = { adopting = true },
                 onDeleteNight = {
                     if (setlist != null) {
-                        if (viewModel.gigController.photosLostByDeleting(setlist.id) > 0) deleting = true
-                        else { viewModel.gigController.deleteGig(setlist.id); onBack() }
+                        if (viewModel.gig.photosLostByDeleting(setlist.id) > 0) deleting = true
+                        else { viewModel.gig.deleteGig(setlist.id); onBack() }
                     }
                 },
-                onCheckIn = { if (setlist != null) viewModel.gigController.checkIn(setlist.id) },
+                onCheckIn = { if (setlist != null) viewModel.gig.checkIn(setlist.id) },
                 onNotGoing = {
                     if (setlist != null) {
-                        viewModel.gigController.removePlannedGig(setlist.id)
+                        viewModel.gig.removePlannedGig(setlist.id)
                         onBack()
                     }
                 },
@@ -540,7 +540,7 @@ fun StationEventScreen(
         }
         if (adopting) {
             AdoptSetlistDialog(
-                onAdopt = { link -> viewModel.gigController.adoptSetlistLink(setlist.id, link); adopting = false },
+                onAdopt = { link -> viewModel.gig.adoptSetlistLink(setlist.id, link); adopting = false },
                 onDismiss = { adopting = false },
             )
         }
@@ -591,8 +591,8 @@ fun StationEventScreen(
         }
         if (deleting) {
             DeleteNightDialog(
-                photos = viewModel.gigController.photosLostByDeleting(setlist.id),
-                onDelete = { deleting = false; viewModel.gigController.deleteGig(setlist.id); onBack() },
+                photos = viewModel.gig.photosLostByDeleting(setlist.id),
+                onDelete = { deleting = false; viewModel.gig.deleteGig(setlist.id); onBack() },
                 onDismiss = { deleting = false },
             )
         }
@@ -810,10 +810,10 @@ fun StationEventScreen(
                     onOpenRecording = { at -> viewerStartMs = at; viewerUri = recording },
                     onCorrectingChange = { correctingLog = it },
                     onFetchCatalogue = { catalogueArtist?.let(viewModel::fetchCatalogue) },
-                    onBlock = viewModel.gossipController::block,
-                    onRemoveFromLog = { viewModel.gigController.removeFromLog(setlist.id, it) },
-                    onCorrectLogEntry = { index, title -> viewModel.gigController.correctLogEntry(setlist.id, index, title) },
-                    onRestoreLogEntry = { viewModel.gigController.restoreLogEntry(setlist.id, it) },
+                    onBlock = viewModel.gossip::block,
+                    onRemoveFromLog = { viewModel.gig.removeFromLog(setlist.id, it) },
+                    onCorrectLogEntry = { index, title -> viewModel.gig.correctLogEntry(setlist.id, index, title) },
+                    onRestoreLogEntry = { viewModel.gig.restoreLogEntry(setlist.id, it) },
                 )
                 // My own Log, and it is never taken away. A partial capture you can no
                 // longer correct from inside the app is the exact trap this feature is
@@ -841,8 +841,8 @@ fun StationEventScreen(
                             // 0" the instant you check in is noise, not information.
                             published = setlist.performed().size
                                 .takeIf { setlist.url != null && log.songs.isNotEmpty() },
-                            onAdd = { viewModel.gigController.addToLog(setlist.id, it) },
-                            onClosed = { viewModel.gigController.setLogClosed(setlist.id, it) },
+                            onAdd = { viewModel.gig.addToLog(setlist.id, it) },
+                            onClosed = { viewModel.gig.setLogClosed(setlist.id, it) },
                         )
                         Spacer(Modifier.height(10.dp))
                     }
@@ -860,8 +860,8 @@ fun StationEventScreen(
                         senderName = { key -> state.friends.nameOf(key) },
                         contactLight = state.contactLight,
                         editable = editable,
-                        onWrite = { band, text -> viewModel.gigController.setGigNote(setlist.id, band, text) },
-                        onVerdict = { id, v -> viewModel.gigController.setGigVerdict(setlist.id, id, v) },
+                        onWrite = { band, text -> viewModel.gig.setGigNote(setlist.id, band, text) },
+                        onVerdict = { id, v -> viewModel.gig.setGigVerdict(setlist.id, id, v) },
                         onMove = { id, band, index -> moveAndAsk(setlist.id, id, band, index) },
                     )
                 }

@@ -224,6 +224,12 @@ class GigMediaController(
      *  lookup, checked before opening the in-app viewer so it knows which to show. */
     fun isVideo(uri: Uri): Boolean = photos.isVideo(uri)
 
+    /** How long a clip runs, so the frame picker's scrubber knows its range. */
+    suspend fun videoDurationMs(uri: Uri): Long = photos.videoDurationMs(uri)
+
+    /** The frame of a clip at [atMs], for scrubbing to the picture worth keeping. */
+    suspend fun videoFrameAt(uri: Uri, atMs: Long): Bitmap? = photos.videoFrameAt(uri, atMs)
+
     /** A bigger decode of the same photo, for the in-app viewer rather than the
      *  strip's thumbnail. */
     suspend fun fullPhoto(uri: Uri): Bitmap? {

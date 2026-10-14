@@ -219,7 +219,7 @@ private fun ConfirmScreenContent(
                         // sitting on the screen the whole time.
                         onClick = {
                             val cover = state.selectedCoverUri
-                            if (cover != null && viewModel.photos.isVideo(cover)) pickingFrameFor = cover
+                            if (cover != null && viewModel.gigMedia.isVideo(cover)) pickingFrameFor = cover
                             else viewModel.playlist.createPlaylist()
                         },
                         enabled = selectedCount > 0 && !state.creatingPlaylist && !state.matching,
@@ -346,8 +346,8 @@ private fun ConfirmScreenContent(
         VideoFrameDialog(
             uri = videoUri,
             frameMs = state.selectedCoverFrameMs,
-            durationOf = viewModel.photos::videoDurationMs,
-            frameAt = viewModel.photos::videoFrameAt,
+            durationOf = viewModel.gigMedia::videoDurationMs,
+            frameAt = viewModel.gigMedia::videoFrameAt,
             onFrameChange = viewModel.playlist::setCoverFrame,
             onDismiss = { pickingFrameFor = null },
             onConfirm = {

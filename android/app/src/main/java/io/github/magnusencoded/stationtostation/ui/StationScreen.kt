@@ -356,15 +356,15 @@ fun StationTimelineScreen(
     var deleteAsked by remember { mutableStateOf<FmSetlist?>(null) }
     val timelineContext = LocalContext.current
     fun menuFor(gig: FmSetlist): GigMenuSpec? {
-        val standing = viewModel.gigController.standing(gig.id)
+        val standing = viewModel.gig.standing(gig.id)
         val entries = gigMenu(standing, gig.url != null).map { item ->
             when (item) {
                 GigMenuItem.OPEN_ON_SETLIST_FM -> GigMenuEntry("Open on setlist.fm") {
                     timelineContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(gig.url)))
                 }
                 GigMenuItem.DELETE -> GigMenuEntry("Delete gig", danger = true) {
-                    if (viewModel.gigController.photosLostByDeleting(gig.id) > 0) deleteAsked = gig
-                    else viewModel.gigController.deleteGig(gig.id)
+                    if (viewModel.gig.photosLostByDeleting(gig.id) > 0) deleteAsked = gig
+                    else viewModel.gig.deleteGig(gig.id)
                 }
             }
         }
@@ -372,8 +372,8 @@ fun StationTimelineScreen(
     }
     deleteAsked?.let { gig ->
         DeleteNightDialog(
-            photos = viewModel.gigController.photosLostByDeleting(gig.id),
-            onDelete = { deleteAsked = null; viewModel.gigController.deleteGig(gig.id) },
+            photos = viewModel.gig.photosLostByDeleting(gig.id),
+            onDelete = { deleteAsked = null; viewModel.gig.deleteGig(gig.id) },
             onDismiss = { deleteAsked = null },
         )
     }
@@ -422,11 +422,11 @@ fun StationTimelineScreen(
         plannedGigs = state.plannedGigs,
         offer = state.checkInOffer,
         conflict = state.friendConflict,
-        checkInDue = { viewModel.gigController.checkInDue() },
-        hasLocationPermission = { viewModel.gigController.hasLocationPermission() },
-        onOffer = { viewModel.gigController.offerCheckIn() },
-        onCheckIn = { viewModel.gigController.checkIn(it) },
-        onDismissOffer = { viewModel.gigController.dismissCheckInOffer() },
+        checkInDue = { viewModel.gig.checkInDue() },
+        hasLocationPermission = { viewModel.gig.hasLocationPermission() },
+        onOffer = { viewModel.gig.offerCheckIn() },
+        onCheckIn = { viewModel.gig.checkIn(it) },
+        onDismissOffer = { viewModel.gig.dismissCheckInOffer() },
         onConfirmOverwrite = { viewModel.contacts.confirmFriendOverwrite() },
         onDismissOverwrite = { viewModel.contacts.dismissFriendOverwrite() },
     )
