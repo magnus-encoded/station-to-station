@@ -28,10 +28,34 @@ final class PublicGossipTests: XCTestCase {
         XCTAssertEqual(state.project(gigIds: ["gig"]), [envelope])
     }
 
-    func testRestoredFactsAreVerifiedOnceBeforeBeingCached() {
+    func testCachedWitnessAndItsEmbeddedClaimAreNotVerifiedAgain() throws {
+        let claim = fact("", kind: "request")
+        let witnessKey = P256.Signing.PrivateKey()
+        let witness = try XCTUnwrap(GossipEnvelope(gigId: "gig", scope: "witness-scope",
+            author: witnessKey.publicKey.derRepresentation.base64EncodedString(),
+            createdAt: 1500, expiresAt: 100000, kind: "witness", text: claim.record())
+            .signed { try? witnessKey.signature(for: $0).derRepresentation })
+        var state = PublicGossipState()
+        var calls = 0
+        let verify: (Data, Data, String) -> Bool = { payload, signature, author in
+            calls += 1
+            return verifyChallenge(payload, signature: signature, publicKeyBase64: author)
+        }
+        XCTAssertTrue(state.receive(witness, from: "relay", now: 2000, verify: verify))
+        state.recognizeContacts([], verify: verify)
+        XCTAssertEqual(calls, 2)
+        state = try JSONDecoder().decode(PublicGossipState.self, from: JSONEncoder().encode(state))
+        XCTAssertFalse(state.receive(witness, from: "relay", now: 2001, verify: verify))
+        state.recognizeContacts([], verify: verify)
+        XCTAssertEqual(calls, 2)
+        XCTAssertEqual(state.arrivals(gigIds: ["gig"]), [claim])
+    }
+
+    func testRestoredFactsAreVerifiedOnceBeforeBeingCached() throws {
         var state = PublicGossipState()
         let envelope = fact()
         state.facts[envelope.id] = envelope
+        state = try JSONDecoder().decode(PublicGossipState.self, from: JSONEncoder().encode(state))
         var calls = 0
         let verify: (Data, Data, String) -> Bool = { payload, signature, author in
             calls += 1

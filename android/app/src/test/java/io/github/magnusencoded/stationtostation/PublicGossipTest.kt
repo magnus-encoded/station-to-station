@@ -32,8 +32,33 @@ class PublicGossipTest {
         assertEquals(listOf(envelope), state.project(setOf("gig")))
     }
 
+    @Test fun cachedWitnessAndItsEmbeddedClaimAreNotVerifiedAgain() {
+        val claim = fact("", kind = "request")
+        val witnessKey = pair()
+        val witness = GossipEnvelope(gigId = "gig", scope = "witness-scope",
+            author = gossipBase64(witnessKey.public.encoded), createdAt = 1500, expiresAt = 100000,
+            kind = "witness", text = claim.record()).signed { sign(witnessKey, it) }!!
+        var state = PublicGossipState()
+        var calls = 0
+        val verify: (ByteArray, ByteArray, String) -> Boolean = { payload, signature, author ->
+            calls++
+            verifyChallenge(payload, signature, author)
+        }
+        assertTrue(state.receive(witness, "relay", 2000, verify = verify))
+        state.recognizeContacts(emptySet(), verify = verify)
+        assertEquals(2, calls)
+        state = kotlinx.serialization.json.Json.decodeFromString<PublicGossipState>(
+            kotlinx.serialization.json.Json.encodeToString(PublicGossipState.serializer(), state))
+        assertFalse(state.receive(witness, "relay", 2001, verify = verify))
+        state.recognizeContacts(emptySet(), verify = verify)
+        assertEquals(2, calls)
+        assertEquals(listOf(claim), state.arrivals(setOf("gig")))
+    }
+
     @Test fun restoredFactsAreVerifiedOnceBeforeBeingCached() {
-        val state = PublicGossipState(facts = linkedMapOf(fact().let { it.id to it }))
+        val legacy = PublicGossipState(facts = linkedMapOf(fact().let { it.id to it }))
+        val state = kotlinx.serialization.json.Json.decodeFromString<PublicGossipState>(
+            kotlinx.serialization.json.Json.encodeToString(PublicGossipState.serializer(), legacy))
         var calls = 0
         val verify: (ByteArray, ByteArray, String) -> Boolean = { payload, signature, author ->
             calls++

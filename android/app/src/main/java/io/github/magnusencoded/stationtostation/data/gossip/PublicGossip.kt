@@ -231,6 +231,7 @@ data class PublicGossipState(
      * asserting something it cannot see. See [seenWith].
      */
     val metDevices: MutableMap<String, MutableMap<String, Long>> = mutableMapOf(),
+    // Ledger decoding must preserve verification across transactions.
     val verifiedIds: MutableSet<String> = mutableSetOf(),
 ) {
     @kotlinx.serialization.Transient
@@ -243,7 +244,10 @@ data class PublicGossipState(
         if (!cached && !envelope.valid(verify)) return false
         verifiedIds.add(envelope.id)
         verified[envelope.id] = envelope
-        if (envelope.kind == "witness") decodePublicEnvelope(envelope.text)?.let { verified[it.id] = it; verifiedIds.add(it.id) }
+        if (envelope.kind == "witness") decodePublicEnvelope(envelope.text)?.let {
+            verified[it.id] = it
+            verifiedIds.add(it.id)
+        }
         return true
     }
 
@@ -325,6 +329,7 @@ data class PublicGossipState(
     fun project(gigIds: Set<String>): List<GossipEnvelope> {
         val latestScope = facts.values.groupBy { it.author to it.scope }.mapValues { (_, values) -> values.maxWith(compareBy<GossipEnvelope> { it.createdAt }.thenBy { it.id }) }
         val updates = facts.values.filter { it.kind == "update" }.groupBy { it.author to it.scope }
+        // Walking Updates backwards resolves every Fact's reachability once per scope.
         val matchingIds = updates.mapValues { (_, values) ->
             val ids = gigIds.toMutableSet()
             values.sortedWith(compareByDescending<GossipEnvelope> { it.createdAt }.thenByDescending { it.id }).forEach {

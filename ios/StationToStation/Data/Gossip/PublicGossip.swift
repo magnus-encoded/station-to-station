@@ -186,6 +186,7 @@ struct PublicGossipState: Codable {
     /// asserting something it cannot see. See `seenWith(gigIds:live:)`.
     var metDevices: [String: [String: Int64]] = [:]
 
+    // Ledger decoding must preserve verification across transactions.
     var verifiedIds: Set<String> = []
     private var verified: [String: GossipEnvelope] = [:]
 
@@ -312,6 +313,7 @@ struct PublicGossipState: Codable {
         let scopes = Dictionary(grouping: facts.values, by: { $0.author + "\n" + $0.scope })
         let latestInScope = scopes.mapValues { $0.max(by: { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }) }
         let updates = Dictionary(grouping: facts.values.filter { $0.kind == "update" }, by: { $0.author + "\n" + $0.scope })
+        // Walking Updates backwards resolves every Fact's reachability once per scope.
         let matchingIds = updates.mapValues { values -> Set<String> in
             var ids = gigIds
             for update in values.sorted(by: { ($0.createdAt, $0.id) > ($1.createdAt, $1.id) }) {
