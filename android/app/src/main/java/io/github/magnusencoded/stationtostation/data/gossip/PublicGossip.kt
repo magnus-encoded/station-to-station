@@ -231,24 +231,14 @@ data class PublicGossipState(
      * asserting something it cannot see. See [seenWith].
      */
     val metDevices: MutableMap<String, MutableMap<String, Long>> = mutableMapOf(),
-    // Ledger decoding must preserve verification across transactions.
+    @kotlinx.serialization.Transient
     val verifiedIds: MutableSet<String> = mutableSetOf(),
 ) {
-    @kotlinx.serialization.Transient
-    private val verified: MutableMap<String, GossipEnvelope> = mutableMapOf()
-
-    // Comparing the whole envelope prevents a copied id from bypassing validation.
+    // Only retained, unblocked Facts qualify; a copied id still needs identical signed bytes.
     private fun valid(envelope: GossipEnvelope, verify: (ByteArray, ByteArray, String) -> Boolean): Boolean {
-        val cached = envelope.id in verifiedIds &&
-            (verified[envelope.id] == envelope || facts[envelope.id] == envelope || held[envelope.id]?.envelope == envelope)
-        if (!cached && !envelope.valid(verify)) return false
-        verifiedIds.add(envelope.id)
-        verified[envelope.id] = envelope
-        if (envelope.kind == "witness") decodePublicEnvelope(envelope.text)?.let {
-            verified[it.id] = it
-            verifiedIds.add(it.id)
-        }
-        return true
+        val retained = envelope.kind != "receipt" && !isBlocked(envelope.author) && facts[envelope.id] == envelope
+        if (retained && envelope.id in verifiedIds) return true
+        return envelope.valid(verify)
     }
 
     fun isBlocked(author: String): Boolean = author in blocked || recognition[author] in blocked
@@ -256,10 +246,16 @@ data class PublicGossipState(
     /** Recognition is durable and never changes a Block; later Exchange only adds attribution. */
     fun recognizeContacts(contacts: Set<String>, names: Map<String, String> = emptyMap(), verify: (ByteArray, ByteArray, String) -> Boolean = ::verifyChallenge) {
         val envelopes = facts.values + held.values.map { it.envelope }
-        val claims = envelopes.filter { it.kind == "witness" && valid(it, verify) }
-            .mapNotNull { decodePublicEnvelope(it.text) }
-        (envelopes + claims).forEach { envelope ->
-            if (envelope.author !in recognition && valid(envelope, verify)) {
+        val validated = envelopes.filter { envelope ->
+            valid(envelope, verify).also { accepted ->
+                if (accepted && envelope.kind != "receipt" && !isBlocked(envelope.author) && facts[envelope.id] == envelope) {
+                    verifiedIds.add(envelope.id)
+                }
+            }
+        }
+        val claims = validated.filter { it.kind == "witness" }.mapNotNull { decodePublicEnvelope(it.text) }
+        (validated + claims).forEach { envelope ->
+            if (envelope.author !in recognition) {
                 recognizeGossip(envelope, contacts)?.let { recognition[envelope.author] = it }
             }
         }
@@ -283,7 +279,6 @@ data class PublicGossipState(
         useful.entries.removeAll { it.value <= now }
         val retained = facts.keys + held.keys
         verifiedIds.retainAll(retained.toSet())
-        verified.keys.retainAll(verifiedIds)
     }
     fun receive(envelope: GossipEnvelope, from: String, now: Long, local: Boolean = false, verify: (ByteArray, ByteArray, String) -> Boolean = ::verifyChallenge): Boolean {
         prune(now)
@@ -295,7 +290,10 @@ data class PublicGossipState(
         seen[envelope.id] = envelope.expiresAt
         // A request is durable evidence of what its author asserted. It is not witnessed
         // merely because it arrived directly; the separate witness is what strengthens it.
-        if (envelope.kind != "receipt" && !isBlocked(envelope.author)) facts[envelope.id] = envelope
+        if (envelope.kind != "receipt" && !isBlocked(envelope.author)) {
+            facts[envelope.id] = envelope
+            verifiedIds.add(envelope.id)
+        }
         if (local) localAuthors.add(envelope.author)
         if (local || envelope.kind !in setOf("request", "receipt")) {
             held[envelope.id] = PublicHeld(envelope, minOf(envelope.expiresAt, now + PUBLIC_CARRY_MS), mutableSetOf(from))
@@ -326,13 +324,14 @@ data class PublicGossipState(
             .take(GOSSIP_MAX_BATCH).map { it.envelope }
     }
     fun delivered(peer: String, ids: List<String>) { ids.forEach { held[it]?.delivered?.add(peer) } }
-    fun project(gigIds: Set<String>): List<GossipEnvelope> {
+    fun project(gigIds: Set<String>, comparedUpdate: () -> Unit = {}): List<GossipEnvelope> {
         val latestScope = facts.values.groupBy { it.author to it.scope }.mapValues { (_, values) -> values.maxWith(compareBy<GossipEnvelope> { it.createdAt }.thenBy { it.id }) }
         val updates = facts.values.filter { it.kind == "update" }.groupBy { it.author to it.scope }
-        // Walking Updates backwards resolves every Fact's reachability once per scope.
+        // Reachability is shared by author and scope; unrelated Facts cannot multiply Update scans.
         val matchingIds = updates.mapValues { (_, values) ->
             val ids = gigIds.toMutableSet()
             values.sortedWith(compareByDescending<GossipEnvelope> { it.createdAt }.thenByDescending { it.id }).forEach {
+                comparedUpdate()
                 if (it.gigId in ids) ids.addAll(it.formerIds)
             }
             ids
@@ -343,6 +342,7 @@ data class PublicGossipState(
         return facts.values.filter { fact ->
             !isBlocked(fact.author) && (
                 (links(fact) || latestScope[fact.author to fact.scope]?.let { factIds(it).any(gigIds::contains) } == true) ||
+                    // A witness follows the claim's Updates even when its own author signed no Update.
                     (fact.kind == "witness" && decodePublicEnvelope(fact.text)?.let { links(it) } == true)
                 )
         }.groupBy { Triple(it.author, it.scope, if (it.kind == "log") "line:${it.line}" else it.id) }

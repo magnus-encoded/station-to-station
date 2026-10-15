@@ -186,26 +186,17 @@ struct PublicGossipState: Codable {
     /// asserting something it cannot see. See `seenWith(gigIds:live:)`.
     var metDevices: [String: [String: Int64]] = [:]
 
-    // Ledger decoding must preserve verification across transactions.
     var verifiedIds: Set<String> = []
-    private var verified: [String: GossipEnvelope] = [:]
 
     private enum CodingKeys: String, CodingKey {
-        case facts, seen, held, blocked, recognition, useful, localAuthors, contactNames, metDevices, verifiedIds
+        case facts, seen, held, blocked, recognition, useful, localAuthors, contactNames, metDevices
     }
 
-    // Comparing the whole envelope prevents a copied id from bypassing validation.
-    private mutating func valid(_ envelope: GossipEnvelope, verify: (Data, Data, String) -> Bool) -> Bool {
-        let cached = verifiedIds.contains(envelope.id) &&
-            (verified[envelope.id] == envelope || facts[envelope.id] == envelope || held[envelope.id]?.envelope == envelope)
-        guard cached || envelope.valid(verify: verify) else { return false }
-        verifiedIds.insert(envelope.id)
-        verified[envelope.id] = envelope
-        if envelope.kind == "witness", let claim = decodePublicEnvelope(envelope.text) {
-            verified[claim.id] = claim
-            verifiedIds.insert(claim.id)
-        }
-        return true
+    // Only retained, unblocked Facts qualify; a copied id still needs identical signed bytes.
+    private func valid(_ envelope: GossipEnvelope, verify: (Data, Data, String) -> Bool) -> Bool {
+        let retained = envelope.kind != "receipt" && !isBlocked(envelope.author) && facts[envelope.id] == envelope
+        if retained && verifiedIds.contains(envelope.id) { return true }
+        return envelope.valid(verify: verify)
     }
 
     init() {}
@@ -224,7 +215,6 @@ struct PublicGossipState: Codable {
         useful = try container.decodeIfPresent([String: Int64].self, forKey: .useful) ?? [:]
         localAuthors = try container.decodeIfPresent(Set<String>.self, forKey: .localAuthors) ?? []
         contactNames = try container.decodeIfPresent([String: String].self, forKey: .contactNames) ?? [:]
-        verifiedIds = try container.decodeIfPresent(Set<String>.self, forKey: .verifiedIds) ?? []
         metDevices = try container.decodeIfPresent([String: [String: Int64]].self, forKey: .metDevices) ?? [:]
     }
 
@@ -243,9 +233,16 @@ struct PublicGossipState: Codable {
 
     mutating func recognizeContacts(_ contacts: Set<String>, names: [String: String] = [:], verify: (Data, Data, String) -> Bool = { verifyChallenge($0, signature: $1, publicKeyBase64: $2) }) {
         let envelopes = Array(facts.values) + held.values.map(\.envelope)
-        let claims = envelopes.filter { $0.kind == "witness" && valid($0, verify: verify) }.compactMap { decodePublicEnvelope($0.text) }
-        for envelope in envelopes + claims where recognition[envelope.author] == nil {
-            if valid(envelope, verify: verify), let durable = recognizeGossip(envelope, contacts: contacts) {
+        let validated = envelopes.filter { envelope in
+            guard valid(envelope, verify: verify) else { return false }
+            if envelope.kind != "receipt" && !isBlocked(envelope.author) && facts[envelope.id] == envelope {
+                verifiedIds.insert(envelope.id)
+            }
+            return true
+        }
+        let claims = validated.filter { $0.kind == "witness" }.compactMap { decodePublicEnvelope($0.text) }
+        for envelope in validated + claims where recognition[envelope.author] == nil {
+            if let durable = recognizeGossip(envelope, contacts: contacts) {
                 recognition[envelope.author] = durable
             }
         }
@@ -262,7 +259,6 @@ struct PublicGossipState: Codable {
         held = held.filter { $0.value.until > now && $0.value.envelope.expiresAt > now }
         useful = useful.filter { $0.value > now }
         verifiedIds.formIntersection(Set(facts.keys).union(held.keys))
-        verified = verified.filter { verifiedIds.contains($0.key) }
     }
     @discardableResult
     mutating func receive(_ envelope: GossipEnvelope, from: String, now: Int64, local: Bool = false, verify: (Data, Data, String) -> Bool = { verifyChallenge($0, signature: $1, publicKeyBase64: $2) }) -> Bool {
@@ -273,7 +269,10 @@ struct PublicGossipState: Codable {
         if seen[envelope.id] != nil { held.removeValue(forKey: envelope.id); return false }
         guard seen.count < 8192 else { return false }
         seen[envelope.id] = envelope.expiresAt
-        if envelope.kind != "receipt" && !isBlocked(envelope.author) { facts[envelope.id] = envelope }
+        if envelope.kind != "receipt" && !isBlocked(envelope.author) {
+            facts[envelope.id] = envelope
+            verifiedIds.insert(envelope.id)
+        }
         if local { localAuthors.insert(envelope.author) }
         if local || !["request", "receipt"].contains(envelope.kind) {
             held[envelope.id] = PublicHeld(envelope: envelope, until: min(envelope.expiresAt, now + publicCarryMs), delivered: [from])
@@ -309,14 +308,15 @@ struct PublicGossipState: Codable {
     mutating func delivered(to peer: String, ids: [String]) {
         for id in ids { held[id]?.delivered.insert(peer) }
     }
-    func project(gigIds: Set<String>) -> [GossipEnvelope] {
+    func project(gigIds: Set<String>, comparedUpdate: () -> Void = {}) -> [GossipEnvelope] {
         let scopes = Dictionary(grouping: facts.values, by: { $0.author + "\n" + $0.scope })
         let latestInScope = scopes.mapValues { $0.max(by: { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }) }
         let updates = Dictionary(grouping: facts.values.filter { $0.kind == "update" }, by: { $0.author + "\n" + $0.scope })
-        // Walking Updates backwards resolves every Fact's reachability once per scope.
+        // Reachability is shared by author and scope; unrelated Facts cannot multiply Update scans.
         let matchingIds = updates.mapValues { values -> Set<String> in
             var ids = gigIds
             for update in values.sorted(by: { ($0.createdAt, $0.id) > ($1.createdAt, $1.id) }) {
+                comparedUpdate()
                 if ids.contains(update.gigId) { ids.formUnion(update.formerIds) }
             }
             return ids
@@ -329,6 +329,7 @@ struct PublicGossipState: Codable {
             guard !isBlocked(fact.author) else { return false }
             let latest = latestInScope[fact.author + "\n" + fact.scope].flatMap { $0 }
             if links(fact) || latest.map({ !(Set($0.formerIds + [$0.gigId]).intersection(gigIds)).isEmpty }) == true { return true }
+            // A witness follows the claim's Updates even when its own author signed no Update.
             if fact.kind == "witness", let claim = decodePublicEnvelope(fact.text) { return links(claim) }
             return false
         }
