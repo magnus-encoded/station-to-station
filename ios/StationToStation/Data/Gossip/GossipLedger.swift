@@ -77,7 +77,7 @@ actor GossipLedger {
         var next = load()
         var state = next.publicState ?? PublicGossipState()
         state.prune(now: now)
-        // Updates establish which local Gig the rest of this Pass can name.
+        // Requests are not held, so their linking Updates must be admitted first.
         let ordered = batch.filter { $0.kind == "update" } + batch.filter { $0.kind != "update" }
         let accepted = ordered.filter { state.receive($0, from: from, now: now, local: local, localGigIds: localGigIds, contacts: contacts) }
         next.publicState = state

@@ -63,6 +63,31 @@ final class PublicGossipTests: XCTestCase {
         XCTAssertEqual(state.arrivals(gigIds: ["gig"]), [claim])
     }
 
+    func testStrangerWitnessFloodThroughReceiveCannotProtectItselfWithAContactsClaim() throws {
+        var state = PublicGossipState()
+        let card = P256.Signing.PrivateKey()
+        let contactKey = P256.Signing.PrivateKey()
+        let claim = try checkIn(gig: contactKey, card: card, scope: "contact-scope")
+        let contacts: Set<String> = [card.publicKey.derRepresentation.base64EncodedString()]
+        XCTAssertTrue(state.receive(claim, from: claim.author, now: 1000, localGigIds: ["gig"], contacts: contacts))
+        let own = fact("My log")
+        XCTAssertTrue(state.receive(own, from: "", now: 1000, local: true))
+        let stranger = P256.Signing.PrivateKey()
+        // Short-lived witnesses let seen IDs expire while admitted Facts accumulate.
+        for index in 0...PUBLIC_MAX_FACTS {
+            let at = 2000 + Int64(index) * 2
+            let witness = try XCTUnwrap(GossipEnvelope(gigId: "gig", scope: "stranger-scope",
+                author: stranger.publicKey.derRepresentation.base64EncodedString(),
+                createdAt: at, expiresAt: at + 1, kind: "witness", text: claim.record())
+                .signed { try? stranger.signature(for: $0).derRepresentation })
+            XCTAssertTrue(state.receive(witness, from: "relay", now: at, localGigIds: ["gig"], contacts: contacts))
+        }
+        XCTAssertEqual(state.facts.count, PUBLIC_MAX_FACTS)
+        XCTAssertEqual(state.facts[claim.id], claim)
+        XCTAssertEqual(state.facts[own.id], own)
+        XCTAssertEqual(state.recognition[claim.author], contacts.first)
+    }
+
     func testCapEvictsExpiredThenOldestStrangersAndPreservesContactAndOwnFacts() {
         var state = PublicGossipState()
         let template = fact()

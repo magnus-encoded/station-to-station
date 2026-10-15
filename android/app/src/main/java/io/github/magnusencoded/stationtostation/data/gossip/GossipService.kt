@@ -187,7 +187,7 @@ class GossipService : Service() {
                     val present = mutableSetOf<String>()
                     store.updatePublic(now) { state ->
                         val admitted = mutableListOf<GossipEnvelope>()
-                        // Updates establish which local Gig the rest of this Pass can name.
+                        // Requests are not held, so their linking Updates must be admitted first.
                         delivery.pass.batch.filter { it.kind == "update" }.forEach {
                             if (state.receive(it, delivery.from, now, localGigIds = localGigIds, contacts = contacts)) {
                                 accepted++

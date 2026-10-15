@@ -58,7 +58,18 @@ The first accepted copy may enter the outbox. A second valid copy removes it. Su
 handoffs are remembered locally; no peer inventory is requested. Message expiry is 06:00
 at the end of the Gig's night. A 15-minute Carry window, starting at the first accepted copy
 on each relay and capped by message expiry, is a provisional default. Seen IDs survive
-outbox eviction until message expiry. Durable admitted facts survive both timers.
+outbox eviction until message expiry. Durable admitted Facts survive both timers. Admission requires a local Gig link,
+including an author-and-scope Update chain or the claim carried by a witness; local
+authoring also admits. Foreign Facts remain eligible for Carry without durable admission.
+An Update can admit held Facts, but a stranger request discarded in an earlier Pass is
+not reconsidered: requests are never held. Facts retained from before this admission rule
+are not retroactively purged.
+
+The durable store targets 20,000 Facts. Over capacity, evict strangers first by expiry
+(expired before live), then creation time, then id. Protection belongs only to the Fact's
+own signer: a recognised Contact or this device's local author. A stranger's witness of
+a Contact's or this device's request is evictable. Protected Facts are never evicted,
+so they alone may exceed the target.
 
 Verification of admitted, unblocked application Facts is memoised in memory only. A hit
 requires the same id and an equal complete signed Envelope in the retained Facts; receipts
@@ -67,7 +78,7 @@ no separate cache entry. Android transfers trust only for byte-equal Facts after
 the committed state, including trust, in its actor cache. A failed iOS write leaves that
 cache unchanged. Ledger transactions retain this trust in memory, but a relaunch
 verifies each retained Fact on first use. This changes no wire bytes or admission rules and
-does not bound the durable Facts store.
+does not itself bound the durable Facts store.
 
 Resource defaults remain tunable: 128 Envelopes / 128 KB carried, 8,192 live seen IDs,
 per-peer cooldown and bounded BLE sessions. Capacity exhaustion drops incoming transport

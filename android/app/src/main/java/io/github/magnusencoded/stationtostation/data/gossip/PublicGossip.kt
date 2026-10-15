@@ -323,12 +323,12 @@ data class PublicGossipState(
         }
         return true
     }
+    /** Evict strangers expired-first, then by creation time and id; keep Contact and own signers. */
     private fun capFacts(now: Long) {
         val excess = facts.size - PUBLIC_MAX_FACTS
         if (excess <= 0) return
         facts.values.filter { fact ->
-            val claim = if (fact.kind == "witness") decodePublicEnvelope(fact.text) else null
-            listOfNotNull(fact.author, claim?.author).none { it in recognition || it in localAuthors }
+            fact.author !in recognition && fact.author !in localAuthors
         }.sortedWith(compareBy<GossipEnvelope> { it.expiresAt > now }.thenBy { it.createdAt }.thenBy { it.id })
             .take(excess).forEach { facts.remove(it.id); verifiedIds.remove(it.id) }
     }
