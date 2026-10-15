@@ -327,7 +327,6 @@ data class PublicGossipState(
     fun project(gigIds: Set<String>, comparedUpdate: () -> Unit = {}): List<GossipEnvelope> {
         val latestScope = facts.values.groupBy { it.author to it.scope }.mapValues { (_, values) -> values.maxWith(compareBy<GossipEnvelope> { it.createdAt }.thenBy { it.id }) }
         val updates = facts.values.filter { it.kind == "update" }.groupBy { it.author to it.scope }
-        // Reachability is shared by author and scope; unrelated Facts cannot multiply Update scans.
         val matchingIds = updates.mapValues { (_, values) ->
             val ids = gigIds.toMutableSet()
             values.sortedWith(compareByDescending<GossipEnvelope> { it.createdAt }.thenByDescending { it.id }).forEach {

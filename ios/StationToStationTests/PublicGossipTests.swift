@@ -64,7 +64,7 @@ final class PublicGossipTests: XCTestCase {
         XCTAssertEqual(calls, 1)
     }
 
-    func testProjectComparesEachUpdateOnce() {
+    func testUnrelatedFactsDoNotMultiplyUpdateComparisons() {
         var state = PublicGossipState()
         for index in 0..<2500 {
             var log = GossipEnvelope(gigId: "old-\(index)", scope: "scope-\(index)",

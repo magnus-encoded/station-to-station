@@ -312,7 +312,6 @@ struct PublicGossipState: Codable {
         let scopes = Dictionary(grouping: facts.values, by: { $0.author + "\n" + $0.scope })
         let latestInScope = scopes.mapValues { $0.max(by: { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }) }
         let updates = Dictionary(grouping: facts.values.filter { $0.kind == "update" }, by: { $0.author + "\n" + $0.scope })
-        // Reachability is shared by author and scope; unrelated Facts cannot multiply Update scans.
         let matchingIds = updates.mapValues { values -> Set<String> in
             var ids = gigIds
             for update in values.sorted(by: { ($0.createdAt, $0.id) > ($1.createdAt, $1.id) }) {

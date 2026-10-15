@@ -63,7 +63,9 @@ outbox eviction until message expiry. Durable admitted facts survive both timers
 Verification of admitted, unblocked application Facts is memoised in memory only. A hit
 requires the same id and an equal complete signed Envelope in the retained Facts; receipts
 and rejected envelopes do not populate the cache. A witness's verified embedded claim needs
-no separate cache entry. Ledger transactions retain this trust in memory, but a relaunch
+no separate cache entry. Android transfers trust only for byte-equal Facts after DataStore decoding; iOS retains
+the committed state, including trust, in its actor cache. A failed iOS write leaves that
+cache unchanged. Ledger transactions retain this trust in memory, but a relaunch
 verifies each retained Fact on first use. This changes no wire bytes or admission rules and
 does not bound the durable Facts store.
 

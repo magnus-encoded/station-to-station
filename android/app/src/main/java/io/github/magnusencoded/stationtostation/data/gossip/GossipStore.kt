@@ -116,7 +116,7 @@ class GossipStore(private val data: DataStore<Preferences>) {
 
     private fun decodePublic(value: String?): PublicGossipState {
         val state = value?.let { json.decodeFromString<PublicGossipState>(it) } ?: PublicGossipState()
-        // DataStore decodes each transaction; carry trust only for unchanged signed bytes.
+        // A copied id cannot transfer trust to different signed bytes.
         lastPublic?.let { previous ->
             state.verifiedIds.addAll(previous.verifiedIds.filter { id ->
                 state.facts[id] != null && state.facts[id] == previous.facts[id]
@@ -132,6 +132,7 @@ class GossipStore(private val data: DataStore<Preferences>) {
             state.prune(now)
             edit(state)
             prefs[Keys.PUBLIC] = json.encodeToString(PublicGossipState.serializer(), state)
+            // A failed commit is safe: decodePublic checks cached Facts against disk bytes.
             lastPublic = state
         }
     }

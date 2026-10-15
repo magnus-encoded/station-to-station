@@ -65,7 +65,7 @@ class PublicGossipTest {
         assertEquals(1, calls)
     }
 
-    @Test fun projectComparesEachUpdateOnce() {
+    @Test fun unrelatedFactsDoNotMultiplyUpdateComparisons() {
         val state = PublicGossipState()
         for (index in 0 until 2500) {
             val log = GossipEnvelope(id = "log-$index", gigId = "old-$index", scope = "scope-$index",
