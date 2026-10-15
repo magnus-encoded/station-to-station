@@ -10,6 +10,81 @@ import java.io.File
 import io.github.magnusencoded.stationtostation.data.exchange.verifyChallenge
 
 class PublicGossipTest {
+    @Test fun foreignGigFloodIsOnlyHeldAndStillRelayed() {
+        val state = PublicGossipState()
+        repeat(160) { index ->
+            val envelope = fact("foreign-$index").copy(gigId = "foreign-$index", id = "", signature = "")
+                .signed { sign(key, it) }!!
+            assertTrue(state.receive(envelope, "relay", 2000, localGigIds = setOf("gig")))
+        }
+        assertTrue(state.facts.isEmpty())
+        assertTrue(state.held.isNotEmpty())
+        assertTrue(state.held.size <= PUBLIC_MAX_HELD)
+        assertTrue(state.offer("next", 2001).isNotEmpty())
+    }
+
+    @Test fun updateAdmitsHeldFactsOnlyForItsOwnAuthorAndScope() {
+        val state = PublicGossipState()
+        val log = fact().copy(gigId = "foreign", id = "", signature = "").signed { sign(key, it) }!!
+        val unrelated = log.copy(scope = "other-scope", id = "", signature = "").signed { sign(key, it) }!!
+        state.receive(log, "relay", 2000, localGigIds = setOf("gig"))
+        state.receive(unrelated, "relay", 2000, localGigIds = setOf("gig"))
+        assertTrue(state.facts.isEmpty())
+        val update = log.copy(gigId = "gig", formerIds = listOf("foreign"), kind = "update", line = -1,
+            text = "", createdAt = 1500, id = "", signature = "").signed { sign(key, it) }!!
+        state.receive(update, "relay", 2000, localGigIds = setOf("gig"))
+        assertEquals(setOf(log.id, update.id), state.facts.keys)
+    }
+
+    @Test fun witnessIsAdmittedWhenOnlyItsCarriedClaimLinksToALocalGig() {
+        val state = PublicGossipState()
+        val author = pair()
+        val witnessKey = pair()
+        val claim = checkIn(author, null, "claim-scope").copy(gigId = "foreign", id = "", signature = "")
+            .signed { sign(author, it) }!!
+        val witness = GossipEnvelope(gigId = "foreign", scope = "witness-scope",
+            author = gossipBase64(witnessKey.public.encoded), createdAt = 1500, expiresAt = 100000,
+            kind = "witness", text = claim.record()).signed { sign(witnessKey, it) }!!
+        val update = claim.copy(gigId = "gig", formerIds = listOf("foreign"), kind = "update", text = "",
+            createdAt = 1600, id = "", signature = "").signed { sign(author, it) }!!
+        state.receive(update, "relay", 2000, localGigIds = setOf("gig"))
+        state.receive(witness, "relay", 2000, localGigIds = setOf("gig"))
+        assertTrue(state.facts.containsKey(witness.id))
+        assertEquals(listOf(claim), state.arrivals(setOf("gig")))
+    }
+
+    @Test fun capEvictsExpiredThenOldestStrangersAndPreservesContactAndOwnFacts() {
+        val state = PublicGossipState()
+        val template = fact()
+        repeat(PUBLIC_MAX_FACTS) { index ->
+            val envelope = template.copy(id = "stranger-$index", author = "stranger", createdAt = 1000L + index)
+            state.facts[envelope.id] = envelope
+        }
+        val expired = template.copy(id = "expired", author = "stranger", createdAt = 99999, expiresAt = 1500)
+        val contact = template.copy(id = "contact", author = "contact-author", expiresAt = 1500)
+        val own = template.copy(id = "own", author = "own-author", expiresAt = 1500)
+        listOf(expired, contact, own).forEach { state.facts[it.id] = it }
+        state.recognition[contact.author] = "contact-card"
+        state.localAuthors.add(own.author)
+        state.prune(2000)
+        assertEquals(PUBLIC_MAX_FACTS, state.facts.size)
+        assertFalse(state.facts.containsKey(expired.id))
+        assertFalse(state.facts.containsKey("stranger-0"))
+        assertFalse(state.facts.containsKey("stranger-1"))
+        assertTrue(state.facts.containsKey("stranger-2"))
+        assertTrue(state.facts.containsKey(contact.id))
+        assertTrue(state.facts.containsKey(own.id))
+    }
+
+    @Test fun capKeepsFactsWhenEveryAuthorIsProtected() {
+        val state = PublicGossipState()
+        val template = fact()
+        state.localAuthors.add(template.author)
+        repeat(PUBLIC_MAX_FACTS + 1) { index -> state.facts["own-$index"] = template.copy(id = "own-$index") }
+        state.prune(200000)
+        assertEquals(PUBLIC_MAX_FACTS + 1, state.facts.size)
+    }
+
     @Test fun secondPassDoesNotVerifyCachedFactsAgain() {
         var state = PublicGossipState()
         val envelope = fact()
@@ -18,15 +93,15 @@ class PublicGossipTest {
             calls++
             verifyChallenge(payload, signature, author)
         }
-        assertTrue(state.receive(envelope, "relay", 2000, verify = verify))
+        assertTrue(state.receive(envelope, "relay", 2000, verify = verify, localGigIds = setOf("gig")))
         state.recognizeContacts(emptySet(), verify = verify)
         assertEquals(1, calls)
-        assertFalse(state.receive(envelope, "relay", 2001, verify = verify))
+        assertFalse(state.receive(envelope, "relay", 2001, verify = verify, localGigIds = setOf("gig")))
         state.recognizeContacts(emptySet(), verify = verify)
         assertEquals(1, calls)
-        assertFalse(state.receive(envelope.copy(signature = gossipBase64(byteArrayOf(1))), "relay", 2002, verify = verify))
+        assertFalse(state.receive(envelope.copy(signature = gossipBase64(byteArrayOf(1))), "relay", 2002, verify = verify, localGigIds = setOf("gig")))
         assertEquals(2, calls)
-        assertFalse(state.receive(envelope.copy(text = "forged"), "relay", 2003, verify = verify))
+        assertFalse(state.receive(envelope.copy(text = "forged"), "relay", 2003, verify = verify, localGigIds = setOf("gig")))
         assertEquals(2, calls)
         assertEquals(listOf(envelope), state.project(setOf("gig")))
     }
@@ -43,10 +118,10 @@ class PublicGossipTest {
             calls++
             verifyChallenge(payload, signature, author)
         }
-        assertTrue(state.receive(witness, "relay", 2000, verify = verify))
+        assertTrue(state.receive(witness, "relay", 2000, verify = verify, localGigIds = setOf("gig")))
         state.recognizeContacts(emptySet(), verify = verify)
         assertEquals(2, calls)
-        assertFalse(state.receive(witness, "relay", 2001, verify = verify))
+        assertFalse(state.receive(witness, "relay", 2001, verify = verify, localGigIds = setOf("gig")))
         state.recognizeContacts(emptySet(), verify = verify)
         assertEquals(2, calls)
         assertEquals(listOf(claim), state.arrivals(setOf("gig")))
@@ -86,7 +161,7 @@ class PublicGossipTest {
         val envelope = fact()
         assertFalse(state.receive(envelope, "relay", envelope.expiresAt))
         state.blocked.add(envelope.author)
-        assertTrue(state.receive(envelope, "relay", 2000))
+        assertTrue(state.receive(envelope, "relay", 2000, localGigIds = setOf("gig")))
         val receipt = fact("neighbour", kind = "receipt")
         assertTrue(state.receive(receipt, receipt.author, 2000))
         val request = fact("", kind = "request")
@@ -99,7 +174,7 @@ class PublicGossipTest {
     @Test fun verificationCacheIsAbsentFromSerializedStateAndRebuiltAfterRestart() {
         val state = PublicGossipState()
         val envelope = fact()
-        state.receive(envelope, "relay", 2000)
+        state.receive(envelope, "relay", 2000, localGigIds = setOf("gig"))
         val bytes = kotlinx.serialization.json.Json { encodeDefaults = true }
             .encodeToString(PublicGossipState.serializer(), state)
         assertFalse(bytes.contains("verifiedIds"))
@@ -170,7 +245,7 @@ class PublicGossipTest {
             Signature.getInstance("SHA256withECDSA").run { initSign(card.private); update(bytes); sign() }
         }!!
         val state = PublicGossipState()
-        assertTrue(state.receive(witness, "relay", 1600))
+        assertTrue(state.receive(witness, "relay", 1600, localGigIds = setOf("gig")))
         state.blocked.add(author)
         state.recognizeContacts(setOf(durable))
         assertEquals(durable, state.recognition[author])
@@ -198,7 +273,7 @@ class PublicGossipTest {
     @Test fun durableContactBlockAppliesAfterRecognitionAndSurvivesRestartWithoutStoppingRelay() {
         val envelope = fact()
         val state = PublicGossipState()
-        state.receive(envelope, "relay", 2000)
+        state.receive(envelope, "relay", 2000, localGigIds = setOf("gig"))
         state.blocked.add("contact-key")
         assertEquals(listOf(envelope), state.project(setOf("gig")))
         state.recognition[envelope.author] = "contact-key"
@@ -304,7 +379,7 @@ class PublicGossipTest {
         val blocked = checkIn(pair(), blockedCard, "blocked-scope")
 
         val state = PublicGossipState()
-        val accepted = listOf(contact, stranger, blocked).filter { state.receive(it, it.author, 1500) }
+        val accepted = listOf(contact, stranger, blocked).filter { state.receive(it, it.author, 1500, localGigIds = setOf("gig")) }
         assertEquals(listOf(contact, stranger, blocked), accepted)
         state.blocked.add(blockedDurable)
         state.recognizeContacts(setOf(contactDurable, blockedDurable), emptyMap())
@@ -340,8 +415,8 @@ class PublicGossipTest {
             .signed { bytes -> sign(mineKey, bytes) }!!
 
         val state = PublicGossipState()
-        assertTrue(state.receive(mine, "", 1500, local = true))
-        assertTrue(state.receive(witness, "blind-relay", 1601))
+        assertTrue(state.receive(mine, "", 1500, local = true, localGigIds = setOf("gig")))
+        assertTrue(state.receive(witness, "blind-relay", 1601, localGigIds = setOf("gig")))
         state.recognizeContacts(setOf(durable), emptyMap())
         assertFalse(state.facts.containsKey(theirs.id))
         assertEquals(setOf(durable), state.presenceFrom(listOf(witness, mine), setOf("gig")))
@@ -364,10 +439,10 @@ class PublicGossipTest {
         for (kind in listOf("request", "receipt")) {
             val envelope = fact(text = if (kind == "receipt") "useful-neighbour" else "", kind = kind)
             val receiver = PublicGossipState()
-            assertFalse(receiver.receive(envelope, "blind-relay", 2000))
+            assertFalse(receiver.receive(envelope, "blind-relay", 2000, localGigIds = setOf("gig")))
             assertTrue(receiver.seen.isEmpty())
             assertTrue(receiver.useful.isEmpty())
-            assertTrue(receiver.receive(envelope, envelope.author, 2001))
+            assertTrue(receiver.receive(envelope, envelope.author, 2001, localGigIds = setOf("gig")))
             if (kind == "request") assertEquals(listOf(envelope), receiver.facts.values.toList())
             else assertTrue(receiver.facts.isEmpty())
             assertTrue(receiver.held.isEmpty())
@@ -379,8 +454,8 @@ class PublicGossipTest {
             }
 
             val author = PublicGossipState()
-            assertTrue(author.receive(envelope, "", 2000, local = true))
-            assertFalse(author.receive(envelope, "blind-relay", 2001))
+            assertTrue(author.receive(envelope, "", 2000, local = true, localGigIds = setOf("gig")))
+            assertFalse(author.receive(envelope, "blind-relay", 2001, localGigIds = setOf("gig")))
             // A receipt is addressed to the one neighbour it names; anything else is gossiped.
             val recipient = if (kind == "receipt") "useful-neighbour" else "recipient"
             assertEquals(listOf(envelope), author.offer(recipient, 2002))
@@ -425,8 +500,8 @@ class PublicGossipTest {
         val carried = fact()
         val receipt = requireNotNull(receiptFor(carried, "neighbour", true, me, 2000, sign))
         val state = PublicGossipState()
-        assertTrue(state.receive(carried, "neighbour", 2000))
-        assertTrue(state.receive(receipt, "", 2000, local = true))
+        assertTrue(state.receive(carried, "neighbour", 2000, localGigIds = setOf("gig")))
+        assertTrue(state.receive(receipt, "", 2000, local = true, localGigIds = setOf("gig")))
         // Never a durable assertion, and the Fact it is about is untouched — still held and
         // still offered to everyone it has not reached.
         assertTrue(state.facts.values.none { it.kind == "receipt" })
@@ -436,14 +511,14 @@ class PublicGossipTest {
         assertEquals(listOf(receipt), state.offer("neighbour", 2001))
         // The Storm gate is exactly where receiving the Fact left it: a second copy still
         // retires it, and authoring a receipt about it changed nothing.
-        assertFalse(state.receive(carried, "third-relay", 2001))
+        assertFalse(state.receive(carried, "third-relay", 2001, localGigIds = setOf("gig")))
         assertTrue(state.offer("somebody-else", 2002).isEmpty())
         // It rides only a Pass signed as the key it was authored under.
         assertTrue(passBatch(listOf(receipt), null, "some-other-key").isEmpty())
         assertEquals(listOf(receipt), passBatch(listOf(receipt), null, me))
         // And at the far end it credits its sender, never the third party its text names.
         val neighbour = PublicGossipState()
-        assertTrue(neighbour.receive(receipt, me, 2002))
+        assertTrue(neighbour.receive(receipt, me, 2002, localGigIds = setOf("gig")))
         assertNull(neighbour.useful["neighbour"])
         assertEquals(setOf(me), neighbour.useful.keys)
         assertTrue(neighbour.facts.isEmpty())
@@ -485,14 +560,14 @@ class PublicGossipTest {
         val carried = fact()
         val misaddressed = requireNotNull(receiptFor(carried, neighbourGig, true, me, 2000, sign))
         val state = PublicGossipState()
-        assertTrue(state.receive(misaddressed, "", 2000, local = true))
+        assertTrue(state.receive(misaddressed, "", 2000, local = true, localGigIds = setOf("gig")))
         // The one egress takes the key the challenge proved, so it never matches, and the
         // credit the ranker reads under that same key was never written.
         assertTrue(state.offer(neighbourRelay, 2001).isEmpty())
         assertNull(state.useful[neighbourRelay])
         val addressed = requireNotNull(receiptFor(carried, neighbourRelay, true, me, 2000, sign))
         val correct = PublicGossipState()
-        assertTrue(correct.receive(addressed, "", 2000, local = true))
+        assertTrue(correct.receive(addressed, "", 2000, local = true, localGigIds = setOf("gig")))
         assertEquals(listOf(addressed), correct.offer(neighbourRelay, 2001))
         assertEquals(2000 + PUBLIC_RECEIPT_MS, correct.useful[neighbourRelay]!!)
         assertTrue(correct.offer(neighbourGig, 2001).isEmpty())
@@ -509,11 +584,11 @@ class PublicGossipTest {
         val batch = listOf(fact("Karma Police", line = 0), fact("No Surprises", line = 1))
         assertNotEquals(batch[0].id, batch[1].id)
         val state = PublicGossipState()
-        batch.forEach { assertTrue(state.receive(it, "neighbour", 2000)) }
+        batch.forEach { assertTrue(state.receive(it, "neighbour", 2000, localGigIds = setOf("gig"))) }
         val receipts = receiptsFor(batch, "neighbour", { true }, me, 2000, sign)
         // Both Facts name the same record, so there was only ever one thing to say.
         assertEquals(1, receipts.size)
-        receipts.forEach { assertTrue(state.receive(it, "", 2000, local = true)) }
+        receipts.forEach { assertTrue(state.receive(it, "", 2000, local = true, localGigIds = setOf("gig"))) }
         assertEquals(receipts, state.held.values.filter { it.envelope.kind == "receipt" }.map { it.envelope })
         assertEquals(receipts, state.offer("neighbour", 2001))
         assertEquals(2000 + PUBLIC_RECEIPT_MS, state.useful["neighbour"]!!)
@@ -542,7 +617,7 @@ class PublicGossipTest {
             Signature.getInstance("SHA256withECDSA").run { initSign(key.private); update(bytes); sign() }
         }!!
         val state = PublicGossipState()
-        assertTrue(state.receive(long, me, 2000))
+        assertTrue(state.receive(long, me, 2000, localGigIds = setOf("gig")))
         assertEquals(2000 + PUBLIC_RECEIPT_MS, state.useful[me]!!)
         state.prune(2000 + PUBLIC_RECEIPT_MS - 1)
         assertEquals(setOf(me), state.useful.keys)
@@ -553,9 +628,9 @@ class PublicGossipTest {
     @Test fun strangerCanCarryAndSecondCopyClosesStormGate() {
         val state = PublicGossipState()
         val envelope = fact()
-        assertTrue(state.receive(envelope, "stranger", 2000))
+        assertTrue(state.receive(envelope, "stranger", 2000, localGigIds = setOf("gig")))
         assertEquals(listOf(envelope), state.offer("another-stranger", 2001))
-        assertFalse(state.receive(envelope, "third-stranger", 2002))
+        assertFalse(state.receive(envelope, "third-stranger", 2002, localGigIds = setOf("gig")))
         assertTrue(state.offer("another-stranger", 2003).isEmpty())
         assertEquals(listOf(envelope), state.facts.values.toList())
     }
@@ -564,7 +639,7 @@ class PublicGossipTest {
         val state = PublicGossipState()
         val envelope = fact()
         state.blocked.add(envelope.author)
-        state.receive(envelope, "Carol", 2000)
+        state.receive(envelope, "Carol", 2000, localGigIds = setOf("gig"))
         assertTrue(state.facts.isEmpty())
         assertEquals(listOf(envelope), state.offer("Bob", 2001))
         state.delivered("Bob", listOf(envelope.id))
@@ -575,8 +650,8 @@ class PublicGossipTest {
         val state = PublicGossipState()
         val old = fact("Karma police")
         val corrected = fact("Karma Police", 1100)
-        state.receive(corrected, "Carol", 2000)
-        state.receive(old, "Dave", 2001)
+        state.receive(corrected, "Carol", 2000, localGigIds = setOf("gig"))
+        state.receive(old, "Dave", 2001, localGigIds = setOf("gig"))
         assertEquals(listOf(corrected), state.project(setOf("gig")))
         assertEquals(2, state.facts.size)
         assertTrue(state.offer("Erin", 100001).isEmpty())
@@ -586,8 +661,8 @@ class PublicGossipTest {
     @Test fun alteredPayloadCannotCloseAnExistingStormGate() {
         val state = PublicGossipState()
         val envelope = fact()
-        state.receive(envelope, "Carol", 2000)
-        assertFalse(state.receive(envelope.copy(text = "forged"), "Dave", 2001))
+        state.receive(envelope, "Carol", 2000, localGigIds = setOf("gig"))
+        assertFalse(state.receive(envelope.copy(text = "forged"), "Dave", 2001, localGigIds = setOf("gig")))
         assertEquals(listOf(envelope), state.offer("Bob", 2002))
     }
 
@@ -602,14 +677,14 @@ class PublicGossipTest {
         val request = signedBy(key, "request", "request")
         val local = signedBy(witnessKey, "witness", "request")
         val state = PublicGossipState()
-        assertTrue(state.receive(local, "", 1500, local = true))
-        assertFalse(state.receive(request, "relay", 1600))
-        assertTrue(state.receive(request, request.author, 1601))
+        assertTrue(state.receive(local, "", 1500, local = true, localGigIds = setOf("gig")))
+        assertFalse(state.receive(request, "relay", 1600, localGigIds = setOf("gig")))
+        assertTrue(state.receive(request, request.author, 1601, localGigIds = setOf("gig")))
         assertEquals(false, state.checkInEvidence(setOf("gig"), request.author).second)
         val witness = requireNotNull(witnessRequest(request, local, 1700) { bytes ->
             Signature.getInstance("SHA256withECDSA").run { initSign(witnessKey.private); update(bytes); sign() }
         })
-        assertTrue(state.receive(witness, witness.author, 1701))
+        assertTrue(state.receive(witness, witness.author, 1701, localGigIds = setOf("gig")))
         assertEquals(true to true, state.checkInEvidence(setOf("gig"), request.author))
         assertTrue(state.facts.containsKey(request.id))
         assertTrue(state.facts.containsKey(witness.id))
@@ -617,11 +692,11 @@ class PublicGossipTest {
         assertTrue(state.held.containsKey(witness.id))
         assertEquals(emptySet<String>(), state.witnessedGigIds())
         val remote = PublicGossipState()
-        assertTrue(remote.receive(witness, "blind-relay", 1800))
+        assertTrue(remote.receive(witness, "blind-relay", 1800, localGigIds = setOf("gig")))
         assertEquals(listOf(request), remote.arrivals(setOf("gig")))
         assertTrue(remote.arrivals(setOf("unrelated-gig")).isEmpty())
         assertFalse(remote.facts.containsKey(request.id))
-        assertTrue(remote.receive(request, request.author, 1801))
+        assertTrue(remote.receive(request, request.author, 1801, localGigIds = setOf("gig")))
         assertEquals(listOf(request), remote.arrivals(setOf("gig")))
         remote.prune(100001)
         assertEquals(listOf(request), remote.arrivals(setOf("gig")))
@@ -641,13 +716,13 @@ class PublicGossipTest {
             }!!
         val mine = signedBy(key, "request", formerIds = listOf("local-gig"))
         val state = PublicGossipState()
-        assertTrue(state.receive(mine, "", 1500, local = true))
+        assertTrue(state.receive(mine, "", 1500, local = true, localGigIds = setOf("gig")))
         // Claimed, but nobody has signed for it yet.
         assertEquals(emptySet<String>(), state.witnessedGigIds())
         val witness = requireNotNull(witnessRequest(mine, signedBy(strangerKey, "request"), 1700) { bytes ->
             Signature.getInstance("SHA256withECDSA").run { initSign(strangerKey.private); update(bytes); sign() }
         })
-        assertTrue(state.receive(witness, witness.author, 1701))
+        assertTrue(state.receive(witness, witness.author, 1701, localGigIds = setOf("gig")))
         // Both the id it carries now and the one it was known by before, so a setlist.fm id
         // arriving after the night still matches the row.
         assertEquals(setOf("gig", "local-gig"), state.witnessedGigIds())
@@ -687,15 +762,15 @@ class PublicGossipTest {
         // Carrying for a night I am not at. A request admitted from its author is still only
         // their claim; nothing about receiving it makes this device able to speak for it.
         val bystander = PublicGossipState()
-        assertTrue(bystander.receive(request, request.author, 1500))
+        assertTrue(bystander.receive(request, request.author, 1500, localGigIds = setOf("gig")))
         assertNull(bystander.localClaimFor(request))
         assertNull(witnessFor(bystander, request, 1600, signer))
 
         // Checked in — at the wrong Gig. `sameGig` is the discriminator, and a claim that
         // shares neither a current nor a former id is somebody else's night.
         val elsewhere = PublicGossipState()
-        assertTrue(elsewhere.receive(signedBy(key, "other-gig", "my-scope"), "", 1500, local = true))
-        assertTrue(elsewhere.receive(request, request.author, 1501))
+        assertTrue(elsewhere.receive(signedBy(key, "other-gig", "my-scope"), "", 1500, local = true, localGigIds = setOf("gig")))
+        assertTrue(elsewhere.receive(request, request.author, 1501, localGigIds = setOf("gig")))
         assertNull(elsewhere.localClaimFor(request))
         assertNull(witnessFor(elsewhere, request, 1600, signer))
 
@@ -703,14 +778,14 @@ class PublicGossipTest {
         // embeds the whole signed claim rather than a reference to it.
         val here = PublicGossipState()
         val mine = signedBy(key, "gig", "my-scope")
-        assertTrue(here.receive(mine, "", 1500, local = true))
-        assertTrue(here.receive(request, request.author, 1501))
+        assertTrue(here.receive(mine, "", 1500, local = true, localGigIds = setOf("gig")))
+        assertTrue(here.receive(request, request.author, 1501, localGigIds = setOf("gig")))
         assertEquals(mine, here.localClaimFor(request))
         val witness = requireNotNull(witnessFor(here, request, 1600, signer))
         assertEquals("witness", witness.kind)
         assertEquals(mine.author, witness.author)
         assertEquals(request, decodePublicEnvelope(witness.text))
-        assertTrue(here.receive(witness, "", 1601, local = true))
+        assertTrue(here.receive(witness, "", 1601, local = true, localGigIds = setOf("gig")))
         assertEquals(true to true, here.checkInEvidence(setOf("gig"), request.author))
     }
 
@@ -725,7 +800,7 @@ class PublicGossipTest {
     @Test fun aClaimNobodyWitnessedStillCapturesProjectsAndTravels() {
         val state = PublicGossipState()
         val request = fact(text = "", kind = "request")
-        assertTrue(state.receive(request, "", 1500, local = true))
+        assertTrue(state.receive(request, "", 1500, local = true, localGigIds = setOf("gig")))
         assertEquals(true to false, state.checkInEvidence(setOf("gig"), request.author))
         assertEquals(emptySet<String>(), state.witnessedGigIds())
 
@@ -733,8 +808,8 @@ class PublicGossipTest {
         // projected and offered exactly as they would be with one.
         val first = fact("Choke", at = 1600)
         val second = fact("Evolve", at = 1700, line = 1)
-        assertTrue(state.receive(first, "", 1601, local = true))
-        assertTrue(state.receive(second, "", 1701, local = true))
+        assertTrue(state.receive(first, "", 1601, local = true, localGigIds = setOf("gig")))
+        assertTrue(state.receive(second, "", 1701, local = true, localGigIds = setOf("gig")))
         assertEquals(listOf(request, first, second), state.project(setOf("gig")))
         assertEquals(setOf(request.id, first.id, second.id),
             state.offer("first-peer-of-the-night", 1800).map { it.id }.toSet())
@@ -750,7 +825,7 @@ class PublicGossipTest {
         val witness = requireNotNull(witnessRequest(request, theirs, 1900) { bytes ->
             Signature.getInstance("SHA256withECDSA").run { initSign(witnessKey.private); update(bytes); sign() }
         })
-        assertTrue(state.receive(witness, witness.author, 1901))
+        assertTrue(state.receive(witness, witness.author, 1901, localGigIds = setOf("gig")))
         assertEquals(true to true, state.checkInEvidence(setOf("gig"), request.author))
         assertEquals(setOf("gig"), state.witnessedGigIds())
         assertEquals(listOf(request, first, second),
@@ -776,7 +851,7 @@ class PublicGossipTest {
         val state = PublicGossipState()
 
         // Received before the Exchange: carried and shown, but nobody this device knows.
-        assertTrue(state.receive(line, "blind-relay", 2000))
+        assertTrue(state.receive(line, "blind-relay", 2000, localGigIds = setOf("gig")))
         assertEquals(listOf(line), state.project(setOf("gig")))
         assertNull(state.attributedName(line.author, mapOf(durable to "Ada")))
 
@@ -800,8 +875,8 @@ class PublicGossipTest {
         val state = PublicGossipState()
         val theirs = fact("Bodysnatchers")
         val theirClaim = fact(kind = "request")
-        assertTrue(state.receive(theirs, "blind-relay", 2000))
-        assertTrue(state.receive(theirClaim, theirClaim.author, 2001))
+        assertTrue(state.receive(theirs, "blind-relay", 2000, localGigIds = setOf("gig")))
+        assertTrue(state.receive(theirClaim, theirClaim.author, 2001, localGigIds = setOf("gig")))
 
         // Nothing about carrying makes this device the author: not the record, not the
         // author key it hands on, and not the evidence its own screens read.
@@ -819,7 +894,7 @@ class PublicGossipTest {
             createdAt = 1100, expiresAt = 100000, kind = "request").signed { bytes ->
             Signature.getInstance("SHA256withECDSA").run { initSign(myKey.private); update(bytes); sign() }
         }!!
-        assertTrue(state.receive(mine, "", 2003, local = true))
+        assertTrue(state.receive(mine, "", 2003, local = true, localGigIds = setOf("gig")))
         assertEquals(setOf(mine.author), state.localAuthors)
         assertEquals(listOf(theirClaim), state.arrivals(setOf("gig")))
     }

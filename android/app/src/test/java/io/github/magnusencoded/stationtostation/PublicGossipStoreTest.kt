@@ -22,7 +22,7 @@ class PublicGossipStoreTest {
             io.github.magnusencoded.stationtostation.data.exchange.verifyChallenge(p, s, a)
         }
         withStore(file) { store ->
-            store.updatePublic(2000) { assertTrue(it.receive(envelope, "relay", 2000, verify = verify)) }
+            store.updatePublic(2000) { assertTrue(it.receive(envelope, "relay", 2000, verify = verify, localGigIds = setOf("gig"))) }
             repeat(2) { store.updatePublic(2000) { it.recognizeContacts(emptySet(), verify = verify) } }
             assertEquals(1, calls)
             val snapshot = store.publicStates.first()
@@ -172,7 +172,7 @@ class PublicGossipStoreTest {
         try {
             coroutineScope {
                 launch { author.updatePublic(now) { it.receive(envelopes[0], "", now, local = true) } }
-                launch { radio.updatePublic(now) { it.receive(envelopes[1], "supplier", now) } }
+                launch { radio.updatePublic(now) { it.receive(envelopes[1], "supplier", now, localGigIds = setOf(envelopes[1].gigId)) } }
             }
             assertEquals(2, author.publicStates.first().facts.size)
             radio.updatePublic(now) { it.delivered("recipient", listOf(envelopes[0].id)) }
