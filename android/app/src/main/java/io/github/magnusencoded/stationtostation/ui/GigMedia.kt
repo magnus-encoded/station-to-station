@@ -209,7 +209,7 @@ internal fun CollectionMediaScreen(viewModel: AppViewModel, node: TimelineNode.S
         Spacer(Modifier.height(18.dp))
         GigMediaBands(
             media = media,
-            loadPreview = viewModel::photoPreview,
+            loadPreview = viewModel.gigMedia::photoPreview,
             arranging = false,
             contactLight = state.contactLight,
             editable = false,
@@ -225,8 +225,8 @@ internal fun CollectionMediaScreen(viewModel: AppViewModel, node: TimelineNode.S
     viewerUri?.let { uri ->
         MediaViewerDialog(
             uri = uri,
-            isVideo = viewModel.isVideo(uri),
-            loadPhoto = viewModel::fullPhoto,
+            isVideo = viewModel.gigMedia.isVideo(uri),
+            loadPhoto = viewModel.gigMedia::fullPhoto,
             onDismiss = { viewerUri = null },
         )
     }

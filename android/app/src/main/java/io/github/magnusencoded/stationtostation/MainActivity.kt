@@ -94,8 +94,8 @@ class MainActivity : ComponentActivity() {
      */
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         when (keyCode) {
-            KeyEvent.KEYCODE_ZOOM_OUT, KeyEvent.KEYCODE_MINUS -> viewModel.setZoomedOut(true)
-            KeyEvent.KEYCODE_ZOOM_IN, KeyEvent.KEYCODE_PLUS -> viewModel.setZoomedOut(false)
+            KeyEvent.KEYCODE_ZOOM_OUT, KeyEvent.KEYCODE_MINUS -> viewModel.navigation.setZoomedOut(true)
+            KeyEvent.KEYCODE_ZOOM_IN, KeyEvent.KEYCODE_PLUS -> viewModel.navigation.setZoomedOut(false)
             else -> return super.onKeyDown(keyCode, event)
         }
         return true
@@ -106,18 +106,18 @@ class MainActivity : ComponentActivity() {
         when (val link = parseDeepLink(uri.toString())) {
             null -> Unit
             is LinkIntent.PassThrough -> when (link.kind) {
-                PassThroughKind.FRIEND -> viewModel.handleFriendLink(uri)
+                PassThroughKind.FRIEND -> viewModel.contacts.handleFriendLink(uri)
                 // The other phone's QR, read by whatever camera app the person pointed at it
                 // — the same trick a friend card uses, and the reason there is no in-app
                 // scanner and no camera permission on the receiving side.
-                PassThroughKind.HANDOVER -> viewModel.joinHandover(uri)
-                PassThroughKind.CALLBACK -> viewModel.handleAuthRedirect(uri)
+                PassThroughKind.HANDOVER -> viewModel.handover.joinHandover(uri)
+                PassThroughKind.CALLBACK -> viewModel.settingsController.handleAuthRedirect(uri)
                 // A ticketing provider's own confirmation page, linking straight to a gig
                 // with the fields it already knows rather than a PDF for this app to OCR
-                // (see AppViewModel.handleTicketLink).
-                PassThroughKind.TICKET -> viewModel.handleTicketLink(uri)
+                // (see TicketsController.handleTicketLink).
+                PassThroughKind.TICKET -> viewModel.tickets.handleTicketLink(uri)
             }
-            else -> viewModel.handleLink(link)
+            else -> viewModel.navigation.handleLink(link)
         }
     }
 
@@ -142,7 +142,7 @@ class MainActivity : ComponentActivity() {
             data = intent.data,
             clip = intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri,
         ) ?: return
-        viewModel.handleSharedTicketPdf(uri)
+        viewModel.tickets.handleSharedTicketPdf(uri)
     }
 
     // Intent.getParcelableExtra(String) is deprecated from API 33 in favour of the
@@ -225,8 +225,8 @@ fun AppNavigation(viewModel: AppViewModel) {
     // setlist.fm's automatic checks for local Gigs run while the app is in the
     // foreground and only then (#531): at launch, on coming back, and on their timer.
     LifecycleStartEffect(Unit) {
-        viewModel.startLookupChecks()
-        onStopOrDispose { viewModel.stopLookupChecks() }
+        viewModel.setlists.startLookupChecks()
+        onStopOrDispose { viewModel.setlists.stopLookupChecks() }
     }
     // Nothing is drawn until launch has read the settings and the saved timeline (the
     // system splash covers it), and then the first screen is the right one outright:
@@ -292,7 +292,7 @@ fun AppNavigation(viewModel: AppViewModel) {
                     navController.popBackStack("timeline", inclusive = false)
                 },
                 onViewFriend = { friend ->
-                    viewModel.viewFriendTimeline(friend)
+                    viewModel.contacts.viewFriendTimeline(friend)
                     navController.navigate("friend")
                 },
                 onSetUsername = { navController.navigate("import") },
@@ -378,7 +378,7 @@ fun AppNavigation(viewModel: AppViewModel) {
             HandoverScreen(
                 viewModel = viewModel,
                 onDone = {
-                    viewModel.dismissHandover()
+                    viewModel.handover.dismissHandover()
                     navController.popBackStack()
                 },
             )
@@ -408,7 +408,7 @@ fun AppNavigation(viewModel: AppViewModel) {
                 LinkScreen.TIMELINE, LinkScreen.TIMELINES -> Unit
             }
         }
-        viewModel.consumeLinkScreen()
+        viewModel.navigation.consumeLinkScreen()
     }
 }
 

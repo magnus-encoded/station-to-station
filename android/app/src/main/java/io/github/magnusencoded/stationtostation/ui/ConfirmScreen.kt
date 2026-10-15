@@ -159,7 +159,7 @@ private fun ConfirmScreenContent(
     // result feeds straight back into the search.
     val photoPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { viewModel.loadCoverCandidates() }
+    ) { viewModel.playlist.loadCoverCandidates() }
     // Set when "create" is pressed with a clip as the cover: the frame picker stands
     // between the press and the playlist.
     var pickingFrameFor by remember { mutableStateOf<Uri?>(null) }
@@ -219,8 +219,8 @@ private fun ConfirmScreenContent(
                         // sitting on the screen the whole time.
                         onClick = {
                             val cover = state.selectedCoverUri
-                            if (cover != null && viewModel.isVideoCover(cover)) pickingFrameFor = cover
-                            else viewModel.createPlaylist()
+                            if (cover != null && viewModel.gigMedia.isVideo(cover)) pickingFrameFor = cover
+                            else viewModel.playlist.createPlaylist()
                         },
                         enabled = selectedCount > 0 && !state.creatingPlaylist && !state.matching,
                         modifier = Modifier.fillMaxWidth(),
@@ -257,7 +257,7 @@ private fun ConfirmScreenContent(
             }
             OutlinedTextField(
                 value = state.playlistName,
-                onValueChange = viewModel::setPlaylistName,
+                onValueChange = viewModel.playlist::setPlaylistName,
                 label = { Text("Playlist name") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -278,7 +278,7 @@ private fun ConfirmScreenContent(
                 }
                 Switch(
                     checked = state.playlistPublic,
-                    onCheckedChange = viewModel::setPlaylistPublic,
+                    onCheckedChange = viewModel.playlist::setPlaylistPublic,
                     modifier = Modifier.semantics { contentDescription = "Public playlist" },
                 )
             }
@@ -295,7 +295,7 @@ private fun ConfirmScreenContent(
                     onRequestPermission = {
                         photoPermissionLauncher.launch(PhotoRepository.requiredPermissions())
                     },
-                    onCoverChange = viewModel::setCover,
+                    onCoverChange = viewModel.playlist::setCover,
                 )
                 Spacer(Modifier.height(8.dp))
             }
@@ -332,9 +332,9 @@ private fun ConfirmScreenContent(
                         onToggleExpand = {
                             expandedIndex = if (expandedIndex == index) -1 else index
                         },
-                        onToggleIncluded = { viewModel.toggleIncluded(index) },
-                        onChooseCandidate = { viewModel.chooseCandidate(index, it) },
-                        onResearch = { viewModel.researchSong(index, it) },
+                        onToggleIncluded = { viewModel.playlist.toggleIncluded(index) },
+                        onChooseCandidate = { viewModel.playlist.chooseCandidate(index, it) },
+                        onResearch = { viewModel.playlist.researchSong(index, it) },
                     )
                 }
             }
@@ -346,13 +346,13 @@ private fun ConfirmScreenContent(
         VideoFrameDialog(
             uri = videoUri,
             frameMs = state.selectedCoverFrameMs,
-            durationOf = viewModel::videoDurationMs,
-            frameAt = viewModel::videoFrameAt,
-            onFrameChange = viewModel::setCoverFrame,
+            durationOf = viewModel.gigMedia::videoDurationMs,
+            frameAt = viewModel.gigMedia::videoFrameAt,
+            onFrameChange = viewModel.playlist::setCoverFrame,
             onDismiss = { pickingFrameFor = null },
             onConfirm = {
                 pickingFrameFor = null
-                viewModel.createPlaylist()
+                viewModel.playlist.createPlaylist()
             },
         )
     }

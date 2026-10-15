@@ -204,15 +204,15 @@ fun StationEventScreen(
     // gallery permission needed for that path, unlike the suggestions below.
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia()
-    ) { uris -> if (uris.isNotEmpty()) setlist?.let { viewModel.addPickedGigPhotos(it.id, uris, attachTo) } }
+    ) { uris -> if (uris.isNotEmpty()) setlist?.let { viewModel.gigMedia.addPickedGigPhotos(it.id, uris, attachTo) } }
     // Gallery access is only ever asked for after the "suggest" tap, so opening
     // a gig never triggers a permission prompt on its own.
     val gigSuggestPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { viewModel.loadGigPhotoSuggestions() }
+    ) { viewModel.gigMedia.loadGigPhotoSuggestions() }
     // Silent when permission isn't there yet — same guard as the prompt above,
     // so a gig already granted access just re-searches without another tap.
-    LaunchedEffect(setlist?.id) { viewModel.loadGigPhotoSuggestions() }
+    LaunchedEffect(setlist?.id) { viewModel.gigMedia.loadGigPhotoSuggestions() }
     // The disambiguation's answer, either way. It runs from this screen and until
     // now landed nowhere: "found them, songs are from X" was written into state and
     // no screen but Friends renders a notice, so the one gesture whose whole point
@@ -303,8 +303,8 @@ fun StationEventScreen(
             active = state.gossipActiveGig == setlist.id,
             stopped = setlist.id in state.gossipStoppedGigs,
             friends = state.friends,
-            onSelect = { viewModel.selectGossipGig(setlist.id) },
-            onExpiry = { viewModel.refreshGossip() },
+            onSelect = { viewModel.gossip.selectGig(setlist.id) },
+            onExpiry = { viewModel.gossip.refresh() },
         )
     }
     // Whose catalogue to offer when correcting an entry: the night's own setlist.fm
@@ -347,10 +347,10 @@ fun StationEventScreen(
     // as it always has, less the setlist refresh the lookup already was.
     val onPullToRefresh: () -> Unit = {
         val local = setlist?.isLocal() == true
-        if (local) viewModel.refreshSelectedSetlist()
+        if (local) viewModel.setlists.refreshSelectedSetlist()
         when (curtainAction(offers.curtain)) {
             CurtainAction.FETCH_CATALOGUE -> catalogueArtist?.let(viewModel::fetchCatalogue)
-            CurtainAction.FETCH_SETLIST -> if (!local) viewModel.refreshSelectedSetlist()
+            CurtainAction.FETCH_SETLIST -> if (!local) viewModel.setlists.refreshSelectedSetlist()
             CurtainAction.NONE -> {}
         }
     }
@@ -423,7 +423,7 @@ fun StationEventScreen(
     // after the move, which has already happened by the time the finger lifts.
     fun moveAndAsk(key: String, id: String, band: Band, index: Int) {
         val wasKept = state.mediaBySetlist[key].orEmpty().any { it.id == id && it.personal }
-        viewModel.moveGigMedia(key, id, band, index)
+        viewModel.gigMedia.moveGigMedia(key, id, band, index)
         if (band == Band.SHARED && wasKept) maybes.firstOrNull()?.let { askingMaybe = it }
     }
 
@@ -437,7 +437,7 @@ fun StationEventScreen(
         val s = setlist ?: return@add
         scope.launch {
             val uri = withContext(Dispatchers.IO) { insertCalendarEvent(context.contentResolver, s) }
-            if (uri != null) viewModel.markCalendarAdded(s.id, uri.toString())
+            if (uri != null) viewModel.planning.markCalendarAdded(s.id, uri.toString())
             else Toast.makeText(context, "Couldn't add this to your calendar.", Toast.LENGTH_SHORT).show()
         }
     }
@@ -463,16 +463,16 @@ fun StationEventScreen(
 
     val maybeAnswers = remember { SnackbarHostState() }
     fun recordAnswer(maybe: MaybeNight, same: Boolean, adopt: Boolean = false) {
-        if (adopt) { viewModel.adoptMaybe(maybe); return }
-        val write = if (same) viewModel.joinNight(maybe.theirs.id, maybe.mine.id)
-            else viewModel.dismissMaybe(maybe.theirs.id, maybe.mine.id)
+        if (adopt) { viewModel.contacts.adoptMaybe(maybe); return }
+        val write = if (same) viewModel.contacts.joinNight(maybe.theirs.id, maybe.mine.id)
+            else viewModel.contacts.dismissMaybe(maybe.theirs.id, maybe.mine.id)
         scope.launch {
             write.join()
             maybeAnswers.currentSnackbarData?.dismiss()
             if (maybeAnswers.showSnackbar(maybeAnswered(maybe, same), "Undo",
                     duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed) {
-                if (same) viewModel.unjoinNight(maybe.theirs.id, maybe.mine.id)
-                else viewModel.undismissMaybe(maybe.theirs.id, maybe.mine.id)
+                if (same) viewModel.contacts.unjoinNight(maybe.theirs.id, maybe.mine.id)
+                else viewModel.contacts.undismissMaybe(maybe.theirs.id, maybe.mine.id)
             }
         }
     }
@@ -508,27 +508,27 @@ fun StationEventScreen(
                 onPublish = onPublish,
                 onMakePlaylist = {
                     if (setlist != null) {
-                        viewModel.selectSetlist(setlist)
+                        viewModel.playlist.selectSetlist(setlist)
                         onConvert()
                     }
                 },
                 onAdopt = { adopting = true },
                 onDeleteNight = {
                     if (setlist != null) {
-                        if (viewModel.photosLostByDeleting(setlist.id) > 0) deleting = true
-                        else { viewModel.deleteGig(setlist.id); onBack() }
+                        if (viewModel.gig.photosLostByDeleting(setlist.id) > 0) deleting = true
+                        else { viewModel.gig.deleteGig(setlist.id); onBack() }
                     }
                 },
-                onCheckIn = { if (setlist != null) viewModel.checkIn(setlist.id) },
+                onCheckIn = { if (setlist != null) viewModel.gig.checkIn(setlist.id) },
                 onNotGoing = {
                     if (setlist != null) {
-                        viewModel.removePlannedGig(setlist.id)
+                        viewModel.gig.removePlannedGig(setlist.id)
                         onBack()
                     }
                 },
                 onAddToCalendar = onAddToCalendar,
                 onInvite = onInvite,
-                onForgetPlaylist = { url -> if (setlist != null) viewModel.removePlaylist(setlist.id, url) },
+                onForgetPlaylist = { url -> if (setlist != null) viewModel.playlist.removePlaylist(setlist.id, url) },
             )
         },
     ) { padding ->
@@ -540,7 +540,7 @@ fun StationEventScreen(
         }
         if (adopting) {
             AdoptSetlistDialog(
-                onAdopt = { link -> viewModel.adoptSetlistLink(setlist.id, link); adopting = false },
+                onAdopt = { link -> viewModel.gig.adoptSetlistLink(setlist.id, link); adopting = false },
                 onDismiss = { adopting = false },
             )
         }
@@ -551,9 +551,9 @@ fun StationEventScreen(
                 yourVenue = setlist.venue?.name,
                 fromTicket = state.attendanceByGig[setlist.id]?.admissions.orEmpty().isNotEmpty(),
                 pendingIds = lookup.pendingHitIds,
-                hits = { viewModel.setlistFmChipHits(setlist.id) },
-                onPick = { hitId -> viewModel.acceptSetlistFmMatch(setlist.id, hitId); askingMatch = false },
-                onNone = { viewModel.rejectSetlistFmMatches(setlist.id); askingMatch = false },
+                hits = { viewModel.setlists.setlistFmChipHits(setlist.id) },
+                onPick = { hitId -> viewModel.setlists.acceptSetlistFmMatch(setlist.id, hitId); askingMatch = false },
+                onNone = { viewModel.setlists.rejectSetlistFmMatches(setlist.id); askingMatch = false },
                 onDismiss = { askingMatch = false },
             )
         }
@@ -591,8 +591,8 @@ fun StationEventScreen(
         }
         if (deleting) {
             DeleteNightDialog(
-                photos = viewModel.photosLostByDeleting(setlist.id),
-                onDelete = { deleting = false; viewModel.deleteGig(setlist.id); onBack() },
+                photos = viewModel.gig.photosLostByDeleting(setlist.id),
+                onDelete = { deleting = false; viewModel.gig.deleteGig(setlist.id); onBack() },
                 onDismiss = { deleting = false },
             )
         }
@@ -606,7 +606,7 @@ fun StationEventScreen(
             weaveSetlist(rows.map { (it as? EventRow.SongItem)?.song?.name }, log.songs)
         }
         val canConvert = convertible
-        val offsets = viewModel.songOffsets(recordingMedia?.id, setlist.songs().size)
+        val offsets = viewModel.gigMedia.songOffsets(recordingMedia?.id, setlist.songs().size)
         // Offsets are indexed over every song, tape included; row.number skips tape,
         // so it can't be used to look one up. -1 for the rows that aren't songs.
         val songIndexByRow = remember(rows) {
@@ -666,7 +666,7 @@ fun StationEventScreen(
                                     planAhead && !added -> onAddToCalendar()
                                     planAhead && added -> onInvite()
                                     canConvert -> {
-                                        viewModel.selectSetlist(setlist)
+                                        viewModel.playlist.selectSetlist(setlist)
                                         onConvert()
                                     }
                                     else -> setlist.url?.let {
@@ -751,7 +751,7 @@ fun StationEventScreen(
                                 suggestionsLoading = state.gigPhotoSuggestionsLoading,
                                 suggestionsSearched = state.gigPhotoSuggestionsSearched,
                                 suggestionsPermissionGranted = state.gigPhotoSuggestionsPermissionGranted,
-                                loadPreview = viewModel::photoPreview,
+                                loadPreview = viewModel.gigMedia::photoPreview,
                                 senderName = { key -> state.friends.nameOf(key) },
                                 onToggleWithheld = { viewModel.setShowWithheld(!state.showWithheld) },
                                 onArrange = { arranging = true },
@@ -772,12 +772,12 @@ fun StationEventScreen(
                                     }
                                 },
                                 onOpen = { uri -> viewerUri = uri },
-                                onRemove = { item -> viewModel.removeGigPhoto(setlist.id, Uri.parse(item.ref)) },
+                                onRemove = { item -> viewModel.gigMedia.removeGigPhoto(setlist.id, Uri.parse(item.ref)) },
                                 onMove = { id, band, index -> moveAndAsk(setlist.id, id, band, index) },
                                 onRequestSuggestionPermission = {
                                     gigSuggestPermissionLauncher.launch(PhotoRepository.requiredPermissions())
                                 },
-                                onAddSuggestion = { uri -> viewModel.addGigPhotos(setlist.id, listOf(uri), Band.VAULT) },
+                                onAddSuggestion = { uri -> viewModel.gigMedia.addGigPhotos(setlist.id, listOf(uri), Band.VAULT) },
                             )
                         }
                     }
@@ -785,7 +785,7 @@ fun StationEventScreen(
                 if (!mineNight) item {
                     val going = nightKind(setlist.localDate(), LocalDate.now()) == NightKind.GOING_TO
                     TextButton(
-                        onClick = { viewModel.joinGig(setlist) },
+                        onClick = { viewModel.planning.joinGig(setlist) },
                         modifier = Modifier.padding(horizontal = 12.dp),
                     ) {
                         Text(if (going) "I am going too" else "I was there too", color = Amber)
@@ -810,10 +810,10 @@ fun StationEventScreen(
                     onOpenRecording = { at -> viewerStartMs = at; viewerUri = recording },
                     onCorrectingChange = { correctingLog = it },
                     onFetchCatalogue = { catalogueArtist?.let(viewModel::fetchCatalogue) },
-                    onBlock = viewModel::blockGossip,
-                    onRemoveFromLog = { viewModel.removeFromLog(setlist.id, it) },
-                    onCorrectLogEntry = { index, title -> viewModel.correctLogEntry(setlist.id, index, title) },
-                    onRestoreLogEntry = { viewModel.restoreLogEntry(setlist.id, it) },
+                    onBlock = viewModel.gossip::block,
+                    onRemoveFromLog = { viewModel.gig.removeFromLog(setlist.id, it) },
+                    onCorrectLogEntry = { index, title -> viewModel.gig.correctLogEntry(setlist.id, index, title) },
+                    onRestoreLogEntry = { viewModel.gig.restoreLogEntry(setlist.id, it) },
                 )
                 // My own Log, and it is never taken away. A partial capture you can no
                 // longer correct from inside the app is the exact trap this feature is
@@ -841,8 +841,8 @@ fun StationEventScreen(
                             // 0" the instant you check in is noise, not information.
                             published = setlist.performed().size
                                 .takeIf { setlist.url != null && log.songs.isNotEmpty() },
-                            onAdd = { viewModel.addToLog(setlist.id, it) },
-                            onClosed = { viewModel.setLogClosed(setlist.id, it) },
+                            onAdd = { viewModel.gig.addToLog(setlist.id, it) },
+                            onClosed = { viewModel.gig.setLogClosed(setlist.id, it) },
                         )
                         Spacer(Modifier.height(10.dp))
                     }
@@ -860,8 +860,8 @@ fun StationEventScreen(
                         senderName = { key -> state.friends.nameOf(key) },
                         contactLight = state.contactLight,
                         editable = editable,
-                        onWrite = { band, text -> viewModel.setGigNote(setlist.id, band, text) },
-                        onVerdict = { id, v -> viewModel.setGigVerdict(setlist.id, id, v) },
+                        onWrite = { band, text -> viewModel.gig.setGigNote(setlist.id, band, text) },
+                        onVerdict = { id, v -> viewModel.gig.setGigVerdict(setlist.id, id, v) },
                         onMove = { id, band, index -> moveAndAsk(setlist.id, id, band, index) },
                     )
                 }
@@ -876,16 +876,16 @@ fun StationEventScreen(
         val songs = if (setlist != null && uri == recording) setlist.songs() else emptyList()
         MediaViewerDialog(
             uri = uri,
-            isVideo = viewModel.isVideo(uri),
-            loadPhoto = viewModel::fullPhoto,
+            isVideo = viewModel.gigMedia.isVideo(uri),
+            loadPhoto = viewModel.gigMedia::fullPhoto,
             onDismiss = { viewerUri = null; viewerStartMs = NOT_STAMPED },
             songs = songs,
             // The stamps belong to *this* recording, not to the night — a night with
             // two videos has two answers, and before #97 the second had nowhere to go.
-            offsets = viewModel.songOffsets(recordingMedia?.id, songs.size),
+            offsets = viewModel.gigMedia.songOffsets(recordingMedia?.id, songs.size),
             startAtMs = viewerStartMs,
             onStamp = { index, atMs ->
-                recordingMedia?.let { viewModel.stampSong(it.id, index, atMs, songs.size) }
+                recordingMedia?.let { viewModel.gigMedia.stampSong(it.id, index, atMs, songs.size) }
             },
         )
     }
