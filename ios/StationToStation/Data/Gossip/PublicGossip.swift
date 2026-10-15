@@ -306,14 +306,12 @@ struct PublicGossipState: Codable {
         }
         return true
     }
+    /// Evict strangers expired-first, then by creation time and id; keep Contact and own signers.
     private mutating func capFacts(now: Int64) {
         let excess = facts.count - PUBLIC_MAX_FACTS
         guard excess > 0 else { return }
         let candidates = facts.values.filter { fact in
-            let claim = fact.kind == "witness" ? decodePublicEnvelope(fact.text) : nil
-            return [fact.author, claim?.author].compactMap { $0 }.allSatisfy {
-                recognition[$0] == nil && !localAuthors.contains($0)
-            }
+            recognition[fact.author] == nil && !localAuthors.contains(fact.author)
         }.sorted {
             let left = ($0.expiresAt > now ? 1 : 0, $0.createdAt, $0.id)
             let right = ($1.expiresAt > now ? 1 : 0, $1.createdAt, $1.id)

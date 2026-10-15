@@ -53,6 +53,30 @@ class PublicGossipTest {
         assertEquals(listOf(claim), state.arrivals(setOf("gig")))
     }
 
+    @Test fun strangerWitnessFloodThroughReceiveCannotProtectItselfWithAContactsClaim() {
+        val state = PublicGossipState()
+        val card = pair()
+        val contactKey = pair()
+        val claim = checkIn(contactKey, card, "contact-scope")
+        val contacts = setOf(gossipBase64(card.public.encoded))
+        assertTrue(state.receive(claim, claim.author, 1000, localGigIds = setOf("gig"), contacts = contacts))
+        val own = fact("My log")
+        assertTrue(state.receive(own, "", 1000, local = true))
+        val stranger = pair()
+        // Short-lived witnesses let seen IDs expire while admitted Facts accumulate.
+        repeat(PUBLIC_MAX_FACTS + 1) { index ->
+            val at = 2000L + index * 2
+            val witness = GossipEnvelope(gigId = "gig", scope = "stranger-scope",
+                author = gossipBase64(stranger.public.encoded), createdAt = at, expiresAt = at + 1,
+                kind = "witness", text = claim.record()).signed { sign(stranger, it) }!!
+            assertTrue(state.receive(witness, "relay", at, localGigIds = setOf("gig"), contacts = contacts))
+        }
+        assertEquals(PUBLIC_MAX_FACTS, state.facts.size)
+        assertEquals(claim, state.facts[claim.id])
+        assertEquals(own, state.facts[own.id])
+        assertEquals(contacts.single(), state.recognition[claim.author])
+    }
+
     @Test fun capEvictsExpiredThenOldestStrangersAndPreservesContactAndOwnFacts() {
         val state = PublicGossipState()
         val template = fact()
