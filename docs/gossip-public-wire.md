@@ -60,6 +60,15 @@ at the end of the Gig's night. A 15-minute Carry window, starting at the first a
 on each relay and capped by message expiry, is a provisional default. Seen IDs survive
 outbox eviction until message expiry. Durable admitted facts survive both timers.
 
+Verification of admitted, unblocked application Facts is memoised in memory only. A hit
+requires the same id and an equal complete signed Envelope in the retained Facts; receipts
+and rejected envelopes do not populate the cache. A witness's verified embedded claim needs
+no separate cache entry. Android transfers trust only for byte-equal Facts after DataStore decoding; iOS retains
+the committed state, including trust, in its actor cache. A failed iOS write leaves that
+cache unchanged. Ledger transactions retain this trust in memory, but a relaunch
+verifies each retained Fact on first use. This changes no wire bytes or admission rules and
+does not bound the durable Facts store.
+
 Resource defaults remain tunable: 128 Envelopes / 128 KB carried, 8,192 live seen IDs,
 per-peer cooldown and bounded BLE sessions. Capacity exhaustion drops incoming transport
 work rather than evicting seen IDs and allowing repeated re-entry.

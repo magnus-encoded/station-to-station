@@ -45,6 +45,31 @@ final class GossipLedgerTests: XCTestCase {
 
     private func ledger() -> GossipLedger { GossipLedger(file: file) }
 
+    func testVerifiedTrustSurvivesLedgerTransactionsButNotRelaunch() async throws {
+        let store = ledger()
+        let envelope = try XCTUnwrap(GossipEnvelope(gigId: "gig", scope: "scope",
+            author: alice.publicKey, createdAt: 1000, expiresAt: 100000,
+            kind: "log", line: 0, text: "Opener").signed {
+                try? alice.privateKey.signature(for: $0).derRepresentation
+            })
+        let accepted = await store.receivePublic([envelope], from: "", now: 2000, local: true)
+        XCTAssertEqual(accepted, 1)
+        await store.deliveredPublic([envelope.id], to: "peer")
+        _ = await store.authorScope(localGigId: "another-gig")
+        var snapshot = await store.publicSnapshot(now: 2001)
+        XCTAssertEqual(snapshot.verifiedIds, [envelope.id])
+        var calls = 0
+        snapshot.recognizeContacts([], verify: { _, _, _ in calls += 1; return false })
+        XCTAssertEqual(calls, 0)
+        var reopened = await ledger().publicSnapshot(now: 2001)
+        XCTAssertTrue(reopened.verifiedIds.isEmpty)
+        reopened.recognizeContacts([], verify: { payload, signature, author in
+            calls += 1
+            return verifyChallenge(payload, signature: signature, publicKeyBase64: author)
+        })
+        XCTAssertEqual(calls, 1)
+    }
+
     func testAuthorScopePersistsWithoutDiscardingExistingLedger() async throws {
         let store = ledger()
         let scope = await store.authorScope(localGigId: "local-gig")

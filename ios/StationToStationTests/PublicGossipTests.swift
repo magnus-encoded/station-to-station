@@ -3,6 +3,175 @@ import CryptoKit
 @testable import StationToStation
 
 final class PublicGossipTests: XCTestCase {
+    func testSecondPassDoesNotVerifyCachedFactsAgain() throws {
+        var state = PublicGossipState()
+        let envelope = fact()
+        var calls = 0
+        let verify: (Data, Data, String) -> Bool = { payload, signature, author in
+            calls += 1
+            return verifyChallenge(payload, signature: signature, publicKeyBase64: author)
+        }
+        XCTAssertTrue(state.receive(envelope, from: "relay", now: 2000, verify: verify))
+        state.recognizeContacts([], verify: verify)
+        XCTAssertEqual(calls, 1)
+        XCTAssertFalse(state.receive(envelope, from: "relay", now: 2001, verify: verify))
+        state.recognizeContacts([], verify: verify)
+        XCTAssertEqual(calls, 1)
+        var forged = envelope
+        forged.signature = Data([1]).base64EncodedString()
+        XCTAssertFalse(state.receive(forged, from: "relay", now: 2002, verify: verify))
+        XCTAssertEqual(calls, 2)
+        forged = envelope
+        forged.text = "forged"
+        XCTAssertFalse(state.receive(forged, from: "relay", now: 2003, verify: verify))
+        XCTAssertEqual(calls, 2)
+        XCTAssertEqual(state.project(gigIds: ["gig"]), [envelope])
+    }
+
+    func testCachedWitnessAndItsEmbeddedClaimAreNotVerifiedAgain() throws {
+        let claim = fact("", kind: "request")
+        let witnessKey = P256.Signing.PrivateKey()
+        let witness = try XCTUnwrap(GossipEnvelope(gigId: "gig", scope: "witness-scope",
+            author: witnessKey.publicKey.derRepresentation.base64EncodedString(),
+            createdAt: 1500, expiresAt: 100000, kind: "witness", text: claim.record())
+            .signed { try? witnessKey.signature(for: $0).derRepresentation })
+        var state = PublicGossipState()
+        var calls = 0
+        let verify: (Data, Data, String) -> Bool = { payload, signature, author in
+            calls += 1
+            return verifyChallenge(payload, signature: signature, publicKeyBase64: author)
+        }
+        XCTAssertTrue(state.receive(witness, from: "relay", now: 2000, verify: verify))
+        state.recognizeContacts([], verify: verify)
+        XCTAssertEqual(calls, 2)
+        XCTAssertFalse(state.receive(witness, from: "relay", now: 2001, verify: verify))
+        state.recognizeContacts([], verify: verify)
+        XCTAssertEqual(calls, 2)
+        XCTAssertEqual(state.arrivals(gigIds: ["gig"]), [claim])
+    }
+
+    func testRestoredFactsAreVerifiedOnceBeforeBeingCached() throws {
+        var state = PublicGossipState()
+        let envelope = fact()
+        state.facts[envelope.id] = envelope
+        state = try JSONDecoder().decode(PublicGossipState.self, from: JSONEncoder().encode(state))
+        var calls = 0
+        let verify: (Data, Data, String) -> Bool = { payload, signature, author in
+            calls += 1
+            return verifyChallenge(payload, signature: signature, publicKeyBase64: author)
+        }
+        for _ in 0..<2 { state.recognizeContacts([], verify: verify) }
+        XCTAssertEqual(calls, 1)
+    }
+
+    func testUnrelatedFactsDoNotMultiplyUpdateComparisons() {
+        var state = PublicGossipState()
+        for index in 0..<2500 {
+            var log = GossipEnvelope(gigId: "old-\(index)", scope: "scope-\(index)",
+                author: "author", createdAt: 1000, expiresAt: 100000, kind: "log", line: 0)
+            log.id = "log-\(index)"
+            var update = log
+            update.id = "update-\(index)"
+            update.gigId = "new-\(index)"
+            update.formerIds = [log.gigId]
+            update.kind = "update"
+            update.line = -1
+            update.createdAt = 1100
+            state.facts[log.id] = log
+            state.facts[update.id] = update
+        }
+        var comparisons = 0
+        let projected = state.project(gigIds: ["new-2499"]) { comparisons += 1 }
+        XCTAssertEqual(Set(projected.map(\.id)), ["log-2499", "update-2499"])
+        XCTAssertEqual(comparisons, 2500)
+    }
+
+    func testRejectedAndReadOnlyEnvelopesDoNotPopulateVerificationCache() {
+        var state = PublicGossipState()
+        let envelope = fact()
+        XCTAssertFalse(state.receive(envelope, from: "relay", now: envelope.expiresAt))
+        state.blocked.insert(envelope.author)
+        XCTAssertTrue(state.receive(envelope, from: "relay", now: 2000))
+        let receipt = fact("neighbour", kind: "receipt")
+        XCTAssertTrue(state.receive(receipt, from: receipt.author, now: 2000))
+        let request = fact("", kind: "request")
+        XCTAssertFalse(state.receive(request, from: "relay", now: 2000))
+        state.rememberPass(with: request.author, batch: [request], activeGigId: nil, now: 2000)
+        state.recognizeContacts([])
+        XCTAssertTrue(state.verifiedIds.isEmpty)
+    }
+
+    func testVerificationCacheIsAbsentFromSerializedStateAndRebuiltAfterRestart() throws {
+        var state = PublicGossipState()
+        let envelope = fact()
+        state.receive(envelope, from: "relay", now: 2000)
+        let bytes = try JSONEncoder().encode(state)
+        XCTAssertFalse(String(decoding: bytes, as: UTF8.self).contains("verifiedIds"))
+        var restored = try JSONDecoder().decode(PublicGossipState.self, from: bytes)
+        XCTAssertTrue(restored.verifiedIds.isEmpty)
+        var calls = 0
+        for _ in 0..<2 {
+            restored.recognizeContacts([], verify: { p, s, a in
+                calls += 1
+                return verifyChallenge(p, signature: s, publicKeyBase64: a)
+            })
+        }
+        XCTAssertEqual(calls, 1)
+    }
+
+    func testBackwardProjectionEqualsForwardWalkForRelabelChainsAndWitnessScopes() {
+        var state = PublicGossipState()
+        var claim = fact("", kind: "request")
+        claim.id = "claim"
+        claim.gigId = "old"
+        claim.scope = "claim"
+        var witness = claim
+        witness.id = "witness"
+        witness.author = "other"
+        witness.scope = "other"
+        witness.kind = "witness"
+        witness.text = claim.record()
+        state.facts[claim.id] = claim
+        state.facts[witness.id] = witness
+        for (index, edge) in [("old", "middle"), ("middle", "new"), ("new", "final")].enumerated() {
+            var update = claim
+            update.id = "update-\(index)"
+            update.kind = "update"
+            update.gigId = edge.1
+            update.formerIds = [edge.0]
+            update.createdAt = 1100
+            state.facts[update.id] = update
+        }
+        var unrelated = claim
+        unrelated.id = "unrelated"
+        unrelated.author = "outsider"
+        unrelated.scope = "elsewhere"
+        unrelated.kind = "update"
+        unrelated.gigId = "alien"
+        unrelated.formerIds = ["old"]
+        unrelated.createdAt = 1200
+        state.facts[unrelated.id] = unrelated
+        func forward(_ fact: GossipEnvelope) -> Set<String> {
+            var ids = Set(fact.formerIds + [fact.gigId])
+            for update in state.facts.values.filter({ $0.kind == "update" && $0.author == fact.author && $0.scope == fact.scope })
+                .sorted(by: { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }) {
+                if update.formerIds.contains(where: ids.contains) { ids.insert(update.gigId) }
+            }
+            return ids
+        }
+        for target in ["old", "middle", "new", "final", "alien", "missing"] {
+            let latest = Dictionary(grouping: state.facts.values, by: { $0.author + "\n" + $0.scope })
+                .mapValues { $0.max(by: { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) })! }
+            let expected = state.facts.values.filter { f in
+                if forward(f).contains(target) { return true }
+                if let last = latest[f.author + "\n" + f.scope], (last.formerIds + [last.gigId]).contains(target) { return true }
+                if f.kind == "witness", let inner = decodePublicEnvelope(f.text) { return forward(inner).contains(target) }
+                return false
+            }
+            XCTAssertEqual(Set(expected.map(\.id)), Set(state.project(gigIds: [target]).map(\.id)), target)
+        }
+    }
+
     func testExchangeRecognizesEmbeddedClaimWithoutUndoingBlock() throws {
         let card = P256.Signing.PrivateKey()
         let durable = card.publicKey.derRepresentation.base64EncodedString()

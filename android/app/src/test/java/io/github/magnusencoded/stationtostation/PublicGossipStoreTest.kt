@@ -13,6 +13,28 @@ import java.io.File
 class PublicGossipStoreTest {
     @get:Rule val temporary = TemporaryFolder()
 
+    @Test fun transactionsReuseVerificationButAReopenedStoreVerifiesAgain() = runBlocking {
+        val file = File(temporary.root, "verification.preferences_pb")
+        val envelope = logFact("scope", "gig", 0, "Song", 1000)
+        var calls = 0
+        val verify: (ByteArray, ByteArray, String) -> Boolean = { p, s, a ->
+            calls++
+            io.github.magnusencoded.stationtostation.data.exchange.verifyChallenge(p, s, a)
+        }
+        withStore(file) { store ->
+            store.updatePublic(2000) { assertTrue(it.receive(envelope, "relay", 2000, verify = verify)) }
+            repeat(2) { store.updatePublic(2000) { it.recognizeContacts(emptySet(), verify = verify) } }
+            assertEquals(1, calls)
+            val snapshot = store.publicStates.first()
+            snapshot.facts.clear()
+            assertEquals(1, store.publicStates.first().facts.size)
+        }
+        withStore(file) { store ->
+            repeat(2) { store.updatePublic(2000) { it.recognizeContacts(emptySet(), verify = verify) } }
+            assertEquals(2, calls)
+        }
+    }
+
     @Test fun authorScopeSurvivesConcurrentCallersExpiryAndRestart() = runBlocking {
         val file = File(temporary.root, "scopes.preferences_pb")
         val job = SupervisorJob()

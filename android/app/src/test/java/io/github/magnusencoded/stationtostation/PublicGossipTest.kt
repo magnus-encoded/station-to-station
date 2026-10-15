@@ -10,6 +10,144 @@ import java.io.File
 import io.github.magnusencoded.stationtostation.data.exchange.verifyChallenge
 
 class PublicGossipTest {
+    @Test fun secondPassDoesNotVerifyCachedFactsAgain() {
+        var state = PublicGossipState()
+        val envelope = fact()
+        var calls = 0
+        val verify: (ByteArray, ByteArray, String) -> Boolean = { payload, signature, author ->
+            calls++
+            verifyChallenge(payload, signature, author)
+        }
+        assertTrue(state.receive(envelope, "relay", 2000, verify = verify))
+        state.recognizeContacts(emptySet(), verify = verify)
+        assertEquals(1, calls)
+        assertFalse(state.receive(envelope, "relay", 2001, verify = verify))
+        state.recognizeContacts(emptySet(), verify = verify)
+        assertEquals(1, calls)
+        assertFalse(state.receive(envelope.copy(signature = gossipBase64(byteArrayOf(1))), "relay", 2002, verify = verify))
+        assertEquals(2, calls)
+        assertFalse(state.receive(envelope.copy(text = "forged"), "relay", 2003, verify = verify))
+        assertEquals(2, calls)
+        assertEquals(listOf(envelope), state.project(setOf("gig")))
+    }
+
+    @Test fun cachedWitnessAndItsEmbeddedClaimAreNotVerifiedAgain() {
+        val claim = fact("", kind = "request")
+        val witnessKey = pair()
+        val witness = GossipEnvelope(gigId = "gig", scope = "witness-scope",
+            author = gossipBase64(witnessKey.public.encoded), createdAt = 1500, expiresAt = 100000,
+            kind = "witness", text = claim.record()).signed { sign(witnessKey, it) }!!
+        var state = PublicGossipState()
+        var calls = 0
+        val verify: (ByteArray, ByteArray, String) -> Boolean = { payload, signature, author ->
+            calls++
+            verifyChallenge(payload, signature, author)
+        }
+        assertTrue(state.receive(witness, "relay", 2000, verify = verify))
+        state.recognizeContacts(emptySet(), verify = verify)
+        assertEquals(2, calls)
+        assertFalse(state.receive(witness, "relay", 2001, verify = verify))
+        state.recognizeContacts(emptySet(), verify = verify)
+        assertEquals(2, calls)
+        assertEquals(listOf(claim), state.arrivals(setOf("gig")))
+    }
+
+    @Test fun restoredFactsAreVerifiedOnceBeforeBeingCached() {
+        val legacy = PublicGossipState(facts = linkedMapOf(fact().let { it.id to it }))
+        val state = kotlinx.serialization.json.Json.decodeFromString<PublicGossipState>(
+            kotlinx.serialization.json.Json.encodeToString(PublicGossipState.serializer(), legacy))
+        var calls = 0
+        val verify: (ByteArray, ByteArray, String) -> Boolean = { payload, signature, author ->
+            calls++
+            verifyChallenge(payload, signature, author)
+        }
+        repeat(2) { state.recognizeContacts(emptySet(), verify = verify) }
+        assertEquals(1, calls)
+    }
+
+    @Test fun unrelatedFactsDoNotMultiplyUpdateComparisons() {
+        val state = PublicGossipState()
+        for (index in 0 until 2500) {
+            val log = GossipEnvelope(id = "log-$index", gigId = "old-$index", scope = "scope-$index",
+                author = "author", createdAt = 1000, expiresAt = 100000, kind = "log", line = 0)
+            val update = log.copy(id = "update-$index", gigId = "new-$index", formerIds = listOf(log.gigId),
+                kind = "update", line = -1, createdAt = 1100)
+            state.facts[log.id] = log
+            state.facts[update.id] = update
+        }
+        var comparisons = 0
+        val projected = state.project(setOf("new-2499")) { comparisons++ }
+        assertEquals(setOf("log-2499", "update-2499"), projected.map { it.id }.toSet())
+        assertEquals(2500, comparisons)
+    }
+
+    @Test fun rejectedAndReadOnlyEnvelopesDoNotPopulateVerificationCache() {
+        val state = PublicGossipState()
+        val envelope = fact()
+        assertFalse(state.receive(envelope, "relay", envelope.expiresAt))
+        state.blocked.add(envelope.author)
+        assertTrue(state.receive(envelope, "relay", 2000))
+        val receipt = fact("neighbour", kind = "receipt")
+        assertTrue(state.receive(receipt, receipt.author, 2000))
+        val request = fact("", kind = "request")
+        assertFalse(state.receive(request, "relay", 2000))
+        state.rememberPass(request.author, listOf(request), null, 2000)
+        state.recognizeContacts(emptySet())
+        assertTrue(state.verifiedIds.isEmpty())
+    }
+
+    @Test fun verificationCacheIsAbsentFromSerializedStateAndRebuiltAfterRestart() {
+        val state = PublicGossipState()
+        val envelope = fact()
+        state.receive(envelope, "relay", 2000)
+        val bytes = kotlinx.serialization.json.Json { encodeDefaults = true }
+            .encodeToString(PublicGossipState.serializer(), state)
+        assertFalse(bytes.contains("verifiedIds"))
+        val restored = kotlinx.serialization.json.Json.decodeFromString<PublicGossipState>(bytes)
+        assertTrue(restored.verifiedIds.isEmpty())
+        var calls = 0
+        repeat(2) { restored.recognizeContacts(emptySet(), verify = { p, s, a ->
+            calls++
+            verifyChallenge(p, s, a)
+        }) }
+        assertEquals(1, calls)
+    }
+
+    @Test fun backwardProjectionEqualsForwardWalkForRelabelChainsAndWitnessScopes() {
+        val state = PublicGossipState()
+        val claim = fact("", kind = "request").copy(id = "claim", gigId = "old", scope = "claim")
+        val witness = claim.copy(id = "witness", author = "other", scope = "other",
+            kind = "witness", text = claim.record())
+        state.facts[claim.id] = claim
+        state.facts[witness.id] = witness
+        for ((index, edge) in listOf("old" to "middle", "middle" to "new", "new" to "final").withIndex()) {
+            val update = claim.copy(id = "update-$index", kind = "update", gigId = edge.second,
+                formerIds = listOf(edge.first), createdAt = 1100)
+            state.facts[update.id] = update
+        }
+        val unrelated = claim.copy(id = "unrelated", author = "outsider", scope = "elsewhere",
+            kind = "update", gigId = "alien", formerIds = listOf("old"), createdAt = 1200)
+        state.facts[unrelated.id] = unrelated
+        fun forward(fact: GossipEnvelope): Set<String> {
+            val ids = (fact.formerIds + fact.gigId).toMutableSet()
+            state.facts.values.filter { it.kind == "update" && it.author == fact.author && it.scope == fact.scope }
+                .sortedWith(compareBy<GossipEnvelope> { it.createdAt }.thenBy { it.id }).forEach {
+                    if (it.formerIds.any(ids::contains)) ids.add(it.gigId)
+                }
+            return ids
+        }
+        for (target in listOf("old", "middle", "new", "final", "alien", "missing")) {
+            val latest = state.facts.values.groupBy { it.author to it.scope }.mapValues { (_, values) ->
+                values.maxWith(compareBy<GossipEnvelope> { it.createdAt }.thenBy { it.id })
+            }
+            val expected = state.facts.values.filter { f ->
+                target in forward(f) || latest[f.author to f.scope]?.let { target in it.formerIds + it.gigId } == true ||
+                    (f.kind == "witness" && decodePublicEnvelope(f.text)?.let { target in forward(it) } == true)
+            }.map { it.id }.toSet()
+            assertEquals(target, expected, state.project(setOf(target)).map { it.id }.toSet())
+        }
+    }
+
     @Test fun exchangeRecognizesAClaimInsideARelayedWitnessWithoutUndoingItsBlock() {
         val card = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
         val durable = gossipBase64(card.public.encoded)

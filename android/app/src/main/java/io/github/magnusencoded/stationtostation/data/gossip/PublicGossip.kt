@@ -119,7 +119,7 @@ data class GossipEnvelope(
     fun record(): String = (listOf(id) + fields() + signature).joinToString("\t")
     fun signed(sign: (ByteArray) -> ByteArray?): GossipEnvelope? =
         sign(payload())?.let { copy(id = gossipHash(payload()), signature = gossipBase64(it)) }
-    fun valid(): Boolean {
+    fun valid(verify: (ByteArray, ByteArray, String) -> Boolean = ::verifyChallenge): Boolean {
         if (!isSafeGossipId(gigId) || !isSafeGossipId(scope) || formerIds.size > 32 || formerIds.any { !isSafeGossipId(it) }) return false
         if (kind !in setOf("log", "request", "witness", "receipt", "update") || line !in -1..4096) return false
         if (createdAt < 0 || expiresAt <= createdAt || expiresAt - createdAt > 108_000_000) return false
@@ -131,10 +131,10 @@ data class GossipEnvelope(
         if (fields().any { it.contains('\n') || it.contains('\t') }) return false
         if (id != gossipHash(payload())) return false
         val sig = gossipUnbase64(signature) ?: return false
-        if (!verifyChallenge(payload(), sig, author)) return false
+        if (!verify(payload(), sig, author)) return false
         if (kind == "witness") {
             val claim = decodePublicEnvelope(text) ?: return false
-            if (claim.kind != "request" || claim.author == author || !claim.valid() || !sameGig(claim)) return false
+            if (claim.kind != "request" || claim.author == author || !claim.valid(verify) || !sameGig(claim)) return false
             if (createdAt < claim.createdAt || createdAt >= claim.expiresAt || expiresAt > claim.expiresAt) return false
         }
         return true
@@ -231,16 +231,31 @@ data class PublicGossipState(
      * asserting something it cannot see. See [seenWith].
      */
     val metDevices: MutableMap<String, MutableMap<String, Long>> = mutableMapOf(),
+    @kotlinx.serialization.Transient
+    val verifiedIds: MutableSet<String> = mutableSetOf(),
 ) {
+    // Only retained, unblocked Facts qualify; a copied id still needs identical signed bytes.
+    private fun valid(envelope: GossipEnvelope, verify: (ByteArray, ByteArray, String) -> Boolean): Boolean {
+        val retained = envelope.kind != "receipt" && !isBlocked(envelope.author) && facts[envelope.id] == envelope
+        if (retained && envelope.id in verifiedIds) return true
+        return envelope.valid(verify)
+    }
+
     fun isBlocked(author: String): Boolean = author in blocked || recognition[author] in blocked
 
     /** Recognition is durable and never changes a Block; later Exchange only adds attribution. */
-    fun recognizeContacts(contacts: Set<String>, names: Map<String, String> = emptyMap()) {
+    fun recognizeContacts(contacts: Set<String>, names: Map<String, String> = emptyMap(), verify: (ByteArray, ByteArray, String) -> Boolean = ::verifyChallenge) {
         val envelopes = facts.values + held.values.map { it.envelope }
-        val claims = envelopes.filter { it.kind == "witness" && it.valid() }
-            .mapNotNull { decodePublicEnvelope(it.text) }
-        (envelopes + claims).forEach { envelope ->
-            if (envelope.author !in recognition && envelope.valid()) {
+        val validated = envelopes.filter { envelope ->
+            valid(envelope, verify).also { accepted ->
+                if (accepted && envelope.kind != "receipt" && !isBlocked(envelope.author) && facts[envelope.id] == envelope) {
+                    verifiedIds.add(envelope.id)
+                }
+            }
+        }
+        val claims = validated.filter { it.kind == "witness" }.mapNotNull { decodePublicEnvelope(it.text) }
+        (validated + claims).forEach { envelope ->
+            if (envelope.author !in recognition) {
                 recognizeGossip(envelope, contacts)?.let { recognition[envelope.author] = it }
             }
         }
@@ -262,10 +277,12 @@ data class PublicGossipState(
         seen.entries.removeAll { it.value <= now }
         held.entries.removeAll { it.value.until <= now || it.value.envelope.expiresAt <= now }
         useful.entries.removeAll { it.value <= now }
+        val retained = facts.keys + held.keys
+        verifiedIds.retainAll(retained.toSet())
     }
-    fun receive(envelope: GossipEnvelope, from: String, now: Long, local: Boolean = false): Boolean {
+    fun receive(envelope: GossipEnvelope, from: String, now: Long, local: Boolean = false, verify: (ByteArray, ByteArray, String) -> Boolean = ::verifyChallenge): Boolean {
         prune(now)
-        if (!envelope.valid() || envelope.expiresAt <= now || envelope.createdAt > now + 300000) return false
+        if (!valid(envelope, verify) || envelope.expiresAt <= now || envelope.createdAt > now + 300000) return false
         // The transport has proved `from`; only the author can deliver one-hop controls.
         if (!local && envelope.kind in setOf("request", "receipt") && from != envelope.author) return false
         if (seen.containsKey(envelope.id)) { held.remove(envelope.id); return false }
@@ -273,7 +290,10 @@ data class PublicGossipState(
         seen[envelope.id] = envelope.expiresAt
         // A request is durable evidence of what its author asserted. It is not witnessed
         // merely because it arrived directly; the separate witness is what strengthens it.
-        if (envelope.kind != "receipt" && !isBlocked(envelope.author)) facts[envelope.id] = envelope
+        if (envelope.kind != "receipt" && !isBlocked(envelope.author)) {
+            facts[envelope.id] = envelope
+            verifiedIds.add(envelope.id)
+        }
         if (local) localAuthors.add(envelope.author)
         if (local || envelope.kind !in setOf("request", "receipt")) {
             held[envelope.id] = PublicHeld(envelope, minOf(envelope.expiresAt, now + PUBLIC_CARRY_MS), mutableSetOf(from))
@@ -304,12 +324,25 @@ data class PublicGossipState(
             .take(GOSSIP_MAX_BATCH).map { it.envelope }
     }
     fun delivered(peer: String, ids: List<String>) { ids.forEach { held[it]?.delivered?.add(peer) } }
-    fun project(gigIds: Set<String>): List<GossipEnvelope> {
+    fun project(gigIds: Set<String>, comparedUpdate: () -> Unit = {}): List<GossipEnvelope> {
         val latestScope = facts.values.groupBy { it.author to it.scope }.mapValues { (_, values) -> values.maxWith(compareBy<GossipEnvelope> { it.createdAt }.thenBy { it.id }) }
+        val updates = facts.values.filter { it.kind == "update" }.groupBy { it.author to it.scope }
+        val matchingIds = updates.mapValues { (_, values) ->
+            val ids = gigIds.toMutableSet()
+            values.sortedWith(compareByDescending<GossipEnvelope> { it.createdAt }.thenByDescending { it.id }).forEach {
+                comparedUpdate()
+                if (it.gigId in ids) ids.addAll(it.formerIds)
+            }
+            ids
+        }
+        fun links(fact: GossipEnvelope): Boolean = factIds(fact).any {
+            it in (matchingIds[fact.author to fact.scope] ?: gigIds)
+        }
         return facts.values.filter { fact ->
             !isBlocked(fact.author) && (
-                (linkedIds(fact) + latestScope[fact.author to fact.scope]?.let(::factIds).orEmpty()).any(gigIds::contains) ||
-                    (fact.kind == "witness" && decodePublicEnvelope(fact.text)?.let { linkedIds(it).any(gigIds::contains) } == true)
+                (links(fact) || latestScope[fact.author to fact.scope]?.let { factIds(it).any(gigIds::contains) } == true) ||
+                    // A witness follows the claim's Updates even when its own author signed no Update.
+                    (fact.kind == "witness" && decodePublicEnvelope(fact.text)?.let { links(it) } == true)
                 )
         }.groupBy { Triple(it.author, it.scope, if (it.kind == "log") "line:${it.line}" else it.id) }
             .values.map { versions -> versions.maxWith(compareBy<GossipEnvelope> { it.createdAt }.thenBy { it.id }) }
@@ -395,7 +428,7 @@ data class PublicGossipState(
     fun rememberPass(peer: String, batch: List<GossipEnvelope>, activeGigId: String?, now: Long) {
         if (peer.isBlank()) return
         val claimed = batch
-            .filter { it.kind == "request" && it.author == peer && it.valid() }
+            .filter { it.kind == "request" && it.author == peer && valid(it, ::verifyChallenge) }
             .flatMap(::linkedIds).toSet()
         val gigs = claimed.ifEmpty { setOfNotNull(activeGigId) }
         gigs.forEach { gig ->
@@ -477,7 +510,7 @@ data class PublicGossipState(
     private fun linkedIds(fact: GossipEnvelope): Set<String> {
         val ids = factIds(fact).toMutableSet()
         facts.values.filter { it.kind == "update" && it.author == fact.author && it.scope == fact.scope }
-            .sortedBy { it.createdAt }.forEach { update ->
+            .sortedWith(compareBy<GossipEnvelope> { it.createdAt }.thenBy { it.id }).forEach { update ->
                 if (update.formerIds.any(ids::contains)) ids.add(update.gigId)
             }
         return ids
