@@ -722,7 +722,7 @@ final class TimelineStoreTests: XCTestCase {
     /// and therefore assertable.
     func testTheTicketsAdmissionsJoinTheClaimWithoutDisturbingIt() async {
         let store = TimelineStore(file: tempFile(contents: "{}"))
-        let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
+        let id = await store.createLocalGig(date: "14-09-2099", artist: "Big Thief", venue: "")
         await store.saveAttendance(
             setlistId: id,
             attendance: StoredAttendance(provenance: "checked_in", checkedInAt: 42,
@@ -743,7 +743,8 @@ final class TimelineStoreTests: XCTestCase {
     /// ran is kept. Before, the record read before the await was saved back whole.
     func testAnUpdateChangesOnlyItsOwnFieldsOnTheRecordAsItIsNow() async {
         let store = TimelineStore(file: tempFile(contents: "{}"))
-        let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
+        // 2099: a ticket for a past night lands attended, so the night must stay in the future.
+        let id = await store.createLocalGig(date: "14-09-2099", artist: "Big Thief", venue: "")
         await store.saveAttendance(setlistId: id, attendance: StoredAttendance(provenance: "planned"))
         // Attached while the geocoder was out.
         await store.attachAdmissions(setlistId: id, admissions: [admission("TKT-9F31")])
@@ -764,7 +765,7 @@ final class TimelineStoreTests: XCTestCase {
     /// `updateAttendance` falls back the same way.
     func testAnUpdateOfANightWithNoClaimStartsFromTheDefault() async {
         let store = TimelineStore(file: tempFile(contents: "{}"))
-        let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
+        let id = await store.createLocalGig(date: "14-09-2099", artist: "Big Thief", venue: "")
 
         let settled = await store.updateAttendance(setlistId: id) { $0.venueLat = 1 }
 
@@ -786,7 +787,7 @@ final class TimelineStoreTests: XCTestCase {
     /// nothing but a barcode, and there is then no artist, venue or date worth writing.
     func testAdmissionsCanBeAttachedToANightWithNoClaimOnItYet() async {
         let store = TimelineStore(file: tempFile(contents: "{}"))
-        let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
+        let id = await store.createLocalGig(date: "14-09-2099", artist: "Big Thief", venue: "")
         let binary = StoredAdmission(payload: Data([0x00, 0xFF, 0xFE]).base64EncodedString(), symbology: "qr")
 
         let settled = await store.attachAdmissions(setlistId: id, admissions: [binary])
@@ -799,7 +800,7 @@ final class TimelineStoreTests: XCTestCase {
     /// shared twice adds nothing (story 19). Before #441 the second QR replaced the first.
     func testASecondTicketAddsItsAdmissionsAndTheSameOneTwiceAddsNothing() async {
         let store = TimelineStore(file: tempFile(contents: "{}"))
-        let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
+        let id = await store.createLocalGig(date: "14-09-2099", artist: "Big Thief", venue: "")
 
         await store.attachAdmissions(setlistId: id, admissions: [admission("first")])
         await store.attachAdmissions(setlistId: id, admissions: [admission("second", "code128", page: 1)])
