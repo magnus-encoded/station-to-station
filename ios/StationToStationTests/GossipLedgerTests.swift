@@ -157,7 +157,7 @@ final class GossipLedgerTests: XCTestCase {
             })
         let store = ledger()
         async let authored = store.receivePublic([first], from: "", now: millis, local: true)
-        async let received = store.receivePublic([second], from: "supplier", now: millis)
+        async let received = store.receivePublic([second], from: "supplier", now: millis, localGigIds: [second.gigId])
         let counts = await (authored, received)
         XCTAssertEqual(counts.0, 1)
         XCTAssertEqual(counts.1, 1)

@@ -3,6 +3,115 @@ import CryptoKit
 @testable import StationToStation
 
 final class PublicGossipTests: XCTestCase {
+    func testForeignGigFloodIsOnlyHeldAndStillRelayed() throws {
+        var state = PublicGossipState()
+        for index in 0..<160 {
+            var draft = fact("foreign-\(index)")
+            draft.gigId = "foreign-\(index)"
+            let envelope = try XCTUnwrap(draft.signed { try? key.signature(for: $0).derRepresentation })
+            XCTAssertTrue(state.receive(envelope, from: "relay", now: 2000, localGigIds: ["gig"]))
+        }
+        XCTAssertTrue(state.facts.isEmpty)
+        XCTAssertFalse(state.held.isEmpty)
+        XCTAssertLessThanOrEqual(state.held.count, 128)
+        XCTAssertFalse(state.offer(to: "next", now: 2001).isEmpty)
+    }
+
+    func testUpdateAdmitsHeldFactsOnlyForItsOwnAuthorAndScope() throws {
+        var state = PublicGossipState()
+        var draft = fact()
+        draft.gigId = "foreign"
+        let log = try XCTUnwrap(draft.signed { try? key.signature(for: $0).derRepresentation })
+        draft.scope = "other-scope"
+        let unrelated = try XCTUnwrap(draft.signed { try? key.signature(for: $0).derRepresentation })
+        state.receive(log, from: "relay", now: 2000, localGigIds: ["gig"])
+        state.receive(unrelated, from: "relay", now: 2000, localGigIds: ["gig"])
+        XCTAssertTrue(state.facts.isEmpty)
+        draft = log
+        draft.gigId = "gig"
+        draft.formerIds = ["foreign"]
+        draft.kind = "update"
+        draft.line = -1
+        draft.text = ""
+        draft.createdAt = 1500
+        let update = try XCTUnwrap(draft.signed { try? key.signature(for: $0).derRepresentation })
+        state.receive(update, from: "relay", now: 2000, localGigIds: ["gig"])
+        XCTAssertEqual(Set(state.facts.keys), [log.id, update.id])
+    }
+
+    func testWitnessIsAdmittedWhenOnlyItsCarriedClaimLinksToALocalGig() throws {
+        var state = PublicGossipState()
+        let author = P256.Signing.PrivateKey()
+        let witnessKey = P256.Signing.PrivateKey()
+        var draft = try checkIn(gig: author, card: nil, scope: "claim-scope")
+        draft.gigId = "foreign"
+        let claim = try XCTUnwrap(draft.signed { try? author.signature(for: $0).derRepresentation })
+        let witness = try XCTUnwrap(GossipEnvelope(gigId: "foreign", scope: "witness-scope",
+            author: witnessKey.publicKey.derRepresentation.base64EncodedString(),
+            createdAt: 1500, expiresAt: 100000, kind: "witness", text: claim.record())
+            .signed { try? witnessKey.signature(for: $0).derRepresentation })
+        draft = claim
+        draft.gigId = "gig"
+        draft.formerIds = ["foreign"]
+        draft.kind = "update"
+        draft.text = ""
+        draft.createdAt = 1600
+        let update = try XCTUnwrap(draft.signed { try? author.signature(for: $0).derRepresentation })
+        state.receive(update, from: "relay", now: 2000, localGigIds: ["gig"])
+        state.receive(witness, from: "relay", now: 2000, localGigIds: ["gig"])
+        XCTAssertNotNil(state.facts[witness.id])
+        XCTAssertEqual(state.arrivals(gigIds: ["gig"]), [claim])
+    }
+
+    func testCapEvictsExpiredThenOldestStrangersAndPreservesContactAndOwnFacts() {
+        var state = PublicGossipState()
+        let template = fact()
+        for index in 0..<PUBLIC_MAX_FACTS {
+            var envelope = template
+            envelope.id = "stranger-\(index)"
+            envelope.author = "stranger"
+            envelope.createdAt = 1000 + Int64(index)
+            state.facts[envelope.id] = envelope
+        }
+        var expired = template
+        expired.id = "expired"
+        expired.author = "stranger"
+        expired.createdAt = 99999
+        expired.expiresAt = 1500
+        var contact = template
+        contact.id = "contact"
+        contact.author = "contact-author"
+        contact.expiresAt = 1500
+        var own = template
+        own.id = "own"
+        own.author = "own-author"
+        own.expiresAt = 1500
+        for envelope in [expired, contact, own] { state.facts[envelope.id] = envelope }
+        state.recognition[contact.author] = "contact-card"
+        state.localAuthors.insert(own.author)
+        state.prune(now: 2000)
+        XCTAssertEqual(state.facts.count, PUBLIC_MAX_FACTS)
+        XCTAssertNil(state.facts[expired.id])
+        XCTAssertNil(state.facts["stranger-0"])
+        XCTAssertNil(state.facts["stranger-1"])
+        XCTAssertNotNil(state.facts["stranger-2"])
+        XCTAssertNotNil(state.facts[contact.id])
+        XCTAssertNotNil(state.facts[own.id])
+    }
+
+    func testCapKeepsFactsWhenEveryAuthorIsProtected() {
+        var state = PublicGossipState()
+        let template = fact()
+        state.localAuthors.insert(template.author)
+        for index in 0...PUBLIC_MAX_FACTS {
+            var envelope = template
+            envelope.id = "own-\(index)"
+            state.facts[envelope.id] = envelope
+        }
+        state.prune(now: 200000)
+        XCTAssertEqual(state.facts.count, PUBLIC_MAX_FACTS + 1)
+    }
+
     func testSecondPassDoesNotVerifyCachedFactsAgain() throws {
         var state = PublicGossipState()
         let envelope = fact()
@@ -11,19 +120,19 @@ final class PublicGossipTests: XCTestCase {
             calls += 1
             return verifyChallenge(payload, signature: signature, publicKeyBase64: author)
         }
-        XCTAssertTrue(state.receive(envelope, from: "relay", now: 2000, verify: verify))
+        XCTAssertTrue(state.receive(envelope, from: "relay", now: 2000, localGigIds: ["gig"], verify: verify))
         state.recognizeContacts([], verify: verify)
         XCTAssertEqual(calls, 1)
-        XCTAssertFalse(state.receive(envelope, from: "relay", now: 2001, verify: verify))
+        XCTAssertFalse(state.receive(envelope, from: "relay", now: 2001, localGigIds: ["gig"], verify: verify))
         state.recognizeContacts([], verify: verify)
         XCTAssertEqual(calls, 1)
         var forged = envelope
         forged.signature = Data([1]).base64EncodedString()
-        XCTAssertFalse(state.receive(forged, from: "relay", now: 2002, verify: verify))
+        XCTAssertFalse(state.receive(forged, from: "relay", now: 2002, localGigIds: ["gig"], verify: verify))
         XCTAssertEqual(calls, 2)
         forged = envelope
         forged.text = "forged"
-        XCTAssertFalse(state.receive(forged, from: "relay", now: 2003, verify: verify))
+        XCTAssertFalse(state.receive(forged, from: "relay", now: 2003, localGigIds: ["gig"], verify: verify))
         XCTAssertEqual(calls, 2)
         XCTAssertEqual(state.project(gigIds: ["gig"]), [envelope])
     }
@@ -41,10 +150,10 @@ final class PublicGossipTests: XCTestCase {
             calls += 1
             return verifyChallenge(payload, signature: signature, publicKeyBase64: author)
         }
-        XCTAssertTrue(state.receive(witness, from: "relay", now: 2000, verify: verify))
+        XCTAssertTrue(state.receive(witness, from: "relay", now: 2000, localGigIds: ["gig"], verify: verify))
         state.recognizeContacts([], verify: verify)
         XCTAssertEqual(calls, 2)
-        XCTAssertFalse(state.receive(witness, from: "relay", now: 2001, verify: verify))
+        XCTAssertFalse(state.receive(witness, from: "relay", now: 2001, localGigIds: ["gig"], verify: verify))
         state.recognizeContacts([], verify: verify)
         XCTAssertEqual(calls, 2)
         XCTAssertEqual(state.arrivals(gigIds: ["gig"]), [claim])
@@ -91,7 +200,7 @@ final class PublicGossipTests: XCTestCase {
         let envelope = fact()
         XCTAssertFalse(state.receive(envelope, from: "relay", now: envelope.expiresAt))
         state.blocked.insert(envelope.author)
-        XCTAssertTrue(state.receive(envelope, from: "relay", now: 2000))
+        XCTAssertTrue(state.receive(envelope, from: "relay", now: 2000, localGigIds: ["gig"]))
         let receipt = fact("neighbour", kind: "receipt")
         XCTAssertTrue(state.receive(receipt, from: receipt.author, now: 2000))
         let request = fact("", kind: "request")
@@ -104,7 +213,7 @@ final class PublicGossipTests: XCTestCase {
     func testVerificationCacheIsAbsentFromSerializedStateAndRebuiltAfterRestart() throws {
         var state = PublicGossipState()
         let envelope = fact()
-        state.receive(envelope, from: "relay", now: 2000)
+        state.receive(envelope, from: "relay", now: 2000, localGigIds: ["gig"])
         let bytes = try JSONEncoder().encode(state)
         XCTAssertFalse(String(decoding: bytes, as: UTF8.self).contains("verifiedIds"))
         var restored = try JSONDecoder().decode(PublicGossipState.self, from: bytes)
@@ -188,7 +297,7 @@ final class PublicGossipTests: XCTestCase {
             createdAt: 1500, expiresAt: 100000, kind: "witness", text: claim.record())
             .signed { try? card.signature(for: $0).derRepresentation })
         var state = PublicGossipState()
-        XCTAssertTrue(state.receive(witness, from: "relay", now: 1600))
+        XCTAssertTrue(state.receive(witness, from: "relay", now: 1600, localGigIds: ["gig"]))
         state.blocked.insert(author)
         state.recognizeContacts([durable])
         XCTAssertEqual(state.recognition[author], durable)
@@ -232,7 +341,7 @@ final class PublicGossipTests: XCTestCase {
         let blocked = try checkIn(gig: P256.Signing.PrivateKey(), card: blockedCard, scope: "blocked-scope")
 
         var state = PublicGossipState()
-        let accepted = [contact, stranger, blocked].filter { state.receive($0, from: $0.author, now: 1500) }
+        let accepted = [contact, stranger, blocked].filter { state.receive($0, from: $0.author, now: 1500, localGigIds: ["gig"]) }
         XCTAssertEqual(accepted, [contact, stranger, blocked])
         state.blocked.insert(blockedDurable)
         state.recognizeContacts([contactDurable, blockedDurable])
@@ -272,8 +381,8 @@ final class PublicGossipTests: XCTestCase {
             .signed { try? mineKey.signature(for: $0).derRepresentation })
 
         var state = PublicGossipState()
-        XCTAssertTrue(state.receive(mine, from: "", now: 1500, local: true))
-        XCTAssertTrue(state.receive(witness, from: "blind-relay", now: 1601))
+        XCTAssertTrue(state.receive(mine, from: "", now: 1500, local: true, localGigIds: ["gig"]))
+        XCTAssertTrue(state.receive(witness, from: "blind-relay", now: 1601, localGigIds: ["gig"]))
         state.recognizeContacts([durable])
         XCTAssertNil(state.facts[theirs.id])
         XCTAssertEqual(state.presenceFrom(accepted: [witness, mine], gigIds: ["gig"]), [durable])
@@ -292,7 +401,7 @@ final class PublicGossipTests: XCTestCase {
             createdAt: 1700, expiresAt: 100000, kind: "witness", text: forged.record())
             .signed { try? mineKey.signature(for: $0).derRepresentation })
         XCTAssertFalse(attack.valid())
-        XCTAssertFalse(state.receive(attack, from: "blind-relay", now: 1701))
+        XCTAssertFalse(state.receive(attack, from: "blind-relay", now: 1701, localGigIds: ["gig"]))
     }
 
     func testAlignmentPreservesReprisesAndEveryAuthorsOrder() {
@@ -317,7 +426,7 @@ final class PublicGossipTests: XCTestCase {
     func testDurableBlockAppliesAfterRecognitionAcrossRestartWithoutStoppingRelay() throws {
         let envelope = fact()
         var state = PublicGossipState()
-        XCTAssertTrue(state.receive(envelope, from: "relay", now: 2000))
+        XCTAssertTrue(state.receive(envelope, from: "relay", now: 2000, localGigIds: ["gig"]))
         state.blocked.insert("contact-key")
         XCTAssertEqual(state.project(gigIds: ["gig"]), [envelope])
         state.recognition[envelope.author] = "contact-key"
@@ -391,10 +500,10 @@ final class PublicGossipTests: XCTestCase {
         for kind in ["request", "receipt"] {
             let envelope = fact(kind == "receipt" ? "useful-neighbour" : "", kind: kind)
             var receiver = PublicGossipState()
-            XCTAssertFalse(receiver.receive(envelope, from: "blind-relay", now: 2000))
+            XCTAssertFalse(receiver.receive(envelope, from: "blind-relay", now: 2000, localGigIds: ["gig"]))
             XCTAssertTrue(receiver.seen.isEmpty)
             XCTAssertTrue(receiver.useful.isEmpty)
-            XCTAssertTrue(receiver.receive(envelope, from: envelope.author, now: 2001))
+            XCTAssertTrue(receiver.receive(envelope, from: envelope.author, now: 2001, localGigIds: ["gig"]))
             if kind == "request" { XCTAssertEqual(Array(receiver.facts.values), [envelope]) }
             else { XCTAssertTrue(receiver.facts.isEmpty) }
             XCTAssertTrue(receiver.held.isEmpty)
@@ -406,8 +515,8 @@ final class PublicGossipTests: XCTestCase {
             }
 
             var author = PublicGossipState()
-            XCTAssertTrue(author.receive(envelope, from: "", now: 2000, local: true))
-            XCTAssertFalse(author.receive(envelope, from: "blind-relay", now: 2001))
+            XCTAssertTrue(author.receive(envelope, from: "", now: 2000, local: true, localGigIds: ["gig"]))
+            XCTAssertFalse(author.receive(envelope, from: "blind-relay", now: 2001, localGigIds: ["gig"]))
             // A receipt is addressed to the one neighbour it names; anything else is gossiped.
             let recipient = kind == "receipt" ? "useful-neighbour" : "recipient"
             XCTAssertEqual(author.offer(to: recipient, now: 2002), [envelope])
@@ -449,8 +558,8 @@ final class PublicGossipTests: XCTestCase {
         let carried = fact()
         let receipt = receiptFor(carried, from: "neighbour", recognised: true, author: me, now: 2000, sign: sign)!
         var state = PublicGossipState()
-        XCTAssertTrue(state.receive(carried, from: "neighbour", now: 2000))
-        XCTAssertTrue(state.receive(receipt, from: "", now: 2000, local: true))
+        XCTAssertTrue(state.receive(carried, from: "neighbour", now: 2000, localGigIds: ["gig"]))
+        XCTAssertTrue(state.receive(receipt, from: "", now: 2000, local: true, localGigIds: ["gig"]))
         // Never a durable assertion, and the Fact it is about is untouched — still held and
         // still offered to everyone it has not reached.
         XCTAssertTrue(state.facts.values.allSatisfy { $0.kind != "receipt" })
@@ -460,14 +569,14 @@ final class PublicGossipTests: XCTestCase {
         XCTAssertEqual(state.offer(to: "neighbour", now: 2001), [receipt])
         // The Storm gate is exactly where receiving the Fact left it: a second copy still
         // retires it, and authoring a receipt about it changed nothing.
-        XCTAssertFalse(state.receive(carried, from: "third-relay", now: 2001))
+        XCTAssertFalse(state.receive(carried, from: "third-relay", now: 2001, localGigIds: ["gig"]))
         XCTAssertTrue(state.offer(to: "somebody-else", now: 2002).isEmpty)
         // It rides only a Pass signed as the key it was authored under.
         XCTAssertTrue(passBatch([receipt], request: nil, signer: "some-other-key").isEmpty)
         XCTAssertEqual(passBatch([receipt], request: nil, signer: me), [receipt])
         // And at the far end it credits its sender, never the third party its text names.
         var neighbour = PublicGossipState()
-        XCTAssertTrue(neighbour.receive(receipt, from: me, now: 2002))
+        XCTAssertTrue(neighbour.receive(receipt, from: me, now: 2002, localGigIds: ["gig"]))
         XCTAssertNil(neighbour.useful["neighbour"])
         XCTAssertEqual(Set(neighbour.useful.keys), [me])
         XCTAssertTrue(neighbour.facts.isEmpty)
@@ -507,7 +616,7 @@ final class PublicGossipTests: XCTestCase {
         let misaddressed = receiptFor(carried, from: neighbourGig, recognised: true, author: me,
                                       now: 2000, sign: sign)!
         var state = PublicGossipState()
-        XCTAssertTrue(state.receive(misaddressed, from: "", now: 2000, local: true))
+        XCTAssertTrue(state.receive(misaddressed, from: "", now: 2000, local: true, localGigIds: ["gig"]))
         // The one egress takes the key the challenge proved, so it never matches, and the
         // credit the ranker reads under that same key was never written.
         XCTAssertTrue(state.offer(to: neighbourRelay, now: 2001).isEmpty)
@@ -515,7 +624,7 @@ final class PublicGossipTests: XCTestCase {
         let addressed = receiptFor(carried, from: neighbourRelay, recognised: true, author: me,
                                    now: 2000, sign: sign)!
         var correct = PublicGossipState()
-        XCTAssertTrue(correct.receive(addressed, from: "", now: 2000, local: true))
+        XCTAssertTrue(correct.receive(addressed, from: "", now: 2000, local: true, localGigIds: ["gig"]))
         XCTAssertEqual(correct.offer(to: neighbourRelay, now: 2001), [addressed])
         XCTAssertEqual(correct.useful[neighbourRelay], 2000 + publicReceiptMs)
         XCTAssertTrue(correct.offer(to: neighbourGig, now: 2001).isEmpty)
@@ -530,13 +639,13 @@ final class PublicGossipTests: XCTestCase {
         let batch = [fact("Karma Police", line: 0), fact("No Surprises", line: 1)]
         XCTAssertNotEqual(batch[0].id, batch[1].id)
         var state = PublicGossipState()
-        for envelope in batch { XCTAssertTrue(state.receive(envelope, from: "neighbour", now: 2000)) }
+        for envelope in batch { XCTAssertTrue(state.receive(envelope, from: "neighbour", now: 2000, localGigIds: ["gig"])) }
         let receipts = receiptsFor(batch, from: "neighbour", recognised: { _ in true },
                                    author: me, now: 2000, sign: sign)
         // Both Facts name the same record, so there was only ever one thing to say.
         XCTAssertEqual(receipts.count, 1)
         for receipt in receipts {
-            XCTAssertTrue(state.receive(receipt, from: "", now: 2000, local: true))
+            XCTAssertTrue(state.receive(receipt, from: "", now: 2000, local: true, localGigIds: ["gig"]))
         }
         XCTAssertEqual(state.held.values.filter { $0.envelope.kind == "receipt" }.map { $0.envelope }, receipts)
         XCTAssertEqual(state.offer(to: "neighbour", now: 2001), receipts)
@@ -570,7 +679,7 @@ final class PublicGossipTests: XCTestCase {
                                   expiresAt: 9_000_000, kind: "receipt", text: "somebody")
             .signed { try? self.key.signature(for: $0).derRepresentation }!
         var state = PublicGossipState()
-        XCTAssertTrue(state.receive(long, from: me, now: 2000))
+        XCTAssertTrue(state.receive(long, from: me, now: 2000, localGigIds: ["gig"]))
         XCTAssertEqual(state.useful[me], 2000 + publicReceiptMs)
         state.prune(now: 2000 + publicReceiptMs - 1)
         XCTAssertEqual(Set(state.useful.keys), [me])
@@ -697,9 +806,9 @@ final class PublicGossipTests: XCTestCase {
     func testStrangerCarriesAndSecondCopyClosesStormGate() {
         var state = PublicGossipState()
         let envelope = fact()
-        XCTAssertTrue(state.receive(envelope, from: "stranger", now: 2000))
+        XCTAssertTrue(state.receive(envelope, from: "stranger", now: 2000, localGigIds: ["gig"]))
         XCTAssertEqual(state.offer(to: "another", now: 2001), [envelope])
-        XCTAssertFalse(state.receive(envelope, from: "third", now: 2002))
+        XCTAssertFalse(state.receive(envelope, from: "third", now: 2002, localGigIds: ["gig"]))
         XCTAssertTrue(state.offer(to: "another", now: 2003).isEmpty)
         XCTAssertEqual(Array(state.facts.values), [envelope])
     }
@@ -707,7 +816,7 @@ final class PublicGossipTests: XCTestCase {
         var state = PublicGossipState()
         let envelope = fact()
         state.blocked.insert(envelope.author)
-        _ = state.receive(envelope, from: "Carol", now: 2000)
+        _ = state.receive(envelope, from: "Carol", now: 2000, localGigIds: ["gig"])
         XCTAssertTrue(state.facts.isEmpty)
         XCTAssertEqual(state.offer(to: "Bob", now: 2001), [envelope])
         state.delivered(to: "Bob", ids: [envelope.id])
@@ -717,8 +826,8 @@ final class PublicGossipTests: XCTestCase {
         var state = PublicGossipState()
         let old = fact("Karma police")
         let corrected = fact("Karma Police", at: 1100)
-        _ = state.receive(corrected, from: "Carol", now: 2000)
-        _ = state.receive(old, from: "Dave", now: 2001)
+        _ = state.receive(corrected, from: "Carol", now: 2000, localGigIds: ["gig"])
+        _ = state.receive(old, from: "Dave", now: 2001, localGigIds: ["gig"])
         XCTAssertEqual(state.project(gigIds: ["gig"]), [corrected])
         XCTAssertEqual(state.facts.count, 2)
         XCTAssertTrue(state.offer(to: "Erin", now: 100001).isEmpty)
@@ -727,10 +836,10 @@ final class PublicGossipTests: XCTestCase {
     func testAlteredPayloadCannotCloseAnExistingStormGate() {
         var state = PublicGossipState()
         let envelope = fact()
-        _ = state.receive(envelope, from: "Carol", now: 2000)
+        _ = state.receive(envelope, from: "Carol", now: 2000, localGigIds: ["gig"])
         var forged = envelope
         forged.text = "forged"
-        XCTAssertFalse(state.receive(forged, from: "Dave", now: 2001))
+        XCTAssertFalse(state.receive(forged, from: "Dave", now: 2001, localGigIds: ["gig"]))
         XCTAssertEqual(state.offer(to: "Bob", now: 2002), [envelope])
     }
 
@@ -745,14 +854,14 @@ final class PublicGossipTests: XCTestCase {
         let claim = request(key, scope: "claim-scope")
         let local = request(witnessKey, scope: "witness-scope")
         var state = PublicGossipState()
-        XCTAssertTrue(state.receive(local, from: "", now: 1500, local: true))
-        XCTAssertFalse(state.receive(claim, from: "blind-relay", now: 1600))
-        XCTAssertTrue(state.receive(claim, from: claim.author, now: 1601))
+        XCTAssertTrue(state.receive(local, from: "", now: 1500, local: true, localGigIds: ["gig"]))
+        XCTAssertFalse(state.receive(claim, from: "blind-relay", now: 1600, localGigIds: ["gig"]))
+        XCTAssertTrue(state.receive(claim, from: claim.author, now: 1601, localGigIds: ["gig"]))
         XCTAssertEqual(state.checkInEvidence(gigIds: ["gig"], author: claim.author).witnessed, false)
         let witness = try XCTUnwrap(witnessRequest(claim, with: local, now: 1700) {
             try? witnessKey.signature(for: $0).derRepresentation
         })
-        XCTAssertTrue(state.receive(witness, from: witness.author, now: 1701))
+        XCTAssertTrue(state.receive(witness, from: witness.author, now: 1701, localGigIds: ["gig"]))
         let evidence = state.checkInEvidence(gigIds: ["gig"], author: claim.author)
         XCTAssertTrue(evidence.asserted)
         XCTAssertTrue(evidence.witnessed)
@@ -762,11 +871,11 @@ final class PublicGossipTests: XCTestCase {
         XCTAssertNotNil(state.held[witness.id])
         XCTAssertEqual(state.witnessedGigIds(), [])
         var remote = PublicGossipState()
-        XCTAssertTrue(remote.receive(witness, from: "blind-relay", now: 1800))
+        XCTAssertTrue(remote.receive(witness, from: "blind-relay", now: 1800, localGigIds: ["gig"]))
         XCTAssertEqual(remote.arrivals(gigIds: ["gig"]), [claim])
         XCTAssertTrue(remote.arrivals(gigIds: ["unrelated-gig"]).isEmpty)
         XCTAssertNil(remote.facts[claim.id])
-        XCTAssertTrue(remote.receive(claim, from: claim.author, now: 1801))
+        XCTAssertTrue(remote.receive(claim, from: claim.author, now: 1801, localGigIds: ["gig"]))
         XCTAssertEqual(remote.arrivals(gigIds: ["gig"]), [claim])
         remote.prune(now: 100001)
         XCTAssertEqual(remote.arrivals(gigIds: ["gig"]), [claim])
@@ -786,14 +895,14 @@ final class PublicGossipTests: XCTestCase {
         }
         let mine = request(key, scope: "mine", formerIds: ["local-gig"])
         var state = PublicGossipState()
-        XCTAssertTrue(state.receive(mine, from: "", now: 1500, local: true))
+        XCTAssertTrue(state.receive(mine, from: "", now: 1500, local: true, localGigIds: ["gig"]))
         // Claimed, but nobody has signed for it yet.
         XCTAssertEqual(state.witnessedGigIds(), [])
         let witness = try XCTUnwrap(witnessRequest(mine, with: request(strangerKey, scope: "theirs"),
                                                    now: 1700) {
             try? strangerKey.signature(for: $0).derRepresentation
         })
-        XCTAssertTrue(state.receive(witness, from: witness.author, now: 1701))
+        XCTAssertTrue(state.receive(witness, from: witness.author, now: 1701, localGigIds: ["gig"]))
         // Both the id it carries now and the one it was known by before, so a setlist.fm
         // id arriving after the night still matches the row.
         XCTAssertEqual(state.witnessedGigIds(), ["gig", "local-gig"])
@@ -823,7 +932,7 @@ final class PublicGossipTests: XCTestCase {
         var state = PublicGossipState()
 
         // Received before the Exchange: carried and shown, but nobody this device knows.
-        XCTAssertTrue(state.receive(line, from: "blind-relay", now: 2000))
+        XCTAssertTrue(state.receive(line, from: "blind-relay", now: 2000, localGigIds: ["gig"]))
         XCTAssertEqual(state.project(gigIds: ["gig"]), [line])
         XCTAssertNil(state.attributedName(line.author, live: [durable: "Ada"]))
 
@@ -845,7 +954,7 @@ final class PublicGossipTests: XCTestCase {
     func testStateFromBeforeTheNamesSnapshotDecodesWithoutLosingTheNight() throws {
         let envelope = fact()
         var before = PublicGossipState()
-        XCTAssertTrue(before.receive(envelope, from: "relay", now: 2000))
+        XCTAssertTrue(before.receive(envelope, from: "relay", now: 2000, localGigIds: ["gig"]))
         before.blocked.insert("someone")
         var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(before)) as! [String: Any]
         json.removeValue(forKey: "contactNames")
@@ -860,8 +969,8 @@ final class PublicGossipTests: XCTestCase {
         var state = PublicGossipState()
         let theirs = fact("Bodysnatchers")
         let theirClaim = fact(kind: "request")
-        XCTAssertTrue(state.receive(theirs, from: "blind-relay", now: 2000))
-        XCTAssertTrue(state.receive(theirClaim, from: theirClaim.author, now: 2001))
+        XCTAssertTrue(state.receive(theirs, from: "blind-relay", now: 2000, localGigIds: ["gig"]))
+        XCTAssertTrue(state.receive(theirClaim, from: theirClaim.author, now: 2001, localGigIds: ["gig"]))
 
         // Nothing about carrying makes this device the author: not the record, not the author
         // key it hands on, and not the evidence its own screens read.
@@ -879,7 +988,7 @@ final class PublicGossipTests: XCTestCase {
             author: myKey.publicKey.derRepresentation.base64EncodedString(),
             createdAt: 1100, expiresAt: 100000, kind: "request", line: -1)
             .signed { try? myKey.signature(for: $0).derRepresentation })
-        XCTAssertTrue(state.receive(mine, from: "", now: 2003, local: true))
+        XCTAssertTrue(state.receive(mine, from: "", now: 2003, local: true, localGigIds: ["gig"]))
         XCTAssertEqual(state.localAuthors, [mine.author])
         XCTAssertEqual(state.arrivals(gigIds: ["gig"]), [theirClaim])
     }
@@ -904,7 +1013,7 @@ final class PublicGossipTests: XCTestCase {
         // Carrying for a night I am not at. A request admitted from its author is still only
         // their claim; nothing about receiving it lets this device speak for it.
         var bystander = PublicGossipState()
-        XCTAssertTrue(bystander.receive(theirs, from: theirs.author, now: 1500))
+        XCTAssertTrue(bystander.receive(theirs, from: theirs.author, now: 1500, localGigIds: ["gig"]))
         XCTAssertNil(bystander.localClaim(for: theirs))
         XCTAssertNil(witnessFor(bystander, request: theirs, now: 1600, sign: sign))
 
@@ -912,8 +1021,8 @@ final class PublicGossipTests: XCTestCase {
         // neither a current nor a former id is somebody else's night.
         var elsewhere = PublicGossipState()
         XCTAssertTrue(elsewhere.receive(request(key, gigId: "other-gig", scope: "my-scope"),
-                                        from: "", now: 1500, local: true))
-        XCTAssertTrue(elsewhere.receive(theirs, from: theirs.author, now: 1501))
+                                        from: "", now: 1500, local: true, localGigIds: ["gig"]))
+        XCTAssertTrue(elsewhere.receive(theirs, from: theirs.author, now: 1501, localGigIds: ["gig"]))
         XCTAssertNil(elsewhere.localClaim(for: theirs))
         XCTAssertNil(witnessFor(elsewhere, request: theirs, now: 1600, sign: sign))
 
@@ -921,14 +1030,14 @@ final class PublicGossipTests: XCTestCase {
         // embeds the whole signed claim rather than a reference to it.
         var here = PublicGossipState()
         let mine = request(key, gigId: "gig", scope: "my-scope")
-        XCTAssertTrue(here.receive(mine, from: "", now: 1500, local: true))
-        XCTAssertTrue(here.receive(theirs, from: theirs.author, now: 1501))
+        XCTAssertTrue(here.receive(mine, from: "", now: 1500, local: true, localGigIds: ["gig"]))
+        XCTAssertTrue(here.receive(theirs, from: theirs.author, now: 1501, localGigIds: ["gig"]))
         XCTAssertEqual(here.localClaim(for: theirs), mine)
         let witness = try XCTUnwrap(witnessFor(here, request: theirs, now: 1600, sign: sign))
         XCTAssertEqual(witness.kind, "witness")
         XCTAssertEqual(witness.author, mine.author)
         XCTAssertEqual(decodePublicEnvelope(witness.text), theirs)
-        XCTAssertTrue(here.receive(witness, from: "", now: 1601, local: true))
+        XCTAssertTrue(here.receive(witness, from: "", now: 1601, local: true, localGigIds: ["gig"]))
         let evidence = here.checkInEvidence(gigIds: ["gig"], author: theirs.author)
         XCTAssertTrue(evidence.asserted)
         XCTAssertTrue(evidence.witnessed)
@@ -942,7 +1051,7 @@ final class PublicGossipTests: XCTestCase {
     func testAClaimNobodyWitnessedStillCapturesProjectsAndTravels() throws {
         var state = PublicGossipState()
         let request = fact("", kind: "request")
-        XCTAssertTrue(state.receive(request, from: "", now: 1500, local: true))
+        XCTAssertTrue(state.receive(request, from: "", now: 1500, local: true, localGigIds: ["gig"]))
         var evidence = state.checkInEvidence(gigIds: ["gig"], author: request.author)
         XCTAssertTrue(evidence.asserted)
         XCTAssertFalse(evidence.witnessed)
@@ -952,8 +1061,8 @@ final class PublicGossipTests: XCTestCase {
         // projected and offered exactly as they would be with one.
         let first = fact(at: 1600)
         let second = fact("Evolve", at: 1700, line: 1)
-        XCTAssertTrue(state.receive(first, from: "", now: 1601, local: true))
-        XCTAssertTrue(state.receive(second, from: "", now: 1701, local: true))
+        XCTAssertTrue(state.receive(first, from: "", now: 1601, local: true, localGigIds: ["gig"]))
+        XCTAssertTrue(state.receive(second, from: "", now: 1701, local: true, localGigIds: ["gig"]))
         XCTAssertEqual(state.project(gigIds: ["gig"]), [request, first, second])
         XCTAssertEqual(Set(state.offer(to: "first-peer-of-the-night", now: 1800,
                                        participationEnds: [:]).map(\.id)),
@@ -969,7 +1078,7 @@ final class PublicGossipTests: XCTestCase {
         let witness = try XCTUnwrap(witnessRequest(request, with: theirs, now: 1900) {
             try? witnessKey.signature(for: $0).derRepresentation
         })
-        XCTAssertTrue(state.receive(witness, from: witness.author, now: 1901))
+        XCTAssertTrue(state.receive(witness, from: witness.author, now: 1901, localGigIds: ["gig"]))
         evidence = state.checkInEvidence(gigIds: ["gig"], author: request.author)
         XCTAssertTrue(evidence.asserted)
         XCTAssertTrue(evidence.witnessed)
