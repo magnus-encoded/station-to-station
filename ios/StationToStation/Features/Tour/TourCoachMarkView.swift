@@ -20,6 +20,8 @@ struct TourCoachMarkView: View {
             } else {
                 Text(mark == .line
                      ? "Vertical is time: your line runs down the screen"
+                     : mark == .curtain
+                     ? "Tap “or add a gig by hand” to plan a gig."
                      : "Try this step in the app to continue the Tour.")
             }
             HStack {

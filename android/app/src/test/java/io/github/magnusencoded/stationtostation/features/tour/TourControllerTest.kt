@@ -106,6 +106,18 @@ class TourControllerTest {
     }
 
     @Test
+    fun adding_by_hand_on_an_empty_line_advances_to_the_band_step() {
+        val c = controller()
+        c.launch()
+        c.dispatch(TourEvent.Acknowledged)
+        assertTrue(fake.current.setlists.isEmpty())
+        assertTrue(fake.current.plannedGigs.isEmpty())
+        c.dispatch(TourEvent.CurtainPulled)
+        assertEquals(TourStep.S3, fake.current.tour.step)
+        assertEquals(CoachMark.Band, fake.current.coachMark)
+    }
+
+    @Test
     fun replay_from_settings_restarts_a_finished_tour_with_a_fresh_demo_world() {
         fake.update { it.copy(onboarded = true, tour = TourState(finished = true)) }
         controller().replay()

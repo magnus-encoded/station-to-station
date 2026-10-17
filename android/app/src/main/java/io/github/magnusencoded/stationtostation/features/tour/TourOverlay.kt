@@ -131,7 +131,7 @@ private const val TOUR_FRIEND = "Your friend"
 
 private fun line(mark: CoachMark): String = when (mark) {
     CoachMark.Line -> "This is your line. Down is back in time, up is what's coming."
-    CoachMark.Curtain -> "Pull down from the top to plan a gig."
+    CoachMark.Curtain -> "Tap “or add a gig by hand” to plan a gig."
     CoachMark.Band -> "Who do you want to see?"
     CoachMark.AddGig -> "Add the gig."
     CoachMark.OpenRoom -> "Tap the gig to open its Room."
