@@ -330,7 +330,7 @@ struct StationView: View {
                 .accessibilityLabel("Search")
             Button { nav.push(.friends) } label: { Image(systemName: "person.2") }
                 .accessibilityLabel("Friends")
-            Button { nav.push(.programme) } label: { Image(systemName: "clock") }
+            Button { nav.push(.programme) } label: { Image(systemName: "list.bullet.rectangle") }
                 .accessibilityLabel("Festival programme")
             Button { model.refreshTimeline() } label: {
                 if model.state.timelineLoading { ProgressView() }
@@ -685,8 +685,11 @@ struct StationView: View {
                 // The one door that does not end at setlist.fm (#347), and a line can start
                 // above today as easily as below it: someone with no history yet still has
                 // a ticket for something.
-                Button("or add a gig by hand") { adding = true }
-                    .font(.system(size: 13)).foregroundStyle(slate).padding(.top, 4)
+                Button("or add a gig by hand") {
+                    adding = true
+                    model.tour.send(.curtainPulled)
+                }
+                    .font(.system(size: 13)).foregroundStyle(ink).padding(.top, 4)
             }
         }
         .padding(32)

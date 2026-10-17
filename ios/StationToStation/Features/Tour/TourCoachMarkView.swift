@@ -7,7 +7,7 @@ struct TourCoachMarkView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Tour").font(.headline)
+                Text("Your virtual tour guide").font(.headline)
                 Spacer()
                 Button { model.tour.dismissCoachMark() } label: {
                     Image(systemName: "xmark")
@@ -20,6 +20,8 @@ struct TourCoachMarkView: View {
             } else {
                 Text(mark == .line
                      ? "Vertical is time: your line runs down the screen"
+                     : mark == .curtain
+                     ? "Tap “or add a gig by hand” to plan a gig."
                      : "Try this step in the app to continue the Tour.")
             }
             HStack {
