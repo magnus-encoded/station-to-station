@@ -330,7 +330,7 @@ struct StationView: View {
                 .accessibilityLabel("Search")
             Button { nav.push(.friends) } label: { Image(systemName: "person.2") }
                 .accessibilityLabel("Friends")
-            Button { nav.push(.programme) } label: { Image(systemName: "clock") }
+            Button { nav.push(.programme) } label: { Image(systemName: "list.bullet.rectangle") }
                 .accessibilityLabel("Festival programme")
             Button { model.refreshTimeline() } label: {
                 if model.state.timelineLoading { ProgressView() }
@@ -689,7 +689,7 @@ struct StationView: View {
                     adding = true
                     model.tour.send(.curtainPulled)
                 }
-                    .font(.system(size: 13)).foregroundStyle(slate).padding(.top, 4)
+                    .font(.system(size: 13)).foregroundStyle(ink).padding(.top, 4)
             }
         }
         .padding(32)

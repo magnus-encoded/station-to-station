@@ -7,7 +7,7 @@ struct TourCoachMarkView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Tour").font(.headline)
+                Text("Your virtual tour guide").font(.headline)
                 Spacer()
                 Button { model.tour.dismissCoachMark() } label: {
                     Image(systemName: "xmark")

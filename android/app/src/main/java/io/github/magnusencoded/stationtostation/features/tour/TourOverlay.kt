@@ -126,8 +126,8 @@ private fun BoxScope.UpgradePromptCard(onAccept: () -> Unit, onDismiss: () -> Un
     }
 }
 
-// Placeholders: the Virtual friend's name and writing are owned by a human (#607).
-private const val TOUR_FRIEND = "Your friend"
+// TODO(#607): replace the temporary guide label with the authored Virtual friend.
+private const val TOUR_FRIEND = "Your virtual tour guide"
 
 private fun line(mark: CoachMark): String = when (mark) {
     CoachMark.Line -> "This is your line. Down is back in time, up is what's coming."
