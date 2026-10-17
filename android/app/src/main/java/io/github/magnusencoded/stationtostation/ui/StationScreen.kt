@@ -567,7 +567,7 @@ private class TimelineActions(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TimelineTopBar(
+internal fun TimelineTopBar(
     onOpenConnect: () -> Unit,
     onOpenProgramme: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -582,18 +582,27 @@ private fun TimelineTopBar(
         },
         actions = {
             // Left/right axis is people: the way to others starts here.
-            IconButton(onClick = onOpenConnect) {
-                Icon(Icons.Filled.Person, contentDescription = "Connect with people", tint = Faint)
+            IconButton(
+                onClick = onOpenConnect,
+                modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "Friends" },
+            ) {
+                Icon(Icons.Filled.Person, contentDescription = null, tint = Faint)
             }
-            IconButton(onClick = onOpenProgramme) {
+            IconButton(
+                onClick = onOpenProgramme,
+                modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "Festival programme" },
+            ) {
                 Icon(
                     Icons.Filled.EventNote,
-                    contentDescription = "Festival programme",
+                    contentDescription = null,
                     tint = Faint,
                 )
             }
-            IconButton(onClick = onOpenSettings) {
-                Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = Faint)
+            IconButton(
+                onClick = onOpenSettings,
+                modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "Settings" },
+            ) {
+                Icon(Icons.Filled.Settings, contentDescription = null, tint = Faint)
             }
         },
     )

@@ -21,6 +21,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -73,7 +76,7 @@ fun TourCoachMarkInline(viewModel: AppViewModel) {
  * line and Skip only; each step's issue gives its mark the gesture it waits for.
  */
 @Composable
-private fun CoachMarkCard(
+internal fun CoachMarkCard(
     mark: CoachMark?,
     onAcknowledge: () -> Unit,
     onSkip: () -> Unit,
@@ -91,9 +94,19 @@ private fun CoachMarkCard(
         Text(mark?.let(::line) ?: "One moment…", color = Ink, fontFamily = FontFamily.Serif, fontSize = 18.sp)
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = onSkip) { Text("Skip", color = Muted) }
+            TextButton(
+                onClick = onSkip,
+                modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "Skip" },
+            ) {
+                Text("Skip", color = Muted, modifier = Modifier.clearAndSetSemantics {})
+            }
             if (mark == CoachMark.Line) {
-                TextButton(onClick = onAcknowledge) { Text("Got it", color = Amber) }
+                TextButton(
+                    onClick = onAcknowledge,
+                    modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "Got it" },
+                ) {
+                    Text("Got it", color = Amber, modifier = Modifier.clearAndSetSemantics {})
+                }
             }
         }
     }
