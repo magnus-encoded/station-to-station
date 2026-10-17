@@ -67,17 +67,19 @@ actor GossipLedger {
     /// One actor transaction for the whole Pass, shared with local authoring.
     @discardableResult
     func receivePublic(_ batch: [GossipEnvelope], from: String, now: Int64,
-                       local: Bool = false) -> Int {
-        receivePublicFacts(batch, from: from, now: now, local: local).count
+                       local: Bool = false, localGigIds: Set<String> = []) -> Int {
+        receivePublicFacts(batch, from: from, now: now, local: local, localGigIds: localGigIds).count
     }
 
     /// Return only committed admissions, so replays cannot mint another witness.
     func receivePublicFacts(_ batch: [GossipEnvelope], from: String, now: Int64,
-                            local: Bool = false) -> [GossipEnvelope] {
+                            local: Bool = false, localGigIds: Set<String> = [], contacts: Set<String> = []) -> [GossipEnvelope] {
         var next = load()
         var state = next.publicState ?? PublicGossipState()
         state.prune(now: now)
-        let accepted = batch.filter { state.receive($0, from: from, now: now, local: local) }
+        // Requests are not held, so their linking Updates must be admitted first.
+        let ordered = batch.filter { $0.kind == "update" } + batch.filter { $0.kind != "update" }
+        let accepted = ordered.filter { state.receive($0, from: from, now: now, local: local, localGigIds: localGigIds, contacts: contacts) }
         next.publicState = state
         return persist(next) ? accepted : []
     }

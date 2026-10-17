@@ -248,7 +248,10 @@ actor GossipChannel {
 
     func receivePublic(_ pass: PublicGossipPass, from: String, now: Date = Date()) async {
         let millis = Int64(now.timeIntervalSince1970 * 1000)
-        let accepted = await ledger.receivePublicFacts(pass.batch, from: from, now: millis)
+        let localCache = await timeline.load()
+        let localGigIds = Set(localCache.gigs.values.flatMap { [$0.id, $0.setlistId].compactMap { $0 } })
+        let accepted = await ledger.receivePublicFacts(pass.batch, from: from, now: millis,
+            localGigIds: localGigIds, contacts: contacts)
         var state = await ledger.publicSnapshot(now: millis)
         for request in accepted where request.kind == "request" && request.author == from {
             // Whether to witness at all is `witnessFor`'s answer, not this loop's: this phone

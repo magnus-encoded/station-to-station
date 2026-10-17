@@ -183,15 +183,23 @@ class GossipService : Service() {
                     // participation ends, and last night's claim arriving in tonight's Pass
                     // is not somebody standing here — the same test `offer` applies.
                     val gigIds = participationEnds.filterValues { it > now }.keys
+                    val localGigIds = gossipGigAliases(timeline, emptyMap()).keys
                     val present = mutableSetOf<String>()
                     store.updatePublic(now) { state ->
+                        val admitted = mutableListOf<GossipEnvelope>()
+                        // Requests are not held, so their linking Updates must be admitted first.
+                        delivery.pass.batch.filter { it.kind == "update" }.forEach {
+                            if (state.receive(it, delivery.from, now, localGigIds = localGigIds, contacts = contacts)) {
+                                accepted++
+                                admitted.add(it)
+                            }
+                        }
                         val directRequests = delivery.pass.batch.filter { envelope ->
-                            envelope.kind == "request" && state.receive(envelope, delivery.from, now)
+                            envelope.kind == "request" && state.receive(envelope, delivery.from, now, localGigIds = localGigIds, contacts = contacts)
                         }
                         accepted += directRequests.size
-                        val admitted = mutableListOf<GossipEnvelope>()
-                        delivery.pass.batch.filter { it.kind != "request" }.forEach { envelope ->
-                            if (state.receive(envelope, delivery.from, now)) {
+                        delivery.pass.batch.filter { it.kind !in setOf("request", "update") }.forEach { envelope ->
+                            if (state.receive(envelope, delivery.from, now, localGigIds = localGigIds, contacts = contacts)) {
                                 accepted++
                                 admitted.add(envelope)
                             }
