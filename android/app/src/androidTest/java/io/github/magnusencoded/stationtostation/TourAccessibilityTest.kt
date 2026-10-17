@@ -63,6 +63,20 @@ class TourAccessibilityTest {
         compose.onNodeWithText("Your virtual tour guide").assertExists()
     }
 
+    @Test fun gestureStepKeepsSkipOnTheClickableNode() {
+        var skipped = false
+        compose.setContent {
+            MaterialTheme {
+                CoachMarkCard(CoachMark.Curtain, {}, { skipped = true })
+            }
+        }
+        compose.onNodeWithContentDescription("Skip", useUnmergedTree = true)
+            .assertHasClickAction().performClick()
+        compose.onNodeWithContentDescription("Got it", useUnmergedTree = true)
+            .assertDoesNotExist()
+        assertEquals(true, skipped)
+    }
+
     @Test fun emptyTimelineOffersTheTourAddAction() {
         var added = false
         var tour = TourState(step = TourStep.S2)
