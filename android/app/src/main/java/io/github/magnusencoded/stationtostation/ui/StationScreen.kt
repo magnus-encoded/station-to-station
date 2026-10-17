@@ -496,7 +496,7 @@ fun StationTimelineScreen(
                 state.setlists.isEmpty() && state.plannedGigs.isEmpty() ->
                     EmptyTimeline(
                         onAdd = onOpenImport,
-                        onAddGig = { adding = true },
+                        onAddGig = actions.onAddGig,
                     )
 
                 else -> TimelineLine(

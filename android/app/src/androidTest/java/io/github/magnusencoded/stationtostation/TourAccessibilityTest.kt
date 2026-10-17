@@ -8,6 +8,10 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import io.github.magnusencoded.stationtostation.features.tour.CoachMark
 import io.github.magnusencoded.stationtostation.features.tour.CoachMarkCard
+import io.github.magnusencoded.stationtostation.features.tour.TourEvent
+import io.github.magnusencoded.stationtostation.features.tour.TourScript
+import io.github.magnusencoded.stationtostation.features.tour.TourState
+import io.github.magnusencoded.stationtostation.features.tour.TourStep
 import io.github.magnusencoded.stationtostation.ui.EmptyTimeline
 import io.github.magnusencoded.stationtostation.ui.TimelineTopBar
 import org.junit.Assert.assertEquals
@@ -61,10 +65,17 @@ class TourAccessibilityTest {
 
     @Test fun emptyTimelineOffersTheTourAddAction() {
         var added = false
+        var tour = TourState(step = TourStep.S2)
         compose.setContent {
-            MaterialTheme { EmptyTimeline(onAdd = {}, onAddGig = { added = true }) }
+            MaterialTheme {
+                EmptyTimeline(onAdd = {}, onAddGig = {
+                    added = true
+                    tour = TourScript.on(tour, TourEvent.CurtainPulled).state
+                })
+            }
         }
         compose.onNodeWithText("or add a gig by hand").performClick()
         assertEquals(true, added)
+        assertEquals(TourStep.S3, tour.step)
     }
 }
