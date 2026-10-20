@@ -68,10 +68,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -393,7 +393,7 @@ fun StationTimelineScreen(
         onOpenImport = onOpenImport,
         onOpenNearby = onOpenNearby,
         onOpenProgramme = onOpenProgramme,
-        onAddGig = { adding = true; viewModel.tour.dispatch(TourEvent.CurtainPulled) },
+        onAddGig = { addGigByHand({ adding = true }, viewModel.tour::dispatch) },
         onCompare = { comparing = it },
         menuFor = { menuFor(it) },
         setZoomedOut = {
@@ -443,14 +443,14 @@ fun StationTimelineScreen(
         },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
-            // Which build is actually on the phone. It is installed over Wi-Fi from CI,
-            // and answering that by hashing APKs cost more than it should have.
-            Text(
-                "${BuildConfig.VERSION_NAME} · ${BuildConfig.GIT_SHA}",
-                color = Faint.copy(alpha = 0.5f),
-                fontSize = 9.sp,
-                modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 4.dp),
-            )
+            if (!state.tour.running && !state.tourUpgradePrompt) {
+                Text(
+                    "${BuildConfig.VERSION_NAME} · ${BuildConfig.GIT_SHA}",
+                    color = Faint.copy(alpha = 0.5f),
+                    fontSize = 9.sp,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 4.dp),
+                )
+            }
             if (adding) {
                 AddGigDialog(
                     initial = prefill,
@@ -496,7 +496,7 @@ fun StationTimelineScreen(
                 state.setlists.isEmpty() && state.plannedGigs.isEmpty() ->
                     EmptyTimeline(
                         onAdd = onOpenImport,
-                        onAddGig = { adding = true },
+                        onAddGig = actions.onAddGig,
                     )
 
                 else -> TimelineLine(
@@ -565,9 +565,15 @@ private class TimelineActions(
     val photoPreview: suspend (Uri) -> MediaThumb,
 )
 
+/** Every door to the add-gig dialog is the Tour's Curtain step as well. */
+internal fun addGigByHand(open: () -> Unit, dispatch: (TourEvent) -> Unit) {
+    open()
+    dispatch(TourEvent.CurtainPulled)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TimelineTopBar(
+internal fun TimelineTopBar(
     onOpenConnect: () -> Unit,
     onOpenProgramme: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -582,18 +588,27 @@ private fun TimelineTopBar(
         },
         actions = {
             // Left/right axis is people: the way to others starts here.
-            IconButton(onClick = onOpenConnect) {
-                Icon(Icons.Filled.Person, contentDescription = "Connect with people", tint = Faint)
+            IconButton(
+                onClick = onOpenConnect,
+                modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "Connect with people" },
+            ) {
+                Icon(Icons.Filled.Person, contentDescription = null, tint = Faint)
             }
-            IconButton(onClick = onOpenProgramme) {
+            IconButton(
+                onClick = onOpenProgramme,
+                modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "Festival programme" },
+            ) {
                 Icon(
-                    Icons.Filled.Schedule,
-                    contentDescription = "Festival programme",
+                    Icons.AutoMirrored.Filled.EventNote,
+                    contentDescription = null,
                     tint = Faint,
                 )
             }
-            IconButton(onClick = onOpenSettings) {
-                Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = Faint)
+            IconButton(
+                onClick = onOpenSettings,
+                modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "Settings" },
+            ) {
+                Icon(Icons.Filled.Settings, contentDescription = null, tint = Faint)
             }
         },
     )
@@ -1408,7 +1423,7 @@ internal fun EmptyTimeline(onAdd: () -> Unit, onAddGig: () -> Unit) {
         // as easily as below it: someone with no history yet still has a ticket for something.
         Text(
             "or add a gig by hand",
-            color = Slate,
+            color = Ink,
             fontSize = 13.sp,
             modifier = Modifier.clickable(onClick = onAddGig).padding(8.dp),
         )
@@ -1537,7 +1552,7 @@ fun ImportScreen(
             // empty spine is gone the moment there is one night on the line (#225).
             Text(
                 "or add a gig by hand",
-                color = Slate,
+                color = Ink,
                 fontSize = 13.sp,
                 modifier = Modifier
                     .clickable { byHand = true }

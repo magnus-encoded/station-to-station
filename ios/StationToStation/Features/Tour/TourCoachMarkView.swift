@@ -20,6 +20,10 @@ struct TourCoachMarkView: View {
             } else {
                 Text(mark == .line
                      ? "Vertical is time: your line runs down the screen"
+                     : mark == .curtain
+                     ? (model.state.setlists.isEmpty && model.state.plannedGigs.isEmpty
+                        ? "Tap “or add a gig by hand” to plan a gig."
+                        : "Pull down from the top to plan a gig.")
                      : "Try this step in the app to continue the Tour.")
             }
             HStack {
