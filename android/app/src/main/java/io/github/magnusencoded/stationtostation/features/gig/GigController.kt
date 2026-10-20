@@ -188,19 +188,7 @@ class GigController(
         runCatching {
             val scope = gossip.authorScope(local.id)
             val identity = GigIdentity(scope)
-            gossip.updatePublic(now) { state ->
-                val author = identity.publicKey()
-                val previous = state.facts.values.filter { it.author == author }
-                val former = previous.flatMap { it.formerIds + it.gigId }.distinct().filter { it != gigId }
-                // Monotone revision time makes rapid successive Done actions deterministic.
-                val revision = maxOf(now, (previous.maxOfOrNull { it.createdAt } ?: 0) + 1)
-                changes.forEach { (line, text) ->
-                    GossipEnvelope(gigId = gigId, formerIds = former, scope = scope,
-                        author = author, createdAt = revision, expiresAt = expiry.toEpochMilli(),
-                        kind = "log", line = line, text = text, attribution = identity.attribution())
-                        .signed(identity::sign)?.let { state.receive(it, "", now, local = true) }
-                }
-            }
+            gossip.updatePublic(now) { it.receiveLog(gigId, scope, identity, changes, expiry.toEpochMilli(), now) }
         }
     }
 

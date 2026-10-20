@@ -163,10 +163,27 @@ actor GossipChannel {
             fact.attribution = GigIdentity.attribution(scope: scope, author: author) ?? ""
             if let signed = fact.signed({ GigIdentity.sign(scope: scope, $0) }) {
                 let accepted = await ledger.receivePublic([signed], from: "", now: seconds, local: true)
+                await backfillLog(gigId: gigId, localGigId: localGigId, scope: scope, author: author,
+                                  nightEnd: gossipExpiry(gigDate: gigDate ?? ""), now: now)
                 return accepted == 1
             }
         }
         return false
+    }
+
+    /// Lines written before the check-in go out with it, inside the same participation window
+    /// a later edit would need. Only lines this author has not already published, so a repeat
+    /// check-in publishes nothing twice.
+    private func backfillLog(gigId: String, localGigId: String, scope: String, author: String,
+                             nightEnd: Date?, now: Date) async {
+        guard let nightEnd else { return }
+        let log = await timeline.log(setlistId: localGigId)
+        guard let until = gossipParticipationUntil(checkedInAt: Int64(now.timeIntervalSince1970 * 1000),
+                closed: log.closed, completedAt: log.completedAt, nightEnd: nightEnd,
+                stoppedAt: GossipTransport.shared.stoppedAt), now < until else { return }
+        let state = await ledger.publicSnapshot(now: Int64(now.timeIntervalSince1970 * 1000))
+        let changes = state.logBackfill(log, author: author, scope: scope)
+        await publishLog(gigId: gigId, localGigId: localGigId, expiry: nightEnd, changes: changes, now: now)
     }
 
     /// This night took a setlist.fm id while the radio was still running (#497).

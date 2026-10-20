@@ -4,6 +4,52 @@ import XCTest
 @testable import StationToStation
 
 final class GossipLifecycleTests: XCTestCase {
+    func testCheckInBackfillsCurrentLogLinesOnceAndKeepsTheirStableNumbers() {
+        let log = StoredLog().adding("Discarded").adding("Opener").adding("").removingAt(0)
+        var state = PublicGossipState()
+        XCTAssertEqual(state.logBackfill(log, author: "author", scope: "scope"), [1: "Opener", 2: ""])
+        let first = GossipEnvelope(gigId: "gig", scope: "scope", author: "author", createdAt: 1000,
+            expiresAt: 100000, kind: "log", line: 1, text: "Opener")
+        var gap = first
+        gap.line = 2
+        gap.text = ""
+        state.facts["first"] = first
+        state.facts["gap"] = gap
+        XCTAssertTrue(state.logBackfill(log, author: "author", scope: "scope").isEmpty)
+        XCTAssertEqual(state.logBackfill(log.correctingAt(0, title: "Corrected"), author: "author", scope: "scope"), [1: "Corrected"])
+        XCTAssertEqual(state.logBackfill(log.removingAt(0), author: "author", scope: "scope"), [1: ""])
+    }
+
+    func testCheckingInPublishesTheExistingLogOnceOnlyInsideParticipation() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let gossipFile = file.appendingPathExtension("gossip")
+        defer {
+            try? FileManager.default.removeItem(at: file)
+            try? FileManager.default.removeItem(at: gossipFile)
+        }
+        let store = TimelineStore(file: file)
+        let ledger = GossipLedger(file: gossipFile)
+        let channel = GossipChannel(ledger: ledger, timeline: store)
+        let date = "04-09-2026"
+        let end = try XCTUnwrap(gossipExpiry(gigDate: date))
+        let now = end.addingTimeInterval(-3600)
+        let millis = Int64(now.timeIntervalSince1970 * 1000)
+        let id = await store.createLocalGig(date: date, artist: "Band", venue: "Room")
+        await store.saveLog(setlistId: id, log: StoredLog().adding("Opener").adding("Encore"))
+        await store.saveAttendance(setlistId: id, attendance: StoredAttendance(provenance: "checked_in", checkedInAt: millis))
+        await channel.checkedIn(gigId: id, localGigId: id, gigDate: date, now: now)
+        let first = await ledger.publicSnapshot(now: millis)
+        let logs = first.facts.values.filter { $0.kind == "log" }
+        XCTAssertEqual(logs.sorted { $0.line < $1.line }.map(\.text), ["Opener", "Encore"])
+        await channel.checkedIn(gigId: id, localGigId: id, gigDate: date, now: now.addingTimeInterval(1))
+        let repeated = await ledger.publicSnapshot(now: millis + 1000)
+        XCTAssertEqual(Set(repeated.facts.values.filter { $0.kind == "log" }.map(\.id)), Set(logs.map(\.id)))
+        await store.saveLog(setlistId: id, log: StoredLog().adding("Late edit"))
+        await channel.checkedIn(gigId: id, localGigId: id, gigDate: date, now: end)
+        let expired = await ledger.publicSnapshot(now: Int64(end.timeIntervalSince1970 * 1000))
+        XCTAssertEqual(Set(expired.facts.values.filter { $0.kind == "log" }.map(\.id)), Set(logs.map(\.id)))
+    }
+
     func testEndedGigStopsSendingWhileAnotherKeepsRadioOn() async throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: file) }

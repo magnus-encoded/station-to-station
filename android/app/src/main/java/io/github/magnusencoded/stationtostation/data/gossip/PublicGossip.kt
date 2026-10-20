@@ -234,6 +234,36 @@ data class PublicGossipState(
     @kotlinx.serialization.Transient
     val verifiedIds: MutableSet<String> = mutableSetOf(),
 ) {
+    /**
+     * The **Log** lines this author has not yet published as they stand: new or changed lines
+     * with their text, lines published but since removed as "". Numbers are the **Log**'s
+     * stable line numbers, so gaps survive.
+     */
+    fun logBackfill(log: io.github.magnusencoded.stationtostation.data.StoredLog, author: String, scope: String): Map<Int, String> {
+        val published = facts.values.filter { it.kind == "log" && it.author == author && it.scope == scope }
+            .groupBy { it.line }.mapValues { (_, versions) -> versions.maxBy { it.createdAt } }
+        val current = log.songs.indices.associate { log.lineNumberAt(it) to log.songs[it] }
+        val changed = current.filter { (line, text) -> published[line]?.text != text }
+        val removed = published.filter { (line, fact) -> line !in current && fact.text.isNotEmpty() }.mapValues { "" }
+        return changed + removed
+    }
+
+    /** Sign and hold [changes] as this Gig scope's **Log** lines, one revision time for the batch. */
+    fun receiveLog(gigId: String, scope: String, identity: GigIdentity, changes: Map<Int, String>,
+                   expiresAt: Long, now: Long) {
+        val author = identity.publicKey()
+        val previous = facts.values.filter { it.author == author }
+        val former = previous.flatMap { it.formerIds + it.gigId }.distinct().filter { it != gigId }
+        // Monotone revision time makes rapid successive Done actions deterministic.
+        val revision = maxOf(now, (previous.maxOfOrNull { it.createdAt } ?: 0) + 1)
+        changes.forEach { (line, text) ->
+            GossipEnvelope(gigId = gigId, formerIds = former, scope = scope,
+                author = author, createdAt = revision, expiresAt = expiresAt,
+                kind = "log", line = line, text = text, attribution = identity.attribution())
+                .signed(identity::sign)?.let { receive(it, "", now, local = true) }
+        }
+    }
+
     // Only retained, unblocked Facts qualify; a copied id still needs identical signed bytes.
     private fun valid(envelope: GossipEnvelope, verify: (ByteArray, ByteArray, String) -> Boolean): Boolean {
         val retained = envelope.kind != "receipt" && !isBlocked(envelope.author) && facts[envelope.id] == envelope

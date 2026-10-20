@@ -59,6 +59,19 @@ class GossipLifecycleTest {
             Signature.getInstance("SHA256withECDSA").run { initSign(key.private); update(bytes); sign() }
         }!!
 
+    @Test fun `check-in backfills current Log lines once and keeps their stable numbers`() {
+        val log = StoredLog().adding("Discarded").adding("Opener").adding("").removingAt(0)
+        val state = PublicGossipState()
+        assertEquals(mapOf(1 to "Opener", 2 to ""), state.logBackfill(log, "author", "scope"))
+        val first = envelope(end.toEpochMilli()).copy(author = "author", scope = "scope", line = 1, text = "Opener")
+        val gap = first.copy(line = 2, text = "")
+        state.facts["first"] = first
+        state.facts["gap"] = gap
+        assertTrue(state.logBackfill(log, "author", "scope").isEmpty())
+        assertEquals(mapOf(1 to "Corrected"), state.logBackfill(log.correctingAt(0, "Corrected"), "author", "scope"))
+        assertEquals(mapOf(1 to ""), state.logBackfill(log.removingAt(0), "author", "scope"))
+    }
+
     @Test
     fun `held envelopes without an active Gig do not keep the radio on`() = runBlocking {
         val done = end.minusSeconds(4 * 3600).toEpochMilli()
