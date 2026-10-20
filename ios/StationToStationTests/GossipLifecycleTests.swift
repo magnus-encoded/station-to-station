@@ -39,10 +39,11 @@ final class GossipLifecycleTests: XCTestCase {
         let id = await store.createLocalGig(date: date, artist: "Band", venue: "Room")
         await store.saveLog(setlistId: id, log: StoredLog().adding("Opener").adding("Encore"))
         await store.saveAttendance(setlistId: id, attendance: StoredAttendance(provenance: "checked_in", checkedInAt: millis))
-        await channel.checkedIn(gigId: id, localGigId: id, gigDate: date, now: now)
+        let admitted = await channel.checkedIn(gigId: id, localGigId: id, gigDate: date, now: now)
         let first = await ledger.publicSnapshot(now: millis)
         let logs = first.facts.values.filter { $0.kind == "log" }
-        XCTAssertEqual(logs.sorted { $0.line < $1.line }.map(\.text), ["Opener", "Encore"])
+        XCTAssertEqual(logs.sorted { $0.line < $1.line }.map(\.text), ["Opener", "Encore"],
+            "admitted=\(admitted) kinds=\(first.facts.values.map(\.kind)) stoppedAt=\(GossipTransport.shared.stoppedAt) log=\(await store.log(setlistId: id).songs)")
         await channel.checkedIn(gigId: id, localGigId: id, gigDate: date, now: now.addingTimeInterval(1))
         let repeated = await ledger.publicSnapshot(now: millis + 1000)
         XCTAssertEqual(Set(repeated.facts.values.filter { $0.kind == "log" }.map(\.id)), Set(logs.map(\.id)))
