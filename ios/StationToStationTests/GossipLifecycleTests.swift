@@ -21,6 +21,8 @@ final class GossipLifecycleTests: XCTestCase {
     }
 
     func testCheckingInPublishesTheExistingLogOnceOnlyInsideParticipation() async throws {
+        // A manual stop left by another test would veto participation for this fixed night.
+        GossipTransport.shared.resumeParticipation()
         let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let gossipFile = file.appendingPathExtension("gossip")
         defer {
