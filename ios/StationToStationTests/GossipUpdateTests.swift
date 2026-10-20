@@ -38,16 +38,16 @@ final class GossipUpdateTests: XCTestCase {
         XCTAssertEqual(decodePublicGossipPass(bytes)?.batch, [update])
 
         var sender = PublicGossipState()
-        XCTAssertTrue(sender.receive(request, from: "", now: 1400, local: true))
-        XCTAssertTrue(sender.receive(witness, from: bobClaim.author, now: 1401))
-        XCTAssertTrue(sender.receive(update, from: "", now: 1402, local: true))
+        XCTAssertTrue(sender.receive(request, from: "", now: 1400, local: true, localGigIds: ["local-gig", "fm-gig"]))
+        XCTAssertTrue(sender.receive(witness, from: bobClaim.author, now: 1401, localGigIds: ["local-gig", "fm-gig"]))
+        XCTAssertTrue(sender.receive(update, from: "", now: 1402, local: true, localGigIds: ["local-gig", "fm-gig"]))
 
         var receiver = PublicGossipState()
-        XCTAssertTrue(receiver.receive(request, from: request.author, now: 1400))
-        XCTAssertTrue(receiver.receive(witness, from: bobClaim.author, now: 1401))
-        XCTAssertTrue(receiver.receive(update, from: "relay", now: 1402))
+        XCTAssertTrue(receiver.receive(request, from: request.author, now: 1400, localGigIds: ["local-gig", "fm-gig"]))
+        XCTAssertTrue(receiver.receive(witness, from: bobClaim.author, now: 1401, localGigIds: ["local-gig", "fm-gig"]))
+        XCTAssertTrue(receiver.receive(update, from: "relay", now: 1402, localGigIds: ["local-gig", "fm-gig"]))
         // Repeat adoption is one **Fact**, not two: the replay is refused.
-        XCTAssertFalse(receiver.receive(update, from: "relay", now: 1403))
+        XCTAssertFalse(receiver.receive(update, from: "relay", now: 1403, localGigIds: ["local-gig", "fm-gig"]))
 
         let restored = try JSONDecoder().decode(PublicGossipState.self, from: JSONEncoder().encode(receiver))
         let evidence = restored.checkInEvidence(gigIds: ["fm-gig"], author: request.author)
@@ -65,14 +65,14 @@ final class GossipUpdateTests: XCTestCase {
         let alice = P256.Signing.PrivateKey()
         let request = try fact(alice, gig: "local-gig", kind: "request", at: 1000)
         var before = PublicGossipState()
-        XCTAssertTrue(before.receive(request, from: "", now: 1100, local: true))
+        XCTAssertTrue(before.receive(request, from: "", now: 1100, local: true, localGigIds: ["local-gig", "fm-gig"]))
         var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(before)) as! [String: Any]
         json.removeValue(forKey: "contactNames")
         var restored = try JSONDecoder().decode(PublicGossipState.self,
             from: JSONSerialization.data(withJSONObject: json))
         XCTAssertFalse(restored.checkInEvidence(gigIds: ["fm-gig"], author: request.author).asserted)
         let update = try fact(alice, gig: "fm-gig", kind: "update", at: 1200, former: ["local-gig"])
-        XCTAssertTrue(restored.receive(update, from: "", now: 1300, local: true))
+        XCTAssertTrue(restored.receive(update, from: "", now: 1300, local: true, localGigIds: ["local-gig", "fm-gig"]))
         XCTAssertTrue(restored.checkInEvidence(gigIds: ["fm-gig"], author: request.author).asserted)
     }
 
@@ -89,9 +89,9 @@ final class GossipUpdateTests: XCTestCase {
         let forged = try fact(mallory, gig: "fm-gig", kind: "update", at: 1300, former: ["local-gig"])
 
         var state = PublicGossipState()
-        XCTAssertTrue(state.receive(request, from: request.author, now: 1400))
-        XCTAssertTrue(state.receive(witness, from: bobClaim.author, now: 1401))
-        XCTAssertTrue(state.receive(forged, from: "relay", now: 1402))
+        XCTAssertTrue(state.receive(request, from: request.author, now: 1400, localGigIds: ["local-gig", "fm-gig"]))
+        XCTAssertTrue(state.receive(witness, from: bobClaim.author, now: 1401, localGigIds: ["local-gig", "fm-gig"]))
+        XCTAssertTrue(state.receive(forged, from: "relay", now: 1402, localGigIds: ["local-gig", "fm-gig"]))
         let evidence = state.checkInEvidence(gigIds: ["fm-gig"], author: request.author)
         XCTAssertFalse(evidence.asserted)
         XCTAssertFalse(evidence.witnessed)
@@ -106,7 +106,7 @@ final class GossipUpdateTests: XCTestCase {
         let alice = P256.Signing.PrivateKey()
         let update = try fact(alice, gig: "fm-gig", kind: "update", at: 1300, former: ["local-gig"])
         var state = PublicGossipState()
-        XCTAssertTrue(state.receive(update, from: "relay", now: 1400))
+        XCTAssertTrue(state.receive(update, from: "relay", now: 1400, localGigIds: ["local-gig", "fm-gig"]))
         XCTAssertTrue(state.arrivals(gigIds: ["fm-gig"]).isEmpty)
         XCTAssertTrue(state.presenceFrom(accepted: [update], gigIds: ["fm-gig"]).isEmpty)
         let base: [String?] = ["Heroes"]
