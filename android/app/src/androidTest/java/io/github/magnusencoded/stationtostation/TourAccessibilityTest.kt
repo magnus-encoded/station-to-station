@@ -9,11 +9,9 @@ import androidx.compose.ui.test.performClick
 import io.github.magnusencoded.stationtostation.features.tour.CoachMark
 import io.github.magnusencoded.stationtostation.features.tour.CoachMarkCard
 import io.github.magnusencoded.stationtostation.features.tour.TourEvent
-import io.github.magnusencoded.stationtostation.features.tour.TourScript
-import io.github.magnusencoded.stationtostation.features.tour.TourState
-import io.github.magnusencoded.stationtostation.features.tour.TourStep
 import io.github.magnusencoded.stationtostation.ui.EmptyTimeline
 import io.github.magnusencoded.stationtostation.ui.TimelineTopBar
+import io.github.magnusencoded.stationtostation.ui.addGigByHand
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -32,7 +30,7 @@ class TourAccessibilityTest {
                 )
             }
         }
-        for (label in listOf("Friends", "Festival programme", "Settings")) {
+        for (label in listOf("Connect with people", "Festival programme", "Settings")) {
             compose.onNodeWithContentDescription(label, useUnmergedTree = true)
                 .assertHasClickAction().performClick()
         }
@@ -55,12 +53,18 @@ class TourAccessibilityTest {
         assertEquals(true, acknowledged)
     }
 
-    @Test fun secondStepNamesTheEmptyTimelineAddAction() {
+    @Test fun secondStepNamesTheByHandDoorOnlyOnAnEmptyLine() {
         compose.setContent {
-            MaterialTheme { CoachMarkCard(CoachMark.Curtain, {}, {}) }
+            MaterialTheme { CoachMarkCard(CoachMark.Curtain, {}, {}, emptyLine = true) }
         }
         compose.onNodeWithText("Tap “or add a gig by hand” to plan a gig.").assertExists()
-        compose.onNodeWithText("Your virtual tour guide").assertExists()
+    }
+
+    @Test fun secondStepOnALineWithGigsPointsAtThePullDown() {
+        compose.setContent {
+            MaterialTheme { CoachMarkCard(CoachMark.Curtain, {}, {}, emptyLine = false) }
+        }
+        compose.onNodeWithText("Pull down from the top to plan a gig.").assertExists()
     }
 
     @Test fun gestureStepKeepsSkipOnTheClickableNode() {
@@ -77,19 +81,17 @@ class TourAccessibilityTest {
         assertEquals(true, skipped)
     }
 
-    @Test fun emptyTimelineOffersTheTourAddAction() {
-        var added = false
-        var tour = TourState(step = TourStep.S2)
+    @Test fun theByHandDoorOnAnEmptyTimelineOpensTheDialogAndPullsTheCurtain() {
+        val log = mutableListOf<Any>()
         compose.setContent {
             MaterialTheme {
-                EmptyTimeline(onAdd = {}, onAddGig = {
-                    added = true
-                    tour = TourScript.on(tour, TourEvent.CurtainPulled).state
-                })
+                EmptyTimeline(
+                    onAdd = {},
+                    onAddGig = { addGigByHand({ log += "open" }, { log += it }) },
+                )
             }
         }
         compose.onNodeWithText("or add a gig by hand").performClick()
-        assertEquals(true, added)
-        assertEquals(TourStep.S3, tour.step)
+        assertEquals(listOf<Any>("open", TourEvent.CurtainPulled), log)
     }
 }

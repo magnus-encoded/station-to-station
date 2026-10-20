@@ -50,6 +50,7 @@ fun TourOverlay(viewModel: AppViewModel, content: @Composable () -> Unit) {
         } else if (state.tour.running) {
             CoachMarkCard(
                 mark = state.coachMark,
+                emptyLine = state.setlists.isEmpty() && state.plannedGigs.isEmpty(),
                 onAcknowledge = { viewModel.tour.dispatch(TourEvent.Acknowledged) },
                 onSkip = { viewModel.tour.dispatch(TourEvent.Skipped) },
                 modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp),
@@ -65,6 +66,7 @@ fun TourCoachMarkInline(viewModel: AppViewModel) {
     if (!state.tour.running) return
     CoachMarkCard(
         mark = state.coachMark,
+        emptyLine = state.setlists.isEmpty() && state.plannedGigs.isEmpty(),
         onAcknowledge = { viewModel.tour.dispatch(TourEvent.Acknowledged) },
         onSkip = { viewModel.tour.dispatch(TourEvent.Skipped) },
         modifier = Modifier.padding(bottom = 12.dp),
@@ -81,6 +83,7 @@ internal fun CoachMarkCard(
     onAcknowledge: () -> Unit,
     onSkip: () -> Unit,
     modifier: Modifier = Modifier,
+    emptyLine: Boolean = false,
 ) {
     Column(
         modifier
@@ -91,7 +94,7 @@ internal fun CoachMarkCard(
     ) {
         Text(TOUR_FRIEND, color = Amber, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
-        Text(mark?.let(::line) ?: "One moment…", color = Ink, fontFamily = FontFamily.Serif, fontSize = 18.sp)
+        Text(mark?.let { line(it, emptyLine) } ?: "One moment…", color = Ink, fontFamily = FontFamily.Serif, fontSize = 18.sp)
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             TextButton(
@@ -139,12 +142,14 @@ private fun BoxScope.UpgradePromptCard(onAccept: () -> Unit, onDismiss: () -> Un
     }
 }
 
-// TODO(#607): replace the temporary guide label with the authored Virtual friend.
-private const val TOUR_FRIEND = "Your virtual tour guide"
+// Placeholders: the Virtual friend's name and writing are owned by a human (#607).
+private const val TOUR_FRIEND = "Your friend"
 
-private fun line(mark: CoachMark): String = when (mark) {
+/** The Curtain step names the by-hand door only where it exists: a **Line** with no **Gigs** yet. */
+internal fun line(mark: CoachMark, emptyLine: Boolean = false): String = when (mark) {
     CoachMark.Line -> "This is your line. Down is back in time, up is what's coming."
-    CoachMark.Curtain -> "Tap “or add a gig by hand” to plan a gig."
+    CoachMark.Curtain ->
+        if (emptyLine) "Tap “or add a gig by hand” to plan a gig." else "Pull down from the top to plan a gig."
     CoachMark.Band -> "Who do you want to see?"
     CoachMark.AddGig -> "Add the gig."
     CoachMark.OpenRoom -> "Tap the gig to open its Room."

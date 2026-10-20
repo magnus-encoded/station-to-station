@@ -68,10 +68,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.EventNote
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -393,7 +393,7 @@ fun StationTimelineScreen(
         onOpenImport = onOpenImport,
         onOpenNearby = onOpenNearby,
         onOpenProgramme = onOpenProgramme,
-        onAddGig = { adding = true; viewModel.tour.dispatch(TourEvent.CurtainPulled) },
+        onAddGig = { addGigByHand({ adding = true }, viewModel.tour::dispatch) },
         onCompare = { comparing = it },
         menuFor = { menuFor(it) },
         setZoomedOut = {
@@ -565,6 +565,12 @@ private class TimelineActions(
     val photoPreview: suspend (Uri) -> MediaThumb,
 )
 
+/** Every door to the add-gig dialog is the Tour's Curtain step as well. */
+internal fun addGigByHand(open: () -> Unit, dispatch: (TourEvent) -> Unit) {
+    open()
+    dispatch(TourEvent.CurtainPulled)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun TimelineTopBar(
@@ -584,7 +590,7 @@ internal fun TimelineTopBar(
             // Left/right axis is people: the way to others starts here.
             IconButton(
                 onClick = onOpenConnect,
-                modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "Friends" },
+                modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "Connect with people" },
             ) {
                 Icon(Icons.Filled.Person, contentDescription = null, tint = Faint)
             }
@@ -593,7 +599,7 @@ internal fun TimelineTopBar(
                 modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "Festival programme" },
             ) {
                 Icon(
-                    Icons.Filled.EventNote,
+                    Icons.AutoMirrored.Filled.EventNote,
                     contentDescription = null,
                     tint = Faint,
                 )

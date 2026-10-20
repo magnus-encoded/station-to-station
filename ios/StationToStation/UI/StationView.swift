@@ -329,7 +329,7 @@ struct StationView: View {
             Button { nav.push(.search) } label: { Image(systemName: "magnifyingglass") }
                 .accessibilityLabel("Search")
             Button { nav.push(.friends) } label: { Image(systemName: "person.2") }
-                .accessibilityLabel("Friends")
+                .accessibilityLabel("Connect with people")
             Button { nav.push(.programme) } label: { Image(systemName: "list.bullet.rectangle") }
                 .accessibilityLabel("Festival programme")
             Button { model.refreshTimeline() } label: {
